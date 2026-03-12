@@ -11,7 +11,8 @@ use bevy::{
 };
 use bevy_egui::{egui, EguiContexts, EguiPlugin, EguiPrimaryContextPass};
 use bevy_terminal_shared::{
-    paint_terminal, TerminalCell, TerminalCursor, TerminalCursorShape, TerminalSurface,
+    install_terminal_fonts, paint_terminal, TerminalCell, TerminalCursor, TerminalCursorShape,
+    TerminalFontReport, TerminalSurface,
 };
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 use std::{
@@ -43,9 +44,13 @@ fn main() {
         .insert_resource(ClearColor(Color::srgb(0.02, 0.02, 0.02)))
         .insert_resource(TerminalBridge::spawn())
         .insert_resource(TerminalView::default())
+        .insert_resource(TerminalFontState::default())
         .add_systems(Startup, setup_camera)
         .add_systems(Update, (poll_terminal_snapshots, forward_keyboard_input))
-        .add_systems(EguiPrimaryContextPass, ui_terminal)
+        .add_systems(
+            EguiPrimaryContextPass,
+            (configure_terminal_fonts, ui_terminal).chain(),
+        )
         .run();
 }
 
@@ -80,6 +85,11 @@ impl TerminalBridge {
 #[derive(Resource, Default)]
 struct TerminalView {
     latest: TerminalSnapshot,
+}
+
+#[derive(Resource, Default)]
+struct TerminalFontState {
+    report: Option<Result<TerminalFontReport, String>>,
 }
 
 #[derive(Clone, Default, PartialEq)]
@@ -645,10 +655,24 @@ fn ctrl_sequence(key_code: KeyCode) -> Option<&'static str> {
     }
 }
 
+fn configure_terminal_fonts(
+    mut contexts: EguiContexts,
+    mut font_state: ResMut<TerminalFontState>,
+) -> Result {
+    if font_state.report.is_some() {
+        return Ok(());
+    }
+
+    let ctx = contexts.ctx_mut()?;
+    font_state.report = Some(install_terminal_fonts(ctx));
+    Ok(())
+}
+
 fn ui_terminal(
     mut contexts: EguiContexts,
     bridge: Res<TerminalBridge>,
     view: Res<TerminalView>,
+    font_state: Res<TerminalFontState>,
 ) -> Result {
     let ctx = contexts.ctx_mut()?;
 
@@ -658,6 +682,22 @@ fn ui_terminal(
             ui.separator();
             ui.label(view.latest.status.as_str());
             ui.separator();
+            match font_state.report.as_ref() {
+                Some(Ok(report)) => {
+                    ui.label(format!("font: {}", report.primary.family));
+                    ui.separator();
+                    ui.label(format!("source: {}", report.primary.source));
+                    ui.separator();
+                }
+                Some(Err(error)) => {
+                    ui.colored_label(egui::Color32::LIGHT_RED, format!("font error: {error}"));
+                    ui.separator();
+                }
+                None => {
+                    ui.label("font: loading");
+                    ui.separator();
+                }
+            }
             if ui.button("pwd").clicked() {
                 bridge.send(TerminalCommand::SendCommand("pwd".into()));
             }
