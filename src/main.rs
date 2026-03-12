@@ -5,8 +5,10 @@ use alacritty_terminal::{
     vte::ansi::{self, Color as AnsiColor, CursorShape, NamedColor, Rgb},
 };
 use bevy::{
-    input::{keyboard::KeyboardInput, ButtonState},
+    input::{keyboard::KeyboardInput, mouse::AccumulatedMouseMotion, ButtonState},
     prelude::*,
+    sprite::Anchor,
+    text::{Font, TextBounds, TextColor, TextFont},
     window::PrimaryWindow,
 };
 use bevy_egui::{egui, EguiContexts, EguiPlugin, EguiPrimaryContextPass};
@@ -21,7 +23,7 @@ use std::{
     process::Command,
     sync::{
         mpsc::{self, Receiver, Sender, TryRecvError},
-        Arc, Mutex,
+        Mutex,
     },
     thread,
     time::Duration,
@@ -29,9 +31,12 @@ use std::{
 
 const DEFAULT_COLS: u16 = 120;
 const DEFAULT_ROWS: u16 = 38;
-const TERMINAL_FONT_FAMILY_NAME: &str = "neozeus-terminal";
-const FONT_METRIC_SAMPLE_SIZE: f32 = 16.0;
 const DEFAULT_BG: egui::Color32 = egui::Color32::from_rgb(10, 10, 10);
+const BASE_CELL_ASPECT: f32 = 0.6;
+const TERMINAL_MARGIN: f32 = 48.0;
+const CURSOR_Z: f32 = 2.0;
+const TEXT_Z: f32 = 1.0;
+const BG_Z: f32 = 0.0;
 
 fn main() {
     App::new()
@@ -48,12 +53,21 @@ fn main() {
         .insert_resource(TerminalBridge::spawn())
         .insert_resource(TerminalView::default())
         .insert_resource(TerminalFontState::default())
+        .insert_resource(TerminalPlaneState::default())
+        .insert_resource(TerminalSceneState::default())
         .add_systems(Startup, setup_camera)
-        .add_systems(Update, (poll_terminal_snapshots, forward_keyboard_input))
         .add_systems(
-            EguiPrimaryContextPass,
-            (configure_terminal_fonts, ui_terminal).chain(),
+            Update,
+            (
+                poll_terminal_snapshots,
+                configure_terminal_fonts,
+                drag_terminal_plane,
+                sync_terminal_plane,
+                forward_keyboard_input,
+            )
+                .chain(),
         )
+        .add_systems(EguiPrimaryContextPass, ui_overlay)
         .run();
 }
 
@@ -93,7 +107,35 @@ struct TerminalView {
 #[derive(Resource, Default)]
 struct TerminalFontState {
     report: Option<Result<TerminalFontReport, String>>,
-    custom_font_ready: bool,
+    primary_font: Option<Handle<Font>>,
+    private_use_font: Option<Handle<Font>>,
+    emoji_font: Option<Handle<Font>>,
+}
+
+#[derive(Resource)]
+struct TerminalPlaneState {
+    yaw: f32,
+    pitch: f32,
+    distance: f32,
+    focal_length: f32,
+}
+
+impl Default for TerminalPlaneState {
+    fn default() -> Self {
+        Self {
+            yaw: 0.0,
+            pitch: 0.0,
+            distance: 1800.0,
+            focal_length: 1800.0,
+        }
+    }
+}
+
+#[derive(Resource, Default)]
+struct TerminalSceneState {
+    cols: usize,
+    rows: usize,
+    initialized: bool,
 }
 
 #[derive(Clone, Default, PartialEq)]
@@ -212,6 +254,63 @@ struct TerminalFontReport {
     requested_family: String,
     primary: TerminalFontFace,
     fallbacks: Vec<TerminalFontFace>,
+}
+
+#[derive(Component, Clone, Copy)]
+struct TerminalCellIndex {
+    x: usize,
+    y: usize,
+}
+
+#[derive(Component)]
+struct TerminalBackgroundMarker;
+
+#[derive(Component)]
+struct TerminalGlyphMarker;
+
+#[derive(Component)]
+struct TerminalCursorMarker;
+
+type BackgroundQueryItem<'a> = (
+    Entity,
+    &'a TerminalCellIndex,
+    &'a mut Sprite,
+    &'a mut Transform,
+    &'a mut Visibility,
+);
+
+type GlyphQueryItem<'a> = (
+    Entity,
+    &'a TerminalCellIndex,
+    &'a mut Text2d,
+    &'a mut TextFont,
+    &'a mut TextColor,
+    &'a mut TextBounds,
+    &'a mut Transform,
+    &'a mut Visibility,
+);
+
+#[derive(bevy::ecs::system::SystemParam)]
+struct TerminalPlaneQueries<'w, 's> {
+    bg_query: Query<'w, 's, BackgroundQueryItem<'static>, With<TerminalBackgroundMarker>>,
+    glyph_query: Query<'w, 's, GlyphQueryItem<'static>, With<TerminalGlyphMarker>>,
+    cursor_query: Query<
+        'w,
+        's,
+        (
+            &'static mut Sprite,
+            &'static mut Transform,
+            &'static mut Visibility,
+        ),
+        With<TerminalCursorMarker>,
+    >,
+}
+
+#[derive(Clone, Copy)]
+struct ProjectedBasis {
+    origin: Vec2,
+    horizontal: Vec2,
+    vertical: Vec2,
 }
 
 fn terminal_worker(input_rx: Receiver<TerminalCommand>, snapshot_tx: Sender<TerminalSnapshot>) {
@@ -610,155 +709,55 @@ fn xterm_indexed_rgb(index: u8) -> Rgb {
     }
 }
 
-fn install_terminal_fonts(ctx: &egui::Context) -> Result<TerminalFontReport, String> {
-    let report = resolve_terminal_font_report()?;
-    let mut definitions = egui::FontDefinitions::default();
-    let mut family_chain = Vec::new();
-
-    insert_font_face(&mut definitions, &report.primary, &mut family_chain)?;
-    for fallback in &report.fallbacks {
-        insert_font_face(&mut definitions, fallback, &mut family_chain)?;
-    }
-
-    let family = egui::FontFamily::Name(Arc::from(TERMINAL_FONT_FAMILY_NAME));
-    definitions
-        .families
-        .insert(family.clone(), family_chain.clone());
-
-    let monospace = definitions
-        .families
-        .entry(egui::FontFamily::Monospace)
-        .or_default();
-    for name in family_chain.iter().rev() {
-        monospace.retain(|existing| existing != name);
-        monospace.insert(0, name.clone());
-    }
-
-    ctx.set_fonts(definitions);
-    Ok(report)
-}
-
-fn insert_font_face(
-    definitions: &mut egui::FontDefinitions,
-    face: &TerminalFontFace,
-    family_chain: &mut Vec<String>,
-) -> Result<(), String> {
-    let key = format!("{}#{}", face.family, face.path.display());
-    if definitions.font_data.contains_key(&key) {
-        family_chain.push(key);
-        return Ok(());
-    }
-
-    let bytes = fs::read(&face.path)
-        .map_err(|error| format!("failed to read font {}: {error}", face.path.display()))?;
-    definitions
-        .font_data
-        .insert(key.clone(), Arc::new(egui::FontData::from_owned(bytes)));
-    family_chain.push(key);
-    Ok(())
-}
-
-fn paint_terminal(ui: &mut egui::Ui, surface: &TerminalSurface, use_custom_font: bool) {
-    let available = ui.available_size();
-    let desired = egui::Vec2::new(available.x.max(64.0), available.y.max(64.0));
-    let (response, painter) = ui.allocate_painter(desired, egui::Sense::click());
-    let outer_rect = response.rect;
-
-    painter.rect_filled(outer_rect, 0.0, DEFAULT_BG);
-
-    if surface.cols == 0 || surface.rows == 0 {
+fn configure_terminal_fonts(
+    mut font_assets: ResMut<Assets<Font>>,
+    mut font_state: ResMut<TerminalFontState>,
+) {
+    if font_state.report.is_some() {
         return;
     }
 
-    let font_family = if use_custom_font {
-        egui::FontFamily::Name(Arc::from(TERMINAL_FONT_FAMILY_NAME))
-    } else {
-        egui::FontFamily::Monospace
-    };
-
-    let sample_font = egui::FontId::new(FONT_METRIC_SAMPLE_SIZE, font_family.clone());
-    let sample_galley = painter.layout_no_wrap("M".to_owned(), sample_font, egui::Color32::WHITE);
-    let sample_size = sample_galley.size();
-    let glyph_w = sample_size.x.max(1.0);
-    let glyph_h = sample_size.y.max(1.0);
-    let cell_aspect = (glyph_w / glyph_h).clamp(0.3, 1.0);
-
-    let cell_h = (outer_rect.height() / surface.rows as f32)
-        .min(outer_rect.width() / (surface.cols as f32 * cell_aspect))
-        .max(1.0);
-    let cell_w = (cell_h * cell_aspect).max(1.0);
-    let grid_size = egui::Vec2::new(cell_w * surface.cols as f32, cell_h * surface.rows as f32);
-    let grid_min = egui::Pos2::new(
-        outer_rect.left() + (outer_rect.width() - grid_size.x) * 0.5,
-        outer_rect.top() + (outer_rect.height() - grid_size.y) * 0.5,
-    );
-    let grid_rect = egui::Rect::from_min_size(grid_min, grid_size);
-
-    let font_scale = (cell_w / glyph_w).min(cell_h / glyph_h) * 0.98;
-    let font = egui::FontId::new((FONT_METRIC_SAMPLE_SIZE * font_scale).max(6.0), font_family);
-
-    for y in 0..surface.rows {
-        for x in 0..surface.cols {
-            let cell = surface.cell(x, y);
-            let min = egui::Pos2::new(
-                grid_rect.left() + x as f32 * cell_w,
-                grid_rect.top() + y as f32 * cell_h,
-            );
-            let width = if cell.width <= 1 {
-                cell_w
-            } else {
-                cell_w * f32::from(cell.width)
-            };
-            let cell_rect = egui::Rect::from_min_size(min, egui::Vec2::new(width, cell_h));
-            painter.rect_filled(cell_rect, 0.0, cell.bg);
-
-            if cell.width == 0 || cell.text.is_empty() {
-                continue;
-            }
-
-            let galley = painter.layout_no_wrap(cell.text.clone(), font.clone(), cell.fg);
-            let text_pos = egui::Pos2::new(
-                cell_rect.min.x,
-                cell_rect.center().y - galley.size().y * 0.5,
-            );
-            painter
-                .with_clip_rect(cell_rect)
-                .galley(text_pos, galley, cell.fg);
-        }
-    }
-
-    if let Some(cursor) = &surface.cursor {
-        if cursor.visible && cursor.x < surface.cols && cursor.y < surface.rows {
-            let min = egui::Pos2::new(
-                grid_rect.left() + cursor.x as f32 * cell_w,
-                grid_rect.top() + cursor.y as f32 * cell_h,
-            );
-            let cursor_rect =
-                egui::Rect::from_min_size(min, egui::Vec2::new(cell_w.max(1.0), cell_h.max(1.0)));
-            match cursor.shape {
-                TerminalCursorShape::Block => {
-                    painter.rect_stroke(
-                        cursor_rect.shrink(1.0),
-                        0.0,
-                        egui::Stroke::new(1.5, cursor.color),
-                        egui::StrokeKind::Outside,
-                    );
-                }
-                TerminalCursorShape::Underline => {
-                    painter.line_segment(
-                        [cursor_rect.left_bottom(), cursor_rect.right_bottom()],
-                        egui::Stroke::new(2.0, cursor.color),
-                    );
-                }
-                TerminalCursorShape::Beam => {
-                    painter.line_segment(
-                        [cursor_rect.left_top(), cursor_rect.left_bottom()],
-                        egui::Stroke::new(2.0, cursor.color),
-                    );
+    match resolve_terminal_font_report() {
+        Ok(report) => {
+            match load_font_handle(&mut font_assets, &report.primary.path) {
+                Ok(primary) => font_state.primary_font = Some(primary),
+                Err(error) => {
+                    font_state.report = Some(Err(error));
+                    return;
                 }
             }
+
+            for fallback in &report.fallbacks {
+                match load_font_handle(&mut font_assets, &fallback.path) {
+                    Ok(handle) => {
+                        if fallback.source.contains("private-use") {
+                            font_state.private_use_font = Some(handle.clone());
+                        }
+                        if fallback.source.contains("emoji") {
+                            font_state.emoji_font = Some(handle.clone());
+                        }
+                    }
+                    Err(error) => {
+                        font_state.report = Some(Err(error));
+                        return;
+                    }
+                }
+            }
+
+            font_state.report = Some(Ok(report));
+        }
+        Err(error) => {
+            font_state.report = Some(Err(error));
         }
     }
+}
+
+fn load_font_handle(font_assets: &mut Assets<Font>, path: &Path) -> Result<Handle<Font>, String> {
+    let bytes = fs::read(path)
+        .map_err(|error| format!("failed to read font {}: {error}", path.display()))?;
+    let font = Font::try_from_bytes(bytes)
+        .map_err(|error| format!("failed to parse font {}: {error}", path.display()))?;
+    Ok(font_assets.add(font))
 }
 
 fn resolve_terminal_font_report() -> Result<TerminalFontReport, String> {
@@ -945,6 +944,331 @@ fn fc_match_face(query: &str, source: &str) -> Result<TerminalFontFace, String> 
     })
 }
 
+fn drag_terminal_plane(
+    mouse_buttons: Res<ButtonInput<MouseButton>>,
+    mouse_motion: Res<AccumulatedMouseMotion>,
+    mut plane_state: ResMut<TerminalPlaneState>,
+) {
+    if !mouse_buttons.pressed(MouseButton::Middle) {
+        return;
+    }
+
+    let delta = mouse_motion.delta;
+    if delta == Vec2::ZERO {
+        return;
+    }
+
+    plane_state.yaw += delta.x * 0.005;
+    plane_state.pitch = (plane_state.pitch - delta.y * 0.005).clamp(-1.1, 1.1);
+}
+
+fn sync_terminal_plane(
+    mut commands: Commands,
+    view: Res<TerminalView>,
+    window: Single<&Window, With<PrimaryWindow>>,
+    plane_state: Res<TerminalPlaneState>,
+    mut scene_state: ResMut<TerminalSceneState>,
+    font_state: Res<TerminalFontState>,
+    mut queries: TerminalPlaneQueries,
+) {
+    let Some(surface) = &view.latest.surface else {
+        for (_, _, _, _, mut visibility) in &mut queries.bg_query {
+            *visibility = Visibility::Hidden;
+        }
+        for (_, _, _, _, _, _, _, mut visibility) in &mut queries.glyph_query {
+            *visibility = Visibility::Hidden;
+        }
+        for (_, _, mut visibility) in &mut queries.cursor_query {
+            *visibility = Visibility::Hidden;
+        }
+        return;
+    };
+
+    if !scene_state.initialized
+        || scene_state.cols != surface.cols
+        || scene_state.rows != surface.rows
+    {
+        for (entity, _, _, _, _) in &mut queries.bg_query {
+            commands.entity(entity).despawn();
+        }
+        for (entity, _, _, _, _, _, _, _) in &mut queries.glyph_query {
+            commands.entity(entity).despawn();
+        }
+
+        for y in 0..surface.rows {
+            for x in 0..surface.cols {
+                commands.spawn((
+                    Sprite::from_color(Color::BLACK, Vec2::ONE),
+                    Anchor::TOP_LEFT,
+                    Transform::from_xyz(0.0, 0.0, BG_Z),
+                    TerminalCellIndex { x, y },
+                    TerminalBackgroundMarker,
+                ));
+                commands.spawn((
+                    Text2d::new(""),
+                    TextFont {
+                        font_size: 16.0,
+                        ..default()
+                    },
+                    TextColor(Color::WHITE),
+                    TextBounds::UNBOUNDED,
+                    Anchor::TOP_LEFT,
+                    Transform::from_xyz(0.0, 0.0, TEXT_Z),
+                    TerminalCellIndex { x, y },
+                    TerminalGlyphMarker,
+                ));
+            }
+        }
+
+        if queries.cursor_query.is_empty() {
+            commands.spawn((
+                Sprite::from_color(Color::WHITE, Vec2::ONE),
+                Anchor::TOP_LEFT,
+                Transform::from_xyz(0.0, 0.0, CURSOR_Z),
+                TerminalCursorMarker,
+            ));
+        }
+
+        scene_state.cols = surface.cols;
+        scene_state.rows = surface.rows;
+        scene_state.initialized = true;
+        return;
+    }
+
+    let layout = compute_plane_layout(surface, *window, &plane_state);
+
+    for (_, index, mut sprite, mut transform, mut visibility) in &mut queries.bg_query {
+        let cell = surface.cell(index.x, index.y);
+        if let Some(projected) =
+            project_cell(index.x, index.y, cell.width.max(1), &layout, &plane_state)
+        {
+            *visibility = Visibility::Visible;
+            apply_projected_sprite(&mut sprite, &mut transform, projected, BG_Z);
+            sprite.color = color32_to_bevy(cell.bg);
+        } else {
+            *visibility = Visibility::Hidden;
+        }
+    }
+
+    for (_, index, mut text, mut font, mut color, mut bounds, mut transform, mut visibility) in
+        &mut queries.glyph_query
+    {
+        let cell = surface.cell(index.x, index.y);
+        if cell.width == 0 || cell.text.is_empty() {
+            *visibility = Visibility::Hidden;
+            continue;
+        }
+
+        if let Some(projected) = project_cell(index.x, index.y, cell.width, &layout, &plane_state) {
+            *visibility = Visibility::Visible;
+            *text = Text2d::new(cell.text.clone());
+            font.font_size = projected.vertical.length().max(1.0) * 0.9;
+            if let Some(handle) = select_font_handle(&cell.text, &font_state) {
+                font.font = handle;
+            }
+            color.0 = color32_to_bevy(cell.fg);
+            bounds.width = Some(projected.horizontal.length().max(1.0) * f32::from(cell.width));
+            bounds.height = Some(projected.vertical.length().max(1.0) * 1.2);
+            apply_projected_text(&mut transform, projected, TEXT_Z);
+        } else {
+            *visibility = Visibility::Hidden;
+        }
+    }
+
+    if let Ok((mut sprite, mut transform, mut visibility)) = queries.cursor_query.single_mut() {
+        if let Some(cursor) = &surface.cursor {
+            if cursor.visible {
+                if let Some(projected) = project_cell(cursor.x, cursor.y, 1, &layout, &plane_state)
+                {
+                    *visibility = Visibility::Visible;
+                    apply_projected_cursor(
+                        &mut sprite,
+                        &mut transform,
+                        projected,
+                        cursor.shape,
+                        color32_to_bevy(cursor.color),
+                    );
+                } else {
+                    *visibility = Visibility::Hidden;
+                }
+            } else {
+                *visibility = Visibility::Hidden;
+            }
+        } else {
+            *visibility = Visibility::Hidden;
+        }
+    }
+}
+
+fn compute_plane_layout(
+    surface: &TerminalSurface,
+    window: &Window,
+    plane_state: &TerminalPlaneState,
+) -> PlaneLayout {
+    let usable_w = (window.width() - TERMINAL_MARGIN * 2.0).max(100.0);
+    let usable_h = (window.height() - TERMINAL_MARGIN * 2.0).max(100.0);
+    let cell_h = (usable_h / surface.rows as f32)
+        .min(usable_w / (surface.cols as f32 * BASE_CELL_ASPECT))
+        .max(4.0);
+    let cell_w = cell_h * BASE_CELL_ASPECT;
+    let plane_w = cell_w * surface.cols as f32;
+    let plane_h = cell_h * surface.rows as f32;
+    let distance = plane_state.distance.max(plane_h * 1.25);
+    let focal_length = plane_state.focal_length.max(distance * 0.8);
+
+    PlaneLayout {
+        cell_w,
+        cell_h,
+        plane_w,
+        plane_h,
+        distance,
+        focal_length,
+    }
+}
+
+struct PlaneLayout {
+    cell_w: f32,
+    cell_h: f32,
+    plane_w: f32,
+    plane_h: f32,
+    distance: f32,
+    focal_length: f32,
+}
+
+fn project_cell(
+    x: usize,
+    y: usize,
+    width_cells: u8,
+    layout: &PlaneLayout,
+    plane_state: &TerminalPlaneState,
+) -> Option<ProjectedBasis> {
+    let left = -layout.plane_w * 0.5;
+    let top = layout.plane_h * 0.5;
+    let origin_local = Vec3::new(
+        left + x as f32 * layout.cell_w,
+        top - y as f32 * layout.cell_h,
+        0.0,
+    );
+    let right_local = origin_local + Vec3::new(layout.cell_w * f32::from(width_cells), 0.0, 0.0);
+    let bottom_local = origin_local + Vec3::new(0.0, -layout.cell_h, 0.0);
+
+    let origin = project_point(origin_local, layout, plane_state)?;
+    let right = project_point(right_local, layout, plane_state)?;
+    let bottom = project_point(bottom_local, layout, plane_state)?;
+
+    Some(ProjectedBasis {
+        origin,
+        horizontal: right - origin,
+        vertical: bottom - origin,
+    })
+}
+
+fn project_point(
+    point: Vec3,
+    layout: &PlaneLayout,
+    plane_state: &TerminalPlaneState,
+) -> Option<Vec2> {
+    let rotated =
+        Quat::from_rotation_y(plane_state.yaw) * Quat::from_rotation_x(plane_state.pitch) * point;
+    let z = rotated.z + layout.distance;
+    if z <= 1.0 {
+        return None;
+    }
+
+    let scale = layout.focal_length / z;
+    Some(Vec2::new(rotated.x * scale, rotated.y * scale))
+}
+
+fn apply_projected_sprite(
+    sprite: &mut Sprite,
+    transform: &mut Transform,
+    projected: ProjectedBasis,
+    z: f32,
+) {
+    let width = projected.horizontal.length().max(1.0);
+    let height = projected.vertical.length().max(1.0);
+    sprite.custom_size = Some(Vec2::new(width, height));
+    transform.translation = projected.origin.extend(z);
+    transform.rotation =
+        Quat::from_rotation_z(projected.horizontal.y.atan2(projected.horizontal.x));
+    transform.scale = Vec3::ONE;
+}
+
+fn apply_projected_text(transform: &mut Transform, projected: ProjectedBasis, z: f32) {
+    let inset = projected.horizontal * 0.06 + projected.vertical * 0.08;
+    transform.translation = (projected.origin + inset).extend(z);
+    transform.rotation =
+        Quat::from_rotation_z(projected.horizontal.y.atan2(projected.horizontal.x));
+    transform.scale = Vec3::ONE;
+}
+
+fn apply_projected_cursor(
+    sprite: &mut Sprite,
+    transform: &mut Transform,
+    projected: ProjectedBasis,
+    shape: TerminalCursorShape,
+    color: Color,
+) {
+    let width = projected.horizontal.length().max(1.0);
+    let height = projected.vertical.length().max(1.0);
+    let origin = projected.origin;
+    let angle = projected.horizontal.y.atan2(projected.horizontal.x);
+
+    match shape {
+        TerminalCursorShape::Block => {
+            sprite.custom_size = Some(Vec2::new(width, height));
+            sprite.color = color.with_alpha(0.35);
+            transform.translation = origin.extend(CURSOR_Z);
+            transform.rotation = Quat::from_rotation_z(angle);
+        }
+        TerminalCursorShape::Underline => {
+            sprite.custom_size = Some(Vec2::new(width, height * 0.12));
+            sprite.color = color;
+            transform.translation = (origin + projected.vertical * 0.88).extend(CURSOR_Z);
+            transform.rotation = Quat::from_rotation_z(angle);
+        }
+        TerminalCursorShape::Beam => {
+            sprite.custom_size = Some(Vec2::new(width * 0.08, height));
+            sprite.color = color;
+            transform.translation = origin.extend(CURSOR_Z);
+            transform.rotation = Quat::from_rotation_z(angle);
+        }
+    }
+
+    transform.scale = Vec3::ONE;
+}
+
+fn select_font_handle(text: &str, font_state: &TerminalFontState) -> Option<Handle<Font>> {
+    if text.chars().any(is_emoji_like) {
+        if let Some(handle) = &font_state.emoji_font {
+            return Some(handle.clone());
+        }
+    }
+
+    if text.chars().any(is_private_use_like) {
+        if let Some(handle) = &font_state.private_use_font {
+            return Some(handle.clone());
+        }
+    }
+
+    font_state.primary_font.clone()
+}
+
+fn is_private_use_like(ch: char) -> bool {
+    matches!(ch as u32, 0xE000..=0xF8FF | 0xF0000..=0xFFFFD | 0x100000..=0x10FFFD)
+}
+
+fn is_emoji_like(ch: char) -> bool {
+    matches!(
+        ch as u32,
+        0x1F000..=0x1FAFF | 0x2600..=0x27BF | 0xFE0F | 0x200D
+    )
+}
+
+fn color32_to_bevy(color: egui::Color32) -> Color {
+    Color::srgba_u8(color.r(), color.g(), color.b(), color.a())
+}
+
 fn spawn_pty(cols: u16, rows: u16) -> Result<PtySession, String> {
     let pty_system = native_pty_system();
     let pair = pty_system
@@ -1005,10 +1329,11 @@ fn poll_terminal_snapshots(bridge: Res<TerminalBridge>, mut view: ResMut<Termina
 fn forward_keyboard_input(
     mut messages: MessageReader<KeyboardInput>,
     keys: Res<ButtonInput<KeyCode>>,
+    mouse_buttons: Res<ButtonInput<MouseButton>>,
     bridge: Res<TerminalBridge>,
     primary_window: Single<&Window, With<PrimaryWindow>>,
 ) {
-    if !primary_window.focused {
+    if !primary_window.focused || mouse_buttons.pressed(MouseButton::Middle) {
         return;
     }
 
@@ -1074,29 +1399,12 @@ fn ctrl_sequence(key_code: KeyCode) -> Option<&'static str> {
     }
 }
 
-fn configure_terminal_fonts(
-    mut contexts: EguiContexts,
-    mut font_state: ResMut<TerminalFontState>,
-) -> Result {
-    if font_state.report.is_none() {
-        let ctx = contexts.ctx_mut()?;
-        font_state.report = Some(install_terminal_fonts(ctx));
-        font_state.custom_font_ready = false;
-        return Ok(());
-    }
-
-    if !font_state.custom_font_ready {
-        font_state.custom_font_ready = matches!(font_state.report.as_ref(), Some(Ok(_)));
-    }
-
-    Ok(())
-}
-
-fn ui_terminal(
+fn ui_overlay(
     mut contexts: EguiContexts,
     bridge: Res<TerminalBridge>,
     view: Res<TerminalView>,
     font_state: Res<TerminalFontState>,
+    mut plane_state: ResMut<TerminalPlaneState>,
 ) -> Result {
     let ctx = contexts.ctx_mut()?;
 
@@ -1122,6 +1430,16 @@ fn ui_terminal(
                     ui.separator();
                 }
             }
+            ui.label(format!("yaw {:.2}", plane_state.yaw));
+            ui.separator();
+            ui.label(format!("pitch {:.2}", plane_state.pitch));
+            ui.separator();
+            ui.label("MMB drag: tilt terminal plane");
+            ui.separator();
+            if ui.button("reset tilt").clicked() {
+                plane_state.yaw = 0.0;
+                plane_state.pitch = 0.0;
+            }
             if ui.button("pwd").clicked() {
                 bridge.send(TerminalCommand::SendCommand("pwd".into()));
             }
@@ -1140,16 +1458,6 @@ fn ui_terminal(
         });
     });
 
-    let use_custom_font = font_state.custom_font_ready;
-
-    egui::CentralPanel::default().show(ctx, |ui| {
-        if let Some(surface) = &view.latest.surface {
-            paint_terminal(ui, surface, use_custom_font);
-        } else {
-            ui.label("terminal not available");
-        }
-    });
-
     Ok(())
 }
 
@@ -1162,9 +1470,9 @@ impl Drop for TerminalBridge {
 #[cfg(test)]
 mod tests {
     use super::{
-        ctrl_sequence, find_kitty_config_path, keyboard_input_to_terminal_command,
-        parse_kitty_config_file, resolve_alacritty_color, resolve_terminal_font_report,
-        xterm_indexed_rgb, KittyFontConfig, TerminalCommand,
+        ctrl_sequence, find_kitty_config_path, is_emoji_like, is_private_use_like,
+        keyboard_input_to_terminal_command, parse_kitty_config_file, resolve_alacritty_color,
+        resolve_terminal_font_report, xterm_indexed_rgb, KittyFontConfig, TerminalCommand,
     };
     use alacritty_terminal::vte::ansi::{Color as AnsiColor, NamedColor};
     use bevy::{
@@ -1271,5 +1579,12 @@ mod tests {
             .fallbacks
             .iter()
             .any(|face| face.family.contains("Nerd Font")));
+    }
+
+    #[test]
+    fn detects_special_font_ranges() {
+        assert!(is_private_use_like('\u{e0b0}'));
+        assert!(is_emoji_like('🚀'));
+        assert!(!is_private_use_like('a'));
     }
 }
