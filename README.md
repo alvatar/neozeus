@@ -5,17 +5,9 @@ Two native Bevy terminal PoCs.
 ## PoCs
 
 - `poc/bevy_shadow_terminal`
-  - Bevy app
-  - terminal core: `shadow-terminal` / WezTerm core
+  - backend: `shadow-terminal` / WezTerm core
 - `poc/bevy_alacritty_terminal`
-  - Bevy app
-  - terminal core: `alacritty_terminal` + `portable-pty`
-
-Both are intentionally minimal:
-- embedded in a Bevy window
-- shell-backed PTY
-- basic keyboard forwarding
-- demo buttons for `pwd`, `ls`, `clear`, `top`, `vi`
+  - backend: `alacritty_terminal` + `portable-pty`
 
 ## Run
 
@@ -25,6 +17,15 @@ cargo run -p bevy_shadow_terminal
 cargo run -p bevy_alacritty_terminal
 ```
 
-## Current limitation
+## Current state
 
-Rendering is plain monospace text for both PoCs right now. The goal here is backend/input validation first, not final terminal-quality rendering.
+Both now render:
+- per-cell foreground/background colors
+- cursor
+- width-aware cell painting
+- UTF-8 text better than the first pass
+
+Still PoC-level:
+- not optimized
+- no image protocol rendering
+- no selection yet

@@ -1,9 +1,8 @@
 use alacritty_terminal::{
     event::VoidListener,
     grid::Dimensions,
-    index::{Column, Line},
-    term::{Config as TermConfig, Term},
-    vte::ansi,
+    term::{cell::Flags, color::Colors, Config as TermConfig, Term},
+    vte::ansi::{self, Color as AnsiColor, CursorShape, NamedColor, Rgb},
 };
 use bevy::{
     input::{keyboard::KeyboardInput, ButtonState},
@@ -11,6 +10,9 @@ use bevy::{
     window::PrimaryWindow,
 };
 use bevy_egui::{egui, EguiContexts, EguiPlugin, EguiPrimaryContextPass};
+use bevy_terminal_shared::{
+    paint_terminal, TerminalCell, TerminalCursor, TerminalCursorShape, TerminalSurface,
+};
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 use std::{
     env,
@@ -31,7 +33,7 @@ fn main() {
     App::new()
         .add_plugins(DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {
-                title: "neozeus :: bevy + alacritty_terminal".into(),
+                title: "neozeus :: bevy + alacritty terminal".into(),
                 resolution: (1400, 900).into(),
                 ..default()
             }),
@@ -80,9 +82,9 @@ struct TerminalView {
     latest: TerminalSnapshot,
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone, Default, PartialEq)]
 struct TerminalSnapshot {
-    screen: String,
+    surface: Option<TerminalSurface>,
     status: String,
 }
 
@@ -123,8 +125,8 @@ fn terminal_worker(input_rx: Receiver<TerminalCommand>, snapshot_tx: Sender<Term
         Ok(session) => session,
         Err(error) => {
             let _ = snapshot_tx.send(TerminalSnapshot {
-                screen: format!("Failed to start PTY backend:\n\n{error}"),
-                status: "alacritty_terminal backend failed to start".into(),
+                surface: None,
+                status: format!("failed to start PTY backend: {error}"),
             });
             return;
         }
@@ -134,8 +136,8 @@ fn terminal_worker(input_rx: Receiver<TerminalCommand>, snapshot_tx: Sender<Term
         Ok(reader) => reader,
         Err(error) => {
             let _ = snapshot_tx.send(TerminalSnapshot {
-                screen: format!("Failed to attach PTY reader:\n\n{error}"),
-                status: "alacritty_terminal backend failed to attach reader".into(),
+                surface: None,
+                status: format!("failed to attach PTY reader: {error}"),
             });
             let _ = session.child.kill();
             return;
@@ -168,7 +170,7 @@ fn terminal_worker(input_rx: Receiver<TerminalCommand>, snapshot_tx: Sender<Term
     };
     let mut terminal = Term::new(config, &dimensions, VoidListener);
     let mut parser = ansi::Processor::<ansi::StdSyncHandler>::new();
-    let mut last_screen = String::new();
+    let mut last_snapshot = TerminalSnapshot::default();
     let mut running = true;
 
     while running {
@@ -209,13 +211,14 @@ fn terminal_worker(input_rx: Receiver<TerminalCommand>, snapshot_tx: Sender<Term
             parser.advance(&mut terminal, &bytes);
         }
 
-        let screen = visible_screen(&terminal);
-        if screen != last_screen {
-            last_screen.clone_from(&screen);
-            let _ = snapshot_tx.send(TerminalSnapshot {
-                screen,
-                status: "native core: alacritty_terminal + portable-pty".into(),
-            });
+        let snapshot = TerminalSnapshot {
+            surface: Some(build_surface(&terminal)),
+            status: "native core: alacritty_terminal + portable-pty".into(),
+        };
+
+        if snapshot != last_snapshot {
+            last_snapshot = snapshot.clone();
+            let _ = snapshot_tx.send(snapshot);
         }
 
         thread::sleep(Duration::from_millis(16));
@@ -223,6 +226,294 @@ fn terminal_worker(input_rx: Receiver<TerminalCommand>, snapshot_tx: Sender<Term
 
     let _ = session.child.kill();
     let _ = reader_thread.join();
+}
+
+fn build_surface(term: &Term<VoidListener>) -> TerminalSurface {
+    let content = term.renderable_content();
+    let cols = term.columns();
+    let rows = term.screen_lines();
+    let mut surface = TerminalSurface::new(cols, rows);
+
+    for indexed in content.display_iter {
+        let x = indexed.point.column.0;
+        let y_i32 = indexed.point.line.0;
+        if y_i32 < 0 {
+            continue;
+        }
+        let y = y_i32 as usize;
+        if x >= cols || y >= rows {
+            continue;
+        }
+
+        let mut fg = resolve_alacritty_color(indexed.cell.fg, content.colors, true);
+        let mut bg = resolve_alacritty_color(indexed.cell.bg, content.colors, false);
+        if indexed.cell.flags.contains(Flags::INVERSE) {
+            std::mem::swap(&mut fg, &mut bg);
+        }
+
+        let mut text = String::new();
+        if !indexed.cell.flags.contains(Flags::HIDDEN)
+            && !indexed.cell.flags.contains(Flags::WIDE_CHAR_SPACER)
+            && !indexed.cell.flags.contains(Flags::LEADING_WIDE_CHAR_SPACER)
+        {
+            text.push(indexed.cell.c);
+            if let Some(extra) = indexed.cell.zerowidth() {
+                for character in extra {
+                    text.push(*character);
+                }
+            }
+        }
+
+        let width = if indexed.cell.flags.contains(Flags::WIDE_CHAR) {
+            2
+        } else if indexed
+            .cell
+            .flags
+            .intersects(Flags::WIDE_CHAR_SPACER | Flags::LEADING_WIDE_CHAR_SPACER)
+        {
+            0
+        } else {
+            1
+        };
+
+        surface.set_cell(
+            x,
+            y,
+            TerminalCell {
+                text,
+                fg,
+                bg,
+                width,
+            },
+        );
+    }
+
+    surface.cursor = Some(TerminalCursor {
+        x: content.cursor.point.column.0.min(cols.saturating_sub(1)),
+        y: content.cursor.point.line.0.max(0) as usize,
+        shape: map_cursor_shape(content.cursor.shape),
+        visible: content.cursor.shape != CursorShape::Hidden,
+        color: resolve_alacritty_color(AnsiColor::Named(NamedColor::Cursor), content.colors, true),
+    });
+    surface
+}
+
+fn map_cursor_shape(shape: CursorShape) -> TerminalCursorShape {
+    match shape {
+        CursorShape::Underline => TerminalCursorShape::Underline,
+        CursorShape::Beam => TerminalCursorShape::Beam,
+        CursorShape::Block | CursorShape::HollowBlock | CursorShape::Hidden => {
+            TerminalCursorShape::Block
+        }
+    }
+}
+
+fn resolve_alacritty_color(
+    color: AnsiColor,
+    colors: &Colors,
+    is_foreground: bool,
+) -> egui::Color32 {
+    let rgb = match color {
+        AnsiColor::Spec(rgb) => rgb,
+        AnsiColor::Indexed(index) => xterm_indexed_rgb(index),
+        AnsiColor::Named(named) => match colors[named] {
+            Some(rgb) => rgb,
+            None => fallback_named_rgb(named, is_foreground),
+        },
+    };
+    egui::Color32::from_rgb(rgb.r, rgb.g, rgb.b)
+}
+
+fn fallback_named_rgb(named: NamedColor, is_foreground: bool) -> Rgb {
+    match named {
+        NamedColor::Black => Rgb { r: 0, g: 0, b: 0 },
+        NamedColor::Red => Rgb {
+            r: 204,
+            g: 85,
+            b: 85,
+        },
+        NamedColor::Green => Rgb {
+            r: 85,
+            g: 204,
+            b: 85,
+        },
+        NamedColor::Yellow => Rgb {
+            r: 205,
+            g: 205,
+            b: 85,
+        },
+        NamedColor::Blue => Rgb {
+            r: 84,
+            g: 85,
+            b: 203,
+        },
+        NamedColor::Magenta => Rgb {
+            r: 204,
+            g: 85,
+            b: 204,
+        },
+        NamedColor::Cyan => Rgb {
+            r: 122,
+            g: 202,
+            b: 202,
+        },
+        NamedColor::White => Rgb {
+            r: 204,
+            g: 204,
+            b: 204,
+        },
+        NamedColor::BrightBlack => Rgb {
+            r: 85,
+            g: 85,
+            b: 85,
+        },
+        NamedColor::BrightRed => Rgb {
+            r: 255,
+            g: 85,
+            b: 85,
+        },
+        NamedColor::BrightGreen => Rgb {
+            r: 85,
+            g: 255,
+            b: 85,
+        },
+        NamedColor::BrightYellow => Rgb {
+            r: 255,
+            g: 255,
+            b: 85,
+        },
+        NamedColor::BrightBlue => Rgb {
+            r: 85,
+            g: 85,
+            b: 255,
+        },
+        NamedColor::BrightMagenta => Rgb {
+            r: 255,
+            g: 85,
+            b: 255,
+        },
+        NamedColor::BrightCyan => Rgb {
+            r: 85,
+            g: 255,
+            b: 255,
+        },
+        NamedColor::BrightWhite => Rgb {
+            r: 255,
+            g: 255,
+            b: 255,
+        },
+        NamedColor::Foreground | NamedColor::BrightForeground => Rgb {
+            r: 190,
+            g: 190,
+            b: 190,
+        },
+        NamedColor::Background => Rgb {
+            r: 10,
+            g: 10,
+            b: 10,
+        },
+        NamedColor::Cursor => Rgb {
+            r: 82,
+            g: 173,
+            b: 112,
+        },
+        NamedColor::DimBlack => Rgb {
+            r: 40,
+            g: 40,
+            b: 40,
+        },
+        NamedColor::DimRed => Rgb {
+            r: 120,
+            g: 50,
+            b: 50,
+        },
+        NamedColor::DimGreen => Rgb {
+            r: 50,
+            g: 120,
+            b: 50,
+        },
+        NamedColor::DimYellow => Rgb {
+            r: 120,
+            g: 120,
+            b: 50,
+        },
+        NamedColor::DimBlue => Rgb {
+            r: 50,
+            g: 50,
+            b: 120,
+        },
+        NamedColor::DimMagenta => Rgb {
+            r: 120,
+            g: 50,
+            b: 120,
+        },
+        NamedColor::DimCyan => Rgb {
+            r: 50,
+            g: 120,
+            b: 120,
+        },
+        NamedColor::DimWhite | NamedColor::DimForeground => {
+            if is_foreground {
+                Rgb {
+                    r: 120,
+                    g: 120,
+                    b: 120,
+                }
+            } else {
+                Rgb {
+                    r: 10,
+                    g: 10,
+                    b: 10,
+                }
+            }
+        }
+    }
+}
+
+fn xterm_indexed_rgb(index: u8) -> Rgb {
+    const ANSI: [(u8, u8, u8); 16] = [
+        (0x00, 0x00, 0x00),
+        (0xcc, 0x55, 0x55),
+        (0x55, 0xcc, 0x55),
+        (0xcd, 0xcd, 0x55),
+        (0x54, 0x55, 0xcb),
+        (0xcc, 0x55, 0xcc),
+        (0x7a, 0xca, 0xca),
+        (0xcc, 0xcc, 0xcc),
+        (0x55, 0x55, 0x55),
+        (0xff, 0x55, 0x55),
+        (0x55, 0xff, 0x55),
+        (0xff, 0xff, 0x55),
+        (0x55, 0x55, 0xff),
+        (0xff, 0x55, 0xff),
+        (0x55, 0xff, 0xff),
+        (0xff, 0xff, 0xff),
+    ];
+
+    if index < 16 {
+        let (r, g, b) = ANSI[index as usize];
+        return Rgb { r, g, b };
+    }
+
+    if index < 232 {
+        const RAMP6: [u8; 6] = [0, 0x5f, 0x87, 0xaf, 0xd7, 0xff];
+        let idx = index - 16;
+        let blue = RAMP6[(idx % 6) as usize];
+        let green = RAMP6[((idx / 6) % 6) as usize];
+        let red = RAMP6[((idx / 36) % 6) as usize];
+        return Rgb {
+            r: red,
+            g: green,
+            b: blue,
+        };
+    }
+
+    let grey = 0x08 + (index - 232) * 10;
+    Rgb {
+        r: grey,
+        g: grey,
+        b: grey,
+    }
 }
 
 fn spawn_pty(cols: u16, rows: u16) -> Result<PtySession, String> {
@@ -269,29 +560,6 @@ fn shell_path() -> OsString {
 fn write_input(writer: &mut dyn Write, bytes: &[u8]) -> std::io::Result<()> {
     writer.write_all(bytes)?;
     writer.flush()
-}
-
-fn visible_screen(term: &Term<VoidListener>) -> String {
-    let mut output = String::new();
-
-    for row in 0..term.screen_lines() {
-        let mut line = String::new();
-        for col in 0..term.columns() {
-            let cell = &term.grid()[Line(row as i32)][Column(col)];
-            line.push(cell.c);
-            if let Some(extra) = cell.zerowidth() {
-                for character in extra {
-                    line.push(*character);
-                }
-            }
-        }
-
-        let trimmed = line.trim_end_matches(' ');
-        output.push_str(trimmed);
-        output.push('\n');
-    }
-
-    output
 }
 
 fn poll_terminal_snapshots(bridge: Res<TerminalBridge>, mut view: ResMut<TerminalView>) {
@@ -388,9 +656,7 @@ fn ui_terminal(
         ui.horizontal_wrapped(|ui| {
             ui.label(egui::RichText::new("PoC B").strong());
             ui.separator();
-            ui.label("Native Rust terminal core inside Bevy.");
-            ui.separator();
-            ui.label("Keys: type, Enter, Backspace, Tab, arrows, Esc, Ctrl+C/D/L/U");
+            ui.label(view.latest.status.as_str());
             ui.separator();
             if ui.button("pwd").clicked() {
                 bridge.send(TerminalCommand::SendCommand("pwd".into()));
@@ -401,36 +667,22 @@ fn ui_terminal(
             if ui.button("clear").clicked() {
                 bridge.send(TerminalCommand::SendCommand("clear".into()));
             }
-            if ui.button("top").clicked() {
-                bridge.send(TerminalCommand::SendCommand("top".into()));
+            if ui.button("btop").clicked() {
+                bridge.send(TerminalCommand::SendCommand("btop".into()));
             }
-            if ui.button("vi").clicked() {
-                bridge.send(TerminalCommand::SendCommand("vi".into()));
+            if ui.button("tmux").clicked() {
+                bridge.send(TerminalCommand::SendCommand("tmux".into()));
             }
         });
     });
 
-    egui::CentralPanel::default()
-        .frame(egui::Frame::NONE.fill(egui::Color32::from_rgb(10, 10, 10)))
-        .show(ctx, |ui| {
-            ui.add_space(6.0);
-            ui.label(
-                egui::RichText::new(view.latest.status.as_str())
-                    .monospace()
-                    .color(egui::Color32::from_rgb(120, 180, 120)),
-            );
-            ui.add_space(6.0);
-            egui::ScrollArea::both()
-                .auto_shrink([false, false])
-                .show(ui, |ui| {
-                    ui.style_mut().override_text_style = Some(egui::TextStyle::Monospace);
-                    ui.label(
-                        egui::RichText::new(view.latest.screen.as_str())
-                            .monospace()
-                            .color(egui::Color32::from_rgb(210, 210, 210)),
-                    );
-                });
-        });
+    egui::CentralPanel::default().show(ctx, |ui| {
+        if let Some(surface) = &view.latest.surface {
+            paint_terminal(ui, surface);
+        } else {
+            ui.label("terminal not available");
+        }
+    });
 
     Ok(())
 }
@@ -444,14 +696,10 @@ impl Drop for TerminalBridge {
 #[cfg(test)]
 mod tests {
     use super::{
-        ctrl_sequence, keyboard_input_to_terminal_command, visible_screen, TerminalCommand,
+        ctrl_sequence, keyboard_input_to_terminal_command, resolve_alacritty_color,
+        xterm_indexed_rgb, TerminalCommand,
     };
-    use alacritty_terminal::{
-        event::VoidListener,
-        grid::Dimensions,
-        term::{Config as TermConfig, Term},
-        vte::ansi,
-    };
+    use alacritty_terminal::vte::ansi::{Color as AnsiColor, NamedColor};
     use bevy::{
         input::{
             keyboard::{Key, KeyboardInput},
@@ -459,25 +707,6 @@ mod tests {
         },
         prelude::*,
     };
-
-    struct TestDimensions {
-        cols: usize,
-        rows: usize,
-    }
-
-    impl Dimensions for TestDimensions {
-        fn total_lines(&self) -> usize {
-            self.rows
-        }
-
-        fn screen_lines(&self) -> usize {
-            self.rows
-        }
-
-        fn columns(&self) -> usize {
-            self.cols
-        }
-    }
 
     fn pressed_text(key_code: KeyCode, text: Option<&str>) -> KeyboardInput {
         KeyboardInput {
@@ -509,13 +738,18 @@ mod tests {
     }
 
     #[test]
-    fn visible_screen_extracts_plain_text() {
-        let dimensions = TestDimensions { cols: 5, rows: 2 };
-        let mut terminal = Term::new(TermConfig::default(), &dimensions, VoidListener);
-        let mut parser = ansi::Processor::<ansi::StdSyncHandler>::new();
-        parser.advance(&mut terminal, b"abc\r\ndef");
-        let screen = visible_screen(&terminal);
-        assert!(screen.contains("abc"));
-        assert!(screen.contains("def"));
+    fn indexed_color_has_expected_blue_cube_entry() {
+        let rgb = xterm_indexed_rgb(21);
+        assert_eq!((rgb.r, rgb.g, rgb.b), (0, 0, 255));
+    }
+
+    #[test]
+    fn named_cursor_color_resolves() {
+        let color = resolve_alacritty_color(
+            AnsiColor::Named(NamedColor::Cursor),
+            &Default::default(),
+            true,
+        );
+        assert_eq!((color.r(), color.g(), color.b()), (82, 173, 112));
     }
 }

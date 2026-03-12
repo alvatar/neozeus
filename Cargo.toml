@@ -1,5 +1,6 @@
 [workspace]
 members = [
+  "poc/bevy_terminal_shared",
   "poc/bevy_shadow_terminal",
   "poc/bevy_alacritty_terminal",
 ]

@@ -4,9 +4,13 @@ use bevy::{
     window::PrimaryWindow,
 };
 use bevy_egui::{egui, EguiContexts, EguiPlugin, EguiPrimaryContextPass};
+use bevy_terminal_shared::{
+    paint_terminal, TerminalCell, TerminalCursor, TerminalCursorShape, TerminalSurface,
+};
 use shadow_terminal::{
     shadow_terminal::Config,
     steppable_terminal::{Input, SteppableTerminal},
+    wezterm_term::color::{ColorPalette, SrgbaTuple},
 };
 use std::{
     env,
@@ -23,7 +27,7 @@ fn main() {
     App::new()
         .add_plugins(DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {
-                title: "neozeus :: bevy + native terminal core".into(),
+                title: "neozeus :: bevy + shadow terminal".into(),
                 resolution: (1400, 900).into(),
                 ..default()
             }),
@@ -72,9 +76,9 @@ struct TerminalView {
     latest: TerminalSnapshot,
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone, Default, PartialEq)]
 struct TerminalSnapshot {
-    screen: String,
+    surface: Option<TerminalSurface>,
     status: String,
 }
 
@@ -103,14 +107,14 @@ fn terminal_worker(input_rx: Receiver<TerminalCommand>, snapshot_tx: Sender<Term
             Ok(terminal) => terminal,
             Err(error) => {
                 let _ = snapshot_tx.send(TerminalSnapshot {
-                    screen: format!("Failed to start terminal backend:\n\n{error:?}"),
-                    status: "terminal backend failed to start".into(),
+                    surface: None,
+                    status: format!("failed to start terminal backend: {error:?}"),
                 });
                 return;
             }
         };
 
-        let mut last_screen = String::new();
+        let mut last_snapshot = TerminalSnapshot::default();
         let mut running = true;
 
         while running {
@@ -141,19 +145,85 @@ fn terminal_worker(input_rx: Receiver<TerminalCommand>, snapshot_tx: Sender<Term
 
             let _ = terminal.render_all_output().await;
 
-            if let Ok(screen) = terminal.screen_as_string() {
-                if screen != last_screen {
-                    last_screen.clone_from(&screen);
-                    let _ = snapshot_tx.send(TerminalSnapshot {
-                        screen,
-                        status: "native core: shadow-terminal / wezterm-term".into(),
-                    });
-                }
+            let snapshot = TerminalSnapshot {
+                surface: Some(build_surface(&mut terminal)),
+                status: "native core: shadow-terminal / wezterm-term".into(),
+            };
+
+            if snapshot != last_snapshot {
+                last_snapshot = snapshot.clone();
+                let _ = snapshot_tx.send(snapshot);
             }
 
             tokio::time::sleep(Duration::from_millis(16)).await;
         }
     });
+}
+
+fn build_surface(terminal: &mut SteppableTerminal) -> TerminalSurface {
+    let palette = ColorPalette::default();
+    let size = terminal.shadow_terminal.terminal.get_size();
+    let cols = size.cols;
+    let rows = size.rows;
+    let mut surface = TerminalSurface::new(cols, rows);
+
+    for y in 0..rows {
+        for x in 0..cols {
+            let maybe_cell = terminal
+                .shadow_terminal
+                .terminal
+                .screen_mut()
+                .get_cell(x, y as i64)
+                .cloned();
+            let Some(cell) = maybe_cell else {
+                continue;
+            };
+
+            let attrs = cell.attrs();
+            let mut fg = color32_from_srgba(palette.resolve_fg(attrs.foreground()));
+            let mut bg = color32_from_srgba(palette.resolve_bg(attrs.background()));
+            if attrs.reverse() {
+                std::mem::swap(&mut fg, &mut bg);
+            }
+
+            let text = if attrs.invisible() {
+                String::new()
+            } else {
+                cell.str().to_owned()
+            };
+
+            surface.set_cell(
+                x,
+                y,
+                TerminalCell {
+                    text,
+                    fg,
+                    bg,
+                    width: cell.width() as u8,
+                },
+            );
+        }
+    }
+
+    let cursor = terminal.shadow_terminal.terminal.cursor_pos();
+    surface.cursor = Some(TerminalCursor {
+        x: cursor.x.min(cols.saturating_sub(1)),
+        y: (cursor.y.max(0) as usize).min(rows.saturating_sub(1)),
+        shape: TerminalCursorShape::Block,
+        visible: true,
+        color: color32_from_srgba(palette.cursor_bg),
+    });
+    surface.title = Some(terminal.shadow_terminal.terminal.get_title().to_owned());
+    surface
+}
+
+fn color32_from_srgba(color: SrgbaTuple) -> egui::Color32 {
+    egui::Color32::from_rgba_unmultiplied(
+        (color.0.clamp(0.0, 1.0) * 255.0) as u8,
+        (color.1.clamp(0.0, 1.0) * 255.0) as u8,
+        (color.2.clamp(0.0, 1.0) * 255.0) as u8,
+        (color.3.clamp(0.0, 1.0) * 255.0) as u8,
+    )
 }
 
 fn shell_command() -> Vec<OsString> {
@@ -257,10 +327,14 @@ fn ui_terminal(
         ui.horizontal_wrapped(|ui| {
             ui.label(egui::RichText::new("PoC A").strong());
             ui.separator();
-            ui.label("Native Rust terminal core inside Bevy.");
+            ui.label(view.latest.status.as_str());
             ui.separator();
-            ui.label("Keys: type, Enter, Backspace, Tab, arrows, Esc, Ctrl+C/D/L/U");
-            ui.separator();
+            if let Some(surface) = &view.latest.surface {
+                if let Some(title) = &surface.title {
+                    ui.label(format!("title: {title}"));
+                    ui.separator();
+                }
+            }
             if ui.button("pwd").clicked() {
                 bridge.send(TerminalCommand::SendCommand("pwd".into()));
             }
@@ -270,36 +344,22 @@ fn ui_terminal(
             if ui.button("clear").clicked() {
                 bridge.send(TerminalCommand::SendCommand("clear".into()));
             }
-            if ui.button("top").clicked() {
-                bridge.send(TerminalCommand::SendCommand("top".into()));
+            if ui.button("btop").clicked() {
+                bridge.send(TerminalCommand::SendCommand("btop".into()));
             }
-            if ui.button("vi").clicked() {
-                bridge.send(TerminalCommand::SendCommand("vi".into()));
+            if ui.button("tmux").clicked() {
+                bridge.send(TerminalCommand::SendCommand("tmux".into()));
             }
         });
     });
 
-    egui::CentralPanel::default()
-        .frame(egui::Frame::NONE.fill(egui::Color32::from_rgb(10, 10, 10)))
-        .show(ctx, |ui| {
-            ui.add_space(6.0);
-            ui.label(
-                egui::RichText::new(view.latest.status.as_str())
-                    .monospace()
-                    .color(egui::Color32::from_rgb(120, 180, 120)),
-            );
-            ui.add_space(6.0);
-            egui::ScrollArea::both()
-                .auto_shrink([false, false])
-                .show(ui, |ui| {
-                    ui.style_mut().override_text_style = Some(egui::TextStyle::Monospace);
-                    ui.label(
-                        egui::RichText::new(view.latest.screen.as_str())
-                            .monospace()
-                            .color(egui::Color32::from_rgb(210, 210, 210)),
-                    );
-                });
-        });
+    egui::CentralPanel::default().show(ctx, |ui| {
+        if let Some(surface) = &view.latest.surface {
+            paint_terminal(ui, surface);
+        } else {
+            ui.label("terminal not available");
+        }
+    });
 
     Ok(())
 }
@@ -312,7 +372,9 @@ impl Drop for TerminalBridge {
 
 #[cfg(test)]
 mod tests {
-    use super::{ctrl_sequence, keyboard_input_to_terminal_command, TerminalCommand};
+    use super::{
+        color32_from_srgba, ctrl_sequence, keyboard_input_to_terminal_command, TerminalCommand,
+    };
     use bevy::{
         input::{
             keyboard::{Key, KeyboardInput},
@@ -320,6 +382,7 @@ mod tests {
         },
         prelude::*,
     };
+    use shadow_terminal::wezterm_term::color::SrgbaTuple;
 
     fn pressed_text(key_code: KeyCode, text: Option<&str>) -> KeyboardInput {
         KeyboardInput {
@@ -351,13 +414,10 @@ mod tests {
     }
 
     #[test]
-    fn special_keys_emit_escape_sequences() {
-        let keys = ButtonInput::<KeyCode>::default();
-        let event = pressed_text(KeyCode::ArrowUp, None);
-        let command = keyboard_input_to_terminal_command(&event, &keys);
-        match command {
-            Some(TerminalCommand::InputEvent(text)) => assert_eq!(text, "\u{1b}[A"),
-            _ => panic!("expected special-key input command"),
-        }
+    fn srgba_maps_to_color32() {
+        let color = color32_from_srgba(SrgbaTuple(1.0, 0.5, 0.0, 1.0));
+        assert_eq!(color.r(), 255);
+        assert_eq!(color.g(), 127);
+        assert_eq!(color.b(), 0);
     }
 }

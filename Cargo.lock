@@ -520,6 +520,7 @@ dependencies = [
  "alacritty_terminal",
  "bevy",
  "bevy_egui",
+ "bevy_terminal_shared",
  "portable-pty 0.9.0",
 ]
 
@@ -1546,6 +1547,7 @@ version = "0.1.0"
 dependencies = [
  "bevy",
  "bevy_egui",
+ "bevy_terminal_shared",
  "shadow-terminal",
  "tokio",
 ]
@@ -1651,6 +1653,13 @@ dependencies = [
  "futures-lite",
  "heapless",
  "pin-project",
+]
+
+[[package]]
+name = "bevy_terminal_shared"
+version = "0.1.0"
+dependencies = [
+ "bevy_egui",
 ]
 
 [[package]]
