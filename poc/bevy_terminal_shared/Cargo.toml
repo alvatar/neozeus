@@ -1,8 +1,0 @@
-[package]
-name = "bevy_terminal_shared"
-version.workspace = true
-edition.workspace = true
-license.workspace = true
-
-[dependencies]
-bevy_egui = "0.39.1"

@@ -10,18 +10,18 @@ use bevy::{
     window::PrimaryWindow,
 };
 use bevy_egui::{egui, EguiContexts, EguiPlugin, EguiPrimaryContextPass};
-use bevy_terminal_shared::{
-    install_terminal_fonts, paint_terminal, TerminalCell, TerminalCursor, TerminalCursorShape,
-    TerminalFontReport, TerminalSurface,
-};
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 use std::{
+    collections::BTreeSet,
     env,
     ffi::OsString,
+    fs,
     io::{Read, Write},
+    path::{Path, PathBuf},
+    process::Command,
     sync::{
         mpsc::{self, Receiver, Sender, TryRecvError},
-        Mutex,
+        Arc, Mutex,
     },
     thread,
     time::Duration,
@@ -29,12 +29,15 @@ use std::{
 
 const DEFAULT_COLS: u16 = 120;
 const DEFAULT_ROWS: u16 = 38;
+const TERMINAL_FONT_FAMILY_NAME: &str = "neozeus-terminal";
+const FONT_METRIC_SAMPLE_SIZE: f32 = 16.0;
+const DEFAULT_BG: egui::Color32 = egui::Color32::from_rgb(10, 10, 10);
 
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {
-                title: "neozeus :: bevy + alacritty terminal".into(),
+                title: "neozeus".into(),
                 resolution: (1400, 900).into(),
                 ..default()
             }),
@@ -131,6 +134,86 @@ struct PtySession {
     child: Box<dyn Child + Send + Sync>,
 }
 
+#[derive(Clone, Debug, PartialEq)]
+struct TerminalCell {
+    text: String,
+    fg: egui::Color32,
+    bg: egui::Color32,
+    width: u8,
+}
+
+impl Default for TerminalCell {
+    fn default() -> Self {
+        Self {
+            text: String::new(),
+            fg: egui::Color32::from_rgb(220, 220, 220),
+            bg: DEFAULT_BG,
+            width: 1,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TerminalCursorShape {
+    Block,
+    Underline,
+    Beam,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct TerminalCursor {
+    x: usize,
+    y: usize,
+    shape: TerminalCursorShape,
+    visible: bool,
+    color: egui::Color32,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct TerminalSurface {
+    cols: usize,
+    rows: usize,
+    cells: Vec<TerminalCell>,
+    cursor: Option<TerminalCursor>,
+}
+
+impl TerminalSurface {
+    fn new(cols: usize, rows: usize) -> Self {
+        Self {
+            cols,
+            rows,
+            cells: vec![TerminalCell::default(); cols.saturating_mul(rows)],
+            cursor: None,
+        }
+    }
+
+    fn set_cell(&mut self, x: usize, y: usize, cell: TerminalCell) {
+        if x >= self.cols || y >= self.rows {
+            return;
+        }
+        let index = y * self.cols + x;
+        self.cells[index] = cell;
+    }
+
+    fn cell(&self, x: usize, y: usize) -> &TerminalCell {
+        &self.cells[y * self.cols + x]
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct TerminalFontFace {
+    family: String,
+    path: PathBuf,
+    source: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct TerminalFontReport {
+    requested_family: String,
+    primary: TerminalFontFace,
+    fallbacks: Vec<TerminalFontFace>,
+}
+
 fn terminal_worker(input_rx: Receiver<TerminalCommand>, snapshot_tx: Sender<TerminalSnapshot>) {
     let mut session = match spawn_pty(DEFAULT_COLS, DEFAULT_ROWS) {
         Ok(session) => session,
@@ -224,7 +307,7 @@ fn terminal_worker(input_rx: Receiver<TerminalCommand>, snapshot_tx: Sender<Term
 
         let snapshot = TerminalSnapshot {
             surface: Some(build_surface(&terminal)),
-            status: "native core: alacritty_terminal + portable-pty".into(),
+            status: "backend: alacritty_terminal + portable-pty".into(),
         };
 
         if snapshot != last_snapshot {
@@ -527,6 +610,341 @@ fn xterm_indexed_rgb(index: u8) -> Rgb {
     }
 }
 
+fn install_terminal_fonts(ctx: &egui::Context) -> Result<TerminalFontReport, String> {
+    let report = resolve_terminal_font_report()?;
+    let mut definitions = egui::FontDefinitions::default();
+    let mut family_chain = Vec::new();
+
+    insert_font_face(&mut definitions, &report.primary, &mut family_chain)?;
+    for fallback in &report.fallbacks {
+        insert_font_face(&mut definitions, fallback, &mut family_chain)?;
+    }
+
+    let family = egui::FontFamily::Name(Arc::from(TERMINAL_FONT_FAMILY_NAME));
+    definitions
+        .families
+        .insert(family.clone(), family_chain.clone());
+
+    let monospace = definitions
+        .families
+        .entry(egui::FontFamily::Monospace)
+        .or_default();
+    for name in family_chain.iter().rev() {
+        monospace.retain(|existing| existing != name);
+        monospace.insert(0, name.clone());
+    }
+
+    ctx.set_fonts(definitions);
+    Ok(report)
+}
+
+fn insert_font_face(
+    definitions: &mut egui::FontDefinitions,
+    face: &TerminalFontFace,
+    family_chain: &mut Vec<String>,
+) -> Result<(), String> {
+    let key = format!("{}#{}", face.family, face.path.display());
+    if definitions.font_data.contains_key(&key) {
+        family_chain.push(key);
+        return Ok(());
+    }
+
+    let bytes = fs::read(&face.path)
+        .map_err(|error| format!("failed to read font {}: {error}", face.path.display()))?;
+    definitions
+        .font_data
+        .insert(key.clone(), Arc::new(egui::FontData::from_owned(bytes)));
+    family_chain.push(key);
+    Ok(())
+}
+
+fn paint_terminal(ui: &mut egui::Ui, surface: &TerminalSurface, use_custom_font: bool) {
+    let available = ui.available_size();
+    let desired = egui::Vec2::new(available.x.max(64.0), available.y.max(64.0));
+    let (response, painter) = ui.allocate_painter(desired, egui::Sense::click());
+    let outer_rect = response.rect;
+
+    painter.rect_filled(outer_rect, 0.0, DEFAULT_BG);
+
+    if surface.cols == 0 || surface.rows == 0 {
+        return;
+    }
+
+    let font_family = if use_custom_font {
+        egui::FontFamily::Name(Arc::from(TERMINAL_FONT_FAMILY_NAME))
+    } else {
+        egui::FontFamily::Monospace
+    };
+
+    let sample_font = egui::FontId::new(FONT_METRIC_SAMPLE_SIZE, font_family.clone());
+    let sample_galley = painter.layout_no_wrap("M".to_owned(), sample_font, egui::Color32::WHITE);
+    let sample_size = sample_galley.size();
+    let glyph_w = sample_size.x.max(1.0);
+    let glyph_h = sample_size.y.max(1.0);
+    let cell_aspect = (glyph_w / glyph_h).clamp(0.3, 1.0);
+
+    let cell_h = (outer_rect.height() / surface.rows as f32)
+        .min(outer_rect.width() / (surface.cols as f32 * cell_aspect))
+        .max(1.0);
+    let cell_w = (cell_h * cell_aspect).max(1.0);
+    let grid_size = egui::Vec2::new(cell_w * surface.cols as f32, cell_h * surface.rows as f32);
+    let grid_min = egui::Pos2::new(
+        outer_rect.left() + (outer_rect.width() - grid_size.x) * 0.5,
+        outer_rect.top() + (outer_rect.height() - grid_size.y) * 0.5,
+    );
+    let grid_rect = egui::Rect::from_min_size(grid_min, grid_size);
+
+    let font_scale = (cell_w / glyph_w).min(cell_h / glyph_h) * 0.98;
+    let font = egui::FontId::new((FONT_METRIC_SAMPLE_SIZE * font_scale).max(6.0), font_family);
+
+    for y in 0..surface.rows {
+        for x in 0..surface.cols {
+            let cell = surface.cell(x, y);
+            let min = egui::Pos2::new(
+                grid_rect.left() + x as f32 * cell_w,
+                grid_rect.top() + y as f32 * cell_h,
+            );
+            let width = if cell.width <= 1 {
+                cell_w
+            } else {
+                cell_w * f32::from(cell.width)
+            };
+            let cell_rect = egui::Rect::from_min_size(min, egui::Vec2::new(width, cell_h));
+            painter.rect_filled(cell_rect, 0.0, cell.bg);
+
+            if cell.width == 0 || cell.text.is_empty() {
+                continue;
+            }
+
+            let galley = painter.layout_no_wrap(cell.text.clone(), font.clone(), cell.fg);
+            let text_pos = egui::Pos2::new(
+                cell_rect.min.x,
+                cell_rect.center().y - galley.size().y * 0.5,
+            );
+            painter
+                .with_clip_rect(cell_rect)
+                .galley(text_pos, galley, cell.fg);
+        }
+    }
+
+    if let Some(cursor) = &surface.cursor {
+        if cursor.visible && cursor.x < surface.cols && cursor.y < surface.rows {
+            let min = egui::Pos2::new(
+                grid_rect.left() + cursor.x as f32 * cell_w,
+                grid_rect.top() + cursor.y as f32 * cell_h,
+            );
+            let cursor_rect =
+                egui::Rect::from_min_size(min, egui::Vec2::new(cell_w.max(1.0), cell_h.max(1.0)));
+            match cursor.shape {
+                TerminalCursorShape::Block => {
+                    painter.rect_stroke(
+                        cursor_rect.shrink(1.0),
+                        0.0,
+                        egui::Stroke::new(1.5, cursor.color),
+                        egui::StrokeKind::Outside,
+                    );
+                }
+                TerminalCursorShape::Underline => {
+                    painter.line_segment(
+                        [cursor_rect.left_bottom(), cursor_rect.right_bottom()],
+                        egui::Stroke::new(2.0, cursor.color),
+                    );
+                }
+                TerminalCursorShape::Beam => {
+                    painter.line_segment(
+                        [cursor_rect.left_top(), cursor_rect.left_bottom()],
+                        egui::Stroke::new(2.0, cursor.color),
+                    );
+                }
+            }
+        }
+    }
+}
+
+fn resolve_terminal_font_report() -> Result<TerminalFontReport, String> {
+    let requested_family = load_kitty_font_family()?.unwrap_or_else(|| "monospace".to_owned());
+    let primary = fc_match_face(&requested_family, "kitty primary font")?;
+    let mut fallbacks = Vec::new();
+    let mut seen_paths = BTreeSet::from([primary.path.clone()]);
+
+    for (query, source) in [
+        (
+            format!("{requested_family}:charset=F013"),
+            "kitty fallback for private-use symbols",
+        ),
+        (
+            format!("{requested_family}:charset=1F680"),
+            "kitty fallback for emoji",
+        ),
+    ] {
+        let candidate = fc_match_face(&query, source)?;
+        if seen_paths.insert(candidate.path.clone()) {
+            fallbacks.push(candidate);
+        }
+    }
+
+    Ok(TerminalFontReport {
+        requested_family,
+        primary,
+        fallbacks,
+    })
+}
+
+#[derive(Default)]
+struct KittyFontConfig {
+    font_family: Option<String>,
+}
+
+fn load_kitty_font_family() -> Result<Option<String>, String> {
+    let Some(config_path) = find_kitty_config_path() else {
+        return Ok(None);
+    };
+
+    let mut visited = BTreeSet::new();
+    let mut config = KittyFontConfig::default();
+    parse_kitty_config_file(&config_path, &mut visited, &mut config)?;
+    Ok(config.font_family)
+}
+
+fn find_kitty_config_path() -> Option<PathBuf> {
+    if let Some(dir) = env::var_os("KITTY_CONFIG_DIRECTORY") {
+        let path = PathBuf::from(dir).join("kitty.conf");
+        if path.is_file() {
+            return Some(path);
+        }
+    }
+
+    if let Some(xdg_config_home) = env::var_os("XDG_CONFIG_HOME") {
+        let path = PathBuf::from(xdg_config_home).join("kitty/kitty.conf");
+        if path.is_file() {
+            return Some(path);
+        }
+    }
+
+    if let Some(home) = env::var_os("HOME") {
+        let path = PathBuf::from(home).join(".config/kitty/kitty.conf");
+        if path.is_file() {
+            return Some(path);
+        }
+    }
+
+    if let Some(xdg_config_dirs) = env::var_os("XDG_CONFIG_DIRS") {
+        for base in env::split_paths(&xdg_config_dirs) {
+            let path = base.join("kitty/kitty.conf");
+            if path.is_file() {
+                return Some(path);
+            }
+        }
+    }
+
+    let system_path = PathBuf::from("/etc/xdg/kitty/kitty.conf");
+    if system_path.is_file() {
+        Some(system_path)
+    } else {
+        None
+    }
+}
+
+fn parse_kitty_config_file(
+    path: &Path,
+    visited: &mut BTreeSet<PathBuf>,
+    config: &mut KittyFontConfig,
+) -> Result<(), String> {
+    let canonical = path
+        .canonicalize()
+        .map_err(|error| format!("failed to canonicalize {}: {error}", path.display()))?;
+    if !visited.insert(canonical.clone()) {
+        return Ok(());
+    }
+
+    let content = fs::read_to_string(&canonical).map_err(|error| {
+        format!(
+            "failed to read kitty config {}: {error}",
+            canonical.display()
+        )
+    })?;
+
+    for line in content.lines() {
+        let line = line.split('#').next().unwrap_or("").trim();
+        if line.is_empty() {
+            continue;
+        }
+
+        let mut parts = line.split_whitespace();
+        let Some(key) = parts.next() else {
+            continue;
+        };
+        let value = parts.collect::<Vec<_>>().join(" ");
+        if value.is_empty() {
+            continue;
+        }
+
+        match key {
+            "include" => {
+                let include = canonical
+                    .parent()
+                    .map(|parent| parent.join(&value))
+                    .unwrap_or_else(|| PathBuf::from(&value));
+                if include.is_file() {
+                    parse_kitty_config_file(&include, visited, config)?;
+                }
+            }
+            "font_family" => {
+                config.font_family = Some(value);
+            }
+            _ => {}
+        }
+    }
+
+    Ok(())
+}
+
+fn fc_match_face(query: &str, source: &str) -> Result<TerminalFontFace, String> {
+    let output = Command::new("/usr/bin/fc-match")
+        .arg("-f")
+        .arg("%{family}\n%{file}\n")
+        .arg(query)
+        .output()
+        .map_err(|error| format!("failed to execute fc-match for `{query}`: {error}"))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!(
+            "fc-match failed for `{query}` with status {}: {}",
+            output.status,
+            stderr.trim()
+        ));
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut lines = stdout
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty());
+    let family = lines
+        .next()
+        .ok_or_else(|| format!("fc-match returned no family for `{query}`"))?
+        .to_owned();
+    let path = PathBuf::from(
+        lines
+            .next()
+            .ok_or_else(|| format!("fc-match returned no path for `{query}`"))?,
+    );
+
+    if !path.is_file() {
+        return Err(format!(
+            "fc-match resolved `{query}` to missing file {}",
+            path.display()
+        ));
+    }
+
+    Ok(TerminalFontFace {
+        family,
+        path,
+        source: source.to_owned(),
+    })
+}
+
 fn spawn_pty(cols: u16, rows: u16) -> Result<PtySession, String> {
     let pty_system = native_pty_system();
     let pair = pty_system
@@ -684,7 +1102,7 @@ fn ui_terminal(
 
     egui::TopBottomPanel::top("toolbar").show(ctx, |ui| {
         ui.horizontal_wrapped(|ui| {
-            ui.label(egui::RichText::new("PoC B").strong());
+            ui.label(egui::RichText::new("neozeus").strong());
             ui.separator();
             ui.label(view.latest.status.as_str());
             ui.separator();
@@ -692,7 +1110,7 @@ fn ui_terminal(
                 Some(Ok(report)) => {
                     ui.label(format!("font: {}", report.primary.family));
                     ui.separator();
-                    ui.label(format!("source: {}", report.primary.source));
+                    ui.label(format!("requested: {}", report.requested_family));
                     ui.separator();
                 }
                 Some(Err(error)) => {
@@ -744,8 +1162,9 @@ impl Drop for TerminalBridge {
 #[cfg(test)]
 mod tests {
     use super::{
-        ctrl_sequence, keyboard_input_to_terminal_command, resolve_alacritty_color,
-        xterm_indexed_rgb, TerminalCommand,
+        ctrl_sequence, find_kitty_config_path, keyboard_input_to_terminal_command,
+        parse_kitty_config_file, resolve_alacritty_color, resolve_terminal_font_report,
+        xterm_indexed_rgb, KittyFontConfig, TerminalCommand,
     };
     use alacritty_terminal::vte::ansi::{Color as AnsiColor, NamedColor};
     use bevy::{
@@ -754,6 +1173,12 @@ mod tests {
             ButtonState,
         },
         prelude::*,
+    };
+    use std::{
+        collections::BTreeSet,
+        fs,
+        path::PathBuf,
+        time::{SystemTime, UNIX_EPOCH},
     };
 
     fn pressed_text(key_code: KeyCode, text: Option<&str>) -> KeyboardInput {
@@ -765,6 +1190,16 @@ mod tests {
             repeat: false,
             window: Entity::PLACEHOLDER,
         }
+    }
+
+    fn temp_dir(prefix: &str) -> PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("time went backwards")
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("{prefix}-{nanos}"));
+        fs::create_dir_all(&dir).expect("failed to create temp dir");
+        dir
     }
 
     #[test]
@@ -799,5 +1234,42 @@ mod tests {
             true,
         );
         assert_eq!((color.r(), color.g(), color.b()), (82, 173, 112));
+    }
+
+    #[test]
+    fn parses_font_family_from_included_kitty_config() {
+        let dir = temp_dir("neozeus-kitty-font-test");
+        let main = dir.join("kitty.conf");
+        let included = dir.join("fonts.conf");
+        fs::write(&included, "font_family JetBrains Mono Nerd Font\n")
+            .expect("failed to write include config");
+        fs::write(&main, "include fonts.conf\n").expect("failed to write main config");
+
+        let mut visited = BTreeSet::new();
+        let mut config = KittyFontConfig::default();
+        parse_kitty_config_file(&main, &mut visited, &mut config)
+            .expect("failed to parse kitty config");
+
+        assert_eq!(
+            config.font_family.as_deref(),
+            Some("JetBrains Mono Nerd Font")
+        );
+    }
+
+    #[test]
+    fn current_host_has_no_user_kitty_config() {
+        assert_eq!(find_kitty_config_path(), None);
+    }
+
+    #[test]
+    fn resolves_effective_terminal_font_stack_on_host() {
+        let report = resolve_terminal_font_report().expect("failed to resolve terminal fonts");
+        assert_eq!(report.requested_family, "monospace");
+        assert_eq!(report.primary.family, "Adwaita Mono");
+        assert!(report.primary.path.is_file());
+        assert!(report
+            .fallbacks
+            .iter()
+            .any(|face| face.family.contains("Nerd Font")));
     }
 }
