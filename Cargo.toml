@@ -1,7 +1,7 @@
 [workspace]
 members = [
   "poc/bevy_shadow_terminal",
-  "poc/xterm_web",
+  "poc/bevy_alacritty_terminal",
 ]
 resolver = "2"
 

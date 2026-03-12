@@ -1,46 +1,30 @@
 # neozeus
 
-Two terminal-embedding PoCs for evaluating terminal UX stacks before deeper Bevy integration.
+Two native Bevy terminal PoCs.
 
 ## PoCs
 
 - `poc/bevy_shadow_terminal`
-  - Bevy app.
-  - Native Rust terminal core (`shadow-terminal` / WezTerm core) rendered inside Bevy UI.
-  - Minimal, text-only rendering for now.
-- `poc/xterm_web`
-  - Rust websocket server + PTY backend.
-  - Browser frontend using `xterm.js`.
-  - Represents the browser/offscreen-Chromium path without the heavier embedding work yet.
+  - Bevy app
+  - terminal core: `shadow-terminal` / WezTerm core
+- `poc/bevy_alacritty_terminal`
+  - Bevy app
+  - terminal core: `alacritty_terminal` + `portable-pty`
+
+Both are intentionally minimal:
+- embedded in a Bevy window
+- shell-backed PTY
+- basic keyboard forwarding
+- demo buttons for `pwd`, `ls`, `clear`, `top`, `vi`
 
 ## Run
-
-### Native Bevy PoC
 
 ```bash
 cd ~/code/neozeus
 cargo run -p bevy_shadow_terminal
+cargo run -p bevy_alacritty_terminal
 ```
 
-Controls:
+## Current limitation
 
-- type directly into the terminal
-- `Enter`, `Backspace`, `Tab`, arrows, `Esc` are mapped
-- `Ctrl+C`, `Ctrl+D`, `Ctrl+L`, `Ctrl+U` are mapped
-- buttons send a few demo commands
-
-### xterm.js PoC
-
-```bash
-cd ~/code/neozeus
-cargo run -p xterm_web
-```
-
-Then open:
-
-- <http://127.0.0.1:3001>
-
-## Notes
-
-- The Bevy PoC is intentionally minimal: it proves the native-core path and input loop, not final rendering quality.
-- The xterm.js PoC is intentionally browser-based: it proves the frontend stack we'd later embed offscreen if that path wins.
+Rendering is plain monospace text for both PoCs right now. The goal here is backend/input validation first, not final terminal-quality rendering.

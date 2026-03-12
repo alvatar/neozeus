@@ -1,0 +1,11 @@
+[package]
+name = "bevy_alacritty_terminal"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+alacritty_terminal = "0.25.1"
+bevy = "0.18.1"
+bevy_egui = "0.39.1"
+portable-pty.workspace = true
