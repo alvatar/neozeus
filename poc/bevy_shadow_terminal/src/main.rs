@@ -393,9 +393,11 @@ fn ui_terminal(
         });
     });
 
+    let use_custom_font = matches!(font_state.report.as_ref(), Some(Ok(_)));
+
     egui::CentralPanel::default().show(ctx, |ui| {
         if let Some(surface) = &view.latest.surface {
-            paint_terminal(ui, surface);
+            paint_terminal(ui, surface, use_custom_font);
         } else {
             ui.label("terminal not available");
         }

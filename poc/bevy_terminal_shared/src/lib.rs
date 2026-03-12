@@ -147,7 +147,7 @@ fn insert_font_face(
     Ok(())
 }
 
-pub fn paint_terminal(ui: &mut egui::Ui, surface: &TerminalSurface) {
+pub fn paint_terminal(ui: &mut egui::Ui, surface: &TerminalSurface, use_custom_font: bool) {
     let available = ui.available_size();
     let desired = Vec2::new(available.x.max(64.0), available.y.max(64.0));
     let (response, painter) = ui.allocate_painter(desired, egui::Sense::click());
@@ -159,10 +159,13 @@ pub fn paint_terminal(ui: &mut egui::Ui, surface: &TerminalSurface) {
         return;
     }
 
-    let sample_font = FontId::new(
-        FONT_METRIC_SAMPLE_SIZE,
-        FontFamily::Name(Arc::from(TERMINAL_FONT_FAMILY_NAME)),
-    );
+    let font_family = if use_custom_font {
+        FontFamily::Name(Arc::from(TERMINAL_FONT_FAMILY_NAME))
+    } else {
+        FontFamily::Monospace
+    };
+
+    let sample_font = FontId::new(FONT_METRIC_SAMPLE_SIZE, font_family.clone());
     let sample_galley = painter.layout_no_wrap("M".to_owned(), sample_font, Color32::WHITE);
     let sample_size = sample_galley.size();
     let glyph_w = sample_size.x.max(1.0);
@@ -181,10 +184,7 @@ pub fn paint_terminal(ui: &mut egui::Ui, surface: &TerminalSurface) {
     let grid_rect = Rect::from_min_size(grid_min, grid_size);
 
     let font_scale = (cell_w / glyph_w).min(cell_h / glyph_h) * 0.98;
-    let font = FontId::new(
-        (FONT_METRIC_SAMPLE_SIZE * font_scale).max(6.0),
-        FontFamily::Name(Arc::from(TERMINAL_FONT_FAMILY_NAME)),
-    );
+    let font = FontId::new((FONT_METRIC_SAMPLE_SIZE * font_scale).max(6.0), font_family);
 
     for y in 0..surface.rows {
         for x in 0..surface.cols {
