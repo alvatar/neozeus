@@ -84,6 +84,7 @@ struct TerminalView {
 #[derive(Resource, Default)]
 struct TerminalFontState {
     report: Option<Result<TerminalFontReport, String>>,
+    custom_font_ready: bool,
 }
 
 #[derive(Clone, Default, PartialEq)]
@@ -330,12 +331,17 @@ fn configure_terminal_fonts(
     mut contexts: EguiContexts,
     mut font_state: ResMut<TerminalFontState>,
 ) -> Result {
-    if font_state.report.is_some() {
+    if font_state.report.is_none() {
+        let ctx = contexts.ctx_mut()?;
+        font_state.report = Some(install_terminal_fonts(ctx));
+        font_state.custom_font_ready = false;
         return Ok(());
     }
 
-    let ctx = contexts.ctx_mut()?;
-    font_state.report = Some(install_terminal_fonts(ctx));
+    if !font_state.custom_font_ready {
+        font_state.custom_font_ready = matches!(font_state.report.as_ref(), Some(Ok(_)));
+    }
+
     Ok(())
 }
 
@@ -393,7 +399,7 @@ fn ui_terminal(
         });
     });
 
-    let use_custom_font = matches!(font_state.report.as_ref(), Some(Ok(_)));
+    let use_custom_font = font_state.custom_font_ready;
 
     egui::CentralPanel::default().show(ctx, |ui| {
         if let Some(surface) = &view.latest.surface {
