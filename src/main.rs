@@ -1925,40 +1925,6 @@ fn rasterize_terminal_glyph(
         borrowed.shape_until_scroll(false);
     }
 
-    let mut min_x = i32::MAX;
-    let mut min_y = i32::MAX;
-    let mut max_x = i32::MIN;
-    let mut max_y = i32::MIN;
-
-    for run in buffer.layout_runs() {
-        for glyph in run.glyphs {
-            let physical = glyph.physical((0.0, run.line_y), 1.0);
-            let Some(image) = text_renderer
-                .swash_cache
-                .get_image(font_system, physical.cache_key)
-            else {
-                continue;
-            };
-            let left = physical.x + image.placement.left;
-            let top = physical.y - image.placement.top;
-            min_x = min_x.min(left);
-            min_y = min_y.min(top);
-            max_x = max_x.max(left + image.placement.width as i32);
-            max_y = max_y.max(top + image.placement.height as i32);
-        }
-    }
-
-    let (shift_x, shift_y) = if min_x <= max_x && min_y <= max_y {
-        let content_width = (max_x - min_x).max(0);
-        let content_height = (max_y - min_y).max(0);
-        (
-            ((width as i32 - content_width).max(0) / 2) - min_x,
-            ((height as i32 - content_height).max(0) / 2) - min_y,
-        )
-    } else {
-        (0, 0)
-    };
-
     let base_color = CtColor::rgb(0xFF, 0xFF, 0xFF);
     for run in buffer.layout_runs() {
         for glyph in run.glyphs {
@@ -1974,8 +1940,8 @@ fn rasterize_terminal_glyph(
                     } else {
                         [255, 255, 255, rgba[3]]
                     };
-                    let target_x = physical.x + x + shift_x;
-                    let target_y = physical.y + y + shift_y;
+                    let target_x = physical.x + x;
+                    let target_y = physical.y + y;
                     if target_x < 0
                         || target_y < 0
                         || target_x >= width as i32
