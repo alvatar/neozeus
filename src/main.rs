@@ -52,8 +52,8 @@ const TERMINAL_MARGIN: f32 = 48.0;
 const CURSOR_Z: f32 = 2.0;
 const TEXT_Z: f32 = 1.0;
 const BG_Z: f32 = 0.0;
-const DEFAULT_CELL_HEIGHT_PX: u32 = 32;
-const DEFAULT_CELL_WIDTH_PX: u32 = 18;
+const DEFAULT_CELL_HEIGHT_PX: u32 = 24;
+const DEFAULT_CELL_WIDTH_PX: u32 = 14;
 const TERMINAL_WORLD_HEIGHT: f32 = 8.0;
 const GPU_NOT_FOUND_PANIC_FRAGMENT: &str = "Unable to find a GPU!";
 
@@ -133,7 +133,6 @@ fn configure_app(app: &mut App) {
         (
             poll_terminal_snapshots,
             configure_terminal_fonts,
-            ensure_terminal_dynamic_font_helpers,
             sync_terminal_font_helpers,
             sync_terminal_texture,
             drag_terminal_plane,
@@ -321,9 +320,6 @@ struct TerminalFontState {
     primary_font: Option<Handle<Font>>,
     private_use_font: Option<Handle<Font>>,
     emoji_font: Option<Handle<Font>>,
-    dynamic_fonts: HashMap<PathBuf, Handle<Font>>,
-    dynamic_font_entities: HashMap<PathBuf, Entity>,
-    dynamic_char_fonts: HashMap<char, PathBuf>,
 }
 
 #[derive(Resource)]
@@ -388,7 +384,6 @@ enum TerminalFontRole {
     Primary,
     PrivateUse,
     Emoji,
-    Dynamic,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -1244,78 +1239,10 @@ fn fc_match_face(query: &str, source: &str) -> Result<TerminalFontFace, String> 
     })
 }
 
-fn ensure_terminal_dynamic_font_helpers(
-    mut commands: Commands,
-    view: Res<TerminalView>,
-    mut font_assets: ResMut<Assets<Font>>,
-    mut font_state: ResMut<TerminalFontState>,
-    texture_state: Res<TerminalTextureState>,
-) {
-    let Some(surface) = &view.latest.surface else {
-        return;
-    };
-    let Some(Ok(report)) = font_state.report.as_ref() else {
-        return;
-    };
-    let requested_family = report.requested_family.clone();
-
-    let font_size = texture_state.cell_size.y.max(1) as f32 * 0.9;
-    for cell in &surface.cells {
-        let Some(ch) = text_requires_dynamic_font(&cell.text) else {
-            continue;
-        };
-        if font_state.dynamic_char_fonts.contains_key(&ch) {
-            continue;
-        }
-
-        let query = format!("{}:charset={:X}", requested_family, ch as u32);
-        let face = fc_match_face(&query, "dynamic terminal glyph fallback").or_else(|_| {
-            fc_match_face(
-                &format!("monospace:charset={:X}", ch as u32),
-                "generic glyph fallback",
-            )
-        });
-
-        let Ok(face) = face else {
-            continue;
-        };
-
-        let handle = if let Some(handle) = font_state.dynamic_fonts.get(&face.path) {
-            handle.clone()
-        } else {
-            match load_font_handle(&mut font_assets, &face.path) {
-                Ok(handle) => {
-                    font_state
-                        .dynamic_fonts
-                        .insert(face.path.clone(), handle.clone());
-                    handle
-                }
-                Err(_) => continue,
-            }
-        };
-
-        if !font_state.dynamic_font_entities.contains_key(&face.path) {
-            let entity = commands
-                .spawn((TextFont {
-                    font: handle.clone(),
-                    font_size,
-                    ..default()
-                },))
-                .id();
-            font_state
-                .dynamic_font_entities
-                .insert(face.path.clone(), entity);
-        }
-
-        font_state.dynamic_char_fonts.insert(ch, face.path);
-    }
-}
-
 fn sync_terminal_font_helpers(
     font_state: Res<TerminalFontState>,
     texture_state: Res<TerminalTextureState>,
     mut helper_fonts: Query<(&TerminalFontRole, &mut TextFont)>,
-    mut dynamic_helper_fonts: Query<&mut TextFont, Without<TerminalFontRole>>,
 ) {
     if (!font_state.is_changed() && !texture_state.is_changed())
         || texture_state.helper_entities.is_none()
@@ -1349,16 +1276,6 @@ fn sync_terminal_font_helpers(
                 {
                     text_font.font = handle.clone();
                 }
-            }
-            TerminalFontRole::Dynamic => {}
-        }
-    }
-
-    for (path, entity) in &font_state.dynamic_font_entities {
-        if let Some(handle) = font_state.dynamic_fonts.get(path) {
-            if let Ok(mut text_font) = dynamic_helper_fonts.get_mut(*entity) {
-                text_font.font = handle.clone();
-                text_font.font_size = font_size;
             }
         }
     }
@@ -1446,11 +1363,11 @@ fn repaint_terminal_image(
                 continue;
             }
 
-            let (helper_entity, preserve_color) =
-                select_terminal_font_target(&cell.text, font_state, helper_entities);
+            let (font_role, helper_entity, preserve_color) =
+                select_terminal_font_role(&cell.text, font_state, helper_entities);
             let cache_key = TerminalGlyphCacheKey {
                 text: cell.text.clone(),
-                font_role: terminal_font_role_for_entity(helper_entity, helper_entities),
+                font_role,
                 width_cells: cell.width,
                 cell_width: cell_size.x,
                 cell_height: cell_size.y,
@@ -1476,49 +1393,24 @@ fn repaint_terminal_image(
     }
 }
 
-fn text_requires_dynamic_font(text: &str) -> Option<char> {
-    text.chars().find(|ch| {
-        !ch.is_ascii() && !is_emoji_like(*ch) && !is_private_use_like(*ch) && !ch.is_control()
-    })
-}
-
-fn terminal_font_role_for_entity(
-    entity: Entity,
-    helper_entities: TerminalFontEntities,
-) -> TerminalFontRole {
-    if entity == helper_entities.emoji {
-        TerminalFontRole::Emoji
-    } else if entity == helper_entities.private_use {
-        TerminalFontRole::PrivateUse
-    } else if entity == helper_entities.primary {
-        TerminalFontRole::Primary
-    } else {
-        TerminalFontRole::Dynamic
-    }
-}
-
-fn select_terminal_font_target(
+fn select_terminal_font_role(
     text: &str,
     font_state: &TerminalFontState,
     helper_entities: TerminalFontEntities,
-) -> (Entity, bool) {
+) -> (TerminalFontRole, Entity, bool) {
     if text.chars().any(is_emoji_like) && font_state.emoji_font.is_some() {
-        return (helper_entities.emoji, true);
+        return (TerminalFontRole::Emoji, helper_entities.emoji, true);
     }
 
     if text.chars().any(is_private_use_like) && font_state.private_use_font.is_some() {
-        return (helper_entities.private_use, false);
+        return (
+            TerminalFontRole::PrivateUse,
+            helper_entities.private_use,
+            false,
+        );
     }
 
-    if let Some(ch) = text_requires_dynamic_font(text) {
-        if let Some(path) = font_state.dynamic_char_fonts.get(&ch) {
-            if let Some(entity) = font_state.dynamic_font_entities.get(path) {
-                return (*entity, false);
-            }
-        }
-    }
-
-    (helper_entities.primary, false)
+    (TerminalFontRole::Primary, helper_entities.primary, false)
 }
 
 fn rasterize_terminal_glyph(
@@ -1736,23 +1628,12 @@ fn blend_over_pixel(buffer: &mut [u8], width: u32, x: u32, y: u32, source: [u8; 
 }
 
 fn blend_rgba_in_place(dst: &mut [u8], source: [u8; 4]) {
-    let src_alpha = source[3] as f32 / 255.0;
-    let dst_alpha = dst[3] as f32 / 255.0;
-    let out_alpha = src_alpha + dst_alpha * (1.0 - src_alpha);
-
-    if out_alpha <= f32::EPSILON {
-        dst.copy_from_slice(&[0, 0, 0, 0]);
-        return;
-    }
-
-    for channel in 0..3 {
-        let src = source[channel] as f32 / 255.0;
-        let dst_value = dst[channel] as f32 / 255.0;
-        let out = (src * src_alpha + dst_value * dst_alpha * (1.0 - src_alpha)) / out_alpha;
-        dst[channel] = (out * 255.0).round() as u8;
-    }
-
-    dst[3] = (out_alpha * 255.0).round() as u8;
+    let src_alpha = source[3] as u16;
+    let inv_alpha = 255_u16.saturating_sub(src_alpha);
+    dst[0] = ((source[0] as u16 * src_alpha + dst[0] as u16 * inv_alpha) / 255) as u8;
+    dst[1] = ((source[1] as u16 * src_alpha + dst[1] as u16 * inv_alpha) / 255) as u8;
+    dst[2] = ((source[2] as u16 * src_alpha + dst[2] as u16 * inv_alpha) / 255) as u8;
+    dst[3] = 255;
 }
 
 fn sync_terminal_plane_transform(
