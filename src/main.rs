@@ -6,6 +6,7 @@ use alacritty_terminal::{
 };
 use bevy::{
     asset::RenderAssetUsages,
+    camera::visibility::NoFrustumCulling,
     image::ImageSampler,
     input::{
         keyboard::KeyboardInput,
@@ -24,6 +25,10 @@ use bevy::{
     winit::{EventLoopProxy, EventLoopProxyWrapper, WinitSettings, WinitUserEvent},
 };
 use bevy_egui::{egui, EguiContexts, EguiPlugin, EguiPrimaryContextPass};
+use bevy_vello::{
+    prelude::{kurbo, peniko, VelloScene2d, VelloView},
+    vello, VelloPlugin,
+};
 use cosmic_text::{
     fontdb, Attrs as CtAttrs, Buffer as CtBuffer, Color as CtColor, Family as CtFamily,
     FontSystem as CtFontSystem, Metrics as CtMetrics, Shaping as CtShaping,
@@ -60,6 +65,7 @@ const DEFAULT_CELL_WIDTH_PX: u32 = 14;
 const GPU_NOT_FOUND_PANIC_FRAGMENT: &str = "Unable to find a GPU!";
 const DEBUG_LOG_PATH: &str = "/tmp/neozeus-debug.log";
 const DEBUG_TEXTURE_DUMP_PATH: &str = "/tmp/neozeus-texture.ppm";
+const EVA_DEMO_Z: f32 = 20.0;
 
 fn main() {
     let _ = fs::write(DEBUG_LOG_PATH, "");
@@ -125,7 +131,7 @@ fn configure_app(app: &mut App) {
                 ..default()
             }),
     )
-    .add_plugins(EguiPlugin::default());
+    .add_plugins((EguiPlugin::default(), VelloPlugin::default()));
 
     let event_loop_proxy = {
         let proxy = app.world().resource::<EventLoopProxyWrapper>();
@@ -143,6 +149,7 @@ fn configure_app(app: &mut App) {
         .insert_resource(TerminalTextureState::default())
         .insert_resource(TerminalGlyphCache::default())
         .insert_resource(TerminalTextRenderer::default())
+        .insert_resource(EvaVectorDemoState::default())
         .add_systems(Startup, setup_scene)
         .add_systems(
             Update,
@@ -155,6 +162,7 @@ fn configure_app(app: &mut App) {
                 zoom_terminal_plane,
                 sync_terminal_plane_transform,
                 sync_terminal_plane,
+                sync_eva_vector_demo,
                 forward_keyboard_input,
             )
                 .chain(),
@@ -197,12 +205,19 @@ fn setup_scene(
 ) {
     let image_handle = images.add(create_terminal_image(UVec2::ONE));
 
-    commands.spawn((Camera2d, TerminalCameraMarker));
+    commands.spawn((Camera2d, VelloView, TerminalCameraMarker));
 
     commands.spawn((
         Sprite::from_image(image_handle.clone()),
         Transform::default(),
         TerminalPlaneMarker,
+    ));
+
+    commands.spawn((
+        VelloScene2d::default(),
+        Transform::from_xyz(0.0, 0.0, EVA_DEMO_Z),
+        NoFrustumCulling,
+        EvaVectorDemoMarker,
     ));
 
     let primary = commands
@@ -537,6 +552,17 @@ struct TerminalPointerState {
     scroll_drag_remainder_px: f32,
 }
 
+#[derive(Resource)]
+struct EvaVectorDemoState {
+    enabled: bool,
+}
+
+impl Default for EvaVectorDemoState {
+    fn default() -> Self {
+        Self { enabled: true }
+    }
+}
+
 impl Default for TerminalPlaneState {
     fn default() -> Self {
         Self {
@@ -584,6 +610,9 @@ struct TerminalPlaneMarker;
 
 #[derive(Component)]
 struct TerminalCameraMarker;
+
+#[derive(Component)]
+struct EvaVectorDemoMarker;
 
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 enum TerminalFontRole {
@@ -2219,6 +2248,253 @@ fn zoom_terminal_plane(
     plane_state.focal_length = plane_state.distance;
 }
 
+fn eva_color(r: u8, g: u8, b: u8, a: u8) -> peniko::Color {
+    peniko::Color::from_rgba8(r, g, b, a)
+}
+
+fn eva_arc(center: Vec2, radius: f64, start: f64, sweep: f64, segments: usize) -> kurbo::BezPath {
+    let mut path = kurbo::BezPath::new();
+    let steps = segments.max(2);
+    for index in 0..=steps {
+        let t = index as f64 / steps as f64;
+        let angle = start + sweep * t;
+        let point = kurbo::Point::new(
+            f64::from(center.x) + radius * angle.cos(),
+            f64::from(center.y) + radius * angle.sin(),
+        );
+        if index == 0 {
+            path.move_to(point);
+        } else {
+            path.line_to(point);
+        }
+    }
+    path
+}
+
+fn eva_polyline(points: &[Vec2]) -> kurbo::BezPath {
+    let mut path = kurbo::BezPath::new();
+    for (index, point) in points.iter().enumerate() {
+        let point = kurbo::Point::new(f64::from(point.x), f64::from(point.y));
+        if index == 0 {
+            path.move_to(point);
+        } else {
+            path.line_to(point);
+        }
+    }
+    path
+}
+
+fn eva_polygon(points: &[Vec2]) -> kurbo::BezPath {
+    let mut path = eva_polyline(points);
+    path.close_path();
+    path
+}
+
+fn stroke_path(
+    scene: &mut vello::Scene,
+    width: f64,
+    color: peniko::Color,
+    path: &impl kurbo::Shape,
+) {
+    scene.stroke(
+        &kurbo::Stroke::new(width),
+        kurbo::Affine::IDENTITY,
+        color,
+        None,
+        path,
+    );
+}
+
+fn fill_path(scene: &mut vello::Scene, color: peniko::Color, path: &impl kurbo::Shape) {
+    scene.fill(
+        peniko::Fill::NonZero,
+        kurbo::Affine::IDENTITY,
+        color,
+        None,
+        path,
+    );
+}
+
+fn rebuild_eva_vector_demo_scene(scene: &mut VelloScene2d, window: &Window, elapsed: f32) {
+    let width = window.width();
+    let height = window.height();
+    let half_w = width * 0.5;
+    let half_h = height * 0.5;
+    let orange = eva_color(255, 140, 32, 230);
+    let orange_dim = eva_color(255, 140, 32, 92);
+    let orange_fill = eva_color(255, 140, 32, 28);
+    let green = eva_color(120, 255, 196, 220);
+    let green_dim = eva_color(120, 255, 196, 72);
+    let red = eva_color(255, 72, 72, 200);
+    let red_fill = eva_color(255, 72, 72, 26);
+
+    let mut built = vello::Scene::new();
+
+    let outer = kurbo::Rect::new(
+        f64::from(-half_w + 42.0),
+        f64::from(-half_h + 84.0),
+        f64::from(half_w - 42.0),
+        f64::from(half_h - 42.0),
+    );
+    stroke_path(&mut built, 2.2, orange_dim, &outer);
+
+    let left_bracket = eva_polyline(&[
+        Vec2::new(-half_w + 48.0, -half_h + 154.0),
+        Vec2::new(-half_w + 148.0, -half_h + 154.0),
+        Vec2::new(-half_w + 148.0, -half_h + 112.0),
+        Vec2::new(-half_w + 244.0, -half_h + 112.0),
+    ]);
+    stroke_path(&mut built, 5.0, orange, &left_bracket);
+
+    let right_bracket = eva_polyline(&[
+        Vec2::new(half_w - 48.0, -half_h + 154.0),
+        Vec2::new(half_w - 148.0, -half_h + 154.0),
+        Vec2::new(half_w - 148.0, -half_h + 112.0),
+        Vec2::new(half_w - 244.0, -half_h + 112.0),
+    ]);
+    stroke_path(&mut built, 5.0, orange, &right_bracket);
+
+    for index in 0..14 {
+        let y = -half_h + 168.0 + index as f32 * 28.0;
+        let width_scale = if index % 3 == 0 { 0.44 } else { 0.34 };
+        let path = eva_polyline(&[
+            Vec2::new(-half_w + 76.0, y),
+            Vec2::new(-half_w + 76.0 + width * width_scale * 0.32, y),
+        ]);
+        stroke_path(&mut built, 1.2, green_dim, &path);
+    }
+
+    let panel_rect = kurbo::RoundedRect::new(
+        f64::from(-half_w + 86.0),
+        f64::from(half_h - 300.0),
+        f64::from(-half_w + 430.0),
+        f64::from(half_h - 96.0),
+        18.0,
+    );
+    built.draw_blurred_rounded_rect(
+        kurbo::Affine::IDENTITY,
+        kurbo::Rect::new(
+            f64::from(-half_w + 98.0),
+            f64::from(half_h - 288.0),
+            f64::from(-half_w + 418.0),
+            f64::from(half_h - 108.0),
+        ),
+        orange_fill,
+        18.0,
+        10.0,
+    );
+    stroke_path(&mut built, 2.0, orange, &panel_rect);
+
+    let sweep = ((elapsed * 1.7).sin() * 0.5 + 0.5) * 220.0;
+    let sweep_bar = eva_polygon(&[
+        Vec2::new(-half_w + 112.0, half_h - 132.0),
+        Vec2::new(-half_w + 112.0 + sweep, half_h - 132.0),
+        Vec2::new(-half_w + 92.0 + sweep, half_h - 150.0),
+        Vec2::new(-half_w + 92.0, half_h - 150.0),
+    ]);
+    fill_path(&mut built, orange_fill, &sweep_bar);
+
+    for index in 0..6 {
+        let y = half_h - 246.0 + index as f32 * 28.0;
+        let row = eva_polyline(&[Vec2::new(-half_w + 110.0, y), Vec2::new(-half_w + 392.0, y)]);
+        stroke_path(&mut built, 1.1, orange_dim, &row);
+    }
+
+    let reticle_center = Vec2::new(half_w * 0.30, -half_h * 0.12);
+    for radius in [54.0, 88.0, 126.0, 172.0] {
+        stroke_path(
+            &mut built,
+            if radius < 100.0 { 2.4 } else { 1.4 },
+            if radius < 100.0 { orange } else { orange_dim },
+            &eva_arc(reticle_center, radius, 0.0, std::f64::consts::TAU, 144),
+        );
+    }
+
+    for (start, sweep, radius, color) in [
+        (-1.9, 0.9, 198.0, red),
+        (-0.35, 0.7, 146.0, orange),
+        (1.05, 0.82, 110.0, green),
+        (2.35, 0.5, 82.0, orange),
+    ] {
+        let arc = eva_arc(reticle_center, radius, start, sweep, 48);
+        stroke_path(&mut built, 7.0, color, &arc);
+    }
+
+    let sweep_angle = elapsed * 0.9;
+    let sweep_path = eva_polyline(&[
+        reticle_center,
+        reticle_center + Vec2::new(sweep_angle.cos() * 178.0, sweep_angle.sin() * 178.0),
+    ]);
+    stroke_path(&mut built, 2.0, green, &sweep_path);
+
+    let crosshair_h = eva_polyline(&[
+        reticle_center + Vec2::new(-214.0, 0.0),
+        reticle_center + Vec2::new(214.0, 0.0),
+    ]);
+    let crosshair_v = eva_polyline(&[
+        reticle_center + Vec2::new(0.0, -214.0),
+        reticle_center + Vec2::new(0.0, 214.0),
+    ]);
+    stroke_path(&mut built, 1.2, orange_dim, &crosshair_h);
+    stroke_path(&mut built, 1.2, orange_dim, &crosshair_v);
+
+    let waveform_origin = Vec2::new(-width * 0.14, height * 0.23);
+    let mut waveform_points = Vec::with_capacity(72);
+    for index in 0..72 {
+        let x = waveform_origin.x + index as f32 * 12.0;
+        let normalized = index as f32 / 71.0;
+        let envelope = 1.0 - ((normalized - 0.52).abs() * 1.4).clamp(0.0, 1.0);
+        let y = waveform_origin.y
+            + (elapsed * 2.8 + normalized * 10.0).sin() * 26.0 * envelope
+            + (elapsed * 0.8 + normalized * 18.0).cos() * 8.0;
+        waveform_points.push(Vec2::new(x, y));
+    }
+    let waveform = eva_polyline(&waveform_points);
+    stroke_path(&mut built, 2.0, green, &waveform);
+
+    let warning_band = eva_polygon(&[
+        Vec2::new(width * 0.08, height * 0.28),
+        Vec2::new(width * 0.32, height * 0.18),
+        Vec2::new(width * 0.34, height * 0.23),
+        Vec2::new(width * 0.10, height * 0.33),
+    ]);
+    fill_path(&mut built, red_fill, &warning_band);
+    stroke_path(&mut built, 2.6, red, &warning_band);
+
+    for index in 0..7 {
+        let offset = index as f32 * 34.0;
+        let slash = eva_polyline(&[
+            Vec2::new(width * 0.11 + offset, height * 0.33),
+            Vec2::new(width * 0.16 + offset, height * 0.20),
+        ]);
+        stroke_path(&mut built, 3.0, red, &slash);
+    }
+
+    let lower_frame = eva_polyline(&[
+        Vec2::new(-width * 0.44, height * 0.34),
+        Vec2::new(-width * 0.10, height * 0.34),
+        Vec2::new(-width * 0.08, height * 0.30),
+        Vec2::new(width * 0.06, height * 0.30),
+    ]);
+    stroke_path(&mut built, 4.0, orange, &lower_frame);
+
+    *scene = VelloScene2d::from(built);
+}
+
+fn sync_eva_vector_demo(
+    state: Res<EvaVectorDemoState>,
+    time: Res<Time>,
+    primary_window: Single<&Window, With<PrimaryWindow>>,
+    mut scene: Single<&mut VelloScene2d, With<EvaVectorDemoMarker>>,
+) {
+    if !state.enabled {
+        **scene = VelloScene2d::from(vello::Scene::new());
+        return;
+    }
+
+    rebuild_eva_vector_demo_scene(&mut scene, &primary_window, time.elapsed_secs());
+}
+
 #[allow(
     clippy::too_many_arguments,
     reason = "legacy per-cell renderer kept temporarily while texture renderer stabilizes"
@@ -2764,6 +3040,7 @@ fn ui_overlay(
     view: Res<TerminalView>,
     font_state: Res<TerminalFontState>,
     mut plane_state: ResMut<TerminalPlaneState>,
+    mut eva_demo: ResMut<EvaVectorDemoState>,
 ) -> Result {
     let ctx = contexts.ctx_mut()?;
 
@@ -2822,7 +3099,9 @@ fn ui_overlay(
                 plane_state.offset.x, plane_state.offset.y
             ));
             ui.separator();
-            ui.label("Shift+MMB drag: pan · Shift+wheel: zoom");
+            ui.label("MMB drag: scrollback · Shift+MMB drag: pan · Shift+wheel: zoom");
+            ui.separator();
+            ui.checkbox(&mut eva_demo.enabled, "EVA vector demo");
             ui.separator();
             if ui.button("reset view").clicked() {
                 plane_state.yaw = 0.0;
