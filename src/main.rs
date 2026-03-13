@@ -7,7 +7,11 @@ use alacritty_terminal::{
 use bevy::{
     asset::RenderAssetUsages,
     image::ImageSampler,
-    input::{keyboard::KeyboardInput, mouse::MouseMotion, ButtonState},
+    input::{
+        keyboard::KeyboardInput,
+        mouse::{MouseMotion, MouseScrollUnit, MouseWheel},
+        ButtonState,
+    },
     prelude::*,
     render::{
         render_resource::{Extent3d, TextureDimension, TextureFormat},
@@ -132,6 +136,7 @@ fn configure_app(app: &mut App) {
             sync_terminal_font_helpers,
             sync_terminal_texture,
             drag_terminal_plane,
+            zoom_terminal_plane,
             sync_terminal_plane_transform,
             sync_terminal_plane,
             forward_keyboard_input,
@@ -323,6 +328,7 @@ struct TerminalPlaneState {
     pitch: f32,
     distance: f32,
     focal_length: f32,
+    offset: Vec2,
 }
 
 impl Default for TerminalPlaneState {
@@ -332,6 +338,7 @@ impl Default for TerminalPlaneState {
             pitch: 0.0,
             distance: 10.0,
             focal_length: 10.0,
+            offset: Vec2::ZERO,
         }
     }
 }
@@ -1644,7 +1651,7 @@ fn sync_terminal_plane_transform(
         texture_state.texture_size.x as f32 / texture_state.texture_size.y as f32
     };
 
-    plane_transform.translation = Vec3::ZERO;
+    plane_transform.translation = plane_state.offset.extend(0.0);
     plane_transform.rotation =
         Quat::from_rotation_y(plane_state.yaw) * Quat::from_rotation_x(plane_state.pitch);
     plane_transform.scale = Vec3::new(TERMINAL_WORLD_HEIGHT * aspect, TERMINAL_WORLD_HEIGHT, 1.0);
@@ -1655,6 +1662,7 @@ fn sync_terminal_plane_transform(
 
 fn drag_terminal_plane(
     mouse_buttons: Res<ButtonInput<MouseButton>>,
+    keys: Res<ButtonInput<KeyCode>>,
     mut mouse_motion: MessageReader<MouseMotion>,
     primary_window: Single<&Window, With<PrimaryWindow>>,
     mut plane_state: ResMut<TerminalPlaneState>,
@@ -1663,13 +1671,44 @@ fn drag_terminal_plane(
         .read()
         .fold(Vec2::ZERO, |acc, event| acc + event.delta);
 
-    if !primary_window.focused || !mouse_buttons.pressed(MouseButton::Middle) || delta == Vec2::ZERO
+    let shift = keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight);
+    if !primary_window.focused
+        || !shift
+        || !mouse_buttons.pressed(MouseButton::Middle)
+        || delta == Vec2::ZERO
     {
         return;
     }
 
-    plane_state.yaw += delta.x * 0.005;
-    plane_state.pitch = (plane_state.pitch - delta.y * 0.005).clamp(-1.1, 1.1);
+    let pan_scale = plane_state.distance / primary_window.height().max(1.0);
+    plane_state.offset.x += delta.x * pan_scale;
+    plane_state.offset.y -= delta.y * pan_scale;
+}
+
+fn zoom_terminal_plane(
+    keys: Res<ButtonInput<KeyCode>>,
+    primary_window: Single<&Window, With<PrimaryWindow>>,
+    mut mouse_wheel: MessageReader<MouseWheel>,
+    mut plane_state: ResMut<TerminalPlaneState>,
+) {
+    let shift = keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight);
+    if !primary_window.focused || !shift {
+        return;
+    }
+
+    let zoom_delta = mouse_wheel.read().fold(0.0, |acc, event| {
+        acc + match event.unit {
+            MouseScrollUnit::Line => event.y,
+            MouseScrollUnit::Pixel => event.y / 24.0,
+        }
+    });
+
+    if zoom_delta == 0.0 {
+        return;
+    }
+
+    plane_state.distance = (plane_state.distance - zoom_delta * 0.8).clamp(2.0, 40.0);
+    plane_state.focal_length = plane_state.distance;
 }
 
 #[allow(
@@ -2137,11 +2176,10 @@ fn poll_terminal_snapshots(bridge: Res<TerminalBridge>, mut view: ResMut<Termina
 fn forward_keyboard_input(
     mut messages: MessageReader<KeyboardInput>,
     keys: Res<ButtonInput<KeyCode>>,
-    mouse_buttons: Res<ButtonInput<MouseButton>>,
     bridge: Res<TerminalBridge>,
     primary_window: Single<&Window, With<PrimaryWindow>>,
 ) {
-    if !primary_window.focused || mouse_buttons.pressed(MouseButton::Middle) {
+    if !primary_window.focused {
         return;
     }
 
@@ -2238,15 +2276,21 @@ fn ui_overlay(
                     ui.separator();
                 }
             }
-            ui.label(format!("yaw {:.2}", plane_state.yaw));
+            ui.label(format!("zoom {:.2}", plane_state.distance));
             ui.separator();
-            ui.label(format!("pitch {:.2}", plane_state.pitch));
+            ui.label(format!(
+                "offset {:.2},{:.2}",
+                plane_state.offset.x, plane_state.offset.y
+            ));
             ui.separator();
-            ui.label("MMB drag: tilt terminal plane");
+            ui.label("Shift+MMB drag: pan · Shift+wheel: zoom");
             ui.separator();
-            if ui.button("reset tilt").clicked() {
+            if ui.button("reset view").clicked() {
                 plane_state.yaw = 0.0;
                 plane_state.pitch = 0.0;
+                plane_state.distance = 10.0;
+                plane_state.focal_length = 10.0;
+                plane_state.offset = Vec2::ZERO;
             }
             if ui.button("pwd").clicked() {
                 bridge.send(TerminalCommand::SendCommand("pwd".into()));
