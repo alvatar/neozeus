@@ -5,18 +5,27 @@ use alacritty_terminal::{
     vte::ansi::{self, Color as AnsiColor, CursorShape, NamedColor, Rgb},
 };
 use bevy::{
+    asset::RenderAssetUsages,
+    image::ImageSampler,
     input::{keyboard::KeyboardInput, mouse::MouseMotion, ButtonState},
     prelude::*,
-    render::{settings::WgpuSettings, RenderPlugin},
+    render::{
+        render_resource::{Extent3d, TextureDimension, TextureFormat},
+        settings::WgpuSettings,
+        RenderPlugin,
+    },
     sprite::Anchor,
-    text::{Font, TextBounds, TextColor, TextFont},
+    text::{
+        ComputedTextBlock, CosmicFontSystem, Font, FontAtlasSet, FontHinting, Justify, LineBreak,
+        LineHeight, SwashCache, TextBounds, TextColor, TextFont, TextLayoutInfo, TextPipeline,
+    },
     window::PrimaryWindow,
 };
 use bevy_egui::{egui, EguiContexts, EguiPlugin, EguiPrimaryContextPass};
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 use std::{
     any::Any,
-    collections::BTreeSet,
+    collections::{BTreeSet, HashMap},
     env,
     ffi::OsString,
     fs,
@@ -39,6 +48,9 @@ const TERMINAL_MARGIN: f32 = 48.0;
 const CURSOR_Z: f32 = 2.0;
 const TEXT_Z: f32 = 1.0;
 const BG_Z: f32 = 0.0;
+const DEFAULT_CELL_HEIGHT_PX: u32 = 24;
+const DEFAULT_CELL_WIDTH_PX: u32 = 14;
+const TERMINAL_WORLD_HEIGHT: f32 = 8.0;
 const GPU_NOT_FOUND_PANIC_FRAGMENT: &str = "Unable to find a GPU!";
 
 fn main() {
@@ -109,13 +121,18 @@ fn configure_app(app: &mut App) {
     .insert_resource(TerminalFontState::default())
     .insert_resource(TerminalPlaneState::default())
     .insert_resource(TerminalSceneState::default())
-    .add_systems(Startup, setup_camera)
+    .insert_resource(TerminalTextureState::default())
+    .insert_resource(TerminalGlyphCache::default())
+    .add_systems(Startup, setup_scene)
     .add_systems(
         Update,
         (
             poll_terminal_snapshots,
             configure_terminal_fonts,
+            sync_terminal_font_helpers,
+            sync_terminal_texture,
             drag_terminal_plane,
+            sync_terminal_plane_transform,
             sync_terminal_plane,
             forward_keyboard_input,
         )
@@ -152,8 +169,91 @@ fn panic_payload_message(payload: &(dyn Any + Send)) -> Option<&str> {
     }
 }
 
-fn setup_camera(mut commands: Commands) {
-    commands.spawn(Camera2d);
+fn setup_scene(
+    mut commands: Commands,
+    mut images: ResMut<Assets<Image>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut texture_state: ResMut<TerminalTextureState>,
+) {
+    let image_handle = images.add(create_terminal_image(UVec2::ONE));
+    let material_handle = materials.add(StandardMaterial {
+        base_color_texture: Some(image_handle.clone()),
+        unlit: true,
+        cull_mode: None,
+        ..default()
+    });
+
+    commands.spawn((
+        Camera3d::default(),
+        Transform::from_xyz(0.0, 0.0, 10.0).looking_at(Vec3::ZERO, Vec3::Y),
+        TerminalCameraMarker,
+    ));
+
+    commands.spawn((
+        Mesh3d(meshes.add(Rectangle::new(1.0, 1.0))),
+        MeshMaterial3d(material_handle.clone()),
+        Transform::default(),
+        TerminalPlaneMarker,
+    ));
+
+    let primary = commands
+        .spawn((
+            TerminalFontRole::Primary,
+            TextFont {
+                font_size: DEFAULT_CELL_HEIGHT_PX as f32 * 0.9,
+                ..default()
+            },
+        ))
+        .id();
+    let private_use = commands
+        .spawn((
+            TerminalFontRole::PrivateUse,
+            TextFont {
+                font_size: DEFAULT_CELL_HEIGHT_PX as f32 * 0.9,
+                ..default()
+            },
+        ))
+        .id();
+    let emoji = commands
+        .spawn((
+            TerminalFontRole::Emoji,
+            TextFont {
+                font_size: DEFAULT_CELL_HEIGHT_PX as f32 * 0.9,
+                ..default()
+            },
+        ))
+        .id();
+
+    texture_state.image = Some(image_handle);
+    texture_state.helper_entities = Some(TerminalFontEntities {
+        primary,
+        private_use,
+        emoji,
+    });
+    texture_state.texture_size = UVec2::ONE;
+    texture_state.cell_size = UVec2::new(DEFAULT_CELL_WIDTH_PX, DEFAULT_CELL_HEIGHT_PX);
+}
+
+fn create_terminal_image(size: UVec2) -> Image {
+    let mut image = Image::new_fill(
+        Extent3d {
+            width: size.x.max(1),
+            height: size.y.max(1),
+            depth_or_array_layers: 1,
+        },
+        TextureDimension::D2,
+        &[
+            DEFAULT_BG.r(),
+            DEFAULT_BG.g(),
+            DEFAULT_BG.b(),
+            DEFAULT_BG.a(),
+        ],
+        TextureFormat::Rgba8UnormSrgb,
+        RenderAssetUsages::default(),
+    );
+    image.sampler = ImageSampler::nearest();
+    image
 }
 
 fn panic_payload_to_string(payload: Box<dyn std::any::Any + Send>) -> String {
@@ -230,8 +330,8 @@ impl Default for TerminalPlaneState {
         Self {
             yaw: 0.0,
             pitch: 0.0,
-            distance: 1800.0,
-            focal_length: 1800.0,
+            distance: 10.0,
+            focal_length: 10.0,
         }
     }
 }
@@ -243,6 +343,57 @@ struct TerminalSceneState {
     initialized: bool,
     last_surface: Option<TerminalSurface>,
     last_layout_key: Option<PlaneLayoutKey>,
+}
+
+#[derive(Resource, Default)]
+struct TerminalTextureState {
+    image: Option<Handle<Image>>,
+    helper_entities: Option<TerminalFontEntities>,
+    texture_size: UVec2,
+    cell_size: UVec2,
+    last_surface: Option<TerminalSurface>,
+}
+
+#[derive(Resource, Default)]
+struct TerminalGlyphCache {
+    glyphs: HashMap<TerminalGlyphCacheKey, CachedTerminalGlyph>,
+}
+
+#[derive(Clone, Copy)]
+struct TerminalFontEntities {
+    primary: Entity,
+    private_use: Entity,
+    emoji: Entity,
+}
+
+#[derive(Component)]
+struct TerminalPlaneMarker;
+
+#[derive(Component)]
+struct TerminalCameraMarker;
+
+#[derive(Component, Clone, Copy, Debug, PartialEq, Eq, Hash)]
+enum TerminalFontRole {
+    Primary,
+    PrivateUse,
+    Emoji,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+struct TerminalGlyphCacheKey {
+    text: String,
+    font_role: TerminalFontRole,
+    width_cells: u8,
+    cell_width: u32,
+    cell_height: u32,
+}
+
+#[derive(Clone)]
+struct CachedTerminalGlyph {
+    width: u32,
+    height: u32,
+    pixels: Vec<u8>,
+    preserve_color: bool,
 }
 
 #[derive(Clone, Default, PartialEq)]
@@ -429,6 +580,18 @@ struct TerminalPlaneQueries<'w, 's> {
         ),
         CursorQueryFilter,
     >,
+}
+
+#[derive(bevy::ecs::system::SystemParam)]
+struct TerminalTextureRenderParams<'w, 's> {
+    images: ResMut<'w, Assets<Image>>,
+    fonts: Res<'w, Assets<Font>>,
+    text_pipeline: ResMut<'w, TextPipeline>,
+    font_system: ResMut<'w, CosmicFontSystem>,
+    swash_cache: ResMut<'w, SwashCache>,
+    font_atlas_set: ResMut<'w, FontAtlasSet>,
+    texture_atlases: ResMut<'w, Assets<TextureAtlasLayout>>,
+    helper_fonts: Query<'w, 's, &'static TextFont>,
 }
 
 #[derive(Clone, Copy)]
@@ -1069,6 +1232,427 @@ fn fc_match_face(query: &str, source: &str) -> Result<TerminalFontFace, String> 
     })
 }
 
+fn sync_terminal_font_helpers(
+    font_state: Res<TerminalFontState>,
+    texture_state: Res<TerminalTextureState>,
+    mut helper_fonts: Query<(&TerminalFontRole, &mut TextFont)>,
+) {
+    if (!font_state.is_changed() && !texture_state.is_changed())
+        || texture_state.helper_entities.is_none()
+    {
+        return;
+    }
+
+    let font_size = texture_state.cell_size.y.max(1) as f32 * 0.9;
+    for (role, mut text_font) in &mut helper_fonts {
+        text_font.font_size = font_size;
+        match role {
+            TerminalFontRole::Primary => {
+                if let Some(handle) = &font_state.primary_font {
+                    text_font.font = handle.clone();
+                }
+            }
+            TerminalFontRole::PrivateUse => {
+                if let Some(handle) = font_state
+                    .private_use_font
+                    .as_ref()
+                    .or(font_state.primary_font.as_ref())
+                {
+                    text_font.font = handle.clone();
+                }
+            }
+            TerminalFontRole::Emoji => {
+                if let Some(handle) = font_state
+                    .emoji_font
+                    .as_ref()
+                    .or(font_state.primary_font.as_ref())
+                {
+                    text_font.font = handle.clone();
+                }
+            }
+        }
+    }
+}
+
+fn sync_terminal_texture(
+    view: Res<TerminalView>,
+    font_state: Res<TerminalFontState>,
+    mut texture_state: ResMut<TerminalTextureState>,
+    mut glyph_cache: ResMut<TerminalGlyphCache>,
+    mut render: TerminalTextureRenderParams,
+) {
+    let Some(surface) = &view.latest.surface else {
+        texture_state.last_surface = None;
+        return;
+    };
+
+    if font_state.primary_font.is_none() {
+        return;
+    }
+
+    if font_state.is_changed() {
+        glyph_cache.glyphs.clear();
+    }
+
+    if texture_state.last_surface.as_ref() == Some(surface) && !font_state.is_changed() {
+        return;
+    }
+
+    let Some(image_handle) = texture_state.image.clone() else {
+        return;
+    };
+    let Some(helper_entities) = texture_state.helper_entities else {
+        return;
+    };
+
+    let cell_size = texture_state.cell_size;
+    let texture_size = UVec2::new(
+        surface.cols as u32 * cell_size.x.max(1),
+        surface.rows as u32 * cell_size.y.max(1),
+    );
+
+    let mut composed = create_terminal_image(texture_size);
+    repaint_terminal_image(
+        &mut composed,
+        surface,
+        cell_size,
+        helper_entities,
+        &mut render,
+        &mut glyph_cache,
+        &font_state,
+    );
+
+    if let Some(target_image) = render.images.get_mut(&image_handle) {
+        *target_image = composed;
+        texture_state.texture_size = texture_size;
+        texture_state.last_surface = Some(surface.clone());
+    }
+}
+
+fn repaint_terminal_image(
+    image: &mut Image,
+    surface: &TerminalSurface,
+    cell_size: UVec2,
+    helper_entities: TerminalFontEntities,
+    render: &mut TerminalTextureRenderParams,
+    glyph_cache: &mut TerminalGlyphCache,
+    font_state: &TerminalFontState,
+) {
+    image.clear(&[
+        DEFAULT_BG.r(),
+        DEFAULT_BG.g(),
+        DEFAULT_BG.b(),
+        DEFAULT_BG.a(),
+    ]);
+
+    for y in 0..surface.rows {
+        for x in 0..surface.cols {
+            let cell = surface.cell(x, y);
+            let origin_x = x as u32 * cell_size.x;
+            let origin_y = y as u32 * cell_size.y;
+            fill_rect(image, origin_x, origin_y, cell_size.x, cell_size.y, cell.bg);
+
+            if cell.width == 0 || cell.text.is_empty() {
+                continue;
+            }
+
+            let (font_role, helper_entity, preserve_color) =
+                select_terminal_font_role(&cell.text, font_state, helper_entities);
+            let cache_key = TerminalGlyphCacheKey {
+                text: cell.text.clone(),
+                font_role,
+                width_cells: cell.width,
+                cell_width: cell_size.x,
+                cell_height: cell_size.y,
+            };
+
+            let glyph = if let Some(glyph) = glyph_cache.glyphs.get(&cache_key) {
+                glyph.clone()
+            } else {
+                let glyph =
+                    rasterize_terminal_glyph(&cache_key, helper_entity, preserve_color, render);
+                glyph_cache.glyphs.insert(cache_key.clone(), glyph.clone());
+                glyph
+            };
+
+            blit_cached_glyph(image, origin_x, origin_y, &glyph, cell.fg);
+        }
+    }
+
+    if let Some(cursor) = &surface.cursor {
+        if cursor.visible {
+            draw_cursor(image, cursor, cell_size);
+        }
+    }
+}
+
+fn select_terminal_font_role(
+    text: &str,
+    font_state: &TerminalFontState,
+    helper_entities: TerminalFontEntities,
+) -> (TerminalFontRole, Entity, bool) {
+    if text.chars().any(is_emoji_like) && font_state.emoji_font.is_some() {
+        return (TerminalFontRole::Emoji, helper_entities.emoji, true);
+    }
+
+    if text.chars().any(is_private_use_like) && font_state.private_use_font.is_some() {
+        return (
+            TerminalFontRole::PrivateUse,
+            helper_entities.private_use,
+            false,
+        );
+    }
+
+    (TerminalFontRole::Primary, helper_entities.primary, false)
+}
+
+fn rasterize_terminal_glyph(
+    cache_key: &TerminalGlyphCacheKey,
+    helper_entity: Entity,
+    preserve_color: bool,
+    render: &mut TerminalTextureRenderParams,
+) -> CachedTerminalGlyph {
+    let width = cache_key.cell_width * u32::from(cache_key.width_cells.max(1));
+    let height = cache_key.cell_height.max(1);
+    let mut pixels = vec![0; (width * height * 4) as usize];
+
+    let Ok(text_font) = render.helper_fonts.get(helper_entity) else {
+        return CachedTerminalGlyph {
+            width,
+            height,
+            pixels,
+            preserve_color,
+        };
+    };
+
+    let bounds = TextBounds::new(width as f32, height as f32);
+    let mut computed = ComputedTextBlock::default();
+    let mut layout_info = TextLayoutInfo::default();
+
+    if render
+        .text_pipeline
+        .update_buffer(
+            &render.fonts,
+            std::iter::once((
+                helper_entity,
+                0,
+                cache_key.text.as_str(),
+                text_font,
+                Color::WHITE,
+                LineHeight::RelativeToFont(1.0),
+            )),
+            LineBreak::NoWrap,
+            Justify::Left,
+            bounds,
+            1.0,
+            &mut computed,
+            &mut render.font_system,
+            FontHinting::Enabled,
+        )
+        .is_err()
+    {
+        return CachedTerminalGlyph {
+            width,
+            height,
+            pixels,
+            preserve_color,
+        };
+    }
+
+    if render
+        .text_pipeline
+        .update_text_layout_info(
+            &mut layout_info,
+            render.helper_fonts.as_readonly(),
+            1.0,
+            &mut render.font_atlas_set,
+            &mut render.texture_atlases,
+            &mut render.images,
+            &mut computed,
+            &mut render.font_system,
+            &mut render.swash_cache,
+            bounds,
+            Justify::Left,
+        )
+        .is_err()
+    {
+        return CachedTerminalGlyph {
+            width,
+            height,
+            pixels,
+            preserve_color,
+        };
+    }
+
+    for glyph in &layout_info.glyphs {
+        let Some(atlas_layout) = render.texture_atlases.get(glyph.atlas_info.texture_atlas) else {
+            continue;
+        };
+        let Some(atlas_image) = render.images.get(glyph.atlas_info.texture) else {
+            continue;
+        };
+        let rect = atlas_layout.textures[glyph.atlas_info.location.glyph_index];
+        let dest_x = (glyph.position.x - glyph.size.x * 0.5).floor() as i32;
+        let dest_y = (glyph.position.y - glyph.size.y * 0.5).floor() as i32;
+
+        for src_y in 0..rect.height() {
+            for src_x in 0..rect.width() {
+                let target_x = dest_x + src_x as i32;
+                let target_y = dest_y + src_y as i32;
+                if target_x < 0
+                    || target_y < 0
+                    || target_x >= width as i32
+                    || target_y >= height as i32
+                {
+                    continue;
+                }
+
+                let Some(src_pixel) =
+                    atlas_image.pixel_bytes(UVec3::new(rect.min.x + src_x, rect.min.y + src_y, 0))
+                else {
+                    continue;
+                };
+
+                let source = if preserve_color {
+                    [src_pixel[0], src_pixel[1], src_pixel[2], src_pixel[3]]
+                } else {
+                    [255, 255, 255, src_pixel[3]]
+                };
+                blend_over_pixel(&mut pixels, width, target_x as u32, target_y as u32, source);
+            }
+        }
+    }
+
+    CachedTerminalGlyph {
+        width,
+        height,
+        pixels,
+        preserve_color,
+    }
+}
+
+fn blit_cached_glyph(
+    image: &mut Image,
+    origin_x: u32,
+    origin_y: u32,
+    glyph: &CachedTerminalGlyph,
+    fg: egui::Color32,
+) {
+    for y in 0..glyph.height {
+        for x in 0..glyph.width {
+            let index = ((y * glyph.width + x) * 4) as usize;
+            let pixel = &glyph.pixels[index..index + 4];
+            if pixel[3] == 0 {
+                continue;
+            }
+
+            let source = if glyph.preserve_color {
+                [pixel[0], pixel[1], pixel[2], pixel[3]]
+            } else {
+                [fg.r(), fg.g(), fg.b(), pixel[3]]
+            };
+            blend_image_pixel(image, origin_x + x, origin_y + y, source);
+        }
+    }
+}
+
+fn fill_rect(image: &mut Image, x: u32, y: u32, width: u32, height: u32, color: egui::Color32) {
+    for row in y..y.saturating_add(height) {
+        for col in x..x.saturating_add(width) {
+            if let Some(pixel) = image.pixel_bytes_mut(UVec3::new(col, row, 0)) {
+                pixel.copy_from_slice(&[color.r(), color.g(), color.b(), color.a()]);
+            }
+        }
+    }
+}
+
+fn draw_cursor(image: &mut Image, cursor: &TerminalCursor, cell_size: UVec2) {
+    let origin_x = cursor.x as u32 * cell_size.x;
+    let origin_y = cursor.y as u32 * cell_size.y;
+    let color = [cursor.color.r(), cursor.color.g(), cursor.color.b(), 160];
+
+    match cursor.shape {
+        TerminalCursorShape::Block => {
+            fill_alpha_rect(image, origin_x, origin_y, cell_size.x, cell_size.y, color);
+        }
+        TerminalCursorShape::Underline => {
+            let height = (cell_size.y / 8).max(1);
+            fill_alpha_rect(
+                image,
+                origin_x,
+                origin_y + cell_size.y.saturating_sub(height),
+                cell_size.x,
+                height,
+                [cursor.color.r(), cursor.color.g(), cursor.color.b(), 255],
+            );
+        }
+        TerminalCursorShape::Beam => {
+            let width = (cell_size.x / 10).max(1);
+            fill_alpha_rect(
+                image,
+                origin_x,
+                origin_y,
+                width,
+                cell_size.y,
+                [cursor.color.r(), cursor.color.g(), cursor.color.b(), 255],
+            );
+        }
+    }
+}
+
+fn fill_alpha_rect(image: &mut Image, x: u32, y: u32, width: u32, height: u32, color: [u8; 4]) {
+    for row in y..y.saturating_add(height) {
+        for col in x..x.saturating_add(width) {
+            blend_image_pixel(image, col, row, color);
+        }
+    }
+}
+
+fn blend_image_pixel(image: &mut Image, x: u32, y: u32, source: [u8; 4]) {
+    let Some(pixel) = image.pixel_bytes_mut(UVec3::new(x, y, 0)) else {
+        return;
+    };
+    blend_rgba_in_place(pixel, source);
+}
+
+fn blend_over_pixel(buffer: &mut [u8], width: u32, x: u32, y: u32, source: [u8; 4]) {
+    let index = ((y * width + x) * 4) as usize;
+    blend_rgba_in_place(&mut buffer[index..index + 4], source);
+}
+
+fn blend_rgba_in_place(dst: &mut [u8], source: [u8; 4]) {
+    let src_alpha = source[3] as u16;
+    let inv_alpha = 255_u16.saturating_sub(src_alpha);
+    dst[0] = ((source[0] as u16 * src_alpha + dst[0] as u16 * inv_alpha) / 255) as u8;
+    dst[1] = ((source[1] as u16 * src_alpha + dst[1] as u16 * inv_alpha) / 255) as u8;
+    dst[2] = ((source[2] as u16 * src_alpha + dst[2] as u16 * inv_alpha) / 255) as u8;
+    dst[3] = 255;
+}
+
+fn sync_terminal_plane_transform(
+    texture_state: Res<TerminalTextureState>,
+    plane_state: Res<TerminalPlaneState>,
+    mut plane_transform: Single<&mut Transform, With<TerminalPlaneMarker>>,
+    mut camera_transform: Single<
+        &mut Transform,
+        (With<TerminalCameraMarker>, Without<TerminalPlaneMarker>),
+    >,
+) {
+    let aspect = if texture_state.texture_size.y == 0 {
+        1.0
+    } else {
+        texture_state.texture_size.x as f32 / texture_state.texture_size.y as f32
+    };
+
+    plane_transform.translation = Vec3::ZERO;
+    plane_transform.rotation =
+        Quat::from_rotation_y(plane_state.yaw) * Quat::from_rotation_x(plane_state.pitch);
+    plane_transform.scale = Vec3::new(TERMINAL_WORLD_HEIGHT * aspect, TERMINAL_WORLD_HEIGHT, 1.0);
+
+    camera_transform.translation = Vec3::new(0.0, 0.0, plane_state.distance.max(1.0));
+    camera_transform.look_at(Vec3::ZERO, Vec3::Y);
+}
+
 fn drag_terminal_plane(
     mouse_buttons: Res<ButtonInput<MouseButton>>,
     mut mouse_motion: MessageReader<MouseMotion>,
@@ -1088,7 +1672,12 @@ fn drag_terminal_plane(
     plane_state.pitch = (plane_state.pitch - delta.y * 0.005).clamp(-1.1, 1.1);
 }
 
+#[allow(
+    clippy::too_many_arguments,
+    reason = "legacy per-cell renderer kept temporarily while texture renderer stabilizes"
+)]
 fn sync_terminal_plane(
+    texture_state: Option<Res<TerminalTextureState>>,
     mut commands: Commands,
     view: Res<TerminalView>,
     window: Single<&Window, With<PrimaryWindow>>,
@@ -1097,6 +1686,10 @@ fn sync_terminal_plane(
     font_state: Res<TerminalFontState>,
     mut queries: TerminalPlaneQueries,
 ) {
+    if texture_state.is_some() {
+        return;
+    }
+
     let Some(surface) = &view.latest.surface else {
         for (_, _, _, _, mut visibility) in &mut queries.bg_query {
             *visibility = Visibility::Hidden;
