@@ -54,29 +54,33 @@ cargo build >"$BUILD_LOG" 2>&1
 pkill -f "$APP" 2>/dev/null || true
 rm -f "$RUN_LOG" "$DEBUG_LOG" "$BEFORE1" "$BEFORE2" "$AFTER" "$DIFF"
 
+WINDOW_TITLE="neozeus-autoverify-$$"
+AUTOVERIFY_COMMAND='clear; for i in $(seq 1 24); do echo "__NZ_AUTOVERIFY__$i"; done'
 __NV_PRIME_RENDER_OFFLOAD=1 \
 __VK_LAYER_NV_optimus=NVIDIA_only \
 VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/nvidia_icd.json \
 WGPU_ADAPTER_NAME=nvidia \
-NEOZEUS_AUTOVERIFY_COMMAND='printf "__NZ_AUTOVERIFY__\n"' \
+NEOZEUS_WINDOW_TITLE="$WINDOW_TITLE" \
+NEOZEUS_AUTOVERIFY_COMMAND="$AUTOVERIFY_COMMAND" \
 NEOZEUS_AUTOVERIFY_DELAY_MS=5000 \
 nohup "$APP" >"$RUN_LOG" 2>&1 </dev/null &
 APP_PID=$!
 
-WINDOW_JSON=$(python - "$APP_PID" <<'PY'
+WINDOW_JSON=$(python - "$APP_PID" "$WINDOW_TITLE" <<'PY'
 import json
 import subprocess
 import sys
 import time
 
 pid = int(sys.argv[1])
+window_title = sys.argv[2]
 for _ in range(80):
     tree = json.loads(subprocess.check_output(["swaymsg", "-t", "get_tree"]))
     stack = [tree]
     while stack:
         node = stack.pop()
         if isinstance(node, dict):
-            if node.get("pid") == pid:
+            if node.get("pid") == pid and node.get("name") == window_title:
                 rect = node["rect"]
                 print(json.dumps({
                     "id": node["id"],
@@ -95,6 +99,43 @@ PY
 )
 
 CON_ID=$(jq -r '.id' <<<"$WINDOW_JSON")
+
+# Make the target window visible on the currently focused workspace/output.
+swaymsg "[con_id=${CON_ID}] move container to workspace current" >/dev/null
+swaymsg "[con_id=${CON_ID}] focus" >/dev/null
+sleep 1.0
+
+WINDOW_JSON=$(python - "$CON_ID" <<'PY'
+import json
+import subprocess
+import sys
+import time
+
+con_id = int(sys.argv[1])
+for _ in range(40):
+    tree = json.loads(subprocess.check_output(["swaymsg", "-t", "get_tree"]))
+    stack = [tree]
+    while stack:
+        node = stack.pop()
+        if isinstance(node, dict):
+            if node.get("id") == con_id:
+                rect = node["rect"]
+                print(json.dumps({
+                    "id": node["id"],
+                    "x": rect["x"],
+                    "y": rect["y"],
+                    "width": rect["width"],
+                    "height": rect["height"],
+                }))
+                sys.exit(0)
+            stack.extend(node.get("nodes", []))
+            stack.extend(node.get("floating_nodes", []))
+    time.sleep(0.25)
+
+sys.exit(1)
+PY
+)
+
 X=$(jq -r '.x' <<<"$WINDOW_JSON")
 Y=$(jq -r '.y' <<<"$WINDOW_JSON")
 WIDTH=$(jq -r '.width' <<<"$WINDOW_JSON")
@@ -106,8 +147,6 @@ CROP_H=$((HEIGHT - 120))
 GEOM="${X},${CROP_Y} ${WIDTH}x${CROP_H}"
 
 wait_for_log_quiet "$DEBUG_LOG"
-swaymsg "[con_id=${CON_ID}] focus" >/dev/null
-sleep 0.5
 grim -g "$GEOM" "$BEFORE1"
 sleep 0.7
 grim -g "$GEOM" "$BEFORE2"
@@ -144,7 +183,7 @@ if post <= threshold:
 PY
 
 grep -q 'auto-verify command dispatched' "$DEBUG_LOG"
-grep -q 'pty write command `printf "__NZ_AUTOVERIFY__\\n"`' "$DEBUG_LOG"
+grep -q 'pty write command `clear; for i in $(seq 1 24); do echo "__NZ_AUTOVERIFY__$i"; done`' "$DEBUG_LOG"
 
 echo "visible terminal verification: PASS"
 echo "artifacts: $BEFORE1 $BEFORE2 $AFTER $DIFF $RUN_LOG $DEBUG_LOG"

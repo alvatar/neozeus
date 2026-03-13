@@ -59,6 +59,7 @@ const DEFAULT_CELL_WIDTH_PX: u32 = 14;
 const TERMINAL_WORLD_HEIGHT: f32 = 8.0;
 const GPU_NOT_FOUND_PANIC_FRAGMENT: &str = "Unable to find a GPU!";
 const DEBUG_LOG_PATH: &str = "/tmp/neozeus-debug.log";
+const DEBUG_TEXTURE_DUMP_PATH: &str = "/tmp/neozeus-texture.ppm";
 
 fn main() {
     let _ = fs::write(DEBUG_LOG_PATH, "");
@@ -116,7 +117,8 @@ fn configure_app(app: &mut App) {
             })
             .set(WindowPlugin {
                 primary_window: Some(Window {
-                    title: "neozeus".into(),
+                    title: env::var("NEOZEUS_WINDOW_TITLE")
+                        .unwrap_or_else(|_| "neozeus".to_owned()),
                     resolution: (1400, 900).into(),
                     ..default()
                 }),
@@ -288,6 +290,21 @@ fn append_debug_log(message: impl AsRef<str>) {
     {
         let _ = writeln!(file, "{message}");
     }
+}
+
+fn dump_terminal_image_ppm(image: &Image, path: &Path) -> Result<(), String> {
+    let width = image.texture_descriptor.size.width;
+    let height = image.texture_descriptor.size.height;
+    let data = image
+        .data
+        .as_ref()
+        .ok_or_else(|| "image data missing".to_owned())?;
+    let mut output = Vec::with_capacity((width as usize * height as usize * 3) + 64);
+    output.extend_from_slice(format!("P6\n{} {}\n255\n", width, height).as_bytes());
+    for pixel in data.chunks_exact(4) {
+        output.extend_from_slice(&pixel[..3]);
+    }
+    fs::write(path, output).map_err(|error| format!("failed to write {}: {error}", path.display()))
 }
 
 #[derive(Clone, Default)]
@@ -1581,15 +1598,18 @@ fn sync_terminal_texture(
     mut text_renderer: ResMut<TerminalTextRenderer>,
 ) {
     let Some(surface) = &view.latest.surface else {
+        append_debug_log("texture sync: no surface");
         texture_state.last_surface = None;
         return;
     };
 
     if text_renderer.font_system.is_none() {
+        append_debug_log("texture sync: no font system");
         return;
     }
 
     if font_state.is_changed() {
+        append_debug_log("texture sync: font state changed, clearing glyph cache");
         glyph_cache.glyphs.clear();
     }
 
@@ -1598,9 +1618,11 @@ fn sync_terminal_texture(
     }
 
     let Some(image_handle) = texture_state.image.clone() else {
+        append_debug_log("texture sync: missing image handle");
         return;
     };
     let Some(helper_entities) = texture_state.helper_entities else {
+        append_debug_log("texture sync: missing helper entities");
         return;
     };
 
@@ -1610,6 +1632,10 @@ fn sync_terminal_texture(
         surface.rows as u32 * cell_size.y.max(1),
     );
 
+    append_debug_log(format!(
+        "texture sync: redraw cols={} rows={} size={}x{}",
+        surface.cols, surface.rows, texture_size.x, texture_size.y
+    ));
     let mut composed = create_terminal_image(texture_size);
     repaint_terminal_image(
         &mut composed,
@@ -1623,8 +1649,15 @@ fn sync_terminal_texture(
 
     if let Some(target_image) = images.get_mut(&image_handle) {
         *target_image = composed;
+        append_debug_log("texture sync: image uploaded");
+        if env::var_os("NEOZEUS_DUMP_TEXTURE").is_some() {
+            let _ = dump_terminal_image_ppm(target_image, Path::new(DEBUG_TEXTURE_DUMP_PATH));
+            append_debug_log("texture sync: texture dumped");
+        }
         texture_state.texture_size = texture_size;
         texture_state.last_surface = Some(surface.clone());
+    } else {
+        append_debug_log("texture sync: target image missing in assets");
     }
 }
 
@@ -1761,46 +1794,75 @@ fn rasterize_terminal_glyph(
     let metrics = CtMetrics::new(height as f32 * 0.9, height as f32);
     let mut buffer = CtBuffer::new_empty(metrics);
     {
-        let mut buffer = buffer.borrow_with(font_system);
-        buffer.set_size(Some(width as f32), Some(height as f32));
+        let mut borrowed = buffer.borrow_with(font_system);
+        borrowed.set_size(Some(width as f32), Some(height as f32));
         let attrs = terminal_text_attrs(font_role, font_state).metrics(metrics);
-        buffer.set_text(cache_key.text.as_str(), &attrs, CtShaping::Advanced, None);
-        buffer.shape_until_scroll(false);
-        let base_color = CtColor::rgb(0xFF, 0xFF, 0xFF);
-        let offset_x = width as i32 / 2;
-        let offset_y = (height as i32 * 3) / 4;
-        buffer.draw(
-            &mut text_renderer.swash_cache,
-            base_color,
-            |x, y, w, h, color| {
-                let rgba = color.as_rgba();
-                let source = if preserve_color {
-                    rgba
-                } else {
-                    [255, 255, 255, rgba[3]]
-                };
-                for row in 0..h {
-                    for col in 0..w {
-                        let target_x = offset_x + x + col as i32;
-                        let target_y = offset_y + y + row as i32;
-                        if target_x < 0
-                            || target_y < 0
-                            || target_x >= width as i32
-                            || target_y >= height as i32
-                        {
-                            continue;
-                        }
-                        blend_over_pixel(
-                            &mut pixels,
-                            width,
-                            target_x as u32,
-                            target_y as u32,
-                            source,
-                        );
+        borrowed.set_text(cache_key.text.as_str(), &attrs, CtShaping::Advanced, None);
+        borrowed.shape_until_scroll(false);
+    }
+
+    let mut min_x = i32::MAX;
+    let mut min_y = i32::MAX;
+    let mut max_x = i32::MIN;
+    let mut max_y = i32::MIN;
+
+    for run in buffer.layout_runs() {
+        for glyph in run.glyphs {
+            let physical = glyph.physical((0.0, run.line_y), 1.0);
+            let Some(image) = text_renderer
+                .swash_cache
+                .get_image(font_system, physical.cache_key)
+            else {
+                continue;
+            };
+            let left = physical.x + image.placement.left;
+            let top = physical.y - image.placement.top;
+            min_x = min_x.min(left);
+            min_y = min_y.min(top);
+            max_x = max_x.max(left + image.placement.width as i32);
+            max_y = max_y.max(top + image.placement.height as i32);
+        }
+    }
+
+    let (shift_x, shift_y) = if min_x <= max_x && min_y <= max_y {
+        let content_width = (max_x - min_x).max(0);
+        let content_height = (max_y - min_y).max(0);
+        (
+            ((width as i32 - content_width).max(0) / 2) - min_x,
+            ((height as i32 - content_height).max(0) / 2) - min_y,
+        )
+    } else {
+        (0, 0)
+    };
+
+    let base_color = CtColor::rgb(0xFF, 0xFF, 0xFF);
+    for run in buffer.layout_runs() {
+        for glyph in run.glyphs {
+            let physical = glyph.physical((0.0, run.line_y), 1.0);
+            text_renderer.swash_cache.with_pixels(
+                font_system,
+                physical.cache_key,
+                base_color,
+                |x, y, color| {
+                    let rgba = color.as_rgba();
+                    let source = if preserve_color {
+                        rgba
+                    } else {
+                        [255, 255, 255, rgba[3]]
+                    };
+                    let target_x = physical.x + x + shift_x;
+                    let target_y = physical.y + y + shift_y;
+                    if target_x < 0
+                        || target_y < 0
+                        || target_x >= width as i32
+                        || target_y >= height as i32
+                    {
+                        return;
                     }
-                }
-            },
-        );
+                    blend_over_pixel(&mut pixels, width, target_x as u32, target_y as u32, source);
+                },
+            );
+        }
     }
 
     CachedTerminalGlyph {
@@ -2663,9 +2725,11 @@ impl Drop for TerminalBridge {
 mod tests {
     use super::{
         blend_rgba_in_place, ctrl_sequence, find_kitty_config_path, format_startup_panic,
-        is_emoji_like, is_private_use_like, keyboard_input_to_terminal_command,
-        parse_kitty_config_file, resolve_alacritty_color, resolve_terminal_font_report,
-        xterm_indexed_rgb, KittyFontConfig, TerminalCommand,
+        initialize_terminal_text_renderer, is_emoji_like, is_private_use_like,
+        keyboard_input_to_terminal_command, parse_kitty_config_file, rasterize_terminal_glyph,
+        resolve_alacritty_color, resolve_terminal_font_report, xterm_indexed_rgb,
+        CachedTerminalGlyph, KittyFontConfig, TerminalCommand, TerminalFontRole, TerminalFontState,
+        TerminalGlyphCacheKey, TerminalTextRenderer,
     };
     use alacritty_terminal::vte::ansi::{Color as AnsiColor, NamedColor};
     use bevy::{
@@ -2789,6 +2853,46 @@ mod tests {
         assert!(is_private_use_like('\u{e0b0}'));
         assert!(is_emoji_like('🚀'));
         assert!(!is_private_use_like('a'));
+    }
+
+    #[test]
+    fn standalone_text_renderer_rasterizes_ascii_glyph() {
+        let report = resolve_terminal_font_report().expect("failed to resolve terminal fonts");
+        let mut renderer = TerminalTextRenderer::default();
+        initialize_terminal_text_renderer(&report, &mut renderer)
+            .expect("failed to initialize terminal text renderer");
+        let font_state = TerminalFontState {
+            report: Some(Ok(report)),
+            primary_font: None,
+            private_use_font: None,
+            emoji_font: None,
+        };
+        let glyph = rasterize_terminal_glyph(
+            &TerminalGlyphCacheKey {
+                text: "A".into(),
+                font_role: TerminalFontRole::Primary,
+                width_cells: 1,
+                cell_width: 14,
+                cell_height: 24,
+            },
+            TerminalFontRole::Primary,
+            false,
+            &mut renderer,
+            &font_state,
+        );
+        assert_glyph_has_visible_pixels(&glyph);
+    }
+
+    fn assert_glyph_has_visible_pixels(glyph: &CachedTerminalGlyph) {
+        let non_zero_alpha = glyph
+            .pixels
+            .chunks_exact(4)
+            .filter(|pixel| pixel[3] > 0)
+            .count();
+        assert!(
+            non_zero_alpha > 0,
+            "glyph rasterized to fully transparent image"
+        );
     }
 
     #[test]
