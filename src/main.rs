@@ -75,6 +75,16 @@ fn setup_camera(mut commands: Commands) {
     commands.spawn(Camera2d);
 }
 
+fn panic_payload_to_string(payload: Box<dyn std::any::Any + Send>) -> String {
+    match payload.downcast::<String>() {
+        Ok(message) => *message,
+        Err(payload) => match payload.downcast::<&'static str>() {
+            Ok(message) => (*message).to_owned(),
+            Err(_) => "unknown panic payload".to_owned(),
+        },
+    }
+}
+
 #[derive(Resource)]
 struct TerminalBridge {
     input_tx: Sender<TerminalCommand>,
@@ -86,7 +96,21 @@ impl TerminalBridge {
         let (input_tx, input_rx) = mpsc::channel();
         let (snapshot_tx, snapshot_rx) = mpsc::channel();
 
-        thread::spawn(move || terminal_worker(input_rx, snapshot_tx));
+        thread::spawn(move || {
+            let panic_snapshot_tx = snapshot_tx.clone();
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                terminal_worker(input_rx, snapshot_tx)
+            }));
+            if let Err(payload) = result {
+                let _ = panic_snapshot_tx.send(TerminalSnapshot {
+                    surface: None,
+                    status: format!(
+                        "terminal worker panicked: {}",
+                        panic_payload_to_string(payload)
+                    ),
+                });
+            }
+        });
 
         Self {
             input_tx,
@@ -1316,10 +1340,10 @@ fn write_input(writer: &mut dyn Write, bytes: &[u8]) -> std::io::Result<()> {
 }
 
 fn poll_terminal_snapshots(bridge: Res<TerminalBridge>, mut view: ResMut<TerminalView>) {
-    let receiver = bridge
-        .snapshot_rx
-        .lock()
-        .expect("terminal snapshot receiver mutex poisoned");
+    let receiver = match bridge.snapshot_rx.lock() {
+        Ok(receiver) => receiver,
+        Err(poisoned) => poisoned.into_inner(),
+    };
 
     while let Ok(snapshot) = receiver.try_recv() {
         view.latest = snapshot;
