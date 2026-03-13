@@ -5,7 +5,7 @@ use alacritty_terminal::{
     vte::ansi::{self, Color as AnsiColor, CursorShape, NamedColor, Rgb},
 };
 use bevy::{
-    input::{keyboard::KeyboardInput, mouse::AccumulatedMouseMotion, ButtonState},
+    input::{keyboard::KeyboardInput, mouse::MouseMotion, ButtonState},
     prelude::*,
     render::{settings::WgpuSettings, RenderPlugin},
     sprite::Anchor,
@@ -241,6 +241,8 @@ struct TerminalSceneState {
     cols: usize,
     rows: usize,
     initialized: bool,
+    last_surface: Option<TerminalSurface>,
+    last_layout_key: Option<PlaneLayoutKey>,
 }
 
 #[derive(Clone, Default, PartialEq)]
@@ -1069,15 +1071,16 @@ fn fc_match_face(query: &str, source: &str) -> Result<TerminalFontFace, String> 
 
 fn drag_terminal_plane(
     mouse_buttons: Res<ButtonInput<MouseButton>>,
-    mouse_motion: Res<AccumulatedMouseMotion>,
+    mut mouse_motion: MessageReader<MouseMotion>,
+    primary_window: Single<&Window, With<PrimaryWindow>>,
     mut plane_state: ResMut<TerminalPlaneState>,
 ) {
-    if !mouse_buttons.pressed(MouseButton::Middle) {
-        return;
-    }
+    let delta = mouse_motion
+        .read()
+        .fold(Vec2::ZERO, |acc, event| acc + event.delta);
 
-    let delta = mouse_motion.delta;
-    if delta == Vec2::ZERO {
+    if !primary_window.focused || !mouse_buttons.pressed(MouseButton::Middle) || delta == Vec2::ZERO
+    {
         return;
     }
 
@@ -1104,6 +1107,8 @@ fn sync_terminal_plane(
         for (_, _, mut visibility) in &mut queries.cursor_query {
             *visibility = Visibility::Hidden;
         }
+        scene_state.last_surface = None;
+        scene_state.last_layout_key = None;
         return;
     };
 
@@ -1155,13 +1160,28 @@ fn sync_terminal_plane(
         scene_state.cols = surface.cols;
         scene_state.rows = surface.rows;
         scene_state.initialized = true;
+        scene_state.last_surface = None;
+        scene_state.last_layout_key = None;
         return;
     }
 
     let layout = compute_plane_layout(surface, *window, &plane_state);
+    let layout_key = PlaneLayoutKey::from_state(surface, *window, &plane_state);
+    let previous_surface = scene_state.last_surface.as_ref();
+    let projection_changed = scene_state.last_layout_key.as_ref() != Some(&layout_key);
+    let surface_changed = previous_surface != Some(surface);
+    let font_changed = font_state.is_changed();
+
+    if !projection_changed && !surface_changed && !font_changed {
+        return;
+    }
 
     for (_, index, mut sprite, mut transform, mut visibility) in &mut queries.bg_query {
         let cell = surface.cell(index.x, index.y);
+        if !projection_changed && !background_changed(previous_surface, cell, index.x, index.y) {
+            continue;
+        }
+
         if let Some(projected) =
             project_cell(index.x, index.y, cell.width.max(1), &layout, &plane_state)
         {
@@ -1177,6 +1197,11 @@ fn sync_terminal_plane(
         &mut queries.glyph_query
     {
         let cell = surface.cell(index.x, index.y);
+        let cell_changed = glyph_changed(previous_surface, cell, index.x, index.y);
+        if !projection_changed && !cell_changed && !font_changed {
+            continue;
+        }
+
         if cell.width == 0 || cell.text.is_empty() {
             *visibility = Visibility::Hidden;
             continue;
@@ -1184,7 +1209,9 @@ fn sync_terminal_plane(
 
         if let Some(projected) = project_cell(index.x, index.y, cell.width, &layout, &plane_state) {
             *visibility = Visibility::Visible;
-            *text = Text2d::new(cell.text.clone());
+            if cell_changed {
+                *text = Text2d::new(cell.text.clone());
+            }
             font.font_size = projected.vertical.length().max(1.0) * 0.9;
             if let Some(handle) = select_font_handle(&cell.text, &font_state) {
                 font.font = handle;
@@ -1198,29 +1225,37 @@ fn sync_terminal_plane(
         }
     }
 
-    if let Ok((mut sprite, mut transform, mut visibility)) = queries.cursor_query.single_mut() {
-        if let Some(cursor) = &surface.cursor {
-            if cursor.visible {
-                if let Some(projected) = project_cell(cursor.x, cursor.y, 1, &layout, &plane_state)
-                {
-                    *visibility = Visibility::Visible;
-                    apply_projected_cursor(
-                        &mut sprite,
-                        &mut transform,
-                        projected,
-                        cursor.shape,
-                        color32_to_bevy(cursor.color),
-                    );
+    let cursor_changed =
+        previous_surface.and_then(|previous| previous.cursor.as_ref()) != surface.cursor.as_ref();
+    if projection_changed || cursor_changed {
+        if let Ok((mut sprite, mut transform, mut visibility)) = queries.cursor_query.single_mut() {
+            if let Some(cursor) = &surface.cursor {
+                if cursor.visible {
+                    if let Some(projected) =
+                        project_cell(cursor.x, cursor.y, 1, &layout, &plane_state)
+                    {
+                        *visibility = Visibility::Visible;
+                        apply_projected_cursor(
+                            &mut sprite,
+                            &mut transform,
+                            projected,
+                            cursor.shape,
+                            color32_to_bevy(cursor.color),
+                        );
+                    } else {
+                        *visibility = Visibility::Hidden;
+                    }
                 } else {
                     *visibility = Visibility::Hidden;
                 }
             } else {
                 *visibility = Visibility::Hidden;
             }
-        } else {
-            *visibility = Visibility::Hidden;
         }
     }
+
+    scene_state.last_surface = Some(surface.clone());
+    scene_state.last_layout_key = Some(layout_key);
 }
 
 fn compute_plane_layout(
@@ -1256,6 +1291,63 @@ struct PlaneLayout {
     plane_h: f32,
     distance: f32,
     focal_length: f32,
+}
+
+#[derive(Clone, PartialEq)]
+struct PlaneLayoutKey {
+    window_width: f32,
+    window_height: f32,
+    yaw: f32,
+    pitch: f32,
+    distance: f32,
+    focal_length: f32,
+    cols: usize,
+    rows: usize,
+}
+
+impl PlaneLayoutKey {
+    fn from_state(
+        surface: &TerminalSurface,
+        window: &Window,
+        plane_state: &TerminalPlaneState,
+    ) -> Self {
+        Self {
+            window_width: window.width(),
+            window_height: window.height(),
+            yaw: plane_state.yaw,
+            pitch: plane_state.pitch,
+            distance: plane_state.distance,
+            focal_length: plane_state.focal_length,
+            cols: surface.cols,
+            rows: surface.rows,
+        }
+    }
+}
+
+fn background_changed(
+    previous_surface: Option<&TerminalSurface>,
+    cell: &TerminalCell,
+    x: usize,
+    y: usize,
+) -> bool {
+    let Some(previous_surface) = previous_surface else {
+        return true;
+    };
+    let previous = previous_surface.cell(x, y);
+    previous.bg != cell.bg || previous.width != cell.width
+}
+
+fn glyph_changed(
+    previous_surface: Option<&TerminalSurface>,
+    cell: &TerminalCell,
+    x: usize,
+    y: usize,
+) -> bool {
+    let Some(previous_surface) = previous_surface else {
+        return true;
+    };
+    let previous = previous_surface.cell(x, y);
+    previous.text != cell.text || previous.fg != cell.fg || previous.width != cell.width
 }
 
 fn project_cell(
