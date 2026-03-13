@@ -19,13 +19,15 @@ use bevy::{
         RenderPlugin,
     },
     sprite::Anchor,
-    text::{
-        ComputedTextBlock, CosmicFontSystem, Font, FontAtlasSet, FontHinting, Justify, LineBreak,
-        LineHeight, SwashCache, TextBounds, TextColor, TextFont, TextLayoutInfo, TextPipeline,
-    },
+    text::{Font, TextBounds, TextColor, TextFont},
     window::PrimaryWindow,
 };
 use bevy_egui::{egui, EguiContexts, EguiPlugin, EguiPrimaryContextPass};
+use cosmic_text::{
+    fontdb, Attrs as CtAttrs, Buffer as CtBuffer, Color as CtColor, Family as CtFamily,
+    FontSystem as CtFontSystem, Metrics as CtMetrics, Shaping as CtShaping,
+    SwashCache as CtSwashCache,
+};
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 use std::{
     any::Any,
@@ -130,6 +132,7 @@ fn configure_app(app: &mut App) {
     .insert_resource(TerminalSceneState::default())
     .insert_resource(TerminalTextureState::default())
     .insert_resource(TerminalGlyphCache::default())
+    .insert_resource(TerminalTextRenderer::default())
     .add_systems(Startup, setup_scene)
     .add_systems(
         Update,
@@ -442,6 +445,21 @@ struct TerminalFontState {
 }
 
 #[derive(Resource)]
+struct TerminalTextRenderer {
+    font_system: Option<CtFontSystem>,
+    swash_cache: CtSwashCache,
+}
+
+impl Default for TerminalTextRenderer {
+    fn default() -> Self {
+        Self {
+            font_system: None,
+            swash_cache: CtSwashCache::new(),
+        }
+    }
+}
+
+#[derive(Resource)]
 struct TerminalPlaneState {
     yaw: f32,
     pitch: f32,
@@ -706,18 +724,6 @@ struct TerminalPlaneQueries<'w, 's> {
         ),
         CursorQueryFilter,
     >,
-}
-
-#[derive(bevy::ecs::system::SystemParam)]
-struct TerminalTextureRenderParams<'w, 's> {
-    images: ResMut<'w, Assets<Image>>,
-    fonts: Res<'w, Assets<Font>>,
-    text_pipeline: ResMut<'w, TextPipeline>,
-    font_system: ResMut<'w, CosmicFontSystem>,
-    swash_cache: ResMut<'w, SwashCache>,
-    font_atlas_set: ResMut<'w, FontAtlasSet>,
-    texture_atlases: ResMut<'w, Assets<TextureAtlasLayout>>,
-    helper_fonts: Query<'w, 's, &'static TextFont>,
 }
 
 #[derive(Clone, Copy)]
@@ -1239,6 +1245,7 @@ fn xterm_indexed_rgb(index: u8) -> Rgb {
 fn configure_terminal_fonts(
     mut font_assets: ResMut<Assets<Font>>,
     mut font_state: ResMut<TerminalFontState>,
+    mut text_renderer: ResMut<TerminalTextRenderer>,
 ) {
     if font_state.report.is_some() {
         return;
@@ -1246,27 +1253,25 @@ fn configure_terminal_fonts(
 
     match resolve_terminal_font_report() {
         Ok(report) => {
-            match load_font_handle(&mut font_assets, &report.primary.path) {
-                Ok(primary) => font_state.primary_font = Some(primary),
+            match initialize_terminal_text_renderer(&report, &mut text_renderer) {
+                Ok(()) => {}
                 Err(error) => {
                     font_state.report = Some(Err(error));
                     return;
                 }
             }
 
+            if let Ok(primary) = load_font_handle(&mut font_assets, &report.primary.path) {
+                font_state.primary_font = Some(primary);
+            }
+
             for fallback in &report.fallbacks {
-                match load_font_handle(&mut font_assets, &fallback.path) {
-                    Ok(handle) => {
-                        if fallback.source.contains("private-use") {
-                            font_state.private_use_font = Some(handle.clone());
-                        }
-                        if fallback.source.contains("emoji") {
-                            font_state.emoji_font = Some(handle.clone());
-                        }
+                if let Ok(handle) = load_font_handle(&mut font_assets, &fallback.path) {
+                    if fallback.source.contains("private-use") {
+                        font_state.private_use_font = Some(handle.clone());
                     }
-                    Err(error) => {
-                        font_state.report = Some(Err(error));
-                        return;
+                    if fallback.source.contains("emoji") {
+                        font_state.emoji_font = Some(handle.clone());
                     }
                 }
             }
@@ -1285,6 +1290,35 @@ fn load_font_handle(font_assets: &mut Assets<Font>, path: &Path) -> Result<Handl
     let font = Font::try_from_bytes(bytes)
         .map_err(|error| format!("failed to parse font {}: {error}", path.display()))?;
     Ok(font_assets.add(font))
+}
+
+fn initialize_terminal_text_renderer(
+    report: &TerminalFontReport,
+    text_renderer: &mut TerminalTextRenderer,
+) -> Result<(), String> {
+    let mut db = fontdb::Database::new();
+    db.load_system_fonts();
+    db.set_monospace_family(report.primary.family.clone());
+    db.load_font_file(&report.primary.path).map_err(|error| {
+        format!(
+            "failed to load primary terminal font {} into text renderer: {error}",
+            report.primary.path.display()
+        )
+    })?;
+
+    for fallback in &report.fallbacks {
+        db.load_font_file(&fallback.path).map_err(|error| {
+            format!(
+                "failed to load fallback terminal font {} into text renderer: {error}",
+                fallback.path.display()
+            )
+        })?;
+    }
+
+    let locale = env::var("LANG").unwrap_or_else(|_| "en-US".to_owned());
+    text_renderer.font_system = Some(CtFontSystem::new_with_locale_and_db(locale, db));
+    text_renderer.swash_cache = CtSwashCache::new();
+    Ok(())
 }
 
 fn resolve_terminal_font_report() -> Result<TerminalFontReport, String> {
@@ -1518,14 +1552,15 @@ fn sync_terminal_texture(
     font_state: Res<TerminalFontState>,
     mut texture_state: ResMut<TerminalTextureState>,
     mut glyph_cache: ResMut<TerminalGlyphCache>,
-    mut render: TerminalTextureRenderParams,
+    mut images: ResMut<Assets<Image>>,
+    mut text_renderer: ResMut<TerminalTextRenderer>,
 ) {
     let Some(surface) = &view.latest.surface else {
         texture_state.last_surface = None;
         return;
     };
 
-    if font_state.primary_font.is_none() {
+    if text_renderer.font_system.is_none() {
         return;
     }
 
@@ -1556,12 +1591,12 @@ fn sync_terminal_texture(
         surface,
         cell_size,
         helper_entities,
-        &mut render,
+        &mut text_renderer,
         &mut glyph_cache,
         &font_state,
     );
 
-    if let Some(target_image) = render.images.get_mut(&image_handle) {
+    if let Some(target_image) = images.get_mut(&image_handle) {
         *target_image = composed;
         texture_state.texture_size = texture_size;
         texture_state.last_surface = Some(surface.clone());
@@ -1573,7 +1608,7 @@ fn repaint_terminal_image(
     surface: &TerminalSurface,
     cell_size: UVec2,
     helper_entities: TerminalFontEntities,
-    render: &mut TerminalTextureRenderParams,
+    text_renderer: &mut TerminalTextRenderer,
     glyph_cache: &mut TerminalGlyphCache,
     font_state: &TerminalFontState,
 ) {
@@ -1595,7 +1630,7 @@ fn repaint_terminal_image(
                 continue;
             }
 
-            let (font_role, helper_entity, preserve_color) =
+            let (font_role, _helper_entity, preserve_color) =
                 select_terminal_font_role(&cell.text, font_state, helper_entities);
             let cache_key = TerminalGlyphCacheKey {
                 text: cell.text.clone(),
@@ -1608,8 +1643,13 @@ fn repaint_terminal_image(
             let glyph = if let Some(glyph) = glyph_cache.glyphs.get(&cache_key) {
                 glyph.clone()
             } else {
-                let glyph =
-                    rasterize_terminal_glyph(&cache_key, helper_entity, preserve_color, render);
+                let glyph = rasterize_terminal_glyph(
+                    &cache_key,
+                    font_role,
+                    preserve_color,
+                    text_renderer,
+                    font_state,
+                );
                 glyph_cache.glyphs.insert(cache_key.clone(), glyph.clone());
                 glyph
             };
@@ -1645,17 +1685,46 @@ fn select_terminal_font_role(
     (TerminalFontRole::Primary, helper_entities.primary, false)
 }
 
+fn terminal_text_attrs<'a>(
+    font_role: TerminalFontRole,
+    font_state: &'a TerminalFontState,
+) -> CtAttrs<'a> {
+    let family = match font_role {
+        TerminalFontRole::Primary => CtFamily::Monospace,
+        TerminalFontRole::PrivateUse => terminal_font_family_name(font_state, "private-use")
+            .map(CtFamily::Name)
+            .unwrap_or(CtFamily::Monospace),
+        TerminalFontRole::Emoji => terminal_font_family_name(font_state, "emoji")
+            .map(CtFamily::Name)
+            .unwrap_or(CtFamily::Monospace),
+    };
+    CtAttrs::new().family(family)
+}
+
+fn terminal_font_family_name<'a>(
+    font_state: &'a TerminalFontState,
+    needle: &str,
+) -> Option<&'a str> {
+    let report = font_state.report.as_ref()?.as_ref().ok()?;
+    report
+        .fallbacks
+        .iter()
+        .find(|face| face.source.contains(needle))
+        .map(|face| face.family.as_str())
+}
+
 fn rasterize_terminal_glyph(
     cache_key: &TerminalGlyphCacheKey,
-    helper_entity: Entity,
+    font_role: TerminalFontRole,
     preserve_color: bool,
-    render: &mut TerminalTextureRenderParams,
+    text_renderer: &mut TerminalTextRenderer,
+    font_state: &TerminalFontState,
 ) -> CachedTerminalGlyph {
     let width = cache_key.cell_width * u32::from(cache_key.width_cells.max(1));
     let height = cache_key.cell_height.max(1);
     let mut pixels = vec![0; (width * height * 4) as usize];
 
-    let Ok(text_font) = render.helper_fonts.get(helper_entity) else {
+    let Some(font_system) = text_renderer.font_system.as_mut() else {
         return CachedTerminalGlyph {
             width,
             height,
@@ -1664,131 +1733,49 @@ fn rasterize_terminal_glyph(
         };
     };
 
-    let bounds = TextBounds::new(width as f32, height as f32);
-    let mut computed = ComputedTextBlock::default();
-    let mut layout_info = TextLayoutInfo::default();
-
-    if render
-        .text_pipeline
-        .update_buffer(
-            &render.fonts,
-            std::iter::once((
-                helper_entity,
-                0,
-                cache_key.text.as_str(),
-                text_font,
-                Color::WHITE,
-                LineHeight::RelativeToFont(1.0),
-            )),
-            LineBreak::NoWrap,
-            Justify::Left,
-            bounds,
-            1.0,
-            &mut computed,
-            &mut render.font_system,
-            FontHinting::Enabled,
-        )
-        .is_err()
+    let metrics = CtMetrics::new(height as f32 * 0.9, height as f32);
+    let mut buffer = CtBuffer::new_empty(metrics);
     {
-        return CachedTerminalGlyph {
-            width,
-            height,
-            pixels,
-            preserve_color,
-        };
-    }
-
-    if render
-        .text_pipeline
-        .update_text_layout_info(
-            &mut layout_info,
-            render.helper_fonts.as_readonly(),
-            1.0,
-            &mut render.font_atlas_set,
-            &mut render.texture_atlases,
-            &mut render.images,
-            &mut computed,
-            &mut render.font_system,
-            &mut render.swash_cache,
-            bounds,
-            Justify::Left,
-        )
-        .is_err()
-    {
-        return CachedTerminalGlyph {
-            width,
-            height,
-            pixels,
-            preserve_color,
-        };
-    }
-
-    let mut min_x = i32::MAX;
-    let mut min_y = i32::MAX;
-    let mut max_x = i32::MIN;
-    let mut max_y = i32::MIN;
-
-    for glyph in &layout_info.glyphs {
-        let Some(atlas_layout) = render.texture_atlases.get(glyph.atlas_info.texture_atlas) else {
-            continue;
-        };
-        let rect = atlas_layout.textures[glyph.atlas_info.location.glyph_index];
-        let dest_x = (glyph.position.x - glyph.size.x * 0.5).floor() as i32;
-        let dest_y = (glyph.position.y - glyph.size.y * 0.5).floor() as i32;
-        min_x = min_x.min(dest_x);
-        min_y = min_y.min(dest_y);
-        max_x = max_x.max(dest_x + rect.width() as i32);
-        max_y = max_y.max(dest_y + rect.height() as i32);
-    }
-
-    let (shift_x, shift_y) = if min_x <= max_x && min_y <= max_y {
-        let content_width = (max_x - min_x).max(0);
-        let content_height = (max_y - min_y).max(0);
-        (
-            ((width as i32 - content_width).max(0) / 2) - min_x,
-            ((height as i32 - content_height).max(0) / 2) - min_y,
-        )
-    } else {
-        (0, 0)
-    };
-
-    for glyph in &layout_info.glyphs {
-        let Some(atlas_layout) = render.texture_atlases.get(glyph.atlas_info.texture_atlas) else {
-            continue;
-        };
-        let Some(atlas_image) = render.images.get(glyph.atlas_info.texture) else {
-            continue;
-        };
-        let rect = atlas_layout.textures[glyph.atlas_info.location.glyph_index];
-        let dest_x = (glyph.position.x - glyph.size.x * 0.5).floor() as i32 + shift_x;
-        let dest_y = (glyph.position.y - glyph.size.y * 0.5).floor() as i32 + shift_y;
-
-        for src_y in 0..rect.height() {
-            for src_x in 0..rect.width() {
-                let target_x = dest_x + src_x as i32;
-                let target_y = dest_y + src_y as i32;
-                if target_x < 0
-                    || target_y < 0
-                    || target_x >= width as i32
-                    || target_y >= height as i32
-                {
-                    continue;
-                }
-
-                let Some(src_pixel) =
-                    atlas_image.pixel_bytes(UVec3::new(rect.min.x + src_x, rect.min.y + src_y, 0))
-                else {
-                    continue;
-                };
-
+        let mut buffer = buffer.borrow_with(font_system);
+        buffer.set_size(Some(width as f32), Some(height as f32));
+        let attrs = terminal_text_attrs(font_role, font_state).metrics(metrics);
+        buffer.set_text(cache_key.text.as_str(), &attrs, CtShaping::Advanced, None);
+        buffer.shape_until_scroll(false);
+        let base_color = CtColor::rgb(0xFF, 0xFF, 0xFF);
+        let offset_x = width as i32 / 2;
+        let offset_y = (height as i32 * 3) / 4;
+        buffer.draw(
+            &mut text_renderer.swash_cache,
+            base_color,
+            |x, y, w, h, color| {
+                let rgba = color.as_rgba();
                 let source = if preserve_color {
-                    [src_pixel[0], src_pixel[1], src_pixel[2], src_pixel[3]]
+                    rgba
                 } else {
-                    [255, 255, 255, src_pixel[3]]
+                    [255, 255, 255, rgba[3]]
                 };
-                blend_over_pixel(&mut pixels, width, target_x as u32, target_y as u32, source);
-            }
-        }
+                for row in 0..h {
+                    for col in 0..w {
+                        let target_x = offset_x + x + col as i32;
+                        let target_y = offset_y + y + row as i32;
+                        if target_x < 0
+                            || target_y < 0
+                            || target_x >= width as i32
+                            || target_y >= height as i32
+                        {
+                            continue;
+                        }
+                        blend_over_pixel(
+                            &mut pixels,
+                            width,
+                            target_x as u32,
+                            target_y as u32,
+                            source,
+                        );
+                    }
+                }
+            },
+        );
     }
 
     CachedTerminalGlyph {
