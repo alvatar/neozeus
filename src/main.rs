@@ -281,6 +281,7 @@ struct TerminalDebugStats {
     snapshots_applied: u64,
     last_key: String,
     last_command: String,
+    last_error: String,
 }
 
 #[derive(Resource)]
@@ -322,11 +323,19 @@ impl TerminalBridge {
 
     fn send(&self, command: TerminalCommand) {
         let summary = summarize_terminal_command(&command).to_owned();
-        if self.input_tx.send(command).is_ok() {
-            with_debug_stats(&self.debug_stats, |stats| {
-                stats.commands_queued += 1;
-                stats.last_command = summary;
-            });
+        match self.input_tx.send(command) {
+            Ok(()) => {
+                with_debug_stats(&self.debug_stats, |stats| {
+                    stats.commands_queued += 1;
+                    stats.last_command = summary;
+                });
+            }
+            Err(_) => {
+                with_debug_stats(&self.debug_stats, |stats| {
+                    stats.last_command = summary;
+                    stats.last_error = "input channel disconnected".into();
+                });
+            }
         }
     }
 
@@ -372,6 +381,32 @@ fn summarize_terminal_command(command: &TerminalCommand) -> &str {
         TerminalCommand::SendCommand(_) => "SendCommand",
         TerminalCommand::Shutdown => "Shutdown",
     }
+}
+
+fn set_terminal_error(debug_stats: &Arc<Mutex<TerminalDebugStats>>, message: impl Into<String>) {
+    let message = message.into();
+    with_debug_stats(debug_stats, |stats| {
+        stats.last_error = message;
+    });
+}
+
+fn send_terminal_status_snapshot(
+    snapshot_tx: &Sender<TerminalSnapshot>,
+    debug_stats: &Arc<Mutex<TerminalDebugStats>>,
+    terminal: &Term<VoidListener>,
+    status: impl Into<String>,
+) {
+    let status = status.into();
+    let snapshot = TerminalSnapshot {
+        surface: Some(build_surface(terminal)),
+        status: status.clone(),
+    };
+    if snapshot_tx.send(snapshot).is_ok() {
+        with_debug_stats(debug_stats, |stats| {
+            stats.snapshots_sent += 1;
+        });
+    }
+    set_terminal_error(debug_stats, status);
 }
 
 #[derive(Resource, Default)]
@@ -681,10 +716,12 @@ fn terminal_worker(
     let mut session = match spawn_pty(DEFAULT_COLS, DEFAULT_ROWS) {
         Ok(session) => session,
         Err(error) => {
+            let status = format!("failed to start PTY backend: {error}");
             let _ = snapshot_tx.send(TerminalSnapshot {
                 surface: None,
-                status: format!("failed to start PTY backend: {error}"),
+                status: status.clone(),
             });
+            set_terminal_error(&debug_stats, status);
             return;
         }
     };
@@ -692,27 +729,47 @@ fn terminal_worker(
     let mut reader = match session.master.try_clone_reader() {
         Ok(reader) => reader,
         Err(error) => {
+            let status = format!("failed to attach PTY reader: {error}");
             let _ = snapshot_tx.send(TerminalSnapshot {
                 surface: None,
-                status: format!("failed to attach PTY reader: {error}"),
+                status: status.clone(),
             });
+            set_terminal_error(&debug_stats, status);
             let _ = session.child.kill();
             return;
         }
     };
 
     let (pty_output_tx, pty_output_rx) = mpsc::channel::<Vec<u8>>();
+    let reader_state = Arc::new(Mutex::new(None::<String>));
+    let worker_reader_state = reader_state.clone();
     let reader_thread = thread::spawn(move || {
         let mut buffer = [0_u8; 8192];
         loop {
             match reader.read(&mut buffer) {
-                Ok(0) => break,
+                Ok(0) => {
+                    match worker_reader_state.lock() {
+                        Ok(mut state) => *state = Some("PTY reader reached EOF".into()),
+                        Err(poisoned) => {
+                            *poisoned.into_inner() = Some("PTY reader reached EOF".into())
+                        }
+                    }
+                    break;
+                }
                 Ok(read) => {
                     if pty_output_tx.send(buffer[..read].to_vec()).is_err() {
                         break;
                     }
                 }
-                Err(_) => break,
+                Err(error) => {
+                    match worker_reader_state.lock() {
+                        Ok(mut state) => *state = Some(format!("PTY reader error: {error}")),
+                        Err(poisoned) => {
+                            *poisoned.into_inner() = Some(format!("PTY reader error: {error}"))
+                        }
+                    }
+                    break;
+                }
             }
         }
     });
@@ -735,7 +792,13 @@ fn terminal_worker(
             match input_rx.try_recv() {
                 Ok(TerminalCommand::InputText(text)) => {
                     let bytes = text.as_bytes();
-                    if write_input(&mut *session.writer, bytes).is_err() {
+                    if let Err(error) = write_input(&mut *session.writer, bytes) {
+                        send_terminal_status_snapshot(
+                            &snapshot_tx,
+                            &debug_stats,
+                            &terminal,
+                            format!("PTY write failed for text input: {error}"),
+                        );
                         running = false;
                         break;
                     }
@@ -745,7 +808,13 @@ fn terminal_worker(
                 }
                 Ok(TerminalCommand::InputEvent(event)) => {
                     let bytes = event.as_bytes();
-                    if write_input(&mut *session.writer, bytes).is_err() {
+                    if let Err(error) = write_input(&mut *session.writer, bytes) {
+                        send_terminal_status_snapshot(
+                            &snapshot_tx,
+                            &debug_stats,
+                            &terminal,
+                            format!("PTY write failed for input event: {error}"),
+                        );
                         running = false;
                         break;
                     }
@@ -756,7 +825,13 @@ fn terminal_worker(
                 Ok(TerminalCommand::SendCommand(command)) => {
                     let payload = format!("{command}\r");
                     let bytes = payload.as_bytes();
-                    if write_input(&mut *session.writer, bytes).is_err() {
+                    if let Err(error) = write_input(&mut *session.writer, bytes) {
+                        send_terminal_status_snapshot(
+                            &snapshot_tx,
+                            &debug_stats,
+                            &terminal,
+                            format!("PTY write failed for command `{command}`: {error}"),
+                        );
                         running = false;
                         break;
                     }
@@ -770,6 +845,12 @@ fn terminal_worker(
                 }
                 Err(TryRecvError::Empty) => break,
                 Err(TryRecvError::Disconnected) => {
+                    send_terminal_status_snapshot(
+                        &snapshot_tx,
+                        &debug_stats,
+                        &terminal,
+                        "terminal input channel disconnected",
+                    );
                     running = false;
                     break;
                 }
@@ -783,12 +864,47 @@ fn terminal_worker(
             parser.advance(&mut terminal, &bytes);
         }
 
+        let reader_status = match reader_state.lock() {
+            Ok(state) => state.clone(),
+            Err(poisoned) => poisoned.into_inner().clone(),
+        };
+        if let Some(status) = reader_status {
+            send_terminal_status_snapshot(&snapshot_tx, &debug_stats, &terminal, status);
+            running = false;
+        }
+
+        match session.child.try_wait() {
+            Ok(Some(status)) => {
+                send_terminal_status_snapshot(
+                    &snapshot_tx,
+                    &debug_stats,
+                    &terminal,
+                    format!(
+                        "PTY child exited: code={} signal={:?}",
+                        status.exit_code(),
+                        status.signal()
+                    ),
+                );
+                running = false;
+            }
+            Ok(None) => {}
+            Err(error) => {
+                send_terminal_status_snapshot(
+                    &snapshot_tx,
+                    &debug_stats,
+                    &terminal,
+                    format!("PTY child wait failed: {error}"),
+                );
+                running = false;
+            }
+        }
+
         let snapshot = TerminalSnapshot {
             surface: Some(build_surface(&terminal)),
             status: "backend: alacritty_terminal + portable-pty".into(),
         };
 
-        if snapshot != last_snapshot {
+        if running && snapshot != last_snapshot {
             last_snapshot = snapshot.clone();
             if snapshot_tx.send(snapshot).is_ok() {
                 with_debug_stats(&debug_stats, |stats| {
@@ -2381,6 +2497,13 @@ fn ui_overlay(
             }
             if !debug.last_command.is_empty() {
                 ui.label(format!("last cmd {}", debug.last_command));
+                ui.separator();
+            }
+            if !debug.last_error.is_empty() {
+                ui.colored_label(
+                    egui::Color32::LIGHT_RED,
+                    format!("last err {}", debug.last_error),
+                );
                 ui.separator();
             }
             match font_state.report.as_ref() {
