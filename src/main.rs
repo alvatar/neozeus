@@ -56,8 +56,11 @@ const DEFAULT_CELL_HEIGHT_PX: u32 = 24;
 const DEFAULT_CELL_WIDTH_PX: u32 = 14;
 const TERMINAL_WORLD_HEIGHT: f32 = 8.0;
 const GPU_NOT_FOUND_PANIC_FRAGMENT: &str = "Unable to find a GPU!";
+const DEBUG_LOG_PATH: &str = "/tmp/neozeus-debug.log";
 
 fn main() {
+    let _ = fs::write(DEBUG_LOG_PATH, "");
+    append_debug_log("app start");
     match build_app() {
         Ok(mut app) => {
             let _ = app.run();
@@ -271,6 +274,17 @@ fn panic_payload_to_string(payload: Box<dyn std::any::Any + Send>) -> String {
     }
 }
 
+fn append_debug_log(message: impl AsRef<str>) {
+    let message = message.as_ref();
+    if let Ok(mut file) = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(DEBUG_LOG_PATH)
+    {
+        let _ = writeln!(file, "{message}");
+    }
+}
+
 #[derive(Clone, Default)]
 struct TerminalDebugStats {
     key_events_seen: u64,
@@ -299,17 +313,17 @@ impl TerminalBridge {
         let worker_debug_stats = debug_stats.clone();
 
         thread::spawn(move || {
+            append_debug_log("terminal worker thread spawn");
             let panic_snapshot_tx = snapshot_tx.clone();
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 terminal_worker(input_rx, snapshot_tx, worker_debug_stats)
             }));
             if let Err(payload) = result {
+                let message = panic_payload_to_string(payload);
+                append_debug_log(format!("terminal worker panic: {message}"));
                 let _ = panic_snapshot_tx.send(TerminalSnapshot {
                     surface: None,
-                    status: format!(
-                        "terminal worker panicked: {}",
-                        panic_payload_to_string(payload)
-                    ),
+                    status: format!("terminal worker panicked: {message}"),
                 });
             }
         });
@@ -325,12 +339,14 @@ impl TerminalBridge {
         let summary = summarize_terminal_command(&command).to_owned();
         match self.input_tx.send(command) {
             Ok(()) => {
+                append_debug_log(format!("command queued: {summary}"));
                 with_debug_stats(&self.debug_stats, |stats| {
                     stats.commands_queued += 1;
                     stats.last_command = summary;
                 });
             }
             Err(_) => {
+                append_debug_log(format!("command queue failed: {summary}"));
                 with_debug_stats(&self.debug_stats, |stats| {
                     stats.last_command = summary;
                     stats.last_error = "input channel disconnected".into();
@@ -344,6 +360,7 @@ impl TerminalBridge {
             "{:?} text={:?} logical={:?}",
             event.key_code, event.text, event.logical_key
         );
+        append_debug_log(format!("key event: {summary}"));
         with_debug_stats(&self.debug_stats, |stats| {
             stats.key_events_seen += 1;
             stats.last_key = summary;
@@ -385,6 +402,7 @@ fn summarize_terminal_command(command: &TerminalCommand) -> &str {
 
 fn set_terminal_error(debug_stats: &Arc<Mutex<TerminalDebugStats>>, message: impl Into<String>) {
     let message = message.into();
+    append_debug_log(format!("terminal error: {message}"));
     with_debug_stats(debug_stats, |stats| {
         stats.last_error = message;
     });
@@ -397,6 +415,7 @@ fn send_terminal_status_snapshot(
     status: impl Into<String>,
 ) {
     let status = status.into();
+    append_debug_log(format!("status snapshot: {status}"));
     let snapshot = TerminalSnapshot {
         surface: Some(build_surface(terminal)),
         status: status.clone(),
@@ -725,6 +744,7 @@ fn terminal_worker(
             return;
         }
     };
+    append_debug_log("pty spawned successfully");
 
     let mut reader = match session.master.try_clone_reader() {
         Ok(reader) => reader,
@@ -744,6 +764,7 @@ fn terminal_worker(
     let reader_state = Arc::new(Mutex::new(None::<String>));
     let worker_reader_state = reader_state.clone();
     let reader_thread = thread::spawn(move || {
+        append_debug_log("pty reader thread start");
         let mut buffer = [0_u8; 8192];
         loop {
             match reader.read(&mut buffer) {
@@ -792,6 +813,7 @@ fn terminal_worker(
             match input_rx.try_recv() {
                 Ok(TerminalCommand::InputText(text)) => {
                     let bytes = text.as_bytes();
+                    append_debug_log(format!("pty write text: {} bytes", bytes.len()));
                     if let Err(error) = write_input(&mut *session.writer, bytes) {
                         send_terminal_status_snapshot(
                             &snapshot_tx,
@@ -808,6 +830,7 @@ fn terminal_worker(
                 }
                 Ok(TerminalCommand::InputEvent(event)) => {
                     let bytes = event.as_bytes();
+                    append_debug_log(format!("pty write input event: {} bytes", bytes.len()));
                     if let Err(error) = write_input(&mut *session.writer, bytes) {
                         send_terminal_status_snapshot(
                             &snapshot_tx,
@@ -825,6 +848,10 @@ fn terminal_worker(
                 Ok(TerminalCommand::SendCommand(command)) => {
                     let payload = format!("{command}\r");
                     let bytes = payload.as_bytes();
+                    append_debug_log(format!(
+                        "pty write command `{command}`: {} bytes",
+                        bytes.len()
+                    ));
                     if let Err(error) = write_input(&mut *session.writer, bytes) {
                         send_terminal_status_snapshot(
                             &snapshot_tx,
@@ -858,6 +885,7 @@ fn terminal_worker(
         }
 
         while let Ok(bytes) = pty_output_rx.try_recv() {
+            append_debug_log(format!("pty read: {} bytes", bytes.len()));
             with_debug_stats(&debug_stats, |stats| {
                 stats.pty_bytes_read += bytes.len() as u64;
             });
@@ -2539,18 +2567,23 @@ fn ui_overlay(
                 plane_state.offset = Vec2::ZERO;
             }
             if ui.button("pwd").clicked() {
+                append_debug_log("ui button clicked: pwd");
                 bridge.send(TerminalCommand::SendCommand("pwd".into()));
             }
             if ui.button("ls").clicked() {
+                append_debug_log("ui button clicked: ls");
                 bridge.send(TerminalCommand::SendCommand("ls".into()));
             }
             if ui.button("clear").clicked() {
+                append_debug_log("ui button clicked: clear");
                 bridge.send(TerminalCommand::SendCommand("clear".into()));
             }
             if ui.button("btop").clicked() {
+                append_debug_log("ui button clicked: btop");
                 bridge.send(TerminalCommand::SendCommand("btop".into()));
             }
             if ui.button("tmux").clicked() {
+                append_debug_log("ui button clicked: tmux");
                 bridge.send(TerminalCommand::SendCommand("tmux".into()));
             }
         });
