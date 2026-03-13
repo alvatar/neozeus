@@ -1,6 +1,6 @@
 use alacritty_terminal::{
     event::VoidListener,
-    grid::Dimensions,
+    grid::{Dimensions, Scroll},
     term::{cell::Flags, color::Colors, Config as TermConfig, Term},
     vte::ansi::{self, Color as AnsiColor, CursorShape, NamedColor, Rgb},
 };
@@ -138,6 +138,7 @@ fn configure_app(app: &mut App) {
         .insert_resource(TerminalView::default())
         .insert_resource(TerminalFontState::default())
         .insert_resource(TerminalPlaneState::default())
+        .insert_resource(TerminalPointerState::default())
         .insert_resource(TerminalSceneState::default())
         .insert_resource(TerminalTextureState::default())
         .insert_resource(TerminalGlyphCache::default())
@@ -420,6 +421,7 @@ fn summarize_terminal_command(command: &TerminalCommand) -> &str {
         TerminalCommand::InputText(_) => "InputText",
         TerminalCommand::InputEvent(_) => "InputEvent",
         TerminalCommand::SendCommand(_) => "SendCommand",
+        TerminalCommand::ScrollDisplay(_) => "ScrollDisplay",
         TerminalCommand::Shutdown => "Shutdown",
     }
 }
@@ -530,6 +532,11 @@ struct TerminalPlaneState {
     offset: Vec2,
 }
 
+#[derive(Resource, Default)]
+struct TerminalPointerState {
+    scroll_drag_remainder_px: f32,
+}
+
 impl Default for TerminalPlaneState {
     fn default() -> Self {
         Self {
@@ -612,6 +619,7 @@ enum TerminalCommand {
     InputText(String),
     InputEvent(String),
     SendCommand(String),
+    ScrollDisplay(i32),
     Shutdown,
 }
 
@@ -868,16 +876,22 @@ fn terminal_worker(
         }
     });
 
-    let (input_status_tx, input_status_rx) = mpsc::channel::<Result<(), String>>();
+    enum InputThreadEvent {
+        WriteResult(Result<(), String>),
+        ScrollDisplay(i32),
+        Shutdown,
+    }
+
+    let (input_status_tx, input_status_rx) = mpsc::channel::<InputThreadEvent>();
     let input_debug_stats = debug_stats.clone();
     let input_thread = thread::spawn(move || {
         let mut writer = writer;
         while let Ok(command) = input_rx.recv() {
-            let result = match command {
+            let event = match command {
                 TerminalCommand::InputText(text) => {
                     let bytes = text.into_bytes();
                     append_debug_log(format!("pty write text: {} bytes", bytes.len()));
-                    match write_input(&mut *writer, &bytes) {
+                    let result = match write_input(&mut *writer, &bytes) {
                         Ok(()) => {
                             with_debug_stats(&input_debug_stats, |stats| {
                                 stats.pty_bytes_written += bytes.len() as u64;
@@ -885,12 +899,13 @@ fn terminal_worker(
                             Ok(())
                         }
                         Err(error) => Err(format!("PTY write failed for text input: {error}")),
-                    }
+                    };
+                    InputThreadEvent::WriteResult(result)
                 }
                 TerminalCommand::InputEvent(event) => {
                     let bytes = event.into_bytes();
                     append_debug_log(format!("pty write input event: {} bytes", bytes.len()));
-                    match write_input(&mut *writer, &bytes) {
+                    let result = match write_input(&mut *writer, &bytes) {
                         Ok(()) => {
                             with_debug_stats(&input_debug_stats, |stats| {
                                 stats.pty_bytes_written += bytes.len() as u64;
@@ -898,7 +913,8 @@ fn terminal_worker(
                             Ok(())
                         }
                         Err(error) => Err(format!("PTY write failed for input event: {error}")),
-                    }
+                    };
+                    InputThreadEvent::WriteResult(result)
                 }
                 TerminalCommand::SendCommand(command) => {
                     let payload = format!("{command}\r");
@@ -907,7 +923,7 @@ fn terminal_worker(
                         "pty write command `{command}`: {} bytes",
                         bytes.len()
                     ));
-                    match write_input(&mut *writer, &bytes) {
+                    let result = match write_input(&mut *writer, &bytes) {
                         Ok(()) => {
                             with_debug_stats(&input_debug_stats, |stats| {
                                 stats.pty_bytes_written += bytes.len() as u64;
@@ -917,12 +933,17 @@ fn terminal_worker(
                         Err(error) => {
                             Err(format!("PTY write failed for command `{command}`: {error}"))
                         }
-                    }
+                    };
+                    InputThreadEvent::WriteResult(result)
                 }
-                TerminalCommand::Shutdown => break,
+                TerminalCommand::ScrollDisplay(lines) => InputThreadEvent::ScrollDisplay(lines),
+                TerminalCommand::Shutdown => {
+                    let _ = input_status_tx.send(InputThreadEvent::Shutdown);
+                    break;
+                }
             };
 
-            if input_status_tx.send(result).is_err() {
+            if input_status_tx.send(event).is_err() {
                 break;
             }
         }
@@ -943,7 +964,7 @@ fn terminal_worker(
 
     while running {
         let mut received_output = false;
-        match pty_output_rx.recv_timeout(Duration::from_millis(100)) {
+        match pty_output_rx.recv_timeout(Duration::from_millis(16)) {
             Ok(bytes) => {
                 append_debug_log(format!("pty read: {} bytes", bytes.len()));
                 with_debug_stats(&debug_stats, |stats| {
@@ -974,16 +995,39 @@ fn terminal_worker(
             received_output = true;
         }
 
-        while let Ok(result) = input_status_rx.try_recv() {
-            if let Err(status) = result {
-                send_terminal_status_snapshot(
-                    &snapshot_tx,
-                    &debug_stats,
-                    &terminal,
-                    &event_loop_proxy,
-                    status,
-                );
-                running = false;
+        while let Ok(event) = input_status_rx.try_recv() {
+            match event {
+                InputThreadEvent::WriteResult(Ok(())) => {}
+                InputThreadEvent::WriteResult(Err(status)) => {
+                    send_terminal_status_snapshot(
+                        &snapshot_tx,
+                        &debug_stats,
+                        &terminal,
+                        &event_loop_proxy,
+                        status,
+                    );
+                    running = false;
+                }
+                InputThreadEvent::ScrollDisplay(lines) => {
+                    append_debug_log(format!("terminal scroll display: {lines}"));
+                    terminal.scroll_display(Scroll::Delta(lines));
+                    let snapshot = TerminalSnapshot {
+                        surface: Some(build_surface(&terminal)),
+                        status: "backend: alacritty_terminal + portable-pty".into(),
+                    };
+                    if snapshot != last_snapshot {
+                        last_snapshot = snapshot.clone();
+                        if snapshot_tx.send(snapshot).is_ok() {
+                            with_debug_stats(&debug_stats, |stats| {
+                                stats.snapshots_sent += 1;
+                            });
+                            let _ = event_loop_proxy.send_event(WinitUserEvent::WakeUp);
+                        }
+                    }
+                }
+                InputThreadEvent::Shutdown => {
+                    running = false;
+                }
             }
         }
 
@@ -2072,19 +2116,27 @@ fn blend_rgba_in_place(dst: &mut [u8], source: [u8; 4]) {
     dst[3] = (out_alpha * 255.0).round() as u8;
 }
 
+fn terminal_texture_screen_size(
+    texture_state: &TerminalTextureState,
+    plane_state: &TerminalPlaneState,
+    window: &Window,
+) -> Vec2 {
+    let texture_width = texture_state.texture_size.x.max(1) as f32;
+    let texture_height = texture_state.texture_size.y.max(1) as f32;
+    let fit_width = (window.width() - TERMINAL_MARGIN * 2.0).max(64.0);
+    let fit_height = (window.height() - TERMINAL_MARGIN * 2.0).max(64.0);
+    let fit_scale = (fit_width / texture_width).min(fit_height / texture_height);
+    let zoom_scale = 10.0 / plane_state.distance.max(0.1);
+    Vec2::new(texture_width, texture_height) * fit_scale * zoom_scale
+}
+
 fn sync_terminal_plane_transform(
     texture_state: Res<TerminalTextureState>,
     plane_state: Res<TerminalPlaneState>,
     primary_window: Single<&Window, With<PrimaryWindow>>,
     plane: Single<(&mut Transform, &mut Sprite), With<TerminalPlaneMarker>>,
 ) {
-    let texture_width = texture_state.texture_size.x.max(1) as f32;
-    let texture_height = texture_state.texture_size.y.max(1) as f32;
-    let fit_width = (primary_window.width() - TERMINAL_MARGIN * 2.0).max(64.0);
-    let fit_height = (primary_window.height() - TERMINAL_MARGIN * 2.0).max(64.0);
-    let fit_scale = (fit_width / texture_width).min(fit_height / texture_height);
-    let zoom_scale = 10.0 / plane_state.distance.max(0.1);
-    let size = Vec2::new(texture_width, texture_height) * fit_scale * zoom_scale;
+    let size = terminal_texture_screen_size(&texture_state, &plane_state, &primary_window);
 
     let (mut plane_transform, mut sprite) = plane.into_inner();
     sprite.custom_size = Some(size);
@@ -2093,29 +2145,52 @@ fn sync_terminal_plane_transform(
     plane_transform.scale = Vec3::ONE;
 }
 
+#[allow(
+    clippy::too_many_arguments,
+    reason = "mouse drag needs input, geometry, pointer state, and terminal bridge"
+)]
 fn drag_terminal_plane(
     mouse_buttons: Res<ButtonInput<MouseButton>>,
     keys: Res<ButtonInput<KeyCode>>,
     mut mouse_motion: MessageReader<MouseMotion>,
     primary_window: Single<&Window, With<PrimaryWindow>>,
+    texture_state: Res<TerminalTextureState>,
     mut plane_state: ResMut<TerminalPlaneState>,
+    mut pointer_state: ResMut<TerminalPointerState>,
+    bridge: Res<TerminalBridge>,
 ) {
     let delta = mouse_motion
         .read()
         .fold(Vec2::ZERO, |acc, event| acc + event.delta);
 
     let shift = keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight);
-    if !primary_window.focused
-        || !shift
-        || !mouse_buttons.pressed(MouseButton::Middle)
-        || delta == Vec2::ZERO
-    {
+    let middle_pressed = mouse_buttons.pressed(MouseButton::Middle);
+    if !primary_window.focused || !middle_pressed || delta == Vec2::ZERO {
+        pointer_state.scroll_drag_remainder_px = 0.0;
         return;
     }
 
-    let pan_scale = plane_state.distance / primary_window.height().max(1.0);
-    plane_state.offset.x += delta.x * pan_scale;
-    plane_state.offset.y -= delta.y * pan_scale;
+    if shift {
+        pointer_state.scroll_drag_remainder_px = 0.0;
+        plane_state.offset += Vec2::new(delta.x, -delta.y);
+        return;
+    }
+
+    let screen_size = terminal_texture_screen_size(&texture_state, &plane_state, &primary_window);
+    let screen_cell_height = if texture_state.cell_size.y == 0 || texture_state.texture_size.y == 0
+    {
+        1.0
+    } else {
+        screen_size.y * (texture_state.cell_size.y as f32 / texture_state.texture_size.y as f32)
+    }
+    .max(1.0);
+
+    pointer_state.scroll_drag_remainder_px += delta.y;
+    let lines = (-pointer_state.scroll_drag_remainder_px / screen_cell_height).trunc() as i32;
+    if lines != 0 {
+        pointer_state.scroll_drag_remainder_px += lines as f32 * screen_cell_height;
+        bridge.send(TerminalCommand::ScrollDisplay(lines));
+    }
 }
 
 fn zoom_terminal_plane(
