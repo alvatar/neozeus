@@ -395,10 +395,28 @@ type GlyphQueryItem<'a> = (
     &'a mut Visibility,
 );
 
+type BackgroundQueryFilter = (
+    With<TerminalBackgroundMarker>,
+    Without<TerminalGlyphMarker>,
+    Without<TerminalCursorMarker>,
+);
+
+type GlyphQueryFilter = (
+    With<TerminalGlyphMarker>,
+    Without<TerminalBackgroundMarker>,
+    Without<TerminalCursorMarker>,
+);
+
+type CursorQueryFilter = (
+    With<TerminalCursorMarker>,
+    Without<TerminalBackgroundMarker>,
+    Without<TerminalGlyphMarker>,
+);
+
 #[derive(bevy::ecs::system::SystemParam)]
 struct TerminalPlaneQueries<'w, 's> {
-    bg_query: Query<'w, 's, BackgroundQueryItem<'static>, With<TerminalBackgroundMarker>>,
-    glyph_query: Query<'w, 's, GlyphQueryItem<'static>, With<TerminalGlyphMarker>>,
+    bg_query: Query<'w, 's, BackgroundQueryItem<'static>, BackgroundQueryFilter>,
+    glyph_query: Query<'w, 's, GlyphQueryItem<'static>, GlyphQueryFilter>,
     cursor_query: Query<
         'w,
         's,
@@ -407,7 +425,7 @@ struct TerminalPlaneQueries<'w, 's> {
             &'static mut Transform,
             &'static mut Visibility,
         ),
-        With<TerminalCursorMarker>,
+        CursorQueryFilter,
     >,
 }
 
