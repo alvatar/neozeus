@@ -21,6 +21,7 @@ use bevy::{
     sprite::Anchor,
     text::{Font, TextBounds, TextColor, TextFont},
     window::PrimaryWindow,
+    winit::{EventLoopProxy, EventLoopProxyWrapper, WinitSettings, WinitUserEvent},
 };
 use bevy_egui::{egui, EguiContexts, EguiPlugin, EguiPrimaryContextPass};
 use cosmic_text::{
@@ -124,35 +125,42 @@ fn configure_app(app: &mut App) {
                 ..default()
             }),
     )
-    .add_plugins(EguiPlugin::default())
-    .insert_resource(ClearColor(Color::srgb(0.02, 0.02, 0.02)))
-    .insert_resource(TerminalBridge::spawn())
-    .insert_resource(TerminalView::default())
-    .insert_resource(TerminalFontState::default())
-    .insert_resource(TerminalPlaneState::default())
-    .insert_resource(TerminalSceneState::default())
-    .insert_resource(TerminalTextureState::default())
-    .insert_resource(TerminalGlyphCache::default())
-    .insert_resource(TerminalTextRenderer::default())
-    .insert_resource(TerminalAutoVerifyState::from_env())
-    .add_systems(Startup, setup_scene)
-    .add_systems(
-        Update,
-        (
-            poll_terminal_snapshots,
-            dispatch_auto_verify_command,
-            configure_terminal_fonts,
-            sync_terminal_font_helpers,
-            sync_terminal_texture,
-            drag_terminal_plane,
-            zoom_terminal_plane,
-            sync_terminal_plane_transform,
-            sync_terminal_plane,
-            forward_keyboard_input,
+    .add_plugins(EguiPlugin::default());
+
+    let event_loop_proxy = {
+        let proxy = app.world().resource::<EventLoopProxyWrapper>();
+        (**proxy).clone()
+    };
+
+    app.insert_resource(ClearColor(Color::srgb(0.02, 0.02, 0.02)))
+        .insert_resource(WinitSettings::desktop_app())
+        .insert_resource(TerminalBridge::spawn(event_loop_proxy))
+        .insert_resource(TerminalView::default())
+        .insert_resource(TerminalFontState::default())
+        .insert_resource(TerminalPlaneState::default())
+        .insert_resource(TerminalSceneState::default())
+        .insert_resource(TerminalTextureState::default())
+        .insert_resource(TerminalGlyphCache::default())
+        .insert_resource(TerminalTextRenderer::default())
+        .insert_resource(TerminalAutoVerifyState::from_env())
+        .add_systems(Startup, setup_scene)
+        .add_systems(
+            Update,
+            (
+                poll_terminal_snapshots,
+                dispatch_auto_verify_command,
+                configure_terminal_fonts,
+                sync_terminal_font_helpers,
+                sync_terminal_texture,
+                drag_terminal_plane,
+                zoom_terminal_plane,
+                sync_terminal_plane_transform,
+                sync_terminal_plane,
+                forward_keyboard_input,
+            )
+                .chain(),
         )
-            .chain(),
-    )
-    .add_systems(EguiPrimaryContextPass, ui_overlay);
+        .add_systems(EguiPrimaryContextPass, ui_overlay);
 }
 
 fn format_startup_panic(payload: &(dyn Any + Send)) -> Option<String> {
@@ -314,7 +322,7 @@ struct TerminalBridge {
 }
 
 impl TerminalBridge {
-    fn spawn() -> Self {
+    fn spawn(event_loop_proxy: EventLoopProxy<WinitUserEvent>) -> Self {
         let (input_tx, input_rx) = mpsc::channel();
         let (snapshot_tx, snapshot_rx) = mpsc::channel();
         let debug_stats = Arc::new(Mutex::new(TerminalDebugStats::default()));
@@ -323,8 +331,9 @@ impl TerminalBridge {
         thread::spawn(move || {
             append_debug_log("terminal worker thread spawn");
             let panic_snapshot_tx = snapshot_tx.clone();
+            let panic_event_loop_proxy = event_loop_proxy.clone();
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                terminal_worker(input_rx, snapshot_tx, worker_debug_stats)
+                terminal_worker(input_rx, snapshot_tx, worker_debug_stats, event_loop_proxy)
             }));
             if let Err(payload) = result {
                 let message = panic_payload_to_string(payload);
@@ -333,6 +342,7 @@ impl TerminalBridge {
                     surface: None,
                     status: format!("terminal worker panicked: {message}"),
                 });
+                let _ = panic_event_loop_proxy.send_event(WinitUserEvent::WakeUp);
             }
         });
 
@@ -420,6 +430,7 @@ fn send_terminal_status_snapshot(
     snapshot_tx: &Sender<TerminalSnapshot>,
     debug_stats: &Arc<Mutex<TerminalDebugStats>>,
     terminal: &Term<VoidListener>,
+    event_loop_proxy: &EventLoopProxy<WinitUserEvent>,
     status: impl Into<String>,
 ) {
     let status = status.into();
@@ -432,6 +443,7 @@ fn send_terminal_status_snapshot(
         with_debug_stats(debug_stats, |stats| {
             stats.snapshots_sent += 1;
         });
+        let _ = event_loop_proxy.send_event(WinitUserEvent::WakeUp);
     }
     set_terminal_error(debug_stats, status);
 }
@@ -765,6 +777,7 @@ fn terminal_worker(
     input_rx: Receiver<TerminalCommand>,
     snapshot_tx: Sender<TerminalSnapshot>,
     debug_stats: Arc<Mutex<TerminalDebugStats>>,
+    event_loop_proxy: EventLoopProxy<WinitUserEvent>,
 ) {
     let PtySession {
         master,
@@ -923,6 +936,7 @@ fn terminal_worker(
                     &snapshot_tx,
                     &debug_stats,
                     &terminal,
+                    &event_loop_proxy,
                     "PTY reader channel disconnected",
                 );
                 running = false;
@@ -940,7 +954,13 @@ fn terminal_worker(
 
         while let Ok(result) = input_status_rx.try_recv() {
             if let Err(status) = result {
-                send_terminal_status_snapshot(&snapshot_tx, &debug_stats, &terminal, status);
+                send_terminal_status_snapshot(
+                    &snapshot_tx,
+                    &debug_stats,
+                    &terminal,
+                    &event_loop_proxy,
+                    status,
+                );
                 running = false;
             }
         }
@@ -950,7 +970,13 @@ fn terminal_worker(
             Err(poisoned) => poisoned.into_inner().clone(),
         };
         if let Some(status) = reader_status {
-            send_terminal_status_snapshot(&snapshot_tx, &debug_stats, &terminal, status);
+            send_terminal_status_snapshot(
+                &snapshot_tx,
+                &debug_stats,
+                &terminal,
+                &event_loop_proxy,
+                status,
+            );
             running = false;
         }
 
@@ -960,6 +986,7 @@ fn terminal_worker(
                     &snapshot_tx,
                     &debug_stats,
                     &terminal,
+                    &event_loop_proxy,
                     format!(
                         "PTY child exited: code={} signal={:?}",
                         status.exit_code(),
@@ -974,6 +1001,7 @@ fn terminal_worker(
                     &snapshot_tx,
                     &debug_stats,
                     &terminal,
+                    &event_loop_proxy,
                     format!("PTY child wait failed: {error}"),
                 );
                 running = false;
@@ -992,6 +1020,7 @@ fn terminal_worker(
                     with_debug_stats(&debug_stats, |stats| {
                         stats.snapshots_sent += 1;
                     });
+                    let _ = event_loop_proxy.send_event(WinitUserEvent::WakeUp);
                 }
             }
         }
