@@ -271,21 +271,36 @@ fn panic_payload_to_string(payload: Box<dyn std::any::Any + Send>) -> String {
     }
 }
 
+#[derive(Clone, Default)]
+struct TerminalDebugStats {
+    key_events_seen: u64,
+    commands_queued: u64,
+    pty_bytes_written: u64,
+    pty_bytes_read: u64,
+    snapshots_sent: u64,
+    snapshots_applied: u64,
+    last_key: String,
+    last_command: String,
+}
+
 #[derive(Resource)]
 struct TerminalBridge {
     input_tx: Sender<TerminalCommand>,
     snapshot_rx: Mutex<Receiver<TerminalSnapshot>>,
+    debug_stats: Arc<Mutex<TerminalDebugStats>>,
 }
 
 impl TerminalBridge {
     fn spawn() -> Self {
         let (input_tx, input_rx) = mpsc::channel();
         let (snapshot_tx, snapshot_rx) = mpsc::channel();
+        let debug_stats = Arc::new(Mutex::new(TerminalDebugStats::default()));
+        let worker_debug_stats = debug_stats.clone();
 
         thread::spawn(move || {
             let panic_snapshot_tx = snapshot_tx.clone();
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                terminal_worker(input_rx, snapshot_tx)
+                terminal_worker(input_rx, snapshot_tx, worker_debug_stats)
             }));
             if let Err(payload) = result {
                 let _ = panic_snapshot_tx.send(TerminalSnapshot {
@@ -301,11 +316,61 @@ impl TerminalBridge {
         Self {
             input_tx,
             snapshot_rx: Mutex::new(snapshot_rx),
+            debug_stats,
         }
     }
 
     fn send(&self, command: TerminalCommand) {
-        let _ = self.input_tx.send(command);
+        let summary = summarize_terminal_command(&command).to_owned();
+        if self.input_tx.send(command).is_ok() {
+            with_debug_stats(&self.debug_stats, |stats| {
+                stats.commands_queued += 1;
+                stats.last_command = summary;
+            });
+        }
+    }
+
+    fn note_key_event(&self, event: &KeyboardInput) {
+        let summary = format!(
+            "{:?} text={:?} logical={:?}",
+            event.key_code, event.text, event.logical_key
+        );
+        with_debug_stats(&self.debug_stats, |stats| {
+            stats.key_events_seen += 1;
+            stats.last_key = summary;
+        });
+    }
+
+    fn note_snapshot_applied(&self) {
+        with_debug_stats(&self.debug_stats, |stats| {
+            stats.snapshots_applied += 1;
+        });
+    }
+
+    fn debug_stats_snapshot(&self) -> TerminalDebugStats {
+        match self.debug_stats.lock() {
+            Ok(stats) => stats.clone(),
+            Err(poisoned) => poisoned.into_inner().clone(),
+        }
+    }
+}
+
+fn with_debug_stats(
+    debug_stats: &Arc<Mutex<TerminalDebugStats>>,
+    update: impl FnOnce(&mut TerminalDebugStats),
+) {
+    match debug_stats.lock() {
+        Ok(mut stats) => update(&mut stats),
+        Err(poisoned) => update(&mut poisoned.into_inner()),
+    }
+}
+
+fn summarize_terminal_command(command: &TerminalCommand) -> &str {
+    match command {
+        TerminalCommand::InputText(_) => "InputText",
+        TerminalCommand::InputEvent(_) => "InputEvent",
+        TerminalCommand::SendCommand(_) => "SendCommand",
+        TerminalCommand::Shutdown => "Shutdown",
     }
 }
 
@@ -608,7 +673,11 @@ struct ProjectedBasis {
     vertical: Vec2,
 }
 
-fn terminal_worker(input_rx: Receiver<TerminalCommand>, snapshot_tx: Sender<TerminalSnapshot>) {
+fn terminal_worker(
+    input_rx: Receiver<TerminalCommand>,
+    snapshot_tx: Sender<TerminalSnapshot>,
+    debug_stats: Arc<Mutex<TerminalDebugStats>>,
+) {
     let mut session = match spawn_pty(DEFAULT_COLS, DEFAULT_ROWS) {
         Ok(session) => session,
         Err(error) => {
@@ -665,23 +734,35 @@ fn terminal_worker(input_rx: Receiver<TerminalCommand>, snapshot_tx: Sender<Term
         loop {
             match input_rx.try_recv() {
                 Ok(TerminalCommand::InputText(text)) => {
-                    if write_input(&mut *session.writer, text.as_bytes()).is_err() {
+                    let bytes = text.as_bytes();
+                    if write_input(&mut *session.writer, bytes).is_err() {
                         running = false;
                         break;
                     }
+                    with_debug_stats(&debug_stats, |stats| {
+                        stats.pty_bytes_written += bytes.len() as u64;
+                    });
                 }
                 Ok(TerminalCommand::InputEvent(event)) => {
-                    if write_input(&mut *session.writer, event.as_bytes()).is_err() {
+                    let bytes = event.as_bytes();
+                    if write_input(&mut *session.writer, bytes).is_err() {
                         running = false;
                         break;
                     }
+                    with_debug_stats(&debug_stats, |stats| {
+                        stats.pty_bytes_written += bytes.len() as u64;
+                    });
                 }
                 Ok(TerminalCommand::SendCommand(command)) => {
                     let payload = format!("{command}\r");
-                    if write_input(&mut *session.writer, payload.as_bytes()).is_err() {
+                    let bytes = payload.as_bytes();
+                    if write_input(&mut *session.writer, bytes).is_err() {
                         running = false;
                         break;
                     }
+                    with_debug_stats(&debug_stats, |stats| {
+                        stats.pty_bytes_written += bytes.len() as u64;
+                    });
                 }
                 Ok(TerminalCommand::Shutdown) => {
                     running = false;
@@ -696,6 +777,9 @@ fn terminal_worker(input_rx: Receiver<TerminalCommand>, snapshot_tx: Sender<Term
         }
 
         while let Ok(bytes) = pty_output_rx.try_recv() {
+            with_debug_stats(&debug_stats, |stats| {
+                stats.pty_bytes_read += bytes.len() as u64;
+            });
             parser.advance(&mut terminal, &bytes);
         }
 
@@ -706,7 +790,11 @@ fn terminal_worker(input_rx: Receiver<TerminalCommand>, snapshot_tx: Sender<Term
 
         if snapshot != last_snapshot {
             last_snapshot = snapshot.clone();
-            let _ = snapshot_tx.send(snapshot);
+            if snapshot_tx.send(snapshot).is_ok() {
+                with_debug_stats(&debug_stats, |stats| {
+                    stats.snapshots_sent += 1;
+                });
+            }
         }
 
         thread::sleep(Duration::from_millis(16));
@@ -1628,12 +1716,23 @@ fn blend_over_pixel(buffer: &mut [u8], width: u32, x: u32, y: u32, source: [u8; 
 }
 
 fn blend_rgba_in_place(dst: &mut [u8], source: [u8; 4]) {
-    let src_alpha = source[3] as u16;
-    let inv_alpha = 255_u16.saturating_sub(src_alpha);
-    dst[0] = ((source[0] as u16 * src_alpha + dst[0] as u16 * inv_alpha) / 255) as u8;
-    dst[1] = ((source[1] as u16 * src_alpha + dst[1] as u16 * inv_alpha) / 255) as u8;
-    dst[2] = ((source[2] as u16 * src_alpha + dst[2] as u16 * inv_alpha) / 255) as u8;
-    dst[3] = 255;
+    let src_alpha = source[3] as f32 / 255.0;
+    let dst_alpha = dst[3] as f32 / 255.0;
+    let out_alpha = src_alpha + dst_alpha * (1.0 - src_alpha);
+
+    if out_alpha <= f32::EPSILON {
+        dst.copy_from_slice(&[0, 0, 0, 0]);
+        return;
+    }
+
+    for channel in 0..3 {
+        let src = source[channel] as f32 / 255.0;
+        let dst_value = dst[channel] as f32 / 255.0;
+        let out = (src * src_alpha + dst_value * dst_alpha * (1.0 - src_alpha)) / out_alpha;
+        dst[channel] = (out * 255.0).round() as u8;
+    }
+
+    dst[3] = (out_alpha * 255.0).round() as u8;
 }
 
 fn sync_terminal_plane_transform(
@@ -2170,6 +2269,7 @@ fn poll_terminal_snapshots(bridge: Res<TerminalBridge>, mut view: ResMut<Termina
 
     while let Ok(snapshot) = receiver.try_recv() {
         view.latest = snapshot;
+        bridge.note_snapshot_applied();
     }
 }
 
@@ -2184,6 +2284,7 @@ fn forward_keyboard_input(
             continue;
         }
 
+        bridge.note_key_event(event);
         if let Some(command) = keyboard_input_to_terminal_command(event, &keys) {
             bridge.send(command);
         }
@@ -2263,6 +2364,25 @@ fn ui_overlay(
             ui.separator();
             ui.label(view.latest.status.as_str());
             ui.separator();
+            let debug = bridge.debug_stats_snapshot();
+            ui.label(format!(
+                "keys {} · queued {} · wr {} · rd {} · sent {} · applied {}",
+                debug.key_events_seen,
+                debug.commands_queued,
+                debug.pty_bytes_written,
+                debug.pty_bytes_read,
+                debug.snapshots_sent,
+                debug.snapshots_applied,
+            ));
+            ui.separator();
+            if !debug.last_key.is_empty() {
+                ui.label(format!("last key {}", debug.last_key));
+                ui.separator();
+            }
+            if !debug.last_command.is_empty() {
+                ui.label(format!("last cmd {}", debug.last_command));
+                ui.separator();
+            }
             match font_state.report.as_ref() {
                 Some(Ok(report)) => {
                     ui.label(format!("font: {}", report.primary.family));
@@ -2325,10 +2445,10 @@ impl Drop for TerminalBridge {
 #[cfg(test)]
 mod tests {
     use super::{
-        ctrl_sequence, find_kitty_config_path, format_startup_panic, is_emoji_like,
-        is_private_use_like, keyboard_input_to_terminal_command, parse_kitty_config_file,
-        resolve_alacritty_color, resolve_terminal_font_report, xterm_indexed_rgb, KittyFontConfig,
-        TerminalCommand,
+        blend_rgba_in_place, ctrl_sequence, find_kitty_config_path, format_startup_panic,
+        is_emoji_like, is_private_use_like, keyboard_input_to_terminal_command,
+        parse_kitty_config_file, resolve_alacritty_color, resolve_terminal_font_report,
+        xterm_indexed_rgb, KittyFontConfig, TerminalCommand,
     };
     use alacritty_terminal::vte::ansi::{Color as AnsiColor, NamedColor};
     use bevy::{
@@ -2388,6 +2508,16 @@ mod tests {
     fn indexed_color_has_expected_blue_cube_entry() {
         let rgb = xterm_indexed_rgb(21);
         assert_eq!((rgb.r, rgb.g, rgb.b), (0, 0, 255));
+    }
+
+    #[test]
+    fn alpha_blend_preserves_transparent_glyph_background() {
+        let mut pixel = [0, 0, 0, 0];
+        blend_rgba_in_place(&mut pixel, [255, 255, 255, 0]);
+        assert_eq!(pixel, [0, 0, 0, 0]);
+
+        blend_rgba_in_place(&mut pixel, [255, 255, 255, 128]);
+        assert_eq!(pixel[3], 128);
     }
 
     #[test]
