@@ -39,7 +39,7 @@ use std::{
     path::{Path, PathBuf},
     process::Command,
     sync::{
-        mpsc::{self, Receiver, Sender, TryRecvError},
+        mpsc::{self, Receiver, Sender},
         Arc, Mutex,
     },
     thread,
@@ -56,7 +56,6 @@ const TEXT_Z: f32 = 1.0;
 const BG_Z: f32 = 0.0;
 const DEFAULT_CELL_HEIGHT_PX: u32 = 24;
 const DEFAULT_CELL_WIDTH_PX: u32 = 14;
-const TERMINAL_WORLD_HEIGHT: f32 = 8.0;
 const GPU_NOT_FOUND_PANIC_FRAGMENT: &str = "Unable to find a GPU!";
 const DEBUG_LOG_PATH: &str = "/tmp/neozeus-debug.log";
 const DEBUG_TEXTURE_DUMP_PATH: &str = "/tmp/neozeus-texture.ppm";
@@ -187,27 +186,14 @@ fn panic_payload_message(payload: &(dyn Any + Send)) -> Option<&str> {
 fn setup_scene(
     mut commands: Commands,
     mut images: ResMut<Assets<Image>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-    mut meshes: ResMut<Assets<Mesh>>,
     mut texture_state: ResMut<TerminalTextureState>,
 ) {
     let image_handle = images.add(create_terminal_image(UVec2::ONE));
-    let material_handle = materials.add(StandardMaterial {
-        base_color_texture: Some(image_handle.clone()),
-        unlit: true,
-        cull_mode: None,
-        ..default()
-    });
+
+    commands.spawn((Camera2d, TerminalCameraMarker));
 
     commands.spawn((
-        Camera3d::default(),
-        Transform::from_xyz(0.0, 0.0, 10.0).looking_at(Vec3::ZERO, Vec3::Y),
-        TerminalCameraMarker,
-    ));
-
-    commands.spawn((
-        Mesh3d(meshes.add(Rectangle::new(1.0, 1.0))),
-        MeshMaterial3d(material_handle.clone()),
+        Sprite::from_image(image_handle.clone()),
         Transform::default(),
         TerminalPlaneMarker,
     ));
@@ -780,7 +766,11 @@ fn terminal_worker(
     snapshot_tx: Sender<TerminalSnapshot>,
     debug_stats: Arc<Mutex<TerminalDebugStats>>,
 ) {
-    let mut session = match spawn_pty(DEFAULT_COLS, DEFAULT_ROWS) {
+    let PtySession {
+        master,
+        writer,
+        mut child,
+    } = match spawn_pty(DEFAULT_COLS, DEFAULT_ROWS) {
         Ok(session) => session,
         Err(error) => {
             let status = format!("failed to start PTY backend: {error}");
@@ -794,7 +784,7 @@ fn terminal_worker(
     };
     append_debug_log("pty spawned successfully");
 
-    let mut reader = match session.master.try_clone_reader() {
+    let mut reader = match master.try_clone_reader() {
         Ok(reader) => reader,
         Err(error) => {
             let status = format!("failed to attach PTY reader: {error}");
@@ -803,7 +793,7 @@ fn terminal_worker(
                 status: status.clone(),
             });
             set_terminal_error(&debug_stats, status);
-            let _ = session.child.kill();
+            let _ = child.kill();
             return;
         }
     };
@@ -843,6 +833,66 @@ fn terminal_worker(
         }
     });
 
+    let (input_status_tx, input_status_rx) = mpsc::channel::<Result<(), String>>();
+    let input_debug_stats = debug_stats.clone();
+    let input_thread = thread::spawn(move || {
+        let mut writer = writer;
+        while let Ok(command) = input_rx.recv() {
+            let result = match command {
+                TerminalCommand::InputText(text) => {
+                    let bytes = text.into_bytes();
+                    append_debug_log(format!("pty write text: {} bytes", bytes.len()));
+                    match write_input(&mut *writer, &bytes) {
+                        Ok(()) => {
+                            with_debug_stats(&input_debug_stats, |stats| {
+                                stats.pty_bytes_written += bytes.len() as u64;
+                            });
+                            Ok(())
+                        }
+                        Err(error) => Err(format!("PTY write failed for text input: {error}")),
+                    }
+                }
+                TerminalCommand::InputEvent(event) => {
+                    let bytes = event.into_bytes();
+                    append_debug_log(format!("pty write input event: {} bytes", bytes.len()));
+                    match write_input(&mut *writer, &bytes) {
+                        Ok(()) => {
+                            with_debug_stats(&input_debug_stats, |stats| {
+                                stats.pty_bytes_written += bytes.len() as u64;
+                            });
+                            Ok(())
+                        }
+                        Err(error) => Err(format!("PTY write failed for input event: {error}")),
+                    }
+                }
+                TerminalCommand::SendCommand(command) => {
+                    let payload = format!("{command}\r");
+                    let bytes = payload.into_bytes();
+                    append_debug_log(format!(
+                        "pty write command `{command}`: {} bytes",
+                        bytes.len()
+                    ));
+                    match write_input(&mut *writer, &bytes) {
+                        Ok(()) => {
+                            with_debug_stats(&input_debug_stats, |stats| {
+                                stats.pty_bytes_written += bytes.len() as u64;
+                            });
+                            Ok(())
+                        }
+                        Err(error) => {
+                            Err(format!("PTY write failed for command `{command}`: {error}"))
+                        }
+                    }
+                }
+                TerminalCommand::Shutdown => break,
+            };
+
+            if input_status_tx.send(result).is_err() {
+                break;
+            }
+        }
+    });
+
     let dimensions = TerminalDimensions {
         cols: usize::from(DEFAULT_COLS),
         rows: usize::from(DEFAULT_ROWS),
@@ -857,78 +907,25 @@ fn terminal_worker(
     let mut running = true;
 
     while running {
-        loop {
-            match input_rx.try_recv() {
-                Ok(TerminalCommand::InputText(text)) => {
-                    let bytes = text.as_bytes();
-                    append_debug_log(format!("pty write text: {} bytes", bytes.len()));
-                    if let Err(error) = write_input(&mut *session.writer, bytes) {
-                        send_terminal_status_snapshot(
-                            &snapshot_tx,
-                            &debug_stats,
-                            &terminal,
-                            format!("PTY write failed for text input: {error}"),
-                        );
-                        running = false;
-                        break;
-                    }
-                    with_debug_stats(&debug_stats, |stats| {
-                        stats.pty_bytes_written += bytes.len() as u64;
-                    });
-                }
-                Ok(TerminalCommand::InputEvent(event)) => {
-                    let bytes = event.as_bytes();
-                    append_debug_log(format!("pty write input event: {} bytes", bytes.len()));
-                    if let Err(error) = write_input(&mut *session.writer, bytes) {
-                        send_terminal_status_snapshot(
-                            &snapshot_tx,
-                            &debug_stats,
-                            &terminal,
-                            format!("PTY write failed for input event: {error}"),
-                        );
-                        running = false;
-                        break;
-                    }
-                    with_debug_stats(&debug_stats, |stats| {
-                        stats.pty_bytes_written += bytes.len() as u64;
-                    });
-                }
-                Ok(TerminalCommand::SendCommand(command)) => {
-                    let payload = format!("{command}\r");
-                    let bytes = payload.as_bytes();
-                    append_debug_log(format!(
-                        "pty write command `{command}`: {} bytes",
-                        bytes.len()
-                    ));
-                    if let Err(error) = write_input(&mut *session.writer, bytes) {
-                        send_terminal_status_snapshot(
-                            &snapshot_tx,
-                            &debug_stats,
-                            &terminal,
-                            format!("PTY write failed for command `{command}`: {error}"),
-                        );
-                        running = false;
-                        break;
-                    }
-                    with_debug_stats(&debug_stats, |stats| {
-                        stats.pty_bytes_written += bytes.len() as u64;
-                    });
-                }
-                Ok(TerminalCommand::Shutdown) => {
-                    running = false;
-                    break;
-                }
-                Err(TryRecvError::Empty) => break,
-                Err(TryRecvError::Disconnected) => {
-                    send_terminal_status_snapshot(
-                        &snapshot_tx,
-                        &debug_stats,
-                        &terminal,
-                        "terminal input channel disconnected",
-                    );
-                    running = false;
-                    break;
-                }
+        let mut received_output = false;
+        match pty_output_rx.recv_timeout(Duration::from_millis(100)) {
+            Ok(bytes) => {
+                append_debug_log(format!("pty read: {} bytes", bytes.len()));
+                with_debug_stats(&debug_stats, |stats| {
+                    stats.pty_bytes_read += bytes.len() as u64;
+                });
+                parser.advance(&mut terminal, &bytes);
+                received_output = true;
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => {}
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                send_terminal_status_snapshot(
+                    &snapshot_tx,
+                    &debug_stats,
+                    &terminal,
+                    "PTY reader channel disconnected",
+                );
+                running = false;
             }
         }
 
@@ -938,6 +935,14 @@ fn terminal_worker(
                 stats.pty_bytes_read += bytes.len() as u64;
             });
             parser.advance(&mut terminal, &bytes);
+            received_output = true;
+        }
+
+        while let Ok(result) = input_status_rx.try_recv() {
+            if let Err(status) = result {
+                send_terminal_status_snapshot(&snapshot_tx, &debug_stats, &terminal, status);
+                running = false;
+            }
         }
 
         let reader_status = match reader_state.lock() {
@@ -949,7 +954,7 @@ fn terminal_worker(
             running = false;
         }
 
-        match session.child.try_wait() {
+        match child.try_wait() {
             Ok(Some(status)) => {
                 send_terminal_status_snapshot(
                     &snapshot_tx,
@@ -975,25 +980,26 @@ fn terminal_worker(
             }
         }
 
-        let snapshot = TerminalSnapshot {
-            surface: Some(build_surface(&terminal)),
-            status: "backend: alacritty_terminal + portable-pty".into(),
-        };
+        if received_output && running {
+            let snapshot = TerminalSnapshot {
+                surface: Some(build_surface(&terminal)),
+                status: "backend: alacritty_terminal + portable-pty".into(),
+            };
 
-        if running && snapshot != last_snapshot {
-            last_snapshot = snapshot.clone();
-            if snapshot_tx.send(snapshot).is_ok() {
-                with_debug_stats(&debug_stats, |stats| {
-                    stats.snapshots_sent += 1;
-                });
+            if snapshot != last_snapshot {
+                last_snapshot = snapshot.clone();
+                if snapshot_tx.send(snapshot).is_ok() {
+                    with_debug_stats(&debug_stats, |stats| {
+                        stats.snapshots_sent += 1;
+                    });
+                }
             }
         }
-
-        thread::sleep(Duration::from_millis(16));
     }
 
-    let _ = session.child.kill();
+    let _ = child.kill();
     let _ = reader_thread.join();
+    let _ = input_thread.join();
 }
 
 fn build_surface(term: &Term<VoidListener>) -> TerminalSurface {
@@ -1613,10 +1619,6 @@ fn sync_terminal_texture(
         glyph_cache.glyphs.clear();
     }
 
-    if texture_state.last_surface.as_ref() == Some(surface) && !font_state.is_changed() {
-        return;
-    }
-
     let Some(image_handle) = texture_state.image.clone() else {
         append_debug_log("texture sync: missing image handle");
         return;
@@ -1631,24 +1633,49 @@ fn sync_terminal_texture(
         surface.cols as u32 * cell_size.x.max(1),
         surface.rows as u32 * cell_size.y.max(1),
     );
+    let mut full_redraw = font_state.is_changed()
+        || texture_state.texture_size != texture_size
+        || texture_state.last_surface.is_none();
+    let mut dirty_rows = if full_redraw {
+        (0..surface.rows).collect::<Vec<_>>()
+    } else {
+        dirty_rows_between(texture_state.last_surface.as_ref(), surface)
+    };
 
-    append_debug_log(format!(
-        "texture sync: redraw cols={} rows={} size={}x{}",
-        surface.cols, surface.rows, texture_size.x, texture_size.y
-    ));
-    let mut composed = create_terminal_image(texture_size);
-    repaint_terminal_image(
-        &mut composed,
-        surface,
-        cell_size,
-        helper_entities,
-        &mut text_renderer,
-        &mut glyph_cache,
-        &font_state,
-    );
+    if dirty_rows.is_empty() {
+        return;
+    }
 
     if let Some(target_image) = images.get_mut(&image_handle) {
-        *target_image = composed;
+        if target_image.texture_descriptor.size.width != texture_size.x
+            || target_image.texture_descriptor.size.height != texture_size.y
+        {
+            *target_image = create_terminal_image(texture_size);
+            full_redraw = true;
+            dirty_rows = (0..surface.rows).collect();
+        }
+
+        if full_redraw {
+            clear_terminal_image(target_image);
+        }
+
+        append_debug_log(format!(
+            "texture sync: repaint rows={} cols={} size={}x{}",
+            dirty_rows.len(),
+            surface.cols,
+            texture_size.x,
+            texture_size.y
+        ));
+        repaint_terminal_rows(
+            target_image,
+            surface,
+            &dirty_rows,
+            cell_size,
+            helper_entities,
+            &mut text_renderer,
+            &mut glyph_cache,
+            &font_state,
+        );
         append_debug_log("texture sync: image uploaded");
         if env::var_os("NEOZEUS_DUMP_TEXTURE").is_some() {
             let _ = dump_terminal_image_ppm(target_image, Path::new(DEBUG_TEXTURE_DUMP_PATH));
@@ -1661,23 +1688,70 @@ fn sync_terminal_texture(
     }
 }
 
-fn repaint_terminal_image(
-    image: &mut Image,
+fn dirty_rows_between(
+    previous_surface: Option<&TerminalSurface>,
     surface: &TerminalSurface,
-    cell_size: UVec2,
-    helper_entities: TerminalFontEntities,
-    text_renderer: &mut TerminalTextRenderer,
-    glyph_cache: &mut TerminalGlyphCache,
-    font_state: &TerminalFontState,
-) {
+) -> Vec<usize> {
+    let Some(previous_surface) = previous_surface else {
+        return (0..surface.rows).collect();
+    };
+    if previous_surface.cols != surface.cols || previous_surface.rows != surface.rows {
+        return (0..surface.rows).collect();
+    }
+
+    let mut dirty_rows = BTreeSet::new();
+    for y in 0..surface.rows {
+        let start = y * surface.cols;
+        let end = start + surface.cols;
+        if previous_surface.cells[start..end] != surface.cells[start..end] {
+            dirty_rows.insert(y);
+        }
+    }
+
+    if previous_surface.cursor != surface.cursor {
+        if let Some(cursor) = previous_surface.cursor.as_ref() {
+            if cursor.visible && cursor.y < surface.rows {
+                dirty_rows.insert(cursor.y);
+            }
+        }
+        if let Some(cursor) = surface.cursor.as_ref() {
+            if cursor.visible && cursor.y < surface.rows {
+                dirty_rows.insert(cursor.y);
+            }
+        }
+    }
+
+    dirty_rows.into_iter().collect()
+}
+
+fn clear_terminal_image(image: &mut Image) {
     image.clear(&[
         DEFAULT_BG.r(),
         DEFAULT_BG.g(),
         DEFAULT_BG.b(),
         DEFAULT_BG.a(),
     ]);
+}
 
-    for y in 0..surface.rows {
+#[allow(
+    clippy::too_many_arguments,
+    reason = "terminal row repaint needs renderer/cache/font state together"
+)]
+fn repaint_terminal_rows(
+    image: &mut Image,
+    surface: &TerminalSurface,
+    rows: &[usize],
+    cell_size: UVec2,
+    helper_entities: TerminalFontEntities,
+    text_renderer: &mut TerminalTextRenderer,
+    glyph_cache: &mut TerminalGlyphCache,
+    font_state: &TerminalFontState,
+) {
+    for &y in rows {
+        if y >= surface.rows {
+            continue;
+        }
+
         for x in 0..surface.cols {
             let cell = surface.cell(x, y);
             let origin_x = x as u32 * cell_size.x;
@@ -1698,9 +1772,7 @@ fn repaint_terminal_image(
                 cell_height: cell_size.y,
             };
 
-            let glyph = if let Some(glyph) = glyph_cache.glyphs.get(&cache_key) {
-                glyph.clone()
-            } else {
+            if !glyph_cache.glyphs.contains_key(&cache_key) {
                 let glyph = rasterize_terminal_glyph(
                     &cache_key,
                     font_role,
@@ -1708,16 +1780,17 @@ fn repaint_terminal_image(
                     text_renderer,
                     font_state,
                 );
-                glyph_cache.glyphs.insert(cache_key.clone(), glyph.clone());
-                glyph
-            };
+                glyph_cache.glyphs.insert(cache_key.clone(), glyph);
+            }
 
-            blit_cached_glyph(image, origin_x, origin_y, &glyph, cell.fg);
+            if let Some(glyph) = glyph_cache.glyphs.get(&cache_key) {
+                blit_cached_glyph(image, origin_x, origin_y, glyph, cell.fg);
+            }
         }
     }
 
     if let Some(cursor) = &surface.cursor {
-        if cursor.visible {
+        if cursor.visible && rows.binary_search(&cursor.y).is_ok() {
             draw_cursor(image, cursor, cell_size);
         }
     }
@@ -1985,25 +2058,22 @@ fn blend_rgba_in_place(dst: &mut [u8], source: [u8; 4]) {
 fn sync_terminal_plane_transform(
     texture_state: Res<TerminalTextureState>,
     plane_state: Res<TerminalPlaneState>,
-    mut plane_transform: Single<&mut Transform, With<TerminalPlaneMarker>>,
-    mut camera_transform: Single<
-        &mut Transform,
-        (With<TerminalCameraMarker>, Without<TerminalPlaneMarker>),
-    >,
+    primary_window: Single<&Window, With<PrimaryWindow>>,
+    plane: Single<(&mut Transform, &mut Sprite), With<TerminalPlaneMarker>>,
 ) {
-    let aspect = if texture_state.texture_size.y == 0 {
-        1.0
-    } else {
-        texture_state.texture_size.x as f32 / texture_state.texture_size.y as f32
-    };
+    let texture_width = texture_state.texture_size.x.max(1) as f32;
+    let texture_height = texture_state.texture_size.y.max(1) as f32;
+    let fit_width = (primary_window.width() - TERMINAL_MARGIN * 2.0).max(64.0);
+    let fit_height = (primary_window.height() - TERMINAL_MARGIN * 2.0).max(64.0);
+    let fit_scale = (fit_width / texture_width).min(fit_height / texture_height);
+    let zoom_scale = 10.0 / plane_state.distance.max(0.1);
+    let size = Vec2::new(texture_width, texture_height) * fit_scale * zoom_scale;
 
+    let (mut plane_transform, mut sprite) = plane.into_inner();
+    sprite.custom_size = Some(size);
     plane_transform.translation = plane_state.offset.extend(0.0);
-    plane_transform.rotation =
-        Quat::from_rotation_y(plane_state.yaw) * Quat::from_rotation_x(plane_state.pitch);
-    plane_transform.scale = Vec3::new(TERMINAL_WORLD_HEIGHT * aspect, TERMINAL_WORLD_HEIGHT, 1.0);
-
-    camera_transform.translation = Vec3::new(0.0, 0.0, plane_state.distance.max(1.0));
-    camera_transform.look_at(Vec3::ZERO, Vec3::Y);
+    plane_transform.rotation = Quat::IDENTITY;
+    plane_transform.scale = Vec3::ONE;
 }
 
 fn drag_terminal_plane(
