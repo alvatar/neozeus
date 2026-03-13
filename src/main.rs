@@ -142,13 +142,11 @@ fn configure_app(app: &mut App) {
         .insert_resource(TerminalTextureState::default())
         .insert_resource(TerminalGlyphCache::default())
         .insert_resource(TerminalTextRenderer::default())
-        .insert_resource(TerminalAutoVerifyState::from_env())
         .add_systems(Startup, setup_scene)
         .add_systems(
             Update,
             (
                 poll_terminal_snapshots,
-                dispatch_auto_verify_command,
                 configure_terminal_fonts,
                 sync_terminal_font_helpers,
                 sync_terminal_texture,
@@ -327,13 +325,19 @@ impl TerminalBridge {
         let (snapshot_tx, snapshot_rx) = mpsc::channel();
         let debug_stats = Arc::new(Mutex::new(TerminalDebugStats::default()));
         let worker_debug_stats = debug_stats.clone();
+        let worker_event_loop_proxy = event_loop_proxy.clone();
 
         thread::spawn(move || {
             append_debug_log("terminal worker thread spawn");
             let panic_snapshot_tx = snapshot_tx.clone();
-            let panic_event_loop_proxy = event_loop_proxy.clone();
+            let panic_event_loop_proxy = worker_event_loop_proxy.clone();
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                terminal_worker(input_rx, snapshot_tx, worker_debug_stats, event_loop_proxy)
+                terminal_worker(
+                    input_rx,
+                    snapshot_tx,
+                    worker_debug_stats,
+                    worker_event_loop_proxy,
+                )
             }));
             if let Err(payload) = result {
                 let message = panic_payload_to_string(payload);
@@ -345,6 +349,8 @@ impl TerminalBridge {
                 let _ = panic_event_loop_proxy.send_event(WinitUserEvent::WakeUp);
             }
         });
+
+        spawn_auto_verify_dispatcher(&input_tx, &debug_stats, &event_loop_proxy);
 
         Self {
             input_tx,
@@ -418,6 +424,45 @@ fn summarize_terminal_command(command: &TerminalCommand) -> &str {
     }
 }
 
+fn spawn_auto_verify_dispatcher(
+    input_tx: &Sender<TerminalCommand>,
+    debug_stats: &Arc<Mutex<TerminalDebugStats>>,
+    event_loop_proxy: &EventLoopProxy<WinitUserEvent>,
+) {
+    let Some(command) = env::var("NEOZEUS_AUTOVERIFY_COMMAND").ok() else {
+        return;
+    };
+    let delay = env::var("NEOZEUS_AUTOVERIFY_DELAY_MS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .unwrap_or(1500);
+
+    let input_tx = input_tx.clone();
+    let debug_stats = debug_stats.clone();
+    let event_loop_proxy = event_loop_proxy.clone();
+    thread::spawn(move || {
+        thread::sleep(Duration::from_millis(delay));
+        append_debug_log(format!("auto-verify command dispatched: {command}"));
+        match input_tx.send(TerminalCommand::SendCommand(command)) {
+            Ok(()) => {
+                with_debug_stats(&debug_stats, |stats| {
+                    stats.commands_queued += 1;
+                    stats.last_command = "SendCommand".into();
+                });
+                append_debug_log("command queued: SendCommand");
+                let _ = event_loop_proxy.send_event(WinitUserEvent::WakeUp);
+            }
+            Err(_) => {
+                append_debug_log("command queue failed: SendCommand");
+                with_debug_stats(&debug_stats, |stats| {
+                    stats.last_command = "SendCommand".into();
+                    stats.last_error = "input channel disconnected".into();
+                });
+            }
+        }
+    });
+}
+
 fn set_terminal_error(debug_stats: &Arc<Mutex<TerminalDebugStats>>, message: impl Into<String>) {
     let message = message.into();
     append_debug_log(format!("terminal error: {message}"));
@@ -483,29 +528,6 @@ struct TerminalPlaneState {
     distance: f32,
     focal_length: f32,
     offset: Vec2,
-}
-
-#[derive(Resource, Default)]
-struct TerminalAutoVerifyState {
-    command: Option<String>,
-    delay_seconds: f32,
-    dispatched: bool,
-}
-
-impl TerminalAutoVerifyState {
-    fn from_env() -> Self {
-        let command = env::var("NEOZEUS_AUTOVERIFY_COMMAND").ok();
-        let delay_seconds = env::var("NEOZEUS_AUTOVERIFY_DELAY_MS")
-            .ok()
-            .and_then(|value| value.parse::<u64>().ok())
-            .map(|value| value as f32 / 1000.0)
-            .unwrap_or(1.5);
-        Self {
-            command,
-            delay_seconds,
-            dispatched: false,
-        }
-    }
 }
 
 impl Default for TerminalPlaneState {
@@ -2617,26 +2639,6 @@ fn poll_terminal_snapshots(bridge: Res<TerminalBridge>, mut view: ResMut<Termina
         view.latest = snapshot;
         bridge.note_snapshot_applied();
     }
-}
-
-fn dispatch_auto_verify_command(
-    time: Res<Time>,
-    bridge: Res<TerminalBridge>,
-    mut state: ResMut<TerminalAutoVerifyState>,
-) {
-    if state.dispatched {
-        return;
-    }
-    let Some(command) = state.command.clone() else {
-        return;
-    };
-    if time.elapsed_secs() < state.delay_seconds {
-        return;
-    }
-
-    append_debug_log(format!("auto-verify command dispatched: {command}"));
-    bridge.send(TerminalCommand::SendCommand(command));
-    state.dispatched = true;
 }
 
 fn forward_keyboard_input(
