@@ -1723,6 +1723,35 @@ fn rasterize_terminal_glyph(
         };
     }
 
+    let mut min_x = i32::MAX;
+    let mut min_y = i32::MAX;
+    let mut max_x = i32::MIN;
+    let mut max_y = i32::MIN;
+
+    for glyph in &layout_info.glyphs {
+        let Some(atlas_layout) = render.texture_atlases.get(glyph.atlas_info.texture_atlas) else {
+            continue;
+        };
+        let rect = atlas_layout.textures[glyph.atlas_info.location.glyph_index];
+        let dest_x = (glyph.position.x - glyph.size.x * 0.5).floor() as i32;
+        let dest_y = (glyph.position.y - glyph.size.y * 0.5).floor() as i32;
+        min_x = min_x.min(dest_x);
+        min_y = min_y.min(dest_y);
+        max_x = max_x.max(dest_x + rect.width() as i32);
+        max_y = max_y.max(dest_y + rect.height() as i32);
+    }
+
+    let (shift_x, shift_y) = if min_x <= max_x && min_y <= max_y {
+        let content_width = (max_x - min_x).max(0);
+        let content_height = (max_y - min_y).max(0);
+        (
+            ((width as i32 - content_width).max(0) / 2) - min_x,
+            ((height as i32 - content_height).max(0) / 2) - min_y,
+        )
+    } else {
+        (0, 0)
+    };
+
     for glyph in &layout_info.glyphs {
         let Some(atlas_layout) = render.texture_atlases.get(glyph.atlas_info.texture_atlas) else {
             continue;
@@ -1731,8 +1760,8 @@ fn rasterize_terminal_glyph(
             continue;
         };
         let rect = atlas_layout.textures[glyph.atlas_info.location.glyph_index];
-        let dest_x = (glyph.position.x - glyph.size.x * 0.5).floor() as i32;
-        let dest_y = (glyph.position.y - glyph.size.y * 0.5).floor() as i32;
+        let dest_x = (glyph.position.x - glyph.size.x * 0.5).floor() as i32 + shift_x;
+        let dest_y = (glyph.position.y - glyph.size.y * 0.5).floor() as i32 + shift_y;
 
         for src_y in 0..rect.height() {
             for src_x in 0..rect.width() {
