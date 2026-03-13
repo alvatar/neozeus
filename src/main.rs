@@ -7,6 +7,7 @@ use alacritty_terminal::{
 use bevy::{
     input::{keyboard::KeyboardInput, mouse::AccumulatedMouseMotion, ButtonState},
     prelude::*,
+    render::{settings::WgpuSettings, RenderPlugin},
     sprite::Anchor,
     text::{Font, TextBounds, TextColor, TextFont},
     window::PrimaryWindow,
@@ -14,6 +15,7 @@ use bevy::{
 use bevy_egui::{egui, EguiContexts, EguiPlugin, EguiPrimaryContextPass};
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 use std::{
+    any::Any,
     collections::BTreeSet,
     env,
     ffi::OsString,
@@ -23,7 +25,7 @@ use std::{
     process::Command,
     sync::{
         mpsc::{self, Receiver, Sender, TryRecvError},
-        Mutex,
+        Arc, Mutex,
     },
     thread,
     time::Duration,
@@ -37,38 +39,117 @@ const TERMINAL_MARGIN: f32 = 48.0;
 const CURSOR_Z: f32 = 2.0;
 const TEXT_Z: f32 = 1.0;
 const BG_Z: f32 = 0.0;
+const GPU_NOT_FOUND_PANIC_FRAGMENT: &str = "Unable to find a GPU!";
 
 fn main() {
-    App::new()
-        .add_plugins(DefaultPlugins.set(WindowPlugin {
-            primary_window: Some(Window {
-                title: "neozeus".into(),
-                resolution: (1400, 900).into(),
+    match build_app() {
+        Ok(mut app) => {
+            let _ = app.run();
+        }
+        Err(error) => {
+            eprintln!("{error}");
+            std::process::exit(1);
+        }
+    }
+}
+
+fn build_app() -> Result<App, String> {
+    let mut app = App::new();
+    let previous_hook = Arc::new(std::panic::take_hook());
+    let forwarding_hook = previous_hook.clone();
+
+    std::panic::set_hook(Box::new(move |info| {
+        if panic_payload_message(info.payload()).is_some_and(is_missing_gpu_panic) {
+            return;
+        }
+        (*forwarding_hook)(info);
+    }));
+
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| configure_app(&mut app)));
+
+    let restore_hook = previous_hook.clone();
+    std::panic::set_hook(Box::new(move |info| (*restore_hook)(info)));
+
+    match result {
+        Ok(()) => Ok(app),
+        Err(payload) => {
+            if let Some(error) = format_startup_panic(payload.as_ref()) {
+                Err(error)
+            } else {
+                std::panic::resume_unwind(payload)
+            }
+        }
+    }
+}
+
+fn configure_app(app: &mut App) {
+    app.add_plugins(
+        DefaultPlugins
+            .set(RenderPlugin {
+                render_creation: WgpuSettings {
+                    force_fallback_adapter: true,
+                    ..default()
+                }
+                .into(),
+                ..default()
+            })
+            .set(WindowPlugin {
+                primary_window: Some(Window {
+                    title: "neozeus".into(),
+                    resolution: (1400, 900).into(),
+                    ..default()
+                }),
                 ..default()
             }),
-            ..default()
-        }))
-        .add_plugins(EguiPlugin::default())
-        .insert_resource(ClearColor(Color::srgb(0.02, 0.02, 0.02)))
-        .insert_resource(TerminalBridge::spawn())
-        .insert_resource(TerminalView::default())
-        .insert_resource(TerminalFontState::default())
-        .insert_resource(TerminalPlaneState::default())
-        .insert_resource(TerminalSceneState::default())
-        .add_systems(Startup, setup_camera)
-        .add_systems(
-            Update,
-            (
-                poll_terminal_snapshots,
-                configure_terminal_fonts,
-                drag_terminal_plane,
-                sync_terminal_plane,
-                forward_keyboard_input,
-            )
-                .chain(),
+    )
+    .add_plugins(EguiPlugin::default())
+    .insert_resource(ClearColor(Color::srgb(0.02, 0.02, 0.02)))
+    .insert_resource(TerminalBridge::spawn())
+    .insert_resource(TerminalView::default())
+    .insert_resource(TerminalFontState::default())
+    .insert_resource(TerminalPlaneState::default())
+    .insert_resource(TerminalSceneState::default())
+    .add_systems(Startup, setup_camera)
+    .add_systems(
+        Update,
+        (
+            poll_terminal_snapshots,
+            configure_terminal_fonts,
+            drag_terminal_plane,
+            sync_terminal_plane,
+            forward_keyboard_input,
         )
-        .add_systems(EguiPrimaryContextPass, ui_overlay)
-        .run();
+            .chain(),
+    )
+    .add_systems(EguiPrimaryContextPass, ui_overlay);
+}
+
+fn format_startup_panic(payload: &(dyn Any + Send)) -> Option<String> {
+    let message = panic_payload_message(payload)?;
+    if !is_missing_gpu_panic(message) {
+        return None;
+    }
+
+    Some(
+        "neozeus failed to start: Bevy/WGPU could not find a usable graphics adapter. \
+This environment is either headless or missing graphics/software-rendering drivers. \
+Run it in a graphical session with a working GPU, or install a software renderer such as Mesa/llvmpipe."
+            .to_owned(),
+    )
+}
+
+fn is_missing_gpu_panic(message: &str) -> bool {
+    message.contains(GPU_NOT_FOUND_PANIC_FRAGMENT)
+}
+
+fn panic_payload_message(payload: &(dyn Any + Send)) -> Option<&str> {
+    if let Some(message) = payload.downcast_ref::<String>() {
+        Some(message.as_str())
+    } else if let Some(message) = payload.downcast_ref::<&'static str>() {
+        Some(*message)
+    } else {
+        None
+    }
 }
 
 fn setup_camera(mut commands: Commands) {
@@ -1494,9 +1575,10 @@ impl Drop for TerminalBridge {
 #[cfg(test)]
 mod tests {
     use super::{
-        ctrl_sequence, find_kitty_config_path, is_emoji_like, is_private_use_like,
-        keyboard_input_to_terminal_command, parse_kitty_config_file, resolve_alacritty_color,
-        resolve_terminal_font_report, xterm_indexed_rgb, KittyFontConfig, TerminalCommand,
+        ctrl_sequence, find_kitty_config_path, format_startup_panic, is_emoji_like,
+        is_private_use_like, keyboard_input_to_terminal_command, parse_kitty_config_file,
+        resolve_alacritty_color, resolve_terminal_font_report, xterm_indexed_rgb, KittyFontConfig,
+        TerminalCommand,
     };
     use alacritty_terminal::vte::ansi::{Color as AnsiColor, NamedColor};
     use bevy::{
@@ -1610,5 +1692,13 @@ mod tests {
         assert!(is_private_use_like('\u{e0b0}'));
         assert!(is_emoji_like('🚀'));
         assert!(!is_private_use_like('a'));
+    }
+
+    #[test]
+    fn formats_missing_gpu_startup_panics_as_user_facing_errors() {
+        let error = format_startup_panic(&"Unable to find a GPU! renderer init failed")
+            .expect("missing gpu panic should be formatted");
+        assert!(error.contains("could not find a usable graphics adapter"));
+        assert!(format_startup_panic(&"some other panic").is_none());
     }
 }
