@@ -341,6 +341,17 @@ pub(crate) fn ui_overlay(
                 plane_state.offset.x, plane_state.offset.y
             ));
             ui.separator();
+            let display_mode = terminal_manager
+                .active_display_mode()
+                .unwrap_or(TerminalDisplayMode::Smooth);
+            let pixel_perfect = display_mode == TerminalDisplayMode::PixelPerfect;
+            if ui
+                .selectable_label(pixel_perfect, "pixel perfect")
+                .clicked()
+            {
+                terminal_manager.toggle_active_display_mode();
+            }
+            ui.separator();
             ui.label("MMB drag: scrollback · Shift+MMB drag: pan · Shift+wheel: zoom");
             ui.separator();
             ui.checkbox(&mut eva_demo.enabled, "EVA vector demo");

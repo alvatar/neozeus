@@ -34,7 +34,10 @@ pub(crate) fn drag_terminal_plane(
         pointer_state.scroll_drag_remainder_px = 0.0;
         return;
     };
-    let screen_size = terminal_texture_screen_size(texture_state, &plane_state, &primary_window);
+    let pixel_perfect =
+        terminal_manager.active_display_mode() == Some(TerminalDisplayMode::PixelPerfect);
+    let screen_size =
+        terminal_texture_screen_size(texture_state, &plane_state, &primary_window, pixel_perfect);
     let screen_cell_height = if texture_state.cell_size.y == 0 || texture_state.texture_size.y == 0
     {
         1.0

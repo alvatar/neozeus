@@ -96,11 +96,19 @@ pub(crate) struct TerminalPresentation {
     target_z: f32,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum TerminalDisplayMode {
+    #[default]
+    Smooth,
+    PixelPerfect,
+}
+
 struct ManagedTerminal {
     bridge: TerminalBridge,
     latest: TerminalSnapshot,
     texture_state: TerminalTextureState,
     sprite_entity: Entity,
+    display_mode: TerminalDisplayMode,
 }
 
 #[derive(Resource)]
@@ -200,6 +208,7 @@ impl TerminalManager {
                     last_surface: None,
                 },
                 sprite_entity,
+                display_mode: TerminalDisplayMode::Smooth,
             },
         );
         self.focus_terminal(id);
@@ -246,6 +255,24 @@ impl TerminalManager {
         self.active_bridge()
             .map(TerminalBridge::debug_stats_snapshot)
             .unwrap_or_default()
+    }
+
+    pub(crate) fn active_display_mode(&self) -> Option<TerminalDisplayMode> {
+        self.active_terminal().map(|terminal| terminal.display_mode)
+    }
+
+    pub(crate) fn toggle_active_display_mode(&mut self) {
+        let Some(terminal) = self.active_terminal_mut() else {
+            return;
+        };
+        terminal.display_mode = match terminal.display_mode {
+            TerminalDisplayMode::Smooth => TerminalDisplayMode::PixelPerfect,
+            TerminalDisplayMode::PixelPerfect => TerminalDisplayMode::Smooth,
+        };
+        append_debug_log(format!(
+            "active terminal display mode: {:?}",
+            terminal.display_mode
+        ));
     }
 
     pub(crate) fn terminal_ids(&self) -> &[TerminalId] {
@@ -1629,6 +1656,8 @@ pub(crate) fn sync_terminal_font_helpers(
 pub(crate) fn sync_terminal_texture(
     mut terminal_manager: ResMut<TerminalManager>,
     font_state: Res<TerminalFontState>,
+    plane_state: Res<TerminalPlaneState>,
+    primary_window: Single<&Window, With<PrimaryWindow>>,
     mut glyph_cache: ResMut<TerminalGlyphCache>,
     mut images: ResMut<Assets<Image>>,
     mut text_renderer: ResMut<TerminalTextRenderer>,
@@ -1643,7 +1672,8 @@ pub(crate) fn sync_terminal_texture(
         glyph_cache.glyphs.clear();
     }
 
-    for terminal in terminal_manager.terminals.values_mut() {
+    let active_id = terminal_manager.active_id;
+    for (terminal_id, terminal) in terminal_manager.terminals.iter_mut() {
         let Some(surface) = &terminal.latest.surface else {
             terminal.texture_state.last_surface = None;
             continue;
@@ -1657,6 +1687,18 @@ pub(crate) fn sync_terminal_texture(
             append_debug_log("texture sync: missing helper entities");
             continue;
         };
+
+        let pixel_perfect = Some(*terminal_id) == active_id
+            && terminal.display_mode == TerminalDisplayMode::PixelPerfect;
+        let desired_cell_size = if pixel_perfect {
+            pixel_perfect_cell_size(surface.cols, surface.rows, &plane_state, &primary_window)
+        } else {
+            UVec2::new(DEFAULT_CELL_WIDTH_PX, DEFAULT_CELL_HEIGHT_PX)
+        };
+        if terminal.texture_state.cell_size != desired_cell_size {
+            terminal.texture_state.cell_size = desired_cell_size;
+            terminal.texture_state.last_surface = None;
+        }
 
         let cell_size = terminal.texture_state.cell_size;
         let texture_size = UVec2::new(
@@ -2050,11 +2092,51 @@ pub(crate) fn blend_rgba_in_place(dst: &mut [u8], source: [u8; 4]) {
     dst[3] = (out_alpha * 255.0).round() as u8;
 }
 
+pub(crate) fn pixel_perfect_cell_size(
+    cols: usize,
+    rows: usize,
+    plane_state: &TerminalPlaneState,
+    window: &Window,
+) -> UVec2 {
+    let base_texture_width = (cols as u32).max(1) as f32 * DEFAULT_CELL_WIDTH_PX as f32;
+    let base_texture_height = (rows as u32).max(1) as f32 * DEFAULT_CELL_HEIGHT_PX as f32;
+    let fit_width = (window.width() - TERMINAL_MARGIN * 2.0).max(64.0);
+    let fit_height = (window.height() - TERMINAL_MARGIN * 2.0).max(64.0);
+    let fit_scale = (fit_width / base_texture_width).min(fit_height / base_texture_height);
+    let zoom_scale = 10.0 / plane_state.distance.max(0.1);
+    let raster_scale = (fit_scale * zoom_scale).max(1.0 / DEFAULT_CELL_HEIGHT_PX as f32);
+
+    UVec2::new(
+        (DEFAULT_CELL_WIDTH_PX as f32 * raster_scale)
+            .floor()
+            .max(1.0) as u32,
+        (DEFAULT_CELL_HEIGHT_PX as f32 * raster_scale)
+            .floor()
+            .max(1.0) as u32,
+    )
+}
+
+pub(crate) fn snap_to_pixel_grid(position: Vec2, window: &Window) -> Vec2 {
+    let scale_factor = window.scale_factor();
+    if scale_factor <= f32::EPSILON {
+        return position.round();
+    }
+    (position * scale_factor).round() / scale_factor
+}
+
 pub(crate) fn terminal_texture_screen_size(
     texture_state: &TerminalTextureState,
     plane_state: &TerminalPlaneState,
     window: &Window,
+    pixel_perfect: bool,
 ) -> Vec2 {
+    if pixel_perfect {
+        return Vec2::new(
+            texture_state.texture_size.x.max(1) as f32,
+            texture_state.texture_size.y.max(1) as f32,
+        );
+    }
+
     let texture_width = texture_state.texture_size.x.max(1) as f32;
     let texture_height = texture_state.texture_size.y.max(1) as f32;
     let fit_width = (window.width() - TERMINAL_MARGIN * 2.0).max(64.0);
@@ -2096,8 +2178,14 @@ pub(crate) fn sync_terminal_plane_transform(
             continue;
         }
 
-        let base_size =
-            terminal_texture_screen_size(&terminal.texture_state, &plane_state, &primary_window);
+        let pixel_perfect = Some(panel.id) == active_id
+            && terminal.display_mode == TerminalDisplayMode::PixelPerfect;
+        let base_size = terminal_texture_screen_size(
+            &terminal.texture_state,
+            &plane_state,
+            &primary_window,
+            pixel_perfect,
+        );
         let background_rank = background_ids
             .iter()
             .position(|id| *id == panel.id)
@@ -2115,14 +2203,22 @@ pub(crate) fn sync_terminal_plane_transform(
             presentation.target_z = -0.05 - background_rank * 0.02;
         }
 
-        presentation.current_position = presentation
-            .current_position
-            .lerp(presentation.target_position, blend);
-        presentation.current_scale +=
-            (presentation.target_scale - presentation.current_scale) * blend;
-        presentation.current_alpha +=
-            (presentation.target_alpha - presentation.current_alpha) * blend;
-        presentation.current_z += (presentation.target_z - presentation.current_z) * blend;
+        if pixel_perfect {
+            presentation.current_position =
+                snap_to_pixel_grid(presentation.target_position, &primary_window);
+            presentation.current_scale = 1.0;
+            presentation.current_alpha = presentation.target_alpha;
+            presentation.current_z += (presentation.target_z - presentation.current_z) * blend;
+        } else {
+            presentation.current_position = presentation
+                .current_position
+                .lerp(presentation.target_position, blend);
+            presentation.current_scale +=
+                (presentation.target_scale - presentation.current_scale) * blend;
+            presentation.current_alpha +=
+                (presentation.target_alpha - presentation.current_alpha) * blend;
+            presentation.current_z += (presentation.target_z - presentation.current_z) * blend;
+        }
 
         *visibility = Visibility::Visible;
         sprite.custom_size = Some(base_size * presentation.current_scale);

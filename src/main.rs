@@ -112,10 +112,11 @@ mod tests {
     use super::{
         blend_rgba_in_place, ctrl_sequence, find_kitty_config_path, format_startup_panic,
         initialize_terminal_text_renderer, is_emoji_like, is_private_use_like,
-        keyboard_input_to_terminal_command, parse_kitty_config_file, rasterize_terminal_glyph,
-        resolve_alacritty_color, resolve_terminal_font_report, xterm_indexed_rgb,
-        CachedTerminalGlyph, KittyFontConfig, TerminalCommand, TerminalFontRole, TerminalFontState,
-        TerminalGlyphCacheKey, TerminalTextRenderer,
+        keyboard_input_to_terminal_command, parse_kitty_config_file, pixel_perfect_cell_size,
+        rasterize_terminal_glyph, resolve_alacritty_color, resolve_terminal_font_report,
+        snap_to_pixel_grid, xterm_indexed_rgb, CachedTerminalGlyph, KittyFontConfig,
+        TerminalCommand, TerminalFontRole, TerminalFontState, TerminalGlyphCacheKey,
+        TerminalPlaneState, TerminalTextRenderer,
     };
     use alacritty_terminal::vte::ansi::{Color as AnsiColor, NamedColor};
     use bevy::{
@@ -185,6 +186,27 @@ mod tests {
 
         blend_rgba_in_place(&mut pixel, [255, 255, 255, 128]);
         assert_eq!(pixel[3], 128);
+    }
+
+    #[test]
+    fn pixel_perfect_cell_size_shrinks_native_raster_to_fit_window() {
+        let window = Window {
+            resolution: (1400, 900).into(),
+            ..Default::default()
+        };
+        let cell_size = pixel_perfect_cell_size(120, 38, &TerminalPlaneState::default(), &window);
+        assert!(cell_size.x < crate::DEFAULT_CELL_WIDTH_PX);
+        assert!(cell_size.y < crate::DEFAULT_CELL_HEIGHT_PX);
+        assert!(cell_size.x >= 1);
+        assert!(cell_size.y >= 1);
+    }
+
+    #[test]
+    fn snap_to_pixel_grid_respects_window_scale_factor() {
+        let mut window = Window::default();
+        window.resolution.set_scale_factor_override(Some(1.5));
+        let snapped = snap_to_pixel_grid(Vec2::new(10.2, -3.4), &window);
+        assert_eq!(snapped, Vec2::new(10.0, -10.0 / 3.0));
     }
 
     #[test]
