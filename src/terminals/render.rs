@@ -18,7 +18,6 @@ pub(crate) fn create_terminal_image(size: UVec2) -> Image {
         TextureFormat::Rgba8UnormSrgb,
         RenderAssetUsages::default(),
     );
-    image.data = None;
     image.sampler = ImageSampler::nearest();
     image
 }
@@ -118,17 +117,22 @@ pub(crate) fn sync_terminal_texture(
                 || target_image.texture_descriptor.size.height != texture_size.y
             {
                 *target_image = create_terminal_image(texture_size);
-                terminal.texture_state.cpu_pixels = vec![
+                full_redraw = true;
+                dirty_rows = (0..surface.rows).collect();
+            }
+
+            let expected_len = (texture_size.x * texture_size.y * 4) as usize;
+            let pixels = target_image.data.get_or_insert_with(|| {
+                vec![
                     DEFAULT_BG.r(),
                     DEFAULT_BG.g(),
                     DEFAULT_BG.b(),
                     DEFAULT_BG.a(),
-                ];
-                terminal.texture_state.cpu_pixels.resize(
-                    (texture_size.x * texture_size.y * 4) as usize,
-                    DEFAULT_BG.a(),
-                );
-                for pixel in terminal.texture_state.cpu_pixels.chunks_exact_mut(4) {
+                ]
+            });
+            if pixels.len() != expected_len {
+                pixels.resize(expected_len, DEFAULT_BG.a());
+                for pixel in pixels.chunks_exact_mut(4) {
                     pixel.copy_from_slice(&[
                         DEFAULT_BG.r(),
                         DEFAULT_BG.g(),
@@ -140,24 +144,13 @@ pub(crate) fn sync_terminal_texture(
                 dirty_rows = (0..surface.rows).collect();
             }
 
-            if terminal.texture_state.cpu_pixels.len()
-                != (texture_size.x * texture_size.y * 4) as usize
-            {
-                terminal
-                    .texture_state
-                    .cpu_pixels
-                    .resize((texture_size.x * texture_size.y * 4) as usize, 0);
-                full_redraw = true;
-                dirty_rows = (0..surface.rows).collect();
-            }
-
             if full_redraw {
-                clear_terminal_pixels(&mut terminal.texture_state.cpu_pixels);
+                clear_terminal_pixels(pixels);
             }
 
             let compose_started = std::time::Instant::now();
             repaint_terminal_pixels(
-                &mut terminal.texture_state.cpu_pixels,
+                pixels,
                 texture_size.x,
                 surface,
                 &dirty_rows,
@@ -172,7 +165,6 @@ pub(crate) fn sync_terminal_texture(
                 stats.compose_micros += compose_elapsed.as_micros() as u64;
                 stats.dirty_rows_uploaded += dirty_rows.len() as u64;
             });
-            target_image.data = Some(terminal.texture_state.cpu_pixels.clone());
             if env::var_os("NEOZEUS_DUMP_TEXTURE").is_some() {
                 let _ = dump_terminal_image_ppm(target_image, Path::new(DEBUG_TEXTURE_DUMP_PATH));
             }

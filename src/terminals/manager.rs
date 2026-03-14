@@ -189,12 +189,6 @@ impl TerminalManager {
                     helper_entities: Some(helper_entities),
                     texture_size: UVec2::ONE,
                     cell_size: UVec2::new(DEFAULT_CELL_WIDTH_PX, DEFAULT_CELL_HEIGHT_PX),
-                    cpu_pixels: vec![
-                        DEFAULT_BG.r(),
-                        DEFAULT_BG.g(),
-                        DEFAULT_BG.b(),
-                        DEFAULT_BG.a(),
-                    ],
                 },
                 display_mode: TerminalDisplayMode::Smooth,
             },
