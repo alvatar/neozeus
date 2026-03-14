@@ -84,6 +84,7 @@ fn configure_app(app: &mut App) {
                 sync_terminal_hud_surface,
                 sync_eva_vector_demo,
                 forward_keyboard_input,
+                request_redraw_while_visuals_active,
             )
                 .chain(),
         )
@@ -121,6 +122,50 @@ fn panic_payload_message(payload: &(dyn Any + Send)) -> Option<&str> {
         Some(*message)
     } else {
         None
+    }
+}
+
+const PRESENTATION_EPSILON: f32 = 0.25;
+const ALPHA_EPSILON: f32 = 0.01;
+const Z_EPSILON: f32 = 0.01;
+
+pub(crate) fn should_request_visual_redraw(
+    terminal_work_pending: bool,
+    uploads_pending: bool,
+    presentation_animating: bool,
+    eva_demo_enabled: bool,
+) -> bool {
+    terminal_work_pending || uploads_pending || presentation_animating || eva_demo_enabled
+}
+
+fn request_redraw_while_visuals_active(
+    terminal_manager: Res<TerminalManager>,
+    upload_queue: Res<TerminalGpuUploadQueue>,
+    eva_demo: Res<EvaVectorDemoState>,
+    panels: Query<&TerminalPresentation, With<TerminalPanel>>,
+    mut redraws: MessageWriter<RequestRedraw>,
+) {
+    let terminal_work_pending = terminal_manager.terminals.values().any(|terminal| {
+        terminal.surface_revision != terminal.uploaded_revision || terminal.pending_damage.is_some()
+    });
+    let uploads_pending = upload_queue.has_pending();
+    let presentation_animating = panels.iter().any(|presentation| {
+        presentation
+            .current_position
+            .distance(presentation.target_position)
+            > PRESENTATION_EPSILON
+            || presentation.current_size.distance(presentation.target_size) > PRESENTATION_EPSILON
+            || (presentation.current_alpha - presentation.target_alpha).abs() > ALPHA_EPSILON
+            || (presentation.current_z - presentation.target_z).abs() > Z_EPSILON
+    });
+
+    if should_request_visual_redraw(
+        terminal_work_pending,
+        uploads_pending,
+        presentation_animating,
+        eva_demo.enabled,
+    ) {
+        redraws.write(RequestRedraw);
     }
 }
 

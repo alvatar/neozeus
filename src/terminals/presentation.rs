@@ -185,7 +185,7 @@ pub(crate) fn sync_terminal_plane_transform(
 
         *visibility = Visibility::Visible;
         sprite.custom_size = Some(presentation.current_size.max(Vec2::ONE));
-        sprite.color = Color::srgba(1.0, 1.0, 1.0, presentation.current_alpha);
+        sprite.color = Color::WHITE;
         transform.translation = presentation.current_position.extend(presentation.current_z);
         transform.rotation = Quat::IDENTITY;
         transform.scale = Vec3::ONE;
