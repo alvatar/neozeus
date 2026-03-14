@@ -1,3 +1,8 @@
+#![allow(
+    dead_code,
+    reason = "legacy single-plane and per-cell terminal code kept temporarily during terminal-manager transition"
+)]
+
 use crate::*;
 
 pub(crate) fn create_terminal_image(size: UVec2) -> Image {
@@ -70,6 +75,31 @@ pub(crate) struct TerminalDebugStats {
     pub(crate) last_error: String,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub(crate) struct TerminalId(pub(crate) u64);
+
+#[derive(Component, Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(crate) struct TerminalPanel {
+    pub(crate) id: TerminalId,
+}
+
+struct ManagedTerminal {
+    bridge: TerminalBridge,
+    latest: TerminalSnapshot,
+    texture_state: TerminalTextureState,
+    sprite_entity: Entity,
+}
+
+#[derive(Resource)]
+pub(crate) struct TerminalManager {
+    next_id: u64,
+    active_id: Option<TerminalId>,
+    order: Vec<TerminalId>,
+    helper_entities: Option<TerminalFontEntities>,
+    event_loop_proxy: EventLoopProxy<WinitUserEvent>,
+    terminals: HashMap<TerminalId, ManagedTerminal>,
+}
+
 #[derive(Resource)]
 pub(crate) struct TerminalBridge {
     input_tx: Sender<TerminalCommand>,
@@ -77,8 +107,120 @@ pub(crate) struct TerminalBridge {
     debug_stats: Arc<Mutex<TerminalDebugStats>>,
 }
 
+impl TerminalManager {
+    pub(crate) fn new(event_loop_proxy: EventLoopProxy<WinitUserEvent>) -> Self {
+        Self {
+            next_id: 1,
+            active_id: None,
+            order: Vec::new(),
+            helper_entities: None,
+            event_loop_proxy,
+            terminals: HashMap::new(),
+        }
+    }
+
+    pub(crate) fn set_helper_entities(&mut self, helper_entities: TerminalFontEntities) {
+        self.helper_entities = Some(helper_entities);
+        for terminal in self.terminals.values_mut() {
+            terminal.texture_state.helper_entities = Some(helper_entities);
+        }
+    }
+
+    pub(crate) fn spawn_terminal(
+        &mut self,
+        commands: &mut Commands,
+        images: &mut Assets<Image>,
+        auto_verify: bool,
+    ) -> Result<TerminalId, String> {
+        let Some(helper_entities) = self.helper_entities else {
+            return Err("terminal helper entities not initialized".into());
+        };
+
+        let id = TerminalId(self.next_id);
+        self.next_id += 1;
+
+        let image_handle = images.add(create_terminal_image(UVec2::ONE));
+        let sprite_entity = commands
+            .spawn((
+                Sprite::from_image(image_handle.clone()),
+                Transform::default(),
+                TerminalPlaneMarker,
+                TerminalPanel { id },
+            ))
+            .id();
+
+        let bridge = TerminalBridge::spawn(self.event_loop_proxy.clone(), auto_verify);
+        self.terminals.insert(
+            id,
+            ManagedTerminal {
+                bridge,
+                latest: TerminalSnapshot::default(),
+                texture_state: TerminalTextureState {
+                    image: Some(image_handle),
+                    helper_entities: Some(helper_entities),
+                    texture_size: UVec2::ONE,
+                    cell_size: UVec2::new(DEFAULT_CELL_WIDTH_PX, DEFAULT_CELL_HEIGHT_PX),
+                    last_surface: None,
+                },
+                sprite_entity,
+            },
+        );
+        self.focus_terminal(id);
+        append_debug_log(format!("spawned terminal {}", id.0));
+        Ok(id)
+    }
+
+    pub(crate) fn focus_terminal(&mut self, id: TerminalId) {
+        if !self.terminals.contains_key(&id) {
+            return;
+        }
+        self.active_id = Some(id);
+        self.order.retain(|existing| *existing != id);
+        self.order.push(id);
+        append_debug_log(format!("focused terminal {}", id.0));
+    }
+
+    pub(crate) fn active_id(&self) -> Option<TerminalId> {
+        self.active_id
+    }
+
+    fn active_terminal(&self) -> Option<&ManagedTerminal> {
+        self.active_id.and_then(|id| self.terminals.get(&id))
+    }
+
+    fn active_terminal_mut(&mut self) -> Option<&mut ManagedTerminal> {
+        self.active_id.and_then(|id| self.terminals.get_mut(&id))
+    }
+
+    pub(crate) fn active_bridge(&self) -> Option<&TerminalBridge> {
+        self.active_terminal().map(|terminal| &terminal.bridge)
+    }
+
+    pub(crate) fn active_snapshot(&self) -> Option<&TerminalSnapshot> {
+        self.active_terminal().map(|terminal| &terminal.latest)
+    }
+
+    pub(crate) fn active_texture_state(&self) -> Option<&TerminalTextureState> {
+        self.active_terminal()
+            .map(|terminal| &terminal.texture_state)
+    }
+
+    pub(crate) fn active_debug_stats(&self) -> TerminalDebugStats {
+        self.active_bridge()
+            .map(TerminalBridge::debug_stats_snapshot)
+            .unwrap_or_default()
+    }
+
+    pub(crate) fn terminal_ids(&self) -> &[TerminalId] {
+        &self.order
+    }
+}
+
 impl TerminalBridge {
-    pub(crate) fn spawn(event_loop_proxy: EventLoopProxy<WinitUserEvent>) -> Self {
+    pub(crate) fn spawn(
+        event_loop_proxy: EventLoopProxy<WinitUserEvent>,
+        auto_verify: bool,
+    ) -> Self {
         let (input_tx, input_rx) = mpsc::channel();
         let (snapshot_tx, snapshot_rx) = mpsc::channel();
         let debug_stats = Arc::new(Mutex::new(TerminalDebugStats::default()));
@@ -108,7 +250,9 @@ impl TerminalBridge {
             }
         });
 
-        spawn_auto_verify_dispatcher(&input_tx, &debug_stats, &event_loop_proxy);
+        if auto_verify {
+            spawn_auto_verify_dispatcher(&input_tx, &debug_stats, &event_loop_proxy);
+        }
 
         Self {
             input_tx,
@@ -1407,16 +1551,14 @@ fn fc_match_face(query: &str, source: &str) -> Result<TerminalFontFace, String> 
 
 pub(crate) fn sync_terminal_font_helpers(
     font_state: Res<TerminalFontState>,
-    texture_state: Res<TerminalTextureState>,
+    terminal_manager: Res<TerminalManager>,
     mut helper_fonts: Query<(&TerminalFontRole, &mut TextFont)>,
 ) {
-    if (!font_state.is_changed() && !texture_state.is_changed())
-        || texture_state.helper_entities.is_none()
-    {
+    if !font_state.is_changed() || terminal_manager.helper_entities.is_none() {
         return;
     }
 
-    let font_size = texture_state.cell_size.y.max(1) as f32 * 0.9;
+    let font_size = DEFAULT_CELL_HEIGHT_PX as f32 * 0.9;
     for (role, mut text_font) in &mut helper_fonts {
         text_font.font_size = font_size;
         match role {
@@ -1448,19 +1590,12 @@ pub(crate) fn sync_terminal_font_helpers(
 }
 
 pub(crate) fn sync_terminal_texture(
-    view: Res<TerminalView>,
+    mut terminal_manager: ResMut<TerminalManager>,
     font_state: Res<TerminalFontState>,
-    mut texture_state: ResMut<TerminalTextureState>,
     mut glyph_cache: ResMut<TerminalGlyphCache>,
     mut images: ResMut<Assets<Image>>,
     mut text_renderer: ResMut<TerminalTextRenderer>,
 ) {
-    let Some(surface) = &view.latest.surface else {
-        append_debug_log("texture sync: no surface");
-        texture_state.last_surface = None;
-        return;
-    };
-
     if text_renderer.font_system.is_none() {
         append_debug_log("texture sync: no font system");
         return;
@@ -1471,72 +1606,77 @@ pub(crate) fn sync_terminal_texture(
         glyph_cache.glyphs.clear();
     }
 
-    let Some(image_handle) = texture_state.image.clone() else {
-        append_debug_log("texture sync: missing image handle");
-        return;
-    };
-    let Some(helper_entities) = texture_state.helper_entities else {
-        append_debug_log("texture sync: missing helper entities");
-        return;
-    };
+    for terminal in terminal_manager.terminals.values_mut() {
+        let Some(surface) = &terminal.latest.surface else {
+            terminal.texture_state.last_surface = None;
+            continue;
+        };
 
-    let cell_size = texture_state.cell_size;
-    let texture_size = UVec2::new(
-        surface.cols as u32 * cell_size.x.max(1),
-        surface.rows as u32 * cell_size.y.max(1),
-    );
-    let mut full_redraw = font_state.is_changed()
-        || texture_state.texture_size != texture_size
-        || texture_state.last_surface.is_none();
-    let mut dirty_rows = if full_redraw {
-        (0..surface.rows).collect::<Vec<_>>()
-    } else {
-        dirty_rows_between(texture_state.last_surface.as_ref(), surface)
-    };
+        let Some(image_handle) = terminal.texture_state.image.clone() else {
+            append_debug_log("texture sync: missing image handle");
+            continue;
+        };
+        let Some(helper_entities) = terminal.texture_state.helper_entities else {
+            append_debug_log("texture sync: missing helper entities");
+            continue;
+        };
 
-    if dirty_rows.is_empty() {
-        return;
-    }
-
-    if let Some(target_image) = images.get_mut(&image_handle) {
-        if target_image.texture_descriptor.size.width != texture_size.x
-            || target_image.texture_descriptor.size.height != texture_size.y
-        {
-            *target_image = create_terminal_image(texture_size);
-            full_redraw = true;
-            dirty_rows = (0..surface.rows).collect();
-        }
-
-        if full_redraw {
-            clear_terminal_image(target_image);
-        }
-
-        append_debug_log(format!(
-            "texture sync: repaint rows={} cols={} size={}x{}",
-            dirty_rows.len(),
-            surface.cols,
-            texture_size.x,
-            texture_size.y
-        ));
-        repaint_terminal_rows(
-            target_image,
-            surface,
-            &dirty_rows,
-            cell_size,
-            helper_entities,
-            &mut text_renderer,
-            &mut glyph_cache,
-            &font_state,
+        let cell_size = terminal.texture_state.cell_size;
+        let texture_size = UVec2::new(
+            surface.cols as u32 * cell_size.x.max(1),
+            surface.rows as u32 * cell_size.y.max(1),
         );
-        append_debug_log("texture sync: image uploaded");
-        if env::var_os("NEOZEUS_DUMP_TEXTURE").is_some() {
-            let _ = dump_terminal_image_ppm(target_image, Path::new(DEBUG_TEXTURE_DUMP_PATH));
-            append_debug_log("texture sync: texture dumped");
+        let mut full_redraw = font_state.is_changed()
+            || terminal.texture_state.texture_size != texture_size
+            || terminal.texture_state.last_surface.is_none();
+        let mut dirty_rows = if full_redraw {
+            (0..surface.rows).collect::<Vec<_>>()
+        } else {
+            dirty_rows_between(terminal.texture_state.last_surface.as_ref(), surface)
+        };
+
+        if dirty_rows.is_empty() {
+            continue;
         }
-        texture_state.texture_size = texture_size;
-        texture_state.last_surface = Some(surface.clone());
-    } else {
-        append_debug_log("texture sync: target image missing in assets");
+
+        if let Some(target_image) = images.get_mut(&image_handle) {
+            if target_image.texture_descriptor.size.width != texture_size.x
+                || target_image.texture_descriptor.size.height != texture_size.y
+            {
+                *target_image = create_terminal_image(texture_size);
+                full_redraw = true;
+                dirty_rows = (0..surface.rows).collect();
+            }
+
+            if full_redraw {
+                clear_terminal_image(target_image);
+            }
+
+            append_debug_log(format!(
+                "texture sync: repaint rows={} cols={} size={}x{}",
+                dirty_rows.len(),
+                surface.cols,
+                texture_size.x,
+                texture_size.y
+            ));
+            repaint_terminal_rows(
+                target_image,
+                surface,
+                &dirty_rows,
+                cell_size,
+                helper_entities,
+                &mut text_renderer,
+                &mut glyph_cache,
+                &font_state,
+            );
+            if env::var_os("NEOZEUS_DUMP_TEXTURE").is_some() {
+                let _ = dump_terminal_image_ppm(target_image, Path::new(DEBUG_TEXTURE_DUMP_PATH));
+            }
+            terminal.texture_state.texture_size = texture_size;
+            terminal.texture_state.last_surface = Some(surface.clone());
+        } else {
+            append_debug_log("texture sync: target image missing in assets");
+        }
     }
 }
 
@@ -1888,18 +2028,55 @@ pub(crate) fn terminal_texture_screen_size(
 }
 
 pub(crate) fn sync_terminal_plane_transform(
-    texture_state: Res<TerminalTextureState>,
+    terminal_manager: Res<TerminalManager>,
     plane_state: Res<TerminalPlaneState>,
     primary_window: Single<&Window, With<PrimaryWindow>>,
-    plane: Single<(&mut Transform, &mut Sprite), With<TerminalPlaneMarker>>,
+    mut panels: Query<(&TerminalPanel, &mut Transform, &mut Sprite, &mut Visibility)>,
 ) {
-    let size = terminal_texture_screen_size(&texture_state, &plane_state, &primary_window);
+    let active_id = terminal_manager.active_id;
+    let preview_ids = terminal_manager
+        .order
+        .iter()
+        .copied()
+        .filter(|id| Some(*id) != active_id)
+        .collect::<Vec<_>>();
 
-    let (mut plane_transform, mut sprite) = plane.into_inner();
-    sprite.custom_size = Some(size);
-    plane_transform.translation = plane_state.offset.extend(0.0);
-    plane_transform.rotation = Quat::IDENTITY;
-    plane_transform.scale = Vec3::ONE;
+    for (panel, mut transform, mut sprite, mut visibility) in &mut panels {
+        let Some(terminal) = terminal_manager.terminals.get(&panel.id) else {
+            *visibility = Visibility::Hidden;
+            continue;
+        };
+        if terminal.latest.surface.is_none() {
+            *visibility = Visibility::Hidden;
+            continue;
+        }
+
+        let mut size =
+            terminal_texture_screen_size(&terminal.texture_state, &plane_state, &primary_window);
+        transform.rotation = Quat::IDENTITY;
+        transform.scale = Vec3::ONE;
+
+        if Some(panel.id) == active_id {
+            *visibility = Visibility::Visible;
+            sprite.custom_size = Some(size);
+            sprite.color = Color::WHITE;
+            transform.translation = plane_state.offset.extend(0.0);
+        } else {
+            *visibility = Visibility::Visible;
+            size *= 0.26;
+            let preview_rank = preview_ids
+                .iter()
+                .position(|id| *id == panel.id)
+                .unwrap_or_default();
+            let step_y = size.y + 20.0;
+            let x = primary_window.width() * 0.5 - size.x * 0.5 - 28.0;
+            let y =
+                primary_window.height() * 0.5 - size.y * 0.5 - 140.0 - preview_rank as f32 * step_y;
+            sprite.custom_size = Some(size);
+            sprite.color = Color::srgba(1.0, 1.0, 1.0, 0.72);
+            transform.translation = Vec3::new(x, y, -0.1 - preview_rank as f32 * 0.01);
+        }
+    }
 }
 
 #[allow(
@@ -2353,15 +2530,17 @@ fn write_input(writer: &mut dyn Write, bytes: &[u8]) -> std::io::Result<()> {
     writer.flush()
 }
 
-pub(crate) fn poll_terminal_snapshots(bridge: Res<TerminalBridge>, mut view: ResMut<TerminalView>) {
-    let receiver = match bridge.snapshot_rx.lock() {
-        Ok(receiver) => receiver,
-        Err(poisoned) => poisoned.into_inner(),
-    };
+pub(crate) fn poll_terminal_snapshots(mut terminal_manager: ResMut<TerminalManager>) {
+    for terminal in terminal_manager.terminals.values_mut() {
+        let receiver = match terminal.bridge.snapshot_rx.lock() {
+            Ok(receiver) => receiver,
+            Err(poisoned) => poisoned.into_inner(),
+        };
 
-    while let Ok(snapshot) = receiver.try_recv() {
-        view.latest = snapshot;
-        bridge.note_snapshot_applied();
+        while let Ok(snapshot) = receiver.try_recv() {
+            terminal.latest = snapshot;
+            terminal.bridge.note_snapshot_applied();
+        }
     }
 }
 

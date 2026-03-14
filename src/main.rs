@@ -65,10 +65,26 @@ use terminals::*;
 const DEFAULT_COLS: u16 = 120;
 const DEFAULT_ROWS: u16 = 38;
 const DEFAULT_BG: egui::Color32 = egui::Color32::from_rgb(10, 10, 10);
+#[allow(
+    dead_code,
+    reason = "legacy per-cell terminal renderer kept temporarily"
+)]
 const BASE_CELL_ASPECT: f32 = 0.6;
 const TERMINAL_MARGIN: f32 = 48.0;
+#[allow(
+    dead_code,
+    reason = "legacy per-cell terminal renderer kept temporarily"
+)]
 const CURSOR_Z: f32 = 2.0;
+#[allow(
+    dead_code,
+    reason = "legacy per-cell terminal renderer kept temporarily"
+)]
 const TEXT_Z: f32 = 1.0;
+#[allow(
+    dead_code,
+    reason = "legacy per-cell terminal renderer kept temporarily"
+)]
 const BG_Z: f32 = 0.0;
 const DEFAULT_CELL_HEIGHT_PX: u32 = 24;
 const DEFAULT_CELL_WIDTH_PX: u32 = 14;

@@ -9,10 +9,9 @@ pub(crate) fn drag_terminal_plane(
     keys: Res<ButtonInput<KeyCode>>,
     mut mouse_motion: MessageReader<MouseMotion>,
     primary_window: Single<&Window, With<PrimaryWindow>>,
-    texture_state: Res<TerminalTextureState>,
+    terminal_manager: Res<TerminalManager>,
     mut plane_state: ResMut<TerminalPlaneState>,
     mut pointer_state: ResMut<TerminalPointerState>,
-    bridge: Res<TerminalBridge>,
 ) {
     let delta = mouse_motion
         .read()
@@ -31,7 +30,11 @@ pub(crate) fn drag_terminal_plane(
         return;
     }
 
-    let screen_size = terminal_texture_screen_size(&texture_state, &plane_state, &primary_window);
+    let Some(texture_state) = terminal_manager.active_texture_state() else {
+        pointer_state.scroll_drag_remainder_px = 0.0;
+        return;
+    };
+    let screen_size = terminal_texture_screen_size(texture_state, &plane_state, &primary_window);
     let screen_cell_height = if texture_state.cell_size.y == 0 || texture_state.texture_size.y == 0
     {
         1.0
@@ -44,7 +47,9 @@ pub(crate) fn drag_terminal_plane(
     let lines = (-pointer_state.scroll_drag_remainder_px / screen_cell_height).trunc() as i32;
     if lines != 0 {
         pointer_state.scroll_drag_remainder_px += lines as f32 * screen_cell_height;
-        bridge.send(TerminalCommand::ScrollDisplay(lines));
+        if let Some(bridge) = terminal_manager.active_bridge() {
+            bridge.send(TerminalCommand::ScrollDisplay(lines));
+        }
     }
 }
 
@@ -77,9 +82,13 @@ pub(crate) fn zoom_terminal_plane(
 pub(crate) fn forward_keyboard_input(
     mut messages: MessageReader<KeyboardInput>,
     keys: Res<ButtonInput<KeyCode>>,
-    bridge: Res<TerminalBridge>,
+    terminal_manager: Res<TerminalManager>,
     _primary_window: Single<&Window, With<PrimaryWindow>>,
 ) {
+    let Some(bridge) = terminal_manager.active_bridge() else {
+        return;
+    };
+
     for event in messages.read() {
         if event.state != ButtonState::Pressed {
             continue;

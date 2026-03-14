@@ -59,13 +59,10 @@ fn configure_app(app: &mut App) {
 
     app.insert_resource(ClearColor(Color::srgb(0.02, 0.02, 0.02)))
         .insert_resource(WinitSettings::desktop_app())
-        .insert_resource(TerminalBridge::spawn(event_loop_proxy))
-        .insert_resource(TerminalView::default())
+        .insert_resource(TerminalManager::new(event_loop_proxy))
         .insert_resource(TerminalFontState::default())
         .insert_resource(TerminalPlaneState::default())
         .insert_resource(TerminalPointerState::default())
-        .insert_resource(TerminalSceneState::default())
-        .insert_resource(TerminalTextureState::default())
         .insert_resource(TerminalGlyphCache::default())
         .insert_resource(TerminalTextRenderer::default())
         .insert_resource(EvaVectorDemoState::default())
@@ -80,7 +77,6 @@ fn configure_app(app: &mut App) {
                 drag_terminal_plane,
                 zoom_terminal_plane,
                 sync_terminal_plane_transform,
-                sync_terminal_plane,
                 sync_eva_vector_demo,
                 forward_keyboard_input,
             )
@@ -120,17 +116,9 @@ fn panic_payload_message(payload: &(dyn Any + Send)) -> Option<&str> {
 fn setup_scene(
     mut commands: Commands,
     mut images: ResMut<Assets<Image>>,
-    mut texture_state: ResMut<TerminalTextureState>,
+    mut terminal_manager: ResMut<TerminalManager>,
 ) {
-    let image_handle = images.add(create_terminal_image(UVec2::ONE));
-
     commands.spawn((Camera2d, VelloView, TerminalCameraMarker));
-
-    commands.spawn((
-        Sprite::from_image(image_handle.clone()),
-        Transform::default(),
-        TerminalPlaneMarker,
-    ));
 
     commands.spawn((
         VelloScene2d::default(),
@@ -167,12 +155,10 @@ fn setup_scene(
         ))
         .id();
 
-    texture_state.image = Some(image_handle);
-    texture_state.helper_entities = Some(TerminalFontEntities {
+    terminal_manager.set_helper_entities(TerminalFontEntities {
         primary,
         private_use,
         emoji,
     });
-    texture_state.texture_size = UVec2::ONE;
-    texture_state.cell_size = UVec2::new(DEFAULT_CELL_WIDTH_PX, DEFAULT_CELL_HEIGHT_PX);
+    let _ = terminal_manager.spawn_terminal(&mut commands, &mut images, true);
 }

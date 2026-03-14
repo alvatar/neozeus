@@ -263,8 +263,9 @@ pub(crate) fn sync_eva_vector_demo(
 
 pub(crate) fn ui_overlay(
     mut contexts: EguiContexts,
-    bridge: Res<TerminalBridge>,
-    view: Res<TerminalView>,
+    mut commands: Commands,
+    mut images: ResMut<Assets<Image>>,
+    mut terminal_manager: ResMut<TerminalManager>,
     font_state: Res<TerminalFontState>,
     mut plane_state: ResMut<TerminalPlaneState>,
     mut eva_demo: ResMut<EvaVectorDemoState>,
@@ -273,11 +274,25 @@ pub(crate) fn ui_overlay(
 
     egui::TopBottomPanel::top("toolbar").show(ctx, |ui| {
         ui.horizontal_wrapped(|ui| {
+            let active_status = terminal_manager
+                .active_snapshot()
+                .map(|snapshot| snapshot.status.as_str())
+                .unwrap_or("no active terminal");
+            let debug = terminal_manager.active_debug_stats();
+
             ui.label(egui::RichText::new("neozeus").strong());
             ui.separator();
-            ui.label(view.latest.status.as_str());
+            ui.label(active_status);
             ui.separator();
-            let debug = bridge.debug_stats_snapshot();
+            ui.label(format!(
+                "terms {} · active {}",
+                terminal_manager.terminal_ids().len(),
+                terminal_manager
+                    .active_id()
+                    .map(|id| id.0)
+                    .unwrap_or_default(),
+            ));
+            ui.separator();
             ui.label(format!(
                 "keys {} · queued {} · wr {} · rd {} · sent {} · applied {}",
                 debug.key_events_seen,
@@ -330,6 +345,23 @@ pub(crate) fn ui_overlay(
             ui.separator();
             ui.checkbox(&mut eva_demo.enabled, "EVA vector demo");
             ui.separator();
+            if ui.button("new terminal").clicked() {
+                if let Err(error) =
+                    terminal_manager.spawn_terminal(&mut commands, &mut images, false)
+                {
+                    append_debug_log(format!("ui failed to spawn terminal: {error}"));
+                }
+            }
+            for terminal_id in terminal_manager.terminal_ids().to_vec() {
+                let selected = terminal_manager.active_id() == Some(terminal_id);
+                if ui
+                    .selectable_label(selected, format!("t{}", terminal_id.0))
+                    .clicked()
+                {
+                    terminal_manager.focus_terminal(terminal_id);
+                }
+            }
+            ui.separator();
             if ui.button("reset view").clicked() {
                 plane_state.yaw = 0.0;
                 plane_state.pitch = 0.0;
@@ -339,23 +371,33 @@ pub(crate) fn ui_overlay(
             }
             if ui.button("pwd").clicked() {
                 append_debug_log("ui button clicked: pwd");
-                bridge.send(TerminalCommand::SendCommand("pwd".into()));
+                if let Some(bridge) = terminal_manager.active_bridge() {
+                    bridge.send(TerminalCommand::SendCommand("pwd".into()));
+                }
             }
             if ui.button("ls").clicked() {
                 append_debug_log("ui button clicked: ls");
-                bridge.send(TerminalCommand::SendCommand("ls".into()));
+                if let Some(bridge) = terminal_manager.active_bridge() {
+                    bridge.send(TerminalCommand::SendCommand("ls".into()));
+                }
             }
             if ui.button("clear").clicked() {
                 append_debug_log("ui button clicked: clear");
-                bridge.send(TerminalCommand::SendCommand("clear".into()));
+                if let Some(bridge) = terminal_manager.active_bridge() {
+                    bridge.send(TerminalCommand::SendCommand("clear".into()));
+                }
             }
             if ui.button("btop").clicked() {
                 append_debug_log("ui button clicked: btop");
-                bridge.send(TerminalCommand::SendCommand("btop".into()));
+                if let Some(bridge) = terminal_manager.active_bridge() {
+                    bridge.send(TerminalCommand::SendCommand("btop".into()));
+                }
             }
             if ui.button("tmux").clicked() {
                 append_debug_log("ui button clicked: tmux");
-                bridge.send(TerminalCommand::SendCommand("tmux".into()));
+                if let Some(bridge) = terminal_manager.active_bridge() {
+                    bridge.send(TerminalCommand::SendCommand("tmux".into()));
+                }
             }
         });
     });
