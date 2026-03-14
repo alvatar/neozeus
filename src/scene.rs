@@ -30,8 +30,6 @@ pub(crate) fn build_app() -> Result<App, String> {
 }
 
 fn configure_app(app: &mut App) {
-    let terminal_gpu_upload_queue = TerminalGpuUploadQueue::default();
-
     app.add_plugins(
         DefaultPlugins
             .set(RenderPlugin {
@@ -61,7 +59,6 @@ fn configure_app(app: &mut App) {
 
     app.insert_resource(ClearColor(Color::srgb(0.02, 0.02, 0.02)))
         .insert_resource(WinitSettings::desktop_app())
-        .insert_resource(terminal_gpu_upload_queue.clone())
         .insert_resource(TerminalManager::new(event_loop_proxy))
         .insert_resource(TerminalFontState::default())
         .insert_resource(TerminalPlaneState::default())
@@ -89,12 +86,6 @@ fn configure_app(app: &mut App) {
                 .chain(),
         )
         .add_systems(EguiPrimaryContextPass, ui_overlay);
-
-    if let Some(render_app) = app.get_sub_app_mut(RenderApp) {
-        render_app
-            .insert_resource(terminal_gpu_upload_queue)
-            .add_systems(Render, flush_terminal_gpu_uploads);
-    }
 }
 
 pub(crate) fn format_startup_panic(payload: &(dyn Any + Send)) -> Option<String> {
@@ -131,16 +122,14 @@ const Z_EPSILON: f32 = 0.01;
 
 pub(crate) fn should_request_visual_redraw(
     terminal_work_pending: bool,
-    uploads_pending: bool,
     presentation_animating: bool,
     eva_demo_enabled: bool,
 ) -> bool {
-    terminal_work_pending || uploads_pending || presentation_animating || eva_demo_enabled
+    terminal_work_pending || presentation_animating || eva_demo_enabled
 }
 
 fn request_redraw_while_visuals_active(
     terminal_manager: Res<TerminalManager>,
-    upload_queue: Res<TerminalGpuUploadQueue>,
     eva_demo: Res<EvaVectorDemoState>,
     panels: Query<&TerminalPresentation, With<TerminalPanel>>,
     mut redraws: MessageWriter<RequestRedraw>,
@@ -148,7 +137,6 @@ fn request_redraw_while_visuals_active(
     let terminal_work_pending = terminal_manager.terminals.values().any(|terminal| {
         terminal.surface_revision != terminal.uploaded_revision || terminal.pending_damage.is_some()
     });
-    let uploads_pending = upload_queue.has_pending();
     let presentation_animating = panels.iter().any(|presentation| {
         presentation
             .current_position
@@ -161,7 +149,6 @@ fn request_redraw_while_visuals_active(
 
     if should_request_visual_redraw(
         terminal_work_pending,
-        uploads_pending,
         presentation_animating,
         eva_demo.enabled,
     ) {

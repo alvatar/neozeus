@@ -15,15 +15,9 @@ use bevy::{
     },
     prelude::*,
     render::{
-        render_asset::RenderAssets,
-        render_resource::{
-            Extent3d, Origin3d, TexelCopyBufferLayout, TexelCopyTextureInfo, TextureAspect,
-            TextureDimension, TextureFormat,
-        },
-        renderer::RenderQueue,
+        render_resource::{Extent3d, TextureDimension, TextureFormat},
         settings::WgpuSettings,
-        texture::GpuImage,
-        Render, RenderApp, RenderPlugin,
+        RenderPlugin,
     },
     text::{Font, TextFont},
     window::{PrimaryWindow, RequestRedraw},
@@ -42,7 +36,7 @@ use cosmic_text::{
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 use std::{
     any::Any,
-    collections::{BTreeSet, HashMap, VecDeque},
+    collections::{BTreeSet, HashMap},
     env,
     ffi::OsString,
     fs,
@@ -99,12 +93,11 @@ mod tests {
         find_kitty_config_path, format_startup_panic, initialize_terminal_text_renderer,
         is_emoji_like, is_private_use_like, keyboard_input_to_terminal_command,
         parse_kitty_config_file, pixel_perfect_cell_size, pixel_perfect_terminal_logical_size,
-        queue_terminal_uploads, rasterize_terminal_glyph, resolve_alacritty_color,
-        resolve_terminal_font_report, should_request_visual_redraw, snap_to_pixel_grid,
-        xterm_indexed_rgb, CachedTerminalGlyph, KittyFontConfig, TerminalCellContent,
-        TerminalCommand, TerminalDamage, TerminalFontRole, TerminalFontState, TerminalFrameUpdate,
-        TerminalGlyphCacheKey, TerminalGpuUploadQueue, TerminalSurface, TerminalTextRenderer,
-        TerminalTextureState, TerminalUpdate,
+        rasterize_terminal_glyph, resolve_alacritty_color, resolve_terminal_font_report,
+        should_request_visual_redraw, snap_to_pixel_grid, xterm_indexed_rgb, CachedTerminalGlyph,
+        KittyFontConfig, TerminalCellContent, TerminalCommand, TerminalDamage, TerminalFontRole,
+        TerminalFontState, TerminalFrameUpdate, TerminalGlyphCacheKey, TerminalSurface,
+        TerminalTextRenderer, TerminalTextureState, TerminalUpdate,
     };
     use alacritty_terminal::vte::ansi::{Color as AnsiColor, NamedColor};
     use bevy::{
@@ -267,48 +260,15 @@ mod tests {
     }
 
     #[test]
-    fn queue_terminal_uploads_merges_contiguous_rows() {
-        let queue = TerminalGpuUploadQueue::default();
-        let pixels = vec![7u8; 4 * 4 * 4];
-        queue_terminal_uploads(
-            &queue,
-            &Handle::default(),
-            UVec2::new(4, 4),
-            &pixels,
-            &[0, 1, 3],
-        );
-        let uploads = queue.snapshot();
-        assert_eq!(uploads.len(), 2);
-        assert_eq!((uploads[0].origin_y, uploads[0].height), (0, 2));
-        assert_eq!((uploads[1].origin_y, uploads[1].height), (3, 1));
-    }
-
-    #[test]
-    fn queue_terminal_uploads_preserves_pending_uploads_for_same_image() {
-        let queue = TerminalGpuUploadQueue::default();
-        let pixels = vec![7u8; 4 * 4 * 4];
-        let image = Handle::default();
-
-        queue_terminal_uploads(&queue, &image, UVec2::new(4, 4), &pixels, &[0, 1]);
-        queue_terminal_uploads(&queue, &image, UVec2::new(4, 4), &pixels, &[3]);
-
-        let uploads = queue.snapshot();
-        assert_eq!(uploads.len(), 2);
-        assert_eq!((uploads[0].origin_y, uploads[0].height), (0, 2));
-        assert_eq!((uploads[1].origin_y, uploads[1].height), (3, 1));
-    }
-
-    #[test]
     fn redraw_scheduler_stays_idle_without_visual_work() {
-        assert!(!should_request_visual_redraw(false, false, false, false));
+        assert!(!should_request_visual_redraw(false, false, false));
     }
 
     #[test]
     fn redraw_scheduler_runs_when_visual_work_exists() {
-        assert!(should_request_visual_redraw(true, false, false, false));
-        assert!(should_request_visual_redraw(false, true, false, false));
-        assert!(should_request_visual_redraw(false, false, true, false));
-        assert!(should_request_visual_redraw(false, false, false, true));
+        assert!(should_request_visual_redraw(true, false, false));
+        assert!(should_request_visual_redraw(false, true, false));
+        assert!(should_request_visual_redraw(false, false, true));
     }
 
     #[test]
