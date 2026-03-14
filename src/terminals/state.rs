@@ -86,6 +86,13 @@ impl TerminalGpuUploadQueue {
         }
     }
 
+    pub(crate) fn has_pending(&self) -> bool {
+        match self.0.lock() {
+            Ok(pending) => !pending.is_empty(),
+            Err(poisoned) => !poisoned.into_inner().is_empty(),
+        }
+    }
+
     pub(crate) fn prepend_pending(&self, uploads: VecDeque<TerminalTextureUpload>) {
         if uploads.is_empty() {
             return;

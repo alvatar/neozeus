@@ -26,7 +26,7 @@ use bevy::{
         Render, RenderApp, RenderPlugin,
     },
     text::{Font, TextFont},
-    window::PrimaryWindow,
+    window::{PrimaryWindow, RequestRedraw},
     winit::{EventLoopProxy, EventLoopProxyWrapper, WinitSettings, WinitUserEvent},
 };
 use bevy_egui::{egui, EguiContexts, EguiPlugin, EguiPrimaryContextPass};
@@ -100,10 +100,11 @@ mod tests {
         is_emoji_like, is_private_use_like, keyboard_input_to_terminal_command,
         parse_kitty_config_file, pixel_perfect_cell_size, pixel_perfect_terminal_logical_size,
         queue_terminal_uploads, rasterize_terminal_glyph, resolve_alacritty_color,
-        resolve_terminal_font_report, snap_to_pixel_grid, xterm_indexed_rgb, CachedTerminalGlyph,
-        KittyFontConfig, TerminalCellContent, TerminalCommand, TerminalDamage, TerminalFontRole,
-        TerminalFontState, TerminalFrameUpdate, TerminalGlyphCacheKey, TerminalGpuUploadQueue,
-        TerminalSurface, TerminalTextRenderer, TerminalTextureState, TerminalUpdate,
+        resolve_terminal_font_report, should_request_visual_redraw, snap_to_pixel_grid,
+        xterm_indexed_rgb, CachedTerminalGlyph, KittyFontConfig, TerminalCellContent,
+        TerminalCommand, TerminalDamage, TerminalFontRole, TerminalFontState, TerminalFrameUpdate,
+        TerminalGlyphCacheKey, TerminalGpuUploadQueue, TerminalSurface, TerminalTextRenderer,
+        TerminalTextureState, TerminalUpdate,
     };
     use alacritty_terminal::vte::ansi::{Color as AnsiColor, NamedColor};
     use bevy::{
@@ -295,6 +296,19 @@ mod tests {
         assert_eq!(uploads.len(), 2);
         assert_eq!((uploads[0].origin_y, uploads[0].height), (0, 2));
         assert_eq!((uploads[1].origin_y, uploads[1].height), (3, 1));
+    }
+
+    #[test]
+    fn redraw_scheduler_stays_idle_without_visual_work() {
+        assert!(!should_request_visual_redraw(false, false, false, false));
+    }
+
+    #[test]
+    fn redraw_scheduler_runs_when_visual_work_exists() {
+        assert!(should_request_visual_redraw(true, false, false, false));
+        assert!(should_request_visual_redraw(false, true, false, false));
+        assert!(should_request_visual_redraw(false, false, true, false));
+        assert!(should_request_visual_redraw(false, false, false, true));
     }
 
     #[test]
