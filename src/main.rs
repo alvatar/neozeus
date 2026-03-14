@@ -15,9 +15,15 @@ use bevy::{
     },
     prelude::*,
     render::{
-        render_resource::{Extent3d, TextureDimension, TextureFormat},
+        render_asset::RenderAssets,
+        render_resource::{
+            Extent3d, Origin3d, TexelCopyBufferLayout, TexelCopyTextureInfo, TextureAspect,
+            TextureDimension, TextureFormat,
+        },
+        renderer::RenderQueue,
         settings::WgpuSettings,
-        RenderPlugin,
+        texture::GpuImage,
+        Render, RenderApp, RenderPlugin,
     },
     sprite::Anchor,
     text::{Font, TextBounds, TextColor, TextFont},
@@ -110,13 +116,15 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::{
-        blend_rgba_in_place, ctrl_sequence, find_kitty_config_path, format_startup_panic,
-        initialize_terminal_text_renderer, is_emoji_like, is_private_use_like,
-        keyboard_input_to_terminal_command, parse_kitty_config_file, pixel_perfect_cell_size,
-        pixel_perfect_terminal_logical_size, rasterize_terminal_glyph, resolve_alacritty_color,
+        blend_rgba_in_place, compute_terminal_damage, ctrl_sequence, drain_terminal_updates,
+        find_kitty_config_path, format_startup_panic, initialize_terminal_text_renderer,
+        is_emoji_like, is_private_use_like, keyboard_input_to_terminal_command,
+        parse_kitty_config_file, pixel_perfect_cell_size, pixel_perfect_terminal_logical_size,
+        queue_terminal_uploads, rasterize_terminal_glyph, resolve_alacritty_color,
         resolve_terminal_font_report, snap_to_pixel_grid, xterm_indexed_rgb, CachedTerminalGlyph,
-        KittyFontConfig, TerminalCommand, TerminalFontRole, TerminalFontState,
-        TerminalGlyphCacheKey, TerminalTextRenderer, TerminalTextureState,
+        KittyFontConfig, TerminalCellContent, TerminalCommand, TerminalDamage, TerminalFontRole,
+        TerminalFontState, TerminalFrameUpdate, TerminalGlyphCacheKey, TerminalGpuUploadQueue,
+        TerminalSurface, TerminalTextRenderer, TerminalTextureState, TerminalUpdate,
     };
     use alacritty_terminal::vte::ansi::{Color as AnsiColor, NamedColor};
     use bevy::{
@@ -152,6 +160,14 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("{prefix}-{nanos}"));
         fs::create_dir_all(&dir).expect("failed to create temp dir");
         dir
+    }
+
+    fn surface_with_text(rows: usize, cols: usize, y: usize, text: &str) -> TerminalSurface {
+        let mut surface = TerminalSurface::new(cols, rows);
+        for (x, ch) in text.chars().enumerate() {
+            surface.set_text_cell(x, y, &ch.to_string());
+        }
+        surface
     }
 
     #[test]
@@ -222,6 +238,72 @@ mod tests {
     }
 
     #[test]
+    fn compute_terminal_damage_marks_only_changed_rows() {
+        let previous = surface_with_text(3, 4, 1, "ab");
+        let next = surface_with_text(3, 4, 2, "cd");
+        assert_eq!(
+            compute_terminal_damage(Some(&previous), &next),
+            TerminalDamage::Rows(vec![1, 2])
+        );
+    }
+
+    #[test]
+    fn compute_terminal_damage_marks_resize_as_full() {
+        let previous = TerminalSurface::new(4, 3);
+        let next = TerminalSurface::new(5, 3);
+        assert_eq!(
+            compute_terminal_damage(Some(&previous), &next),
+            TerminalDamage::Full
+        );
+    }
+
+    #[test]
+    fn drain_terminal_updates_keeps_latest_frame_and_status() {
+        let (tx, rx) = std::sync::mpsc::channel();
+        tx.send(TerminalUpdate::Frame(TerminalFrameUpdate {
+            surface: surface_with_text(2, 2, 0, "a"),
+            damage: TerminalDamage::Rows(vec![0]),
+            status: "one".into(),
+            seq: 1,
+        }))
+        .unwrap();
+        tx.send(TerminalUpdate::Frame(TerminalFrameUpdate {
+            surface: surface_with_text(2, 2, 1, "b"),
+            damage: TerminalDamage::Rows(vec![1]),
+            status: "two".into(),
+            seq: 2,
+        }))
+        .unwrap();
+        tx.send(TerminalUpdate::Status {
+            status: "done".into(),
+            surface: None,
+        })
+        .unwrap();
+
+        let (frame, status, dropped) = drain_terminal_updates(&rx);
+        assert_eq!(dropped, 1);
+        assert_eq!(frame.unwrap().seq, 2);
+        assert_eq!(status.unwrap().0, "done");
+    }
+
+    #[test]
+    fn queue_terminal_uploads_merges_contiguous_rows() {
+        let queue = TerminalGpuUploadQueue::default();
+        let pixels = vec![7u8; 4 * 4 * 4];
+        queue_terminal_uploads(
+            &queue,
+            &Handle::default(),
+            UVec2::new(4, 4),
+            &pixels,
+            &[0, 1, 3],
+        );
+        let uploads = queue.0.lock().unwrap();
+        assert_eq!(uploads.len(), 2);
+        assert_eq!((uploads[0].origin_y, uploads[0].height), (0, 2));
+        assert_eq!((uploads[1].origin_y, uploads[1].height), (3, 1));
+    }
+
+    #[test]
     fn named_cursor_color_resolves() {
         let color = resolve_alacritty_color(
             AnsiColor::Named(NamedColor::Cursor),
@@ -289,7 +371,7 @@ mod tests {
         };
         let glyph = rasterize_terminal_glyph(
             &TerminalGlyphCacheKey {
-                text: "A".into(),
+                content: TerminalCellContent::Single('A'),
                 font_role: TerminalFontRole::Primary,
                 width_cells: 1,
                 cell_width: 14,

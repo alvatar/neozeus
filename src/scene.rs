@@ -30,6 +30,8 @@ pub(crate) fn build_app() -> Result<App, String> {
 }
 
 fn configure_app(app: &mut App) {
+    let terminal_gpu_upload_queue = TerminalGpuUploadQueue::default();
+
     app.add_plugins(
         DefaultPlugins
             .set(RenderPlugin {
@@ -59,6 +61,7 @@ fn configure_app(app: &mut App) {
 
     app.insert_resource(ClearColor(Color::srgb(0.02, 0.02, 0.02)))
         .insert_resource(WinitSettings::desktop_app())
+        .insert_resource(terminal_gpu_upload_queue.clone())
         .insert_resource(TerminalManager::new(event_loop_proxy))
         .insert_resource(TerminalFontState::default())
         .insert_resource(TerminalPlaneState::default())
@@ -84,6 +87,12 @@ fn configure_app(app: &mut App) {
                 .chain(),
         )
         .add_systems(EguiPrimaryContextPass, ui_overlay);
+
+    if let Some(render_app) = app.get_sub_app_mut(RenderApp) {
+        render_app
+            .insert_resource(terminal_gpu_upload_queue)
+            .add_systems(Render, flush_terminal_gpu_uploads);
+    }
 }
 
 pub(crate) fn format_startup_panic(payload: &(dyn Any + Send)) -> Option<String> {

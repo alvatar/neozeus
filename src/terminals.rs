@@ -22,6 +22,7 @@ pub(crate) fn create_terminal_image(size: UVec2) -> Image {
         TextureFormat::Rgba8UnormSrgb,
         RenderAssetUsages::default(),
     );
+    image.data = None;
     image.sampler = ImageSampler::nearest();
     image
 }
@@ -70,6 +71,10 @@ pub(crate) struct TerminalDebugStats {
     pub(crate) pty_bytes_read: u64,
     pub(crate) snapshots_sent: u64,
     pub(crate) snapshots_applied: u64,
+    pub(crate) updates_dropped: u64,
+    pub(crate) dirty_rows_uploaded: u64,
+    pub(crate) compose_micros: u64,
+    pub(crate) upload_micros: u64,
     pub(crate) last_key: String,
     pub(crate) last_command: String,
     pub(crate) last_error: String,
@@ -106,6 +111,7 @@ pub(crate) enum TerminalDisplayMode {
 struct ManagedTerminal {
     bridge: TerminalBridge,
     latest: TerminalSnapshot,
+    latest_damage: TerminalDamage,
     texture_state: TerminalTextureState,
     sprite_entity: Entity,
     display_mode: TerminalDisplayMode,
@@ -124,7 +130,7 @@ pub(crate) struct TerminalManager {
 #[derive(Resource)]
 pub(crate) struct TerminalBridge {
     input_tx: Sender<TerminalCommand>,
-    snapshot_rx: Mutex<Receiver<TerminalSnapshot>>,
+    update_rx: Mutex<Receiver<TerminalUpdate>>,
     debug_stats: Arc<Mutex<TerminalDebugStats>>,
 }
 
@@ -200,11 +206,18 @@ impl TerminalManager {
             ManagedTerminal {
                 bridge,
                 latest: TerminalSnapshot::default(),
+                latest_damage: TerminalDamage::Full,
                 texture_state: TerminalTextureState {
                     image: Some(image_handle),
                     helper_entities: Some(helper_entities),
                     texture_size: UVec2::ONE,
                     cell_size: UVec2::new(DEFAULT_CELL_WIDTH_PX, DEFAULT_CELL_HEIGHT_PX),
+                    cpu_pixels: vec![
+                        DEFAULT_BG.r(),
+                        DEFAULT_BG.g(),
+                        DEFAULT_BG.b(),
+                        DEFAULT_BG.a(),
+                    ],
                     last_surface: None,
                 },
                 sprite_entity,
@@ -286,19 +299,19 @@ impl TerminalBridge {
         auto_verify: bool,
     ) -> Self {
         let (input_tx, input_rx) = mpsc::channel();
-        let (snapshot_tx, snapshot_rx) = mpsc::channel();
+        let (update_tx, update_rx) = mpsc::channel();
         let debug_stats = Arc::new(Mutex::new(TerminalDebugStats::default()));
         let worker_debug_stats = debug_stats.clone();
         let worker_event_loop_proxy = event_loop_proxy.clone();
 
         thread::spawn(move || {
             append_debug_log("terminal worker thread spawn");
-            let panic_snapshot_tx = snapshot_tx.clone();
+            let panic_update_tx = update_tx.clone();
             let panic_event_loop_proxy = worker_event_loop_proxy.clone();
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 terminal_worker(
                     input_rx,
-                    snapshot_tx,
+                    update_tx,
                     worker_debug_stats,
                     worker_event_loop_proxy,
                 )
@@ -306,7 +319,7 @@ impl TerminalBridge {
             if let Err(payload) = result {
                 let message = panic_payload_to_string(payload);
                 append_debug_log(format!("terminal worker panic: {message}"));
-                let _ = panic_snapshot_tx.send(TerminalSnapshot {
+                let _ = panic_update_tx.send(TerminalUpdate::Status {
                     surface: None,
                     status: format!("terminal worker panicked: {message}"),
                 });
@@ -320,7 +333,7 @@ impl TerminalBridge {
 
         Self {
             input_tx,
-            snapshot_rx: Mutex::new(snapshot_rx),
+            update_rx: Mutex::new(update_rx),
             debug_stats,
         }
     }
@@ -438,8 +451,8 @@ fn set_terminal_error(debug_stats: &Arc<Mutex<TerminalDebugStats>>, message: imp
     });
 }
 
-fn send_terminal_status_snapshot(
-    snapshot_tx: &Sender<TerminalSnapshot>,
+fn send_terminal_status_update(
+    update_tx: &Sender<TerminalUpdate>,
     debug_stats: &Arc<Mutex<TerminalDebugStats>>,
     terminal: &Term<VoidListener>,
     event_loop_proxy: &EventLoopProxy<WinitUserEvent>,
@@ -447,11 +460,13 @@ fn send_terminal_status_snapshot(
 ) {
     let status = status.into();
     append_debug_log(format!("status snapshot: {status}"));
-    let snapshot = TerminalSnapshot {
-        surface: Some(build_surface(terminal)),
-        status: status.clone(),
-    };
-    if snapshot_tx.send(snapshot).is_ok() {
+    if update_tx
+        .send(TerminalUpdate::Status {
+            surface: Some(build_surface(terminal)),
+            status: status.clone(),
+        })
+        .is_ok()
+    {
         with_debug_stats(debug_stats, |stats| {
             stats.snapshots_sent += 1;
         });
@@ -529,8 +544,22 @@ pub(crate) struct TerminalTextureState {
     pub(crate) helper_entities: Option<TerminalFontEntities>,
     pub(crate) texture_size: UVec2,
     pub(crate) cell_size: UVec2,
+    pub(crate) cpu_pixels: Vec<u8>,
     last_surface: Option<TerminalSurface>,
 }
+
+#[derive(Clone)]
+pub(crate) struct TerminalTextureUpload {
+    pub(crate) image: Handle<Image>,
+    pub(crate) origin_y: u32,
+    pub(crate) width: u32,
+    pub(crate) height: u32,
+    pub(crate) bytes_per_row: u32,
+    pub(crate) data: Vec<u8>,
+}
+
+#[derive(Resource, Clone, Default)]
+pub(crate) struct TerminalGpuUploadQueue(pub(crate) Arc<Mutex<Vec<TerminalTextureUpload>>>);
 
 #[derive(Resource, Default)]
 pub(crate) struct TerminalGlyphCache {
@@ -562,7 +591,7 @@ pub(crate) enum TerminalFontRole {
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct TerminalGlyphCacheKey {
-    pub(crate) text: String,
+    pub(crate) content: TerminalCellContent,
     pub(crate) font_role: TerminalFontRole,
     pub(crate) width_cells: u8,
     pub(crate) cell_width: u32,
@@ -582,6 +611,37 @@ pub(crate) struct TerminalSnapshot {
     pub(crate) surface: Option<TerminalSurface>,
     pub(crate) status: String,
 }
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) enum TerminalDamage {
+    #[default]
+    Full,
+    Rows(Vec<usize>),
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct TerminalFrameUpdate {
+    pub(crate) surface: TerminalSurface,
+    pub(crate) damage: TerminalDamage,
+    pub(crate) status: String,
+    pub(crate) seq: u64,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) enum TerminalUpdate {
+    Frame(TerminalFrameUpdate),
+    Status {
+        status: String,
+        surface: Option<TerminalSurface>,
+    },
+}
+
+type LatestTerminalStatus = (String, Option<TerminalSurface>);
+type DrainedTerminalUpdates = (
+    Option<TerminalFrameUpdate>,
+    Option<LatestTerminalStatus>,
+    u64,
+);
 
 pub(crate) enum TerminalCommand {
     InputText(String),
@@ -616,9 +676,63 @@ struct PtySession {
     child: Box<dyn Child + Send + Sync>,
 }
 
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+pub(crate) enum TerminalCellContent {
+    #[default]
+    Empty,
+    Single(char),
+    InlineSmall([char; 2], u8),
+    Heap(Arc<str>),
+}
+
+impl TerminalCellContent {
+    fn from_parts(base: char, extra: Option<&[char]>) -> Self {
+        let Some(extra) = extra else {
+            return Self::Single(base);
+        };
+        match extra {
+            [] => Self::Single(base),
+            [first] => Self::InlineSmall([base, *first], 2),
+            _ => {
+                let mut text = String::with_capacity(1 + extra.len());
+                text.push(base);
+                for character in extra {
+                    text.push(*character);
+                }
+                Self::Heap(Arc::<str>::from(text))
+            }
+        }
+    }
+
+    fn is_empty(&self) -> bool {
+        matches!(self, Self::Empty)
+    }
+
+    fn any_char(&self, mut predicate: impl FnMut(char) -> bool) -> bool {
+        match self {
+            Self::Empty => false,
+            Self::Single(ch) => predicate(*ch),
+            Self::InlineSmall(chars, len) => chars[..usize::from(*len)]
+                .iter()
+                .copied()
+                .any(&mut predicate),
+            Self::Heap(text) => text.chars().any(predicate),
+        }
+    }
+
+    fn to_owned_string(&self) -> String {
+        match self {
+            Self::Empty => String::new(),
+            Self::Single(ch) => ch.to_string(),
+            Self::InlineSmall(chars, len) => chars[..usize::from(*len)].iter().collect(),
+            Self::Heap(text) => text.as_ref().to_owned(),
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 struct TerminalCell {
-    pub(crate) text: String,
+    pub(crate) content: TerminalCellContent,
     fg: egui::Color32,
     bg: egui::Color32,
     width: u8,
@@ -627,7 +741,7 @@ struct TerminalCell {
 impl Default for TerminalCell {
     fn default() -> Self {
         Self {
-            text: String::new(),
+            content: TerminalCellContent::Empty,
             fg: egui::Color32::from_rgb(220, 220, 220),
             bg: DEFAULT_BG,
             width: 1,
@@ -660,7 +774,7 @@ pub(crate) struct TerminalSurface {
 }
 
 impl TerminalSurface {
-    fn new(cols: usize, rows: usize) -> Self {
+    pub(crate) fn new(cols: usize, rows: usize) -> Self {
         Self {
             cols,
             rows,
@@ -675,6 +789,23 @@ impl TerminalSurface {
         }
         let index = y * self.cols + x;
         self.cells[index] = cell;
+    }
+
+    pub(crate) fn set_text_cell(&mut self, x: usize, y: usize, text: &str) {
+        let mut chars = text.chars();
+        let Some(base) = chars.next() else {
+            self.set_cell(x, y, TerminalCell::default());
+            return;
+        };
+        let extra = chars.collect::<Vec<_>>();
+        self.set_cell(
+            x,
+            y,
+            TerminalCell {
+                content: TerminalCellContent::from_parts(base, Some(&extra)),
+                ..Default::default()
+            },
+        );
     }
 
     fn cell(&self, x: usize, y: usize) -> &TerminalCell {
@@ -787,9 +918,79 @@ fn apply_pty_bytes(
     parser.advance(terminal, bytes);
 }
 
+pub(crate) fn compute_terminal_damage(
+    previous_surface: Option<&TerminalSurface>,
+    surface: &TerminalSurface,
+) -> TerminalDamage {
+    let Some(previous_surface) = previous_surface else {
+        return TerminalDamage::Full;
+    };
+    if previous_surface.cols != surface.cols || previous_surface.rows != surface.rows {
+        return TerminalDamage::Full;
+    }
+
+    let mut dirty_rows = Vec::new();
+    for y in 0..surface.rows {
+        let start = y * surface.cols;
+        let end = start + surface.cols;
+        if previous_surface.cells[start..end] != surface.cells[start..end] {
+            dirty_rows.push(y);
+        }
+    }
+
+    if previous_surface.cursor != surface.cursor {
+        if let Some(cursor) = previous_surface.cursor.as_ref() {
+            if cursor.visible && cursor.y < surface.rows && !dirty_rows.contains(&cursor.y) {
+                dirty_rows.push(cursor.y);
+            }
+        }
+        if let Some(cursor) = surface.cursor.as_ref() {
+            if cursor.visible && cursor.y < surface.rows && !dirty_rows.contains(&cursor.y) {
+                dirty_rows.push(cursor.y);
+            }
+        }
+    }
+
+    if dirty_rows.len() >= surface.rows {
+        TerminalDamage::Full
+    } else {
+        dirty_rows.sort_unstable();
+        TerminalDamage::Rows(dirty_rows)
+    }
+}
+
+fn send_terminal_frame_update(
+    update_tx: &Sender<TerminalUpdate>,
+    debug_stats: &Arc<Mutex<TerminalDebugStats>>,
+    event_loop_proxy: &EventLoopProxy<WinitUserEvent>,
+    previous_surface: Option<&TerminalSurface>,
+    surface: TerminalSurface,
+    status: String,
+    seq: u64,
+) {
+    let damage = compute_terminal_damage(previous_surface, &surface);
+    if matches!(damage, TerminalDamage::Rows(ref rows) if rows.is_empty()) {
+        return;
+    }
+    if update_tx
+        .send(TerminalUpdate::Frame(TerminalFrameUpdate {
+            surface,
+            damage,
+            status,
+            seq,
+        }))
+        .is_ok()
+    {
+        with_debug_stats(debug_stats, |stats| {
+            stats.snapshots_sent += 1;
+        });
+        let _ = event_loop_proxy.send_event(WinitUserEvent::WakeUp);
+    }
+}
+
 fn terminal_worker(
     input_rx: Receiver<TerminalCommand>,
-    snapshot_tx: Sender<TerminalSnapshot>,
+    update_tx: Sender<TerminalUpdate>,
     debug_stats: Arc<Mutex<TerminalDebugStats>>,
     event_loop_proxy: EventLoopProxy<WinitUserEvent>,
 ) {
@@ -801,7 +1002,7 @@ fn terminal_worker(
         Ok(session) => session,
         Err(error) => {
             let status = format!("failed to start PTY backend: {error}");
-            let _ = snapshot_tx.send(TerminalSnapshot {
+            let _ = update_tx.send(TerminalUpdate::Status {
                 surface: None,
                 status: status.clone(),
             });
@@ -815,7 +1016,7 @@ fn terminal_worker(
         Ok(reader) => reader,
         Err(error) => {
             let status = format!("failed to attach PTY reader: {error}");
-            let _ = snapshot_tx.send(TerminalSnapshot {
+            let _ = update_tx.send(TerminalUpdate::Status {
                 surface: None,
                 status: status.clone(),
             });
@@ -943,7 +1144,8 @@ fn terminal_worker(
     };
     let mut terminal = Term::new(config, &dimensions, VoidListener);
     let mut parser = ansi::Processor::<ansi::StdSyncHandler>::new();
-    let mut last_snapshot = TerminalSnapshot::default();
+    let mut previous_surface: Option<TerminalSurface> = None;
+    let mut next_frame_seq = 1u64;
     let mut running = true;
 
     while running {
@@ -985,8 +1187,8 @@ fn terminal_worker(
                         }
                         Err(mpsc::RecvTimeoutError::Timeout) => break,
                         Err(mpsc::RecvTimeoutError::Disconnected) => {
-                            send_terminal_status_snapshot(
-                                &snapshot_tx,
+                            send_terminal_status_update(
+                                &update_tx,
                                 &debug_stats,
                                 &terminal,
                                 &event_loop_proxy,
@@ -1000,8 +1202,8 @@ fn terminal_worker(
             }
             Err(mpsc::RecvTimeoutError::Timeout) => {}
             Err(mpsc::RecvTimeoutError::Disconnected) => {
-                send_terminal_status_snapshot(
-                    &snapshot_tx,
+                send_terminal_status_update(
+                    &update_tx,
                     &debug_stats,
                     &terminal,
                     &event_loop_proxy,
@@ -1015,8 +1217,8 @@ fn terminal_worker(
             match event {
                 InputThreadEvent::WriteResult(Ok(())) => {}
                 InputThreadEvent::WriteResult(Err(status)) => {
-                    send_terminal_status_snapshot(
-                        &snapshot_tx,
+                    send_terminal_status_update(
+                        &update_tx,
                         &debug_stats,
                         &terminal,
                         &event_loop_proxy,
@@ -1027,19 +1229,18 @@ fn terminal_worker(
                 InputThreadEvent::ScrollDisplay(lines) => {
                     append_debug_log(format!("terminal scroll display: {lines}"));
                     terminal.scroll_display(Scroll::Delta(lines));
-                    let snapshot = TerminalSnapshot {
-                        surface: Some(build_surface(&terminal)),
-                        status: "backend: alacritty_terminal + portable-pty".into(),
-                    };
-                    if snapshot != last_snapshot {
-                        last_snapshot = snapshot.clone();
-                        if snapshot_tx.send(snapshot).is_ok() {
-                            with_debug_stats(&debug_stats, |stats| {
-                                stats.snapshots_sent += 1;
-                            });
-                            let _ = event_loop_proxy.send_event(WinitUserEvent::WakeUp);
-                        }
-                    }
+                    let surface = build_surface(&terminal);
+                    send_terminal_frame_update(
+                        &update_tx,
+                        &debug_stats,
+                        &event_loop_proxy,
+                        previous_surface.as_ref(),
+                        surface.clone(),
+                        "backend: alacritty_terminal + portable-pty".into(),
+                        next_frame_seq,
+                    );
+                    previous_surface = Some(surface);
+                    next_frame_seq += 1;
                 }
                 InputThreadEvent::Shutdown => {
                     running = false;
@@ -1052,8 +1253,8 @@ fn terminal_worker(
             Err(poisoned) => poisoned.into_inner().clone(),
         };
         if let Some(status) = reader_status {
-            send_terminal_status_snapshot(
-                &snapshot_tx,
+            send_terminal_status_update(
+                &update_tx,
                 &debug_stats,
                 &terminal,
                 &event_loop_proxy,
@@ -1064,8 +1265,8 @@ fn terminal_worker(
 
         match child.try_wait() {
             Ok(Some(status)) => {
-                send_terminal_status_snapshot(
-                    &snapshot_tx,
+                send_terminal_status_update(
+                    &update_tx,
                     &debug_stats,
                     &terminal,
                     &event_loop_proxy,
@@ -1079,8 +1280,8 @@ fn terminal_worker(
             }
             Ok(None) => {}
             Err(error) => {
-                send_terminal_status_snapshot(
-                    &snapshot_tx,
+                send_terminal_status_update(
+                    &update_tx,
                     &debug_stats,
                     &terminal,
                     &event_loop_proxy,
@@ -1091,20 +1292,18 @@ fn terminal_worker(
         }
 
         if received_output && running {
-            let snapshot = TerminalSnapshot {
-                surface: Some(build_surface(&terminal)),
-                status: "backend: alacritty_terminal + portable-pty".into(),
-            };
-
-            if snapshot != last_snapshot {
-                last_snapshot = snapshot.clone();
-                if snapshot_tx.send(snapshot).is_ok() {
-                    with_debug_stats(&debug_stats, |stats| {
-                        stats.snapshots_sent += 1;
-                    });
-                    let _ = event_loop_proxy.send_event(WinitUserEvent::WakeUp);
-                }
-            }
+            let surface = build_surface(&terminal);
+            send_terminal_frame_update(
+                &update_tx,
+                &debug_stats,
+                &event_loop_proxy,
+                previous_surface.as_ref(),
+                surface.clone(),
+                "backend: alacritty_terminal + portable-pty".into(),
+                next_frame_seq,
+            );
+            previous_surface = Some(surface);
+            next_frame_seq += 1;
         }
     }
 
@@ -1136,18 +1335,14 @@ fn build_surface(term: &Term<VoidListener>) -> TerminalSurface {
             std::mem::swap(&mut fg, &mut bg);
         }
 
-        let mut text = String::new();
-        if !indexed.cell.flags.contains(Flags::HIDDEN)
-            && !indexed.cell.flags.contains(Flags::WIDE_CHAR_SPACER)
-            && !indexed.cell.flags.contains(Flags::LEADING_WIDE_CHAR_SPACER)
+        let content = if indexed.cell.flags.contains(Flags::HIDDEN)
+            || indexed.cell.flags.contains(Flags::WIDE_CHAR_SPACER)
+            || indexed.cell.flags.contains(Flags::LEADING_WIDE_CHAR_SPACER)
         {
-            text.push(indexed.cell.c);
-            if let Some(extra) = indexed.cell.zerowidth() {
-                for character in extra {
-                    text.push(*character);
-                }
-            }
-        }
+            TerminalCellContent::Empty
+        } else {
+            TerminalCellContent::from_parts(indexed.cell.c, indexed.cell.zerowidth())
+        };
 
         let width = if indexed.cell.flags.contains(Flags::WIDE_CHAR) {
             2
@@ -1165,7 +1360,7 @@ fn build_surface(term: &Term<VoidListener>) -> TerminalSurface {
             x,
             y,
             TerminalCell {
-                text,
+                content,
                 fg,
                 bg,
                 width,
@@ -1708,6 +1903,7 @@ pub(crate) fn sync_terminal_texture(
     mut terminal_manager: ResMut<TerminalManager>,
     font_state: Res<TerminalFontState>,
     primary_window: Single<&Window, With<PrimaryWindow>>,
+    upload_queue: Res<TerminalGpuUploadQueue>,
     mut glyph_cache: ResMut<TerminalGlyphCache>,
     mut images: ResMut<Assets<Image>>,
     mut text_renderer: ResMut<TerminalTextRenderer>,
@@ -1761,7 +1957,13 @@ pub(crate) fn sync_terminal_texture(
         let mut dirty_rows = if full_redraw {
             (0..surface.rows).collect::<Vec<_>>()
         } else {
-            dirty_rows_between(terminal.texture_state.last_surface.as_ref(), surface)
+            match &terminal.latest_damage {
+                TerminalDamage::Full => {
+                    full_redraw = true;
+                    (0..surface.rows).collect::<Vec<_>>()
+                }
+                TerminalDamage::Rows(rows) => rows.clone(),
+            }
         };
 
         if dirty_rows.is_empty() {
@@ -1773,16 +1975,47 @@ pub(crate) fn sync_terminal_texture(
                 || target_image.texture_descriptor.size.height != texture_size.y
             {
                 *target_image = create_terminal_image(texture_size);
+                terminal.texture_state.cpu_pixels = vec![
+                    DEFAULT_BG.r(),
+                    DEFAULT_BG.g(),
+                    DEFAULT_BG.b(),
+                    DEFAULT_BG.a(),
+                ];
+                terminal.texture_state.cpu_pixels.resize(
+                    (texture_size.x * texture_size.y * 4) as usize,
+                    DEFAULT_BG.a(),
+                );
+                for pixel in terminal.texture_state.cpu_pixels.chunks_exact_mut(4) {
+                    pixel.copy_from_slice(&[
+                        DEFAULT_BG.r(),
+                        DEFAULT_BG.g(),
+                        DEFAULT_BG.b(),
+                        DEFAULT_BG.a(),
+                    ]);
+                }
+                full_redraw = true;
+                dirty_rows = (0..surface.rows).collect();
+            }
+
+            if terminal.texture_state.cpu_pixels.len()
+                != (texture_size.x * texture_size.y * 4) as usize
+            {
+                terminal
+                    .texture_state
+                    .cpu_pixels
+                    .resize((texture_size.x * texture_size.y * 4) as usize, 0);
                 full_redraw = true;
                 dirty_rows = (0..surface.rows).collect();
             }
 
             if full_redraw {
-                clear_terminal_image(target_image);
+                clear_terminal_pixels(&mut terminal.texture_state.cpu_pixels);
             }
 
-            repaint_terminal_rows(
-                target_image,
+            let compose_started = std::time::Instant::now();
+            repaint_terminal_pixels(
+                &mut terminal.texture_state.cpu_pixels,
+                texture_size.x,
                 surface,
                 &dirty_rows,
                 cell_size,
@@ -1791,8 +2024,22 @@ pub(crate) fn sync_terminal_texture(
                 &mut glyph_cache,
                 &font_state,
             );
+            let compose_elapsed = compose_started.elapsed();
+            with_debug_stats(&terminal.bridge.debug_stats, |stats| {
+                stats.compose_micros += compose_elapsed.as_micros() as u64;
+                stats.dirty_rows_uploaded += dirty_rows.len() as u64;
+            });
+            queue_terminal_uploads(
+                &upload_queue,
+                &image_handle,
+                texture_size,
+                &terminal.texture_state.cpu_pixels,
+                &dirty_rows,
+            );
             if env::var_os("NEOZEUS_DUMP_TEXTURE").is_some() {
+                target_image.data = Some(terminal.texture_state.cpu_pixels.clone());
                 let _ = dump_terminal_image_ppm(target_image, Path::new(DEBUG_TEXTURE_DUMP_PATH));
+                target_image.data = None;
             }
             terminal.texture_state.texture_size = texture_size;
             terminal.texture_state.last_surface = Some(surface.clone());
@@ -1838,21 +2085,65 @@ fn dirty_rows_between(
     dirty_rows.into_iter().collect()
 }
 
-fn clear_terminal_image(image: &mut Image) {
-    image.clear(&[
-        DEFAULT_BG.r(),
-        DEFAULT_BG.g(),
-        DEFAULT_BG.b(),
-        DEFAULT_BG.a(),
-    ]);
+fn clear_terminal_pixels(buffer: &mut [u8]) {
+    for pixel in buffer.chunks_exact_mut(4) {
+        pixel.copy_from_slice(&[
+            DEFAULT_BG.r(),
+            DEFAULT_BG.g(),
+            DEFAULT_BG.b(),
+            DEFAULT_BG.a(),
+        ]);
+    }
+}
+
+pub(crate) fn queue_terminal_uploads(
+    upload_queue: &TerminalGpuUploadQueue,
+    image: &Handle<Image>,
+    texture_size: UVec2,
+    pixels: &[u8],
+    dirty_rows: &[usize],
+) {
+    if dirty_rows.is_empty() {
+        return;
+    }
+
+    let bytes_per_row = texture_size.x * 4;
+    let mut uploads = Vec::new();
+    let mut index = 0;
+    while index < dirty_rows.len() {
+        let start_row = dirty_rows[index] as u32;
+        let mut end_index = index + 1;
+        while end_index < dirty_rows.len() && dirty_rows[end_index] == dirty_rows[end_index - 1] + 1
+        {
+            end_index += 1;
+        }
+        let end_row = dirty_rows[end_index - 1] as u32;
+        let height = end_row - start_row + 1;
+        let start = start_row as usize * bytes_per_row as usize;
+        let end = (end_row as usize + 1) * bytes_per_row as usize;
+        uploads.push(TerminalTextureUpload {
+            image: image.clone(),
+            origin_y: start_row,
+            width: texture_size.x,
+            height,
+            bytes_per_row,
+            data: pixels[start..end].to_vec(),
+        });
+        index = end_index;
+    }
+
+    if let Ok(mut pending) = upload_queue.0.lock() {
+        pending.extend(uploads);
+    }
 }
 
 #[allow(
     clippy::too_many_arguments,
     reason = "terminal row repaint needs renderer/cache/font state together"
 )]
-fn repaint_terminal_rows(
-    image: &mut Image,
+fn repaint_terminal_pixels(
+    buffer: &mut [u8],
+    texture_width: u32,
     surface: &TerminalSurface,
     rows: &[usize],
     cell_size: UVec2,
@@ -1861,6 +2152,8 @@ fn repaint_terminal_rows(
     glyph_cache: &mut TerminalGlyphCache,
     font_state: &TerminalFontState,
 ) {
+    let stride = texture_width as usize * 4;
+
     for &y in rows {
         if y >= surface.rows {
             continue;
@@ -1870,16 +2163,24 @@ fn repaint_terminal_rows(
             let cell = surface.cell(x, y);
             let origin_x = x as u32 * cell_size.x;
             let origin_y = y as u32 * cell_size.y;
-            fill_rect(image, origin_x, origin_y, cell_size.x, cell_size.y, cell.bg);
+            fill_rect_in_buffer(
+                buffer,
+                stride,
+                origin_x,
+                origin_y,
+                cell_size.x,
+                cell_size.y,
+                cell.bg,
+            );
 
-            if cell.width == 0 || cell.text.is_empty() {
+            if cell.width == 0 || cell.content.is_empty() {
                 continue;
             }
 
             let (font_role, _helper_entity, preserve_color) =
-                select_terminal_font_role(&cell.text, font_state, helper_entities);
+                select_terminal_font_role(&cell.content, font_state, helper_entities);
             let cache_key = TerminalGlyphCacheKey {
-                text: cell.text.clone(),
+                content: cell.content.clone(),
                 font_role,
                 width_cells: cell.width,
                 cell_width: cell_size.x,
@@ -1898,28 +2199,28 @@ fn repaint_terminal_rows(
             }
 
             if let Some(glyph) = glyph_cache.glyphs.get(&cache_key) {
-                blit_cached_glyph(image, origin_x, origin_y, glyph, cell.fg);
+                blit_cached_glyph_in_buffer(buffer, stride, origin_x, origin_y, glyph, cell.fg);
             }
         }
     }
 
     if let Some(cursor) = &surface.cursor {
         if cursor.visible && rows.binary_search(&cursor.y).is_ok() {
-            draw_cursor(image, cursor, cell_size);
+            draw_cursor_in_buffer(buffer, stride, cursor, cell_size);
         }
     }
 }
 
 fn select_terminal_font_role(
-    text: &str,
+    content: &TerminalCellContent,
     font_state: &TerminalFontState,
     helper_entities: TerminalFontEntities,
 ) -> (TerminalFontRole, Entity, bool) {
-    if text.chars().any(is_emoji_like) && font_state.emoji_font.is_some() {
+    if content.any_char(is_emoji_like) && font_state.emoji_font.is_some() {
         return (TerminalFontRole::Emoji, helper_entities.emoji, true);
     }
 
-    if text.chars().any(is_private_use_like) && font_state.private_use_font.is_some() {
+    if content.any_char(is_private_use_like) && font_state.private_use_font.is_some() {
         return (
             TerminalFontRole::PrivateUse,
             helper_entities.private_use,
@@ -1984,7 +2285,8 @@ pub(crate) fn rasterize_terminal_glyph(
         let mut borrowed = buffer.borrow_with(font_system);
         borrowed.set_size(Some(width as f32), Some(height as f32));
         let attrs = terminal_text_attrs(font_role, font_state).metrics(metrics);
-        borrowed.set_text(cache_key.text.as_str(), &attrs, CtShaping::Advanced, None);
+        let text = cache_key.content.to_owned_string();
+        borrowed.set_text(text.as_str(), &attrs, CtShaping::Advanced, None);
         borrowed.shape_until_scroll(false);
     }
 
@@ -2026,54 +2328,94 @@ pub(crate) fn rasterize_terminal_glyph(
     }
 }
 
-fn blit_cached_glyph(
-    image: &mut Image,
+fn blit_cached_glyph_in_buffer(
+    buffer: &mut [u8],
+    stride: usize,
     origin_x: u32,
     origin_y: u32,
     glyph: &CachedTerminalGlyph,
     fg: egui::Color32,
 ) {
-    for y in 0..glyph.height {
-        for x in 0..glyph.width {
-            let index = ((y * glyph.width + x) * 4) as usize;
-            let pixel = &glyph.pixels[index..index + 4];
-            if pixel[3] == 0 {
+    let max_height = buffer.len() / stride;
+    for y in 0..glyph.height as usize {
+        let target_y = origin_y as usize + y;
+        if target_y >= max_height {
+            break;
+        }
+        let dst_row = &mut buffer[target_y * stride..(target_y + 1) * stride];
+        let src_row =
+            &glyph.pixels[y * glyph.width as usize * 4..(y + 1) * glyph.width as usize * 4];
+        for x in 0..glyph.width as usize {
+            let src = &src_row[x * 4..x * 4 + 4];
+            if src[3] == 0 {
                 continue;
             }
 
             let source = if glyph.preserve_color {
-                [pixel[0], pixel[1], pixel[2], pixel[3]]
+                [src[0], src[1], src[2], src[3]]
             } else {
-                [fg.r(), fg.g(), fg.b(), pixel[3]]
+                [fg.r(), fg.g(), fg.b(), src[3]]
             };
-            blend_image_pixel(image, origin_x + x, origin_y + y, source);
-        }
-    }
-}
-
-fn fill_rect(image: &mut Image, x: u32, y: u32, width: u32, height: u32, color: egui::Color32) {
-    for row in y..y.saturating_add(height) {
-        for col in x..x.saturating_add(width) {
-            if let Some(pixel) = image.pixel_bytes_mut(UVec3::new(col, row, 0)) {
-                pixel.copy_from_slice(&[color.r(), color.g(), color.b(), color.a()]);
+            let dst_start = (origin_x as usize + x) * 4;
+            if dst_start + 4 > dst_row.len() {
+                break;
             }
+            blend_rgba_in_place(&mut dst_row[dst_start..dst_start + 4], source);
         }
     }
 }
 
-fn draw_cursor(image: &mut Image, cursor: &TerminalCursor, cell_size: UVec2) {
+fn fill_rect_in_buffer(
+    buffer: &mut [u8],
+    stride: usize,
+    x: u32,
+    y: u32,
+    width: u32,
+    height: u32,
+    color: egui::Color32,
+) {
+    let pixel = [color.r(), color.g(), color.b(), color.a()];
+    let max_height = buffer.len() / stride;
+    for row in y as usize..(y as usize).saturating_add(height as usize).min(max_height) {
+        let row_slice = &mut buffer[row * stride..(row + 1) * stride];
+        let start = x as usize * 4;
+        let end = ((x + width) as usize * 4).min(row_slice.len());
+        if start >= end {
+            continue;
+        }
+        for dst in row_slice[start..end].chunks_exact_mut(4) {
+            dst.copy_from_slice(&pixel);
+        }
+    }
+}
+
+fn draw_cursor_in_buffer(
+    buffer: &mut [u8],
+    stride: usize,
+    cursor: &TerminalCursor,
+    cell_size: UVec2,
+) {
     let origin_x = cursor.x as u32 * cell_size.x;
     let origin_y = cursor.y as u32 * cell_size.y;
     let color = [cursor.color.r(), cursor.color.g(), cursor.color.b(), 160];
 
     match cursor.shape {
         TerminalCursorShape::Block => {
-            fill_alpha_rect(image, origin_x, origin_y, cell_size.x, cell_size.y, color);
+            fill_alpha_rect_in_buffer(
+                buffer,
+                stride,
+                origin_x,
+                origin_y,
+                cell_size.x,
+                cell_size.y,
+                color,
+            );
         }
         TerminalCursorShape::Underline => {
             let height = (cell_size.y / 8).max(1);
-            fill_alpha_rect(
-                image,
+            fill_alpha_rect_in_buffer(
+                buffer,
+                stride,
                 origin_x,
                 origin_y + cell_size.y.saturating_sub(height),
                 cell_size.x,
@@ -2083,8 +2425,9 @@ fn draw_cursor(image: &mut Image, cursor: &TerminalCursor, cell_size: UVec2) {
         }
         TerminalCursorShape::Beam => {
             let width = (cell_size.x / 10).max(1);
-            fill_alpha_rect(
-                image,
+            fill_alpha_rect_in_buffer(
+                buffer,
+                stride,
                 origin_x,
                 origin_y,
                 width,
@@ -2095,19 +2438,27 @@ fn draw_cursor(image: &mut Image, cursor: &TerminalCursor, cell_size: UVec2) {
     }
 }
 
-fn fill_alpha_rect(image: &mut Image, x: u32, y: u32, width: u32, height: u32, color: [u8; 4]) {
-    for row in y..y.saturating_add(height) {
-        for col in x..x.saturating_add(width) {
-            blend_image_pixel(image, col, row, color);
+fn fill_alpha_rect_in_buffer(
+    buffer: &mut [u8],
+    stride: usize,
+    x: u32,
+    y: u32,
+    width: u32,
+    height: u32,
+    color: [u8; 4],
+) {
+    let max_height = buffer.len() / stride;
+    for row in y as usize..(y as usize).saturating_add(height as usize).min(max_height) {
+        let row_slice = &mut buffer[row * stride..(row + 1) * stride];
+        let start = x as usize * 4;
+        let end = ((x + width) as usize * 4).min(row_slice.len());
+        if start >= end {
+            continue;
+        }
+        for dst in row_slice[start..end].chunks_exact_mut(4) {
+            blend_rgba_in_place(dst, color);
         }
     }
-}
-
-fn blend_image_pixel(image: &mut Image, x: u32, y: u32, source: [u8; 4]) {
-    let Some(pixel) = image.pixel_bytes_mut(UVec3::new(x, y, 0)) else {
-        return;
-    };
-    blend_rgba_in_place(pixel, source);
 }
 
 fn blend_over_pixel(buffer: &mut [u8], width: u32, x: u32, y: u32, source: [u8; 4]) {
@@ -2361,6 +2712,48 @@ pub(crate) fn sync_terminal_hud_surface(
     transform.scale = Vec3::ONE;
 }
 
+pub(crate) fn flush_terminal_gpu_uploads(
+    upload_queue: Res<TerminalGpuUploadQueue>,
+    gpu_images: Res<RenderAssets<GpuImage>>,
+    render_queue: Res<RenderQueue>,
+) {
+    let Ok(mut pending) = upload_queue.0.lock() else {
+        return;
+    };
+    let mut index = 0;
+    while index < pending.len() {
+        let upload = &pending[index];
+        let Some(gpu_image) = gpu_images.get(&upload.image) else {
+            index += 1;
+            continue;
+        };
+        render_queue.write_texture(
+            TexelCopyTextureInfo {
+                texture: &gpu_image.texture,
+                mip_level: 0,
+                origin: Origin3d {
+                    x: 0,
+                    y: upload.origin_y,
+                    z: 0,
+                },
+                aspect: TextureAspect::All,
+            },
+            &upload.data,
+            TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(upload.bytes_per_row),
+                rows_per_image: None,
+            },
+            Extent3d {
+                width: upload.width,
+                height: upload.height,
+                depth_or_array_layers: 1,
+            },
+        );
+        pending.remove(index);
+    }
+}
+
 #[allow(
     clippy::too_many_arguments,
     reason = "legacy per-cell renderer kept temporarily while texture renderer stabilizes"
@@ -2484,7 +2877,7 @@ pub(crate) fn sync_terminal_plane(
             continue;
         }
 
-        if cell.width == 0 || cell.text.is_empty() {
+        if cell.width == 0 || cell.content.is_empty() {
             *visibility = Visibility::Hidden;
             continue;
         }
@@ -2492,10 +2885,10 @@ pub(crate) fn sync_terminal_plane(
         if let Some(projected) = project_cell(index.x, index.y, cell.width, &layout, &plane_state) {
             *visibility = Visibility::Visible;
             if cell_changed {
-                *text = Text2d::new(cell.text.clone());
+                *text = Text2d::new(cell.content.to_owned_string());
             }
             font.font_size = projected.vertical.length().max(1.0) * 0.9;
-            if let Some(handle) = select_font_handle(&cell.text, &font_state) {
+            if let Some(handle) = select_font_handle(&cell.content, &font_state) {
                 font.font = handle;
             }
             color.0 = color32_to_bevy(cell.fg);
@@ -2629,7 +3022,7 @@ fn glyph_changed(
         return true;
     };
     let previous = previous_surface.cell(x, y);
-    previous.text != cell.text || previous.fg != cell.fg || previous.width != cell.width
+    previous.content != cell.content || previous.fg != cell.fg || previous.width != cell.width
 }
 
 fn project_cell(
@@ -2735,14 +3128,17 @@ fn apply_projected_cursor(
     transform.scale = Vec3::ONE;
 }
 
-fn select_font_handle(text: &str, font_state: &TerminalFontState) -> Option<Handle<Font>> {
-    if text.chars().any(is_emoji_like) {
+fn select_font_handle(
+    content: &TerminalCellContent,
+    font_state: &TerminalFontState,
+) -> Option<Handle<Font>> {
+    if content.any_char(is_emoji_like) {
         if let Some(handle) = &font_state.emoji_font {
             return Some(handle.clone());
         }
     }
 
-    if text.chars().any(is_private_use_like) {
+    if content.any_char(is_private_use_like) {
         if let Some(handle) = &font_state.private_use_font {
             return Some(handle.clone());
         }
@@ -2812,15 +3208,59 @@ fn write_input(writer: &mut dyn Write, bytes: &[u8]) -> std::io::Result<()> {
     writer.flush()
 }
 
+pub(crate) fn drain_terminal_updates(
+    receiver: &Receiver<TerminalUpdate>,
+) -> DrainedTerminalUpdates {
+    let mut latest_frame = None;
+    let mut latest_status = None;
+    let mut dropped_frames = 0u64;
+    while let Ok(update) = receiver.try_recv() {
+        match update {
+            TerminalUpdate::Frame(frame) => {
+                if latest_frame.is_some() {
+                    dropped_frames += 1;
+                }
+                latest_frame = Some(frame);
+            }
+            TerminalUpdate::Status { status, surface } => {
+                latest_status = Some((status, surface));
+            }
+        }
+    }
+    (latest_frame, latest_status, dropped_frames)
+}
+
 pub(crate) fn poll_terminal_snapshots(mut terminal_manager: ResMut<TerminalManager>) {
     for terminal in terminal_manager.terminals.values_mut() {
-        let receiver = match terminal.bridge.snapshot_rx.lock() {
+        let receiver = match terminal.bridge.update_rx.lock() {
             Ok(receiver) => receiver,
             Err(poisoned) => poisoned.into_inner(),
         };
 
-        while let Ok(snapshot) = receiver.try_recv() {
-            terminal.latest = snapshot;
+        let (latest_frame, latest_status, dropped_frames) = drain_terminal_updates(&receiver);
+        if dropped_frames > 0 {
+            with_debug_stats(&terminal.bridge.debug_stats, |stats| {
+                stats.updates_dropped += dropped_frames;
+            });
+        }
+
+        if let Some((status, surface)) = latest_status {
+            terminal.latest.status = status;
+            if let Some(surface) = surface {
+                terminal.latest.surface = Some(surface);
+                terminal.latest_damage = TerminalDamage::Full;
+            }
+            terminal.bridge.note_snapshot_applied();
+        }
+
+        if let Some(frame) = latest_frame {
+            terminal.latest.status = frame.status;
+            terminal.latest.surface = Some(frame.surface);
+            terminal.latest_damage = if dropped_frames > 0 {
+                TerminalDamage::Full
+            } else {
+                frame.damage
+            };
             terminal.bridge.note_snapshot_applied();
         }
     }

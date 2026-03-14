@@ -294,13 +294,16 @@ pub(crate) fn ui_overlay(
             ));
             ui.separator();
             ui.label(format!(
-                "keys {} · queued {} · wr {} · rd {} · sent {} · applied {}",
+                "keys {} · queued {} · wr {} · rd {} · sent {} · applied {} · drop {} · rows {} · compose {}us",
                 debug.key_events_seen,
                 debug.commands_queued,
                 debug.pty_bytes_written,
                 debug.pty_bytes_read,
                 debug.snapshots_sent,
                 debug.snapshots_applied,
+                debug.updates_dropped,
+                debug.dirty_rows_uploaded,
+                debug.compose_micros,
             ));
             ui.separator();
             if !debug.last_key.is_empty() {
