@@ -25,8 +25,7 @@ use bevy::{
         texture::GpuImage,
         Render, RenderApp, RenderPlugin,
     },
-    sprite::Anchor,
-    text::{Font, TextBounds, TextColor, TextFont},
+    text::{Font, TextFont},
     window::PrimaryWindow,
     winit::{EventLoopProxy, EventLoopProxyWrapper, WinitSettings, WinitUserEvent},
 };
@@ -43,7 +42,7 @@ use cosmic_text::{
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 use std::{
     any::Any,
-    collections::{BTreeSet, HashMap},
+    collections::{BTreeSet, HashMap, VecDeque},
     env,
     ffi::OsString,
     fs,
@@ -71,27 +70,7 @@ use terminals::*;
 const DEFAULT_COLS: u16 = 120;
 const DEFAULT_ROWS: u16 = 38;
 const DEFAULT_BG: egui::Color32 = egui::Color32::from_rgb(10, 10, 10);
-#[allow(
-    dead_code,
-    reason = "legacy per-cell terminal renderer kept temporarily"
-)]
-const BASE_CELL_ASPECT: f32 = 0.6;
 const TERMINAL_MARGIN: f32 = 48.0;
-#[allow(
-    dead_code,
-    reason = "legacy per-cell terminal renderer kept temporarily"
-)]
-const CURSOR_Z: f32 = 2.0;
-#[allow(
-    dead_code,
-    reason = "legacy per-cell terminal renderer kept temporarily"
-)]
-const TEXT_Z: f32 = 1.0;
-#[allow(
-    dead_code,
-    reason = "legacy per-cell terminal renderer kept temporarily"
-)]
-const BG_Z: f32 = 0.0;
 const DEFAULT_CELL_HEIGHT_PX: u32 = 24;
 const DEFAULT_CELL_WIDTH_PX: u32 = 14;
 const GPU_NOT_FOUND_PANIC_FRAGMENT: &str = "Unable to find a GPU!";
@@ -229,8 +208,10 @@ mod tests {
     fn pixel_perfect_terminal_logical_size_uses_scale_factor() {
         let mut window = Window::default();
         window.resolution.set_scale_factor_override(Some(2.0));
-        let mut texture_state = TerminalTextureState::default();
-        texture_state.texture_size = UVec2::new(200, 120);
+        let texture_state = TerminalTextureState {
+            texture_size: UVec2::new(200, 120),
+            ..Default::default()
+        };
         assert_eq!(
             pixel_perfect_terminal_logical_size(&texture_state, &window),
             Vec2::new(100.0, 60.0)
@@ -264,14 +245,12 @@ mod tests {
             surface: surface_with_text(2, 2, 0, "a"),
             damage: TerminalDamage::Rows(vec![0]),
             status: "one".into(),
-            seq: 1,
         }))
         .unwrap();
         tx.send(TerminalUpdate::Frame(TerminalFrameUpdate {
             surface: surface_with_text(2, 2, 1, "b"),
             damage: TerminalDamage::Rows(vec![1]),
             status: "two".into(),
-            seq: 2,
         }))
         .unwrap();
         tx.send(TerminalUpdate::Status {
@@ -282,7 +261,7 @@ mod tests {
 
         let (frame, status, dropped) = drain_terminal_updates(&rx);
         assert_eq!(dropped, 1);
-        assert_eq!(frame.unwrap().seq, 2);
+        assert_eq!(frame.unwrap().status, "two");
         assert_eq!(status.unwrap().0, "done");
     }
 
@@ -297,10 +276,33 @@ mod tests {
             &pixels,
             &[0, 1, 3],
         );
-        let uploads = queue.0.lock().unwrap();
+        let uploads = queue.snapshot();
         assert_eq!(uploads.len(), 2);
         assert_eq!((uploads[0].origin_y, uploads[0].height), (0, 2));
         assert_eq!((uploads[1].origin_y, uploads[1].height), (3, 1));
+    }
+
+    #[test]
+    fn queue_terminal_uploads_replaces_stale_pending_uploads_for_same_image() {
+        let queue = TerminalGpuUploadQueue::default();
+        let pixels = vec![7u8; 4 * 4 * 4];
+        let image = Handle::default();
+
+        queue_terminal_uploads(&queue, &image, UVec2::new(4, 4), &pixels, &[0, 1]);
+        queue_terminal_uploads(&queue, &image, UVec2::new(4, 4), &pixels, &[3]);
+
+        let uploads = queue.snapshot();
+        assert_eq!(
+            uploads,
+            vec![super::TerminalTextureUpload {
+                image,
+                origin_y: 3,
+                width: 4,
+                height: 1,
+                bytes_per_row: 16,
+                data: pixels[3 * 16..4 * 16].to_vec(),
+            }]
+        );
     }
 
     #[test]
