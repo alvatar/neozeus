@@ -72,15 +72,10 @@ pub(crate) struct TerminalTextureUpload {
 pub(crate) struct TerminalGpuUploadQueue(Arc<Mutex<VecDeque<TerminalTextureUpload>>>);
 
 impl TerminalGpuUploadQueue {
-    pub(crate) fn replace_pending_for_image(
-        &self,
-        image: &Handle<Image>,
-        uploads: impl IntoIterator<Item = TerminalTextureUpload>,
-    ) {
+    pub(crate) fn push_uploads(&self, uploads: impl IntoIterator<Item = TerminalTextureUpload>) {
         let Ok(mut pending) = self.0.lock() else {
             return;
         };
-        pending.retain(|upload| upload.image != *image);
         pending.extend(uploads);
     }
 

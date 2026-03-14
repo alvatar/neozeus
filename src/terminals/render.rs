@@ -241,7 +241,7 @@ pub(crate) fn queue_terminal_uploads(
         index = end_index;
     }
 
-    upload_queue.replace_pending_for_image(image, uploads);
+    upload_queue.push_uploads(uploads);
 }
 
 #[allow(

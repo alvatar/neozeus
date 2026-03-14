@@ -80,6 +80,7 @@ fn configure_app(app: &mut App) {
                 drag_terminal_plane,
                 zoom_terminal_plane,
                 sync_terminal_plane_transform,
+                sync_terminal_panel_frames,
                 sync_terminal_hud_surface,
                 sync_eva_vector_demo,
                 forward_keyboard_input,
