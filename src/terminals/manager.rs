@@ -46,6 +46,11 @@ pub(crate) struct TerminalPanel {
     pub(crate) id: TerminalId,
 }
 
+#[derive(Component, Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(crate) struct TerminalPanelFrame {
+    pub(crate) id: TerminalId,
+}
+
 #[derive(Component, Clone, Copy, Debug)]
 pub(crate) struct TerminalPresentation {
     pub(crate) home_position: Vec2,
@@ -149,6 +154,19 @@ impl TerminalManager {
         };
 
         let image_handle = images.add(create_terminal_image(UVec2::ONE));
+        commands.spawn((
+            Sprite {
+                color: Color::srgba(0.08, 0.08, 0.09, 0.94),
+                custom_size: Some(Vec2::ONE),
+                ..default()
+            },
+            Transform::from_xyz(
+                home_position.x,
+                home_position.y,
+                presentation.current_z - 0.01,
+            ),
+            TerminalPanelFrame { id },
+        ));
         commands.spawn((
             Sprite::from_image(image_handle.clone()),
             Transform::from_xyz(home_position.x, home_position.y, presentation.current_z),

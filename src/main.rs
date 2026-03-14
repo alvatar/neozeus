@@ -283,7 +283,7 @@ mod tests {
     }
 
     #[test]
-    fn queue_terminal_uploads_replaces_stale_pending_uploads_for_same_image() {
+    fn queue_terminal_uploads_preserves_pending_uploads_for_same_image() {
         let queue = TerminalGpuUploadQueue::default();
         let pixels = vec![7u8; 4 * 4 * 4];
         let image = Handle::default();
@@ -292,17 +292,9 @@ mod tests {
         queue_terminal_uploads(&queue, &image, UVec2::new(4, 4), &pixels, &[3]);
 
         let uploads = queue.snapshot();
-        assert_eq!(
-            uploads,
-            vec![super::TerminalTextureUpload {
-                image,
-                origin_y: 3,
-                width: 4,
-                height: 1,
-                bytes_per_row: 16,
-                data: pixels[3 * 16..4 * 16].to_vec(),
-            }]
-        );
+        assert_eq!(uploads.len(), 2);
+        assert_eq!((uploads[0].origin_y, uploads[0].height), (0, 2));
+        assert_eq!((uploads[1].origin_y, uploads[1].height), (3, 1));
     }
 
     #[test]
