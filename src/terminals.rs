@@ -83,6 +83,19 @@ pub(crate) struct TerminalPanel {
     pub(crate) id: TerminalId,
 }
 
+#[derive(Component, Clone, Copy, Debug)]
+pub(crate) struct TerminalPresentation {
+    home_position: Vec2,
+    current_position: Vec2,
+    target_position: Vec2,
+    current_scale: f32,
+    target_scale: f32,
+    current_alpha: f32,
+    target_alpha: f32,
+    current_z: f32,
+    target_z: f32,
+}
+
 struct ManagedTerminal {
     bridge: TerminalBridge,
     latest: TerminalSnapshot,
@@ -105,6 +118,15 @@ pub(crate) struct TerminalBridge {
     input_tx: Sender<TerminalCommand>,
     snapshot_rx: Mutex<Receiver<TerminalSnapshot>>,
     debug_stats: Arc<Mutex<TerminalDebugStats>>,
+}
+
+fn terminal_home_position(slot: usize) -> Vec2 {
+    const COLUMNS: usize = 3;
+    const STEP_X: f32 = 360.0;
+    const STEP_Y: f32 = 220.0;
+    let column = slot % COLUMNS;
+    let row = slot / COLUMNS;
+    Vec2::new(-360.0 + column as f32 * STEP_X, 120.0 - row as f32 * STEP_Y)
 }
 
 impl TerminalManager {
@@ -136,16 +158,31 @@ impl TerminalManager {
             return Err("terminal helper entities not initialized".into());
         };
 
+        let slot = self.terminals.len();
         let id = TerminalId(self.next_id);
         self.next_id += 1;
+
+        let home_position = terminal_home_position(slot);
+        let presentation = TerminalPresentation {
+            home_position,
+            current_position: home_position,
+            target_position: home_position,
+            current_scale: 0.62,
+            target_scale: 0.62,
+            current_alpha: 0.82,
+            target_alpha: 0.82,
+            current_z: -0.05,
+            target_z: -0.05,
+        };
 
         let image_handle = images.add(create_terminal_image(UVec2::ONE));
         let sprite_entity = commands
             .spawn((
                 Sprite::from_image(image_handle.clone()),
-                Transform::default(),
+                Transform::from_xyz(home_position.x, home_position.y, presentation.current_z),
                 TerminalPlaneMarker,
                 TerminalPanel { id },
+                presentation,
             ))
             .id();
 
@@ -2028,20 +2065,28 @@ pub(crate) fn terminal_texture_screen_size(
 }
 
 pub(crate) fn sync_terminal_plane_transform(
+    time: Res<Time>,
     terminal_manager: Res<TerminalManager>,
     plane_state: Res<TerminalPlaneState>,
     primary_window: Single<&Window, With<PrimaryWindow>>,
-    mut panels: Query<(&TerminalPanel, &mut Transform, &mut Sprite, &mut Visibility)>,
+    mut panels: Query<(
+        &TerminalPanel,
+        &mut TerminalPresentation,
+        &mut Transform,
+        &mut Sprite,
+        &mut Visibility,
+    )>,
 ) {
     let active_id = terminal_manager.active_id;
-    let preview_ids = terminal_manager
+    let background_ids = terminal_manager
         .order
         .iter()
         .copied()
         .filter(|id| Some(*id) != active_id)
         .collect::<Vec<_>>();
+    let blend = 1.0 - (-time.delta_secs() * 10.0).exp();
 
-    for (panel, mut transform, mut sprite, mut visibility) in &mut panels {
+    for (panel, mut presentation, mut transform, mut sprite, mut visibility) in &mut panels {
         let Some(terminal) = terminal_manager.terminals.get(&panel.id) else {
             *visibility = Visibility::Hidden;
             continue;
@@ -2051,31 +2096,40 @@ pub(crate) fn sync_terminal_plane_transform(
             continue;
         }
 
-        let mut size =
+        let base_size =
             terminal_texture_screen_size(&terminal.texture_state, &plane_state, &primary_window);
-        transform.rotation = Quat::IDENTITY;
-        transform.scale = Vec3::ONE;
+        let background_rank = background_ids
+            .iter()
+            .position(|id| *id == panel.id)
+            .unwrap_or_default() as f32;
 
         if Some(panel.id) == active_id {
-            *visibility = Visibility::Visible;
-            sprite.custom_size = Some(size);
-            sprite.color = Color::WHITE;
-            transform.translation = plane_state.offset.extend(0.0);
+            presentation.target_position = plane_state.offset;
+            presentation.target_scale = 1.0;
+            presentation.target_alpha = 1.0;
+            presentation.target_z = 0.3;
         } else {
-            *visibility = Visibility::Visible;
-            size *= 0.26;
-            let preview_rank = preview_ids
-                .iter()
-                .position(|id| *id == panel.id)
-                .unwrap_or_default();
-            let step_y = size.y + 20.0;
-            let x = primary_window.width() * 0.5 - size.x * 0.5 - 28.0;
-            let y =
-                primary_window.height() * 0.5 - size.y * 0.5 - 140.0 - preview_rank as f32 * step_y;
-            sprite.custom_size = Some(size);
-            sprite.color = Color::srgba(1.0, 1.0, 1.0, 0.72);
-            transform.translation = Vec3::new(x, y, -0.1 - preview_rank as f32 * 0.01);
+            presentation.target_position = plane_state.offset + presentation.home_position;
+            presentation.target_scale = 0.62;
+            presentation.target_alpha = 0.84;
+            presentation.target_z = -0.05 - background_rank * 0.02;
         }
+
+        presentation.current_position = presentation
+            .current_position
+            .lerp(presentation.target_position, blend);
+        presentation.current_scale +=
+            (presentation.target_scale - presentation.current_scale) * blend;
+        presentation.current_alpha +=
+            (presentation.target_alpha - presentation.current_alpha) * blend;
+        presentation.current_z += (presentation.target_z - presentation.current_z) * blend;
+
+        *visibility = Visibility::Visible;
+        sprite.custom_size = Some(base_size * presentation.current_scale);
+        sprite.color = Color::srgba(1.0, 1.0, 1.0, presentation.current_alpha);
+        transform.translation = presentation.current_position.extend(presentation.current_z);
+        transform.rotation = Quat::IDENTITY;
+        transform.scale = Vec3::ONE;
     }
 }
 
