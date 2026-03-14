@@ -55,7 +55,6 @@ pub(crate) struct TerminalTextureState {
     pub(crate) helper_entities: Option<TerminalFontEntities>,
     pub(crate) texture_size: UVec2,
     pub(crate) cell_size: UVec2,
-    pub(crate) cpu_pixels: Vec<u8>,
 }
 
 #[derive(Resource, Default)]
@@ -325,5 +324,5 @@ pub(crate) struct TerminalFontReport {
 }
 
 pub(crate) const PTY_OUTPUT_WAIT_TIMEOUT: Duration = Duration::from_millis(16);
-pub(crate) const PTY_OUTPUT_BATCH_WINDOW: Duration = Duration::from_millis(4);
-pub(crate) const PTY_OUTPUT_BATCH_BYTES: usize = 128 * 1024;
+pub(crate) const PTY_OUTPUT_BATCH_WINDOW: Duration = Duration::from_millis(16);
+pub(crate) const PTY_OUTPUT_BATCH_BYTES: usize = 512 * 1024;
