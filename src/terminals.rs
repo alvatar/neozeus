@@ -88,8 +88,8 @@ pub(crate) struct TerminalPresentation {
     home_position: Vec2,
     current_position: Vec2,
     target_position: Vec2,
-    current_scale: f32,
-    target_scale: f32,
+    current_size: Vec2,
+    target_size: Vec2,
     current_alpha: f32,
     target_alpha: f32,
     current_z: f32,
@@ -175,8 +175,8 @@ impl TerminalManager {
             home_position,
             current_position: home_position,
             target_position: home_position,
-            current_scale: 0.62,
-            target_scale: 0.62,
+            current_size: Vec2::ONE,
+            target_size: Vec2::ONE,
             current_alpha: 0.82,
             target_alpha: 0.82,
             current_z: -0.05,
@@ -1656,7 +1656,6 @@ pub(crate) fn sync_terminal_font_helpers(
 pub(crate) fn sync_terminal_texture(
     mut terminal_manager: ResMut<TerminalManager>,
     font_state: Res<TerminalFontState>,
-    plane_state: Res<TerminalPlaneState>,
     primary_window: Single<&Window, With<PrimaryWindow>>,
     mut glyph_cache: ResMut<TerminalGlyphCache>,
     mut images: ResMut<Assets<Image>>,
@@ -1691,7 +1690,7 @@ pub(crate) fn sync_terminal_texture(
         let pixel_perfect = Some(*terminal_id) == active_id
             && terminal.display_mode == TerminalDisplayMode::PixelPerfect;
         let desired_cell_size = if pixel_perfect {
-            pixel_perfect_cell_size(surface.cols, surface.rows, &plane_state, &primary_window)
+            pixel_perfect_cell_size(surface.cols, surface.rows, &primary_window)
         } else {
             UVec2::new(DEFAULT_CELL_WIDTH_PX, DEFAULT_CELL_HEIGHT_PX)
         };
@@ -2092,19 +2091,17 @@ pub(crate) fn blend_rgba_in_place(dst: &mut [u8], source: [u8; 4]) {
     dst[3] = (out_alpha * 255.0).round() as u8;
 }
 
-pub(crate) fn pixel_perfect_cell_size(
-    cols: usize,
-    rows: usize,
-    plane_state: &TerminalPlaneState,
-    window: &Window,
-) -> UVec2 {
+const HUD_TOP_RESERVED: f32 = 120.0;
+const HUD_BOTTOM_RESERVED: f32 = TERMINAL_MARGIN;
+
+pub(crate) fn pixel_perfect_cell_size(cols: usize, rows: usize, window: &Window) -> UVec2 {
     let base_texture_width = (cols as u32).max(1) as f32 * DEFAULT_CELL_WIDTH_PX as f32;
     let base_texture_height = (rows as u32).max(1) as f32 * DEFAULT_CELL_HEIGHT_PX as f32;
     let fit_width = (window.width() - TERMINAL_MARGIN * 2.0).max(64.0);
-    let fit_height = (window.height() - TERMINAL_MARGIN * 2.0).max(64.0);
-    let fit_scale = (fit_width / base_texture_width).min(fit_height / base_texture_height);
-    let zoom_scale = 10.0 / plane_state.distance.max(0.1);
-    let raster_scale = (fit_scale * zoom_scale).max(1.0 / DEFAULT_CELL_HEIGHT_PX as f32);
+    let fit_height = (window.height() - HUD_TOP_RESERVED - HUD_BOTTOM_RESERVED).max(64.0);
+    let raster_scale = (fit_width / base_texture_width)
+        .min(fit_height / base_texture_height)
+        .max(1.0 / DEFAULT_CELL_HEIGHT_PX as f32);
 
     UVec2::new(
         (DEFAULT_CELL_WIDTH_PX as f32 * raster_scale)
@@ -2124,6 +2121,26 @@ pub(crate) fn snap_to_pixel_grid(position: Vec2, window: &Window) -> Vec2 {
     (position * scale_factor).round() / scale_factor
 }
 
+fn smooth_terminal_screen_size(
+    texture_state: &TerminalTextureState,
+    plane_state: &TerminalPlaneState,
+    window: &Window,
+) -> Vec2 {
+    let texture_width = texture_state.texture_size.x.max(1) as f32;
+    let texture_height = texture_state.texture_size.y.max(1) as f32;
+    let fit_width = (window.width() - TERMINAL_MARGIN * 2.0).max(64.0);
+    let fit_height = (window.height() - TERMINAL_MARGIN * 2.0).max(64.0);
+    let fit_scale = (fit_width / texture_width).min(fit_height / texture_height);
+    let zoom_scale = 10.0 / plane_state.distance.max(0.1);
+    Vec2::new(texture_width, texture_height) * fit_scale * zoom_scale
+}
+
+fn hud_terminal_target_position(window: &Window) -> Vec2 {
+    let top = window.height() * 0.5 - HUD_TOP_RESERVED;
+    let bottom = -window.height() * 0.5 + HUD_BOTTOM_RESERVED;
+    snap_to_pixel_grid(Vec2::new(0.0, (top + bottom) * 0.5), window)
+}
+
 pub(crate) fn terminal_texture_screen_size(
     texture_state: &TerminalTextureState,
     plane_state: &TerminalPlaneState,
@@ -2137,13 +2154,7 @@ pub(crate) fn terminal_texture_screen_size(
         );
     }
 
-    let texture_width = texture_state.texture_size.x.max(1) as f32;
-    let texture_height = texture_state.texture_size.y.max(1) as f32;
-    let fit_width = (window.width() - TERMINAL_MARGIN * 2.0).max(64.0);
-    let fit_height = (window.height() - TERMINAL_MARGIN * 2.0).max(64.0);
-    let fit_scale = (fit_width / texture_width).min(fit_height / texture_height);
-    let zoom_scale = 10.0 / plane_state.distance.max(0.1);
-    Vec2::new(texture_width, texture_height) * fit_scale * zoom_scale
+    smooth_terminal_screen_size(texture_state, plane_state, window)
 }
 
 pub(crate) fn sync_terminal_plane_transform(
@@ -2178,50 +2189,62 @@ pub(crate) fn sync_terminal_plane_transform(
             continue;
         }
 
+        let smooth_size =
+            smooth_terminal_screen_size(&terminal.texture_state, &plane_state, &primary_window);
+        let hud_size = Vec2::new(
+            terminal.texture_state.texture_size.x.max(1) as f32,
+            terminal.texture_state.texture_size.y.max(1) as f32,
+        );
         let pixel_perfect = Some(panel.id) == active_id
             && terminal.display_mode == TerminalDisplayMode::PixelPerfect;
-        let base_size = terminal_texture_screen_size(
-            &terminal.texture_state,
-            &plane_state,
-            &primary_window,
-            pixel_perfect,
-        );
         let background_rank = background_ids
             .iter()
             .position(|id| *id == panel.id)
             .unwrap_or_default() as f32;
 
         if Some(panel.id) == active_id {
-            presentation.target_position = plane_state.offset;
-            presentation.target_scale = 1.0;
             presentation.target_alpha = 1.0;
-            presentation.target_z = 0.3;
+            if pixel_perfect {
+                presentation.target_position = hud_terminal_target_position(&primary_window);
+                presentation.target_size = hud_size;
+                presentation.target_z = 3.0;
+            } else {
+                presentation.target_position = plane_state.offset;
+                presentation.target_size = smooth_size;
+                presentation.target_z = 0.3;
+            }
         } else {
             presentation.target_position = plane_state.offset + presentation.home_position;
-            presentation.target_scale = 0.62;
+            presentation.target_size = smooth_size * 0.62;
             presentation.target_alpha = 0.84;
             presentation.target_z = -0.05 - background_rank * 0.02;
         }
 
+        presentation.current_position = presentation
+            .current_position
+            .lerp(presentation.target_position, blend);
+        presentation.current_size = presentation
+            .current_size
+            .lerp(presentation.target_size, blend);
+        presentation.current_alpha +=
+            (presentation.target_alpha - presentation.current_alpha) * blend;
+        presentation.current_z += (presentation.target_z - presentation.current_z) * blend;
+
         if pixel_perfect {
-            presentation.current_position =
-                snap_to_pixel_grid(presentation.target_position, &primary_window);
-            presentation.current_scale = 1.0;
-            presentation.current_alpha = presentation.target_alpha;
-            presentation.current_z += (presentation.target_z - presentation.current_z) * blend;
-        } else {
-            presentation.current_position = presentation
+            if presentation
                 .current_position
-                .lerp(presentation.target_position, blend);
-            presentation.current_scale +=
-                (presentation.target_scale - presentation.current_scale) * blend;
-            presentation.current_alpha +=
-                (presentation.target_alpha - presentation.current_alpha) * blend;
-            presentation.current_z += (presentation.target_z - presentation.current_z) * blend;
+                .distance(presentation.target_position)
+                < 0.75
+            {
+                presentation.current_position = presentation.target_position;
+            }
+            if presentation.current_size.distance(presentation.target_size) < 0.75 {
+                presentation.current_size = presentation.target_size;
+            }
         }
 
         *visibility = Visibility::Visible;
-        sprite.custom_size = Some(base_size * presentation.current_scale);
+        sprite.custom_size = Some(presentation.current_size.max(Vec2::ONE));
         sprite.color = Color::srgba(1.0, 1.0, 1.0, presentation.current_alpha);
         transform.translation = presentation.current_position.extend(presentation.current_z);
         transform.rotation = Quat::IDENTITY;

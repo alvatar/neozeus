@@ -116,7 +116,7 @@ mod tests {
         rasterize_terminal_glyph, resolve_alacritty_color, resolve_terminal_font_report,
         snap_to_pixel_grid, xterm_indexed_rgb, CachedTerminalGlyph, KittyFontConfig,
         TerminalCommand, TerminalFontRole, TerminalFontState, TerminalGlyphCacheKey,
-        TerminalPlaneState, TerminalTextRenderer,
+        TerminalTextRenderer,
     };
     use alacritty_terminal::vte::ansi::{Color as AnsiColor, NamedColor};
     use bevy::{
@@ -194,7 +194,7 @@ mod tests {
             resolution: (1400, 900).into(),
             ..Default::default()
         };
-        let cell_size = pixel_perfect_cell_size(120, 38, &TerminalPlaneState::default(), &window);
+        let cell_size = pixel_perfect_cell_size(120, 38, &window);
         assert!(cell_size.x < crate::DEFAULT_CELL_WIDTH_PX);
         assert!(cell_size.y < crate::DEFAULT_CELL_HEIGHT_PX);
         assert!(cell_size.x >= 1);
