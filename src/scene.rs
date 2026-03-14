@@ -77,6 +77,7 @@ fn configure_app(app: &mut App) {
                 drag_terminal_plane,
                 zoom_terminal_plane,
                 sync_terminal_plane_transform,
+                sync_terminal_hud_surface,
                 sync_eva_vector_demo,
                 forward_keyboard_input,
             )
@@ -119,6 +120,17 @@ fn setup_scene(
     mut terminal_manager: ResMut<TerminalManager>,
 ) {
     commands.spawn((Camera2d, VelloView, TerminalCameraMarker));
+
+    commands.spawn((
+        Sprite {
+            color: Color::srgba(0.03, 0.03, 0.04, 0.0),
+            custom_size: Some(Vec2::ONE),
+            ..default()
+        },
+        Transform::from_xyz(0.0, 0.0, 2.9),
+        Visibility::Hidden,
+        TerminalHudSurfaceMarker,
+    ));
 
     commands.spawn((
         VelloScene2d::default(),

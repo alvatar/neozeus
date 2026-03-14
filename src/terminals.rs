@@ -550,6 +550,9 @@ pub(crate) struct TerminalPlaneMarker;
 #[derive(Component)]
 pub(crate) struct TerminalCameraMarker;
 
+#[derive(Component)]
+pub(crate) struct TerminalHudSurfaceMarker;
+
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum TerminalFontRole {
     Primary,
@@ -768,6 +771,22 @@ struct ProjectedBasis {
     vertical: Vec2,
 }
 
+const PTY_OUTPUT_WAIT_TIMEOUT: Duration = Duration::from_millis(16);
+const PTY_OUTPUT_BATCH_WINDOW: Duration = Duration::from_millis(4);
+const PTY_OUTPUT_BATCH_BYTES: usize = 128 * 1024;
+
+fn apply_pty_bytes(
+    parser: &mut ansi::Processor<ansi::StdSyncHandler>,
+    terminal: &mut Term<VoidListener>,
+    debug_stats: &Arc<Mutex<TerminalDebugStats>>,
+    bytes: &[u8],
+) {
+    with_debug_stats(debug_stats, |stats| {
+        stats.pty_bytes_read += bytes.len() as u64;
+    });
+    parser.advance(terminal, bytes);
+}
+
 fn terminal_worker(
     input_rx: Receiver<TerminalCommand>,
     snapshot_tx: Sender<TerminalSnapshot>,
@@ -929,14 +948,55 @@ fn terminal_worker(
 
     while running {
         let mut received_output = false;
-        match pty_output_rx.recv_timeout(Duration::from_millis(16)) {
+        let mut batched_output_bytes = 0usize;
+        match pty_output_rx.recv_timeout(PTY_OUTPUT_WAIT_TIMEOUT) {
             Ok(bytes) => {
-                append_debug_log(format!("pty read: {} bytes", bytes.len()));
-                with_debug_stats(&debug_stats, |stats| {
-                    stats.pty_bytes_read += bytes.len() as u64;
-                });
-                parser.advance(&mut terminal, &bytes);
+                batched_output_bytes += bytes.len();
+                apply_pty_bytes(&mut parser, &mut terminal, &debug_stats, &bytes);
                 received_output = true;
+
+                let batch_deadline = std::time::Instant::now() + PTY_OUTPUT_BATCH_WINDOW;
+                loop {
+                    while batched_output_bytes < PTY_OUTPUT_BATCH_BYTES {
+                        let Ok(bytes) = pty_output_rx.try_recv() else {
+                            break;
+                        };
+                        batched_output_bytes += bytes.len();
+                        apply_pty_bytes(&mut parser, &mut terminal, &debug_stats, &bytes);
+                    }
+
+                    if batched_output_bytes >= PTY_OUTPUT_BATCH_BYTES {
+                        break;
+                    }
+
+                    let Some(remaining) =
+                        batch_deadline.checked_duration_since(std::time::Instant::now())
+                    else {
+                        break;
+                    };
+                    if remaining.is_zero() {
+                        break;
+                    }
+
+                    match pty_output_rx.recv_timeout(remaining) {
+                        Ok(bytes) => {
+                            batched_output_bytes += bytes.len();
+                            apply_pty_bytes(&mut parser, &mut terminal, &debug_stats, &bytes);
+                        }
+                        Err(mpsc::RecvTimeoutError::Timeout) => break,
+                        Err(mpsc::RecvTimeoutError::Disconnected) => {
+                            send_terminal_status_snapshot(
+                                &snapshot_tx,
+                                &debug_stats,
+                                &terminal,
+                                &event_loop_proxy,
+                                "PTY reader channel disconnected",
+                            );
+                            running = false;
+                            break;
+                        }
+                    }
+                }
             }
             Err(mpsc::RecvTimeoutError::Timeout) => {}
             Err(mpsc::RecvTimeoutError::Disconnected) => {
@@ -949,15 +1009,6 @@ fn terminal_worker(
                 );
                 running = false;
             }
-        }
-
-        while let Ok(bytes) = pty_output_rx.try_recv() {
-            append_debug_log(format!("pty read: {} bytes", bytes.len()));
-            with_debug_stats(&debug_stats, |stats| {
-                stats.pty_bytes_read += bytes.len() as u64;
-            });
-            parser.advance(&mut terminal, &bytes);
-            received_output = true;
         }
 
         while let Ok(event) = input_status_rx.try_recv() {
@@ -1730,13 +1781,6 @@ pub(crate) fn sync_terminal_texture(
                 clear_terminal_image(target_image);
             }
 
-            append_debug_log(format!(
-                "texture sync: repaint rows={} cols={} size={}x{}",
-                dirty_rows.len(),
-                surface.cols,
-                texture_size.x,
-                texture_size.y
-            ));
             repaint_terminal_rows(
                 target_image,
                 surface,
@@ -2091,16 +2135,36 @@ pub(crate) fn blend_rgba_in_place(dst: &mut [u8], source: [u8; 4]) {
     dst[3] = (out_alpha * 255.0).round() as u8;
 }
 
-const HUD_TOP_RESERVED: f32 = 120.0;
-const HUD_BOTTOM_RESERVED: f32 = TERMINAL_MARGIN;
+const HUD_SIDE_RESERVED: f32 = 72.0;
+const HUD_TOP_RESERVED: f32 = 140.0;
+const HUD_BOTTOM_RESERVED: f32 = 64.0;
+const HUD_FRAME_PADDING: Vec2 = Vec2::new(18.0, 18.0);
+
+fn window_scale_factor(window: &Window) -> f32 {
+    window.scale_factor().max(f32::EPSILON)
+}
+
+fn logical_to_physical_size(size: Vec2, window: &Window) -> Vec2 {
+    size * window_scale_factor(window)
+}
+
+fn physical_to_logical_size(size: Vec2, window: &Window) -> Vec2 {
+    size / window_scale_factor(window)
+}
 
 pub(crate) fn pixel_perfect_cell_size(cols: usize, rows: usize, window: &Window) -> UVec2 {
     let base_texture_width = (cols as u32).max(1) as f32 * DEFAULT_CELL_WIDTH_PX as f32;
     let base_texture_height = (rows as u32).max(1) as f32 * DEFAULT_CELL_HEIGHT_PX as f32;
-    let fit_width = (window.width() - TERMINAL_MARGIN * 2.0).max(64.0);
-    let fit_height = (window.height() - HUD_TOP_RESERVED - HUD_BOTTOM_RESERVED).max(64.0);
-    let raster_scale = (fit_width / base_texture_width)
-        .min(fit_height / base_texture_height)
+    let fit_size_physical = logical_to_physical_size(
+        Vec2::new(
+            (window.width() - HUD_SIDE_RESERVED * 2.0 - HUD_FRAME_PADDING.x * 2.0).max(64.0),
+            (window.height() - HUD_TOP_RESERVED - HUD_BOTTOM_RESERVED - HUD_FRAME_PADDING.y * 2.0)
+                .max(64.0),
+        ),
+        window,
+    );
+    let raster_scale = (fit_size_physical.x / base_texture_width)
+        .min(fit_size_physical.y / base_texture_height)
         .max(1.0 / DEFAULT_CELL_HEIGHT_PX as f32);
 
     UVec2::new(
@@ -2114,10 +2178,7 @@ pub(crate) fn pixel_perfect_cell_size(cols: usize, rows: usize, window: &Window)
 }
 
 pub(crate) fn snap_to_pixel_grid(position: Vec2, window: &Window) -> Vec2 {
-    let scale_factor = window.scale_factor();
-    if scale_factor <= f32::EPSILON {
-        return position.round();
-    }
+    let scale_factor = window_scale_factor(window);
     (position * scale_factor).round() / scale_factor
 }
 
@@ -2138,7 +2199,24 @@ fn smooth_terminal_screen_size(
 fn hud_terminal_target_position(window: &Window) -> Vec2 {
     let top = window.height() * 0.5 - HUD_TOP_RESERVED;
     let bottom = -window.height() * 0.5 + HUD_BOTTOM_RESERVED;
-    snap_to_pixel_grid(Vec2::new(0.0, (top + bottom) * 0.5), window)
+    snap_to_pixel_grid(Vec2::new(0.0, (top + bottom) * 0.5 - 8.0), window)
+}
+
+fn hud_surface_size(terminal_size: Vec2) -> Vec2 {
+    terminal_size + HUD_FRAME_PADDING * 2.0
+}
+
+pub(crate) fn pixel_perfect_terminal_logical_size(
+    texture_state: &TerminalTextureState,
+    window: &Window,
+) -> Vec2 {
+    physical_to_logical_size(
+        Vec2::new(
+            texture_state.texture_size.x.max(1) as f32,
+            texture_state.texture_size.y.max(1) as f32,
+        ),
+        window,
+    )
 }
 
 pub(crate) fn terminal_texture_screen_size(
@@ -2148,10 +2226,7 @@ pub(crate) fn terminal_texture_screen_size(
     pixel_perfect: bool,
 ) -> Vec2 {
     if pixel_perfect {
-        return Vec2::new(
-            texture_state.texture_size.x.max(1) as f32,
-            texture_state.texture_size.y.max(1) as f32,
-        );
+        return pixel_perfect_terminal_logical_size(texture_state, window);
     }
 
     smooth_terminal_screen_size(texture_state, plane_state, window)
@@ -2191,10 +2266,8 @@ pub(crate) fn sync_terminal_plane_transform(
 
         let smooth_size =
             smooth_terminal_screen_size(&terminal.texture_state, &plane_state, &primary_window);
-        let hud_size = Vec2::new(
-            terminal.texture_state.texture_size.x.max(1) as f32,
-            terminal.texture_state.texture_size.y.max(1) as f32,
-        );
+        let hud_size =
+            pixel_perfect_terminal_logical_size(&terminal.texture_state, &primary_window);
         let pixel_perfect = Some(panel.id) == active_id
             && terminal.display_mode == TerminalDisplayMode::PixelPerfect;
         let background_rank = background_ids
@@ -2250,6 +2323,42 @@ pub(crate) fn sync_terminal_plane_transform(
         transform.rotation = Quat::IDENTITY;
         transform.scale = Vec3::ONE;
     }
+}
+
+pub(crate) fn sync_terminal_hud_surface(
+    terminal_manager: Res<TerminalManager>,
+    panels: Query<(&TerminalPanel, &TerminalPresentation)>,
+    mut hud_surface: Single<
+        (&mut Transform, &mut Sprite, &mut Visibility),
+        With<TerminalHudSurfaceMarker>,
+    >,
+) {
+    let (transform, sprite, visibility) = &mut *hud_surface;
+    let Some(active_id) = terminal_manager.active_id else {
+        **visibility = Visibility::Hidden;
+        return;
+    };
+    let Some(terminal) = terminal_manager.terminals.get(&active_id) else {
+        **visibility = Visibility::Hidden;
+        return;
+    };
+    if terminal.display_mode != TerminalDisplayMode::PixelPerfect {
+        **visibility = Visibility::Hidden;
+        return;
+    }
+    let Some((_, presentation)) = panels.iter().find(|(panel, _)| panel.id == active_id) else {
+        **visibility = Visibility::Hidden;
+        return;
+    };
+
+    **visibility = Visibility::Visible;
+    sprite.custom_size = Some(hud_surface_size(presentation.current_size));
+    sprite.color = Color::srgba(0.03, 0.03, 0.04, 0.94 * presentation.current_alpha);
+    transform.translation = presentation
+        .current_position
+        .extend(presentation.current_z - 0.1);
+    transform.rotation = Quat::IDENTITY;
+    transform.scale = Vec3::ONE;
 }
 
 #[allow(

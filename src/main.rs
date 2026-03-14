@@ -113,10 +113,10 @@ mod tests {
         blend_rgba_in_place, ctrl_sequence, find_kitty_config_path, format_startup_panic,
         initialize_terminal_text_renderer, is_emoji_like, is_private_use_like,
         keyboard_input_to_terminal_command, parse_kitty_config_file, pixel_perfect_cell_size,
-        rasterize_terminal_glyph, resolve_alacritty_color, resolve_terminal_font_report,
-        snap_to_pixel_grid, xterm_indexed_rgb, CachedTerminalGlyph, KittyFontConfig,
-        TerminalCommand, TerminalFontRole, TerminalFontState, TerminalGlyphCacheKey,
-        TerminalTextRenderer,
+        pixel_perfect_terminal_logical_size, rasterize_terminal_glyph, resolve_alacritty_color,
+        resolve_terminal_font_report, snap_to_pixel_grid, xterm_indexed_rgb, CachedTerminalGlyph,
+        KittyFontConfig, TerminalCommand, TerminalFontRole, TerminalFontState,
+        TerminalGlyphCacheKey, TerminalTextRenderer, TerminalTextureState,
     };
     use alacritty_terminal::vte::ansi::{Color as AnsiColor, NamedColor};
     use bevy::{
@@ -207,6 +207,18 @@ mod tests {
         window.resolution.set_scale_factor_override(Some(1.5));
         let snapped = snap_to_pixel_grid(Vec2::new(10.2, -3.4), &window);
         assert_eq!(snapped, Vec2::new(10.0, -10.0 / 3.0));
+    }
+
+    #[test]
+    fn pixel_perfect_terminal_logical_size_uses_scale_factor() {
+        let mut window = Window::default();
+        window.resolution.set_scale_factor_override(Some(2.0));
+        let mut texture_state = TerminalTextureState::default();
+        texture_state.texture_size = UVec2::new(200, 120);
+        assert_eq!(
+            pixel_perfect_terminal_logical_size(&texture_state, &window),
+            Vec2::new(100.0, 60.0)
+        );
     }
 
     #[test]

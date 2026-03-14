@@ -346,7 +346,7 @@ pub(crate) fn ui_overlay(
                 .unwrap_or(TerminalDisplayMode::Smooth);
             let pixel_perfect = display_mode == TerminalDisplayMode::PixelPerfect;
             if ui
-                .selectable_label(pixel_perfect, "pixel perfect")
+                .selectable_label(pixel_perfect, "pixel perfect HUD")
                 .clicked()
             {
                 terminal_manager.toggle_active_display_mode();
