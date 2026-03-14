@@ -93,11 +93,12 @@ mod tests {
         find_kitty_config_path, format_startup_panic, initialize_terminal_text_renderer,
         is_emoji_like, is_private_use_like, keyboard_input_to_terminal_command,
         parse_kitty_config_file, pixel_perfect_cell_size, pixel_perfect_terminal_logical_size,
-        rasterize_terminal_glyph, resolve_alacritty_color, resolve_terminal_font_report,
-        should_request_visual_redraw, snap_to_pixel_grid, xterm_indexed_rgb, CachedTerminalGlyph,
-        KittyFontConfig, TerminalCellContent, TerminalCommand, TerminalDamage, TerminalFontRole,
-        TerminalFontState, TerminalFrameUpdate, TerminalGlyphCacheKey, TerminalSurface,
-        TerminalTextRenderer, TerminalTextureState, TerminalUpdate,
+        rasterize_terminal_glyph, record_terminal_update, resolve_alacritty_color,
+        resolve_terminal_font_report, should_request_visual_redraw, snap_to_pixel_grid,
+        xterm_indexed_rgb, CachedTerminalGlyph, KittyFontConfig, PendingTerminalUpdates,
+        TerminalCellContent, TerminalCommand, TerminalDamage, TerminalFontRole, TerminalFontState,
+        TerminalFrameUpdate, TerminalGlyphCacheKey, TerminalSurface, TerminalTextRenderer,
+        TerminalTextureState, TerminalUpdate,
     };
     use alacritty_terminal::vte::ansi::{Color as AnsiColor, NamedColor};
     use bevy::{
@@ -111,6 +112,7 @@ mod tests {
         collections::BTreeSet,
         fs,
         path::PathBuf,
+        sync::{Arc, Mutex},
         time::{SystemTime, UNIX_EPOCH},
     };
 
@@ -234,26 +236,33 @@ mod tests {
 
     #[test]
     fn drain_terminal_updates_keeps_latest_frame_and_status() {
-        let (tx, rx) = std::sync::mpsc::channel();
-        tx.send(TerminalUpdate::Frame(TerminalFrameUpdate {
-            surface: surface_with_text(2, 2, 0, "a"),
-            damage: TerminalDamage::Rows(vec![0]),
-            status: "one".into(),
-        }))
-        .unwrap();
-        tx.send(TerminalUpdate::Frame(TerminalFrameUpdate {
-            surface: surface_with_text(2, 2, 1, "b"),
-            damage: TerminalDamage::Rows(vec![1]),
-            status: "two".into(),
-        }))
-        .unwrap();
-        tx.send(TerminalUpdate::Status {
-            status: "done".into(),
-            surface: None,
-        })
-        .unwrap();
+        let mailbox = Arc::new(Mutex::new(PendingTerminalUpdates::default()));
 
-        let (frame, status, dropped) = drain_terminal_updates(&rx);
+        assert!(record_terminal_update(
+            &mailbox,
+            TerminalUpdate::Frame(TerminalFrameUpdate {
+                surface: surface_with_text(2, 2, 0, "a"),
+                damage: TerminalDamage::Rows(vec![0]),
+                status: "one".into(),
+            }),
+        ));
+        assert!(!record_terminal_update(
+            &mailbox,
+            TerminalUpdate::Frame(TerminalFrameUpdate {
+                surface: surface_with_text(2, 2, 1, "b"),
+                damage: TerminalDamage::Rows(vec![1]),
+                status: "two".into(),
+            }),
+        ));
+        assert!(!record_terminal_update(
+            &mailbox,
+            TerminalUpdate::Status {
+                status: "done".into(),
+                surface: None,
+            },
+        ));
+
+        let (frame, status, dropped) = drain_terminal_updates(&mailbox);
         assert_eq!(dropped, 1);
         assert_eq!(frame.unwrap().status, "two");
         assert_eq!(status.unwrap().0, "done");

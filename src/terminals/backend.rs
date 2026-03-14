@@ -55,7 +55,7 @@ pub(crate) fn compute_terminal_damage(
 }
 
 fn send_terminal_frame_update(
-    update_tx: &Sender<TerminalUpdate>,
+    update_mailbox: &Arc<Mutex<PendingTerminalUpdates>>,
     debug_stats: &Arc<Mutex<TerminalDebugStats>>,
     event_loop_proxy: &EventLoopProxy<WinitUserEvent>,
     previous_surface: Option<&TerminalSurface>,
@@ -66,24 +66,21 @@ fn send_terminal_frame_update(
     if matches!(damage, TerminalDamage::Rows(ref rows) if rows.is_empty()) {
         return;
     }
-    if update_tx
-        .send(TerminalUpdate::Frame(TerminalFrameUpdate {
+    enqueue_terminal_update(
+        update_mailbox,
+        TerminalUpdate::Frame(TerminalFrameUpdate {
             surface,
             damage,
             status,
-        }))
-        .is_ok()
-    {
-        with_debug_stats(debug_stats, |stats| {
-            stats.snapshots_sent += 1;
-        });
-        let _ = event_loop_proxy.send_event(WinitUserEvent::WakeUp);
-    }
+        }),
+        debug_stats,
+        event_loop_proxy,
+    );
 }
 
 pub(crate) fn terminal_worker(
     input_rx: Receiver<TerminalCommand>,
-    update_tx: Sender<TerminalUpdate>,
+    update_mailbox: Arc<Mutex<PendingTerminalUpdates>>,
     debug_stats: Arc<Mutex<TerminalDebugStats>>,
     event_loop_proxy: EventLoopProxy<WinitUserEvent>,
 ) {
@@ -95,10 +92,15 @@ pub(crate) fn terminal_worker(
         Ok(session) => session,
         Err(error) => {
             let status = format!("failed to start PTY backend: {error}");
-            let _ = update_tx.send(TerminalUpdate::Status {
-                surface: None,
-                status: status.clone(),
-            });
+            enqueue_terminal_update(
+                &update_mailbox,
+                TerminalUpdate::Status {
+                    surface: None,
+                    status: status.clone(),
+                },
+                &debug_stats,
+                &event_loop_proxy,
+            );
             set_terminal_error(&debug_stats, status);
             return;
         }
@@ -109,10 +111,15 @@ pub(crate) fn terminal_worker(
         Ok(reader) => reader,
         Err(error) => {
             let status = format!("failed to attach PTY reader: {error}");
-            let _ = update_tx.send(TerminalUpdate::Status {
-                surface: None,
-                status: status.clone(),
-            });
+            enqueue_terminal_update(
+                &update_mailbox,
+                TerminalUpdate::Status {
+                    surface: None,
+                    status: status.clone(),
+                },
+                &debug_stats,
+                &event_loop_proxy,
+            );
             set_terminal_error(&debug_stats, status);
             let _ = child.kill();
             return;
@@ -280,7 +287,7 @@ pub(crate) fn terminal_worker(
                         Err(mpsc::RecvTimeoutError::Timeout) => break,
                         Err(mpsc::RecvTimeoutError::Disconnected) => {
                             send_terminal_status_update(
-                                &update_tx,
+                                &update_mailbox,
                                 &debug_stats,
                                 &terminal,
                                 &event_loop_proxy,
@@ -295,7 +302,7 @@ pub(crate) fn terminal_worker(
             Err(mpsc::RecvTimeoutError::Timeout) => {}
             Err(mpsc::RecvTimeoutError::Disconnected) => {
                 send_terminal_status_update(
-                    &update_tx,
+                    &update_mailbox,
                     &debug_stats,
                     &terminal,
                     &event_loop_proxy,
@@ -310,7 +317,7 @@ pub(crate) fn terminal_worker(
                 InputThreadEvent::WriteResult(Ok(())) => {}
                 InputThreadEvent::WriteResult(Err(status)) => {
                     send_terminal_status_update(
-                        &update_tx,
+                        &update_mailbox,
                         &debug_stats,
                         &terminal,
                         &event_loop_proxy,
@@ -323,7 +330,7 @@ pub(crate) fn terminal_worker(
                     terminal.scroll_display(Scroll::Delta(lines));
                     let surface = build_surface(&terminal);
                     send_terminal_frame_update(
-                        &update_tx,
+                        &update_mailbox,
                         &debug_stats,
                         &event_loop_proxy,
                         previous_surface.as_ref(),
@@ -344,7 +351,7 @@ pub(crate) fn terminal_worker(
         };
         if let Some(status) = reader_status {
             send_terminal_status_update(
-                &update_tx,
+                &update_mailbox,
                 &debug_stats,
                 &terminal,
                 &event_loop_proxy,
@@ -356,7 +363,7 @@ pub(crate) fn terminal_worker(
         match child.try_wait() {
             Ok(Some(status)) => {
                 send_terminal_status_update(
-                    &update_tx,
+                    &update_mailbox,
                     &debug_stats,
                     &terminal,
                     &event_loop_proxy,
@@ -371,7 +378,7 @@ pub(crate) fn terminal_worker(
             Ok(None) => {}
             Err(error) => {
                 send_terminal_status_update(
-                    &update_tx,
+                    &update_mailbox,
                     &debug_stats,
                     &terminal,
                     &event_loop_proxy,
@@ -384,7 +391,7 @@ pub(crate) fn terminal_worker(
         if received_output && running {
             let surface = build_surface(&terminal);
             send_terminal_frame_update(
-                &update_tx,
+                &update_mailbox,
                 &debug_stats,
                 &event_loop_proxy,
                 previous_surface.as_ref(),
