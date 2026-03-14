@@ -42,7 +42,6 @@ pub(crate) fn sync_terminal_texture(
     mut terminal_manager: ResMut<TerminalManager>,
     font_state: Res<TerminalFontState>,
     primary_window: Single<&Window, With<PrimaryWindow>>,
-    upload_queue: Res<TerminalGpuUploadQueue>,
     mut glyph_cache: ResMut<TerminalGlyphCache>,
     mut images: ResMut<Assets<Image>>,
     mut text_renderer: ResMut<TerminalTextRenderer>,
@@ -173,17 +172,9 @@ pub(crate) fn sync_terminal_texture(
                 stats.compose_micros += compose_elapsed.as_micros() as u64;
                 stats.dirty_rows_uploaded += dirty_rows.len() as u64;
             });
-            queue_terminal_uploads(
-                &upload_queue,
-                &image_handle,
-                texture_size,
-                &terminal.texture_state.cpu_pixels,
-                &dirty_rows,
-            );
+            target_image.data = Some(terminal.texture_state.cpu_pixels.clone());
             if env::var_os("NEOZEUS_DUMP_TEXTURE").is_some() {
-                target_image.data = Some(terminal.texture_state.cpu_pixels.clone());
                 let _ = dump_terminal_image_ppm(target_image, Path::new(DEBUG_TEXTURE_DUMP_PATH));
-                target_image.data = None;
             }
             terminal.texture_state.texture_size = texture_size;
             terminal.uploaded_revision = terminal.surface_revision;
@@ -203,45 +194,6 @@ fn clear_terminal_pixels(buffer: &mut [u8]) {
             DEFAULT_BG.a(),
         ]);
     }
-}
-
-pub(crate) fn queue_terminal_uploads(
-    upload_queue: &TerminalGpuUploadQueue,
-    image: &Handle<Image>,
-    texture_size: UVec2,
-    pixels: &[u8],
-    dirty_rows: &[usize],
-) {
-    if dirty_rows.is_empty() {
-        return;
-    }
-
-    let bytes_per_row = texture_size.x * 4;
-    let mut uploads = Vec::new();
-    let mut index = 0;
-    while index < dirty_rows.len() {
-        let start_row = dirty_rows[index] as u32;
-        let mut end_index = index + 1;
-        while end_index < dirty_rows.len() && dirty_rows[end_index] == dirty_rows[end_index - 1] + 1
-        {
-            end_index += 1;
-        }
-        let end_row = dirty_rows[end_index - 1] as u32;
-        let height = end_row - start_row + 1;
-        let start = start_row as usize * bytes_per_row as usize;
-        let end = (end_row as usize + 1) * bytes_per_row as usize;
-        uploads.push(TerminalTextureUpload {
-            image: image.clone(),
-            origin_y: start_row,
-            width: texture_size.x,
-            height,
-            bytes_per_row,
-            data: pixels[start..end].to_vec(),
-        });
-        index = end_index;
-    }
-
-    upload_queue.push_uploads(uploads);
 }
 
 #[allow(
@@ -597,44 +549,3 @@ pub(crate) const HUD_SIDE_RESERVED: f32 = 72.0;
 pub(crate) const HUD_TOP_RESERVED: f32 = 140.0;
 pub(crate) const HUD_BOTTOM_RESERVED: f32 = 64.0;
 pub(crate) const HUD_FRAME_PADDING: Vec2 = Vec2::new(18.0, 18.0);
-
-pub(crate) fn flush_terminal_gpu_uploads(
-    upload_queue: Res<TerminalGpuUploadQueue>,
-    gpu_images: Res<RenderAssets<GpuImage>>,
-    render_queue: Res<RenderQueue>,
-) {
-    let mut pending = upload_queue.take_pending();
-    let mut deferred = VecDeque::new();
-
-    while let Some(upload) = pending.pop_front() {
-        let Some(gpu_image) = gpu_images.get(&upload.image) else {
-            deferred.push_back(upload);
-            continue;
-        };
-        render_queue.write_texture(
-            TexelCopyTextureInfo {
-                texture: &gpu_image.texture,
-                mip_level: 0,
-                origin: Origin3d {
-                    x: 0,
-                    y: upload.origin_y,
-                    z: 0,
-                },
-                aspect: TextureAspect::All,
-            },
-            &upload.data,
-            TexelCopyBufferLayout {
-                offset: 0,
-                bytes_per_row: Some(upload.bytes_per_row),
-                rows_per_image: None,
-            },
-            Extent3d {
-                width: upload.width,
-                height: upload.height,
-                depth_or_array_layers: 1,
-            },
-        );
-    }
-
-    upload_queue.prepend_pending(deferred);
-}

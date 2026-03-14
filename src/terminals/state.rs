@@ -58,62 +58,6 @@ pub(crate) struct TerminalTextureState {
     pub(crate) cpu_pixels: Vec<u8>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct TerminalTextureUpload {
-    pub(crate) image: Handle<Image>,
-    pub(crate) origin_y: u32,
-    pub(crate) width: u32,
-    pub(crate) height: u32,
-    pub(crate) bytes_per_row: u32,
-    pub(crate) data: Vec<u8>,
-}
-
-#[derive(Resource, Clone, Default)]
-pub(crate) struct TerminalGpuUploadQueue(Arc<Mutex<VecDeque<TerminalTextureUpload>>>);
-
-impl TerminalGpuUploadQueue {
-    pub(crate) fn push_uploads(&self, uploads: impl IntoIterator<Item = TerminalTextureUpload>) {
-        let Ok(mut pending) = self.0.lock() else {
-            return;
-        };
-        pending.extend(uploads);
-    }
-
-    pub(crate) fn take_pending(&self) -> VecDeque<TerminalTextureUpload> {
-        match self.0.lock() {
-            Ok(mut pending) => std::mem::take(&mut *pending),
-            Err(poisoned) => std::mem::take(&mut *poisoned.into_inner()),
-        }
-    }
-
-    pub(crate) fn has_pending(&self) -> bool {
-        match self.0.lock() {
-            Ok(pending) => !pending.is_empty(),
-            Err(poisoned) => !poisoned.into_inner().is_empty(),
-        }
-    }
-
-    pub(crate) fn prepend_pending(&self, uploads: VecDeque<TerminalTextureUpload>) {
-        if uploads.is_empty() {
-            return;
-        }
-        let Ok(mut pending) = self.0.lock() else {
-            return;
-        };
-        let mut uploads = uploads;
-        uploads.append(&mut pending);
-        *pending = uploads;
-    }
-
-    #[cfg(test)]
-    pub(crate) fn snapshot(&self) -> Vec<TerminalTextureUpload> {
-        match self.0.lock() {
-            Ok(pending) => pending.iter().cloned().collect(),
-            Err(poisoned) => poisoned.into_inner().iter().cloned().collect(),
-        }
-    }
-}
-
 #[derive(Resource, Default)]
 pub(crate) struct TerminalGlyphCache {
     pub(crate) glyphs: HashMap<TerminalGlyphCacheKey, CachedTerminalGlyph>,
