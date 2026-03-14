@@ -91,10 +91,18 @@ pub(crate) struct TerminalManager {
     pub(crate) terminals: HashMap<TerminalId, ManagedTerminal>,
 }
 
+#[derive(Default)]
+pub(crate) struct PendingTerminalUpdates {
+    pub(crate) latest_frame: Option<TerminalFrameUpdate>,
+    pub(crate) latest_status: Option<LatestTerminalStatus>,
+    pub(crate) dropped_frames: u64,
+    pub(crate) wake_pending: bool,
+}
+
 #[derive(Resource)]
 pub(crate) struct TerminalBridge {
     pub(crate) input_tx: Sender<TerminalCommand>,
-    pub(crate) update_rx: Mutex<Receiver<TerminalUpdate>>,
+    pub(crate) update_mailbox: Arc<Mutex<PendingTerminalUpdates>>,
     pub(crate) debug_stats: Arc<Mutex<TerminalDebugStats>>,
 }
 
@@ -268,19 +276,21 @@ impl TerminalBridge {
         auto_verify: bool,
     ) -> Self {
         let (input_tx, input_rx) = mpsc::channel();
-        let (update_tx, update_rx) = mpsc::channel();
+        let update_mailbox = Arc::new(Mutex::new(PendingTerminalUpdates::default()));
         let debug_stats = Arc::new(Mutex::new(TerminalDebugStats::default()));
         let worker_debug_stats = debug_stats.clone();
         let worker_event_loop_proxy = event_loop_proxy.clone();
+        let worker_update_mailbox = update_mailbox.clone();
 
         thread::spawn(move || {
             append_debug_log("terminal worker thread spawn");
-            let panic_update_tx = update_tx.clone();
+            let panic_update_mailbox = worker_update_mailbox.clone();
+            let panic_debug_stats = worker_debug_stats.clone();
             let panic_event_loop_proxy = worker_event_loop_proxy.clone();
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 terminal_worker(
                     input_rx,
-                    update_tx,
+                    worker_update_mailbox,
                     worker_debug_stats,
                     worker_event_loop_proxy,
                 )
@@ -288,11 +298,15 @@ impl TerminalBridge {
             if let Err(payload) = result {
                 let message = panic_payload_to_string(payload);
                 append_debug_log(format!("terminal worker panic: {message}"));
-                let _ = panic_update_tx.send(TerminalUpdate::Status {
-                    surface: None,
-                    status: format!("terminal worker panicked: {message}"),
-                });
-                let _ = panic_event_loop_proxy.send_event(WinitUserEvent::WakeUp);
+                enqueue_terminal_update(
+                    &panic_update_mailbox,
+                    TerminalUpdate::Status {
+                        surface: None,
+                        status: format!("terminal worker panicked: {message}"),
+                    },
+                    &panic_debug_stats,
+                    &panic_event_loop_proxy,
+                );
             }
         });
 
@@ -302,7 +316,7 @@ impl TerminalBridge {
 
         Self {
             input_tx,
-            update_rx: Mutex::new(update_rx),
+            update_mailbox,
             debug_stats,
         }
     }
@@ -423,8 +437,50 @@ pub(crate) fn set_terminal_error(
     });
 }
 
+pub(crate) fn record_terminal_update(
+    update_mailbox: &Arc<Mutex<PendingTerminalUpdates>>,
+    update: TerminalUpdate,
+) -> bool {
+    let mut pending = match update_mailbox.lock() {
+        Ok(pending) => pending,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    match update {
+        TerminalUpdate::Frame(frame) => {
+            if pending.latest_frame.replace(frame).is_some() {
+                pending.dropped_frames += 1;
+            }
+        }
+        TerminalUpdate::Status { status, surface } => {
+            pending.latest_status = Some((status, surface));
+        }
+    }
+    if pending.wake_pending {
+        false
+    } else {
+        pending.wake_pending = true;
+        true
+    }
+}
+
+pub(crate) fn enqueue_terminal_update(
+    update_mailbox: &Arc<Mutex<PendingTerminalUpdates>>,
+    update: TerminalUpdate,
+    debug_stats: &Arc<Mutex<TerminalDebugStats>>,
+    event_loop_proxy: &EventLoopProxy<WinitUserEvent>,
+) {
+    let should_wake = record_terminal_update(update_mailbox, update);
+
+    with_debug_stats(debug_stats, |stats| {
+        stats.snapshots_sent += 1;
+    });
+    if should_wake {
+        let _ = event_loop_proxy.send_event(WinitUserEvent::WakeUp);
+    }
+}
+
 pub(crate) fn send_terminal_status_update(
-    update_tx: &Sender<TerminalUpdate>,
+    update_mailbox: &Arc<Mutex<PendingTerminalUpdates>>,
     debug_stats: &Arc<Mutex<TerminalDebugStats>>,
     terminal: &Term<VoidListener>,
     event_loop_proxy: &EventLoopProxy<WinitUserEvent>,
@@ -432,51 +488,37 @@ pub(crate) fn send_terminal_status_update(
 ) {
     let status = status.into();
     append_debug_log(format!("status snapshot: {status}"));
-    if update_tx
-        .send(TerminalUpdate::Status {
+    enqueue_terminal_update(
+        update_mailbox,
+        TerminalUpdate::Status {
             surface: Some(build_surface(terminal)),
             status: status.clone(),
-        })
-        .is_ok()
-    {
-        with_debug_stats(debug_stats, |stats| {
-            stats.snapshots_sent += 1;
-        });
-        let _ = event_loop_proxy.send_event(WinitUserEvent::WakeUp);
-    }
+        },
+        debug_stats,
+        event_loop_proxy,
+    );
     set_terminal_error(debug_stats, status);
 }
 
 pub(crate) fn drain_terminal_updates(
-    receiver: &Receiver<TerminalUpdate>,
+    update_mailbox: &Mutex<PendingTerminalUpdates>,
 ) -> DrainedTerminalUpdates {
-    let mut latest_frame = None;
-    let mut latest_status = None;
-    let mut dropped_frames = 0u64;
-    while let Ok(update) = receiver.try_recv() {
-        match update {
-            TerminalUpdate::Frame(frame) => {
-                if latest_frame.is_some() {
-                    dropped_frames += 1;
-                }
-                latest_frame = Some(frame);
-            }
-            TerminalUpdate::Status { status, surface } => {
-                latest_status = Some((status, surface));
-            }
-        }
-    }
-    (latest_frame, latest_status, dropped_frames)
+    let mut pending = match update_mailbox.lock() {
+        Ok(pending) => pending,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    pending.wake_pending = false;
+    (
+        pending.latest_frame.take(),
+        pending.latest_status.take(),
+        std::mem::take(&mut pending.dropped_frames),
+    )
 }
 
 pub(crate) fn poll_terminal_snapshots(mut terminal_manager: ResMut<TerminalManager>) {
     for terminal in terminal_manager.terminals.values_mut() {
-        let receiver = match terminal.bridge.update_rx.lock() {
-            Ok(receiver) => receiver,
-            Err(poisoned) => poisoned.into_inner(),
-        };
-
-        let (latest_frame, latest_status, dropped_frames) = drain_terminal_updates(&receiver);
+        let (latest_frame, latest_status, dropped_frames) =
+            drain_terminal_updates(&terminal.bridge.update_mailbox);
         if dropped_frames > 0 {
             with_debug_stats(&terminal.bridge.debug_stats, |stats| {
                 stats.updates_dropped += dropped_frames;
