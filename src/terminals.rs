@@ -1,8 +1,3 @@
-#![allow(
-    dead_code,
-    reason = "legacy single-plane and per-cell terminal code kept temporarily during terminal-manager transition"
-)]
-
 use crate::*;
 
 pub(crate) fn create_terminal_image(size: UVec2) -> Image {
@@ -74,7 +69,6 @@ pub(crate) struct TerminalDebugStats {
     pub(crate) updates_dropped: u64,
     pub(crate) dirty_rows_uploaded: u64,
     pub(crate) compose_micros: u64,
-    pub(crate) upload_micros: u64,
     pub(crate) last_key: String,
     pub(crate) last_command: String,
     pub(crate) last_error: String,
@@ -111,9 +105,10 @@ pub(crate) enum TerminalDisplayMode {
 struct ManagedTerminal {
     bridge: TerminalBridge,
     latest: TerminalSnapshot,
-    latest_damage: TerminalDamage,
+    pending_damage: Option<TerminalDamage>,
+    surface_revision: u64,
+    uploaded_revision: u64,
     texture_state: TerminalTextureState,
-    sprite_entity: Entity,
     display_mode: TerminalDisplayMode,
 }
 
@@ -190,15 +185,13 @@ impl TerminalManager {
         };
 
         let image_handle = images.add(create_terminal_image(UVec2::ONE));
-        let sprite_entity = commands
-            .spawn((
-                Sprite::from_image(image_handle.clone()),
-                Transform::from_xyz(home_position.x, home_position.y, presentation.current_z),
-                TerminalPlaneMarker,
-                TerminalPanel { id },
-                presentation,
-            ))
-            .id();
+        commands.spawn((
+            Sprite::from_image(image_handle.clone()),
+            Transform::from_xyz(home_position.x, home_position.y, presentation.current_z),
+            TerminalPlaneMarker,
+            TerminalPanel { id },
+            presentation,
+        ));
 
         let bridge = TerminalBridge::spawn(self.event_loop_proxy.clone(), auto_verify);
         self.terminals.insert(
@@ -206,7 +199,9 @@ impl TerminalManager {
             ManagedTerminal {
                 bridge,
                 latest: TerminalSnapshot::default(),
-                latest_damage: TerminalDamage::Full,
+                pending_damage: None,
+                surface_revision: 0,
+                uploaded_revision: 0,
                 texture_state: TerminalTextureState {
                     image: Some(image_handle),
                     helper_entities: Some(helper_entities),
@@ -218,9 +213,7 @@ impl TerminalManager {
                         DEFAULT_BG.b(),
                         DEFAULT_BG.a(),
                     ],
-                    last_surface: None,
                 },
-                sprite_entity,
                 display_mode: TerminalDisplayMode::Smooth,
             },
         );
@@ -476,11 +469,6 @@ fn send_terminal_status_update(
 }
 
 #[derive(Resource, Default)]
-pub(crate) struct TerminalView {
-    pub(crate) latest: TerminalSnapshot,
-}
-
-#[derive(Resource, Default)]
 pub(crate) struct TerminalFontState {
     pub(crate) report: Option<Result<TerminalFontReport, String>>,
     pub(crate) primary_font: Option<Handle<Font>>,
@@ -530,25 +518,15 @@ impl Default for TerminalPlaneState {
 }
 
 #[derive(Resource, Default)]
-pub(crate) struct TerminalSceneState {
-    cols: usize,
-    rows: usize,
-    initialized: bool,
-    last_surface: Option<TerminalSurface>,
-    last_layout_key: Option<PlaneLayoutKey>,
-}
-
-#[derive(Resource, Default)]
 pub(crate) struct TerminalTextureState {
     pub(crate) image: Option<Handle<Image>>,
     pub(crate) helper_entities: Option<TerminalFontEntities>,
     pub(crate) texture_size: UVec2,
     pub(crate) cell_size: UVec2,
     pub(crate) cpu_pixels: Vec<u8>,
-    last_surface: Option<TerminalSurface>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct TerminalTextureUpload {
     pub(crate) image: Handle<Image>,
     pub(crate) origin_y: u32,
@@ -559,7 +537,48 @@ pub(crate) struct TerminalTextureUpload {
 }
 
 #[derive(Resource, Clone, Default)]
-pub(crate) struct TerminalGpuUploadQueue(pub(crate) Arc<Mutex<Vec<TerminalTextureUpload>>>);
+pub(crate) struct TerminalGpuUploadQueue(Arc<Mutex<VecDeque<TerminalTextureUpload>>>);
+
+impl TerminalGpuUploadQueue {
+    fn replace_pending_for_image(
+        &self,
+        image: &Handle<Image>,
+        uploads: impl IntoIterator<Item = TerminalTextureUpload>,
+    ) {
+        let Ok(mut pending) = self.0.lock() else {
+            return;
+        };
+        pending.retain(|upload| upload.image != *image);
+        pending.extend(uploads);
+    }
+
+    fn take_pending(&self) -> VecDeque<TerminalTextureUpload> {
+        match self.0.lock() {
+            Ok(mut pending) => std::mem::take(&mut *pending),
+            Err(poisoned) => std::mem::take(&mut *poisoned.into_inner()),
+        }
+    }
+
+    fn prepend_pending(&self, uploads: VecDeque<TerminalTextureUpload>) {
+        if uploads.is_empty() {
+            return;
+        }
+        let Ok(mut pending) = self.0.lock() else {
+            return;
+        };
+        let mut uploads = uploads;
+        uploads.append(&mut pending);
+        *pending = uploads;
+    }
+
+    #[cfg(test)]
+    pub(crate) fn snapshot(&self) -> Vec<TerminalTextureUpload> {
+        match self.0.lock() {
+            Ok(pending) => pending.iter().cloned().collect(),
+            Err(poisoned) => poisoned.into_inner().iter().cloned().collect(),
+        }
+    }
+}
 
 #[derive(Resource, Default)]
 pub(crate) struct TerminalGlyphCache {
@@ -624,7 +643,6 @@ pub(crate) struct TerminalFrameUpdate {
     pub(crate) surface: TerminalSurface,
     pub(crate) damage: TerminalDamage,
     pub(crate) status: String,
-    pub(crate) seq: u64,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -791,6 +809,7 @@ impl TerminalSurface {
         self.cells[index] = cell;
     }
 
+    #[cfg(test)]
     pub(crate) fn set_text_cell(&mut self, x: usize, y: usize, text: &str) {
         let mut chars = text.chars();
         let Some(base) = chars.next() else {
@@ -825,81 +844,6 @@ pub(crate) struct TerminalFontReport {
     pub(crate) requested_family: String,
     pub(crate) primary: TerminalFontFace,
     pub(crate) fallbacks: Vec<TerminalFontFace>,
-}
-
-#[derive(Component, Clone, Copy)]
-struct TerminalCellIndex {
-    x: usize,
-    y: usize,
-}
-
-#[derive(Component)]
-struct TerminalBackgroundMarker;
-
-#[derive(Component)]
-struct TerminalGlyphMarker;
-
-#[derive(Component)]
-struct TerminalCursorMarker;
-
-type BackgroundQueryItem<'a> = (
-    Entity,
-    &'a TerminalCellIndex,
-    &'a mut Sprite,
-    &'a mut Transform,
-    &'a mut Visibility,
-);
-
-type GlyphQueryItem<'a> = (
-    Entity,
-    &'a TerminalCellIndex,
-    &'a mut Text2d,
-    &'a mut TextFont,
-    &'a mut TextColor,
-    &'a mut TextBounds,
-    &'a mut Transform,
-    &'a mut Visibility,
-);
-
-type BackgroundQueryFilter = (
-    With<TerminalBackgroundMarker>,
-    Without<TerminalGlyphMarker>,
-    Without<TerminalCursorMarker>,
-);
-
-type GlyphQueryFilter = (
-    With<TerminalGlyphMarker>,
-    Without<TerminalBackgroundMarker>,
-    Without<TerminalCursorMarker>,
-);
-
-type CursorQueryFilter = (
-    With<TerminalCursorMarker>,
-    Without<TerminalBackgroundMarker>,
-    Without<TerminalGlyphMarker>,
-);
-
-#[derive(bevy::ecs::system::SystemParam)]
-pub(crate) struct TerminalPlaneQueries<'w, 's> {
-    bg_query: Query<'w, 's, BackgroundQueryItem<'static>, BackgroundQueryFilter>,
-    glyph_query: Query<'w, 's, GlyphQueryItem<'static>, GlyphQueryFilter>,
-    cursor_query: Query<
-        'w,
-        's,
-        (
-            &'static mut Sprite,
-            &'static mut Transform,
-            &'static mut Visibility,
-        ),
-        CursorQueryFilter,
-    >,
-}
-
-#[derive(Clone, Copy)]
-struct ProjectedBasis {
-    origin: Vec2,
-    horizontal: Vec2,
-    vertical: Vec2,
 }
 
 const PTY_OUTPUT_WAIT_TIMEOUT: Duration = Duration::from_millis(16);
@@ -966,7 +910,6 @@ fn send_terminal_frame_update(
     previous_surface: Option<&TerminalSurface>,
     surface: TerminalSurface,
     status: String,
-    seq: u64,
 ) {
     let damage = compute_terminal_damage(previous_surface, &surface);
     if matches!(damage, TerminalDamage::Rows(ref rows) if rows.is_empty()) {
@@ -977,7 +920,6 @@ fn send_terminal_frame_update(
             surface,
             damage,
             status,
-            seq,
         }))
         .is_ok()
     {
@@ -1145,7 +1087,6 @@ fn terminal_worker(
     let mut terminal = Term::new(config, &dimensions, VoidListener);
     let mut parser = ansi::Processor::<ansi::StdSyncHandler>::new();
     let mut previous_surface: Option<TerminalSurface> = None;
-    let mut next_frame_seq = 1u64;
     let mut running = true;
 
     while running {
@@ -1237,10 +1178,8 @@ fn terminal_worker(
                         previous_surface.as_ref(),
                         surface.clone(),
                         "backend: alacritty_terminal + portable-pty".into(),
-                        next_frame_seq,
                     );
                     previous_surface = Some(surface);
-                    next_frame_seq += 1;
                 }
                 InputThreadEvent::Shutdown => {
                     running = false;
@@ -1300,10 +1239,8 @@ fn terminal_worker(
                 previous_surface.as_ref(),
                 surface.clone(),
                 "backend: alacritty_terminal + portable-pty".into(),
-                next_frame_seq,
             );
             previous_surface = Some(surface);
-            next_frame_seq += 1;
         }
     }
 
@@ -1921,7 +1858,7 @@ pub(crate) fn sync_terminal_texture(
     let active_id = terminal_manager.active_id;
     for (terminal_id, terminal) in terminal_manager.terminals.iter_mut() {
         let Some(surface) = &terminal.latest.surface else {
-            terminal.texture_state.last_surface = None;
+            terminal.pending_damage = None;
             continue;
         };
 
@@ -1943,7 +1880,6 @@ pub(crate) fn sync_terminal_texture(
         };
         if terminal.texture_state.cell_size != desired_cell_size {
             terminal.texture_state.cell_size = desired_cell_size;
-            terminal.texture_state.last_surface = None;
         }
 
         let cell_size = terminal.texture_state.cell_size;
@@ -1951,19 +1887,25 @@ pub(crate) fn sync_terminal_texture(
             surface.cols as u32 * cell_size.x.max(1),
             surface.rows as u32 * cell_size.y.max(1),
         );
-        let mut full_redraw = font_state.is_changed()
-            || terminal.texture_state.texture_size != texture_size
-            || terminal.texture_state.last_surface.is_none();
+        let has_pending_surface = terminal.surface_revision != terminal.uploaded_revision;
+        let mut full_redraw =
+            font_state.is_changed() || terminal.texture_state.texture_size != texture_size;
         let mut dirty_rows = if full_redraw {
             (0..surface.rows).collect::<Vec<_>>()
-        } else {
-            match &terminal.latest_damage {
+        } else if has_pending_surface {
+            match terminal
+                .pending_damage
+                .as_ref()
+                .unwrap_or(&TerminalDamage::Full)
+            {
                 TerminalDamage::Full => {
                     full_redraw = true;
                     (0..surface.rows).collect::<Vec<_>>()
                 }
                 TerminalDamage::Rows(rows) => rows.clone(),
             }
+        } else {
+            Vec::new()
         };
 
         if dirty_rows.is_empty() {
@@ -2042,47 +1984,12 @@ pub(crate) fn sync_terminal_texture(
                 target_image.data = None;
             }
             terminal.texture_state.texture_size = texture_size;
-            terminal.texture_state.last_surface = Some(surface.clone());
+            terminal.uploaded_revision = terminal.surface_revision;
+            terminal.pending_damage = None;
         } else {
             append_debug_log("texture sync: target image missing in assets");
         }
     }
-}
-
-fn dirty_rows_between(
-    previous_surface: Option<&TerminalSurface>,
-    surface: &TerminalSurface,
-) -> Vec<usize> {
-    let Some(previous_surface) = previous_surface else {
-        return (0..surface.rows).collect();
-    };
-    if previous_surface.cols != surface.cols || previous_surface.rows != surface.rows {
-        return (0..surface.rows).collect();
-    }
-
-    let mut dirty_rows = BTreeSet::new();
-    for y in 0..surface.rows {
-        let start = y * surface.cols;
-        let end = start + surface.cols;
-        if previous_surface.cells[start..end] != surface.cells[start..end] {
-            dirty_rows.insert(y);
-        }
-    }
-
-    if previous_surface.cursor != surface.cursor {
-        if let Some(cursor) = previous_surface.cursor.as_ref() {
-            if cursor.visible && cursor.y < surface.rows {
-                dirty_rows.insert(cursor.y);
-            }
-        }
-        if let Some(cursor) = surface.cursor.as_ref() {
-            if cursor.visible && cursor.y < surface.rows {
-                dirty_rows.insert(cursor.y);
-            }
-        }
-    }
-
-    dirty_rows.into_iter().collect()
 }
 
 fn clear_terminal_pixels(buffer: &mut [u8]) {
@@ -2132,9 +2039,7 @@ pub(crate) fn queue_terminal_uploads(
         index = end_index;
     }
 
-    if let Ok(mut pending) = upload_queue.0.lock() {
-        pending.extend(uploads);
-    }
+    upload_queue.replace_pending_for_image(image, uploads);
 }
 
 #[allow(
@@ -2717,14 +2622,12 @@ pub(crate) fn flush_terminal_gpu_uploads(
     gpu_images: Res<RenderAssets<GpuImage>>,
     render_queue: Res<RenderQueue>,
 ) {
-    let Ok(mut pending) = upload_queue.0.lock() else {
-        return;
-    };
-    let mut index = 0;
-    while index < pending.len() {
-        let upload = &pending[index];
+    let mut pending = upload_queue.take_pending();
+    let mut deferred = VecDeque::new();
+
+    while let Some(upload) = pending.pop_front() {
         let Some(gpu_image) = gpu_images.get(&upload.image) else {
-            index += 1;
+            deferred.push_back(upload);
             continue;
         };
         render_queue.write_texture(
@@ -2750,401 +2653,9 @@ pub(crate) fn flush_terminal_gpu_uploads(
                 depth_or_array_layers: 1,
             },
         );
-        pending.remove(index);
-    }
-}
-
-#[allow(
-    clippy::too_many_arguments,
-    reason = "legacy per-cell renderer kept temporarily while texture renderer stabilizes"
-)]
-pub(crate) fn sync_terminal_plane(
-    texture_state: Option<Res<TerminalTextureState>>,
-    mut commands: Commands,
-    view: Res<TerminalView>,
-    window: Single<&Window, With<PrimaryWindow>>,
-    plane_state: Res<TerminalPlaneState>,
-    mut scene_state: ResMut<TerminalSceneState>,
-    font_state: Res<TerminalFontState>,
-    mut queries: TerminalPlaneQueries,
-) {
-    if texture_state.is_some() {
-        return;
     }
 
-    let Some(surface) = &view.latest.surface else {
-        for (_, _, _, _, mut visibility) in &mut queries.bg_query {
-            *visibility = Visibility::Hidden;
-        }
-        for (_, _, _, _, _, _, _, mut visibility) in &mut queries.glyph_query {
-            *visibility = Visibility::Hidden;
-        }
-        for (_, _, mut visibility) in &mut queries.cursor_query {
-            *visibility = Visibility::Hidden;
-        }
-        scene_state.last_surface = None;
-        scene_state.last_layout_key = None;
-        return;
-    };
-
-    if !scene_state.initialized
-        || scene_state.cols != surface.cols
-        || scene_state.rows != surface.rows
-    {
-        for (entity, _, _, _, _) in &mut queries.bg_query {
-            commands.entity(entity).despawn();
-        }
-        for (entity, _, _, _, _, _, _, _) in &mut queries.glyph_query {
-            commands.entity(entity).despawn();
-        }
-
-        for y in 0..surface.rows {
-            for x in 0..surface.cols {
-                commands.spawn((
-                    Sprite::from_color(Color::BLACK, Vec2::ONE),
-                    Anchor::TOP_LEFT,
-                    Transform::from_xyz(0.0, 0.0, BG_Z),
-                    TerminalCellIndex { x, y },
-                    TerminalBackgroundMarker,
-                ));
-                commands.spawn((
-                    Text2d::new(""),
-                    TextFont {
-                        font_size: 16.0,
-                        ..default()
-                    },
-                    TextColor(Color::WHITE),
-                    TextBounds::UNBOUNDED,
-                    Anchor::TOP_LEFT,
-                    Transform::from_xyz(0.0, 0.0, TEXT_Z),
-                    TerminalCellIndex { x, y },
-                    TerminalGlyphMarker,
-                ));
-            }
-        }
-
-        if queries.cursor_query.is_empty() {
-            commands.spawn((
-                Sprite::from_color(Color::WHITE, Vec2::ONE),
-                Anchor::TOP_LEFT,
-                Transform::from_xyz(0.0, 0.0, CURSOR_Z),
-                TerminalCursorMarker,
-            ));
-        }
-
-        scene_state.cols = surface.cols;
-        scene_state.rows = surface.rows;
-        scene_state.initialized = true;
-        scene_state.last_surface = None;
-        scene_state.last_layout_key = None;
-        return;
-    }
-
-    let layout = compute_plane_layout(surface, *window, &plane_state);
-    let layout_key = PlaneLayoutKey::from_state(surface, *window, &plane_state);
-    let previous_surface = scene_state.last_surface.as_ref();
-    let projection_changed = scene_state.last_layout_key.as_ref() != Some(&layout_key);
-    let surface_changed = previous_surface != Some(surface);
-    let font_changed = font_state.is_changed();
-
-    if !projection_changed && !surface_changed && !font_changed {
-        return;
-    }
-
-    for (_, index, mut sprite, mut transform, mut visibility) in &mut queries.bg_query {
-        let cell = surface.cell(index.x, index.y);
-        if !projection_changed && !background_changed(previous_surface, cell, index.x, index.y) {
-            continue;
-        }
-
-        if let Some(projected) =
-            project_cell(index.x, index.y, cell.width.max(1), &layout, &plane_state)
-        {
-            *visibility = Visibility::Visible;
-            apply_projected_sprite(&mut sprite, &mut transform, projected, BG_Z);
-            sprite.color = color32_to_bevy(cell.bg);
-        } else {
-            *visibility = Visibility::Hidden;
-        }
-    }
-
-    for (_, index, mut text, mut font, mut color, mut bounds, mut transform, mut visibility) in
-        &mut queries.glyph_query
-    {
-        let cell = surface.cell(index.x, index.y);
-        let cell_changed = glyph_changed(previous_surface, cell, index.x, index.y);
-        if !projection_changed && !cell_changed && !font_changed {
-            continue;
-        }
-
-        if cell.width == 0 || cell.content.is_empty() {
-            *visibility = Visibility::Hidden;
-            continue;
-        }
-
-        if let Some(projected) = project_cell(index.x, index.y, cell.width, &layout, &plane_state) {
-            *visibility = Visibility::Visible;
-            if cell_changed {
-                *text = Text2d::new(cell.content.to_owned_string());
-            }
-            font.font_size = projected.vertical.length().max(1.0) * 0.9;
-            if let Some(handle) = select_font_handle(&cell.content, &font_state) {
-                font.font = handle;
-            }
-            color.0 = color32_to_bevy(cell.fg);
-            bounds.width = Some(projected.horizontal.length().max(1.0) * f32::from(cell.width));
-            bounds.height = Some(projected.vertical.length().max(1.0) * 1.2);
-            apply_projected_text(&mut transform, projected, TEXT_Z);
-        } else {
-            *visibility = Visibility::Hidden;
-        }
-    }
-
-    let cursor_changed =
-        previous_surface.and_then(|previous| previous.cursor.as_ref()) != surface.cursor.as_ref();
-    if projection_changed || cursor_changed {
-        if let Ok((mut sprite, mut transform, mut visibility)) = queries.cursor_query.single_mut() {
-            if let Some(cursor) = &surface.cursor {
-                if cursor.visible {
-                    if let Some(projected) =
-                        project_cell(cursor.x, cursor.y, 1, &layout, &plane_state)
-                    {
-                        *visibility = Visibility::Visible;
-                        apply_projected_cursor(
-                            &mut sprite,
-                            &mut transform,
-                            projected,
-                            cursor.shape,
-                            color32_to_bevy(cursor.color),
-                        );
-                    } else {
-                        *visibility = Visibility::Hidden;
-                    }
-                } else {
-                    *visibility = Visibility::Hidden;
-                }
-            } else {
-                *visibility = Visibility::Hidden;
-            }
-        }
-    }
-
-    scene_state.last_surface = Some(surface.clone());
-    scene_state.last_layout_key = Some(layout_key);
-}
-
-fn compute_plane_layout(
-    surface: &TerminalSurface,
-    window: &Window,
-    plane_state: &TerminalPlaneState,
-) -> PlaneLayout {
-    let usable_w = (window.width() - TERMINAL_MARGIN * 2.0).max(100.0);
-    let usable_h = (window.height() - TERMINAL_MARGIN * 2.0).max(100.0);
-    let cell_h = (usable_h / surface.rows as f32)
-        .min(usable_w / (surface.cols as f32 * BASE_CELL_ASPECT))
-        .max(4.0);
-    let cell_w = cell_h * BASE_CELL_ASPECT;
-    let plane_w = cell_w * surface.cols as f32;
-    let plane_h = cell_h * surface.rows as f32;
-    let distance = plane_state.distance.max(plane_h * 1.25);
-    let focal_length = plane_state.focal_length.max(distance * 0.8);
-
-    PlaneLayout {
-        cell_w,
-        cell_h,
-        plane_w,
-        plane_h,
-        distance,
-        focal_length,
-    }
-}
-
-struct PlaneLayout {
-    cell_w: f32,
-    cell_h: f32,
-    plane_w: f32,
-    plane_h: f32,
-    pub(crate) distance: f32,
-    pub(crate) focal_length: f32,
-}
-
-#[derive(Clone, PartialEq)]
-struct PlaneLayoutKey {
-    window_width: f32,
-    window_height: f32,
-    pub(crate) yaw: f32,
-    pub(crate) pitch: f32,
-    pub(crate) distance: f32,
-    pub(crate) focal_length: f32,
-    cols: usize,
-    rows: usize,
-}
-
-impl PlaneLayoutKey {
-    fn from_state(
-        surface: &TerminalSurface,
-        window: &Window,
-        plane_state: &TerminalPlaneState,
-    ) -> Self {
-        Self {
-            window_width: window.width(),
-            window_height: window.height(),
-            yaw: plane_state.yaw,
-            pitch: plane_state.pitch,
-            distance: plane_state.distance,
-            focal_length: plane_state.focal_length,
-            cols: surface.cols,
-            rows: surface.rows,
-        }
-    }
-}
-
-fn background_changed(
-    previous_surface: Option<&TerminalSurface>,
-    cell: &TerminalCell,
-    x: usize,
-    y: usize,
-) -> bool {
-    let Some(previous_surface) = previous_surface else {
-        return true;
-    };
-    let previous = previous_surface.cell(x, y);
-    previous.bg != cell.bg || previous.width != cell.width
-}
-
-fn glyph_changed(
-    previous_surface: Option<&TerminalSurface>,
-    cell: &TerminalCell,
-    x: usize,
-    y: usize,
-) -> bool {
-    let Some(previous_surface) = previous_surface else {
-        return true;
-    };
-    let previous = previous_surface.cell(x, y);
-    previous.content != cell.content || previous.fg != cell.fg || previous.width != cell.width
-}
-
-fn project_cell(
-    x: usize,
-    y: usize,
-    width_cells: u8,
-    layout: &PlaneLayout,
-    plane_state: &TerminalPlaneState,
-) -> Option<ProjectedBasis> {
-    let left = -layout.plane_w * 0.5;
-    let top = layout.plane_h * 0.5;
-    let origin_local = Vec3::new(
-        left + x as f32 * layout.cell_w,
-        top - y as f32 * layout.cell_h,
-        0.0,
-    );
-    let right_local = origin_local + Vec3::new(layout.cell_w * f32::from(width_cells), 0.0, 0.0);
-    let bottom_local = origin_local + Vec3::new(0.0, -layout.cell_h, 0.0);
-
-    let origin = project_point(origin_local, layout, plane_state)?;
-    let right = project_point(right_local, layout, plane_state)?;
-    let bottom = project_point(bottom_local, layout, plane_state)?;
-
-    Some(ProjectedBasis {
-        origin,
-        horizontal: right - origin,
-        vertical: bottom - origin,
-    })
-}
-
-fn project_point(
-    point: Vec3,
-    layout: &PlaneLayout,
-    plane_state: &TerminalPlaneState,
-) -> Option<Vec2> {
-    let rotated =
-        Quat::from_rotation_y(plane_state.yaw) * Quat::from_rotation_x(plane_state.pitch) * point;
-    let z = rotated.z + layout.distance;
-    if z <= 1.0 {
-        return None;
-    }
-
-    let scale = layout.focal_length / z;
-    Some(Vec2::new(rotated.x * scale, rotated.y * scale))
-}
-
-fn apply_projected_sprite(
-    sprite: &mut Sprite,
-    transform: &mut Transform,
-    projected: ProjectedBasis,
-    z: f32,
-) {
-    let width = projected.horizontal.length().max(1.0);
-    let height = projected.vertical.length().max(1.0);
-    sprite.custom_size = Some(Vec2::new(width, height));
-    transform.translation = projected.origin.extend(z);
-    transform.rotation =
-        Quat::from_rotation_z(projected.horizontal.y.atan2(projected.horizontal.x));
-    transform.scale = Vec3::ONE;
-}
-
-fn apply_projected_text(transform: &mut Transform, projected: ProjectedBasis, z: f32) {
-    let inset = projected.horizontal * 0.06 + projected.vertical * 0.08;
-    transform.translation = (projected.origin + inset).extend(z);
-    transform.rotation =
-        Quat::from_rotation_z(projected.horizontal.y.atan2(projected.horizontal.x));
-    transform.scale = Vec3::ONE;
-}
-
-fn apply_projected_cursor(
-    sprite: &mut Sprite,
-    transform: &mut Transform,
-    projected: ProjectedBasis,
-    shape: TerminalCursorShape,
-    color: Color,
-) {
-    let width = projected.horizontal.length().max(1.0);
-    let height = projected.vertical.length().max(1.0);
-    let origin = projected.origin;
-    let angle = projected.horizontal.y.atan2(projected.horizontal.x);
-
-    match shape {
-        TerminalCursorShape::Block => {
-            sprite.custom_size = Some(Vec2::new(width, height));
-            sprite.color = color.with_alpha(0.35);
-            transform.translation = origin.extend(CURSOR_Z);
-            transform.rotation = Quat::from_rotation_z(angle);
-        }
-        TerminalCursorShape::Underline => {
-            sprite.custom_size = Some(Vec2::new(width, height * 0.12));
-            sprite.color = color;
-            transform.translation = (origin + projected.vertical * 0.88).extend(CURSOR_Z);
-            transform.rotation = Quat::from_rotation_z(angle);
-        }
-        TerminalCursorShape::Beam => {
-            sprite.custom_size = Some(Vec2::new(width * 0.08, height));
-            sprite.color = color;
-            transform.translation = origin.extend(CURSOR_Z);
-            transform.rotation = Quat::from_rotation_z(angle);
-        }
-    }
-
-    transform.scale = Vec3::ONE;
-}
-
-fn select_font_handle(
-    content: &TerminalCellContent,
-    font_state: &TerminalFontState,
-) -> Option<Handle<Font>> {
-    if content.any_char(is_emoji_like) {
-        if let Some(handle) = &font_state.emoji_font {
-            return Some(handle.clone());
-        }
-    }
-
-    if content.any_char(is_private_use_like) {
-        if let Some(handle) = &font_state.private_use_font {
-            return Some(handle.clone());
-        }
-    }
-
-    font_state.primary_font.clone()
+    upload_queue.prepend_pending(deferred);
 }
 
 pub(crate) fn is_private_use_like(ch: char) -> bool {
@@ -3156,10 +2667,6 @@ pub(crate) fn is_emoji_like(ch: char) -> bool {
         ch as u32,
         0x1F000..=0x1FAFF | 0x2600..=0x27BF | 0xFE0F | 0x200D
     )
-}
-
-fn color32_to_bevy(color: egui::Color32) -> Color {
-    Color::srgba_u8(color.r(), color.g(), color.b(), color.a())
 }
 
 fn spawn_pty(cols: u16, rows: u16) -> Result<PtySession, String> {
@@ -3248,7 +2755,8 @@ pub(crate) fn poll_terminal_snapshots(mut terminal_manager: ResMut<TerminalManag
             terminal.latest.status = status;
             if let Some(surface) = surface {
                 terminal.latest.surface = Some(surface);
-                terminal.latest_damage = TerminalDamage::Full;
+                terminal.surface_revision += 1;
+                terminal.pending_damage = Some(TerminalDamage::Full);
             }
             terminal.bridge.note_snapshot_applied();
         }
@@ -3256,11 +2764,12 @@ pub(crate) fn poll_terminal_snapshots(mut terminal_manager: ResMut<TerminalManag
         if let Some(frame) = latest_frame {
             terminal.latest.status = frame.status;
             terminal.latest.surface = Some(frame.surface);
-            terminal.latest_damage = if dropped_frames > 0 {
+            terminal.surface_revision += 1;
+            terminal.pending_damage = Some(if dropped_frames > 0 {
                 TerminalDamage::Full
             } else {
                 frame.damage
-            };
+            });
             terminal.bridge.note_snapshot_applied();
         }
     }

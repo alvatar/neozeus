@@ -383,34 +383,12 @@ pub(crate) fn ui_overlay(
                 plane_state.focal_length = 10.0;
                 plane_state.offset = Vec2::ZERO;
             }
-            if ui.button("pwd").clicked() {
-                append_debug_log("ui button clicked: pwd");
-                if let Some(bridge) = terminal_manager.active_bridge() {
-                    bridge.send(TerminalCommand::SendCommand("pwd".into()));
-                }
-            }
-            if ui.button("ls").clicked() {
-                append_debug_log("ui button clicked: ls");
-                if let Some(bridge) = terminal_manager.active_bridge() {
-                    bridge.send(TerminalCommand::SendCommand("ls".into()));
-                }
-            }
-            if ui.button("clear").clicked() {
-                append_debug_log("ui button clicked: clear");
-                if let Some(bridge) = terminal_manager.active_bridge() {
-                    bridge.send(TerminalCommand::SendCommand("clear".into()));
-                }
-            }
-            if ui.button("btop").clicked() {
-                append_debug_log("ui button clicked: btop");
-                if let Some(bridge) = terminal_manager.active_bridge() {
-                    bridge.send(TerminalCommand::SendCommand("btop".into()));
-                }
-            }
-            if ui.button("tmux").clicked() {
-                append_debug_log("ui button clicked: tmux");
-                if let Some(bridge) = terminal_manager.active_bridge() {
-                    bridge.send(TerminalCommand::SendCommand("tmux".into()));
+            for command in ["pwd", "ls", "clear", "btop", "tmux"] {
+                if ui.button(command).clicked() {
+                    append_debug_log(format!("ui button clicked: {command}"));
+                    if let Some(bridge) = terminal_manager.active_bridge() {
+                        bridge.send(TerminalCommand::SendCommand(command.into()));
+                    }
                 }
             }
         });
