@@ -194,7 +194,7 @@ pub(crate) fn sync_terminal_presentations(
 ) {
     let active_id = terminal_manager.active_id();
     let background_ids = terminal_manager
-        .terminal_ids()
+        .focus_order()
         .iter()
         .copied()
         .filter(|id| Some(*id) != active_id)

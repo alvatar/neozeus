@@ -2,7 +2,9 @@ mod agent_list;
 mod debug_toolbar;
 
 use crate::{
-    hud::{AgentDirectory, HudDispatcher, HudEvent, HudModuleId, HudModuleModel, HudRect},
+    hud::{
+        AgentDirectory, HudDispatcher, HudEvent, HudModuleId, HudModuleModel, HudRect, HudState,
+    },
     terminals::{TerminalManager, TerminalPresentationStore, TerminalViewState},
 };
 use bevy::prelude::Vec2;
@@ -25,6 +27,7 @@ pub(crate) fn handle_pointer_click(
     presentation_store: &TerminalPresentationStore,
     view_state: &TerminalViewState,
     agent_directory: &AgentDirectory,
+    hud_state: &HudState,
     dispatcher: &mut HudDispatcher,
 ) {
     match module_id {
@@ -35,6 +38,7 @@ pub(crate) fn handle_pointer_click(
             terminal_manager,
             presentation_store,
             view_state,
+            hud_state,
             dispatcher,
         ),
         HudModuleId::AgentList => agent_list::handle_pointer_click(

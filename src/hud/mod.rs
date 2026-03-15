@@ -25,7 +25,6 @@ pub(crate) use state::{
     HUD_ROW_HEIGHT, HUD_TITLEBAR_HEIGHT,
 };
 
-use crate::terminals::TerminalManager;
 use bevy::{camera::visibility::NoFrustumCulling, prelude::*};
 use bevy_vello::prelude::VelloScene2d;
 
@@ -37,8 +36,6 @@ pub(crate) fn setup_hud(
     mut commands: Commands,
     mut hud_state: ResMut<HudState>,
     mut persistence_state: ResMut<HudPersistenceState>,
-    terminal_manager: Res<TerminalManager>,
-    mut dispatcher: ResMut<HudDispatcher>,
 ) {
     persistence_state.path = persistence::resolve_hud_layout_path();
     let persisted = persistence_state
@@ -60,13 +57,6 @@ pub(crate) fn setup_hud(
             module.shell.current_alpha = module.shell.target_alpha;
         }
         hud_state.insert(definition.id, module);
-    }
-
-    for (index, terminal_id) in terminal_manager.terminal_ids().iter().copied().enumerate() {
-        dispatcher.commands.push(HudCommand::RenameAgent {
-            terminal_id,
-            label: format!("agent-{}", index + 1),
-        });
     }
 
     commands.spawn((

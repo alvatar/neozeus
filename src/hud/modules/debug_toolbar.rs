@@ -1,6 +1,6 @@
 use crate::{
     hud::{
-        HudCommand, HudDispatcher, HudModuleId, HudModuleModel, HudRect, HUD_BUTTON_GAP,
+        HudCommand, HudDispatcher, HudModuleId, HudModuleModel, HudRect, HudState, HUD_BUTTON_GAP,
         HUD_BUTTON_HEIGHT, HUD_BUTTON_MIN_WIDTH, HUD_MODULE_PADDING,
     },
     terminals::{
@@ -32,10 +32,20 @@ pub(crate) fn debug_toolbar_buttons(
     terminal_manager: &TerminalManager,
     presentation_store: &TerminalPresentationStore,
     _view_state: &TerminalViewState,
+    hud_state: &HudState,
 ) -> Vec<DebugToolbarButton> {
     let active_display_mode = presentation_store
         .active_display_mode(terminal_manager.active_id())
         .unwrap_or(TerminalDisplayMode::Smooth);
+    let toolbar_enabled = hud_state
+        .get(HudModuleId::DebugToolbar)
+        .map(|module| module.shell.enabled)
+        .unwrap_or(true);
+    let agent_list_enabled = hud_state
+        .get(HudModuleId::AgentList)
+        .map(|module| module.shell.enabled)
+        .unwrap_or(false);
+
     let buttons = vec![
         (
             "new terminal".to_owned(),
@@ -81,12 +91,12 @@ pub(crate) fn debug_toolbar_buttons(
         (
             "0 toolbar".to_owned(),
             DebugToolbarAction::ToggleModule(HudModuleId::DebugToolbar),
-            true,
+            toolbar_enabled,
         ),
         (
             "1 agents".to_owned(),
             DebugToolbarAction::ToggleModule(HudModuleId::AgentList),
-            false,
+            agent_list_enabled,
         ),
     ];
 
@@ -113,6 +123,10 @@ pub(crate) fn debug_toolbar_buttons(
         .collect()
 }
 
+#[allow(
+    clippy::too_many_arguments,
+    reason = "toolbar hit routing needs geometry, terminal state, HUD state, and dispatcher together"
+)]
 pub(crate) fn handle_pointer_click(
     model: &HudModuleModel,
     shell_rect: HudRect,
@@ -120,14 +134,19 @@ pub(crate) fn handle_pointer_click(
     terminal_manager: &TerminalManager,
     presentation_store: &TerminalPresentationStore,
     view_state: &TerminalViewState,
+    hud_state: &HudState,
     dispatcher: &mut HudDispatcher,
 ) {
     if !matches!(model, HudModuleModel::DebugToolbar(_)) {
         return;
     }
-    for button in
-        debug_toolbar_buttons(shell_rect, terminal_manager, presentation_store, view_state)
-    {
+    for button in debug_toolbar_buttons(
+        shell_rect,
+        terminal_manager,
+        presentation_store,
+        view_state,
+        hud_state,
+    ) {
         if !button.rect.contains(point) {
             continue;
         }
