@@ -44,9 +44,8 @@ impl TerminalManager {
         bridge: TerminalBridge,
     ) -> (TerminalId, usize) {
         let id = self.create_terminal(bridge);
-        let slot = self
-            .slot_of(id)
-            .expect("newly created terminal must have a layout slot");
+        let slot = self.order.len().saturating_sub(1);
+        debug_assert_eq!(self.order.get(slot), Some(&id));
         (id, slot)
     }
 
@@ -82,10 +81,6 @@ impl TerminalManager {
 
     pub(crate) fn terminal_ids(&self) -> &[TerminalId] {
         &self.order
-    }
-
-    pub(crate) fn slot_of(&self, id: TerminalId) -> Option<usize> {
-        self.order.iter().position(|existing| *existing == id)
     }
 
     pub(crate) fn get(&self, id: TerminalId) -> Option<&ManagedTerminal> {
