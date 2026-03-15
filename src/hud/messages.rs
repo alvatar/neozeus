@@ -8,6 +8,10 @@ pub(crate) enum HudCommand {
     FocusTerminal(TerminalId),
     HideAllButTerminal(TerminalId),
     ShowAllTerminals,
+    #[allow(
+        dead_code,
+        reason = "typed rename path stays in the HUD protocol even before a concrete rename UI exists"
+    )]
     RenameAgent {
         terminal_id: TerminalId,
         label: String,

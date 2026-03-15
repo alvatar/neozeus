@@ -303,6 +303,7 @@ pub(crate) fn render_hud_scene(
                     &terminal_manager,
                     &presentation_store,
                     &view_state,
+                    &hud_state,
                 );
                 let active_status = terminal_manager
                     .active_snapshot()

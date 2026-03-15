@@ -18,7 +18,8 @@ pub(crate) struct ManagedTerminal {
 pub(crate) struct TerminalManager {
     next_id: u64,
     active_id: Option<TerminalId>,
-    order: Vec<TerminalId>,
+    creation_order: Vec<TerminalId>,
+    focus_order: Vec<TerminalId>,
     terminals: HashMap<TerminalId, ManagedTerminal>,
 }
 
@@ -27,7 +28,8 @@ impl Default for TerminalManager {
         Self {
             next_id: 1,
             active_id: None,
-            order: Vec::new(),
+            creation_order: Vec::new(),
+            focus_order: Vec::new(),
             terminals: HashMap::new(),
         }
     }
@@ -46,6 +48,7 @@ impl TerminalManager {
                 surface_revision: 0,
             },
         );
+        self.creation_order.push(id);
         self.focus_terminal(id);
         id
     }
@@ -55,8 +58,8 @@ impl TerminalManager {
         bridge: TerminalBridge,
     ) -> (TerminalId, usize) {
         let id = self.create_terminal(bridge);
-        let slot = self.order.len().saturating_sub(1);
-        debug_assert_eq!(self.order.get(slot), Some(&id));
+        let slot = self.creation_order.len().saturating_sub(1);
+        debug_assert_eq!(self.creation_order.get(slot), Some(&id));
         (id, slot)
     }
 
@@ -64,12 +67,12 @@ impl TerminalManager {
         if !self.terminals.contains_key(&id) {
             return;
         }
-        if self.active_id == Some(id) && self.order.last() == Some(&id) {
+        if self.active_id == Some(id) && self.focus_order.last() == Some(&id) {
             return;
         }
         self.active_id = Some(id);
-        self.order.retain(|existing| *existing != id);
-        self.order.push(id);
+        self.focus_order.retain(|existing| *existing != id);
+        self.focus_order.push(id);
         append_debug_log(format!("focused terminal {}", id.0));
     }
 
@@ -94,7 +97,11 @@ impl TerminalManager {
     }
 
     pub(crate) fn terminal_ids(&self) -> &[TerminalId] {
-        &self.order
+        &self.creation_order
+    }
+
+    pub(crate) fn focus_order(&self) -> &[TerminalId] {
+        &self.focus_order
     }
 
     pub(crate) fn get(&self, id: TerminalId) -> Option<&ManagedTerminal> {

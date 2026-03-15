@@ -74,6 +74,7 @@ pub(crate) fn handle_hud_pointer_input(
                         &presentation_store,
                         &view_state,
                         &agent_directory,
+                        &hud_state,
                         &mut dispatcher,
                     );
                 }

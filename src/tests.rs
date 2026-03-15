@@ -439,10 +439,33 @@ fn agent_rows_follow_terminal_order_and_focus() {
 }
 
 #[test]
+fn terminal_creation_order_stays_stable_when_focus_changes() {
+    let (bridge_one, _) = test_bridge();
+    let (bridge_two, _) = test_bridge();
+    let mut manager = TerminalManager::default();
+    let id_one = manager.create_terminal(bridge_one);
+    let id_two = manager.create_terminal(bridge_two);
+
+    manager.focus_terminal(id_one);
+
+    assert_eq!(manager.terminal_ids(), &[id_one, id_two]);
+    assert_eq!(manager.focus_order(), &[id_two, id_one]);
+}
+
+#[test]
 fn debug_toolbar_buttons_include_module_toggle_entries() {
     let (bridge, _) = test_bridge();
     let mut manager = TerminalManager::default();
     manager.create_terminal(bridge);
+    let mut hud_state = HudState::default();
+    hud_state.insert(
+        HudModuleId::DebugToolbar,
+        crate::hud::default_hud_module_instance(&crate::hud::HUD_MODULE_DEFINITIONS[0]),
+    );
+    hud_state.insert(
+        HudModuleId::AgentList,
+        crate::hud::default_hud_module_instance(&crate::hud::HUD_MODULE_DEFINITIONS[1]),
+    );
     let buttons = debug_toolbar_buttons(
         HudRect {
             x: 24.0,
@@ -453,9 +476,51 @@ fn debug_toolbar_buttons_include_module_toggle_entries() {
         &manager,
         &Default::default(),
         &TerminalViewState::default(),
+        &hud_state,
     );
     assert!(buttons.iter().any(|button| button.label == "0 toolbar"));
     assert!(buttons.iter().any(|button| button.label == "1 agents"));
+}
+
+#[test]
+fn debug_toolbar_module_toggle_buttons_reflect_enabled_state() {
+    let (bridge, _) = test_bridge();
+    let mut manager = TerminalManager::default();
+    manager.create_terminal(bridge);
+    let mut hud_state = HudState::default();
+    hud_state.insert(
+        HudModuleId::DebugToolbar,
+        crate::hud::default_hud_module_instance(&crate::hud::HUD_MODULE_DEFINITIONS[0]),
+    );
+    hud_state.insert(
+        HudModuleId::AgentList,
+        crate::hud::default_hud_module_instance(&crate::hud::HUD_MODULE_DEFINITIONS[1]),
+    );
+    hud_state.set_module_enabled(HudModuleId::AgentList, false);
+
+    let buttons = debug_toolbar_buttons(
+        HudRect {
+            x: 24.0,
+            y: 24.0,
+            w: 920.0,
+            h: 64.0,
+        },
+        &manager,
+        &Default::default(),
+        &TerminalViewState::default(),
+        &hud_state,
+    );
+
+    let toolbar = buttons
+        .iter()
+        .find(|button| button.label == "0 toolbar")
+        .expect("toolbar toggle button missing");
+    let agents = buttons
+        .iter()
+        .find(|button| button.label == "1 agents")
+        .expect("agent toggle button missing");
+    assert!(toolbar.active);
+    assert!(!agents.active);
 }
 
 #[test]
