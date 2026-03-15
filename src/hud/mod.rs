@@ -8,9 +8,9 @@ mod render;
 mod state;
 
 pub(crate) use animation::animate_hud_modules;
-pub(crate) use dispatcher::{apply_hud_commands, dispatch_hud_events, HudDispatcher};
+pub(crate) use dispatcher::{apply_hud_commands, HudDispatcher};
 pub(crate) use input::{handle_hud_module_shortcuts, handle_hud_pointer_input};
-pub(crate) use messages::{HudCommand, HudEnvelope, HudEvent, HudRecipients};
+pub(crate) use messages::HudCommand;
 #[cfg(test)]
 pub(crate) use persistence::{
     apply_persisted_layout, parse_persisted_hud_state, resolve_hud_layout_path_with,

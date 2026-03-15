@@ -52,7 +52,6 @@ impl HudRect {
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct HudModuleShell {
     pub(crate) enabled: bool,
-    pub(crate) z: i32,
     pub(crate) target_rect: HudRect,
     pub(crate) current_rect: HudRect,
     pub(crate) target_alpha: f32,
@@ -145,13 +144,11 @@ impl HudState {
         if !self.z_order.contains(&id) {
             self.z_order.push(id);
         }
-        self.sync_z_order();
     }
 
     pub(crate) fn raise_to_front(&mut self, id: HudModuleId) {
         self.z_order.retain(|existing| *existing != id);
         self.z_order.push(id);
-        self.sync_z_order();
     }
 
     pub(crate) fn set_module_enabled(&mut self, id: HudModuleId, enabled: bool) {
@@ -172,14 +169,6 @@ impl HudState {
                 module.shell.enabled && module.shell.current_rect.contains(point)
             })
         })
-    }
-
-    pub(crate) fn sync_z_order(&mut self) {
-        for (index, id) in self.z_order.iter().enumerate() {
-            if let Some(module) = self.modules.get_mut(id) {
-                module.shell.z = index as i32;
-            }
-        }
     }
 
     pub(crate) fn is_animating(&self) -> bool {
@@ -239,7 +228,6 @@ pub(crate) const HUD_MODULE_DEFINITIONS: [HudModuleDefinition; 2] = [
 pub(crate) fn default_hud_module_instance(definition: &HudModuleDefinition) -> HudModuleInstance {
     let shell = HudModuleShell {
         enabled: definition.default_enabled,
-        z: 0,
         target_rect: definition.default_rect,
         current_rect: definition.default_rect,
         target_alpha: if definition.default_enabled { 1.0 } else { 0.0 },

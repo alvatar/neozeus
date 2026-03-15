@@ -2,9 +2,7 @@
 use crate::hud::default_hud_module_instance;
 #[cfg(test)]
 use crate::hud::state::HudModuleDefinition;
-use crate::hud::{
-    append_hud_log, HudModuleId, HudRect, HudState, TerminalVisibilityState, HUD_MODULE_DEFINITIONS,
-};
+use crate::hud::{append_hud_log, HudModuleId, HudRect, HudState, HUD_MODULE_DEFINITIONS};
 use bevy::prelude::*;
 use std::{collections::BTreeMap, env, fs, path::PathBuf};
 
@@ -160,9 +158,7 @@ pub(crate) fn save_hud_layout_if_dirty(
     time: Res<Time>,
     mut hud_state: ResMut<HudState>,
     mut persistence_state: ResMut<HudPersistenceState>,
-    visibility_state: Res<TerminalVisibilityState>,
 ) {
-    let _ = &visibility_state;
     if hud_state.drag.is_some() {
         if hud_state.dirty_layout && persistence_state.dirty_since_secs.is_none() {
             persistence_state.dirty_since_secs = Some(time.elapsed_secs());

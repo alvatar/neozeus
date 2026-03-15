@@ -1,11 +1,13 @@
 use crate::{
     hud::{
+        render::{HudColors, HudPainter, HudRenderInputs},
         AgentDirectory, HudCommand, HudDispatcher, HudModuleModel, HudRect, HUD_MODULE_PADDING,
         HUD_ROW_HEIGHT,
     },
     terminals::{TerminalId, TerminalManager},
 };
 use bevy::prelude::*;
+use bevy_vello::prelude::VelloTextAnchor;
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct AgentRow {
@@ -59,6 +61,57 @@ pub(crate) fn agent_rows(
             hovered: hovered_terminal == Some(*terminal_id),
         })
         .collect()
+}
+
+pub(crate) fn render_content(
+    model: &HudModuleModel,
+    content_rect: HudRect,
+    painter: &mut HudPainter,
+    inputs: &HudRenderInputs,
+) {
+    let HudModuleModel::AgentList(state) = model else {
+        return;
+    };
+    for row in agent_rows(
+        content_rect,
+        state.scroll_offset,
+        state.hovered_terminal,
+        inputs.terminal_manager,
+        inputs.agent_directory,
+    ) {
+        if row.rect.y + row.rect.h < content_rect.y || row.rect.y > content_rect.y + content_rect.h
+        {
+            continue;
+        }
+        painter.fill_rect(
+            row.rect,
+            if row.focused {
+                HudColors::ROW_FOCUSED
+            } else if row.hovered {
+                HudColors::ROW_HOVERED
+            } else {
+                HudColors::ROW
+            },
+            6.0,
+        );
+        painter.label(
+            Vec2::new(row.rect.x + 10.0, row.rect.y + 7.0),
+            &row.label,
+            15.0,
+            HudColors::TEXT,
+            VelloTextAnchor::TopLeft,
+        );
+    }
+    painter.label(
+        Vec2::new(
+            content_rect.x + HUD_MODULE_PADDING,
+            content_rect.y + content_rect.h - HUD_ROW_HEIGHT,
+        ),
+        "click row: focus + isolate",
+        13.0,
+        HudColors::TEXT_MUTED,
+        VelloTextAnchor::TopLeft,
+    );
 }
 
 pub(crate) fn handle_pointer_click(
@@ -144,5 +197,3 @@ pub(crate) fn clear_hover(model: &mut HudModuleModel) -> bool {
     state.hovered_terminal = None;
     true
 }
-
-pub(crate) fn handle_event(_model: &mut HudModuleModel, _event: &crate::hud::HudEvent) {}

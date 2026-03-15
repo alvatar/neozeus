@@ -3,15 +3,18 @@ mod debug_toolbar;
 
 use crate::{
     hud::{
-        AgentDirectory, HudDispatcher, HudEvent, HudModuleId, HudModuleModel, HudRect, HudState,
+        render::{HudPainter, HudRenderInputs},
+        AgentDirectory, HudDispatcher, HudModuleId, HudModuleModel, HudRect, HudState,
     },
     terminals::{TerminalManager, TerminalPresentationStore, TerminalViewState},
 };
 use bevy::prelude::Vec2;
 
+#[cfg(test)]
 pub(crate) use agent_list::agent_rows;
 #[cfg(test)]
 pub(crate) use agent_list::resolve_agent_label;
+#[cfg(test)]
 pub(crate) use debug_toolbar::debug_toolbar_buttons;
 
 #[allow(
@@ -75,6 +78,21 @@ pub(crate) fn clear_hover(module_id: HudModuleId, model: &mut HudModuleModel) ->
     }
 }
 
+pub(crate) fn render_module_content(
+    module_id: HudModuleId,
+    model: &HudModuleModel,
+    content_rect: HudRect,
+    painter: &mut HudPainter,
+    inputs: &HudRenderInputs,
+) {
+    match module_id {
+        HudModuleId::DebugToolbar => {
+            debug_toolbar::render_content(model, content_rect, painter, inputs)
+        }
+        HudModuleId::AgentList => agent_list::render_content(model, content_rect, painter, inputs),
+    }
+}
+
 pub(crate) fn handle_scroll(
     module_id: HudModuleId,
     model: &mut HudModuleModel,
@@ -92,12 +110,5 @@ pub(crate) fn handle_scroll(
                 shell_rect.h,
             );
         }
-    }
-}
-
-pub(crate) fn handle_event(model: &mut HudModuleModel, event: &HudEvent) {
-    match model {
-        HudModuleModel::DebugToolbar(_) => debug_toolbar::handle_event(model, event),
-        HudModuleModel::AgentList(_) => agent_list::handle_event(model, event),
     }
 }
