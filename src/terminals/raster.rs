@@ -107,7 +107,7 @@ pub(crate) fn sync_terminal_texture(
     }
 
     let active_id = terminal_manager.active_id();
-    for (terminal_id, terminal) in terminal_manager.terminals_mut().iter_mut() {
+    for (terminal_id, terminal) in terminal_manager.iter_mut() {
         let Some(surface) = &terminal.snapshot.surface else {
             terminal.pending_damage = None;
             continue;

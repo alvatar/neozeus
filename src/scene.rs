@@ -203,7 +203,7 @@ fn request_redraw_while_visuals_active(
     panels: Query<&TerminalPresentation, With<TerminalPanel>>,
     mut redraws: MessageWriter<RequestRedraw>,
 ) {
-    let terminal_work_pending = terminal_manager.terminals().iter().any(|(id, terminal)| {
+    let terminal_work_pending = terminal_manager.iter().any(|(id, terminal)| {
         terminal.pending_damage.is_some()
             || presentation_store
                 .get(*id)
@@ -259,11 +259,7 @@ fn setup_scene(
 
     let primary_bridge = runtime_spawner.spawn();
     let auto_verify_bridge = auto_verify.as_ref().map(|_| primary_bridge.clone());
-    let primary_id = terminal_manager.create_terminal(primary_bridge);
-    let Some(slot) = terminal_manager.slot_of(primary_id) else {
-        append_debug_log(format!("missing terminal slot for {}", primary_id.0));
-        return;
-    };
+    let (primary_id, slot) = terminal_manager.create_terminal_with_slot(primary_bridge);
     spawn_terminal_presentation(
         &mut commands,
         &mut images,

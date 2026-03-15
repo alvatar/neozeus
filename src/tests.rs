@@ -218,7 +218,7 @@ fn poll_terminal_snapshots_keeps_latest_status_over_latest_frame_runtime() {
     world.insert_resource(manager);
     world.run_system_once(poll_terminal_snapshots).unwrap();
     let manager = world.resource::<TerminalManager>();
-    let terminal = manager.terminals().get(&terminal_id).unwrap();
+    let terminal = manager.get(terminal_id).unwrap();
     assert_eq!(terminal.snapshot.runtime.status, "boom");
     assert!(matches!(
         terminal.snapshot.runtime.lifecycle,
