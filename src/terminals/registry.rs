@@ -36,7 +36,7 @@ impl Default for TerminalManager {
 }
 
 impl TerminalManager {
-    pub(crate) fn create_terminal(&mut self, bridge: TerminalBridge) -> TerminalId {
+    fn insert_terminal(&mut self, bridge: TerminalBridge) -> TerminalId {
         let id = TerminalId(self.next_id);
         self.next_id += 1;
         self.terminals.insert(
@@ -49,8 +49,17 @@ impl TerminalManager {
             },
         );
         self.creation_order.push(id);
+        id
+    }
+
+    pub(crate) fn create_terminal(&mut self, bridge: TerminalBridge) -> TerminalId {
+        let id = self.insert_terminal(bridge);
         self.focus_terminal(id);
         id
+    }
+
+    pub(crate) fn create_terminal_without_focus(&mut self, bridge: TerminalBridge) -> TerminalId {
+        self.insert_terminal(bridge)
     }
 
     pub(crate) fn create_terminal_with_slot(
@@ -58,6 +67,16 @@ impl TerminalManager {
         bridge: TerminalBridge,
     ) -> (TerminalId, usize) {
         let id = self.create_terminal(bridge);
+        let slot = self.creation_order.len().saturating_sub(1);
+        debug_assert_eq!(self.creation_order.get(slot), Some(&id));
+        (id, slot)
+    }
+
+    pub(crate) fn create_terminal_without_focus_with_slot(
+        &mut self,
+        bridge: TerminalBridge,
+    ) -> (TerminalId, usize) {
+        let id = self.create_terminal_without_focus(bridge);
         let slot = self.creation_order.len().saturating_sub(1);
         debug_assert_eq!(self.creation_order.get(slot), Some(&id));
         (id, slot)

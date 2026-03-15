@@ -6,7 +6,10 @@ use crate::{
         setup_hud, AgentDirectory, HudDispatcher, HudPersistenceState, HudState,
         TerminalVisibilityState,
     },
-    input::{drag_terminal_view, forward_keyboard_input, zoom_terminal_view},
+    input::{
+        drag_terminal_view, forward_keyboard_input, handle_bootstrap_terminal_shortcut,
+        zoom_terminal_view,
+    },
     terminals::{
         append_debug_log, configure_terminal_fonts, spawn_terminal_presentation,
         sync_terminal_hud_surface, sync_terminal_panel_frames, sync_terminal_presentations,
@@ -148,6 +151,7 @@ fn configure_app(app: &mut App) {
         .add_systems(
             Update,
             (
+                handle_bootstrap_terminal_shortcut,
                 drag_terminal_view,
                 zoom_terminal_view,
                 forward_keyboard_input,
@@ -277,19 +281,22 @@ fn setup_scene(
         TerminalHudSurfaceMarker,
     ));
 
-    let primary_bridge = runtime_spawner.spawn();
-    let auto_verify_bridge = auto_verify.as_ref().map(|_| primary_bridge.clone());
-    let (primary_id, slot) = terminal_manager.create_terminal_with_slot(primary_bridge);
-    spawn_terminal_presentation(
-        &mut commands,
-        &mut images,
-        &mut presentation_store,
-        primary_id,
-        slot,
-    );
-    append_debug_log(format!("spawned terminal {}", primary_id.0));
-
-    if let (Some(config), Some(bridge)) = (auto_verify, auto_verify_bridge) {
-        start_auto_verify_dispatcher(bridge, runtime_spawner.notifier(), config.clone());
+    if let Some(config) = auto_verify {
+        let bridge = runtime_spawner.spawn();
+        let dispatcher_bridge = bridge.clone();
+        let (terminal_id, slot) = terminal_manager.create_terminal_with_slot(bridge);
+        spawn_terminal_presentation(
+            &mut commands,
+            &mut images,
+            &mut presentation_store,
+            terminal_id,
+            slot,
+        );
+        append_debug_log(format!("spawned verifier terminal {}", terminal_id.0));
+        start_auto_verify_dispatcher(
+            dispatcher_bridge,
+            runtime_spawner.notifier(),
+            config.clone(),
+        );
     }
 }

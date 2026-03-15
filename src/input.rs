@@ -1,6 +1,7 @@
 use crate::terminals::{
-    terminal_texture_screen_size, TerminalCommand, TerminalDisplayMode, TerminalManager,
-    TerminalPointerState, TerminalPresentationStore, TerminalViewState,
+    spawn_terminal_presentation, terminal_texture_screen_size, TerminalCommand,
+    TerminalDisplayMode, TerminalManager, TerminalPointerState, TerminalPresentationStore,
+    TerminalRuntimeSpawner, TerminalViewState,
 };
 use bevy::{
     input::{
@@ -11,6 +12,60 @@ use bevy::{
     prelude::*,
     window::PrimaryWindow,
 };
+
+pub(crate) fn should_spawn_bootstrap_terminal(
+    event: &KeyboardInput,
+    keys: &ButtonInput<KeyCode>,
+    has_terminals: bool,
+) -> bool {
+    if has_terminals || event.state != ButtonState::Pressed || event.key_code != KeyCode::KeyZ {
+        return false;
+    }
+
+    let ctrl = keys.pressed(KeyCode::ControlLeft) || keys.pressed(KeyCode::ControlRight);
+    let alt = keys.pressed(KeyCode::AltLeft) || keys.pressed(KeyCode::AltRight);
+    let super_key = keys.pressed(KeyCode::SuperLeft) || keys.pressed(KeyCode::SuperRight);
+    !(ctrl || alt || super_key)
+}
+
+#[allow(
+    clippy::too_many_arguments,
+    reason = "bootstrap spawn shortcut needs input plus terminal/runtime/presentation resources together"
+)]
+pub(crate) fn handle_bootstrap_terminal_shortcut(
+    mut commands: Commands,
+    mut images: ResMut<Assets<Image>>,
+    mut messages: MessageReader<KeyboardInput>,
+    keys: Res<ButtonInput<KeyCode>>,
+    primary_window: Single<&Window, With<PrimaryWindow>>,
+    mut terminal_manager: ResMut<TerminalManager>,
+    mut presentation_store: ResMut<TerminalPresentationStore>,
+    runtime_spawner: Res<TerminalRuntimeSpawner>,
+) {
+    if !primary_window.focused || !terminal_manager.terminal_ids().is_empty() {
+        return;
+    }
+
+    for event in messages.read() {
+        if !should_spawn_bootstrap_terminal(event, &keys, false) {
+            continue;
+        }
+        let bridge = runtime_spawner.spawn();
+        let (terminal_id, slot) = terminal_manager.create_terminal_without_focus_with_slot(bridge);
+        spawn_terminal_presentation(
+            &mut commands,
+            &mut images,
+            &mut presentation_store,
+            terminal_id,
+            slot,
+        );
+        crate::terminals::append_debug_log(format!(
+            "spawned hidden bootstrap terminal {}",
+            terminal_id.0
+        ));
+        break;
+    }
+}
 
 #[allow(
     clippy::too_many_arguments,
