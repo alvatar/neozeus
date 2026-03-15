@@ -1,16 +1,29 @@
-use crate::*;
+use crate::terminals::{
+    terminal_texture_screen_size, TerminalCommand, TerminalDisplayMode, TerminalManager,
+    TerminalPointerState, TerminalPresentationStore, TerminalViewState,
+};
+use bevy::{
+    input::{
+        keyboard::{Key, KeyboardInput},
+        mouse::{MouseMotion, MouseScrollUnit, MouseWheel},
+        ButtonState,
+    },
+    prelude::*,
+    window::PrimaryWindow,
+};
 
 #[allow(
     clippy::too_many_arguments,
     reason = "mouse drag needs input, geometry, pointer state, and terminal bridge"
 )]
-pub(crate) fn drag_terminal_plane(
+pub(crate) fn drag_terminal_view(
     mouse_buttons: Res<ButtonInput<MouseButton>>,
     keys: Res<ButtonInput<KeyCode>>,
     mut mouse_motion: MessageReader<MouseMotion>,
     primary_window: Single<&Window, With<PrimaryWindow>>,
     terminal_manager: Res<TerminalManager>,
-    mut plane_state: ResMut<TerminalPlaneState>,
+    presentation_store: Res<TerminalPresentationStore>,
+    mut view_state: ResMut<TerminalViewState>,
     mut pointer_state: ResMut<TerminalPointerState>,
 ) {
     let delta = mouse_motion
@@ -26,18 +39,19 @@ pub(crate) fn drag_terminal_plane(
 
     if shift {
         pointer_state.scroll_drag_remainder_px = 0.0;
-        plane_state.offset += Vec2::new(delta.x, -delta.y);
+        view_state.offset += Vec2::new(delta.x, -delta.y);
         return;
     }
 
-    let Some(texture_state) = terminal_manager.active_texture_state() else {
+    let Some(texture_state) = presentation_store.active_texture_state(terminal_manager.active_id())
+    else {
         pointer_state.scroll_drag_remainder_px = 0.0;
         return;
     };
-    let pixel_perfect =
-        terminal_manager.active_display_mode() == Some(TerminalDisplayMode::PixelPerfect);
+    let pixel_perfect = presentation_store.active_display_mode(terminal_manager.active_id())
+        == Some(TerminalDisplayMode::PixelPerfect);
     let screen_size =
-        terminal_texture_screen_size(texture_state, &plane_state, &primary_window, pixel_perfect);
+        terminal_texture_screen_size(texture_state, &view_state, &primary_window, pixel_perfect);
     let screen_cell_height = if texture_state.cell_size.y == 0 || texture_state.texture_size.y == 0
     {
         1.0
@@ -56,11 +70,11 @@ pub(crate) fn drag_terminal_plane(
     }
 }
 
-pub(crate) fn zoom_terminal_plane(
+pub(crate) fn zoom_terminal_view(
     keys: Res<ButtonInput<KeyCode>>,
     primary_window: Single<&Window, With<PrimaryWindow>>,
     mut mouse_wheel: MessageReader<MouseWheel>,
-    mut plane_state: ResMut<TerminalPlaneState>,
+    mut view_state: ResMut<TerminalViewState>,
 ) {
     let shift = keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight);
     if !primary_window.focused || !shift {
@@ -78,8 +92,7 @@ pub(crate) fn zoom_terminal_plane(
         return;
     }
 
-    plane_state.distance = (plane_state.distance - zoom_delta * 0.8).clamp(2.0, 40.0);
-    plane_state.focal_length = plane_state.distance;
+    view_state.distance = (view_state.distance - zoom_delta * 0.8).clamp(2.0, 40.0);
 }
 
 pub(crate) fn forward_keyboard_input(
@@ -140,10 +153,10 @@ pub(crate) fn keyboard_input_to_terminal_command(
             .filter(|text| !text.is_empty())
             .map(|text| TerminalCommand::InputText(text.to_string()))
             .or_else(|| match &event.logical_key {
-                bevy::input::keyboard::Key::Character(text) if !text.is_empty() => {
+                Key::Character(text) if !text.is_empty() => {
                     Some(TerminalCommand::InputText(text.to_string()))
                 }
-                bevy::input::keyboard::Key::Space => Some(TerminalCommand::InputText(" ".into())),
+                Key::Space => Some(TerminalCommand::InputText(" ".into())),
                 _ => None,
             }),
     }

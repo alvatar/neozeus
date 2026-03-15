@@ -1,4 +1,29 @@
-use crate::*;
+use crate::{
+    app_config::{EVA_DEMO_Z, GPU_NOT_FOUND_PANIC_FRAGMENT},
+    hud::{sync_eva_vector_demo, ui_overlay, EvaVectorDemoMarker, EvaVectorDemoState},
+    input::{drag_terminal_view, forward_keyboard_input, zoom_terminal_view},
+    terminals::{
+        append_debug_log, configure_terminal_fonts, spawn_terminal_instance,
+        sync_terminal_hud_surface, sync_terminal_panel_frames, sync_terminal_presentations,
+        sync_terminal_texture, TerminalCameraMarker, TerminalFontState, TerminalGlyphCache,
+        TerminalHudSurfaceMarker, TerminalManager, TerminalPanel, TerminalPointerState,
+        TerminalPresentation, TerminalPresentationStore, TerminalRuntimeSpawner, TerminalViewState,
+    },
+    verification::{start_auto_verify_dispatcher, AutoVerifyConfig},
+};
+use bevy::{
+    camera::visibility::NoFrustumCulling,
+    prelude::*,
+    render::{settings::WgpuSettings, RenderPlugin},
+    window::RequestRedraw,
+    winit::{EventLoopProxyWrapper, WinitSettings},
+};
+use bevy_egui::{EguiPlugin, EguiPrimaryContextPass};
+use bevy_vello::{
+    prelude::{VelloScene2d, VelloView},
+    VelloPlugin,
+};
+use std::{any::Any, env, sync::Arc};
 
 pub(crate) fn build_app() -> Result<App, String> {
     let mut app = App::new();
@@ -27,6 +52,15 @@ pub(crate) fn build_app() -> Result<App, String> {
             }
         }
     }
+}
+
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) enum NeoZeusSet {
+    PollTerminal,
+    RasterTerminal,
+    UiInput,
+    PresentTerminal,
+    Redraw,
 }
 
 fn configure_app(app: &mut App) {
@@ -59,33 +93,62 @@ fn configure_app(app: &mut App) {
 
     app.insert_resource(ClearColor(Color::srgb(0.02, 0.02, 0.02)))
         .insert_resource(WinitSettings::desktop_app())
-        .insert_resource(TerminalManager::new(event_loop_proxy))
+        .insert_resource(TerminalManager::default())
+        .insert_resource(TerminalPresentationStore::default())
+        .insert_resource(TerminalRuntimeSpawner::new(event_loop_proxy))
         .insert_resource(TerminalFontState::default())
-        .insert_resource(TerminalPlaneState::default())
+        .insert_resource(TerminalViewState::default())
         .insert_resource(TerminalPointerState::default())
         .insert_resource(TerminalGlyphCache::default())
-        .insert_resource(TerminalTextRenderer::default())
+        .insert_resource(crate::terminals::TerminalTextRenderer::default())
         .insert_resource(EvaVectorDemoState::default())
-        .add_systems(Startup, setup_scene)
-        .add_systems(
+        .configure_sets(
             Update,
             (
-                poll_terminal_snapshots,
-                configure_terminal_fonts,
-                sync_terminal_font_helpers,
-                sync_terminal_texture,
-                drag_terminal_plane,
-                zoom_terminal_plane,
-                sync_terminal_plane_transform,
-                sync_terminal_panel_frames,
-                sync_terminal_hud_surface,
-                sync_eva_vector_demo,
-                forward_keyboard_input,
-                request_redraw_while_visuals_active,
+                NeoZeusSet::PollTerminal,
+                NeoZeusSet::RasterTerminal,
+                NeoZeusSet::UiInput,
+                NeoZeusSet::PresentTerminal,
+                NeoZeusSet::Redraw,
             )
                 .chain(),
         )
+        .add_systems(Startup, setup_scene)
+        .add_systems(
+            Update,
+            crate::terminals::poll_terminal_snapshots.in_set(NeoZeusSet::PollTerminal),
+        )
+        .add_systems(
+            Update,
+            (configure_terminal_fonts, sync_terminal_texture).in_set(NeoZeusSet::RasterTerminal),
+        )
+        .add_systems(
+            Update,
+            (
+                drag_terminal_view,
+                zoom_terminal_view,
+                forward_keyboard_input,
+            )
+                .in_set(NeoZeusSet::UiInput),
+        )
+        .add_systems(
+            Update,
+            (
+                sync_terminal_presentations,
+                sync_terminal_panel_frames,
+                sync_terminal_hud_surface,
+            )
+                .in_set(NeoZeusSet::PresentTerminal),
+        )
+        .add_systems(
+            Update,
+            (sync_eva_vector_demo, request_redraw_while_visuals_active).in_set(NeoZeusSet::Redraw),
+        )
         .add_systems(EguiPrimaryContextPass, ui_overlay);
+
+    if let Some(config) = AutoVerifyConfig::from_env() {
+        app.insert_resource(config);
+    }
 }
 
 pub(crate) fn format_startup_panic(payload: &(dyn Any + Send)) -> Option<String> {
@@ -130,12 +193,17 @@ pub(crate) fn should_request_visual_redraw(
 
 fn request_redraw_while_visuals_active(
     terminal_manager: Res<TerminalManager>,
+    presentation_store: Res<TerminalPresentationStore>,
     eva_demo: Res<EvaVectorDemoState>,
     panels: Query<&TerminalPresentation, With<TerminalPanel>>,
     mut redraws: MessageWriter<RequestRedraw>,
 ) {
-    let terminal_work_pending = terminal_manager.terminals.values().any(|terminal| {
-        terminal.surface_revision != terminal.uploaded_revision || terminal.pending_damage.is_some()
+    let terminal_work_pending = terminal_manager.terminals().iter().any(|(id, terminal)| {
+        terminal.pending_damage.is_some()
+            || presentation_store
+                .get(*id)
+                .map(|presented| terminal.surface_revision != presented.uploaded_revision)
+                .unwrap_or(false)
     });
     let presentation_animating = panels.iter().any(|presentation| {
         presentation
@@ -160,6 +228,9 @@ fn setup_scene(
     mut commands: Commands,
     mut images: ResMut<Assets<Image>>,
     mut terminal_manager: ResMut<TerminalManager>,
+    mut presentation_store: ResMut<TerminalPresentationStore>,
+    runtime_spawner: Res<TerminalRuntimeSpawner>,
+    auto_verify: Option<Res<AutoVerifyConfig>>,
 ) {
     commands.spawn((Camera2d, VelloView, TerminalCameraMarker));
 
@@ -181,38 +252,23 @@ fn setup_scene(
         EvaVectorDemoMarker,
     ));
 
-    let primary = commands
-        .spawn((
-            TerminalFontRole::Primary,
-            TextFont {
-                font_size: DEFAULT_CELL_HEIGHT_PX as f32 * 0.9,
-                ..default()
-            },
-        ))
-        .id();
-    let private_use = commands
-        .spawn((
-            TerminalFontRole::PrivateUse,
-            TextFont {
-                font_size: DEFAULT_CELL_HEIGHT_PX as f32 * 0.9,
-                ..default()
-            },
-        ))
-        .id();
-    let emoji = commands
-        .spawn((
-            TerminalFontRole::Emoji,
-            TextFont {
-                font_size: DEFAULT_CELL_HEIGHT_PX as f32 * 0.9,
-                ..default()
-            },
-        ))
-        .id();
-
-    terminal_manager.set_helper_entities(TerminalFontEntities {
-        primary,
-        private_use,
-        emoji,
-    });
-    let _ = terminal_manager.spawn_terminal(&mut commands, &mut images, true);
+    let Ok(primary_id) = spawn_terminal_instance(
+        &mut commands,
+        &mut images,
+        &mut terminal_manager,
+        &mut presentation_store,
+        &runtime_spawner,
+    ) else {
+        append_debug_log("failed to spawn primary terminal");
+        return;
+    };
+    if let Some(config) = auto_verify {
+        if let Some(bridge) = terminal_manager
+            .terminals()
+            .get(&primary_id)
+            .map(|terminal| terminal.bridge.clone())
+        {
+            start_auto_verify_dispatcher(bridge, runtime_spawner.notifier(), config.clone());
+        }
+    }
 }

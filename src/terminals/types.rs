@@ -1,175 +1,7 @@
-use crate::*;
-
-#[derive(Resource, Default)]
-pub(crate) struct TerminalFontState {
-    pub(crate) report: Option<Result<TerminalFontReport, String>>,
-    pub(crate) primary_font: Option<Handle<Font>>,
-    pub(crate) private_use_font: Option<Handle<Font>>,
-    pub(crate) emoji_font: Option<Handle<Font>>,
-}
-
-#[derive(Resource)]
-pub(crate) struct TerminalTextRenderer {
-    pub(crate) font_system: Option<CtFontSystem>,
-    pub(crate) swash_cache: CtSwashCache,
-}
-
-impl Default for TerminalTextRenderer {
-    fn default() -> Self {
-        Self {
-            font_system: None,
-            swash_cache: CtSwashCache::new(),
-        }
-    }
-}
-
-#[derive(Resource)]
-pub(crate) struct TerminalPlaneState {
-    pub(crate) yaw: f32,
-    pub(crate) pitch: f32,
-    pub(crate) distance: f32,
-    pub(crate) focal_length: f32,
-    pub(crate) offset: Vec2,
-}
-
-#[derive(Resource, Default)]
-pub(crate) struct TerminalPointerState {
-    pub(crate) scroll_drag_remainder_px: f32,
-}
-
-impl Default for TerminalPlaneState {
-    fn default() -> Self {
-        Self {
-            yaw: 0.0,
-            pitch: 0.0,
-            distance: 10.0,
-            focal_length: 10.0,
-            offset: Vec2::ZERO,
-        }
-    }
-}
-
-#[derive(Resource, Default)]
-pub(crate) struct TerminalTextureState {
-    pub(crate) image: Option<Handle<Image>>,
-    pub(crate) helper_entities: Option<TerminalFontEntities>,
-    pub(crate) texture_size: UVec2,
-    pub(crate) cell_size: UVec2,
-}
-
-#[derive(Resource, Default)]
-pub(crate) struct TerminalGlyphCache {
-    pub(crate) glyphs: HashMap<TerminalGlyphCacheKey, CachedTerminalGlyph>,
-}
-
-#[derive(Clone, Copy)]
-pub(crate) struct TerminalFontEntities {
-    pub(crate) primary: Entity,
-    pub(crate) private_use: Entity,
-    pub(crate) emoji: Entity,
-}
-
-#[derive(Component)]
-pub(crate) struct TerminalPlaneMarker;
-
-#[derive(Component)]
-pub(crate) struct TerminalCameraMarker;
-
-#[derive(Component)]
-pub(crate) struct TerminalHudSurfaceMarker;
-
-#[derive(Component, Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub(crate) enum TerminalFontRole {
-    Primary,
-    PrivateUse,
-    Emoji,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub(crate) struct TerminalGlyphCacheKey {
-    pub(crate) content: TerminalCellContent,
-    pub(crate) font_role: TerminalFontRole,
-    pub(crate) width_cells: u8,
-    pub(crate) cell_width: u32,
-    pub(crate) cell_height: u32,
-}
-
-#[derive(Clone)]
-pub(crate) struct CachedTerminalGlyph {
-    pub(crate) width: u32,
-    pub(crate) height: u32,
-    pub(crate) pixels: Vec<u8>,
-    pub(crate) preserve_color: bool,
-}
-
-#[derive(Clone, Default, PartialEq)]
-pub(crate) struct TerminalSnapshot {
-    pub(crate) surface: Option<TerminalSurface>,
-    pub(crate) status: String,
-}
-
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub(crate) enum TerminalDamage {
-    #[default]
-    Full,
-    Rows(Vec<usize>),
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub(crate) struct TerminalFrameUpdate {
-    pub(crate) surface: TerminalSurface,
-    pub(crate) damage: TerminalDamage,
-    pub(crate) status: String,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub(crate) enum TerminalUpdate {
-    Frame(TerminalFrameUpdate),
-    Status {
-        status: String,
-        surface: Option<TerminalSurface>,
-    },
-}
-
-pub(crate) type LatestTerminalStatus = (String, Option<TerminalSurface>);
-pub(crate) type DrainedTerminalUpdates = (
-    Option<TerminalFrameUpdate>,
-    Option<LatestTerminalStatus>,
-    u64,
-);
-
-pub(crate) enum TerminalCommand {
-    InputText(String),
-    InputEvent(String),
-    SendCommand(String),
-    ScrollDisplay(i32),
-    Shutdown,
-}
-
-pub(crate) struct TerminalDimensions {
-    pub(crate) cols: usize,
-    pub(crate) rows: usize,
-}
-
-impl Dimensions for TerminalDimensions {
-    fn total_lines(&self) -> usize {
-        self.rows
-    }
-
-    fn screen_lines(&self) -> usize {
-        self.rows
-    }
-
-    fn columns(&self) -> usize {
-        self.cols
-    }
-}
-
-pub(crate) struct PtySession {
-    pub(crate) master: Box<dyn MasterPty + Send>,
-    pub(crate) writer: Box<dyn Write + Send>,
-    pub(crate) child: Box<dyn Child + Send + Sync>,
-}
+use alacritty_terminal::grid::Dimensions;
+use bevy_egui::egui;
+use portable_pty::{Child, MasterPty};
+use std::{io::Write, path::PathBuf, sync::Arc, time::Duration};
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub(crate) enum TerminalCellContent {
@@ -238,7 +70,7 @@ impl Default for TerminalCell {
         Self {
             content: TerminalCellContent::Empty,
             fg: egui::Color32::from_rgb(220, 220, 220),
-            bg: DEFAULT_BG,
+            bg: crate::app_config::DEFAULT_BG,
             width: 1,
         }
     }
@@ -282,8 +114,7 @@ impl TerminalSurface {
         if x >= self.cols || y >= self.rows {
             return;
         }
-        let index = y * self.cols + x;
-        self.cells[index] = cell;
+        self.cells[y * self.cols + x] = cell;
     }
 
     #[cfg(test)]
@@ -307,6 +138,133 @@ impl TerminalSurface {
     pub(crate) fn cell(&self, x: usize, y: usize) -> &TerminalCell {
         &self.cells[y * self.cols + x]
     }
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) enum TerminalDamage {
+    #[default]
+    Full,
+    Rows(Vec<usize>),
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) enum TerminalLifecycle {
+    #[default]
+    Running,
+    Exited {
+        code: Option<u32>,
+        signal: Option<String>,
+    },
+    Disconnected,
+    Failed,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct TerminalRuntimeState {
+    pub(crate) status: String,
+    pub(crate) lifecycle: TerminalLifecycle,
+    pub(crate) last_error: Option<String>,
+}
+
+impl TerminalRuntimeState {
+    pub(crate) fn running(status: impl Into<String>) -> Self {
+        Self {
+            status: status.into(),
+            lifecycle: TerminalLifecycle::Running,
+            last_error: None,
+        }
+    }
+
+    pub(crate) fn failed(status: impl Into<String>) -> Self {
+        let status = status.into();
+        Self {
+            status: status.clone(),
+            lifecycle: TerminalLifecycle::Failed,
+            last_error: Some(status),
+        }
+    }
+
+    pub(crate) fn disconnected(status: impl Into<String>) -> Self {
+        Self {
+            status: status.into(),
+            lifecycle: TerminalLifecycle::Disconnected,
+            last_error: None,
+        }
+    }
+
+    pub(crate) fn exited(
+        status: impl Into<String>,
+        code: Option<u32>,
+        signal: Option<String>,
+    ) -> Self {
+        Self {
+            status: status.into(),
+            lifecycle: TerminalLifecycle::Exited { code, signal },
+            last_error: None,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub(crate) struct TerminalSnapshot {
+    pub(crate) surface: Option<TerminalSurface>,
+    pub(crate) runtime: TerminalRuntimeState,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct TerminalFrameUpdate {
+    pub(crate) surface: TerminalSurface,
+    pub(crate) damage: TerminalDamage,
+    pub(crate) runtime: TerminalRuntimeState,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) enum TerminalUpdate {
+    Frame(TerminalFrameUpdate),
+    Status {
+        runtime: TerminalRuntimeState,
+        surface: Option<TerminalSurface>,
+    },
+}
+
+pub(crate) type LatestTerminalStatus = (TerminalRuntimeState, Option<TerminalSurface>);
+pub(crate) type DrainedTerminalUpdates = (
+    Option<TerminalFrameUpdate>,
+    Option<LatestTerminalStatus>,
+    u64,
+);
+
+pub(crate) enum TerminalCommand {
+    InputText(String),
+    InputEvent(String),
+    SendCommand(String),
+    ScrollDisplay(i32),
+    Shutdown,
+}
+
+pub(crate) struct TerminalDimensions {
+    pub(crate) cols: usize,
+    pub(crate) rows: usize,
+}
+
+impl Dimensions for TerminalDimensions {
+    fn total_lines(&self) -> usize {
+        self.rows
+    }
+
+    fn screen_lines(&self) -> usize {
+        self.rows
+    }
+
+    fn columns(&self) -> usize {
+        self.cols
+    }
+}
+
+pub(crate) struct PtySession {
+    pub(crate) master: Box<dyn MasterPty + Send>,
+    pub(crate) writer: Box<dyn Write + Send>,
+    pub(crate) child: Box<dyn Child + Send + Sync>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

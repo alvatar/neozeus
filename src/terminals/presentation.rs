@@ -1,5 +1,100 @@
-use super::*;
-use crate::*;
+use crate::{
+    app_config::{DEFAULT_CELL_HEIGHT_PX, DEFAULT_CELL_WIDTH_PX, TERMINAL_MARGIN},
+    terminals::{
+        append_debug_log, create_terminal_image, TerminalDisplayMode, TerminalHudSurfaceMarker,
+        TerminalId, TerminalManager, TerminalPanel, TerminalPanelFrame, TerminalPanelSprite,
+        TerminalPresentation, TerminalPresentationStore, TerminalRuntimeSpawner,
+        TerminalTextureState, TerminalViewState,
+    },
+};
+use bevy::{prelude::*, window::PrimaryWindow};
+
+pub(crate) const HUD_SIDE_RESERVED: f32 = 72.0;
+pub(crate) const HUD_TOP_RESERVED: f32 = 140.0;
+pub(crate) const HUD_BOTTOM_RESERVED: f32 = 64.0;
+pub(crate) const HUD_FRAME_PADDING: Vec2 = Vec2::new(18.0, 18.0);
+
+fn terminal_home_position(slot: usize) -> Vec2 {
+    const COLUMNS: usize = 3;
+    const STEP_X: f32 = 360.0;
+    const STEP_Y: f32 = 220.0;
+    let column = slot % COLUMNS;
+    let row = slot / COLUMNS;
+    Vec2::new(-360.0 + column as f32 * STEP_X, 120.0 - row as f32 * STEP_Y)
+}
+
+pub(crate) fn spawn_terminal_instance(
+    commands: &mut Commands,
+    images: &mut Assets<Image>,
+    terminal_manager: &mut TerminalManager,
+    presentation_store: &mut TerminalPresentationStore,
+    runtime_spawner: &TerminalRuntimeSpawner,
+) -> Result<TerminalId, String> {
+    let bridge = runtime_spawner.spawn();
+    let id = terminal_manager.create_terminal(bridge);
+    let slot = terminal_manager
+        .slot_of(id)
+        .ok_or_else(|| format!("missing terminal slot for {}", id.0))?;
+    spawn_terminal_presentation(commands, images, presentation_store, id, slot);
+    append_debug_log(format!("spawned terminal {}", id.0));
+    Ok(id)
+}
+
+fn spawn_terminal_presentation(
+    commands: &mut Commands,
+    images: &mut Assets<Image>,
+    presentation_store: &mut TerminalPresentationStore,
+    id: TerminalId,
+    slot: usize,
+) {
+    let home_position = terminal_home_position(slot);
+    let presentation = TerminalPresentation {
+        home_position,
+        current_position: home_position,
+        target_position: home_position,
+        current_size: Vec2::ONE,
+        target_size: Vec2::ONE,
+        current_alpha: 0.82,
+        target_alpha: 0.82,
+        current_z: -0.05,
+        target_z: -0.05,
+    };
+
+    let image_handle = images.add(create_terminal_image(UVec2::ONE));
+    commands.spawn((
+        Sprite {
+            color: Color::srgba(0.08, 0.08, 0.09, 0.94),
+            custom_size: Some(Vec2::ONE),
+            ..default()
+        },
+        Transform::from_xyz(
+            home_position.x,
+            home_position.y,
+            presentation.current_z - 0.01,
+        ),
+        TerminalPanelFrame { id },
+    ));
+    commands.spawn((
+        Sprite::from_image(image_handle.clone()),
+        Transform::from_xyz(home_position.x, home_position.y, presentation.current_z),
+        TerminalPanelSprite,
+        TerminalPanel { id },
+        presentation,
+    ));
+
+    presentation_store.register(
+        id,
+        crate::terminals::PresentedTerminal {
+            image: image_handle,
+            texture_state: TerminalTextureState {
+                texture_size: UVec2::ONE,
+                cell_size: UVec2::new(DEFAULT_CELL_WIDTH_PX, DEFAULT_CELL_HEIGHT_PX),
+            },
+            display_mode: TerminalDisplayMode::Smooth,
+            uploaded_revision: 0,
+        },
+    );
+}
 
 fn window_scale_factor(window: &Window) -> f32 {
     window.scale_factor().max(f32::EPSILON)
@@ -45,7 +140,7 @@ pub(crate) fn snap_to_pixel_grid(position: Vec2, window: &Window) -> Vec2 {
 
 fn smooth_terminal_screen_size(
     texture_state: &TerminalTextureState,
-    plane_state: &TerminalPlaneState,
+    view_state: &TerminalViewState,
     window: &Window,
 ) -> Vec2 {
     let texture_width = texture_state.texture_size.x.max(1) as f32;
@@ -53,7 +148,7 @@ fn smooth_terminal_screen_size(
     let fit_width = (window.width() - TERMINAL_MARGIN * 2.0).max(64.0);
     let fit_height = (window.height() - TERMINAL_MARGIN * 2.0).max(64.0);
     let fit_scale = (fit_width / texture_width).min(fit_height / texture_height);
-    let zoom_scale = 10.0 / plane_state.distance.max(0.1);
+    let zoom_scale = 10.0 / view_state.distance.max(0.1);
     Vec2::new(texture_width, texture_height) * fit_scale * zoom_scale
 }
 
@@ -88,7 +183,7 @@ pub(crate) fn pixel_perfect_terminal_logical_size(
 
 pub(crate) fn terminal_texture_screen_size(
     texture_state: &TerminalTextureState,
-    plane_state: &TerminalPlaneState,
+    view_state: &TerminalViewState,
     window: &Window,
     pixel_perfect: bool,
 ) -> Vec2 {
@@ -96,13 +191,14 @@ pub(crate) fn terminal_texture_screen_size(
         return pixel_perfect_terminal_logical_size(texture_state, window);
     }
 
-    smooth_terminal_screen_size(texture_state, plane_state, window)
+    smooth_terminal_screen_size(texture_state, view_state, window)
 }
 
-pub(crate) fn sync_terminal_plane_transform(
+pub(crate) fn sync_terminal_presentations(
     time: Res<Time>,
     terminal_manager: Res<TerminalManager>,
-    plane_state: Res<TerminalPlaneState>,
+    presentation_store: Res<TerminalPresentationStore>,
+    view_state: Res<TerminalViewState>,
     primary_window: Single<&Window, With<PrimaryWindow>>,
     mut panels: Query<(
         &TerminalPanel,
@@ -112,9 +208,9 @@ pub(crate) fn sync_terminal_plane_transform(
         &mut Visibility,
     )>,
 ) {
-    let active_id = terminal_manager.active_id;
+    let active_id = terminal_manager.active_id();
     let background_ids = terminal_manager
-        .order
+        .terminal_ids()
         .iter()
         .copied()
         .filter(|id| Some(*id) != active_id)
@@ -122,21 +218,28 @@ pub(crate) fn sync_terminal_plane_transform(
     let blend = 1.0 - (-time.delta_secs() * 10.0).exp();
 
     for (panel, mut presentation, mut transform, mut sprite, mut visibility) in &mut panels {
-        let Some(terminal) = terminal_manager.terminals.get(&panel.id) else {
+        let Some(terminal) = terminal_manager.terminals().get(&panel.id) else {
             *visibility = Visibility::Hidden;
             continue;
         };
-        if terminal.latest.surface.is_none() {
+        let Some(presented_terminal) = presentation_store.get(panel.id) else {
+            *visibility = Visibility::Hidden;
+            continue;
+        };
+        if terminal.snapshot.surface.is_none() {
             *visibility = Visibility::Hidden;
             continue;
         }
 
-        let smooth_size =
-            smooth_terminal_screen_size(&terminal.texture_state, &plane_state, &primary_window);
+        let smooth_size = smooth_terminal_screen_size(
+            &presented_terminal.texture_state,
+            &view_state,
+            &primary_window,
+        );
         let hud_size =
-            pixel_perfect_terminal_logical_size(&terminal.texture_state, &primary_window);
+            pixel_perfect_terminal_logical_size(&presented_terminal.texture_state, &primary_window);
         let pixel_perfect = Some(panel.id) == active_id
-            && terminal.display_mode == TerminalDisplayMode::PixelPerfect;
+            && presented_terminal.display_mode == TerminalDisplayMode::PixelPerfect;
         let background_rank = background_ids
             .iter()
             .position(|id| *id == panel.id)
@@ -149,12 +252,12 @@ pub(crate) fn sync_terminal_plane_transform(
                 presentation.target_size = hud_size;
                 presentation.target_z = 3.0;
             } else {
-                presentation.target_position = plane_state.offset;
+                presentation.target_position = view_state.offset;
                 presentation.target_size = smooth_size;
                 presentation.target_z = 0.3;
             }
         } else {
-            presentation.target_position = plane_state.offset + presentation.home_position;
+            presentation.target_position = view_state.offset + presentation.home_position;
             presentation.target_size = smooth_size * 0.62;
             presentation.target_alpha = 0.84;
             presentation.target_z = -0.05 - background_rank * 0.02;
@@ -194,6 +297,7 @@ pub(crate) fn sync_terminal_plane_transform(
 
 pub(crate) fn sync_terminal_panel_frames(
     terminal_manager: Res<TerminalManager>,
+    presentation_store: Res<TerminalPresentationStore>,
     panels: Query<(&TerminalPanel, &TerminalPresentation)>,
     mut frames: Query<(
         &TerminalPanelFrame,
@@ -203,7 +307,11 @@ pub(crate) fn sync_terminal_panel_frames(
     )>,
 ) {
     for (frame, mut transform, mut sprite, mut visibility) in &mut frames {
-        let Some(terminal) = terminal_manager.terminals.get(&frame.id) else {
+        let Some(terminal) = terminal_manager.terminals().get(&frame.id) else {
+            *visibility = Visibility::Hidden;
+            continue;
+        };
+        let Some(presented_terminal) = presentation_store.get(frame.id) else {
             *visibility = Visibility::Hidden;
             continue;
         };
@@ -211,12 +319,12 @@ pub(crate) fn sync_terminal_panel_frames(
             *visibility = Visibility::Hidden;
             continue;
         };
-        if terminal.latest.surface.is_none() {
+        if terminal.snapshot.surface.is_none() {
             *visibility = Visibility::Hidden;
             continue;
         }
-        if terminal_manager.active_id == Some(frame.id)
-            && terminal.display_mode == TerminalDisplayMode::PixelPerfect
+        if terminal_manager.active_id() == Some(frame.id)
+            && presented_terminal.display_mode == TerminalDisplayMode::PixelPerfect
         {
             *visibility = Visibility::Hidden;
             continue;
@@ -235,6 +343,7 @@ pub(crate) fn sync_terminal_panel_frames(
 
 pub(crate) fn sync_terminal_hud_surface(
     terminal_manager: Res<TerminalManager>,
+    presentation_store: Res<TerminalPresentationStore>,
     panels: Query<(&TerminalPanel, &TerminalPresentation)>,
     mut hud_surface: Single<
         (&mut Transform, &mut Sprite, &mut Visibility),
@@ -242,15 +351,19 @@ pub(crate) fn sync_terminal_hud_surface(
     >,
 ) {
     let (transform, sprite, visibility) = &mut *hud_surface;
-    let Some(active_id) = terminal_manager.active_id else {
+    let Some(active_id) = terminal_manager.active_id() else {
         **visibility = Visibility::Hidden;
         return;
     };
-    let Some(terminal) = terminal_manager.terminals.get(&active_id) else {
+    let Some(terminal) = terminal_manager.terminals().get(&active_id) else {
         **visibility = Visibility::Hidden;
         return;
     };
-    if terminal.display_mode != TerminalDisplayMode::PixelPerfect {
+    let Some(presented_terminal) = presentation_store.get(active_id) else {
+        **visibility = Visibility::Hidden;
+        return;
+    };
+    if presented_terminal.display_mode != TerminalDisplayMode::PixelPerfect {
         **visibility = Visibility::Hidden;
         return;
     }
@@ -258,6 +371,10 @@ pub(crate) fn sync_terminal_hud_surface(
         **visibility = Visibility::Hidden;
         return;
     };
+    if terminal.snapshot.surface.is_none() {
+        **visibility = Visibility::Hidden;
+        return;
+    }
 
     **visibility = Visibility::Visible;
     sprite.custom_size = Some(hud_surface_size(presentation.current_size));

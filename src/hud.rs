@@ -1,4 +1,13 @@
-use crate::*;
+use crate::terminals::{
+    append_debug_log, spawn_terminal_instance, TerminalDisplayMode, TerminalFontState,
+    TerminalManager, TerminalPresentationStore, TerminalRuntimeSpawner, TerminalViewState,
+};
+use bevy::{prelude::*, window::PrimaryWindow};
+use bevy_egui::{egui, EguiContexts};
+use bevy_vello::{
+    prelude::{kurbo, peniko, VelloScene2d},
+    vello,
+};
 
 #[derive(Resource)]
 pub(crate) struct EvaVectorDemoState {
@@ -261,23 +270,32 @@ pub(crate) fn sync_eva_vector_demo(
     rebuild_eva_vector_demo_scene(&mut scene, &primary_window, time.elapsed_secs());
 }
 
+#[allow(
+    clippy::too_many_arguments,
+    reason = "ui overlay needs app resources, terminal state, and bevy contexts together"
+)]
 pub(crate) fn ui_overlay(
     mut contexts: EguiContexts,
     mut commands: Commands,
     mut images: ResMut<Assets<Image>>,
     mut terminal_manager: ResMut<TerminalManager>,
+    mut presentation_store: ResMut<TerminalPresentationStore>,
+    runtime_spawner: Res<TerminalRuntimeSpawner>,
     font_state: Res<TerminalFontState>,
-    mut plane_state: ResMut<TerminalPlaneState>,
+    mut view_state: ResMut<TerminalViewState>,
     mut eva_demo: ResMut<EvaVectorDemoState>,
-) -> Result {
+) -> bevy::ecs::error::Result {
     let ctx = contexts.ctx_mut()?;
 
     egui::TopBottomPanel::top("toolbar").show(ctx, |ui| {
         ui.horizontal_wrapped(|ui| {
             let active_status = terminal_manager
                 .active_snapshot()
-                .map(|snapshot| snapshot.status.as_str())
+                .map(|snapshot| snapshot.runtime.status.as_str())
                 .unwrap_or("no active terminal");
+            let active_error = terminal_manager
+                .active_snapshot()
+                .and_then(|snapshot| snapshot.runtime.last_error.as_deref());
             let debug = terminal_manager.active_debug_stats();
 
             ui.label(egui::RichText::new("neozeus").strong());
@@ -287,10 +305,7 @@ pub(crate) fn ui_overlay(
             ui.label(format!(
                 "terms {} · active {}",
                 terminal_manager.terminal_ids().len(),
-                terminal_manager
-                    .active_id()
-                    .map(|id| id.0)
-                    .unwrap_or_default(),
+                terminal_manager.active_id().map(|id| id.0).unwrap_or_default(),
             ));
             ui.separator();
             ui.label(format!(
@@ -314,7 +329,10 @@ pub(crate) fn ui_overlay(
                 ui.label(format!("last cmd {}", debug.last_command));
                 ui.separator();
             }
-            if !debug.last_error.is_empty() {
+            if let Some(error) = active_error {
+                ui.colored_label(egui::Color32::LIGHT_RED, format!("last err {error}"));
+                ui.separator();
+            } else if !debug.last_error.is_empty() {
                 ui.colored_label(
                     egui::Color32::LIGHT_RED,
                     format!("last err {}", debug.last_error),
@@ -337,22 +355,22 @@ pub(crate) fn ui_overlay(
                     ui.separator();
                 }
             }
-            ui.label(format!("zoom {:.2}", plane_state.distance));
+            ui.label(format!("zoom {:.2}", view_state.distance));
             ui.separator();
             ui.label(format!(
                 "offset {:.2},{:.2}",
-                plane_state.offset.x, plane_state.offset.y
+                view_state.offset.x, view_state.offset.y
             ));
             ui.separator();
-            let display_mode = terminal_manager
-                .active_display_mode()
+            let display_mode = presentation_store
+                .active_display_mode(terminal_manager.active_id())
                 .unwrap_or(TerminalDisplayMode::Smooth);
             let pixel_perfect = display_mode == TerminalDisplayMode::PixelPerfect;
             if ui
                 .selectable_label(pixel_perfect, "pixel perfect HUD")
                 .clicked()
             {
-                terminal_manager.toggle_active_display_mode();
+                presentation_store.toggle_active_display_mode(terminal_manager.active_id());
             }
             ui.separator();
             ui.label("MMB drag: scrollback · Shift+MMB drag: pan · Shift+wheel: zoom");
@@ -360,9 +378,13 @@ pub(crate) fn ui_overlay(
             ui.checkbox(&mut eva_demo.enabled, "EVA vector demo");
             ui.separator();
             if ui.button("new terminal").clicked() {
-                if let Err(error) =
-                    terminal_manager.spawn_terminal(&mut commands, &mut images, false)
-                {
+                if let Err(error) = spawn_terminal_instance(
+                    &mut commands,
+                    &mut images,
+                    &mut terminal_manager,
+                    &mut presentation_store,
+                    &runtime_spawner,
+                ) {
                     append_debug_log(format!("ui failed to spawn terminal: {error}"));
                 }
             }
@@ -377,17 +399,14 @@ pub(crate) fn ui_overlay(
             }
             ui.separator();
             if ui.button("reset view").clicked() {
-                plane_state.yaw = 0.0;
-                plane_state.pitch = 0.0;
-                plane_state.distance = 10.0;
-                plane_state.focal_length = 10.0;
-                plane_state.offset = Vec2::ZERO;
+                view_state.distance = 10.0;
+                view_state.offset = Vec2::ZERO;
             }
             for command in ["pwd", "ls", "clear", "btop", "tmux"] {
                 if ui.button(command).clicked() {
                     append_debug_log(format!("ui button clicked: {command}"));
                     if let Some(bridge) = terminal_manager.active_bridge() {
-                        bridge.send(TerminalCommand::SendCommand(command.into()));
+                        bridge.send(crate::terminals::TerminalCommand::SendCommand(command.into()));
                     }
                 }
             }
