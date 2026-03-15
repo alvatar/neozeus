@@ -1,0 +1,245 @@
+#[cfg(test)]
+use crate::hud::default_hud_module_instance;
+#[cfg(test)]
+use crate::hud::state::HudModuleDefinition;
+use crate::hud::{
+    append_hud_log, HudModuleId, HudRect, HudState, TerminalVisibilityState, HUD_MODULE_DEFINITIONS,
+};
+use bevy::prelude::*;
+use std::{collections::BTreeMap, env, fs, path::PathBuf};
+
+const HUD_LAYOUT_FILENAME: &str = "hud-layout.v1";
+const HUD_LAYOUT_VERSION: &str = "version 1";
+const HUD_LAYOUT_SAVE_DEBOUNCE_SECS: f32 = 0.3;
+
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct PersistedHudModuleState {
+    pub(crate) enabled: bool,
+    pub(crate) rect: HudRect,
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub(crate) struct PersistedHudState {
+    pub(crate) modules: BTreeMap<HudModuleId, PersistedHudModuleState>,
+}
+
+#[derive(Resource, Default)]
+pub(crate) struct HudPersistenceState {
+    pub(crate) path: Option<PathBuf>,
+    pub(crate) dirty_since_secs: Option<f32>,
+}
+
+pub(crate) fn resolve_hud_layout_path_with(
+    xdg_config_home: Option<&str>,
+    home: Option<&str>,
+) -> Option<PathBuf> {
+    if let Some(xdg) = xdg_config_home.filter(|value| !value.is_empty()) {
+        return Some(PathBuf::from(xdg).join("neozeus").join(HUD_LAYOUT_FILENAME));
+    }
+
+    home.filter(|value| !value.is_empty()).map(|value| {
+        PathBuf::from(value)
+            .join(".config/neozeus")
+            .join(HUD_LAYOUT_FILENAME)
+    })
+}
+
+pub(crate) fn resolve_hud_layout_path() -> Option<PathBuf> {
+    resolve_hud_layout_path_with(
+        env::var("XDG_CONFIG_HOME").ok().as_deref(),
+        env::var("HOME").ok().as_deref(),
+    )
+}
+
+pub(crate) fn parse_persisted_hud_state(text: &str) -> PersistedHudState {
+    let mut persisted = PersistedHudState::default();
+    for (line_index, line) in text.lines().enumerate() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        if line_index == 0 {
+            if line != HUD_LAYOUT_VERSION {
+                append_hud_log(format!("hud layout: unexpected version line `{line}`"));
+                return PersistedHudState::default();
+            }
+            continue;
+        }
+
+        let mut parts = line.split_whitespace();
+        let Some(module_name) = parts.next() else {
+            continue;
+        };
+        let Some(module_id) = parse_hud_module_id(module_name) else {
+            continue;
+        };
+        let mut enabled = None;
+        let mut x = None;
+        let mut y = None;
+        let mut w = None;
+        let mut h = None;
+        for part in parts {
+            let Some((key, value)) = part.split_once('=') else {
+                continue;
+            };
+            match key {
+                "enabled" => enabled = value.parse::<u8>().ok().map(|flag| flag != 0),
+                "x" => x = value.parse::<f32>().ok(),
+                "y" => y = value.parse::<f32>().ok(),
+                "w" => w = value.parse::<f32>().ok(),
+                "h" => h = value.parse::<f32>().ok(),
+                _ => {}
+            }
+        }
+        let (Some(enabled), Some(x), Some(y), Some(w), Some(h)) = (enabled, x, y, w, h) else {
+            continue;
+        };
+        persisted.modules.insert(
+            module_id,
+            PersistedHudModuleState {
+                enabled,
+                rect: HudRect { x, y, w, h },
+            },
+        );
+    }
+    persisted
+}
+
+pub(crate) fn serialize_persisted_hud_state(state: &PersistedHudState) -> String {
+    let mut output = String::from(HUD_LAYOUT_VERSION);
+    output.push('\n');
+    for definition in HUD_MODULE_DEFINITIONS {
+        let Some(module) = state.modules.get(&definition.id) else {
+            continue;
+        };
+        output.push_str(&format!(
+            "{} enabled={} x={} y={} w={} h={}\n",
+            definition.id.title_key(),
+            u8::from(module.enabled),
+            module.rect.x,
+            module.rect.y,
+            module.rect.w,
+            module.rect.h,
+        ));
+    }
+    output
+}
+
+fn parse_hud_module_id(name: &str) -> Option<HudModuleId> {
+    match name {
+        "DebugToolbar" => Some(HudModuleId::DebugToolbar),
+        "AgentList" => Some(HudModuleId::AgentList),
+        _ => None,
+    }
+}
+
+impl HudModuleId {
+    pub(crate) const fn title_key(self) -> &'static str {
+        match self {
+            Self::DebugToolbar => "DebugToolbar",
+            Self::AgentList => "AgentList",
+        }
+    }
+}
+
+pub(crate) fn load_persisted_hud_state_from(path: &PathBuf) -> PersistedHudState {
+    match fs::read_to_string(path) {
+        Ok(text) => parse_persisted_hud_state(&text),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => PersistedHudState::default(),
+        Err(error) => {
+            append_hud_log(format!(
+                "hud layout load failed {}: {error}",
+                path.display()
+            ));
+            PersistedHudState::default()
+        }
+    }
+}
+
+pub(crate) fn save_hud_layout_if_dirty(
+    time: Res<Time>,
+    mut hud_state: ResMut<HudState>,
+    mut persistence_state: ResMut<HudPersistenceState>,
+    visibility_state: Res<TerminalVisibilityState>,
+) {
+    let _ = &visibility_state;
+    if hud_state.drag.is_some() {
+        if hud_state.dirty_layout && persistence_state.dirty_since_secs.is_none() {
+            persistence_state.dirty_since_secs = Some(time.elapsed_secs());
+        }
+        return;
+    }
+
+    if hud_state.dirty_layout && persistence_state.dirty_since_secs.is_none() {
+        persistence_state.dirty_since_secs = Some(time.elapsed_secs());
+        return;
+    }
+
+    let Some(dirty_since) = persistence_state.dirty_since_secs else {
+        return;
+    };
+    if time.elapsed_secs() - dirty_since < HUD_LAYOUT_SAVE_DEBOUNCE_SECS {
+        return;
+    }
+    let Some(path) = persistence_state.path.as_ref() else {
+        hud_state.dirty_layout = false;
+        persistence_state.dirty_since_secs = None;
+        return;
+    };
+
+    let mut persisted = PersistedHudState::default();
+    for definition in HUD_MODULE_DEFINITIONS {
+        let Some(module) = hud_state.get(definition.id) else {
+            continue;
+        };
+        persisted.modules.insert(
+            definition.id,
+            PersistedHudModuleState {
+                enabled: module.shell.enabled,
+                rect: module.shell.target_rect,
+            },
+        );
+    }
+
+    if let Some(parent) = path.parent() {
+        if let Err(error) = fs::create_dir_all(parent) {
+            append_hud_log(format!(
+                "hud layout mkdir failed {}: {error}",
+                parent.display()
+            ));
+            hud_state.dirty_layout = false;
+            persistence_state.dirty_since_secs = None;
+            return;
+        }
+    }
+
+    let serialized = serialize_persisted_hud_state(&persisted);
+    if let Err(error) = fs::write(path, serialized) {
+        append_hud_log(format!(
+            "hud layout save failed {}: {error}",
+            path.display()
+        ));
+    }
+    hud_state.dirty_layout = false;
+    persistence_state.dirty_since_secs = None;
+}
+
+#[cfg(test)]
+pub(crate) fn apply_persisted_layout(
+    definitions: &[HudModuleDefinition],
+    persisted: &PersistedHudState,
+) -> HudState {
+    let mut hud_state = HudState::default();
+    for definition in definitions {
+        let mut module = default_hud_module_instance(definition);
+        if let Some(saved) = persisted.modules.get(&definition.id) {
+            module.shell.enabled = saved.enabled;
+            module.shell.target_rect = saved.rect;
+            module.shell.current_rect = saved.rect;
+            module.shell.target_alpha = if saved.enabled { 1.0 } else { 0.0 };
+            module.shell.current_alpha = module.shell.target_alpha;
+        }
+        hud_state.insert(definition.id, module);
+    }
+    hud_state
+}

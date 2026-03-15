@@ -4,7 +4,7 @@ use crate::terminals::{
 use bevy::prelude::{ResMut, Resource};
 use std::collections::HashMap;
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub(crate) struct TerminalId(pub(crate) u64);
 
 pub(crate) struct ManagedTerminal {

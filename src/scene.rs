@@ -1,6 +1,11 @@
 use crate::{
-    app_config::{EVA_DEMO_Z, GPU_NOT_FOUND_PANIC_FRAGMENT},
-    hud::{sync_eva_vector_demo, ui_overlay, EvaVectorDemoMarker, EvaVectorDemoState},
+    app_config::GPU_NOT_FOUND_PANIC_FRAGMENT,
+    hud::{
+        animate_hud_modules, apply_hud_commands, dispatch_hud_events, handle_hud_module_shortcuts,
+        handle_hud_pointer_input, hud_needs_redraw, render_hud_scene, save_hud_layout_if_dirty,
+        setup_hud, AgentDirectory, HudDispatcher, HudPersistenceState, HudState,
+        TerminalVisibilityState,
+    },
     input::{drag_terminal_view, forward_keyboard_input, zoom_terminal_view},
     terminals::{
         append_debug_log, configure_terminal_fonts, spawn_terminal_presentation,
@@ -12,17 +17,12 @@ use crate::{
     verification::{start_auto_verify_dispatcher, AutoVerifyConfig},
 };
 use bevy::{
-    camera::visibility::NoFrustumCulling,
     prelude::*,
     render::{settings::WgpuSettings, RenderPlugin},
     window::RequestRedraw,
     winit::{EventLoopProxyWrapper, WinitSettings},
 };
-use bevy_egui::{EguiPlugin, EguiPrimaryContextPass};
-use bevy_vello::{
-    prelude::{VelloScene2d, VelloView},
-    VelloPlugin,
-};
+use bevy_vello::{prelude::VelloView, VelloPlugin};
 use std::{any::Any, env, sync::Arc};
 
 pub(crate) fn build_app() -> Result<App, String> {
@@ -59,7 +59,12 @@ pub(crate) enum NeoZeusSet {
     PollTerminal,
     RasterTerminal,
     UiInput,
+    HudInput,
+    HudCommands,
+    HudEvents,
     PresentTerminal,
+    HudAnimation,
+    HudRender,
     Redraw,
 }
 
@@ -84,7 +89,7 @@ fn configure_app(app: &mut App) {
                 ..default()
             }),
     )
-    .add_plugins((EguiPlugin::default(), VelloPlugin::default()));
+    .add_plugins(VelloPlugin::default());
 
     let event_loop_proxy = {
         let proxy = app.world().resource::<EventLoopProxyWrapper>();
@@ -101,7 +106,11 @@ fn configure_app(app: &mut App) {
         .insert_resource(TerminalPointerState::default())
         .insert_resource(TerminalGlyphCache::default())
         .insert_resource(crate::terminals::TerminalTextRenderer::default())
-        .insert_resource(EvaVectorDemoState::default())
+        .insert_resource(HudState::default())
+        .insert_resource(HudDispatcher::default())
+        .insert_resource(HudPersistenceState::default())
+        .insert_resource(AgentDirectory::default())
+        .insert_resource(TerminalVisibilityState::default())
         .configure_sets(
             Update,
             NeoZeusSet::PollTerminal.before(NeoZeusSet::RasterTerminal),
@@ -114,11 +123,25 @@ fn configure_app(app: &mut App) {
             Update,
             NeoZeusSet::UiInput.before(NeoZeusSet::PresentTerminal),
         )
+        .configure_sets(Update, NeoZeusSet::HudInput.before(NeoZeusSet::HudCommands))
         .configure_sets(
             Update,
-            NeoZeusSet::PresentTerminal.before(NeoZeusSet::Redraw),
+            NeoZeusSet::HudCommands.before(NeoZeusSet::HudEvents),
         )
-        .add_systems(Startup, setup_scene)
+        .configure_sets(
+            Update,
+            NeoZeusSet::HudEvents.before(NeoZeusSet::HudAnimation),
+        )
+        .configure_sets(
+            Update,
+            NeoZeusSet::PresentTerminal.before(NeoZeusSet::HudAnimation),
+        )
+        .configure_sets(
+            Update,
+            NeoZeusSet::HudAnimation.before(NeoZeusSet::HudRender),
+        )
+        .configure_sets(Update, NeoZeusSet::HudRender.before(NeoZeusSet::Redraw))
+        .add_systems(Startup, (setup_scene, setup_hud).chain())
         .add_systems(
             Update,
             crate::terminals::poll_terminal_snapshots.in_set(NeoZeusSet::PollTerminal),
@@ -138,6 +161,12 @@ fn configure_app(app: &mut App) {
         )
         .add_systems(
             Update,
+            (handle_hud_pointer_input, handle_hud_module_shortcuts).in_set(NeoZeusSet::HudInput),
+        )
+        .add_systems(Update, apply_hud_commands.in_set(NeoZeusSet::HudCommands))
+        .add_systems(Update, dispatch_hud_events.in_set(NeoZeusSet::HudEvents))
+        .add_systems(
+            Update,
             (
                 sync_terminal_presentations,
                 sync_terminal_panel_frames,
@@ -147,9 +176,13 @@ fn configure_app(app: &mut App) {
         )
         .add_systems(
             Update,
-            (sync_eva_vector_demo, request_redraw_while_visuals_active).in_set(NeoZeusSet::Redraw),
+            (animate_hud_modules, save_hud_layout_if_dirty).in_set(NeoZeusSet::HudAnimation),
         )
-        .add_systems(EguiPrimaryContextPass, ui_overlay);
+        .add_systems(Update, render_hud_scene.in_set(NeoZeusSet::HudRender))
+        .add_systems(
+            Update,
+            request_redraw_while_visuals_active.in_set(NeoZeusSet::Redraw),
+        );
 
     if let Some(config) = AutoVerifyConfig::from_env() {
         app.insert_resource(config);
@@ -191,15 +224,15 @@ const Z_EPSILON: f32 = 0.01;
 pub(crate) fn should_request_visual_redraw(
     terminal_work_pending: bool,
     presentation_animating: bool,
-    eva_demo_enabled: bool,
+    hud_visuals_active: bool,
 ) -> bool {
-    terminal_work_pending || presentation_animating || eva_demo_enabled
+    terminal_work_pending || presentation_animating || hud_visuals_active
 }
 
 fn request_redraw_while_visuals_active(
     terminal_manager: Res<TerminalManager>,
     presentation_store: Res<TerminalPresentationStore>,
-    eva_demo: Res<EvaVectorDemoState>,
+    hud_state: Res<HudState>,
     panels: Query<&TerminalPresentation, With<TerminalPanel>>,
     mut redraws: MessageWriter<RequestRedraw>,
 ) {
@@ -223,7 +256,7 @@ fn request_redraw_while_visuals_active(
     if should_request_visual_redraw(
         terminal_work_pending,
         presentation_animating,
-        eva_demo.enabled,
+        hud_needs_redraw(&hud_state),
     ) {
         redraws.write(RequestRedraw);
     }
@@ -248,13 +281,6 @@ fn setup_scene(
         Transform::from_xyz(0.0, 0.0, 2.9),
         Visibility::Hidden,
         TerminalHudSurfaceMarker,
-    ));
-
-    commands.spawn((
-        VelloScene2d::default(),
-        Transform::from_xyz(0.0, 0.0, EVA_DEMO_Z),
-        NoFrustumCulling,
-        EvaVectorDemoMarker,
     ));
 
     let primary_bridge = runtime_spawner.spawn();

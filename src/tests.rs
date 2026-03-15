@@ -1,5 +1,11 @@
 use crate::{
     app_config::{DEFAULT_CELL_HEIGHT_PX, DEFAULT_CELL_WIDTH_PX},
+    hud::{
+        agent_rows, apply_persisted_layout, debug_toolbar_buttons, hud_needs_redraw,
+        parse_persisted_hud_state, resolve_agent_label, resolve_hud_layout_path_with,
+        serialize_persisted_hud_state, AgentDirectory, HudModuleId, HudRect, HudState,
+        PersistedHudModuleState, PersistedHudState, TerminalVisibilityPolicy,
+    },
     input::{ctrl_sequence, keyboard_input_to_terminal_command},
     scene::{format_startup_panic, should_request_visual_redraw},
     terminals::{
@@ -12,7 +18,7 @@ use crate::{
         TerminalDebugStats, TerminalFontRole, TerminalFontState, TerminalFrameUpdate,
         TerminalGlyphCacheKey, TerminalLifecycle, TerminalManager, TerminalRuntimeState,
         TerminalSurface, TerminalTextRenderer, TerminalTextureState, TerminalUpdate,
-        TerminalUpdateMailbox,
+        TerminalUpdateMailbox, TerminalViewState,
     },
 };
 use alacritty_terminal::vte::ansi::{Color as AnsiColor, NamedColor};
@@ -326,6 +332,176 @@ fn assert_glyph_has_visible_pixels(glyph: &CachedTerminalGlyph) {
     assert!(
         non_zero_alpha > 0,
         "glyph rasterized to fully transparent image"
+    );
+}
+
+#[test]
+fn hud_layout_path_prefers_xdg_then_home() {
+    assert_eq!(
+        resolve_hud_layout_path_with(Some("/tmp/xdg"), Some("/tmp/home")),
+        Some(PathBuf::from("/tmp/xdg/neozeus/hud-layout.v1"))
+    );
+    assert_eq!(
+        resolve_hud_layout_path_with(None, Some("/tmp/home")),
+        Some(PathBuf::from("/tmp/home/.config/neozeus/hud-layout.v1"))
+    );
+    assert_eq!(resolve_hud_layout_path_with(None, None), None);
+}
+
+#[test]
+fn hud_layout_parse_and_serialize_roundtrip() {
+    let mut persisted = PersistedHudState::default();
+    persisted.modules.insert(
+        HudModuleId::AgentList,
+        PersistedHudModuleState {
+            enabled: true,
+            rect: HudRect {
+                x: 24.0,
+                y: 96.0,
+                w: 300.0,
+                h: 420.0,
+            },
+        },
+    );
+    let text = serialize_persisted_hud_state(&persisted);
+    assert_eq!(parse_persisted_hud_state(&text), persisted);
+}
+
+#[test]
+fn apply_persisted_layout_overrides_defaults() {
+    let mut persisted = PersistedHudState::default();
+    persisted.modules.insert(
+        HudModuleId::AgentList,
+        PersistedHudModuleState {
+            enabled: false,
+            rect: HudRect {
+                x: 11.0,
+                y: 22.0,
+                w: 333.0,
+                h: 444.0,
+            },
+        },
+    );
+    let hud_state =
+        apply_persisted_layout(crate::hud::HUD_MODULE_DEFINITIONS.as_slice(), &persisted);
+    let module = hud_state.get(HudModuleId::AgentList).unwrap();
+    assert!(!module.shell.enabled);
+    assert_eq!(module.shell.target_rect.x, 11.0);
+    assert_eq!(module.shell.target_rect.w, 333.0);
+}
+
+#[test]
+fn resolve_agent_label_prefers_directory_over_fallback() {
+    let terminal_ids = [
+        crate::terminals::TerminalId(1),
+        crate::terminals::TerminalId(2),
+    ];
+    let mut directory = AgentDirectory::default();
+    directory
+        .labels
+        .insert(crate::terminals::TerminalId(2), "oracle".into());
+
+    assert_eq!(
+        resolve_agent_label(&terminal_ids, &directory, crate::terminals::TerminalId(1)),
+        "agent-1"
+    );
+    assert_eq!(
+        resolve_agent_label(&terminal_ids, &directory, crate::terminals::TerminalId(2)),
+        "oracle"
+    );
+}
+
+#[test]
+fn agent_rows_follow_terminal_order_and_focus() {
+    let (bridge_one, _) = test_bridge();
+    let (bridge_two, _) = test_bridge();
+    let mut manager = TerminalManager::default();
+    let id_one = manager.create_terminal(bridge_one);
+    let id_two = manager.create_terminal(bridge_two);
+    manager.focus_terminal(id_two);
+
+    let rows = agent_rows(
+        HudRect {
+            x: 24.0,
+            y: 96.0,
+            w: 300.0,
+            h: 420.0,
+        },
+        0.0,
+        &manager,
+        &AgentDirectory::default(),
+    );
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0].terminal_id, id_one);
+    assert_eq!(rows[0].label, "agent-1");
+    assert_eq!(rows[1].terminal_id, id_two);
+    assert!(rows[1].focused);
+}
+
+#[test]
+fn debug_toolbar_buttons_include_module_toggle_entries() {
+    let (bridge, _) = test_bridge();
+    let mut manager = TerminalManager::default();
+    manager.create_terminal(bridge);
+    let buttons = debug_toolbar_buttons(
+        HudRect {
+            x: 24.0,
+            y: 24.0,
+            w: 920.0,
+            h: 64.0,
+        },
+        &manager,
+        &Default::default(),
+        &TerminalViewState::default(),
+    );
+    assert!(buttons.iter().any(|button| button.label == "0 toolbar"));
+    assert!(buttons.iter().any(|button| button.label == "1 agents"));
+}
+
+#[test]
+fn hud_state_topmost_enabled_at_prefers_frontmost_module() {
+    let mut state = HudState::default();
+    state.insert(
+        HudModuleId::DebugToolbar,
+        crate::hud::default_hud_module_instance(&crate::hud::HUD_MODULE_DEFINITIONS[0]),
+    );
+    state.insert(
+        HudModuleId::AgentList,
+        crate::hud::default_hud_module_instance(&crate::hud::HUD_MODULE_DEFINITIONS[1]),
+    );
+    state.raise_to_front(HudModuleId::AgentList);
+
+    assert_eq!(
+        state.topmost_enabled_at(Vec2::new(40.0, 110.0)),
+        Some(HudModuleId::AgentList)
+    );
+}
+
+#[test]
+fn hud_needs_redraw_when_drag_or_animation_is_active() {
+    let mut state = HudState::default();
+    state.insert(
+        HudModuleId::AgentList,
+        crate::hud::default_hud_module_instance(&crate::hud::HUD_MODULE_DEFINITIONS[1]),
+    );
+    assert!(!hud_needs_redraw(&state));
+    state.drag = Some(crate::hud::HudDragState {
+        module_id: HudModuleId::AgentList,
+        grab_offset: Vec2::ZERO,
+    });
+    assert!(hud_needs_redraw(&state));
+    state.drag = None;
+    let module = state.get_mut(HudModuleId::AgentList).unwrap();
+    module.shell.current_rect.x = 0.0;
+    module.shell.target_rect.x = 10.0;
+    assert!(hud_needs_redraw(&state));
+}
+
+#[test]
+fn terminal_visibility_policy_defaults_to_show_all() {
+    assert_eq!(
+        TerminalVisibilityPolicy::default(),
+        TerminalVisibilityPolicy::ShowAll
     );
 }
 

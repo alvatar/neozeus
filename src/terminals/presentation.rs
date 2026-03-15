@@ -1,5 +1,6 @@
 use crate::{
     app_config::{DEFAULT_CELL_HEIGHT_PX, DEFAULT_CELL_WIDTH_PX, TERMINAL_MARGIN},
+    hud::{TerminalVisibilityPolicy, TerminalVisibilityState},
     terminals::{
         create_terminal_image, TerminalDisplayMode, TerminalHudSurfaceMarker, TerminalId,
         TerminalManager, TerminalPanel, TerminalPanelFrame, TerminalPanelSprite,
@@ -180,6 +181,7 @@ pub(crate) fn sync_terminal_presentations(
     time: Res<Time>,
     terminal_manager: Res<TerminalManager>,
     presentation_store: Res<TerminalPresentationStore>,
+    visibility_state: Res<TerminalVisibilityState>,
     view_state: Res<TerminalViewState>,
     primary_window: Single<&Window, With<PrimaryWindow>>,
     mut panels: Query<(
@@ -209,6 +211,11 @@ pub(crate) fn sync_terminal_presentations(
             continue;
         };
         if terminal.snapshot.surface.is_none() {
+            *visibility = Visibility::Hidden;
+            continue;
+        }
+        if matches!(visibility_state.policy, TerminalVisibilityPolicy::Isolate(id) if id != panel.id)
+        {
             *visibility = Visibility::Hidden;
             continue;
         }
@@ -280,6 +287,7 @@ pub(crate) fn sync_terminal_presentations(
 pub(crate) fn sync_terminal_panel_frames(
     terminal_manager: Res<TerminalManager>,
     presentation_store: Res<TerminalPresentationStore>,
+    visibility_state: Res<TerminalVisibilityState>,
     panels: Query<(&TerminalPanel, &TerminalPresentation)>,
     mut frames: Query<(
         &TerminalPanelFrame,
@@ -305,6 +313,11 @@ pub(crate) fn sync_terminal_panel_frames(
             *visibility = Visibility::Hidden;
             continue;
         }
+        if matches!(visibility_state.policy, TerminalVisibilityPolicy::Isolate(id) if id != frame.id)
+        {
+            *visibility = Visibility::Hidden;
+            continue;
+        }
         if terminal_manager.active_id() == Some(frame.id)
             && presented_terminal.display_mode == TerminalDisplayMode::PixelPerfect
         {
@@ -326,6 +339,7 @@ pub(crate) fn sync_terminal_panel_frames(
 pub(crate) fn sync_terminal_hud_surface(
     terminal_manager: Res<TerminalManager>,
     presentation_store: Res<TerminalPresentationStore>,
+    visibility_state: Res<TerminalVisibilityState>,
     panels: Query<(&TerminalPanel, &TerminalPresentation)>,
     mut hud_surface: Single<
         (&mut Transform, &mut Sprite, &mut Visibility),
@@ -341,6 +355,10 @@ pub(crate) fn sync_terminal_hud_surface(
         **visibility = Visibility::Hidden;
         return;
     };
+    if matches!(visibility_state.policy, TerminalVisibilityPolicy::Isolate(id) if id != active_id) {
+        **visibility = Visibility::Hidden;
+        return;
+    }
     let Some(presented_terminal) = presentation_store.get(active_id) else {
         **visibility = Visibility::Hidden;
         return;
