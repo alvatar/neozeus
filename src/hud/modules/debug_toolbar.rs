@@ -1,5 +1,6 @@
 use crate::{
     hud::{
+        render::{HudColors, HudPainter, HudRenderInputs},
         HudCommand, HudDispatcher, HudModuleId, HudModuleModel, HudRect, HudState, HUD_BUTTON_GAP,
         HUD_BUTTON_HEIGHT, HUD_BUTTON_MIN_WIDTH, HUD_MODULE_PADDING,
     },
@@ -8,6 +9,7 @@ use crate::{
     },
 };
 use bevy::prelude::Vec2;
+use bevy_vello::prelude::VelloTextAnchor;
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum DebugToolbarAction {
@@ -127,6 +129,102 @@ pub(crate) fn debug_toolbar_buttons(
     clippy::too_many_arguments,
     reason = "toolbar hit routing needs geometry, terminal state, HUD state, and dispatcher together"
 )]
+pub(crate) fn render_content(
+    model: &HudModuleModel,
+    content_rect: HudRect,
+    painter: &mut HudPainter,
+    inputs: &HudRenderInputs,
+) {
+    let HudModuleModel::DebugToolbar(_) = model else {
+        return;
+    };
+    let buttons = debug_toolbar_buttons(
+        content_rect,
+        inputs.terminal_manager,
+        inputs.presentation_store,
+        inputs.view_state,
+        inputs.hud_state,
+    );
+    let active_status = inputs
+        .terminal_manager
+        .active_snapshot()
+        .map(|snapshot| snapshot.runtime.status.as_str())
+        .unwrap_or("no active terminal");
+    let active_id = inputs
+        .terminal_manager
+        .active_id()
+        .map(|id| id.0)
+        .unwrap_or_default();
+    let debug_stats = inputs.terminal_manager.active_debug_stats();
+    let font_summary = match inputs.font_state.report.as_ref() {
+        Some(Ok(report)) => format!("font {}", report.primary.family),
+        Some(Err(error)) => format!("font error {error}"),
+        None => "font loading".to_owned(),
+    };
+
+    painter.label(
+        Vec2::new(content_rect.x, content_rect.y + HUD_BUTTON_HEIGHT + 8.0),
+        &format!(
+            "terms {} · active {} · {} · zoom {:.2}",
+            inputs.terminal_manager.terminal_ids().len(),
+            active_id,
+            active_status,
+            inputs.view_state.distance,
+        ),
+        14.0,
+        HudColors::TEXT_MUTED,
+        VelloTextAnchor::TopLeft,
+    );
+    painter.label(
+        Vec2::new(
+            content_rect.x + 430.0,
+            content_rect.y + HUD_BUTTON_HEIGHT + 8.0,
+        ),
+        &font_summary,
+        14.0,
+        HudColors::TEXT_MUTED,
+        VelloTextAnchor::TopLeft,
+    );
+    painter.label(
+        Vec2::new(
+            content_rect.x + 620.0,
+            content_rect.y + HUD_BUTTON_HEIGHT + 8.0,
+        ),
+        &format!(
+            "keys {} drop {} rows {}",
+            debug_stats.key_events_seen,
+            debug_stats.updates_dropped,
+            debug_stats.dirty_rows_uploaded,
+        ),
+        14.0,
+        HudColors::TEXT_MUTED,
+        VelloTextAnchor::TopLeft,
+    );
+    for button in buttons {
+        painter.fill_rect(
+            button.rect,
+            if button.active {
+                HudColors::BUTTON_ACTIVE
+            } else {
+                HudColors::BUTTON
+            },
+            6.0,
+        );
+        painter.stroke_rect(button.rect, HudColors::BUTTON_BORDER, 6.0);
+        painter.label(
+            Vec2::new(button.rect.x + 10.0, button.rect.y + 6.0),
+            &button.label,
+            14.0,
+            HudColors::TEXT,
+            VelloTextAnchor::TopLeft,
+        );
+    }
+}
+
+#[allow(
+    clippy::too_many_arguments,
+    reason = "toolbar hit routing needs geometry, terminal state, HUD state, and dispatcher together"
+)]
 pub(crate) fn handle_pointer_click(
     model: &HudModuleModel,
     shell_rect: HudRect,
@@ -171,5 +269,3 @@ pub(crate) fn handle_pointer_click(
         break;
     }
 }
-
-pub(crate) fn handle_event(_model: &mut HudModuleModel, _event: &crate::hud::HudEvent) {}

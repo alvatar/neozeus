@@ -1,8 +1,5 @@
 use crate::{
-    hud::{
-        modules, AgentDirectory, HudCommand, HudEnvelope, HudEvent, HudModuleId, HudRecipients,
-        HudState, TerminalVisibilityPolicy, TerminalVisibilityState,
-    },
+    hud::{HudCommand, HudState, TerminalVisibilityPolicy, TerminalVisibilityState},
     terminals::{
         append_debug_log, spawn_terminal_presentation, TerminalManager, TerminalPresentationStore,
         TerminalRuntimeSpawner, TerminalViewState,
@@ -13,15 +10,6 @@ use bevy::prelude::*;
 #[derive(Resource, Default)]
 pub(crate) struct HudDispatcher {
     pub(crate) commands: Vec<HudCommand>,
-    pub(crate) events: Vec<HudEnvelope<HudEvent>>,
-}
-
-fn recipients_match(module_id: HudModuleId, recipients: &HudRecipients) -> bool {
-    match recipients {
-        HudRecipients::One(id) => *id == module_id,
-        HudRecipients::Some(ids) => ids.contains(&module_id),
-        HudRecipients::All => true,
-    }
 }
 
 #[allow(
@@ -36,7 +24,6 @@ pub(crate) fn apply_hud_commands(
     runtime_spawner: Res<TerminalRuntimeSpawner>,
     mut hud_state: ResMut<HudState>,
     mut dispatcher: ResMut<HudDispatcher>,
-    mut agent_directory: ResMut<AgentDirectory>,
     mut visibility_state: ResMut<TerminalVisibilityState>,
     mut view_state: ResMut<TerminalViewState>,
 ) {
@@ -54,83 +41,27 @@ pub(crate) fn apply_hud_commands(
                     slot,
                 );
                 append_debug_log(format!("spawned terminal {}", terminal_id.0));
-                dispatcher.events.push(HudEnvelope {
-                    recipients: HudRecipients::Some(vec![
-                        HudModuleId::DebugToolbar,
-                        HudModuleId::AgentList,
-                    ]),
-                    payload: HudEvent::TerminalSpawned(terminal_id),
-                });
             }
             HudCommand::FocusTerminal(id) => {
                 terminal_manager.focus_terminal(id);
-                dispatcher.events.push(HudEnvelope {
-                    recipients: HudRecipients::Some(vec![
-                        HudModuleId::DebugToolbar,
-                        HudModuleId::AgentList,
-                    ]),
-                    payload: HudEvent::TerminalFocused(id),
-                });
             }
             HudCommand::HideAllButTerminal(id) => {
                 visibility_state.policy = TerminalVisibilityPolicy::Isolate(id);
                 append_debug_log(format!("hud visibility isolate {}", id.0));
-                dispatcher.events.push(HudEnvelope {
-                    recipients: HudRecipients::All,
-                    payload: HudEvent::TerminalPresentationIsolated(id),
-                });
-                dispatcher.events.push(HudEnvelope {
-                    recipients: HudRecipients::All,
-                    payload: HudEvent::TerminalPresentationPolicyChanged(visibility_state.policy),
-                });
             }
             HudCommand::ShowAllTerminals => {
                 visibility_state.policy = TerminalVisibilityPolicy::ShowAll;
                 append_debug_log("hud visibility show-all");
-                dispatcher.events.push(HudEnvelope {
-                    recipients: HudRecipients::All,
-                    payload: HudEvent::TerminalPresentationPolicyChanged(visibility_state.policy),
-                });
-            }
-            HudCommand::RenameAgent { terminal_id, label } => {
-                agent_directory.labels.insert(terminal_id, label.clone());
-                dispatcher.events.push(HudEnvelope {
-                    recipients: HudRecipients::Some(vec![
-                        HudModuleId::DebugToolbar,
-                        HudModuleId::AgentList,
-                    ]),
-                    payload: HudEvent::AgentRenamed { terminal_id, label },
-                });
-            }
-            HudCommand::SetModuleEnabled { id, enabled } => {
-                hud_state.set_module_enabled(id, enabled);
-                dispatcher.events.push(HudEnvelope {
-                    recipients: HudRecipients::One(id),
-                    payload: HudEvent::ModuleEnabledChanged { id, enabled },
-                });
             }
             HudCommand::ToggleModule(id) => {
                 let enabled = hud_state
                     .get(id)
                     .is_some_and(|module| !module.shell.enabled);
                 hud_state.set_module_enabled(id, enabled);
-                dispatcher.events.push(HudEnvelope {
-                    recipients: HudRecipients::One(id),
-                    payload: HudEvent::ModuleEnabledChanged { id, enabled },
-                });
             }
             HudCommand::ToggleActiveTerminalDisplayMode => {
                 let active_id = terminal_manager.active_id();
                 presentation_store.toggle_active_display_mode(active_id);
-                if let Some(id) = active_id {
-                    dispatcher.events.push(HudEnvelope {
-                        recipients: HudRecipients::Some(vec![
-                            HudModuleId::DebugToolbar,
-                            HudModuleId::AgentList,
-                        ]),
-                        payload: HudEvent::ActiveTerminalDisplayModeToggled(id),
-                    });
-                }
             }
             HudCommand::ResetTerminalView => {
                 view_state.distance = 10.0;
@@ -141,24 +72,6 @@ pub(crate) fn apply_hud_commands(
                     bridge.send(crate::terminals::TerminalCommand::SendCommand(command));
                 }
             }
-        }
-    }
-}
-
-pub(crate) fn dispatch_hud_events(
-    mut hud_state: ResMut<HudState>,
-    mut dispatcher: ResMut<HudDispatcher>,
-) {
-    let queued = std::mem::take(&mut dispatcher.events);
-    for envelope in queued {
-        for module_id in hud_state.iter_z_order().collect::<Vec<_>>() {
-            if !recipients_match(module_id, &envelope.recipients) {
-                continue;
-            }
-            let Some(module) = hud_state.get_mut(module_id) else {
-                continue;
-            };
-            modules::handle_event(&mut module.model, &envelope.payload);
         }
     }
 }

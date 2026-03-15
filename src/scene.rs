@@ -1,7 +1,7 @@
 use crate::{
     app_config::GPU_NOT_FOUND_PANIC_FRAGMENT,
     hud::{
-        animate_hud_modules, apply_hud_commands, dispatch_hud_events, handle_hud_module_shortcuts,
+        animate_hud_modules, apply_hud_commands, handle_hud_module_shortcuts,
         handle_hud_pointer_input, hud_needs_redraw, render_hud_scene, save_hud_layout_if_dirty,
         setup_hud, AgentDirectory, HudDispatcher, HudPersistenceState, HudState,
         TerminalVisibilityState,
@@ -61,7 +61,6 @@ pub(crate) enum NeoZeusSet {
     UiInput,
     HudInput,
     HudCommands,
-    HudEvents,
     PresentTerminal,
     HudAnimation,
     HudRender,
@@ -126,11 +125,7 @@ fn configure_app(app: &mut App) {
         .configure_sets(Update, NeoZeusSet::HudInput.before(NeoZeusSet::HudCommands))
         .configure_sets(
             Update,
-            NeoZeusSet::HudCommands.before(NeoZeusSet::HudEvents),
-        )
-        .configure_sets(
-            Update,
-            NeoZeusSet::HudEvents.before(NeoZeusSet::HudAnimation),
+            NeoZeusSet::HudCommands.before(NeoZeusSet::HudAnimation),
         )
         .configure_sets(
             Update,
@@ -164,7 +159,6 @@ fn configure_app(app: &mut App) {
             (handle_hud_pointer_input, handle_hud_module_shortcuts).in_set(NeoZeusSet::HudInput),
         )
         .add_systems(Update, apply_hud_commands.in_set(NeoZeusSet::HudCommands))
-        .add_systems(Update, dispatch_hud_events.in_set(NeoZeusSet::HudEvents))
         .add_systems(
             Update,
             (
