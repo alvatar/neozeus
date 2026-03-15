@@ -206,7 +206,7 @@ fn request_redraw_while_visuals_active(
     let terminal_work_pending = terminal_manager.iter().any(|(id, terminal)| {
         terminal.pending_damage.is_some()
             || presentation_store
-                .get(*id)
+                .get(id)
                 .map(|presented| terminal.surface_revision != presented.uploaded_revision)
                 .unwrap_or(false)
     });

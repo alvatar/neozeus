@@ -2,7 +2,7 @@ use crate::terminals::{
     append_debug_log, TerminalBridge, TerminalDamage, TerminalDebugStats, TerminalSnapshot,
 };
 use bevy::prelude::{ResMut, Resource};
-use std::collections::{hash_map, HashMap};
+use std::collections::HashMap;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub(crate) struct TerminalId(pub(crate) u64);
@@ -87,12 +87,14 @@ impl TerminalManager {
         self.terminals.get(&id)
     }
 
-    pub(crate) fn iter(&self) -> hash_map::Iter<'_, TerminalId, ManagedTerminal> {
-        self.terminals.iter()
+    pub(crate) fn iter(&self) -> impl Iterator<Item = (TerminalId, &ManagedTerminal)> {
+        self.terminals.iter().map(|(id, terminal)| (*id, terminal))
     }
 
-    pub(crate) fn iter_mut(&mut self) -> hash_map::IterMut<'_, TerminalId, ManagedTerminal> {
-        self.terminals.iter_mut()
+    pub(crate) fn iter_mut(&mut self) -> impl Iterator<Item = (TerminalId, &mut ManagedTerminal)> {
+        self.terminals
+            .iter_mut()
+            .map(|(id, terminal)| (*id, terminal))
     }
 }
 
