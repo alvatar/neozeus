@@ -112,12 +112,12 @@ pub(crate) fn sync_terminal_texture(
             terminal.pending_damage = None;
             continue;
         };
-        let Some(presented_terminal) = presentation_store.get_mut(*terminal_id) else {
+        let Some(presented_terminal) = presentation_store.get_mut(terminal_id) else {
             terminal.pending_damage = None;
             continue;
         };
 
-        let pixel_perfect = Some(*terminal_id) == active_id
+        let pixel_perfect = Some(terminal_id) == active_id
             && presented_terminal.display_mode == TerminalDisplayMode::PixelPerfect;
         let desired_cell_size = if pixel_perfect {
             pixel_perfect_cell_size(surface.cols, surface.rows, &primary_window)
