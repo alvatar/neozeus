@@ -1,24 +1,13 @@
-#[path = "terminals/backend.rs"]
 mod backend;
-#[path = "terminals/bridge.rs"]
 mod bridge;
-#[path = "terminals/debug.rs"]
 mod debug;
-#[path = "terminals/fonts.rs"]
 mod fonts;
-#[path = "terminals/mailbox.rs"]
 mod mailbox;
-#[path = "terminals/presentation.rs"]
 mod presentation;
-#[path = "terminals/presentation_state.rs"]
 mod presentation_state;
-#[path = "terminals/raster.rs"]
 mod raster;
-#[path = "terminals/registry.rs"]
 mod registry;
-#[path = "terminals/runtime.rs"]
 mod runtime;
-#[path = "terminals/types.rs"]
 mod types;
 
 #[cfg(test)]
@@ -38,7 +27,7 @@ pub(crate) use fonts::{
 };
 pub(crate) use mailbox::TerminalUpdateMailbox;
 pub(crate) use presentation::{
-    pixel_perfect_cell_size, spawn_terminal_instance, sync_terminal_hud_surface,
+    pixel_perfect_cell_size, spawn_terminal_presentation, sync_terminal_hud_surface,
     sync_terminal_panel_frames, sync_terminal_presentations, terminal_texture_screen_size,
 };
 #[cfg(test)]
@@ -56,6 +45,8 @@ pub(crate) use raster::{
 pub(crate) use raster::{create_terminal_image, sync_terminal_texture, TerminalGlyphCache};
 pub(crate) use registry::{poll_terminal_snapshots, TerminalId, TerminalManager};
 pub(crate) use runtime::{RuntimeNotifier, TerminalRuntimeSpawner};
+#[cfg(test)]
+pub(crate) use types::TerminalLifecycle;
 pub(crate) use types::{
     DrainedTerminalUpdates, LatestTerminalStatus, PtySession, TerminalCell, TerminalCellContent,
     TerminalCommand, TerminalCursor, TerminalCursorShape, TerminalDamage, TerminalDimensions,
