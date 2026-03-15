@@ -379,22 +379,15 @@ pub(crate) fn ui_overlay(
             ui.separator();
             if ui.button("new terminal").clicked() {
                 let bridge = runtime_spawner.spawn();
-                let terminal_id = terminal_manager.create_terminal(bridge);
-                if let Some(slot) = terminal_manager.slot_of(terminal_id) {
-                    spawn_terminal_presentation(
-                        &mut commands,
-                        &mut images,
-                        &mut presentation_store,
-                        terminal_id,
-                        slot,
-                    );
-                    append_debug_log(format!("spawned terminal {}", terminal_id.0));
-                } else {
-                    append_debug_log(format!(
-                        "ui failed to place terminal {}: missing slot",
-                        terminal_id.0
-                    ));
-                }
+                let (terminal_id, slot) = terminal_manager.create_terminal_with_slot(bridge);
+                spawn_terminal_presentation(
+                    &mut commands,
+                    &mut images,
+                    &mut presentation_store,
+                    terminal_id,
+                    slot,
+                );
+                append_debug_log(format!("spawned terminal {}", terminal_id.0));
             }
             for terminal_id in terminal_manager.terminal_ids().to_vec() {
                 let selected = terminal_manager.active_id() == Some(terminal_id);

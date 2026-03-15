@@ -200,7 +200,7 @@ pub(crate) fn sync_terminal_presentations(
     let blend = 1.0 - (-time.delta_secs() * 10.0).exp();
 
     for (panel, mut presentation, mut transform, mut sprite, mut visibility) in &mut panels {
-        let Some(terminal) = terminal_manager.terminals().get(&panel.id) else {
+        let Some(terminal) = terminal_manager.get(panel.id) else {
             *visibility = Visibility::Hidden;
             continue;
         };
@@ -289,7 +289,7 @@ pub(crate) fn sync_terminal_panel_frames(
     )>,
 ) {
     for (frame, mut transform, mut sprite, mut visibility) in &mut frames {
-        let Some(terminal) = terminal_manager.terminals().get(&frame.id) else {
+        let Some(terminal) = terminal_manager.get(frame.id) else {
             *visibility = Visibility::Hidden;
             continue;
         };
@@ -337,7 +337,7 @@ pub(crate) fn sync_terminal_hud_surface(
         **visibility = Visibility::Hidden;
         return;
     };
-    let Some(terminal) = terminal_manager.terminals().get(&active_id) else {
+    let Some(terminal) = terminal_manager.get(active_id) else {
         **visibility = Visibility::Hidden;
         return;
     };

@@ -2,7 +2,7 @@ use crate::terminals::{
     append_debug_log, TerminalBridge, TerminalDamage, TerminalDebugStats, TerminalSnapshot,
 };
 use bevy::prelude::{ResMut, Resource};
-use std::collections::HashMap;
+use std::collections::{hash_map, HashMap};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub(crate) struct TerminalId(pub(crate) u64);
@@ -37,6 +37,17 @@ impl TerminalManager {
         );
         self.focus_terminal(id);
         id
+    }
+
+    pub(crate) fn create_terminal_with_slot(
+        &mut self,
+        bridge: TerminalBridge,
+    ) -> (TerminalId, usize) {
+        let id = self.create_terminal(bridge);
+        let slot = self
+            .slot_of(id)
+            .expect("newly created terminal must have a layout slot");
+        (id, slot)
     }
 
     pub(crate) fn focus_terminal(&mut self, id: TerminalId) {
@@ -77,17 +88,21 @@ impl TerminalManager {
         self.order.iter().position(|existing| *existing == id)
     }
 
-    pub(crate) fn terminals(&self) -> &HashMap<TerminalId, ManagedTerminal> {
-        &self.terminals
+    pub(crate) fn get(&self, id: TerminalId) -> Option<&ManagedTerminal> {
+        self.terminals.get(&id)
     }
 
-    pub(crate) fn terminals_mut(&mut self) -> &mut HashMap<TerminalId, ManagedTerminal> {
-        &mut self.terminals
+    pub(crate) fn iter(&self) -> hash_map::Iter<'_, TerminalId, ManagedTerminal> {
+        self.terminals.iter()
+    }
+
+    pub(crate) fn iter_mut(&mut self) -> hash_map::IterMut<'_, TerminalId, ManagedTerminal> {
+        self.terminals.iter_mut()
     }
 }
 
 pub(crate) fn poll_terminal_snapshots(mut terminal_manager: ResMut<TerminalManager>) {
-    for terminal in terminal_manager.terminals.values_mut() {
+    for (_, terminal) in terminal_manager.iter_mut() {
         let (latest_frame, latest_status, dropped_frames) = terminal.bridge.drain_updates();
         terminal.bridge.note_dropped_updates(dropped_frames);
 
