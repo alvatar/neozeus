@@ -10,5 +10,3 @@ pub(crate) const GPU_NOT_FOUND_PANIC_FRAGMENT: &str = "Unable to find a GPU!";
 
 pub(crate) const DEBUG_LOG_PATH: &str = "/tmp/neozeus-debug.log";
 pub(crate) const DEBUG_TEXTURE_DUMP_PATH: &str = "/tmp/neozeus-texture.ppm";
-
-pub(crate) const EVA_DEMO_Z: f32 = 20.0;

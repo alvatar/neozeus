@@ -1,0 +1,85 @@
+mod animation;
+mod dispatcher;
+mod input;
+mod messages;
+mod modules;
+mod persistence;
+mod render;
+mod state;
+
+pub(crate) use animation::animate_hud_modules;
+pub(crate) use dispatcher::{apply_hud_commands, dispatch_hud_events, HudDispatcher};
+pub(crate) use input::{handle_hud_module_shortcuts, handle_hud_pointer_input};
+pub(crate) use messages::{HudCommand, HudEnvelope, HudEvent, HudRecipients};
+#[cfg(test)]
+pub(crate) use persistence::{
+    apply_persisted_layout, parse_persisted_hud_state, resolve_hud_layout_path_with,
+    serialize_persisted_hud_state, PersistedHudModuleState, PersistedHudState,
+};
+pub(crate) use persistence::{save_hud_layout_if_dirty, HudPersistenceState};
+pub(crate) use render::{render_hud_scene, HudVectorSceneMarker};
+pub(crate) use state::{
+    default_hud_module_instance, AgentDirectory, HudDragState, HudModuleId, HudModuleModel,
+    HudRect, HudState, TerminalVisibilityPolicy, TerminalVisibilityState, HUD_BUTTON_GAP,
+    HUD_BUTTON_HEIGHT, HUD_BUTTON_MIN_WIDTH, HUD_MODULE_DEFINITIONS, HUD_MODULE_PADDING,
+    HUD_ROW_HEIGHT, HUD_TITLEBAR_HEIGHT,
+};
+
+use crate::terminals::TerminalManager;
+use bevy::{camera::visibility::NoFrustumCulling, prelude::*};
+use bevy_vello::prelude::VelloScene2d;
+
+pub(crate) fn append_hud_log(message: impl AsRef<str>) {
+    crate::terminals::append_debug_log(format!("hud: {}", message.as_ref()));
+}
+
+pub(crate) fn setup_hud(
+    mut commands: Commands,
+    mut hud_state: ResMut<HudState>,
+    mut persistence_state: ResMut<HudPersistenceState>,
+    terminal_manager: Res<TerminalManager>,
+    mut dispatcher: ResMut<HudDispatcher>,
+) {
+    persistence_state.path = persistence::resolve_hud_layout_path();
+    let persisted = persistence_state
+        .path
+        .as_ref()
+        .map(persistence::load_persisted_hud_state_from)
+        .unwrap_or_default();
+    hud_state.modules.clear();
+    hud_state.z_order.clear();
+    hud_state.drag = None;
+    hud_state.dirty_layout = false;
+    for definition in HUD_MODULE_DEFINITIONS.iter() {
+        let mut module = default_hud_module_instance(definition);
+        if let Some(saved) = persisted.modules.get(&definition.id) {
+            module.shell.enabled = saved.enabled;
+            module.shell.target_rect = saved.rect;
+            module.shell.current_rect = saved.rect;
+            module.shell.target_alpha = if saved.enabled { 1.0 } else { 0.0 };
+            module.shell.current_alpha = module.shell.target_alpha;
+        }
+        hud_state.insert(definition.id, module);
+    }
+
+    for (index, terminal_id) in terminal_manager.terminal_ids().iter().copied().enumerate() {
+        dispatcher.commands.push(HudCommand::RenameAgent {
+            terminal_id,
+            label: format!("agent-{}", index + 1),
+        });
+    }
+
+    commands.spawn((
+        VelloScene2d::default(),
+        Transform::from_xyz(0.0, 0.0, 50.0),
+        NoFrustumCulling,
+        HudVectorSceneMarker,
+    ));
+}
+
+pub(crate) fn hud_needs_redraw(hud_state: &HudState) -> bool {
+    hud_state.drag.is_some() || hud_state.is_animating()
+}
+
+#[cfg(test)]
+pub(crate) use modules::{agent_rows, debug_toolbar_buttons, resolve_agent_label};
