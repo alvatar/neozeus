@@ -14,7 +14,7 @@ pub(crate) struct ManagedTerminal {
     pub(crate) surface_revision: u64,
 }
 
-#[derive(Resource, Default)]
+#[derive(Resource)]
 pub(crate) struct TerminalManager {
     next_id: u64,
     active_id: Option<TerminalId>,
@@ -22,10 +22,21 @@ pub(crate) struct TerminalManager {
     terminals: HashMap<TerminalId, ManagedTerminal>,
 }
 
+impl Default for TerminalManager {
+    fn default() -> Self {
+        Self {
+            next_id: 1,
+            active_id: None,
+            order: Vec::new(),
+            terminals: HashMap::new(),
+        }
+    }
+}
+
 impl TerminalManager {
     pub(crate) fn create_terminal(&mut self, bridge: TerminalBridge) -> TerminalId {
-        let id = TerminalId(self.next_id.max(1));
-        self.next_id = id.0 + 1;
+        let id = TerminalId(self.next_id);
+        self.next_id += 1;
         self.terminals.insert(
             id,
             ManagedTerminal {
