@@ -88,23 +88,8 @@ impl TerminalManager {
 
 pub(crate) fn poll_terminal_snapshots(mut terminal_manager: ResMut<TerminalManager>) {
     for terminal in terminal_manager.terminals.values_mut() {
-        let (latest_frame, latest_status, dropped_frames) =
-            terminal.bridge.update_mailbox().drain();
-        if dropped_frames > 0 {
-            crate::terminals::with_debug_stats(&terminal.bridge.debug_stats_handle(), |stats| {
-                stats.updates_dropped += dropped_frames;
-            });
-        }
-
-        if let Some((runtime, surface)) = latest_status {
-            terminal.snapshot.runtime = runtime;
-            if let Some(surface) = surface {
-                terminal.snapshot.surface = Some(surface);
-                terminal.surface_revision += 1;
-                terminal.pending_damage = Some(TerminalDamage::Full);
-            }
-            terminal.bridge.note_snapshot_applied();
-        }
+        let (latest_frame, latest_status, dropped_frames) = terminal.bridge.drain_updates();
+        terminal.bridge.note_dropped_updates(dropped_frames);
 
         if let Some(frame) = latest_frame {
             terminal.snapshot.runtime = frame.runtime;
@@ -115,6 +100,16 @@ pub(crate) fn poll_terminal_snapshots(mut terminal_manager: ResMut<TerminalManag
             } else {
                 frame.damage
             });
+            terminal.bridge.note_snapshot_applied();
+        }
+
+        if let Some((runtime, surface)) = latest_status {
+            terminal.snapshot.runtime = runtime;
+            if let Some(surface) = surface {
+                terminal.snapshot.surface = Some(surface);
+                terminal.surface_revision += 1;
+                terminal.pending_damage = Some(TerminalDamage::Full);
+            }
             terminal.bridge.note_snapshot_applied();
         }
     }

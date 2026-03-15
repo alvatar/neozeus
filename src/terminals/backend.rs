@@ -157,7 +157,6 @@ pub(crate) fn terminal_worker(
     enum InputThreadEvent {
         WriteResult(Result<(), String>),
         ScrollDisplay(i32),
-        Shutdown,
     }
 
     let (input_status_tx, input_status_rx) = mpsc::channel::<InputThreadEvent>();
@@ -215,10 +214,6 @@ pub(crate) fn terminal_worker(
                     InputThreadEvent::WriteResult(result)
                 }
                 TerminalCommand::ScrollDisplay(lines) => InputThreadEvent::ScrollDisplay(lines),
-                TerminalCommand::Shutdown => {
-                    let _ = input_status_tx.send(InputThreadEvent::Shutdown);
-                    break;
-                }
             };
 
             if input_status_tx.send(event).is_err() {
@@ -332,9 +327,6 @@ pub(crate) fn terminal_worker(
                         surface.clone(),
                     );
                     previous_surface = Some(surface);
-                }
-                InputThreadEvent::Shutdown => {
-                    running = false;
                 }
             }
         }

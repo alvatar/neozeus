@@ -1,10 +1,9 @@
 use crate::{
     app_config::{DEFAULT_CELL_HEIGHT_PX, DEFAULT_CELL_WIDTH_PX, TERMINAL_MARGIN},
     terminals::{
-        append_debug_log, create_terminal_image, TerminalDisplayMode, TerminalHudSurfaceMarker,
-        TerminalId, TerminalManager, TerminalPanel, TerminalPanelFrame, TerminalPanelSprite,
-        TerminalPresentation, TerminalPresentationStore, TerminalRuntimeSpawner,
-        TerminalTextureState, TerminalViewState,
+        create_terminal_image, TerminalDisplayMode, TerminalHudSurfaceMarker, TerminalId,
+        TerminalManager, TerminalPanel, TerminalPanelFrame, TerminalPanelSprite,
+        TerminalPresentation, TerminalPresentationStore, TerminalTextureState, TerminalViewState,
     },
 };
 use bevy::{prelude::*, window::PrimaryWindow};
@@ -23,24 +22,7 @@ fn terminal_home_position(slot: usize) -> Vec2 {
     Vec2::new(-360.0 + column as f32 * STEP_X, 120.0 - row as f32 * STEP_Y)
 }
 
-pub(crate) fn spawn_terminal_instance(
-    commands: &mut Commands,
-    images: &mut Assets<Image>,
-    terminal_manager: &mut TerminalManager,
-    presentation_store: &mut TerminalPresentationStore,
-    runtime_spawner: &TerminalRuntimeSpawner,
-) -> Result<TerminalId, String> {
-    let bridge = runtime_spawner.spawn();
-    let id = terminal_manager.create_terminal(bridge);
-    let slot = terminal_manager
-        .slot_of(id)
-        .ok_or_else(|| format!("missing terminal slot for {}", id.0))?;
-    spawn_terminal_presentation(commands, images, presentation_store, id, slot);
-    append_debug_log(format!("spawned terminal {}", id.0));
-    Ok(id)
-}
-
-fn spawn_terminal_presentation(
+pub(crate) fn spawn_terminal_presentation(
     commands: &mut Commands,
     images: &mut Assets<Image>,
     presentation_store: &mut TerminalPresentationStore,

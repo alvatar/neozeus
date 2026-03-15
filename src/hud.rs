@@ -1,5 +1,5 @@
 use crate::terminals::{
-    append_debug_log, spawn_terminal_instance, TerminalDisplayMode, TerminalFontState,
+    append_debug_log, spawn_terminal_presentation, TerminalDisplayMode, TerminalFontState,
     TerminalManager, TerminalPresentationStore, TerminalRuntimeSpawner, TerminalViewState,
 };
 use bevy::{prelude::*, window::PrimaryWindow};
@@ -378,14 +378,22 @@ pub(crate) fn ui_overlay(
             ui.checkbox(&mut eva_demo.enabled, "EVA vector demo");
             ui.separator();
             if ui.button("new terminal").clicked() {
-                if let Err(error) = spawn_terminal_instance(
-                    &mut commands,
-                    &mut images,
-                    &mut terminal_manager,
-                    &mut presentation_store,
-                    &runtime_spawner,
-                ) {
-                    append_debug_log(format!("ui failed to spawn terminal: {error}"));
+                let bridge = runtime_spawner.spawn();
+                let terminal_id = terminal_manager.create_terminal(bridge);
+                if let Some(slot) = terminal_manager.slot_of(terminal_id) {
+                    spawn_terminal_presentation(
+                        &mut commands,
+                        &mut images,
+                        &mut presentation_store,
+                        terminal_id,
+                        slot,
+                    );
+                    append_debug_log(format!("spawned terminal {}", terminal_id.0));
+                } else {
+                    append_debug_log(format!(
+                        "ui failed to place terminal {}: missing slot",
+                        terminal_id.0
+                    ));
                 }
             }
             for terminal_id in terminal_manager.terminal_ids().to_vec() {

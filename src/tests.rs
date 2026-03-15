@@ -6,15 +6,18 @@ use crate::{
         blend_rgba_in_place, compute_terminal_damage, find_kitty_config_path,
         initialize_terminal_text_renderer, is_emoji_like, is_private_use_like,
         parse_kitty_config_file, pixel_perfect_cell_size, pixel_perfect_terminal_logical_size,
-        rasterize_terminal_glyph, resolve_alacritty_color, resolve_terminal_font_report,
-        snap_to_pixel_grid, xterm_indexed_rgb, CachedTerminalGlyph, KittyFontConfig,
-        TerminalCellContent, TerminalCommand, TerminalDamage, TerminalFontRole, TerminalFontState,
-        TerminalFrameUpdate, TerminalGlyphCacheKey, TerminalSurface, TerminalTextRenderer,
-        TerminalTextureState, TerminalUpdate, TerminalUpdateMailbox,
+        poll_terminal_snapshots, rasterize_terminal_glyph, resolve_alacritty_color,
+        resolve_terminal_font_report, snap_to_pixel_grid, xterm_indexed_rgb, CachedTerminalGlyph,
+        KittyFontConfig, TerminalBridge, TerminalCellContent, TerminalCommand, TerminalDamage,
+        TerminalDebugStats, TerminalFontRole, TerminalFontState, TerminalFrameUpdate,
+        TerminalGlyphCacheKey, TerminalLifecycle, TerminalManager, TerminalRuntimeState,
+        TerminalSurface, TerminalTextRenderer, TerminalTextureState, TerminalUpdate,
+        TerminalUpdateMailbox,
     },
 };
 use alacritty_terminal::vte::ansi::{Color as AnsiColor, NamedColor};
 use bevy::{
+    ecs::system::RunSystemOnce,
     input::{
         keyboard::{Key, KeyboardInput},
         ButtonState,
@@ -25,6 +28,7 @@ use std::{
     collections::BTreeSet,
     fs,
     path::PathBuf,
+    sync::{mpsc, Arc, Mutex},
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -47,6 +51,17 @@ fn temp_dir(prefix: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("{prefix}-{nanos}"));
     fs::create_dir_all(&dir).expect("failed to create temp dir");
     dir
+}
+
+fn test_bridge() -> (TerminalBridge, Arc<TerminalUpdateMailbox>) {
+    let (input_tx, _input_rx) = mpsc::channel::<TerminalCommand>();
+    let mailbox = Arc::new(TerminalUpdateMailbox::default());
+    let bridge = TerminalBridge::new(
+        input_tx,
+        mailbox.clone(),
+        Arc::new(Mutex::new(TerminalDebugStats::default())),
+    );
+    (bridge, mailbox)
 }
 
 fn surface_with_text(rows: usize, cols: usize, y: usize, text: &str) -> TerminalSurface {
@@ -181,6 +196,34 @@ fn drain_terminal_updates_keeps_latest_frame_and_status() {
     assert_eq!(dropped, 1);
     assert_eq!(frame.unwrap().runtime.status, "two");
     assert_eq!(status.unwrap().0.status, "done");
+}
+
+#[test]
+fn poll_terminal_snapshots_keeps_latest_status_over_latest_frame_runtime() {
+    let (bridge, mailbox) = test_bridge();
+    let mut manager = TerminalManager::default();
+    let terminal_id = manager.create_terminal(bridge);
+
+    mailbox.push(TerminalUpdate::Frame(TerminalFrameUpdate {
+        surface: surface_with_text(2, 2, 0, "a"),
+        damage: TerminalDamage::Rows(vec![0]),
+        runtime: TerminalRuntimeState::running("running"),
+    }));
+    mailbox.push(TerminalUpdate::Status {
+        runtime: TerminalRuntimeState::failed("boom"),
+        surface: None,
+    });
+
+    let mut world = World::default();
+    world.insert_resource(manager);
+    world.run_system_once(poll_terminal_snapshots).unwrap();
+    let manager = world.resource::<TerminalManager>();
+    let terminal = manager.terminals().get(&terminal_id).unwrap();
+    assert_eq!(terminal.snapshot.runtime.status, "boom");
+    assert!(matches!(
+        terminal.snapshot.runtime.lifecycle,
+        TerminalLifecycle::Failed
+    ));
 }
 
 #[test]

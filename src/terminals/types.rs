@@ -239,7 +239,6 @@ pub(crate) enum TerminalCommand {
     InputEvent(String),
     SendCommand(String),
     ScrollDisplay(i32),
-    Shutdown,
 }
 
 pub(crate) struct TerminalDimensions {

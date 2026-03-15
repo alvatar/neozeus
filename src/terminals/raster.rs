@@ -4,7 +4,7 @@ use crate::{
     },
     terminals::{
         append_debug_log, is_emoji_like, is_private_use_like, pixel_perfect_cell_size,
-        with_debug_stats, TerminalDamage, TerminalDisplayMode, TerminalFontState, TerminalManager,
+        TerminalDamage, TerminalDisplayMode, TerminalFontState, TerminalManager,
         TerminalPresentationStore, TerminalSurface, TerminalTextRenderer,
     },
 };
@@ -206,10 +206,9 @@ pub(crate) fn sync_terminal_texture(
                 &font_state,
             );
             let compose_elapsed = compose_started.elapsed();
-            with_debug_stats(&terminal.bridge.debug_stats_handle(), |stats| {
-                stats.compose_micros += compose_elapsed.as_micros() as u64;
-                stats.dirty_rows_uploaded += dirty_rows.len() as u64;
-            });
+            terminal
+                .bridge
+                .note_compose(dirty_rows.len(), compose_elapsed.as_micros() as u64);
 
             if env::var_os("NEOZEUS_DUMP_TEXTURE").is_some() {
                 let _ = dump_terminal_image_ppm(target_image, Path::new(DEBUG_TEXTURE_DUMP_PATH));

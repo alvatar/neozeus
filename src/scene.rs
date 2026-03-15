@@ -3,7 +3,7 @@ use crate::{
     hud::{sync_eva_vector_demo, ui_overlay, EvaVectorDemoMarker, EvaVectorDemoState},
     input::{drag_terminal_view, forward_keyboard_input, zoom_terminal_view},
     terminals::{
-        append_debug_log, configure_terminal_fonts, spawn_terminal_instance,
+        append_debug_log, configure_terminal_fonts, spawn_terminal_presentation,
         sync_terminal_hud_surface, sync_terminal_panel_frames, sync_terminal_presentations,
         sync_terminal_texture, TerminalCameraMarker, TerminalFontState, TerminalGlyphCache,
         TerminalHudSurfaceMarker, TerminalManager, TerminalPanel, TerminalPointerState,
@@ -104,14 +104,19 @@ fn configure_app(app: &mut App) {
         .insert_resource(EvaVectorDemoState::default())
         .configure_sets(
             Update,
-            (
-                NeoZeusSet::PollTerminal,
-                NeoZeusSet::RasterTerminal,
-                NeoZeusSet::UiInput,
-                NeoZeusSet::PresentTerminal,
-                NeoZeusSet::Redraw,
-            )
-                .chain(),
+            NeoZeusSet::PollTerminal.before(NeoZeusSet::RasterTerminal),
+        )
+        .configure_sets(
+            Update,
+            NeoZeusSet::RasterTerminal.before(NeoZeusSet::PresentTerminal),
+        )
+        .configure_sets(
+            Update,
+            NeoZeusSet::UiInput.before(NeoZeusSet::PresentTerminal),
+        )
+        .configure_sets(
+            Update,
+            NeoZeusSet::PresentTerminal.before(NeoZeusSet::Redraw),
         )
         .add_systems(Startup, setup_scene)
         .add_systems(
@@ -252,23 +257,23 @@ fn setup_scene(
         EvaVectorDemoMarker,
     ));
 
-    let Ok(primary_id) = spawn_terminal_instance(
-        &mut commands,
-        &mut images,
-        &mut terminal_manager,
-        &mut presentation_store,
-        &runtime_spawner,
-    ) else {
-        append_debug_log("failed to spawn primary terminal");
+    let primary_bridge = runtime_spawner.spawn();
+    let auto_verify_bridge = auto_verify.as_ref().map(|_| primary_bridge.clone());
+    let primary_id = terminal_manager.create_terminal(primary_bridge);
+    let Some(slot) = terminal_manager.slot_of(primary_id) else {
+        append_debug_log(format!("missing terminal slot for {}", primary_id.0));
         return;
     };
-    if let Some(config) = auto_verify {
-        if let Some(bridge) = terminal_manager
-            .terminals()
-            .get(&primary_id)
-            .map(|terminal| terminal.bridge.clone())
-        {
-            start_auto_verify_dispatcher(bridge, runtime_spawner.notifier(), config.clone());
-        }
+    spawn_terminal_presentation(
+        &mut commands,
+        &mut images,
+        &mut presentation_store,
+        primary_id,
+        slot,
+    );
+    append_debug_log(format!("spawned terminal {}", primary_id.0));
+
+    if let (Some(config), Some(bridge)) = (auto_verify, auto_verify_bridge) {
+        start_auto_verify_dispatcher(bridge, runtime_spawner.notifier(), config.clone());
     }
 }
