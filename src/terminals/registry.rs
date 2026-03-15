@@ -53,6 +53,9 @@ impl TerminalManager {
         if !self.terminals.contains_key(&id) {
             return;
         }
+        if self.active_id == Some(id) && self.order.last() == Some(&id) {
+            return;
+        }
         self.active_id = Some(id);
         self.order.retain(|existing| *existing != id);
         self.order.push(id);
