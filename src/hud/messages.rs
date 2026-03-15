@@ -10,6 +10,14 @@ pub(crate) enum HudCommand {
     ShowAllTerminals,
     #[allow(
         dead_code,
+        reason = "explicit enable/disable stays in the HUD protocol even when the current UI mostly toggles"
+    )]
+    SetModuleEnabled {
+        id: HudModuleId,
+        enabled: bool,
+    },
+    #[allow(
+        dead_code,
         reason = "typed rename path stays in the HUD protocol even before a concrete rename UI exists"
     )]
     RenameAgent {
@@ -25,8 +33,14 @@ pub(crate) enum HudCommand {
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum HudEvent {
     TerminalFocused(TerminalId),
+    TerminalPresentationIsolated(TerminalId),
     TerminalPresentationPolicyChanged(TerminalVisibilityPolicy),
     TerminalSpawned(TerminalId),
+    #[allow(
+        dead_code,
+        reason = "terminal close is part of the HUD protocol even before close UI exists"
+    )]
+    TerminalClosed(TerminalId),
     AgentRenamed {
         terminal_id: TerminalId,
         label: String,

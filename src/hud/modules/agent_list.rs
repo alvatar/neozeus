@@ -13,6 +13,7 @@ pub(crate) struct AgentRow {
     pub(crate) label: String,
     pub(crate) rect: HudRect,
     pub(crate) focused: bool,
+    pub(crate) hovered: bool,
 }
 
 pub(crate) fn resolve_agent_label(
@@ -34,6 +35,7 @@ pub(crate) fn resolve_agent_label(
 pub(crate) fn agent_rows(
     shell_rect: HudRect,
     scroll_offset: f32,
+    hovered_terminal: Option<TerminalId>,
     terminal_manager: &TerminalManager,
     agent_directory: &AgentDirectory,
 ) -> Vec<AgentRow> {
@@ -54,6 +56,7 @@ pub(crate) fn agent_rows(
                 h: HUD_ROW_HEIGHT,
             },
             focused: terminal_manager.active_id() == Some(*terminal_id),
+            hovered: hovered_terminal == Some(*terminal_id),
         })
         .collect()
 }
@@ -72,6 +75,7 @@ pub(crate) fn handle_pointer_click(
     for row in agent_rows(
         shell_rect,
         state.scroll_offset,
+        state.hovered_terminal,
         terminal_manager,
         agent_directory,
     ) {
@@ -87,6 +91,35 @@ pub(crate) fn handle_pointer_click(
     }
 }
 
+pub(crate) fn handle_hover(
+    model: &mut HudModuleModel,
+    shell_rect: HudRect,
+    point: Option<Vec2>,
+    terminal_manager: &TerminalManager,
+    agent_directory: &AgentDirectory,
+) -> bool {
+    let HudModuleModel::AgentList(state) = model else {
+        return false;
+    };
+    let hovered_terminal = point.and_then(|point| {
+        agent_rows(
+            shell_rect,
+            state.scroll_offset,
+            None,
+            terminal_manager,
+            agent_directory,
+        )
+        .into_iter()
+        .find(|row| row.rect.contains(point))
+        .map(|row| row.terminal_id)
+    });
+    if state.hovered_terminal == hovered_terminal {
+        return false;
+    }
+    state.hovered_terminal = hovered_terminal;
+    true
+}
+
 pub(crate) fn handle_scroll(
     model: &mut HudModuleModel,
     delta_y: f32,
@@ -99,6 +132,17 @@ pub(crate) fn handle_scroll(
     let content_height = (row_count as f32 * HUD_ROW_HEIGHT).max(height);
     let max_scroll = (content_height - height).max(0.0);
     state.scroll_offset = (state.scroll_offset - delta_y).clamp(0.0, max_scroll);
+}
+
+pub(crate) fn clear_hover(model: &mut HudModuleModel) -> bool {
+    let HudModuleModel::AgentList(state) = model else {
+        return false;
+    };
+    if state.hovered_terminal.is_none() {
+        return false;
+    }
+    state.hovered_terminal = None;
+    true
 }
 
 pub(crate) fn handle_event(_model: &mut HudModuleModel, _event: &crate::hud::HudEvent) {}

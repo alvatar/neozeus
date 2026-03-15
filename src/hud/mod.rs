@@ -72,4 +72,7 @@ pub(crate) fn hud_needs_redraw(hud_state: &HudState) -> bool {
 }
 
 #[cfg(test)]
-pub(crate) use modules::{agent_rows, debug_toolbar_buttons, resolve_agent_label};
+pub(crate) use modules::{
+    agent_rows, debug_toolbar_buttons, handle_pointer_click as dispatch_hud_pointer_click,
+    handle_scroll as dispatch_hud_scroll, resolve_agent_label,
+};

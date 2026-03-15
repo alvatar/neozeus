@@ -30,6 +30,7 @@ impl HudColors {
     const BUTTON_ACTIVE: peniko::Color = peniko::Color::from_rgba8(80, 112, 108, 240);
     const BUTTON_BORDER: peniko::Color = peniko::Color::from_rgba8(255, 140, 32, 180);
     const ROW: peniko::Color = peniko::Color::from_rgba8(26, 34, 38, 220);
+    const ROW_HOVERED: peniko::Color = peniko::Color::from_rgba8(48, 62, 68, 230);
     const ROW_FOCUSED: peniko::Color = peniko::Color::from_rgba8(66, 98, 92, 236);
 }
 
@@ -222,6 +223,10 @@ fn draw_button(
     );
 }
 
+#[allow(
+    clippy::too_many_arguments,
+    reason = "row rendering takes Vello context, geometry, label, and state flags together"
+)]
 fn draw_agent_row(
     scene: &mut vello::Scene,
     fonts: &Assets<VelloFont>,
@@ -229,6 +234,7 @@ fn draw_agent_row(
     rect: HudRect,
     label: &str,
     focused: bool,
+    hovered: bool,
     alpha: f32,
 ) {
     let scene_rect = hud_rect_to_scene(window, rect);
@@ -237,6 +243,8 @@ fn draw_agent_row(
         scene_rect,
         if focused {
             apply_alpha(HudColors::ROW_FOCUSED, alpha)
+        } else if hovered {
+            apply_alpha(HudColors::ROW_HOVERED, alpha)
         } else {
             apply_alpha(HudColors::ROW, alpha)
         },
@@ -382,6 +390,7 @@ pub(crate) fn render_hud_scene(
                 for row in modules::agent_rows(
                     content_rect,
                     state.scroll_offset,
+                    state.hovered_terminal,
                     &terminal_manager,
                     &agent_directory,
                 ) {
@@ -397,6 +406,7 @@ pub(crate) fn render_hud_scene(
                         row.rect,
                         &row.label,
                         row.focused,
+                        row.hovered,
                         alpha,
                     );
                 }

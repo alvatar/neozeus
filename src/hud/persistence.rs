@@ -219,6 +219,8 @@ pub(crate) fn save_hud_layout_if_dirty(
             "hud layout save failed {}: {error}",
             path.display()
         ));
+    } else {
+        append_hud_log(format!("hud layout saved {}", path.display()));
     }
     hud_state.dirty_layout = false;
     persistence_state.dirty_since_secs = None;

@@ -91,6 +91,7 @@ impl HudModuleShell {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub(crate) struct AgentListState {
     pub(crate) scroll_offset: f32,
+    pub(crate) hovered_terminal: Option<TerminalId>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -163,13 +164,6 @@ impl HudState {
         module.shell.enabled = enabled;
         module.shell.target_alpha = if enabled { 1.0 } else { 0.0 };
         self.dirty_layout = true;
-    }
-
-    pub(crate) fn toggle_module(&mut self, id: HudModuleId) {
-        let enabled = self.modules.get(&id).map(|module| module.shell.enabled);
-        if let Some(enabled) = enabled {
-            self.set_module_enabled(id, !enabled);
-        }
     }
 
     pub(crate) fn topmost_enabled_at(&self, point: Vec2) -> Option<HudModuleId> {
