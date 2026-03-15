@@ -1,66 +1,71 @@
-use super::*;
-use crate::*;
+use crate::{
+    app_config::{DEFAULT_COLS, DEFAULT_ROWS},
+    terminals::{
+        append_debug_log, note_terminal_error, with_debug_stats, PtySession, RuntimeNotifier,
+        TerminalCell, TerminalCellContent, TerminalCommand, TerminalCursor, TerminalCursorShape,
+        TerminalDamage, TerminalDimensions, TerminalFrameUpdate, TerminalRuntimeState,
+        TerminalSurface, TerminalUpdate, TerminalUpdateMailbox, PTY_OUTPUT_BATCH_BYTES,
+        PTY_OUTPUT_BATCH_WINDOW, PTY_OUTPUT_WAIT_TIMEOUT,
+    },
+};
+use alacritty_terminal::{
+    event::VoidListener,
+    grid::Dimensions,
+    term::{cell::Flags, color::Colors, Config as TermConfig, Term},
+    vte::ansi::{self, Color as AnsiColor, CursorShape, NamedColor, Rgb},
+};
+use bevy_egui::egui;
+use portable_pty::{native_pty_system, CommandBuilder, PtySize};
+use std::{
+    env,
+    ffi::OsString,
+    io::{Read, Write},
+    sync::{mpsc, mpsc::Receiver, Arc, Mutex},
+    thread,
+};
 
-fn apply_pty_bytes(
-    parser: &mut ansi::Processor<ansi::StdSyncHandler>,
-    terminal: &mut Term<VoidListener>,
+use crate::terminals::TerminalDebugStats;
+
+fn enqueue_terminal_update(
+    update_mailbox: &Arc<TerminalUpdateMailbox>,
+    update: TerminalUpdate,
     debug_stats: &Arc<Mutex<TerminalDebugStats>>,
-    bytes: &[u8],
+    notifier: &RuntimeNotifier,
 ) {
+    let push = update_mailbox.push(update);
     with_debug_stats(debug_stats, |stats| {
-        stats.pty_bytes_read += bytes.len() as u64;
+        stats.snapshots_sent += 1;
     });
-    parser.advance(terminal, bytes);
+    if push.should_wake {
+        notifier.wake();
+    }
 }
 
-pub(crate) fn compute_terminal_damage(
-    previous_surface: Option<&TerminalSurface>,
-    surface: &TerminalSurface,
-) -> TerminalDamage {
-    let Some(previous_surface) = previous_surface else {
-        return TerminalDamage::Full;
-    };
-    if previous_surface.cols != surface.cols || previous_surface.rows != surface.rows {
-        return TerminalDamage::Full;
+fn send_terminal_status_update(
+    update_mailbox: &Arc<TerminalUpdateMailbox>,
+    debug_stats: &Arc<Mutex<TerminalDebugStats>>,
+    runtime: TerminalRuntimeState,
+    surface: Option<TerminalSurface>,
+    notifier: &RuntimeNotifier,
+) {
+    append_debug_log(format!("status snapshot: {}", runtime.status));
+    if let Some(error) = runtime.last_error.clone() {
+        note_terminal_error(debug_stats, error);
     }
-
-    let mut dirty_rows = Vec::new();
-    for y in 0..surface.rows {
-        let start = y * surface.cols;
-        let end = start + surface.cols;
-        if previous_surface.cells[start..end] != surface.cells[start..end] {
-            dirty_rows.push(y);
-        }
-    }
-
-    if previous_surface.cursor != surface.cursor {
-        if let Some(cursor) = previous_surface.cursor.as_ref() {
-            if cursor.visible && cursor.y < surface.rows && !dirty_rows.contains(&cursor.y) {
-                dirty_rows.push(cursor.y);
-            }
-        }
-        if let Some(cursor) = surface.cursor.as_ref() {
-            if cursor.visible && cursor.y < surface.rows && !dirty_rows.contains(&cursor.y) {
-                dirty_rows.push(cursor.y);
-            }
-        }
-    }
-
-    if dirty_rows.len() >= surface.rows {
-        TerminalDamage::Full
-    } else {
-        dirty_rows.sort_unstable();
-        TerminalDamage::Rows(dirty_rows)
-    }
+    enqueue_terminal_update(
+        update_mailbox,
+        TerminalUpdate::Status { runtime, surface },
+        debug_stats,
+        notifier,
+    );
 }
 
 fn send_terminal_frame_update(
-    update_mailbox: &Arc<Mutex<PendingTerminalUpdates>>,
+    update_mailbox: &Arc<TerminalUpdateMailbox>,
     debug_stats: &Arc<Mutex<TerminalDebugStats>>,
-    event_loop_proxy: &EventLoopProxy<WinitUserEvent>,
+    notifier: &RuntimeNotifier,
     previous_surface: Option<&TerminalSurface>,
     surface: TerminalSurface,
-    status: String,
 ) {
     let damage = compute_terminal_damage(previous_surface, &surface);
     if matches!(damage, TerminalDamage::Rows(ref rows) if rows.is_empty()) {
@@ -71,18 +76,18 @@ fn send_terminal_frame_update(
         TerminalUpdate::Frame(TerminalFrameUpdate {
             surface,
             damage,
-            status,
+            runtime: TerminalRuntimeState::running("backend: alacritty_terminal + portable-pty"),
         }),
         debug_stats,
-        event_loop_proxy,
+        notifier,
     );
 }
 
 pub(crate) fn terminal_worker(
     input_rx: Receiver<TerminalCommand>,
-    update_mailbox: Arc<Mutex<PendingTerminalUpdates>>,
+    update_mailbox: Arc<TerminalUpdateMailbox>,
     debug_stats: Arc<Mutex<TerminalDebugStats>>,
-    event_loop_proxy: EventLoopProxy<WinitUserEvent>,
+    notifier: RuntimeNotifier,
 ) {
     let PtySession {
         master,
@@ -91,17 +96,13 @@ pub(crate) fn terminal_worker(
     } = match spawn_pty(DEFAULT_COLS, DEFAULT_ROWS) {
         Ok(session) => session,
         Err(error) => {
-            let status = format!("failed to start PTY backend: {error}");
-            enqueue_terminal_update(
+            send_terminal_status_update(
                 &update_mailbox,
-                TerminalUpdate::Status {
-                    surface: None,
-                    status: status.clone(),
-                },
                 &debug_stats,
-                &event_loop_proxy,
+                TerminalRuntimeState::failed(format!("failed to start PTY backend: {error}")),
+                None,
+                &notifier,
             );
-            set_terminal_error(&debug_stats, status);
             return;
         }
     };
@@ -110,24 +111,20 @@ pub(crate) fn terminal_worker(
     let mut reader = match master.try_clone_reader() {
         Ok(reader) => reader,
         Err(error) => {
-            let status = format!("failed to attach PTY reader: {error}");
-            enqueue_terminal_update(
+            send_terminal_status_update(
                 &update_mailbox,
-                TerminalUpdate::Status {
-                    surface: None,
-                    status: status.clone(),
-                },
                 &debug_stats,
-                &event_loop_proxy,
+                TerminalRuntimeState::failed(format!("failed to attach PTY reader: {error}")),
+                None,
+                &notifier,
             );
-            set_terminal_error(&debug_stats, status);
             let _ = child.kill();
             return;
         }
     };
 
     let (pty_output_tx, pty_output_rx) = mpsc::channel::<Vec<u8>>();
-    let reader_state = Arc::new(Mutex::new(None::<String>));
+    let reader_state = Arc::new(Mutex::new(None::<TerminalRuntimeState>));
     let worker_reader_state = reader_state.clone();
     let reader_thread = thread::spawn(move || {
         append_debug_log("pty reader thread start");
@@ -135,12 +132,10 @@ pub(crate) fn terminal_worker(
         loop {
             match reader.read(&mut buffer) {
                 Ok(0) => {
-                    match worker_reader_state.lock() {
-                        Ok(mut state) => *state = Some("PTY reader reached EOF".into()),
-                        Err(poisoned) => {
-                            *poisoned.into_inner() = Some("PTY reader reached EOF".into())
-                        }
-                    }
+                    set_reader_runtime_state(
+                        &worker_reader_state,
+                        TerminalRuntimeState::disconnected("PTY reader reached EOF"),
+                    );
                     break;
                 }
                 Ok(read) => {
@@ -149,12 +144,10 @@ pub(crate) fn terminal_worker(
                     }
                 }
                 Err(error) => {
-                    match worker_reader_state.lock() {
-                        Ok(mut state) => *state = Some(format!("PTY reader error: {error}")),
-                        Err(poisoned) => {
-                            *poisoned.into_inner() = Some(format!("PTY reader error: {error}"))
-                        }
-                    }
+                    set_reader_runtime_state(
+                        &worker_reader_state,
+                        TerminalRuntimeState::failed(format!("PTY reader error: {error}")),
+                    );
                     break;
                 }
             }
@@ -289,9 +282,11 @@ pub(crate) fn terminal_worker(
                             send_terminal_status_update(
                                 &update_mailbox,
                                 &debug_stats,
-                                &terminal,
-                                &event_loop_proxy,
-                                "PTY reader channel disconnected",
+                                TerminalRuntimeState::disconnected(
+                                    "PTY reader channel disconnected",
+                                ),
+                                Some(build_surface(&terminal)),
+                                &notifier,
                             );
                             running = false;
                             break;
@@ -304,9 +299,9 @@ pub(crate) fn terminal_worker(
                 send_terminal_status_update(
                     &update_mailbox,
                     &debug_stats,
-                    &terminal,
-                    &event_loop_proxy,
-                    "PTY reader channel disconnected",
+                    TerminalRuntimeState::disconnected("PTY reader channel disconnected"),
+                    Some(build_surface(&terminal)),
+                    &notifier,
                 );
                 running = false;
             }
@@ -319,23 +314,22 @@ pub(crate) fn terminal_worker(
                     send_terminal_status_update(
                         &update_mailbox,
                         &debug_stats,
-                        &terminal,
-                        &event_loop_proxy,
-                        status,
+                        TerminalRuntimeState::failed(status),
+                        Some(build_surface(&terminal)),
+                        &notifier,
                     );
                     running = false;
                 }
                 InputThreadEvent::ScrollDisplay(lines) => {
                     append_debug_log(format!("terminal scroll display: {lines}"));
-                    terminal.scroll_display(Scroll::Delta(lines));
+                    terminal.scroll_display(alacritty_terminal::grid::Scroll::Delta(lines));
                     let surface = build_surface(&terminal);
                     send_terminal_frame_update(
                         &update_mailbox,
                         &debug_stats,
-                        &event_loop_proxy,
+                        &notifier,
                         previous_surface.as_ref(),
                         surface.clone(),
-                        "backend: alacritty_terminal + portable-pty".into(),
                     );
                     previous_surface = Some(surface);
                 }
@@ -345,17 +339,17 @@ pub(crate) fn terminal_worker(
             }
         }
 
-        let reader_status = match reader_state.lock() {
+        let reader_runtime = match reader_state.lock() {
             Ok(state) => state.clone(),
             Err(poisoned) => poisoned.into_inner().clone(),
         };
-        if let Some(status) = reader_status {
+        if let Some(runtime) = reader_runtime {
             send_terminal_status_update(
                 &update_mailbox,
                 &debug_stats,
-                &terminal,
-                &event_loop_proxy,
-                status,
+                runtime,
+                Some(build_surface(&terminal)),
+                &notifier,
             );
             running = false;
         }
@@ -365,13 +359,17 @@ pub(crate) fn terminal_worker(
                 send_terminal_status_update(
                     &update_mailbox,
                     &debug_stats,
-                    &terminal,
-                    &event_loop_proxy,
-                    format!(
-                        "PTY child exited: code={} signal={:?}",
-                        status.exit_code(),
-                        status.signal()
+                    TerminalRuntimeState::exited(
+                        format!(
+                            "PTY child exited: code={} signal={:?}",
+                            status.exit_code(),
+                            status.signal()
+                        ),
+                        Some(status.exit_code()),
+                        status.signal().map(str::to_owned),
                     ),
+                    Some(build_surface(&terminal)),
+                    &notifier,
                 );
                 running = false;
             }
@@ -380,9 +378,9 @@ pub(crate) fn terminal_worker(
                 send_terminal_status_update(
                     &update_mailbox,
                     &debug_stats,
-                    &terminal,
-                    &event_loop_proxy,
-                    format!("PTY child wait failed: {error}"),
+                    TerminalRuntimeState::failed(format!("PTY child wait failed: {error}")),
+                    Some(build_surface(&terminal)),
+                    &notifier,
                 );
                 running = false;
             }
@@ -393,10 +391,9 @@ pub(crate) fn terminal_worker(
             send_terminal_frame_update(
                 &update_mailbox,
                 &debug_stats,
-                &event_loop_proxy,
+                &notifier,
                 previous_surface.as_ref(),
                 surface.clone(),
-                "backend: alacritty_terminal + portable-pty".into(),
             );
             previous_surface = Some(surface);
         }
@@ -405,6 +402,69 @@ pub(crate) fn terminal_worker(
     let _ = child.kill();
     let _ = reader_thread.join();
     let _ = input_thread.join();
+}
+
+fn set_reader_runtime_state(
+    reader_state: &Arc<Mutex<Option<TerminalRuntimeState>>>,
+    runtime: TerminalRuntimeState,
+) {
+    match reader_state.lock() {
+        Ok(mut state) => *state = Some(runtime),
+        Err(poisoned) => *poisoned.into_inner() = Some(runtime),
+    }
+}
+
+fn apply_pty_bytes(
+    parser: &mut ansi::Processor<ansi::StdSyncHandler>,
+    terminal: &mut Term<VoidListener>,
+    debug_stats: &Arc<Mutex<TerminalDebugStats>>,
+    bytes: &[u8],
+) {
+    with_debug_stats(debug_stats, |stats| {
+        stats.pty_bytes_read += bytes.len() as u64;
+    });
+    parser.advance(terminal, bytes);
+}
+
+pub(crate) fn compute_terminal_damage(
+    previous_surface: Option<&TerminalSurface>,
+    surface: &TerminalSurface,
+) -> TerminalDamage {
+    let Some(previous_surface) = previous_surface else {
+        return TerminalDamage::Full;
+    };
+    if previous_surface.cols != surface.cols || previous_surface.rows != surface.rows {
+        return TerminalDamage::Full;
+    }
+
+    let mut dirty_rows = Vec::new();
+    for y in 0..surface.rows {
+        let start = y * surface.cols;
+        let end = start + surface.cols;
+        if previous_surface.cells[start..end] != surface.cells[start..end] {
+            dirty_rows.push(y);
+        }
+    }
+
+    if previous_surface.cursor != surface.cursor {
+        if let Some(cursor) = previous_surface.cursor.as_ref() {
+            if cursor.visible && cursor.y < surface.rows && !dirty_rows.contains(&cursor.y) {
+                dirty_rows.push(cursor.y);
+            }
+        }
+        if let Some(cursor) = surface.cursor.as_ref() {
+            if cursor.visible && cursor.y < surface.rows && !dirty_rows.contains(&cursor.y) {
+                dirty_rows.push(cursor.y);
+            }
+        }
+    }
+
+    if dirty_rows.len() >= surface.rows {
+        TerminalDamage::Full
+    } else {
+        dirty_rows.sort_unstable();
+        TerminalDamage::Rows(dirty_rows)
+    }
 }
 
 pub(crate) fn build_surface(term: &Term<VoidListener>) -> TerminalSurface {
@@ -726,10 +786,7 @@ fn spawn_pty(cols: u16, rows: u16) -> Result<PtySession, String> {
 }
 
 fn shell_path() -> OsString {
-    match env::var_os("SHELL") {
-        Some(shell) => shell,
-        None => OsString::from("bash"),
-    }
+    env::var_os("SHELL").unwrap_or_else(|| OsString::from("bash"))
 }
 
 fn write_input(writer: &mut dyn Write, bytes: &[u8]) -> std::io::Result<()> {

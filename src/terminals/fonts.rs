@@ -1,8 +1,53 @@
-use super::*;
-use crate::*;
+use crate::terminals::{TerminalFontFace, TerminalFontReport};
+use bevy::prelude::{ResMut, Resource};
+use cosmic_text::{fontdb, FontSystem as CtFontSystem, SwashCache as CtSwashCache};
+use std::{
+    collections::BTreeSet,
+    env,
+    path::{Path, PathBuf},
+    process::Command,
+};
+
+#[derive(Resource, Default)]
+pub(crate) struct TerminalFontState {
+    pub(crate) report: Option<Result<TerminalFontReport, String>>,
+}
+
+#[derive(Resource)]
+pub(crate) struct TerminalTextRenderer {
+    pub(crate) font_system: Option<CtFontSystem>,
+    pub(crate) swash_cache: CtSwashCache,
+}
+
+impl Default for TerminalTextRenderer {
+    fn default() -> Self {
+        Self {
+            font_system: None,
+            swash_cache: CtSwashCache::new(),
+        }
+    }
+}
+
+impl TerminalFontState {
+    pub(crate) fn has_private_use_font(&self) -> bool {
+        self.fallback_family_name("private-use").is_some()
+    }
+
+    pub(crate) fn has_emoji_font(&self) -> bool {
+        self.fallback_family_name("emoji").is_some()
+    }
+
+    pub(crate) fn fallback_family_name<'a>(&'a self, needle: &str) -> Option<&'a str> {
+        let report = self.report.as_ref()?.as_ref().ok()?;
+        report
+            .fallbacks
+            .iter()
+            .find(|face| face.source.contains(needle))
+            .map(|face| face.family.as_str())
+    }
+}
 
 pub(crate) fn configure_terminal_fonts(
-    mut font_assets: ResMut<Assets<Font>>,
     mut font_state: ResMut<TerminalFontState>,
     mut text_renderer: ResMut<TerminalTextRenderer>,
 ) {
@@ -11,44 +56,18 @@ pub(crate) fn configure_terminal_fonts(
     }
 
     match resolve_terminal_font_report() {
-        Ok(report) => {
-            match initialize_terminal_text_renderer(&report, &mut text_renderer) {
-                Ok(()) => {}
-                Err(error) => {
-                    font_state.report = Some(Err(error));
-                    return;
-                }
+        Ok(report) => match initialize_terminal_text_renderer(&report, &mut text_renderer) {
+            Ok(()) => {
+                font_state.report = Some(Ok(report));
             }
-
-            if let Ok(primary) = load_font_handle(&mut font_assets, &report.primary.path) {
-                font_state.primary_font = Some(primary);
+            Err(error) => {
+                font_state.report = Some(Err(error));
             }
-
-            for fallback in &report.fallbacks {
-                if let Ok(handle) = load_font_handle(&mut font_assets, &fallback.path) {
-                    if fallback.source.contains("private-use") {
-                        font_state.private_use_font = Some(handle.clone());
-                    }
-                    if fallback.source.contains("emoji") {
-                        font_state.emoji_font = Some(handle.clone());
-                    }
-                }
-            }
-
-            font_state.report = Some(Ok(report));
-        }
+        },
         Err(error) => {
             font_state.report = Some(Err(error));
         }
     }
-}
-
-fn load_font_handle(font_assets: &mut Assets<Font>, path: &Path) -> Result<Handle<Font>, String> {
-    let bytes = fs::read(path)
-        .map_err(|error| format!("failed to read font {}: {error}", path.display()))?;
-    let font = Font::try_from_bytes(bytes)
-        .map_err(|error| format!("failed to parse font {}: {error}", path.display()))?;
-    Ok(font_assets.add(font))
 }
 
 pub(crate) fn initialize_terminal_text_renderer(
@@ -157,11 +176,7 @@ pub(crate) fn find_kitty_config_path() -> Option<PathBuf> {
     }
 
     let system_path = PathBuf::from("/etc/xdg/kitty/kitty.conf");
-    if system_path.is_file() {
-        Some(system_path)
-    } else {
-        None
-    }
+    system_path.is_file().then_some(system_path)
 }
 
 pub(crate) fn parse_kitty_config_file(
@@ -176,7 +191,7 @@ pub(crate) fn parse_kitty_config_file(
         return Ok(());
     }
 
-    let content = fs::read_to_string(&canonical).map_err(|error| {
+    let content = std::fs::read_to_string(&canonical).map_err(|error| {
         format!(
             "failed to read kitty config {}: {error}",
             canonical.display()
@@ -262,46 +277,6 @@ fn fc_match_face(query: &str, source: &str) -> Result<TerminalFontFace, String> 
         path,
         source: source.to_owned(),
     })
-}
-
-pub(crate) fn sync_terminal_font_helpers(
-    font_state: Res<TerminalFontState>,
-    terminal_manager: Res<TerminalManager>,
-    mut helper_fonts: Query<(&TerminalFontRole, &mut TextFont)>,
-) {
-    if !font_state.is_changed() || terminal_manager.helper_entities.is_none() {
-        return;
-    }
-
-    let font_size = DEFAULT_CELL_HEIGHT_PX as f32 * 0.9;
-    for (role, mut text_font) in &mut helper_fonts {
-        text_font.font_size = font_size;
-        match role {
-            TerminalFontRole::Primary => {
-                if let Some(handle) = &font_state.primary_font {
-                    text_font.font = handle.clone();
-                }
-            }
-            TerminalFontRole::PrivateUse => {
-                if let Some(handle) = font_state
-                    .private_use_font
-                    .as_ref()
-                    .or(font_state.primary_font.as_ref())
-                {
-                    text_font.font = handle.clone();
-                }
-            }
-            TerminalFontRole::Emoji => {
-                if let Some(handle) = font_state
-                    .emoji_font
-                    .as_ref()
-                    .or(font_state.primary_font.as_ref())
-                {
-                    text_font.font = handle.clone();
-                }
-            }
-        }
-    }
 }
 
 pub(crate) fn is_private_use_like(ch: char) -> bool {

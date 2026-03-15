@@ -1,5 +1,55 @@
-use super::*;
-use crate::*;
+use crate::{
+    app_config::{
+        DEBUG_TEXTURE_DUMP_PATH, DEFAULT_BG, DEFAULT_CELL_HEIGHT_PX, DEFAULT_CELL_WIDTH_PX,
+    },
+    terminals::{
+        append_debug_log, is_emoji_like, is_private_use_like, pixel_perfect_cell_size,
+        with_debug_stats, TerminalDamage, TerminalDisplayMode, TerminalFontState, TerminalManager,
+        TerminalPresentationStore, TerminalSurface, TerminalTextRenderer,
+    },
+};
+use bevy::{
+    asset::RenderAssetUsages,
+    image::ImageSampler,
+    prelude::{Assets, DetectChanges, Image, Res, ResMut, Resource, Single, UVec2, Window, With},
+    render::render_resource::{Extent3d, TextureDimension, TextureFormat},
+    window::PrimaryWindow,
+};
+use bevy_egui::egui;
+use cosmic_text::{
+    Attrs as CtAttrs, Buffer as CtBuffer, Color as CtColor, Family as CtFamily,
+    Metrics as CtMetrics, Shaping as CtShaping,
+};
+use std::{env, fs, path::Path};
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(crate) enum TerminalFontRole {
+    Primary,
+    PrivateUse,
+    Emoji,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub(crate) struct TerminalGlyphCacheKey {
+    pub(crate) content: crate::terminals::TerminalCellContent,
+    pub(crate) font_role: TerminalFontRole,
+    pub(crate) width_cells: u8,
+    pub(crate) cell_width: u32,
+    pub(crate) cell_height: u32,
+}
+
+#[derive(Clone)]
+pub(crate) struct CachedTerminalGlyph {
+    pub(crate) width: u32,
+    pub(crate) height: u32,
+    pub(crate) pixels: Vec<u8>,
+    pub(crate) preserve_color: bool,
+}
+
+#[derive(Resource, Default)]
+pub(crate) struct TerminalGlyphCache {
+    pub(crate) glyphs: std::collections::HashMap<TerminalGlyphCacheKey, CachedTerminalGlyph>,
+}
 
 pub(crate) fn create_terminal_image(size: UVec2) -> Image {
     let mut image = Image::new_fill(
@@ -39,6 +89,7 @@ fn dump_terminal_image_ppm(image: &Image, path: &Path) -> Result<(), String> {
 
 pub(crate) fn sync_terminal_texture(
     mut terminal_manager: ResMut<TerminalManager>,
+    mut presentation_store: ResMut<TerminalPresentationStore>,
     font_state: Res<TerminalFontState>,
     primary_window: Single<&Window, With<PrimaryWindow>>,
     mut glyph_cache: ResMut<TerminalGlyphCache>,
@@ -55,41 +106,36 @@ pub(crate) fn sync_terminal_texture(
         glyph_cache.glyphs.clear();
     }
 
-    let active_id = terminal_manager.active_id;
-    for (terminal_id, terminal) in terminal_manager.terminals.iter_mut() {
-        let Some(surface) = &terminal.latest.surface else {
+    let active_id = terminal_manager.active_id();
+    for (terminal_id, terminal) in terminal_manager.terminals_mut().iter_mut() {
+        let Some(surface) = &terminal.snapshot.surface else {
+            terminal.pending_damage = None;
+            continue;
+        };
+        let Some(presented_terminal) = presentation_store.get_mut(*terminal_id) else {
             terminal.pending_damage = None;
             continue;
         };
 
-        let Some(image_handle) = terminal.texture_state.image.clone() else {
-            append_debug_log("texture sync: missing image handle");
-            continue;
-        };
-        let Some(helper_entities) = terminal.texture_state.helper_entities else {
-            append_debug_log("texture sync: missing helper entities");
-            continue;
-        };
-
         let pixel_perfect = Some(*terminal_id) == active_id
-            && terminal.display_mode == TerminalDisplayMode::PixelPerfect;
+            && presented_terminal.display_mode == TerminalDisplayMode::PixelPerfect;
         let desired_cell_size = if pixel_perfect {
             pixel_perfect_cell_size(surface.cols, surface.rows, &primary_window)
         } else {
             UVec2::new(DEFAULT_CELL_WIDTH_PX, DEFAULT_CELL_HEIGHT_PX)
         };
-        if terminal.texture_state.cell_size != desired_cell_size {
-            terminal.texture_state.cell_size = desired_cell_size;
+        if presented_terminal.texture_state.cell_size != desired_cell_size {
+            presented_terminal.texture_state.cell_size = desired_cell_size;
         }
 
-        let cell_size = terminal.texture_state.cell_size;
+        let cell_size = presented_terminal.texture_state.cell_size;
         let texture_size = UVec2::new(
             surface.cols as u32 * cell_size.x.max(1),
             surface.rows as u32 * cell_size.y.max(1),
         );
-        let has_pending_surface = terminal.surface_revision != terminal.uploaded_revision;
-        let mut full_redraw =
-            font_state.is_changed() || terminal.texture_state.texture_size != texture_size;
+        let has_pending_surface = terminal.surface_revision != presented_terminal.uploaded_revision;
+        let mut full_redraw = font_state.is_changed()
+            || presented_terminal.texture_state.texture_size != texture_size;
         let mut dirty_rows = if full_redraw {
             (0..surface.rows).collect::<Vec<_>>()
         } else if has_pending_surface {
@@ -112,7 +158,7 @@ pub(crate) fn sync_terminal_texture(
             continue;
         }
 
-        if let Some(target_image) = images.get_mut(&image_handle) {
+        if let Some(target_image) = images.get_mut(&presented_terminal.image) {
             if target_image.texture_descriptor.size.width != texture_size.x
                 || target_image.texture_descriptor.size.height != texture_size.y
             {
@@ -155,21 +201,22 @@ pub(crate) fn sync_terminal_texture(
                 surface,
                 &dirty_rows,
                 cell_size,
-                helper_entities,
                 &mut text_renderer,
                 &mut glyph_cache,
                 &font_state,
             );
             let compose_elapsed = compose_started.elapsed();
-            with_debug_stats(&terminal.bridge.debug_stats, |stats| {
+            with_debug_stats(&terminal.bridge.debug_stats_handle(), |stats| {
                 stats.compose_micros += compose_elapsed.as_micros() as u64;
                 stats.dirty_rows_uploaded += dirty_rows.len() as u64;
             });
+
             if env::var_os("NEOZEUS_DUMP_TEXTURE").is_some() {
                 let _ = dump_terminal_image_ppm(target_image, Path::new(DEBUG_TEXTURE_DUMP_PATH));
             }
-            terminal.texture_state.texture_size = texture_size;
-            terminal.uploaded_revision = terminal.surface_revision;
+
+            presented_terminal.texture_state.texture_size = texture_size;
+            presented_terminal.uploaded_revision = terminal.surface_revision;
             terminal.pending_damage = None;
         } else {
             append_debug_log("texture sync: target image missing in assets");
@@ -198,7 +245,6 @@ fn repaint_terminal_pixels(
     surface: &TerminalSurface,
     rows: &[usize],
     cell_size: UVec2,
-    helper_entities: TerminalFontEntities,
     text_renderer: &mut TerminalTextRenderer,
     glyph_cache: &mut TerminalGlyphCache,
     font_state: &TerminalFontState,
@@ -228,8 +274,7 @@ fn repaint_terminal_pixels(
                 continue;
             }
 
-            let (font_role, _helper_entity, preserve_color) =
-                select_terminal_font_role(&cell.content, font_state, helper_entities);
+            let (font_role, preserve_color) = select_terminal_font_role(&cell.content, font_state);
             let cache_key = TerminalGlyphCacheKey {
                 content: cell.content.clone(),
                 font_role,
@@ -263,23 +308,18 @@ fn repaint_terminal_pixels(
 }
 
 fn select_terminal_font_role(
-    content: &TerminalCellContent,
+    content: &crate::terminals::TerminalCellContent,
     font_state: &TerminalFontState,
-    helper_entities: TerminalFontEntities,
-) -> (TerminalFontRole, Entity, bool) {
-    if content.any_char(is_emoji_like) && font_state.emoji_font.is_some() {
-        return (TerminalFontRole::Emoji, helper_entities.emoji, true);
+) -> (TerminalFontRole, bool) {
+    if content.any_char(is_emoji_like) && font_state.has_emoji_font() {
+        return (TerminalFontRole::Emoji, true);
     }
 
-    if content.any_char(is_private_use_like) && font_state.private_use_font.is_some() {
-        return (
-            TerminalFontRole::PrivateUse,
-            helper_entities.private_use,
-            false,
-        );
+    if content.any_char(is_private_use_like) && font_state.has_private_use_font() {
+        return (TerminalFontRole::PrivateUse, false);
     }
 
-    (TerminalFontRole::Primary, helper_entities.primary, false)
+    (TerminalFontRole::Primary, false)
 }
 
 fn terminal_text_attrs<'a>(
@@ -288,26 +328,16 @@ fn terminal_text_attrs<'a>(
 ) -> CtAttrs<'a> {
     let family = match font_role {
         TerminalFontRole::Primary => CtFamily::Monospace,
-        TerminalFontRole::PrivateUse => terminal_font_family_name(font_state, "private-use")
+        TerminalFontRole::PrivateUse => font_state
+            .fallback_family_name("private-use")
             .map(CtFamily::Name)
             .unwrap_or(CtFamily::Monospace),
-        TerminalFontRole::Emoji => terminal_font_family_name(font_state, "emoji")
+        TerminalFontRole::Emoji => font_state
+            .fallback_family_name("emoji")
             .map(CtFamily::Name)
             .unwrap_or(CtFamily::Monospace),
     };
     CtAttrs::new().family(family)
-}
-
-fn terminal_font_family_name<'a>(
-    font_state: &'a TerminalFontState,
-    needle: &str,
-) -> Option<&'a str> {
-    let report = font_state.report.as_ref()?.as_ref().ok()?;
-    report
-        .fallbacks
-        .iter()
-        .find(|face| face.source.contains(needle))
-        .map(|face| face.family.as_str())
 }
 
 pub(crate) fn rasterize_terminal_glyph(
@@ -443,7 +473,7 @@ fn fill_rect_in_buffer(
 fn draw_cursor_in_buffer(
     buffer: &mut [u8],
     stride: usize,
-    cursor: &TerminalCursor,
+    cursor: &crate::terminals::TerminalCursor,
     cell_size: UVec2,
 ) {
     let origin_x = cursor.x as u32 * cell_size.x;
@@ -451,7 +481,7 @@ fn draw_cursor_in_buffer(
     let color = [cursor.color.r(), cursor.color.g(), cursor.color.b(), 160];
 
     match cursor.shape {
-        TerminalCursorShape::Block => {
+        crate::terminals::TerminalCursorShape::Block => {
             fill_alpha_rect_in_buffer(
                 buffer,
                 stride,
@@ -462,7 +492,7 @@ fn draw_cursor_in_buffer(
                 color,
             );
         }
-        TerminalCursorShape::Underline => {
+        crate::terminals::TerminalCursorShape::Underline => {
             let height = (cell_size.y / 8).max(1);
             fill_alpha_rect_in_buffer(
                 buffer,
@@ -474,7 +504,7 @@ fn draw_cursor_in_buffer(
                 [cursor.color.r(), cursor.color.g(), cursor.color.b(), 255],
             );
         }
-        TerminalCursorShape::Beam => {
+        crate::terminals::TerminalCursorShape::Beam => {
             let width = (cell_size.x / 10).max(1);
             fill_alpha_rect_in_buffer(
                 buffer,
@@ -536,8 +566,3 @@ pub(crate) fn blend_rgba_in_place(dst: &mut [u8], source: [u8; 4]) {
 
     dst[3] = (out_alpha * 255.0).round() as u8;
 }
-
-pub(crate) const HUD_SIDE_RESERVED: f32 = 72.0;
-pub(crate) const HUD_TOP_RESERVED: f32 = 140.0;
-pub(crate) const HUD_BOTTOM_RESERVED: f32 = 64.0;
-pub(crate) const HUD_FRAME_PADDING: Vec2 = Vec2::new(18.0, 18.0);
