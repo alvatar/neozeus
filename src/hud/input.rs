@@ -118,6 +118,37 @@ pub(crate) fn handle_hud_pointer_input(
             }
         }
     }
+
+    let hovered_module_id = hud_state.topmost_enabled_at(cursor).and_then(|module_id| {
+        hud_state.get(module_id).and_then(|module| {
+            let content_rect = content_hit_rect(module.shell.current_rect);
+            content_rect.contains(cursor).then_some(module_id)
+        })
+    });
+    let module_ids = hud_state.iter_z_order().collect::<Vec<_>>();
+    for module_id in module_ids {
+        let Some(module) = hud_state.get_mut(module_id) else {
+            continue;
+        };
+        let content_rect = content_hit_rect(module.shell.current_rect);
+        let point = if hovered_module_id == Some(module_id) {
+            Some(cursor)
+        } else {
+            None
+        };
+        let _ = if point.is_some() {
+            modules::handle_hover(
+                module_id,
+                &mut module.model,
+                content_rect,
+                point,
+                &terminal_manager,
+                &agent_directory,
+            )
+        } else {
+            modules::clear_hover(module_id, &mut module.model)
+        };
+    }
 }
 
 pub(crate) fn handle_hud_module_shortcuts(

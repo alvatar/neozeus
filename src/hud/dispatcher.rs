@@ -74,6 +74,11 @@ pub(crate) fn apply_hud_commands(
             }
             HudCommand::HideAllButTerminal(id) => {
                 visibility_state.policy = TerminalVisibilityPolicy::Isolate(id);
+                append_debug_log(format!("hud visibility isolate {}", id.0));
+                dispatcher.events.push(HudEnvelope {
+                    recipients: HudRecipients::All,
+                    payload: HudEvent::TerminalPresentationIsolated(id),
+                });
                 dispatcher.events.push(HudEnvelope {
                     recipients: HudRecipients::All,
                     payload: HudEvent::TerminalPresentationPolicyChanged(visibility_state.policy),
@@ -81,6 +86,7 @@ pub(crate) fn apply_hud_commands(
             }
             HudCommand::ShowAllTerminals => {
                 visibility_state.policy = TerminalVisibilityPolicy::ShowAll;
+                append_debug_log("hud visibility show-all");
                 dispatcher.events.push(HudEnvelope {
                     recipients: HudRecipients::All,
                     payload: HudEvent::TerminalPresentationPolicyChanged(visibility_state.policy),
@@ -96,11 +102,18 @@ pub(crate) fn apply_hud_commands(
                     payload: HudEvent::AgentRenamed { terminal_id, label },
                 });
             }
+            HudCommand::SetModuleEnabled { id, enabled } => {
+                hud_state.set_module_enabled(id, enabled);
+                dispatcher.events.push(HudEnvelope {
+                    recipients: HudRecipients::One(id),
+                    payload: HudEvent::ModuleEnabledChanged { id, enabled },
+                });
+            }
             HudCommand::ToggleModule(id) => {
                 let enabled = hud_state
                     .get(id)
                     .is_some_and(|module| !module.shell.enabled);
-                hud_state.toggle_module(id);
+                hud_state.set_module_enabled(id, enabled);
                 dispatcher.events.push(HudEnvelope {
                     recipients: HudRecipients::One(id),
                     payload: HudEvent::ModuleEnabledChanged { id, enabled },

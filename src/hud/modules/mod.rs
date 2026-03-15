@@ -52,6 +52,29 @@ pub(crate) fn handle_pointer_click(
     }
 }
 
+pub(crate) fn handle_hover(
+    module_id: HudModuleId,
+    model: &mut HudModuleModel,
+    shell_rect: HudRect,
+    point: Option<Vec2>,
+    terminal_manager: &TerminalManager,
+    agent_directory: &AgentDirectory,
+) -> bool {
+    match module_id {
+        HudModuleId::DebugToolbar => false,
+        HudModuleId::AgentList => {
+            agent_list::handle_hover(model, shell_rect, point, terminal_manager, agent_directory)
+        }
+    }
+}
+
+pub(crate) fn clear_hover(module_id: HudModuleId, model: &mut HudModuleModel) -> bool {
+    match module_id {
+        HudModuleId::DebugToolbar => false,
+        HudModuleId::AgentList => agent_list::clear_hover(model),
+    }
+}
+
 pub(crate) fn handle_scroll(
     module_id: HudModuleId,
     model: &mut HudModuleModel,
