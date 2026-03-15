@@ -1,0 +1,64 @@
+mod interaction;
+mod render;
+
+use crate::{
+    hud::{AgentDirectory, HudRect, HUD_MODULE_PADDING, HUD_ROW_HEIGHT},
+    terminals::{TerminalId, TerminalManager},
+};
+
+pub(crate) use interaction::{clear_hover, handle_hover, handle_pointer_click, handle_scroll};
+pub(crate) use render::render_content;
+
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct AgentRow {
+    pub(crate) terminal_id: TerminalId,
+    pub(crate) label: String,
+    pub(crate) rect: HudRect,
+    pub(crate) focused: bool,
+    pub(crate) hovered: bool,
+}
+
+pub(crate) fn resolve_agent_label(
+    terminal_ids: &[TerminalId],
+    agent_directory: &AgentDirectory,
+    terminal_id: TerminalId,
+) -> String {
+    if let Some(label) = agent_directory.labels.get(&terminal_id) {
+        return label.clone();
+    }
+    let index = terminal_ids
+        .iter()
+        .position(|existing| *existing == terminal_id)
+        .map(|index| index + 1)
+        .unwrap_or(terminal_id.0 as usize);
+    format!("agent-{index}")
+}
+
+pub(crate) fn agent_rows(
+    shell_rect: HudRect,
+    scroll_offset: f32,
+    hovered_terminal: Option<TerminalId>,
+    terminal_manager: &TerminalManager,
+    agent_directory: &AgentDirectory,
+) -> Vec<AgentRow> {
+    let terminal_ids = terminal_manager.terminal_ids();
+    let content_x = shell_rect.x + HUD_MODULE_PADDING;
+    let content_y = shell_rect.y + HUD_MODULE_PADDING;
+    let content_w = (shell_rect.w - HUD_MODULE_PADDING * 2.0).max(0.0);
+    terminal_ids
+        .iter()
+        .enumerate()
+        .map(|(index, terminal_id)| AgentRow {
+            terminal_id: *terminal_id,
+            label: resolve_agent_label(terminal_ids, agent_directory, *terminal_id),
+            rect: HudRect {
+                x: content_x,
+                y: content_y + index as f32 * HUD_ROW_HEIGHT - scroll_offset,
+                w: content_w,
+                h: HUD_ROW_HEIGHT,
+            },
+            focused: terminal_manager.active_id() == Some(*terminal_id),
+            hovered: hovered_terminal == Some(*terminal_id),
+        })
+        .collect()
+}
