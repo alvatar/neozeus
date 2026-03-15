@@ -1,6 +1,6 @@
 use super::pressed_text;
 use crate::{
-    input::{ctrl_sequence, keyboard_input_to_terminal_command},
+    input::{ctrl_sequence, keyboard_input_to_terminal_command, should_spawn_bootstrap_terminal},
     terminals::TerminalCommand,
 };
 use bevy::input::ButtonInput;
@@ -22,4 +22,16 @@ fn plain_text_uses_text_payload() {
         Some(TerminalCommand::InputText(text)) => assert_eq!(text, "a"),
         _ => panic!("expected text input command"),
     }
+}
+
+#[test]
+fn bootstrap_terminal_shortcut_only_uses_plain_z_when_no_terminals_exist() {
+    let keys = ButtonInput::<KeyCode>::default();
+    let event = pressed_text(KeyCode::KeyZ, Some("z"));
+    assert!(should_spawn_bootstrap_terminal(&event, &keys, false));
+    assert!(!should_spawn_bootstrap_terminal(&event, &keys, true));
+
+    let mut ctrl_keys = ButtonInput::<KeyCode>::default();
+    ctrl_keys.press(KeyCode::ControlLeft);
+    assert!(!should_spawn_bootstrap_terminal(&event, &ctrl_keys, false));
 }

@@ -248,6 +248,83 @@ fn terminal_creation_order_stays_stable_when_focus_changes() {
 }
 
 #[test]
+fn terminal_can_be_created_without_becoming_active() {
+    let (bridge, _) = test_bridge();
+    let mut manager = TerminalManager::default();
+    let id = manager.create_terminal_without_focus(bridge);
+
+    assert_eq!(manager.terminal_ids(), &[id]);
+    assert_eq!(manager.active_id(), None);
+    assert!(manager.focus_order().is_empty());
+}
+
+#[test]
+fn terminal_presentations_stay_hidden_when_no_terminal_is_active() {
+    let (bridge, _) = test_bridge();
+    let mut manager = TerminalManager::default();
+    let id = manager.create_terminal_without_focus(bridge);
+    for (_, terminal) in manager.iter_mut() {
+        terminal.snapshot.surface = Some(TerminalSurface::new(2, 2));
+    }
+
+    let mut presentation_store = TerminalPresentationStore::default();
+    presentation_store.register(
+        id,
+        PresentedTerminal {
+            image: Default::default(),
+            texture_state: TerminalTextureState {
+                texture_size: UVec2::new(100, 100),
+                cell_size: UVec2::new(10, 20),
+            },
+            display_mode: TerminalDisplayMode::Smooth,
+            uploaded_revision: 0,
+        },
+    );
+
+    let mut world = World::default();
+    let mut time = Time::<()>::default();
+    time.advance_by(Duration::from_millis(16));
+    world.insert_resource(time);
+    world.insert_resource(manager);
+    world.insert_resource(presentation_store);
+    world.insert_resource(crate::hud::TerminalVisibilityState::default());
+    world.insert_resource(TerminalViewState::default());
+    world.spawn((
+        Window {
+            resolution: (1400, 900).into(),
+            ..Default::default()
+        },
+        PrimaryWindow,
+    ));
+    world.spawn((
+        TerminalPanel { id },
+        TerminalPresentation {
+            home_position: Vec2::ZERO,
+            current_position: Vec2::ZERO,
+            target_position: Vec2::ZERO,
+            current_size: Vec2::ONE,
+            target_size: Vec2::ONE,
+            current_alpha: 1.0,
+            target_alpha: 1.0,
+            current_z: 0.0,
+            target_z: 0.0,
+        },
+        Transform::default(),
+        Sprite::default(),
+        Visibility::Visible,
+    ));
+
+    world.run_system_once(sync_terminal_presentations).unwrap();
+
+    let mut query = world.query::<(&TerminalPanel, &Visibility)>();
+    let vis = query
+        .iter(&world)
+        .map(|(panel, visibility)| (panel.id, *visibility))
+        .collect::<Vec<_>>();
+    assert_eq!(vis, vec![(id, Visibility::Hidden)]);
+}
+
+#[test]
 fn terminal_visibility_policy_hides_only_presentation_and_show_all_restores_it() {
     let (bridge_one, _) = test_bridge();
     let (bridge_two, _) = test_bridge();
