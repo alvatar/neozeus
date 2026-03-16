@@ -1,11 +1,12 @@
 use crate::{
-    hud::{HudCommand, HudDispatcher},
+    hud::{HudCommand, HudDispatcher, HudState},
     terminals::{
         generate_unique_session_name, mark_terminal_sessions_dirty, provision_terminal_target,
         spawn_attached_terminal_with_presentation, terminal_texture_screen_size, TerminalCommand,
-        TerminalDisplayMode, TerminalManager, TerminalPointerState, TerminalPresentationStore,
-        TerminalProvisionTarget, TerminalRuntimeSpawner, TerminalSessionPersistenceState,
-        TerminalViewState, TmuxClientResource, PERSISTENT_TMUX_SESSION_PREFIX,
+        TerminalDisplayMode, TerminalManager, TerminalPanel, TerminalPointerState,
+        TerminalPresentation, TerminalPresentationStore, TerminalProvisionTarget,
+        TerminalRuntimeSpawner, TerminalSessionPersistenceState, TerminalViewState,
+        TmuxClientResource, PERSISTENT_TMUX_SESSION_PREFIX,
     },
 };
 use bevy::{
@@ -122,6 +123,51 @@ pub(crate) fn handle_terminal_lifecycle_shortcuts(
         if should_kill_active_terminal(event, &keys) {
             dispatcher.commands.push(HudCommand::KillActiveTerminal);
         }
+    }
+}
+
+fn terminal_panel_contains_cursor(
+    window: &Window,
+    presentation: &TerminalPresentation,
+    cursor: Vec2,
+) -> bool {
+    let min = Vec2::new(
+        window.width() * 0.5 + presentation.current_position.x - presentation.current_size.x * 0.5,
+        window.height() * 0.5 + presentation.current_position.y - presentation.current_size.y * 0.5,
+    );
+    let max = min + presentation.current_size;
+    cursor.x >= min.x && cursor.x <= max.x && cursor.y >= min.y && cursor.y <= max.y
+}
+
+pub(crate) fn hide_terminal_on_background_click(
+    mouse_buttons: Res<ButtonInput<MouseButton>>,
+    time: Res<Time>,
+    primary_window: Single<&Window, With<PrimaryWindow>>,
+    hud_state: Res<HudState>,
+    panels: Query<(&TerminalPanel, &TerminalPresentation, &Visibility)>,
+    mut terminal_manager: ResMut<TerminalManager>,
+    mut session_persistence: ResMut<TerminalSessionPersistenceState>,
+) {
+    if !mouse_buttons.just_pressed(MouseButton::Left) || !primary_window.focused {
+        return;
+    }
+    let Some(_) = terminal_manager.active_id() else {
+        return;
+    };
+    let Some(cursor) = primary_window.cursor_position() else {
+        return;
+    };
+    if hud_state.topmost_enabled_at(cursor).is_some() {
+        return;
+    }
+    if panels.iter().any(|(_, presentation, visibility)| {
+        *visibility == Visibility::Visible
+            && terminal_panel_contains_cursor(&primary_window, presentation, cursor)
+    }) {
+        return;
+    }
+    if terminal_manager.clear_active_terminal().is_some() {
+        mark_terminal_sessions_dirty(&mut session_persistence, Some(&time));
     }
 }
 

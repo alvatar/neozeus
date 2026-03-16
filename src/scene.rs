@@ -8,7 +8,7 @@ use crate::{
     },
     input::{
         drag_terminal_view, forward_keyboard_input, handle_bootstrap_terminal_shortcut,
-        handle_terminal_lifecycle_shortcuts, zoom_terminal_view,
+        handle_terminal_lifecycle_shortcuts, hide_terminal_on_background_click, zoom_terminal_view,
     },
     terminals::{
         append_debug_log, configure_terminal_fonts, generate_unique_session_name,
@@ -160,6 +160,7 @@ fn configure_app(app: &mut App) {
             (
                 handle_bootstrap_terminal_shortcut,
                 handle_terminal_lifecycle_shortcuts,
+                hide_terminal_on_background_click,
                 drag_terminal_view,
                 zoom_terminal_view,
                 forward_keyboard_input,
