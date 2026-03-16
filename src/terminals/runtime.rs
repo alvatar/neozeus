@@ -1,7 +1,7 @@
 use super::backend::terminal_worker;
 use crate::terminals::{
-    append_debug_log, note_terminal_error, TerminalBridge, TerminalDebugStats,
-    TerminalRuntimeState, TerminalUpdate, TerminalUpdateMailbox,
+    append_debug_log, note_terminal_error, TerminalAttachTarget, TerminalBridge,
+    TerminalDebugStats, TerminalRuntimeState, TerminalUpdate, TerminalUpdateMailbox,
 };
 use bevy::{
     prelude::Resource,
@@ -43,12 +43,15 @@ impl TerminalRuntimeSpawner {
         self.notifier.clone()
     }
 
-    pub(crate) fn spawn(&self) -> TerminalBridge {
-        spawn_terminal_runtime(self.notifier.clone())
+    pub(crate) fn spawn_attached(&self, attach_target: TerminalAttachTarget) -> TerminalBridge {
+        spawn_terminal_runtime(self.notifier.clone(), attach_target)
     }
 }
 
-pub(crate) fn spawn_terminal_runtime(notifier: RuntimeNotifier) -> TerminalBridge {
+pub(crate) fn spawn_terminal_runtime(
+    notifier: RuntimeNotifier,
+    attach_target: TerminalAttachTarget,
+) -> TerminalBridge {
     let (input_tx, input_rx) = mpsc::channel();
     let update_mailbox = Arc::new(TerminalUpdateMailbox::default());
     let debug_stats = Arc::new(Mutex::new(TerminalDebugStats::default()));
@@ -57,6 +60,7 @@ pub(crate) fn spawn_terminal_runtime(notifier: RuntimeNotifier) -> TerminalBridg
     let worker_mailbox = update_mailbox.clone();
     let worker_debug_stats = debug_stats.clone();
     let worker_notifier = notifier.clone();
+    let worker_attach_target = attach_target.clone();
     thread::spawn(move || {
         append_debug_log("terminal worker thread spawn");
         let panic_mailbox = worker_mailbox.clone();
@@ -68,6 +72,7 @@ pub(crate) fn spawn_terminal_runtime(notifier: RuntimeNotifier) -> TerminalBridg
                 worker_mailbox,
                 worker_debug_stats,
                 worker_notifier,
+                worker_attach_target,
             )
         }));
         if let Err(payload) = result {

@@ -1,7 +1,12 @@
-use crate::terminals::{
-    spawn_terminal_presentation, terminal_texture_screen_size, TerminalCommand,
-    TerminalDisplayMode, TerminalManager, TerminalPointerState, TerminalPresentationStore,
-    TerminalRuntimeSpawner, TerminalViewState,
+use crate::{
+    hud::{HudCommand, HudDispatcher},
+    terminals::{
+        generate_unique_session_name, mark_terminal_sessions_dirty, provision_terminal_target,
+        spawn_attached_terminal_with_presentation, terminal_texture_screen_size, TerminalCommand,
+        TerminalDisplayMode, TerminalManager, TerminalPointerState, TerminalPresentationStore,
+        TerminalProvisionTarget, TerminalRuntimeSpawner, TerminalSessionPersistenceState,
+        TerminalViewState, TmuxClientResource, PERSISTENT_TMUX_SESSION_PREFIX,
+    },
 };
 use bevy::{
     input::{
@@ -13,6 +18,14 @@ use bevy::{
     window::PrimaryWindow,
 };
 
+fn has_plain_modifiers(keys: &ButtonInput<KeyCode>) -> (bool, bool, bool) {
+    (
+        keys.pressed(KeyCode::ControlLeft) || keys.pressed(KeyCode::ControlRight),
+        keys.pressed(KeyCode::AltLeft) || keys.pressed(KeyCode::AltRight),
+        keys.pressed(KeyCode::SuperLeft) || keys.pressed(KeyCode::SuperRight),
+    )
+}
+
 pub(crate) fn should_spawn_bootstrap_terminal(
     event: &KeyboardInput,
     keys: &ButtonInput<KeyCode>,
@@ -22,25 +35,37 @@ pub(crate) fn should_spawn_bootstrap_terminal(
         return false;
     }
 
-    let ctrl = keys.pressed(KeyCode::ControlLeft) || keys.pressed(KeyCode::ControlRight);
-    let alt = keys.pressed(KeyCode::AltLeft) || keys.pressed(KeyCode::AltRight);
-    let super_key = keys.pressed(KeyCode::SuperLeft) || keys.pressed(KeyCode::SuperRight);
+    let (ctrl, alt, super_key) = has_plain_modifiers(keys);
     !(ctrl || alt || super_key)
+}
+
+pub(crate) fn should_kill_active_terminal(
+    event: &KeyboardInput,
+    keys: &ButtonInput<KeyCode>,
+) -> bool {
+    if event.state != ButtonState::Pressed || event.key_code != KeyCode::KeyK {
+        return false;
+    }
+    let (ctrl, alt, super_key) = has_plain_modifiers(keys);
+    ctrl && !alt && !super_key
 }
 
 #[allow(
     clippy::too_many_arguments,
-    reason = "bootstrap spawn shortcut needs input plus terminal/runtime/presentation resources together"
+    reason = "bootstrap spawn shortcut needs input plus terminal/runtime/presentation/tmux resources together"
 )]
 pub(crate) fn handle_bootstrap_terminal_shortcut(
     mut commands: Commands,
     mut images: ResMut<Assets<Image>>,
+    time: Res<Time>,
     mut messages: MessageReader<KeyboardInput>,
     keys: Res<ButtonInput<KeyCode>>,
     primary_window: Single<&Window, With<PrimaryWindow>>,
     mut terminal_manager: ResMut<TerminalManager>,
     mut presentation_store: ResMut<TerminalPresentationStore>,
     runtime_spawner: Res<TerminalRuntimeSpawner>,
+    tmux_client: Res<TmuxClientResource>,
+    mut session_persistence: ResMut<TerminalSessionPersistenceState>,
 ) {
     if !primary_window.focused || !terminal_manager.terminal_ids().is_empty() {
         return;
@@ -50,20 +75,53 @@ pub(crate) fn handle_bootstrap_terminal_shortcut(
         if !should_spawn_bootstrap_terminal(event, &keys, false) {
             continue;
         }
-        let bridge = runtime_spawner.spawn();
-        let (terminal_id, slot) = terminal_manager.create_terminal_without_focus_with_slot(bridge);
-        spawn_terminal_presentation(
+        let client = tmux_client.client();
+        let Ok(session_name) = generate_unique_session_name(client, PERSISTENT_TMUX_SESSION_PREFIX)
+        else {
+            crate::terminals::append_debug_log(
+                "bootstrap terminal spawn failed: could not allocate tmux session name",
+            );
+            break;
+        };
+        if let Err(error) = provision_terminal_target(
+            client,
+            &TerminalProvisionTarget::TmuxDetached {
+                session_name: session_name.clone(),
+            },
+        ) {
+            crate::terminals::append_debug_log(format!(
+                "bootstrap terminal spawn failed for {}: {error}",
+                session_name
+            ));
+            break;
+        }
+        let (terminal_id, _) = spawn_attached_terminal_with_presentation(
             &mut commands,
             &mut images,
+            &mut terminal_manager,
             &mut presentation_store,
-            terminal_id,
-            slot,
+            &runtime_spawner,
+            session_name.clone(),
+            false,
         );
+        mark_terminal_sessions_dirty(&mut session_persistence, Some(&time));
         crate::terminals::append_debug_log(format!(
-            "spawned hidden bootstrap terminal {}",
-            terminal_id.0
+            "spawned hidden bootstrap terminal {} session={}",
+            terminal_id.0, session_name
         ));
         break;
+    }
+}
+
+pub(crate) fn handle_terminal_lifecycle_shortcuts(
+    mut messages: MessageReader<KeyboardInput>,
+    keys: Res<ButtonInput<KeyCode>>,
+    mut dispatcher: ResMut<HudDispatcher>,
+) {
+    for event in messages.read() {
+        if should_kill_active_terminal(event, &keys) {
+            dispatcher.commands.push(HudCommand::KillActiveTerminal);
+        }
     }
 }
 

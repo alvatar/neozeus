@@ -234,6 +234,27 @@ pub(crate) type DrainedTerminalUpdates = (
     u64,
 );
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum TerminalAttachTarget {
+    #[allow(dead_code, reason = "raw shell attach is kept as fallback/test path")]
+    RawShell,
+    TmuxAttach {
+        session_name: String,
+    },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum TerminalProvisionTarget {
+    #[allow(
+        dead_code,
+        reason = "raw shell provision remains part of the abstraction surface"
+    )]
+    RawShell,
+    TmuxDetached {
+        session_name: String,
+    },
+}
+
 pub(crate) enum TerminalCommand {
     InputText(String),
     InputEvent(String),

@@ -8,14 +8,19 @@ use crate::{
     },
     input::{
         drag_terminal_view, forward_keyboard_input, handle_bootstrap_terminal_shortcut,
-        zoom_terminal_view,
+        handle_terminal_lifecycle_shortcuts, zoom_terminal_view,
     },
     terminals::{
-        append_debug_log, configure_terminal_fonts, spawn_terminal_presentation,
+        append_debug_log, configure_terminal_fonts, generate_unique_session_name,
+        load_persisted_terminal_sessions_from, mark_terminal_sessions_dirty,
+        provision_terminal_target, reconcile_terminal_sessions, resolve_terminal_sessions_path,
+        save_terminal_sessions_if_dirty, spawn_attached_terminal_with_presentation,
         sync_terminal_hud_surface, sync_terminal_panel_frames, sync_terminal_presentations,
         sync_terminal_texture, TerminalCameraMarker, TerminalFontState, TerminalGlyphCache,
         TerminalHudSurfaceMarker, TerminalManager, TerminalPanel, TerminalPointerState,
-        TerminalPresentation, TerminalPresentationStore, TerminalRuntimeSpawner, TerminalViewState,
+        TerminalPresentation, TerminalPresentationStore, TerminalProvisionTarget,
+        TerminalRuntimeSpawner, TerminalSessionPersistenceState, TerminalViewState,
+        TmuxClientResource, VERIFIER_TMUX_SESSION_PREFIX,
     },
     verification::{start_auto_verify_dispatcher, AutoVerifyConfig},
 };
@@ -103,6 +108,8 @@ fn configure_app(app: &mut App) {
         .insert_resource(TerminalManager::default())
         .insert_resource(TerminalPresentationStore::default())
         .insert_resource(TerminalRuntimeSpawner::new(event_loop_proxy))
+        .insert_resource(TmuxClientResource::system())
+        .insert_resource(TerminalSessionPersistenceState::default())
         .insert_resource(TerminalFontState::default())
         .insert_resource(TerminalViewState::default())
         .insert_resource(TerminalPointerState::default())
@@ -152,6 +159,7 @@ fn configure_app(app: &mut App) {
             Update,
             (
                 handle_bootstrap_terminal_shortcut,
+                handle_terminal_lifecycle_shortcuts,
                 drag_terminal_view,
                 zoom_terminal_view,
                 forward_keyboard_input,
@@ -174,7 +182,12 @@ fn configure_app(app: &mut App) {
         )
         .add_systems(
             Update,
-            (animate_hud_modules, save_hud_layout_if_dirty).in_set(NeoZeusSet::HudAnimation),
+            (
+                animate_hud_modules,
+                save_hud_layout_if_dirty,
+                save_terminal_sessions_if_dirty,
+            )
+                .in_set(NeoZeusSet::HudAnimation),
         )
         .add_systems(Update, render_hud_scene.in_set(NeoZeusSet::HudRender))
         .add_systems(
@@ -260,12 +273,19 @@ fn request_redraw_while_visuals_active(
     }
 }
 
+#[allow(
+    clippy::too_many_arguments,
+    reason = "scene startup now owns camera/HUD-surface plus verifier/recovery/persistence resources together"
+)]
 fn setup_scene(
     mut commands: Commands,
     mut images: ResMut<Assets<Image>>,
     mut terminal_manager: ResMut<TerminalManager>,
     mut presentation_store: ResMut<TerminalPresentationStore>,
+    mut agent_directory: ResMut<AgentDirectory>,
     runtime_spawner: Res<TerminalRuntimeSpawner>,
+    tmux_client: Res<TmuxClientResource>,
+    mut session_persistence: ResMut<TerminalSessionPersistenceState>,
     auto_verify: Option<Res<AutoVerifyConfig>>,
 ) {
     commands.spawn((Camera2d, VelloView, TerminalCameraMarker));
@@ -281,22 +301,107 @@ fn setup_scene(
         TerminalHudSurfaceMarker,
     ));
 
+    session_persistence.path = resolve_terminal_sessions_path();
+
     if let Some(config) = auto_verify {
-        let bridge = runtime_spawner.spawn();
-        let dispatcher_bridge = bridge.clone();
-        let (terminal_id, slot) = terminal_manager.create_terminal_with_slot(bridge);
-        spawn_terminal_presentation(
+        let client = tmux_client.client();
+        let Ok(session_name) = generate_unique_session_name(client, VERIFIER_TMUX_SESSION_PREFIX)
+        else {
+            append_debug_log("verifier terminal spawn failed: could not allocate tmux session");
+            return;
+        };
+        if let Err(error) = provision_terminal_target(
+            client,
+            &TerminalProvisionTarget::TmuxDetached {
+                session_name: session_name.clone(),
+            },
+        ) {
+            append_debug_log(format!(
+                "verifier terminal spawn failed for {}: {error}",
+                session_name
+            ));
+            return;
+        }
+        let (terminal_id, dispatcher_bridge) = spawn_attached_terminal_with_presentation(
             &mut commands,
             &mut images,
+            &mut terminal_manager,
             &mut presentation_store,
-            terminal_id,
-            slot,
+            &runtime_spawner,
+            session_name.clone(),
+            true,
         );
-        append_debug_log(format!("spawned verifier terminal {}", terminal_id.0));
+        append_debug_log(format!(
+            "spawned verifier terminal {} session={}",
+            terminal_id.0, session_name
+        ));
         start_auto_verify_dispatcher(
             dispatcher_bridge,
             runtime_spawner.notifier(),
             config.clone(),
         );
+        return;
+    }
+
+    let Some(path) = session_persistence.path.clone() else {
+        return;
+    };
+    let persisted = load_persisted_terminal_sessions_from(&path);
+    let live_sessions = match tmux_client.client().list_sessions() {
+        Ok(sessions) => sessions,
+        Err(error) => {
+            append_debug_log(format!("tmux session discovery failed: {error}"));
+            return;
+        }
+    };
+    let reconciled = reconcile_terminal_sessions(&persisted, &live_sessions);
+    if !reconciled.prune.is_empty() || !reconciled.import.is_empty() {
+        mark_terminal_sessions_dirty(&mut session_persistence, None);
+    }
+
+    for record in &reconciled.prune {
+        append_debug_log(format!(
+            "pruned stale terminal session metadata {}",
+            record.session_name
+        ));
+    }
+
+    for record in reconciled.ordered_sessions() {
+        let restored = reconciled
+            .restore
+            .iter()
+            .any(|existing| existing.session_name == record.session_name);
+        let (terminal_id, _) = spawn_attached_terminal_with_presentation(
+            &mut commands,
+            &mut images,
+            &mut terminal_manager,
+            &mut presentation_store,
+            &runtime_spawner,
+            record.session_name.clone(),
+            false,
+        );
+        append_debug_log(format!(
+            "{} terminal {} session={}",
+            if restored { "restored" } else { "imported" },
+            terminal_id.0,
+            record.session_name
+        ));
+        if let Some(label) = record.label {
+            agent_directory.labels.insert(terminal_id, label);
+        }
+    }
+
+    if let Some(record) = reconciled.restore.iter().find(|record| record.last_focused) {
+        let focused_id = terminal_manager
+            .iter()
+            .find(|(_, terminal)| terminal.session_name == record.session_name)
+            .map(|(terminal_id, _)| terminal_id);
+        if let Some(terminal_id) = focused_id {
+            terminal_manager.focus_terminal(terminal_id);
+            append_debug_log(format!(
+                "restored focused terminal {} session={}",
+                terminal_id.0, record.session_name
+            ));
+        }
     }
 }

@@ -8,6 +8,8 @@ mod presentation_state;
 mod raster;
 mod registry;
 mod runtime;
+mod session_persistence;
+mod tmux;
 mod types;
 
 #[cfg(test)]
@@ -45,12 +47,49 @@ pub(crate) use raster::{
 pub(crate) use raster::{create_terminal_image, sync_terminal_texture, TerminalGlyphCache};
 pub(crate) use registry::{poll_terminal_snapshots, TerminalId, TerminalManager};
 pub(crate) use runtime::{RuntimeNotifier, TerminalRuntimeSpawner};
+pub(crate) use session_persistence::{
+    load_persisted_terminal_sessions_from, mark_terminal_sessions_dirty,
+    reconcile_terminal_sessions, resolve_terminal_sessions_path, save_terminal_sessions_if_dirty,
+    TerminalSessionPersistenceState,
+};
+#[cfg(test)]
+pub(crate) use session_persistence::{
+    parse_persisted_terminal_sessions, resolve_terminal_sessions_path_with,
+    serialize_persisted_terminal_sessions, PersistedTerminalSessions, TerminalSessionRecord,
+};
+pub(crate) use tmux::{
+    build_attach_command_argv, generate_unique_session_name, is_persistent_session_name,
+    provision_terminal_target, TmuxClient, TmuxClientResource, PERSISTENT_TMUX_SESSION_PREFIX,
+    VERIFIER_TMUX_SESSION_PREFIX,
+};
 #[cfg(test)]
 pub(crate) use types::TerminalLifecycle;
 pub(crate) use types::{
-    DrainedTerminalUpdates, LatestTerminalStatus, PtySession, TerminalCell, TerminalCellContent,
-    TerminalCommand, TerminalCursor, TerminalCursorShape, TerminalDamage, TerminalDimensions,
-    TerminalFontFace, TerminalFontReport, TerminalFrameUpdate, TerminalRuntimeState,
-    TerminalSnapshot, TerminalSurface, TerminalUpdate, PTY_OUTPUT_BATCH_BYTES,
-    PTY_OUTPUT_BATCH_WINDOW, PTY_OUTPUT_WAIT_TIMEOUT,
+    DrainedTerminalUpdates, LatestTerminalStatus, PtySession, TerminalAttachTarget, TerminalCell,
+    TerminalCellContent, TerminalCommand, TerminalCursor, TerminalCursorShape, TerminalDamage,
+    TerminalDimensions, TerminalFontFace, TerminalFontReport, TerminalFrameUpdate,
+    TerminalProvisionTarget, TerminalRuntimeState, TerminalSnapshot, TerminalSurface,
+    TerminalUpdate, PTY_OUTPUT_BATCH_BYTES, PTY_OUTPUT_BATCH_WINDOW, PTY_OUTPUT_WAIT_TIMEOUT,
 };
+
+pub(crate) fn spawn_attached_terminal_with_presentation(
+    commands: &mut bevy::prelude::Commands,
+    images: &mut bevy::prelude::Assets<bevy::prelude::Image>,
+    terminal_manager: &mut TerminalManager,
+    presentation_store: &mut TerminalPresentationStore,
+    runtime_spawner: &TerminalRuntimeSpawner,
+    session_name: String,
+    focus: bool,
+) -> (TerminalId, TerminalBridge) {
+    let bridge = runtime_spawner.spawn_attached(TerminalAttachTarget::TmuxAttach {
+        session_name: session_name.clone(),
+    });
+    let (terminal_id, slot) = if focus {
+        terminal_manager.create_terminal_with_slot_and_session(bridge.clone(), session_name)
+    } else {
+        terminal_manager
+            .create_terminal_without_focus_with_slot_and_session(bridge.clone(), session_name)
+    };
+    spawn_terminal_presentation(commands, images, presentation_store, terminal_id, slot);
+    (terminal_id, bridge)
+}

@@ -8,6 +8,8 @@ mod render;
 mod state;
 
 pub(crate) use animation::animate_hud_modules;
+#[cfg(test)]
+pub(crate) use dispatcher::kill_active_terminal;
 pub(crate) use dispatcher::{apply_hud_commands, HudDispatcher};
 pub(crate) use input::{handle_hud_module_shortcuts, handle_hud_pointer_input};
 pub(crate) use messages::HudCommand;

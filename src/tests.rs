@@ -5,7 +5,7 @@ mod terminals;
 
 use crate::terminals::{
     CachedTerminalGlyph, TerminalBridge, TerminalCommand, TerminalDebugStats, TerminalSurface,
-    TerminalUpdateMailbox,
+    TerminalUpdateMailbox, TmuxClient, TmuxClientResource,
 };
 use bevy::{
     input::{
@@ -15,6 +15,7 @@ use bevy::{
     prelude::*,
 };
 use std::{
+    collections::BTreeSet,
     fs,
     path::PathBuf,
     sync::{mpsc, Arc, Mutex},
@@ -51,6 +52,58 @@ pub(super) fn test_bridge() -> (TerminalBridge, Arc<TerminalUpdateMailbox>) {
         Arc::new(Mutex::new(TerminalDebugStats::default())),
     );
     (bridge, mailbox)
+}
+
+#[derive(Default)]
+pub(super) struct FakeTmuxClient {
+    pub(super) sessions: Mutex<BTreeSet<String>>,
+    pub(super) collision_checks_remaining: Mutex<usize>,
+    pub(super) fail_kill: Mutex<bool>,
+}
+
+impl FakeTmuxClient {
+    pub(super) fn with_collisions(count: usize) -> Self {
+        Self {
+            collision_checks_remaining: Mutex::new(count),
+            ..Default::default()
+        }
+    }
+}
+
+impl TmuxClient for FakeTmuxClient {
+    fn ensure_tmux_available(&self) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn create_detached_session(&self, name: &str) -> Result<(), String> {
+        self.sessions.lock().unwrap().insert(name.to_owned());
+        Ok(())
+    }
+
+    fn list_sessions(&self) -> Result<Vec<String>, String> {
+        Ok(self.sessions.lock().unwrap().iter().cloned().collect())
+    }
+
+    fn has_session(&self, name: &str) -> Result<bool, String> {
+        let mut remaining = self.collision_checks_remaining.lock().unwrap();
+        if *remaining > 0 {
+            *remaining -= 1;
+            return Ok(true);
+        }
+        Ok(self.sessions.lock().unwrap().contains(name))
+    }
+
+    fn kill_session(&self, name: &str) -> Result<(), String> {
+        if *self.fail_kill.lock().unwrap() {
+            return Err("kill failed".into());
+        }
+        self.sessions.lock().unwrap().remove(name);
+        Ok(())
+    }
+}
+
+pub(super) fn fake_tmux_resource(client: Arc<FakeTmuxClient>) -> TmuxClientResource {
+    TmuxClientResource::from_client(client)
 }
 
 pub(super) fn surface_with_text(rows: usize, cols: usize, y: usize, text: &str) -> TerminalSurface {

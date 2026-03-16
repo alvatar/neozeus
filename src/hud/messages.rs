@@ -12,4 +12,5 @@ pub(crate) enum HudCommand {
     ToggleActiveTerminalDisplayMode,
     ResetTerminalView,
     SendActiveTerminalCommand(String),
+    KillActiveTerminal,
 }

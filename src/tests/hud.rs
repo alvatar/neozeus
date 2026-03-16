@@ -1,17 +1,20 @@
-use super::{temp_dir, test_bridge};
+use super::{fake_tmux_resource, temp_dir, test_bridge, FakeTmuxClient};
 use crate::hud::{
     agent_rows, apply_persisted_layout, debug_toolbar_buttons, dispatch_hud_pointer_click,
-    dispatch_hud_scroll, handle_hud_pointer_input, hud_needs_redraw, parse_persisted_hud_state,
-    resolve_agent_label, resolve_hud_layout_path_with, save_hud_layout_if_dirty,
-    serialize_persisted_hud_state, AgentDirectory, HudDispatcher, HudDragState, HudModuleId,
-    HudModuleModel, HudPersistenceState, HudRect, HudState, PersistedHudModuleState,
-    PersistedHudState, TerminalVisibilityPolicy,
+    dispatch_hud_scroll, handle_hud_pointer_input, hud_needs_redraw, kill_active_terminal,
+    parse_persisted_hud_state, resolve_agent_label, resolve_hud_layout_path_with,
+    save_hud_layout_if_dirty, serialize_persisted_hud_state, AgentDirectory, HudDispatcher,
+    HudDragState, HudModuleId, HudModuleModel, HudPersistenceState, HudRect, HudState,
+    PersistedHudModuleState, PersistedHudState, TerminalVisibilityPolicy, TerminalVisibilityState,
 };
-use crate::terminals::{TerminalManager, TerminalPresentationStore, TerminalViewState};
+use crate::terminals::{
+    TerminalManager, TerminalPanel, TerminalPanelFrame, TerminalPresentationStore,
+    TerminalSessionPersistenceState, TerminalViewState,
+};
 use bevy::{
     ecs::system::RunSystemOnce, input::mouse::MouseWheel, prelude::*, window::PrimaryWindow,
 };
-use std::{fs, path::PathBuf, time::Duration};
+use std::{fs, path::PathBuf, sync::Arc, time::Duration};
 
 #[test]
 fn hud_layout_path_prefers_xdg_then_home() {
@@ -595,6 +598,193 @@ fn hud_needs_redraw_when_drag_or_animation_is_active() {
     module.shell.current_rect.x = 0.0;
     module.shell.target_rect.x = 10.0;
     assert!(hud_needs_redraw(&state));
+}
+
+#[test]
+fn killing_active_terminal_removes_runtime_presentation_and_labels() {
+    let client = Arc::new(FakeTmuxClient::default());
+    client
+        .sessions
+        .lock()
+        .unwrap()
+        .insert("neozeus-session-a".into());
+
+    let (bridge, _) = test_bridge();
+    let mut manager = TerminalManager::default();
+    let id = manager.create_terminal_with_session(bridge, "neozeus-session-a".into());
+    manager.focus_terminal(id);
+
+    let mut store = TerminalPresentationStore::default();
+    store.register(
+        id,
+        crate::terminals::PresentedTerminal {
+            image: Default::default(),
+            texture_state: Default::default(),
+            display_mode: Default::default(),
+            uploaded_revision: 0,
+        },
+    );
+
+    let mut directory = AgentDirectory::default();
+    directory.labels.insert(id, "oracle".into());
+
+    let mut world = World::default();
+    let mut time = Time::<()>::default();
+    time.advance_by(Duration::from_secs(1));
+    world.insert_resource(time);
+    world.insert_resource(manager);
+    world.insert_resource(store);
+    world.insert_resource(directory);
+    world.insert_resource(fake_tmux_resource(client.clone()));
+    world.insert_resource(TerminalSessionPersistenceState::default());
+    world.insert_resource(TerminalVisibilityState {
+        policy: TerminalVisibilityPolicy::Isolate(id),
+    });
+    world.spawn((TerminalPanel { id },));
+    world.spawn((TerminalPanelFrame { id },));
+
+    world
+        .run_system_once(
+            |mut commands: Commands,
+             time: Res<Time>,
+             mut terminal_manager: ResMut<TerminalManager>,
+             mut presentation_store: ResMut<TerminalPresentationStore>,
+             tmux: Res<crate::terminals::TmuxClientResource>,
+             mut agent_directory: ResMut<AgentDirectory>,
+             mut session_persistence: ResMut<TerminalSessionPersistenceState>,
+             mut visibility_state: ResMut<TerminalVisibilityState>,
+             terminal_panels: Query<(Entity, &TerminalPanel)>,
+             terminal_frames: Query<(Entity, &TerminalPanelFrame)>| {
+                kill_active_terminal(
+                    &mut commands,
+                    &time,
+                    &mut terminal_manager,
+                    &mut presentation_store,
+                    tmux.client(),
+                    &mut agent_directory,
+                    &mut session_persistence,
+                    &mut visibility_state,
+                    &terminal_panels,
+                    &terminal_frames,
+                );
+            },
+        )
+        .unwrap();
+
+    assert!(world
+        .resource::<TerminalManager>()
+        .terminal_ids()
+        .is_empty());
+    assert!(world
+        .resource::<TerminalPresentationStore>()
+        .get(id)
+        .is_none());
+    assert!(!world.resource::<AgentDirectory>().labels.contains_key(&id));
+    assert_eq!(
+        world.resource::<TerminalVisibilityState>().policy,
+        TerminalVisibilityPolicy::ShowAll
+    );
+    assert!(world
+        .resource::<TerminalSessionPersistenceState>()
+        .dirty_since_secs
+        .is_some());
+    assert!(client.sessions.lock().unwrap().is_empty());
+    let panel_count = world.query::<&TerminalPanel>().iter(&world).count();
+    let frame_count = world.query::<&TerminalPanelFrame>().iter(&world).count();
+    assert_eq!(panel_count, 0);
+    assert_eq!(frame_count, 0);
+}
+
+#[test]
+fn killing_active_terminal_preserves_local_state_when_tmux_kill_fails() {
+    let client = Arc::new(FakeTmuxClient::default());
+    *client.fail_kill.lock().unwrap() = true;
+    client
+        .sessions
+        .lock()
+        .unwrap()
+        .insert("neozeus-session-a".into());
+
+    let (bridge, _) = test_bridge();
+    let mut manager = TerminalManager::default();
+    let id = manager.create_terminal_with_session(bridge, "neozeus-session-a".into());
+    manager.focus_terminal(id);
+
+    let mut store = TerminalPresentationStore::default();
+    store.register(
+        id,
+        crate::terminals::PresentedTerminal {
+            image: Default::default(),
+            texture_state: Default::default(),
+            display_mode: Default::default(),
+            uploaded_revision: 0,
+        },
+    );
+
+    let mut directory = AgentDirectory::default();
+    directory.labels.insert(id, "oracle".into());
+
+    let mut world = World::default();
+    let mut time = Time::<()>::default();
+    time.advance_by(Duration::from_secs(1));
+    world.insert_resource(time);
+    world.insert_resource(manager);
+    world.insert_resource(store);
+    world.insert_resource(directory);
+    world.insert_resource(fake_tmux_resource(client.clone()));
+    world.insert_resource(TerminalSessionPersistenceState::default());
+    world.insert_resource(TerminalVisibilityState {
+        policy: TerminalVisibilityPolicy::Isolate(id),
+    });
+    world.spawn((TerminalPanel { id },));
+    world.spawn((TerminalPanelFrame { id },));
+
+    world
+        .run_system_once(
+            |mut commands: Commands,
+             time: Res<Time>,
+             mut terminal_manager: ResMut<TerminalManager>,
+             mut presentation_store: ResMut<TerminalPresentationStore>,
+             tmux: Res<crate::terminals::TmuxClientResource>,
+             mut agent_directory: ResMut<AgentDirectory>,
+             mut session_persistence: ResMut<TerminalSessionPersistenceState>,
+             mut visibility_state: ResMut<TerminalVisibilityState>,
+             terminal_panels: Query<(Entity, &TerminalPanel)>,
+             terminal_frames: Query<(Entity, &TerminalPanelFrame)>| {
+                kill_active_terminal(
+                    &mut commands,
+                    &time,
+                    &mut terminal_manager,
+                    &mut presentation_store,
+                    tmux.client(),
+                    &mut agent_directory,
+                    &mut session_persistence,
+                    &mut visibility_state,
+                    &terminal_panels,
+                    &terminal_frames,
+                );
+            },
+        )
+        .unwrap();
+
+    assert_eq!(world.resource::<TerminalManager>().terminal_ids(), &[id]);
+    assert!(world
+        .resource::<TerminalPresentationStore>()
+        .get(id)
+        .is_some());
+    assert!(world.resource::<AgentDirectory>().labels.contains_key(&id));
+    assert_eq!(
+        world.resource::<TerminalVisibilityState>().policy,
+        TerminalVisibilityPolicy::Isolate(id)
+    );
+    assert!(world
+        .resource::<TerminalSessionPersistenceState>()
+        .dirty_since_secs
+        .is_none());
+    let panel_count = world.query::<&TerminalPanel>().iter(&world).count();
+    let frame_count = world.query::<&TerminalPanelFrame>().iter(&world).count();
+    assert_eq!(panel_count, 1);
+    assert_eq!(frame_count, 1);
 }
 
 #[test]
