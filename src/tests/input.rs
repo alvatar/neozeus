@@ -1,13 +1,62 @@
-use super::pressed_text;
+use super::{pressed_text, test_bridge};
 use crate::{
     input::{
-        ctrl_sequence, keyboard_input_to_terminal_command, should_kill_active_terminal,
-        should_spawn_bootstrap_terminal,
+        ctrl_sequence, hide_terminal_on_background_click, keyboard_input_to_terminal_command,
+        should_kill_active_terminal, should_spawn_bootstrap_terminal,
     },
-    terminals::TerminalCommand,
+    terminals::{
+        TerminalCommand, TerminalManager, TerminalPanel, TerminalPresentation,
+        TerminalSessionPersistenceState,
+    },
 };
-use bevy::input::ButtonInput;
-use bevy::prelude::KeyCode;
+use bevy::{
+    ecs::system::RunSystemOnce,
+    input::ButtonInput,
+    prelude::{KeyCode, MouseButton, Time, Vec2, Visibility, Window, World},
+    window::PrimaryWindow,
+};
+
+fn world_with_active_terminal(
+    cursor: Vec2,
+    panel_visible: bool,
+) -> (World, crate::terminals::TerminalId) {
+    let (bridge, _) = test_bridge();
+    let mut manager = TerminalManager::default();
+    let terminal_id = manager.create_terminal(bridge);
+
+    let mut world = World::default();
+    let mut window = Window::default();
+    window.set_cursor_position(Some(cursor));
+    window.focused = true;
+
+    world.insert_resource(ButtonInput::<MouseButton>::default());
+    world.insert_resource(Time::<()>::default());
+    world.insert_resource(manager);
+    world.insert_resource(crate::hud::HudState::default());
+    world.insert_resource(TerminalSessionPersistenceState::default());
+    world.spawn((window, PrimaryWindow));
+    world.spawn((
+        TerminalPanel { id: terminal_id },
+        TerminalPresentation {
+            home_position: Vec2::ZERO,
+            current_position: Vec2::ZERO,
+            target_position: Vec2::ZERO,
+            current_size: Vec2::new(200.0, 120.0),
+            target_size: Vec2::new(200.0, 120.0),
+            current_alpha: 1.0,
+            target_alpha: 1.0,
+            current_z: 0.0,
+            target_z: 0.0,
+        },
+        if panel_visible {
+            Visibility::Visible
+        } else {
+            Visibility::Hidden
+        },
+    ));
+
+    (world, terminal_id)
+}
 
 #[test]
 fn ctrl_sequence_maps_common_shortcuts() {
@@ -53,4 +102,70 @@ fn kill_active_terminal_shortcut_only_uses_plain_ctrl_k() {
     alt_ctrl_keys.press(KeyCode::ControlLeft);
     alt_ctrl_keys.press(KeyCode::AltLeft);
     assert!(!should_kill_active_terminal(&event, &alt_ctrl_keys));
+}
+
+#[test]
+fn background_click_hides_active_terminal() {
+    let (mut world, terminal_id) = world_with_active_terminal(Vec2::new(10.0, 10.0), true);
+    world
+        .resource_mut::<ButtonInput<MouseButton>>()
+        .press(MouseButton::Left);
+
+    world
+        .run_system_once(hide_terminal_on_background_click)
+        .unwrap();
+
+    let manager = world.resource::<TerminalManager>();
+    assert_eq!(manager.active_id(), None);
+    assert!(world
+        .resource::<TerminalSessionPersistenceState>()
+        .dirty_since_secs
+        .is_some());
+    assert!(manager.get(terminal_id).is_some());
+}
+
+#[test]
+fn clicking_visible_terminal_does_not_hide_it() {
+    let (mut world, terminal_id) = world_with_active_terminal(Vec2::new(640.0, 360.0), true);
+    world
+        .resource_mut::<ButtonInput<MouseButton>>()
+        .press(MouseButton::Left);
+
+    world
+        .run_system_once(hide_terminal_on_background_click)
+        .unwrap();
+
+    let manager = world.resource::<TerminalManager>();
+    assert_eq!(manager.active_id(), Some(terminal_id));
+    assert!(world
+        .resource::<TerminalSessionPersistenceState>()
+        .dirty_since_secs
+        .is_none());
+}
+
+#[test]
+fn clicking_hud_does_not_hide_active_terminal() {
+    let (mut world, terminal_id) = world_with_active_terminal(Vec2::new(10.0, 10.0), false);
+    let mut hud_state = crate::hud::HudState::default();
+    let mut module =
+        crate::hud::default_hud_module_instance(&crate::hud::HUD_MODULE_DEFINITIONS[0]);
+    module.shell.current_rect = crate::hud::HudRect {
+        x: 0.0,
+        y: 0.0,
+        w: 100.0,
+        h: 100.0,
+    };
+    module.shell.target_rect = module.shell.current_rect;
+    hud_state.insert(crate::hud::HudModuleId::DebugToolbar, module);
+    world.insert_resource(hud_state);
+    world
+        .resource_mut::<ButtonInput<MouseButton>>()
+        .press(MouseButton::Left);
+
+    world
+        .run_system_once(hide_terminal_on_background_click)
+        .unwrap();
+
+    let manager = world.resource::<TerminalManager>();
+    assert_eq!(manager.active_id(), Some(terminal_id));
 }

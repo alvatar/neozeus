@@ -125,6 +125,12 @@ impl TerminalManager {
         self.active_id
     }
 
+    pub(crate) fn clear_active_terminal(&mut self) -> Option<TerminalId> {
+        let cleared = self.active_id.take()?;
+        append_debug_log(format!("cleared active terminal {}", cleared.0));
+        Some(cleared)
+    }
+
     pub(crate) fn active_bridge(&self) -> Option<&TerminalBridge> {
         self.active_id
             .and_then(|id| self.terminals.get(&id).map(|terminal| &terminal.bridge))
