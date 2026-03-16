@@ -7,7 +7,6 @@ use std::{collections::BTreeSet, env, fs, path::PathBuf};
 
 const TERMINAL_SESSIONS_FILENAME: &str = "terminals.v1";
 const TERMINAL_SESSIONS_VERSION: &str = "version 1";
-const TERMINAL_SESSIONS_SAVE_DEBOUNCE_SECS: f32 = 0.3;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct TerminalSessionRecord {
@@ -217,15 +216,12 @@ pub(crate) fn build_persisted_terminal_sessions(
 }
 
 pub(crate) fn save_terminal_sessions_if_dirty(
-    time: Res<Time>,
+    _time: Res<Time>,
     terminal_manager: Res<TerminalManager>,
     agent_directory: Res<AgentDirectory>,
     mut persistence_state: ResMut<TerminalSessionPersistenceState>,
 ) {
-    let Some(dirty_since) = persistence_state.dirty_since_secs else {
-        return;
-    };
-    if time.elapsed_secs() - dirty_since < TERMINAL_SESSIONS_SAVE_DEBOUNCE_SECS {
+    if persistence_state.dirty_since_secs.is_none() {
         return;
     }
     let Some(path) = persistence_state.path.as_ref() else {
