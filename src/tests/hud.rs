@@ -12,9 +12,25 @@ use crate::terminals::{
     TerminalSessionPersistenceState, TerminalViewState,
 };
 use bevy::{
-    ecs::system::RunSystemOnce, input::mouse::MouseWheel, prelude::*, window::PrimaryWindow,
+    ecs::system::RunSystemOnce,
+    input::mouse::MouseWheel,
+    prelude::*,
+    window::{PrimaryWindow, RequestRedraw},
 };
 use std::{fs, path::PathBuf, sync::Arc, time::Duration};
+
+#[test]
+fn setup_hud_requests_initial_redraw() {
+    let mut world = World::default();
+    world.insert_resource(HudState::default());
+    world.insert_resource(HudPersistenceState::default());
+    world.init_resource::<Messages<RequestRedraw>>();
+
+    world.run_system_once(crate::hud::setup_hud).unwrap();
+
+    let redraws = world.resource::<Messages<RequestRedraw>>();
+    assert_eq!(redraws.len(), 1);
+}
 
 #[test]
 fn hud_layout_path_prefers_xdg_then_home() {

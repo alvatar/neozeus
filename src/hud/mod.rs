@@ -27,7 +27,7 @@ pub(crate) use state::{
     HUD_ROW_HEIGHT, HUD_TITLEBAR_HEIGHT,
 };
 
-use bevy::{camera::visibility::NoFrustumCulling, prelude::*};
+use bevy::{camera::visibility::NoFrustumCulling, prelude::*, window::RequestRedraw};
 use bevy_vello::prelude::VelloScene2d;
 
 pub(crate) fn append_hud_log(message: impl AsRef<str>) {
@@ -38,6 +38,7 @@ pub(crate) fn setup_hud(
     mut commands: Commands,
     mut hud_state: ResMut<HudState>,
     mut persistence_state: ResMut<HudPersistenceState>,
+    mut redraws: MessageWriter<RequestRedraw>,
 ) {
     persistence_state.path = persistence::resolve_hud_layout_path();
     let persisted = persistence_state
@@ -67,6 +68,7 @@ pub(crate) fn setup_hud(
         NoFrustumCulling,
         HudVectorSceneMarker,
     ));
+    redraws.write(RequestRedraw);
 }
 
 pub(crate) fn hud_needs_redraw(hud_state: &HudState) -> bool {
