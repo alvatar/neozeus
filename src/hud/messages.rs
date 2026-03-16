@@ -9,6 +9,7 @@ pub(crate) enum HudCommand {
     HideAllButTerminal(TerminalId),
     ShowAllTerminals,
     ToggleModule(HudModuleId),
+    ResetModule(HudModuleId),
     ToggleActiveTerminalDisplayMode,
     ResetTerminalView,
     SendActiveTerminalCommand(String),

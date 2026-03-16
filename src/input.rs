@@ -1,12 +1,10 @@
 use crate::{
     hud::{HudCommand, HudDispatcher, HudState},
     terminals::{
-        generate_unique_session_name, mark_terminal_sessions_dirty, provision_terminal_target,
-        spawn_attached_terminal_with_presentation, terminal_texture_screen_size, TerminalCommand,
+        mark_terminal_sessions_dirty, terminal_texture_screen_size, TerminalCommand,
         TerminalDisplayMode, TerminalManager, TerminalPanel, TerminalPointerState,
-        TerminalPresentation, TerminalPresentationStore, TerminalProvisionTarget,
-        TerminalRuntimeSpawner, TerminalSessionPersistenceState, TerminalViewState,
-        TmuxClientResource, PERSISTENT_TMUX_SESSION_PREFIX,
+        TerminalPresentation, TerminalPresentationStore, TerminalSessionPersistenceState,
+        TerminalViewState,
     },
 };
 use bevy::{
@@ -27,12 +25,13 @@ fn has_plain_modifiers(keys: &ButtonInput<KeyCode>) -> (bool, bool, bool) {
     )
 }
 
-pub(crate) fn should_spawn_bootstrap_terminal(
+pub(crate) fn should_spawn_terminal_globally(
     event: &KeyboardInput,
     keys: &ButtonInput<KeyCode>,
-    has_terminals: bool,
+    has_active_terminal: bool,
 ) -> bool {
-    if has_terminals || event.state != ButtonState::Pressed || event.key_code != KeyCode::KeyZ {
+    if has_active_terminal || event.state != ButtonState::Pressed || event.key_code != KeyCode::KeyZ
+    {
         return false;
     }
 
@@ -51,66 +50,22 @@ pub(crate) fn should_kill_active_terminal(
     ctrl && !alt && !super_key
 }
 
-#[allow(
-    clippy::too_many_arguments,
-    reason = "bootstrap spawn shortcut needs input plus terminal/runtime/presentation/tmux resources together"
-)]
-pub(crate) fn handle_bootstrap_terminal_shortcut(
-    mut commands: Commands,
-    mut images: ResMut<Assets<Image>>,
-    time: Res<Time>,
+pub(crate) fn handle_global_terminal_spawn_shortcut(
     mut messages: MessageReader<KeyboardInput>,
     keys: Res<ButtonInput<KeyCode>>,
     primary_window: Single<&Window, With<PrimaryWindow>>,
-    mut terminal_manager: ResMut<TerminalManager>,
-    mut presentation_store: ResMut<TerminalPresentationStore>,
-    runtime_spawner: Res<TerminalRuntimeSpawner>,
-    tmux_client: Res<TmuxClientResource>,
-    mut session_persistence: ResMut<TerminalSessionPersistenceState>,
+    terminal_manager: Res<TerminalManager>,
+    mut dispatcher: ResMut<HudDispatcher>,
 ) {
-    if !primary_window.focused || !terminal_manager.terminal_ids().is_empty() {
+    if !primary_window.focused || terminal_manager.active_id().is_some() {
         return;
     }
 
     for event in messages.read() {
-        if !should_spawn_bootstrap_terminal(event, &keys, false) {
-            continue;
-        }
-        let client = tmux_client.client();
-        let Ok(session_name) = generate_unique_session_name(client, PERSISTENT_TMUX_SESSION_PREFIX)
-        else {
-            crate::terminals::append_debug_log(
-                "bootstrap terminal spawn failed: could not allocate tmux session name",
-            );
-            break;
-        };
-        if let Err(error) = provision_terminal_target(
-            client,
-            &TerminalProvisionTarget::TmuxDetached {
-                session_name: session_name.clone(),
-            },
-        ) {
-            crate::terminals::append_debug_log(format!(
-                "bootstrap terminal spawn failed for {}: {error}",
-                session_name
-            ));
+        if should_spawn_terminal_globally(event, &keys, false) {
+            dispatcher.commands.push(HudCommand::SpawnTerminal);
             break;
         }
-        let (terminal_id, _) = spawn_attached_terminal_with_presentation(
-            &mut commands,
-            &mut images,
-            &mut terminal_manager,
-            &mut presentation_store,
-            &runtime_spawner,
-            session_name.clone(),
-            false,
-        );
-        mark_terminal_sessions_dirty(&mut session_persistence, Some(&time));
-        crate::terminals::append_debug_log(format!(
-            "spawned hidden bootstrap terminal {} session={}",
-            terminal_id.0, session_name
-        ));
-        break;
     }
 }
 

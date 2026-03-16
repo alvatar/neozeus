@@ -1,8 +1,10 @@
 use super::{pressed_text, test_bridge};
 use crate::{
+    hud::{HudCommand, HudDispatcher},
     input::{
-        ctrl_sequence, hide_terminal_on_background_click, keyboard_input_to_terminal_command,
-        should_kill_active_terminal, should_spawn_bootstrap_terminal,
+        ctrl_sequence, handle_global_terminal_spawn_shortcut, hide_terminal_on_background_click,
+        keyboard_input_to_terminal_command, should_kill_active_terminal,
+        should_spawn_terminal_globally,
     },
     terminals::{
         TerminalCommand, TerminalManager, TerminalPanel, TerminalPresentation,
@@ -11,8 +13,8 @@ use crate::{
 };
 use bevy::{
     ecs::system::RunSystemOnce,
-    input::ButtonInput,
-    prelude::{KeyCode, MouseButton, Time, Vec2, Visibility, Window, World},
+    input::{keyboard::KeyboardInput, ButtonInput},
+    prelude::{KeyCode, Messages, MouseButton, Time, Vec2, Visibility, Window, World},
     window::PrimaryWindow,
 };
 
@@ -77,15 +79,47 @@ fn plain_text_uses_text_payload() {
 }
 
 #[test]
-fn bootstrap_terminal_shortcut_only_uses_plain_z_when_no_terminals_exist() {
+fn global_spawn_shortcut_only_uses_plain_z_when_no_terminal_is_active() {
     let keys = ButtonInput::<KeyCode>::default();
     let event = pressed_text(KeyCode::KeyZ, Some("z"));
-    assert!(should_spawn_bootstrap_terminal(&event, &keys, false));
-    assert!(!should_spawn_bootstrap_terminal(&event, &keys, true));
+    assert!(should_spawn_terminal_globally(&event, &keys, false));
+    assert!(!should_spawn_terminal_globally(&event, &keys, true));
 
     let mut ctrl_keys = ButtonInput::<KeyCode>::default();
     ctrl_keys.press(KeyCode::ControlLeft);
-    assert!(!should_spawn_bootstrap_terminal(&event, &ctrl_keys, false));
+    assert!(!should_spawn_terminal_globally(&event, &ctrl_keys, false));
+}
+
+#[test]
+fn global_spawn_shortcut_enqueues_spawn_even_when_hidden_terminals_exist() {
+    let (bridge, _) = test_bridge();
+    let mut manager = TerminalManager::default();
+    manager.create_terminal(bridge);
+    let _ = manager.clear_active_terminal();
+
+    let mut world = World::default();
+    let window = Window {
+        focused: true,
+        ..Default::default()
+    };
+    world.insert_resource(ButtonInput::<KeyCode>::default());
+    world.insert_resource(manager);
+    world.insert_resource(HudDispatcher::default());
+    world.init_resource::<Messages<KeyboardInput>>();
+    world.spawn((window, PrimaryWindow));
+
+    world
+        .resource_mut::<Messages<KeyboardInput>>()
+        .write(pressed_text(KeyCode::KeyZ, Some("z")));
+
+    world
+        .run_system_once(handle_global_terminal_spawn_shortcut)
+        .unwrap();
+
+    assert_eq!(
+        world.resource::<HudDispatcher>().commands,
+        vec![HudCommand::SpawnTerminal]
+    );
 }
 
 #[test]
