@@ -1,11 +1,12 @@
 use crate::{
     app_config::{DEFAULT_COLS, DEFAULT_ROWS},
     terminals::{
-        append_debug_log, note_terminal_error, with_debug_stats, PtySession, RuntimeNotifier,
-        TerminalCell, TerminalCellContent, TerminalCommand, TerminalCursor, TerminalCursorShape,
-        TerminalDamage, TerminalDimensions, TerminalFrameUpdate, TerminalRuntimeState,
-        TerminalSurface, TerminalUpdate, TerminalUpdateMailbox, PTY_OUTPUT_BATCH_BYTES,
-        PTY_OUTPUT_BATCH_WINDOW, PTY_OUTPUT_WAIT_TIMEOUT,
+        append_debug_log, build_attach_command_argv, note_terminal_error, with_debug_stats,
+        PtySession, RuntimeNotifier, TerminalAttachTarget, TerminalCell, TerminalCellContent,
+        TerminalCommand, TerminalCursor, TerminalCursorShape, TerminalDamage, TerminalDimensions,
+        TerminalFrameUpdate, TerminalRuntimeState, TerminalSurface, TerminalUpdate,
+        TerminalUpdateMailbox, PTY_OUTPUT_BATCH_BYTES, PTY_OUTPUT_BATCH_WINDOW,
+        PTY_OUTPUT_WAIT_TIMEOUT,
     },
 };
 use alacritty_terminal::{
@@ -17,8 +18,6 @@ use alacritty_terminal::{
 use bevy_egui::egui;
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 use std::{
-    env,
-    ffi::OsString,
     io::{Read, Write},
     sync::{mpsc, mpsc::Receiver, Arc, Mutex},
     thread,
@@ -88,12 +87,13 @@ pub(crate) fn terminal_worker(
     update_mailbox: Arc<TerminalUpdateMailbox>,
     debug_stats: Arc<Mutex<TerminalDebugStats>>,
     notifier: RuntimeNotifier,
+    attach_target: TerminalAttachTarget,
 ) {
     let PtySession {
         master,
         writer,
         mut child,
-    } = match spawn_pty(DEFAULT_COLS, DEFAULT_ROWS) {
+    } = match spawn_pty(DEFAULT_COLS, DEFAULT_ROWS, &attach_target) {
         Ok(session) => session,
         Err(error) => {
             send_terminal_status_update(
@@ -743,7 +743,7 @@ pub(crate) fn xterm_indexed_rgb(index: u8) -> Rgb {
     }
 }
 
-fn spawn_pty(cols: u16, rows: u16) -> Result<PtySession, String> {
+fn spawn_pty(cols: u16, rows: u16, target: &TerminalAttachTarget) -> Result<PtySession, String> {
     let pty_system = native_pty_system();
     let pair = pty_system
         .openpty(PtySize {
@@ -754,8 +754,7 @@ fn spawn_pty(cols: u16, rows: u16) -> Result<PtySession, String> {
         })
         .map_err(|error| format!("openpty failed: {error}"))?;
 
-    let shell = shell_path();
-    let mut command = CommandBuilder::new(shell);
+    let mut command = build_attach_command(target);
     command.env("TERM", "xterm-256color");
 
     let child = pair
@@ -777,8 +776,13 @@ fn spawn_pty(cols: u16, rows: u16) -> Result<PtySession, String> {
     })
 }
 
-fn shell_path() -> OsString {
-    env::var_os("SHELL").unwrap_or_else(|| OsString::from("bash"))
+fn build_attach_command(target: &TerminalAttachTarget) -> CommandBuilder {
+    let (program, args) = build_attach_command_argv(target);
+    let mut command = CommandBuilder::new(program);
+    for arg in args {
+        command.arg(arg);
+    }
+    command
 }
 
 fn write_input(writer: &mut dyn Write, bytes: &[u8]) -> std::io::Result<()> {

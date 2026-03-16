@@ -9,6 +9,7 @@ pub(crate) struct TerminalId(pub(crate) u64);
 
 pub(crate) struct ManagedTerminal {
     pub(crate) bridge: TerminalBridge,
+    pub(crate) session_name: String,
     pub(crate) snapshot: TerminalSnapshot,
     pub(crate) pending_damage: Option<TerminalDamage>,
     pub(crate) surface_revision: u64,
@@ -36,13 +37,14 @@ impl Default for TerminalManager {
 }
 
 impl TerminalManager {
-    fn insert_terminal(&mut self, bridge: TerminalBridge) -> TerminalId {
+    fn insert_terminal(&mut self, bridge: TerminalBridge, session_name: String) -> TerminalId {
         let id = TerminalId(self.next_id);
         self.next_id += 1;
         self.terminals.insert(
             id,
             ManagedTerminal {
                 bridge,
+                session_name,
                 snapshot: TerminalSnapshot::default(),
                 pending_damage: None,
                 surface_revision: 0,
@@ -52,31 +54,55 @@ impl TerminalManager {
         id
     }
 
+    #[cfg(test)]
     pub(crate) fn create_terminal(&mut self, bridge: TerminalBridge) -> TerminalId {
-        let id = self.insert_terminal(bridge);
+        let session_name = format!("terminal-{}", self.next_id);
+        let id = self.insert_terminal(bridge, session_name);
         self.focus_terminal(id);
         id
     }
 
-    pub(crate) fn create_terminal_without_focus(&mut self, bridge: TerminalBridge) -> TerminalId {
-        self.insert_terminal(bridge)
-    }
-
-    pub(crate) fn create_terminal_with_slot(
+    pub(crate) fn create_terminal_with_session(
         &mut self,
         bridge: TerminalBridge,
+        session_name: String,
+    ) -> TerminalId {
+        let id = self.insert_terminal(bridge, session_name);
+        self.focus_terminal(id);
+        id
+    }
+
+    #[cfg(test)]
+    pub(crate) fn create_terminal_without_focus(&mut self, bridge: TerminalBridge) -> TerminalId {
+        let session_name = format!("terminal-{}", self.next_id);
+        self.insert_terminal(bridge, session_name)
+    }
+
+    pub(crate) fn create_terminal_without_focus_with_session(
+        &mut self,
+        bridge: TerminalBridge,
+        session_name: String,
+    ) -> TerminalId {
+        self.insert_terminal(bridge, session_name)
+    }
+
+    pub(crate) fn create_terminal_with_slot_and_session(
+        &mut self,
+        bridge: TerminalBridge,
+        session_name: String,
     ) -> (TerminalId, usize) {
-        let id = self.create_terminal(bridge);
+        let id = self.create_terminal_with_session(bridge, session_name);
         let slot = self.creation_order.len().saturating_sub(1);
         debug_assert_eq!(self.creation_order.get(slot), Some(&id));
         (id, slot)
     }
 
-    pub(crate) fn create_terminal_without_focus_with_slot(
+    pub(crate) fn create_terminal_without_focus_with_slot_and_session(
         &mut self,
         bridge: TerminalBridge,
+        session_name: String,
     ) -> (TerminalId, usize) {
-        let id = self.create_terminal_without_focus(bridge);
+        let id = self.create_terminal_without_focus_with_session(bridge, session_name);
         let slot = self.creation_order.len().saturating_sub(1);
         debug_assert_eq!(self.creation_order.get(slot), Some(&id));
         (id, slot)
@@ -125,6 +151,16 @@ impl TerminalManager {
 
     pub(crate) fn get(&self, id: TerminalId) -> Option<&ManagedTerminal> {
         self.terminals.get(&id)
+    }
+
+    pub(crate) fn remove_terminal(&mut self, id: TerminalId) -> Option<ManagedTerminal> {
+        let removed = self.terminals.remove(&id)?;
+        self.creation_order.retain(|existing| *existing != id);
+        self.focus_order.retain(|existing| *existing != id);
+        if self.active_id == Some(id) {
+            self.active_id = None;
+        }
+        Some(removed)
     }
 
     pub(crate) fn iter(&self) -> impl Iterator<Item = (TerminalId, &ManagedTerminal)> {

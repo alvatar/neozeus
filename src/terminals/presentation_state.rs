@@ -92,6 +92,10 @@ impl TerminalPresentationStore {
         self.terminals.get_mut(&id)
     }
 
+    pub(crate) fn remove(&mut self, id: TerminalId) -> Option<PresentedTerminal> {
+        self.terminals.remove(&id)
+    }
+
     pub(crate) fn active_texture_state(
         &self,
         active_id: Option<TerminalId>,

@@ -1,8 +1,13 @@
 use crate::{
-    hud::{HudCommand, HudState, TerminalVisibilityPolicy, TerminalVisibilityState},
+    hud::{
+        AgentDirectory, HudCommand, HudState, TerminalVisibilityPolicy, TerminalVisibilityState,
+    },
     terminals::{
-        append_debug_log, spawn_terminal_presentation, TerminalManager, TerminalPresentationStore,
-        TerminalRuntimeSpawner, TerminalViewState,
+        append_debug_log, generate_unique_session_name, mark_terminal_sessions_dirty,
+        provision_terminal_target, spawn_attached_terminal_with_presentation, TerminalManager,
+        TerminalPanel, TerminalPanelFrame, TerminalPresentationStore, TerminalProvisionTarget,
+        TerminalRuntimeSpawner, TerminalSessionPersistenceState, TerminalViewState,
+        TmuxClientResource, PERSISTENT_TMUX_SESSION_PREFIX,
     },
 };
 use bevy::prelude::*;
@@ -14,36 +19,121 @@ pub(crate) struct HudDispatcher {
 
 #[allow(
     clippy::too_many_arguments,
+    reason = "terminal kill must touch tmux, manager/store resources, labels, persistence, and ECS entities together"
+)]
+pub(crate) fn kill_active_terminal(
+    commands: &mut Commands,
+    time: &Time,
+    terminal_manager: &mut TerminalManager,
+    presentation_store: &mut TerminalPresentationStore,
+    tmux_client: &dyn crate::terminals::TmuxClient,
+    agent_directory: &mut AgentDirectory,
+    session_persistence: &mut TerminalSessionPersistenceState,
+    visibility_state: &mut TerminalVisibilityState,
+    terminal_panels: &Query<(Entity, &TerminalPanel)>,
+    terminal_frames: &Query<(Entity, &TerminalPanelFrame)>,
+) {
+    let Some(active_id) = terminal_manager.active_id() else {
+        return;
+    };
+    let Some(session_name) = terminal_manager
+        .get(active_id)
+        .map(|terminal| terminal.session_name.clone())
+    else {
+        return;
+    };
+    if let Err(error) = tmux_client.kill_session(&session_name) {
+        append_debug_log(format!(
+            "kill terminal failed for {}: {error}",
+            session_name
+        ));
+        return;
+    }
+
+    let _ = terminal_manager.remove_terminal(active_id);
+    let _ = presentation_store.remove(active_id);
+    agent_directory.labels.remove(&active_id);
+    visibility_state.policy = TerminalVisibilityPolicy::ShowAll;
+    mark_terminal_sessions_dirty(session_persistence, Some(time));
+
+    for (entity, panel) in terminal_panels {
+        if panel.id == active_id {
+            commands.entity(entity).despawn();
+        }
+    }
+    for (entity, frame) in terminal_frames {
+        if frame.id == active_id {
+            commands.entity(entity).despawn();
+        }
+    }
+    append_debug_log(format!(
+        "killed terminal {} session={}",
+        active_id.0, session_name
+    ));
+}
+
+#[allow(
+    clippy::too_many_arguments,
     reason = "HUD command application touches app/domain resources, terminal runtime, and HUD state together"
 )]
 pub(crate) fn apply_hud_commands(
     mut commands: Commands,
     mut images: ResMut<Assets<Image>>,
+    time: Res<Time>,
     mut terminal_manager: ResMut<TerminalManager>,
     mut presentation_store: ResMut<TerminalPresentationStore>,
     runtime_spawner: Res<TerminalRuntimeSpawner>,
+    tmux_client: Res<TmuxClientResource>,
     mut hud_state: ResMut<HudState>,
     mut dispatcher: ResMut<HudDispatcher>,
+    mut agent_directory: ResMut<AgentDirectory>,
+    mut session_persistence: ResMut<TerminalSessionPersistenceState>,
     mut visibility_state: ResMut<TerminalVisibilityState>,
     mut view_state: ResMut<TerminalViewState>,
+    terminal_panels: Query<(Entity, &TerminalPanel)>,
+    terminal_frames: Query<(Entity, &TerminalPanelFrame)>,
 ) {
     let queued = std::mem::take(&mut dispatcher.commands);
     for command in queued {
         match command {
             HudCommand::SpawnTerminal => {
-                let bridge = runtime_spawner.spawn();
-                let (terminal_id, slot) = terminal_manager.create_terminal_with_slot(bridge);
-                spawn_terminal_presentation(
+                let client = tmux_client.client();
+                let Ok(session_name) =
+                    generate_unique_session_name(client, PERSISTENT_TMUX_SESSION_PREFIX)
+                else {
+                    append_debug_log("spawn terminal failed: could not allocate tmux session name");
+                    continue;
+                };
+                if let Err(error) = provision_terminal_target(
+                    client,
+                    &TerminalProvisionTarget::TmuxDetached {
+                        session_name: session_name.clone(),
+                    },
+                ) {
+                    append_debug_log(format!(
+                        "spawn terminal failed for {}: {error}",
+                        session_name
+                    ));
+                    continue;
+                }
+                let (terminal_id, _) = spawn_attached_terminal_with_presentation(
                     &mut commands,
                     &mut images,
+                    &mut terminal_manager,
                     &mut presentation_store,
-                    terminal_id,
-                    slot,
+                    &runtime_spawner,
+                    session_name.clone(),
+                    true,
                 );
-                append_debug_log(format!("spawned terminal {}", terminal_id.0));
+                mark_terminal_sessions_dirty(&mut session_persistence, Some(&time));
+                append_debug_log(format!(
+                    "spawned terminal {} session={}",
+                    terminal_id.0, session_name
+                ));
             }
             HudCommand::FocusTerminal(id) => {
                 terminal_manager.focus_terminal(id);
+                mark_terminal_sessions_dirty(&mut session_persistence, Some(&time));
             }
             HudCommand::HideAllButTerminal(id) => {
                 visibility_state.policy = TerminalVisibilityPolicy::Isolate(id);
@@ -72,6 +162,18 @@ pub(crate) fn apply_hud_commands(
                     bridge.send(crate::terminals::TerminalCommand::SendCommand(command));
                 }
             }
+            HudCommand::KillActiveTerminal => kill_active_terminal(
+                &mut commands,
+                &time,
+                &mut terminal_manager,
+                &mut presentation_store,
+                tmux_client.client(),
+                &mut agent_directory,
+                &mut session_persistence,
+                &mut visibility_state,
+                &terminal_panels,
+                &terminal_frames,
+            ),
         }
     }
 }
