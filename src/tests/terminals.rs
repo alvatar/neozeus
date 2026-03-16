@@ -314,7 +314,9 @@ fn terminal_sessions_parse_and_serialize_roundtrip() {
 #[test]
 fn malformed_terminal_sessions_version_falls_back_to_default() {
     assert_eq!(
-        parse_persisted_terminal_sessions("version 99\nsession name=a creation_index=0 focused=1\n"),
+        parse_persisted_terminal_sessions(
+            "version 99\nsession name=a creation_index=0 focused=1\n"
+        ),
         PersistedTerminalSessions::default()
     );
 }
