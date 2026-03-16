@@ -149,6 +149,10 @@ pub(crate) fn apply_hud_commands(
                     .is_some_and(|module| !module.shell.enabled);
                 hud_state.set_module_enabled(id, enabled);
             }
+            HudCommand::ResetModule(id) => {
+                hud_state.reset_module(id);
+                append_debug_log(format!("hud module reset {}", id.number()));
+            }
             HudCommand::ToggleActiveTerminalDisplayMode => {
                 let active_id = terminal_manager.active_id();
                 presentation_store.toggle_active_display_mode(active_id);

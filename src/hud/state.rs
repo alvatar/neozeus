@@ -163,6 +163,19 @@ impl HudState {
         self.dirty_layout = true;
     }
 
+    pub(crate) fn reset_module(&mut self, id: HudModuleId) {
+        let Some(definition) = HUD_MODULE_DEFINITIONS
+            .iter()
+            .find(|definition| definition.id == id)
+        else {
+            return;
+        };
+        self.modules
+            .insert(id, default_hud_module_instance(definition));
+        self.raise_to_front(id);
+        self.dirty_layout = true;
+    }
+
     pub(crate) fn topmost_enabled_at(&self, point: Vec2) -> Option<HudModuleId> {
         self.iter_z_order_front_to_back().find(|id| {
             self.modules.get(id).is_some_and(|module| {

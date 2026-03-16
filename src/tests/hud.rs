@@ -1,11 +1,12 @@
-use super::{fake_tmux_resource, temp_dir, test_bridge, FakeTmuxClient};
+use super::{fake_tmux_resource, pressed_text, temp_dir, test_bridge, FakeTmuxClient};
 use crate::hud::{
     agent_rows, apply_persisted_layout, debug_toolbar_buttons, dispatch_hud_pointer_click,
-    dispatch_hud_scroll, handle_hud_pointer_input, hud_needs_redraw, kill_active_terminal,
-    parse_persisted_hud_state, resolve_agent_label, resolve_hud_layout_path_with,
-    save_hud_layout_if_dirty, serialize_persisted_hud_state, AgentDirectory, HudDispatcher,
-    HudDragState, HudModuleId, HudModuleModel, HudPersistenceState, HudRect, HudState,
-    PersistedHudModuleState, PersistedHudState, TerminalVisibilityPolicy, TerminalVisibilityState,
+    dispatch_hud_scroll, handle_hud_module_shortcuts, handle_hud_pointer_input, hud_needs_redraw,
+    kill_active_terminal, parse_persisted_hud_state, resolve_agent_label,
+    resolve_hud_layout_path_with, save_hud_layout_if_dirty, serialize_persisted_hud_state,
+    AgentDirectory, HudCommand, HudDispatcher, HudDragState, HudModuleId, HudModuleModel,
+    HudPersistenceState, HudRect, HudState, PersistedHudModuleState, PersistedHudState,
+    TerminalVisibilityPolicy, TerminalVisibilityState,
 };
 use crate::terminals::{
     TerminalManager, TerminalPanel, TerminalPanelFrame, TerminalPresentationStore,
@@ -13,7 +14,7 @@ use crate::terminals::{
 };
 use bevy::{
     ecs::system::RunSystemOnce,
-    input::mouse::MouseWheel,
+    input::{keyboard::KeyboardInput, mouse::MouseWheel},
     prelude::*,
     window::{PrimaryWindow, RequestRedraw},
 };
@@ -85,6 +86,56 @@ fn apply_persisted_layout_overrides_defaults() {
     assert!(!module.shell.enabled);
     assert_eq!(module.shell.target_rect.x, 11.0);
     assert_eq!(module.shell.target_rect.w, 333.0);
+}
+
+#[test]
+fn reset_module_restores_default_toolbar_state() {
+    let mut hud_state = HudState::default();
+    let mut module =
+        crate::hud::default_hud_module_instance(&crate::hud::HUD_MODULE_DEFINITIONS[0]);
+    module.shell.enabled = false;
+    module.shell.target_alpha = 0.0;
+    module.shell.current_alpha = 0.0;
+    module.shell.target_rect = HudRect {
+        x: 1800.0,
+        y: 1200.0,
+        w: 10.0,
+        h: 10.0,
+    };
+    module.shell.current_rect = module.shell.target_rect;
+    hud_state.insert(HudModuleId::DebugToolbar, module);
+
+    hud_state.reset_module(HudModuleId::DebugToolbar);
+
+    let module = hud_state.get(HudModuleId::DebugToolbar).unwrap();
+    assert!(module.shell.enabled);
+    assert_eq!(
+        module.shell.target_rect,
+        crate::hud::HUD_MODULE_DEFINITIONS[0].default_rect
+    );
+    assert_eq!(module.shell.current_alpha, 1.0);
+    assert!(hud_state.dirty_layout);
+}
+
+#[test]
+fn alt_shift_module_shortcut_resets_module_instead_of_toggling() {
+    let mut world = World::default();
+    let mut keys = ButtonInput::<KeyCode>::default();
+    keys.press(KeyCode::AltLeft);
+    keys.press(KeyCode::ShiftLeft);
+    world.insert_resource(keys);
+    world.insert_resource(HudDispatcher::default());
+    world.init_resource::<Messages<KeyboardInput>>();
+    world
+        .resource_mut::<Messages<KeyboardInput>>()
+        .write(pressed_text(KeyCode::Digit0, Some("0")));
+
+    world.run_system_once(handle_hud_module_shortcuts).unwrap();
+
+    assert_eq!(
+        world.resource::<HudDispatcher>().commands,
+        vec![HudCommand::ResetModule(HudModuleId::DebugToolbar)]
+    );
 }
 
 #[test]

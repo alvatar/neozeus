@@ -7,7 +7,7 @@ use crate::{
         TerminalVisibilityState,
     },
     input::{
-        drag_terminal_view, forward_keyboard_input, handle_bootstrap_terminal_shortcut,
+        drag_terminal_view, forward_keyboard_input, handle_global_terminal_spawn_shortcut,
         handle_terminal_lifecycle_shortcuts, hide_terminal_on_background_click, zoom_terminal_view,
     },
     terminals::{
@@ -130,7 +130,9 @@ fn configure_app(app: &mut App) {
         )
         .configure_sets(
             Update,
-            NeoZeusSet::UiInput.before(NeoZeusSet::PresentTerminal),
+            NeoZeusSet::UiInput
+                .before(NeoZeusSet::PresentTerminal)
+                .before(NeoZeusSet::HudCommands),
         )
         .configure_sets(Update, NeoZeusSet::HudInput.before(NeoZeusSet::HudCommands))
         .configure_sets(
@@ -158,7 +160,7 @@ fn configure_app(app: &mut App) {
         .add_systems(
             Update,
             (
-                handle_bootstrap_terminal_shortcut,
+                handle_global_terminal_spawn_shortcut,
                 handle_terminal_lifecycle_shortcuts,
                 hide_terminal_on_background_click,
                 drag_terminal_view,

@@ -160,6 +160,7 @@ pub(crate) fn handle_hud_module_shortcuts(
     if !alt {
         return;
     }
+    let shift = keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight);
 
     for event in messages.read() {
         if event.state != ButtonState::Pressed {
@@ -173,8 +174,10 @@ pub(crate) fn handle_hud_module_shortcuts(
         let Some(module_id) = module_id else {
             continue;
         };
-        dispatcher
-            .commands
-            .push(HudCommand::ToggleModule(module_id));
+        dispatcher.commands.push(if shift {
+            HudCommand::ResetModule(module_id)
+        } else {
+            HudCommand::ToggleModule(module_id)
+        });
     }
 }
