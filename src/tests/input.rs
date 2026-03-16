@@ -2,9 +2,9 @@ use super::{pressed_text, test_bridge};
 use crate::{
     hud::{HudCommand, HudDispatcher},
     input::{
-        ctrl_sequence, handle_global_terminal_spawn_shortcut, hide_terminal_on_background_click,
-        keyboard_input_to_terminal_command, should_kill_active_terminal,
-        should_spawn_terminal_globally,
+        ctrl_sequence, handle_global_terminal_spawn_shortcut, handle_terminal_lifecycle_shortcuts,
+        hide_terminal_on_background_click, keyboard_input_to_terminal_command,
+        should_exit_application, should_kill_active_terminal, should_spawn_terminal_globally,
     },
     terminals::{
         TerminalCommand, TerminalManager, TerminalPanel, TerminalPresentation,
@@ -12,6 +12,7 @@ use crate::{
     },
 };
 use bevy::{
+    app::AppExit,
     ecs::system::RunSystemOnce,
     input::{keyboard::KeyboardInput, ButtonInput},
     prelude::{KeyCode, Messages, MouseButton, Time, Vec2, Visibility, Window, World},
@@ -136,6 +137,41 @@ fn kill_active_terminal_shortcut_only_uses_plain_ctrl_k() {
     alt_ctrl_keys.press(KeyCode::ControlLeft);
     alt_ctrl_keys.press(KeyCode::AltLeft);
     assert!(!should_kill_active_terminal(&event, &alt_ctrl_keys));
+}
+
+#[test]
+fn exit_application_shortcut_only_uses_plain_f10() {
+    let event = pressed_text(KeyCode::F10, None);
+    let plain_keys = ButtonInput::<KeyCode>::default();
+    assert!(should_exit_application(&event, &plain_keys));
+
+    let mut ctrl_keys = ButtonInput::<KeyCode>::default();
+    ctrl_keys.press(KeyCode::ControlLeft);
+    assert!(!should_exit_application(&event, &ctrl_keys));
+
+    let mut alt_keys = ButtonInput::<KeyCode>::default();
+    alt_keys.press(KeyCode::AltLeft);
+    assert!(!should_exit_application(&event, &alt_keys));
+}
+
+#[test]
+fn f10_enqueues_app_exit() {
+    let mut world = World::default();
+    world.insert_resource(ButtonInput::<KeyCode>::default());
+    world.insert_resource(HudDispatcher::default());
+    world.init_resource::<Messages<KeyboardInput>>();
+    world.init_resource::<Messages<AppExit>>();
+
+    world
+        .resource_mut::<Messages<KeyboardInput>>()
+        .write(pressed_text(KeyCode::F10, None));
+
+    world
+        .run_system_once(handle_terminal_lifecycle_shortcuts)
+        .unwrap();
+
+    assert_eq!(world.resource::<Messages<AppExit>>().len(), 1);
+    assert!(world.resource::<HudDispatcher>().commands.is_empty());
 }
 
 #[test]

@@ -8,6 +8,7 @@ use crate::{
     },
 };
 use bevy::{
+    app::AppExit,
     input::{
         keyboard::{Key, KeyboardInput},
         mouse::{MouseMotion, MouseScrollUnit, MouseWheel},
@@ -50,6 +51,14 @@ pub(crate) fn should_kill_active_terminal(
     ctrl && !alt && !super_key
 }
 
+pub(crate) fn should_exit_application(event: &KeyboardInput, keys: &ButtonInput<KeyCode>) -> bool {
+    if event.state != ButtonState::Pressed || event.key_code != KeyCode::F10 {
+        return false;
+    }
+    let (ctrl, alt, super_key) = has_plain_modifiers(keys);
+    !(ctrl || alt || super_key)
+}
+
 pub(crate) fn handle_global_terminal_spawn_shortcut(
     mut messages: MessageReader<KeyboardInput>,
     keys: Res<ButtonInput<KeyCode>>,
@@ -73,8 +82,13 @@ pub(crate) fn handle_terminal_lifecycle_shortcuts(
     mut messages: MessageReader<KeyboardInput>,
     keys: Res<ButtonInput<KeyCode>>,
     mut dispatcher: ResMut<HudDispatcher>,
+    mut app_exits: MessageWriter<AppExit>,
 ) {
     for event in messages.read() {
+        if should_exit_application(event, &keys) {
+            app_exits.write(AppExit::Success);
+            break;
+        }
         if should_kill_active_terminal(event, &keys) {
             dispatcher.commands.push(HudCommand::KillActiveTerminal);
         }
