@@ -6,6 +6,7 @@ use std::collections::HashMap;
 pub(crate) struct TerminalViewState {
     pub(crate) distance: f32,
     pub(crate) offset: Vec2,
+    offsets_by_terminal: HashMap<TerminalId, Vec2>,
 }
 
 impl Default for TerminalViewState {
@@ -13,7 +14,39 @@ impl Default for TerminalViewState {
         Self {
             distance: 10.0,
             offset: Vec2::ZERO,
+            offsets_by_terminal: HashMap::new(),
         }
+    }
+}
+
+impl TerminalViewState {
+    pub(crate) fn focus_terminal(&mut self, active_id: Option<TerminalId>) {
+        self.offset = active_id
+            .map(|id| {
+                self.offsets_by_terminal
+                    .get(&id)
+                    .copied()
+                    .unwrap_or(Vec2::ZERO)
+            })
+            .unwrap_or(Vec2::ZERO);
+    }
+
+    pub(crate) fn apply_offset_delta(&mut self, active_id: Option<TerminalId>, delta: Vec2) {
+        self.offset += delta;
+        if let Some(id) = active_id {
+            self.offsets_by_terminal.insert(id, self.offset);
+        }
+    }
+
+    pub(crate) fn reset_active_offset(&mut self, active_id: Option<TerminalId>) {
+        self.offset = Vec2::ZERO;
+        if let Some(id) = active_id {
+            self.offsets_by_terminal.insert(id, Vec2::ZERO);
+        }
+    }
+
+    pub(crate) fn forget_terminal(&mut self, terminal_id: TerminalId) {
+        self.offsets_by_terminal.remove(&terminal_id);
     }
 }
 

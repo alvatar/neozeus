@@ -30,6 +30,7 @@ pub(crate) fn kill_active_terminal(
     agent_directory: &mut AgentDirectory,
     session_persistence: &mut TerminalSessionPersistenceState,
     visibility_state: &mut TerminalVisibilityState,
+    view_state: &mut TerminalViewState,
     terminal_panels: &Query<(Entity, &TerminalPanel)>,
     terminal_frames: &Query<(Entity, &TerminalPanelFrame)>,
 ) {
@@ -54,6 +55,8 @@ pub(crate) fn kill_active_terminal(
     let _ = presentation_store.remove(active_id);
     agent_directory.labels.remove(&active_id);
     visibility_state.policy = TerminalVisibilityPolicy::ShowAll;
+    view_state.forget_terminal(active_id);
+    view_state.focus_terminal(terminal_manager.active_id());
     mark_terminal_sessions_dirty(session_persistence, Some(time));
 
     for (entity, panel) in terminal_panels {
@@ -125,6 +128,7 @@ pub(crate) fn apply_hud_commands(
                     session_name.clone(),
                     true,
                 );
+                view_state.focus_terminal(Some(terminal_id));
                 mark_terminal_sessions_dirty(&mut session_persistence, Some(&time));
                 append_debug_log(format!(
                     "spawned terminal {} session={}",
@@ -133,6 +137,7 @@ pub(crate) fn apply_hud_commands(
             }
             HudCommand::FocusTerminal(id) => {
                 terminal_manager.focus_terminal(id);
+                view_state.focus_terminal(terminal_manager.active_id());
                 mark_terminal_sessions_dirty(&mut session_persistence, Some(&time));
             }
             HudCommand::HideAllButTerminal(id) => {
@@ -159,7 +164,7 @@ pub(crate) fn apply_hud_commands(
             }
             HudCommand::ResetTerminalView => {
                 view_state.distance = 10.0;
-                view_state.offset = Vec2::ZERO;
+                view_state.reset_active_offset(terminal_manager.active_id());
             }
             HudCommand::SendActiveTerminalCommand(command) => {
                 if let Some(bridge) = terminal_manager.active_bridge() {
@@ -175,6 +180,7 @@ pub(crate) fn apply_hud_commands(
                 &mut agent_directory,
                 &mut session_persistence,
                 &mut visibility_state,
+                &mut view_state,
                 &terminal_panels,
                 &terminal_frames,
             ),

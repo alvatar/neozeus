@@ -204,7 +204,7 @@ pub(crate) fn drag_terminal_view(
 
     if shift {
         pointer_state.scroll_drag_remainder_px = 0.0;
-        view_state.offset += Vec2::new(delta.x, -delta.y);
+        view_state.apply_offset_delta(terminal_manager.active_id(), Vec2::new(delta.x, -delta.y));
         return;
     }
 
