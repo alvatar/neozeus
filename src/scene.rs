@@ -245,6 +245,16 @@ pub(crate) fn should_request_visual_redraw(
     terminal_work_pending || presentation_animating || hud_visuals_active
 }
 
+pub(crate) fn choose_startup_focus_session_name<'a>(
+    restored_focus_session: Option<&'a str>,
+    restored_session_names: &[&'a str],
+    imported_session_names: &[&'a str],
+) -> Option<&'a str> {
+    restored_focus_session
+        .or_else(|| restored_session_names.first().copied())
+        .or_else(|| imported_session_names.first().copied())
+}
+
 fn request_redraw_while_visuals_active(
     terminal_manager: Res<TerminalManager>,
     presentation_store: Res<TerminalPresentationStore>,
@@ -348,10 +358,11 @@ fn setup_scene(
         return;
     }
 
-    let Some(path) = session_persistence.path.clone() else {
-        return;
-    };
-    let persisted = load_persisted_terminal_sessions_from(&path);
+    let persisted = session_persistence
+        .path
+        .as_ref()
+        .map(load_persisted_terminal_sessions_from)
+        .unwrap_or_default();
     let live_sessions = match tmux_client.client().list_sessions() {
         Ok(sessions) => sessions,
         Err(error) => {
@@ -396,16 +407,36 @@ fn setup_scene(
         }
     }
 
-    if let Some(record) = reconciled.restore.iter().find(|record| record.last_focused) {
+    let restored_focus_session = reconciled
+        .restore
+        .iter()
+        .find(|record| record.last_focused)
+        .map(|record| record.session_name.as_str());
+    let restored_session_names = reconciled
+        .restore
+        .iter()
+        .map(|record| record.session_name.as_str())
+        .collect::<Vec<_>>();
+    let imported_session_names = reconciled
+        .import
+        .iter()
+        .map(|record| record.session_name.as_str())
+        .collect::<Vec<_>>();
+
+    if let Some(session_name) = choose_startup_focus_session_name(
+        restored_focus_session,
+        &restored_session_names,
+        &imported_session_names,
+    ) {
         let focused_id = terminal_manager
             .iter()
-            .find(|(_, terminal)| terminal.session_name == record.session_name)
+            .find(|(_, terminal)| terminal.session_name == session_name)
             .map(|(terminal_id, _)| terminal_id);
         if let Some(terminal_id) = focused_id {
             terminal_manager.focus_terminal(terminal_id);
             append_debug_log(format!(
-                "restored focused terminal {} session={}",
-                terminal_id.0, record.session_name
+                "restored startup focus terminal {} session={}",
+                terminal_id.0, session_name
             ));
         }
     }
