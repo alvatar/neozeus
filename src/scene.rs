@@ -7,8 +7,9 @@ use crate::{
         TerminalVisibilityState,
     },
     input::{
-        drag_terminal_view, forward_keyboard_input, handle_global_terminal_spawn_shortcut,
-        handle_terminal_lifecycle_shortcuts, hide_terminal_on_background_click, zoom_terminal_view,
+        drag_terminal_view, focus_terminal_on_panel_click, forward_keyboard_input,
+        handle_global_terminal_spawn_shortcut, handle_terminal_lifecycle_shortcuts,
+        hide_terminal_on_background_click, zoom_terminal_view,
     },
     terminals::{
         append_debug_log, configure_terminal_fonts, generate_unique_session_name,
@@ -162,6 +163,7 @@ fn configure_app(app: &mut App) {
             (
                 handle_global_terminal_spawn_shortcut,
                 handle_terminal_lifecycle_shortcuts,
+                focus_terminal_on_panel_click,
                 hide_terminal_on_background_click,
                 drag_terminal_view,
                 zoom_terminal_view,

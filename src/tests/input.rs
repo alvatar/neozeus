@@ -2,9 +2,10 @@ use super::{pressed_text, test_bridge};
 use crate::{
     hud::{HudCommand, HudDispatcher},
     input::{
-        ctrl_sequence, handle_global_terminal_spawn_shortcut, handle_terminal_lifecycle_shortcuts,
-        hide_terminal_on_background_click, keyboard_input_to_terminal_command,
-        should_exit_application, should_kill_active_terminal, should_spawn_terminal_globally,
+        ctrl_sequence, focus_terminal_on_panel_click, handle_global_terminal_spawn_shortcut,
+        handle_terminal_lifecycle_shortcuts, hide_terminal_on_background_click,
+        keyboard_input_to_terminal_command, should_exit_application, should_kill_active_terminal,
+        should_spawn_terminal_globally,
     },
     terminals::{
         TerminalCommand, TerminalManager, TerminalPanel, TerminalPresentation,
@@ -22,6 +23,7 @@ use bevy::{
 fn world_with_active_terminal(
     cursor: Vec2,
     panel_visible: bool,
+    panel_position: Vec2,
 ) -> (World, crate::terminals::TerminalId) {
     let (bridge, _) = test_bridge();
     let mut manager = TerminalManager::default();
@@ -41,9 +43,9 @@ fn world_with_active_terminal(
     world.spawn((
         TerminalPanel { id: terminal_id },
         TerminalPresentation {
-            home_position: Vec2::ZERO,
-            current_position: Vec2::ZERO,
-            target_position: Vec2::ZERO,
+            home_position: panel_position,
+            current_position: panel_position,
+            target_position: panel_position,
             current_size: Vec2::new(200.0, 120.0),
             target_size: Vec2::new(200.0, 120.0),
             current_alpha: 1.0,
@@ -176,7 +178,8 @@ fn f10_enqueues_app_exit() {
 
 #[test]
 fn background_click_hides_active_terminal() {
-    let (mut world, terminal_id) = world_with_active_terminal(Vec2::new(10.0, 10.0), true);
+    let (mut world, terminal_id) =
+        world_with_active_terminal(Vec2::new(10.0, 10.0), true, Vec2::ZERO);
     world
         .resource_mut::<ButtonInput<MouseButton>>()
         .press(MouseButton::Left);
@@ -196,7 +199,8 @@ fn background_click_hides_active_terminal() {
 
 #[test]
 fn clicking_visible_terminal_does_not_hide_it() {
-    let (mut world, terminal_id) = world_with_active_terminal(Vec2::new(640.0, 360.0), true);
+    let (mut world, terminal_id) =
+        world_with_active_terminal(Vec2::new(640.0, 360.0), true, Vec2::ZERO);
     world
         .resource_mut::<ButtonInput<MouseButton>>()
         .press(MouseButton::Left);
@@ -214,8 +218,94 @@ fn clicking_visible_terminal_does_not_hide_it() {
 }
 
 #[test]
+fn clicking_shifted_visible_terminal_does_not_hide_it() {
+    let panel_position = Vec2::new(180.0, 120.0);
+    let panel_center = Vec2::new(640.0 + panel_position.x, 360.0 - panel_position.y);
+    let (mut world, terminal_id) = world_with_active_terminal(panel_center, true, panel_position);
+    world
+        .resource_mut::<ButtonInput<MouseButton>>()
+        .press(MouseButton::Left);
+
+    world
+        .run_system_once(hide_terminal_on_background_click)
+        .unwrap();
+
+    let manager = world.resource::<TerminalManager>();
+    assert_eq!(manager.active_id(), Some(terminal_id));
+    assert!(world
+        .resource::<TerminalSessionPersistenceState>()
+        .dirty_since_secs
+        .is_none());
+}
+
+#[test]
+fn clicking_terminal_panel_enqueues_focus_and_isolate_for_topmost_visible_panel() {
+    let mut world = World::default();
+    let mut window = Window {
+        focused: true,
+        ..Default::default()
+    };
+    window.set_cursor_position(Some(Vec2::new(640.0, 360.0)));
+
+    world.insert_resource(ButtonInput::<MouseButton>::default());
+    world.insert_resource(crate::hud::HudState::default());
+    world.insert_resource(HudDispatcher::default());
+    world.spawn((window, PrimaryWindow));
+    world.spawn((
+        TerminalPanel {
+            id: crate::terminals::TerminalId(1),
+        },
+        TerminalPresentation {
+            home_position: Vec2::ZERO,
+            current_position: Vec2::ZERO,
+            target_position: Vec2::ZERO,
+            current_size: Vec2::new(220.0, 140.0),
+            target_size: Vec2::new(220.0, 140.0),
+            current_alpha: 1.0,
+            target_alpha: 1.0,
+            current_z: -0.1,
+            target_z: -0.1,
+        },
+        Visibility::Visible,
+    ));
+    world.spawn((
+        TerminalPanel {
+            id: crate::terminals::TerminalId(2),
+        },
+        TerminalPresentation {
+            home_position: Vec2::ZERO,
+            current_position: Vec2::ZERO,
+            target_position: Vec2::ZERO,
+            current_size: Vec2::new(220.0, 140.0),
+            target_size: Vec2::new(220.0, 140.0),
+            current_alpha: 1.0,
+            target_alpha: 1.0,
+            current_z: 0.3,
+            target_z: 0.3,
+        },
+        Visibility::Visible,
+    ));
+
+    world
+        .resource_mut::<ButtonInput<MouseButton>>()
+        .press(MouseButton::Left);
+    world
+        .run_system_once(focus_terminal_on_panel_click)
+        .unwrap();
+
+    assert_eq!(
+        world.resource::<HudDispatcher>().commands,
+        vec![
+            HudCommand::FocusTerminal(crate::terminals::TerminalId(2)),
+            HudCommand::HideAllButTerminal(crate::terminals::TerminalId(2)),
+        ]
+    );
+}
+
+#[test]
 fn clicking_hud_does_not_hide_active_terminal() {
-    let (mut world, terminal_id) = world_with_active_terminal(Vec2::new(10.0, 10.0), false);
+    let (mut world, terminal_id) =
+        world_with_active_terminal(Vec2::new(10.0, 10.0), false, Vec2::ZERO);
     let mut hud_state = crate::hud::HudState::default();
     let mut module =
         crate::hud::default_hud_module_instance(&crate::hud::HUD_MODULE_DEFINITIONS[0]);
