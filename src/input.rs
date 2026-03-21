@@ -102,10 +102,50 @@ fn terminal_panel_contains_cursor(
 ) -> bool {
     let min = Vec2::new(
         window.width() * 0.5 + presentation.current_position.x - presentation.current_size.x * 0.5,
-        window.height() * 0.5 + presentation.current_position.y - presentation.current_size.y * 0.5,
+        window.height() * 0.5 - presentation.current_position.y - presentation.current_size.y * 0.5,
     );
     let max = min + presentation.current_size;
     cursor.x >= min.x && cursor.x <= max.x && cursor.y >= min.y && cursor.y <= max.y
+}
+
+fn topmost_terminal_panel_at_cursor(
+    window: &Window,
+    panels: &Query<(&TerminalPanel, &TerminalPresentation, &Visibility)>,
+    cursor: Vec2,
+) -> Option<TerminalPanel> {
+    panels
+        .iter()
+        .filter(|(_, _, visibility)| **visibility == Visibility::Visible)
+        .filter(|(_, presentation, _)| terminal_panel_contains_cursor(window, presentation, cursor))
+        .max_by(|(_, left, _), (_, right, _)| left.current_z.total_cmp(&right.current_z))
+        .map(|(panel, _, _)| *panel)
+}
+
+pub(crate) fn focus_terminal_on_panel_click(
+    mouse_buttons: Res<ButtonInput<MouseButton>>,
+    primary_window: Single<&Window, With<PrimaryWindow>>,
+    hud_state: Res<HudState>,
+    panels: Query<(&TerminalPanel, &TerminalPresentation, &Visibility)>,
+    mut dispatcher: ResMut<HudDispatcher>,
+) {
+    if !mouse_buttons.just_pressed(MouseButton::Left) || !primary_window.focused {
+        return;
+    }
+    let Some(cursor) = primary_window.cursor_position() else {
+        return;
+    };
+    if hud_state.topmost_enabled_at(cursor).is_some() {
+        return;
+    }
+    let Some(panel) = topmost_terminal_panel_at_cursor(&primary_window, &panels, cursor) else {
+        return;
+    };
+    dispatcher
+        .commands
+        .push(HudCommand::FocusTerminal(panel.id));
+    dispatcher
+        .commands
+        .push(HudCommand::HideAllButTerminal(panel.id));
 }
 
 pub(crate) fn hide_terminal_on_background_click(
@@ -129,10 +169,7 @@ pub(crate) fn hide_terminal_on_background_click(
     if hud_state.topmost_enabled_at(cursor).is_some() {
         return;
     }
-    if panels.iter().any(|(_, presentation, visibility)| {
-        *visibility == Visibility::Visible
-            && terminal_panel_contains_cursor(&primary_window, presentation, cursor)
-    }) {
+    if topmost_terminal_panel_at_cursor(&primary_window, &panels, cursor).is_some() {
         return;
     }
     if terminal_manager.clear_active_terminal().is_some() {
