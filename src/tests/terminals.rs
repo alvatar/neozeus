@@ -455,6 +455,28 @@ fn provision_terminal_target_reports_tmux_unavailable() {
 }
 
 #[test]
+fn terminal_view_state_restores_offsets_per_terminal() {
+    let id_one = crate::terminals::TerminalId(1);
+    let id_two = crate::terminals::TerminalId(2);
+    let mut view_state = TerminalViewState::default();
+
+    view_state.apply_offset_delta(Some(id_one), Vec2::new(120.0, -30.0));
+    assert_eq!(view_state.offset, Vec2::new(120.0, -30.0));
+
+    view_state.focus_terminal(Some(id_two));
+    assert_eq!(view_state.offset, Vec2::ZERO);
+
+    view_state.apply_offset_delta(Some(id_two), Vec2::new(-48.0, 64.0));
+    assert_eq!(view_state.offset, Vec2::new(-48.0, 64.0));
+
+    view_state.focus_terminal(Some(id_one));
+    assert_eq!(view_state.offset, Vec2::new(120.0, -30.0));
+
+    view_state.focus_terminal(Some(id_two));
+    assert_eq!(view_state.offset, Vec2::new(-48.0, 64.0));
+}
+
+#[test]
 fn terminal_creation_order_stays_stable_when_focus_changes() {
     let (bridge_one, _) = test_bridge();
     let (bridge_two, _) = test_bridge();

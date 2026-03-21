@@ -707,6 +707,7 @@ fn killing_active_terminal_removes_runtime_presentation_and_labels() {
     world.insert_resource(TerminalVisibilityState {
         policy: TerminalVisibilityPolicy::Isolate(id),
     });
+    world.insert_resource(TerminalViewState::default());
     world.spawn((TerminalPanel { id },));
     world.spawn((TerminalPanelFrame { id },));
 
@@ -720,6 +721,7 @@ fn killing_active_terminal_removes_runtime_presentation_and_labels() {
              mut agent_directory: ResMut<AgentDirectory>,
              mut session_persistence: ResMut<TerminalSessionPersistenceState>,
              mut visibility_state: ResMut<TerminalVisibilityState>,
+             mut view_state: ResMut<TerminalViewState>,
              terminal_panels: Query<(Entity, &TerminalPanel)>,
              terminal_frames: Query<(Entity, &TerminalPanelFrame)>| {
                 kill_active_terminal(
@@ -731,6 +733,7 @@ fn killing_active_terminal_removes_runtime_presentation_and_labels() {
                     &mut agent_directory,
                     &mut session_persistence,
                     &mut visibility_state,
+                    &mut view_state,
                     &terminal_panels,
                     &terminal_frames,
                 );
@@ -803,6 +806,7 @@ fn killing_active_terminal_preserves_local_state_when_tmux_kill_fails() {
     world.insert_resource(TerminalVisibilityState {
         policy: TerminalVisibilityPolicy::Isolate(id),
     });
+    world.insert_resource(TerminalViewState::default());
     world.spawn((TerminalPanel { id },));
     world.spawn((TerminalPanelFrame { id },));
 
@@ -816,6 +820,7 @@ fn killing_active_terminal_preserves_local_state_when_tmux_kill_fails() {
              mut agent_directory: ResMut<AgentDirectory>,
              mut session_persistence: ResMut<TerminalSessionPersistenceState>,
              mut visibility_state: ResMut<TerminalVisibilityState>,
+             mut view_state: ResMut<TerminalViewState>,
              terminal_panels: Query<(Entity, &TerminalPanel)>,
              terminal_frames: Query<(Entity, &TerminalPanelFrame)>| {
                 kill_active_terminal(
@@ -827,6 +832,7 @@ fn killing_active_terminal_preserves_local_state_when_tmux_kill_fails() {
                     &mut agent_directory,
                     &mut session_persistence,
                     &mut visibility_state,
+                    &mut view_state,
                     &terminal_panels,
                     &terminal_frames,
                 );
