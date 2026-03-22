@@ -539,6 +539,194 @@ fn message_box_ctrl_bindings_edit_multiline_text() {
 }
 
 #[test]
+fn message_box_mark_region_ctrl_w_and_ctrl_y_work() {
+    let (mut world, terminal_id) =
+        world_with_active_terminal(Vec2::new(10.0, 10.0), false, Vec2::ZERO);
+    let mut hud_state = crate::hud::HudState::default();
+    hud_state.open_message_box(terminal_id);
+    hud_state.message_box.insert_text("alpha beta gamma");
+    hud_state.message_box.cursor = 6;
+    world.insert_resource(hud_state);
+    world.insert_resource(HudDispatcher::default());
+    world.init_resource::<Messages<KeyboardInput>>();
+    world.init_resource::<Messages<RequestRedraw>>();
+
+    let mut ctrl_keys = ButtonInput::<KeyCode>::default();
+    ctrl_keys.press(KeyCode::ControlLeft);
+    world.insert_resource(ctrl_keys);
+    dispatch_message_box_key(&mut world, pressed_text(KeyCode::Space, Some(" ")));
+    assert_eq!(
+        world.resource::<crate::hud::HudState>().message_box.mark,
+        Some(6)
+    );
+
+    let mut alt_keys = ButtonInput::<KeyCode>::default();
+    alt_keys.press(KeyCode::AltLeft);
+    world.insert_resource(alt_keys);
+    dispatch_message_box_key(
+        &mut world,
+        pressed_key(KeyCode::KeyF, Key::Character("f".into())),
+    );
+    assert_eq!(
+        world
+            .resource::<crate::hud::HudState>()
+            .message_box
+            .region_bounds(),
+        Some((6, 10))
+    );
+
+    let mut ctrl_keys = ButtonInput::<KeyCode>::default();
+    ctrl_keys.press(KeyCode::ControlLeft);
+    world.insert_resource(ctrl_keys);
+    dispatch_message_box_key(
+        &mut world,
+        pressed_key(KeyCode::KeyW, Key::Character("w".into())),
+    );
+    assert_eq!(
+        world.resource::<crate::hud::HudState>().message_box.text,
+        "alpha  gamma"
+    );
+    assert_eq!(
+        world.resource::<crate::hud::HudState>().message_box.mark,
+        None
+    );
+
+    dispatch_message_box_key(
+        &mut world,
+        pressed_key(KeyCode::KeyY, Key::Character("y".into())),
+    );
+    assert_eq!(
+        world.resource::<crate::hud::HudState>().message_box.text,
+        "alpha beta gamma"
+    );
+}
+
+#[test]
+fn message_box_meta_copy_kill_ring_history_and_backward_kill_word_work() {
+    let (mut world, terminal_id) =
+        world_with_active_terminal(Vec2::new(10.0, 10.0), false, Vec2::ZERO);
+    let mut hud_state = crate::hud::HudState::default();
+    hud_state.open_message_box(terminal_id);
+    hud_state.message_box.insert_text("one two three");
+    hud_state.message_box.cursor = 4;
+    world.insert_resource(hud_state);
+    world.insert_resource(HudDispatcher::default());
+    world.init_resource::<Messages<KeyboardInput>>();
+    world.init_resource::<Messages<RequestRedraw>>();
+
+    let mut ctrl_keys = ButtonInput::<KeyCode>::default();
+    ctrl_keys.press(KeyCode::ControlLeft);
+    world.insert_resource(ctrl_keys);
+    dispatch_message_box_key(&mut world, pressed_text(KeyCode::Space, Some(" ")));
+
+    let mut alt_keys = ButtonInput::<KeyCode>::default();
+    alt_keys.press(KeyCode::AltLeft);
+    world.insert_resource(alt_keys);
+    dispatch_message_box_key(
+        &mut world,
+        pressed_key(KeyCode::KeyF, Key::Character("f".into())),
+    );
+    dispatch_message_box_key(
+        &mut world,
+        pressed_key(KeyCode::KeyW, Key::Character("w".into())),
+    );
+
+    world
+        .resource_mut::<crate::hud::HudState>()
+        .message_box
+        .cursor = 8;
+    dispatch_message_box_key(
+        &mut world,
+        pressed_key(KeyCode::KeyD, Key::Character("d".into())),
+    );
+    assert_eq!(
+        world.resource::<crate::hud::HudState>().message_box.text,
+        "one two "
+    );
+
+    let mut ctrl_keys = ButtonInput::<KeyCode>::default();
+    ctrl_keys.press(KeyCode::ControlLeft);
+    world.insert_resource(ctrl_keys);
+    dispatch_message_box_key(
+        &mut world,
+        pressed_key(KeyCode::KeyY, Key::Character("y".into())),
+    );
+    assert_eq!(
+        world.resource::<crate::hud::HudState>().message_box.text,
+        "one two three"
+    );
+
+    let mut alt_keys = ButtonInput::<KeyCode>::default();
+    alt_keys.press(KeyCode::AltLeft);
+    world.insert_resource(alt_keys);
+    dispatch_message_box_key(
+        &mut world,
+        pressed_key(KeyCode::KeyY, Key::Character("y".into())),
+    );
+    assert_eq!(
+        world.resource::<crate::hud::HudState>().message_box.text,
+        "one two two"
+    );
+
+    world
+        .resource_mut::<crate::hud::HudState>()
+        .message_box
+        .cursor = world
+        .resource::<crate::hud::HudState>()
+        .message_box
+        .text
+        .len();
+    dispatch_message_box_key(&mut world, pressed_text(KeyCode::Backspace, None));
+    assert_eq!(
+        world.resource::<crate::hud::HudState>().message_box.text,
+        "one two "
+    );
+}
+
+#[test]
+fn message_box_ctrl_o_and_ctrl_j_work() {
+    let (mut world, terminal_id) =
+        world_with_active_terminal(Vec2::new(10.0, 10.0), false, Vec2::ZERO);
+    let mut hud_state = crate::hud::HudState::default();
+    hud_state.open_message_box(terminal_id);
+    hud_state.message_box.insert_text("ab");
+    hud_state.message_box.cursor = 1;
+    world.insert_resource(hud_state);
+    world.insert_resource(HudDispatcher::default());
+    world.init_resource::<Messages<KeyboardInput>>();
+    world.init_resource::<Messages<RequestRedraw>>();
+
+    let mut ctrl_keys = ButtonInput::<KeyCode>::default();
+    ctrl_keys.press(KeyCode::ControlLeft);
+    world.insert_resource(ctrl_keys);
+    dispatch_message_box_key(
+        &mut world,
+        pressed_key(KeyCode::KeyO, Key::Character("o".into())),
+    );
+    assert_eq!(
+        world.resource::<crate::hud::HudState>().message_box.text,
+        "a\nb"
+    );
+    assert_eq!(
+        world.resource::<crate::hud::HudState>().message_box.cursor,
+        1
+    );
+
+    dispatch_message_box_key(
+        &mut world,
+        pressed_key(KeyCode::KeyJ, Key::Character("j".into())),
+    );
+    assert_eq!(
+        world.resource::<crate::hud::HudState>().message_box.text,
+        "a\n\nb"
+    );
+    assert_eq!(
+        world.resource::<crate::hud::HudState>().message_box.cursor,
+        2
+    );
+}
+
+#[test]
 fn message_box_alt_word_motion_and_ctrl_d_work() {
     let (mut world, terminal_id) =
         world_with_active_terminal(Vec2::new(10.0, 10.0), false, Vec2::ZERO);

@@ -215,6 +215,17 @@ fn slice_chars(text: &str, start_chars: usize, max_chars: usize) -> String {
     text.chars().skip(start_chars).take(max_chars).collect()
 }
 
+fn message_box_lines(text: &str) -> Vec<(usize, usize, &str)> {
+    text.split('\n')
+        .scan(0usize, |start, line| {
+            let line_start = *start;
+            let line_end = line_start + line.len();
+            *start = line_end.saturating_add(1);
+            Some((line_start, line_end, line))
+        })
+        .collect()
+}
+
 fn draw_message_box(
     painter: &mut HudPainter,
     window: &Window,
@@ -273,7 +284,7 @@ fn draw_message_box(
         x: rect.x + 22.0,
         y: rect.y + 64.0,
         w: rect.w - 44.0,
-        h: rect.h - 118.0,
+        h: rect.h - 140.0,
     };
     painter.fill_rect(body_rect, HudColors::TITLE, 6.0);
     painter.stroke_rect(body_rect, HudColors::TEXT_MUTED, 4.0);
@@ -284,8 +295,9 @@ fn draw_message_box(
     let content_y = body_rect.y + 16.0;
     let max_visible_lines = ((body_rect.h - 24.0) / line_height).floor().max(1.0) as usize;
     let max_visible_cols = ((body_rect.w - 36.0) / 10.0).floor().max(8.0) as usize;
-    let lines = message_box.text.split('\n').collect::<Vec<_>>();
+    let lines = message_box_lines(&message_box.text);
     let (cursor_line, cursor_col) = message_box.cursor_line_and_column();
+    let selection = message_box.region_bounds();
     let start_line = cursor_line.saturating_sub(max_visible_lines.saturating_sub(1));
     let end_line = (start_line + max_visible_lines).min(lines.len());
 
@@ -296,7 +308,7 @@ fn draw_message_box(
     );
 
     for (visible_index, line_index) in (start_line..end_line).enumerate() {
-        let line = lines[line_index];
+        let (line_start_byte, line_end_byte, line) = lines[line_index];
         let start_col = if line_index == cursor_line {
             cursor_col.saturating_sub(max_visible_cols.saturating_sub(1))
         } else {
@@ -316,6 +328,40 @@ fn draw_message_box(
                 HudColors::ROW_HOVERED,
                 4.0,
             );
+        }
+
+        if let Some((selection_start, selection_end)) = selection {
+            let line_selection_start = selection_start.max(line_start_byte);
+            let line_selection_end = selection_end.min(line_end_byte);
+            if line_selection_start < line_selection_end {
+                let selection_start_col = message_box.text[line_start_byte..line_selection_start]
+                    .chars()
+                    .count();
+                let selection_end_col = message_box.text[line_start_byte..line_selection_end]
+                    .chars()
+                    .count();
+                let visible_selection_start = selection_start_col.max(start_col) - start_col;
+                let visible_selection_end = selection_end_col
+                    .min(start_col.saturating_add(max_visible_cols))
+                    .saturating_sub(start_col);
+                if visible_selection_start < visible_selection_end {
+                    let before_selection = slice_chars(line, start_col, visible_selection_start);
+                    let before_selection_end = slice_chars(line, start_col, visible_selection_end);
+                    let selection_x = content_x + painter.text_size(&before_selection, text_size).x;
+                    let selection_end_x =
+                        content_x + painter.text_size(&before_selection_end, text_size).x;
+                    painter.fill_rect(
+                        HudRect {
+                            x: selection_x,
+                            y: y - 2.0,
+                            w: (selection_end_x - selection_x).max(6.0),
+                            h: line_height - 4.0,
+                        },
+                        HudColors::ROW_FOCUSED,
+                        3.0,
+                    );
+                }
+            }
         }
 
         if !display_text.is_empty() {
@@ -348,13 +394,31 @@ fn draw_message_box(
     painter.scene.pop_layer();
 
     let (line_number, column_number) = message_box.cursor_line_and_column();
+    let selection_status = message_box
+        .region_bounds()
+        .map(|(start, end)| {
+            format!(
+                "Region {} chars",
+                message_box.text[start..end].chars().count()
+            )
+        })
+        .or_else(|| message_box.mark.map(|_| "Mark set".to_owned()))
+        .unwrap_or_else(|| "No mark".to_owned());
     painter.label(
-        Vec2::new(rect.x + 24.0, rect.y + rect.h - 32.0),
+        Vec2::new(rect.x + 24.0, rect.y + rect.h - 52.0),
         &format!(
-            "Ln {} Col {} · C-a/C-e line · C-b/C-f char · C-p/C-n line · M-b/M-f word · C-d delete · C-k kill · C-y yank",
+            "Ln {} Col {} · {}",
             line_number + 1,
             column_number + 1,
+            selection_status
         ),
+        15.0,
+        HudColors::TEXT_MUTED,
+        VelloTextAnchor::TopLeft,
+    );
+    painter.label(
+        Vec2::new(rect.x + 24.0, rect.y + rect.h - 30.0),
+        "C-Space mark · C-w cut · M-w copy · C-y yank · M-y ring · M-d/M-Bksp word · C-o open · C-j newline",
         15.0,
         HudColors::TEXT_MUTED,
         VelloTextAnchor::TopLeft,
