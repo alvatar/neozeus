@@ -6,6 +6,7 @@ use crate::{
     terminals::{TerminalManager, TerminalPresentationStore, TerminalViewState},
 };
 use bevy::{
+    ecs::system::SystemParam,
     input::{
         keyboard::KeyboardInput,
         mouse::{MouseScrollUnit, MouseWheel},
@@ -28,45 +29,45 @@ fn content_hit_rect(rect: HudRect) -> HudRect {
     }
 }
 
-#[allow(
-    clippy::too_many_arguments,
-    reason = "HUD pointer routing needs window input, HUD state, terminal state, and dispatcher together"
-)]
-pub(crate) fn handle_hud_pointer_input(
-    primary_window: Single<&Window, With<PrimaryWindow>>,
-    mouse_buttons: Res<ButtonInput<MouseButton>>,
-    mut mouse_wheel: MessageReader<MouseWheel>,
-    mut hud_state: ResMut<HudState>,
-    terminal_manager: Res<TerminalManager>,
-    presentation_store: Res<TerminalPresentationStore>,
-    view_state: Res<TerminalViewState>,
-    agent_directory: Res<AgentDirectory>,
-    mut dispatcher: ResMut<HudDispatcher>,
-) {
-    if hud_state.keyboard_capture_active() {
-        hud_state.drag = None;
+#[derive(SystemParam)]
+pub(crate) struct HudPointerContext<'w, 's> {
+    primary_window: Single<'w, 's, &'static Window, With<PrimaryWindow>>,
+    mouse_buttons: Res<'w, ButtonInput<MouseButton>>,
+    mouse_wheel: MessageReader<'w, 's, MouseWheel>,
+    hud_state: ResMut<'w, HudState>,
+    terminal_manager: Res<'w, TerminalManager>,
+    presentation_store: Res<'w, TerminalPresentationStore>,
+    view_state: Res<'w, TerminalViewState>,
+    agent_directory: Res<'w, AgentDirectory>,
+    dispatcher: ResMut<'w, HudDispatcher>,
+}
+
+pub(crate) fn handle_hud_pointer_input(mut ctx: HudPointerContext) {
+    if ctx.hud_state.keyboard_capture_active() {
+        ctx.hud_state.drag = None;
         return;
     }
-    let Some(cursor) = cursor_hud_position(&primary_window) else {
-        if mouse_buttons.just_released(MouseButton::Left) {
-            hud_state.drag = None;
+    let Some(cursor) = cursor_hud_position(&ctx.primary_window) else {
+        if ctx.mouse_buttons.just_released(MouseButton::Left) {
+            ctx.hud_state.drag = None;
         }
         return;
     };
 
-    if mouse_buttons.just_pressed(MouseButton::Left) {
-        if let Some(module_id) = hud_state.topmost_enabled_at(cursor) {
-            hud_state.raise_to_front(module_id);
-            let titlebar_rect = hud_state
+    if ctx.mouse_buttons.just_pressed(MouseButton::Left) {
+        if let Some(module_id) = ctx.hud_state.topmost_enabled_at(cursor) {
+            ctx.hud_state.raise_to_front(module_id);
+            let titlebar_rect = ctx
+                .hud_state
                 .get(module_id)
                 .map(|module| module.shell.titlebar_rect())
                 .unwrap_or_default();
             if titlebar_rect.contains(cursor) {
-                hud_state.drag = Some(crate::hud::HudDragState {
+                ctx.hud_state.drag = Some(crate::hud::HudDragState {
                     module_id,
                     grab_offset: Vec2::new(cursor.x - titlebar_rect.x, cursor.y - titlebar_rect.y),
                 });
-            } else if let Some(module) = hud_state.get(module_id) {
+            } else if let Some(module) = ctx.hud_state.get(module_id) {
                 let content_rect = content_hit_rect(module.shell.current_rect);
                 if content_rect.contains(cursor) {
                     modules::handle_pointer_click(
@@ -74,48 +75,48 @@ pub(crate) fn handle_hud_pointer_input(
                         &module.model,
                         content_rect,
                         cursor,
-                        &terminal_manager,
-                        &presentation_store,
-                        &view_state,
-                        &agent_directory,
-                        &hud_state,
-                        &mut dispatcher,
+                        &ctx.terminal_manager,
+                        &ctx.presentation_store,
+                        &ctx.view_state,
+                        &ctx.agent_directory,
+                        &ctx.hud_state,
+                        &mut ctx.dispatcher,
                     );
                 }
             }
         }
     }
 
-    if mouse_buttons.pressed(MouseButton::Left) {
-        if let Some(drag) = hud_state.drag {
-            if let Some(module) = hud_state.get_mut(drag.module_id) {
+    if ctx.mouse_buttons.pressed(MouseButton::Left) {
+        if let Some(drag) = ctx.hud_state.drag {
+            if let Some(module) = ctx.hud_state.get_mut(drag.module_id) {
                 module.shell.target_rect.x = cursor.x - drag.grab_offset.x;
                 module.shell.target_rect.y = cursor.y - drag.grab_offset.y;
-                hud_state.dirty_layout = true;
+                ctx.hud_state.dirty_layout = true;
             }
         }
     }
 
-    if mouse_buttons.just_released(MouseButton::Left) {
-        hud_state.drag = None;
+    if ctx.mouse_buttons.just_released(MouseButton::Left) {
+        ctx.hud_state.drag = None;
     }
 
-    let scroll_delta = mouse_wheel.read().fold(0.0, |acc, event| {
+    let scroll_delta = ctx.mouse_wheel.read().fold(0.0, |acc, event| {
         acc + match event.unit {
             MouseScrollUnit::Line => event.y * 24.0,
             MouseScrollUnit::Pixel => event.y,
         }
     });
     if scroll_delta != 0.0 {
-        if let Some(module_id) = hud_state.topmost_enabled_at(cursor) {
-            if let Some(module) = hud_state.get_mut(module_id) {
+        if let Some(module_id) = ctx.hud_state.topmost_enabled_at(cursor) {
+            if let Some(module) = ctx.hud_state.get_mut(module_id) {
                 let content_rect = content_hit_rect(module.shell.current_rect);
                 if content_rect.contains(cursor) {
                     modules::handle_scroll(
                         module_id,
                         &mut module.model,
                         scroll_delta,
-                        &terminal_manager,
+                        &ctx.terminal_manager,
                         content_rect,
                     );
                 }
@@ -123,15 +124,18 @@ pub(crate) fn handle_hud_pointer_input(
         }
     }
 
-    let hovered_module_id = hud_state.topmost_enabled_at(cursor).and_then(|module_id| {
-        hud_state.get(module_id).and_then(|module| {
-            let content_rect = content_hit_rect(module.shell.current_rect);
-            content_rect.contains(cursor).then_some(module_id)
-        })
-    });
-    let module_ids = hud_state.iter_z_order().collect::<Vec<_>>();
+    let hovered_module_id = ctx
+        .hud_state
+        .topmost_enabled_at(cursor)
+        .and_then(|module_id| {
+            ctx.hud_state.get(module_id).and_then(|module| {
+                let content_rect = content_hit_rect(module.shell.current_rect);
+                content_rect.contains(cursor).then_some(module_id)
+            })
+        });
+    let module_ids = ctx.hud_state.iter_z_order().collect::<Vec<_>>();
     for module_id in module_ids {
-        let Some(module) = hud_state.get_mut(module_id) else {
+        let Some(module) = ctx.hud_state.get_mut(module_id) else {
             continue;
         };
         let content_rect = content_hit_rect(module.shell.current_rect);
@@ -146,8 +150,8 @@ pub(crate) fn handle_hud_pointer_input(
                 &mut module.model,
                 content_rect,
                 point,
-                &terminal_manager,
-                &agent_directory,
+                &ctx.terminal_manager,
+                &ctx.agent_directory,
             )
         } else {
             modules::clear_hover(module_id, &mut module.model)
@@ -158,13 +162,10 @@ pub(crate) fn handle_hud_pointer_input(
 pub(crate) fn handle_hud_module_shortcuts(
     mut messages: MessageReader<KeyboardInput>,
     keys: Res<ButtonInput<KeyCode>>,
-    hud_state: Option<Res<HudState>>,
+    hud_state: Res<HudState>,
     mut dispatcher: ResMut<HudDispatcher>,
 ) {
-    if hud_state
-        .as_ref()
-        .is_some_and(|hud_state| hud_state.keyboard_capture_active())
-    {
+    if hud_state.keyboard_capture_active() {
         return;
     }
 

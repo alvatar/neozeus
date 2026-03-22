@@ -121,6 +121,7 @@ fn reset_module_restores_default_toolbar_state() {
 fn plain_digit_module_shortcut_toggles_module() {
     let mut world = World::default();
     world.insert_resource(ButtonInput::<KeyCode>::default());
+    world.insert_resource(HudState::default());
     world.insert_resource(HudDispatcher::default());
     world.init_resource::<Messages<KeyboardInput>>();
     world
@@ -142,6 +143,7 @@ fn alt_shift_module_shortcut_still_resets_module() {
     keys.press(KeyCode::AltLeft);
     keys.press(KeyCode::ShiftLeft);
     world.insert_resource(keys);
+    world.insert_resource(HudState::default());
     world.insert_resource(HudDispatcher::default());
     world.init_resource::<Messages<KeyboardInput>>();
     world

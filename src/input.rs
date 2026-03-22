@@ -72,12 +72,10 @@ pub(crate) fn handle_global_terminal_spawn_shortcut(
     keys: Res<ButtonInput<KeyCode>>,
     primary_window: Single<&Window, With<PrimaryWindow>>,
     terminal_manager: Res<TerminalManager>,
-    hud_state: Option<Res<HudState>>,
+    hud_state: Res<HudState>,
     mut dispatcher: ResMut<HudDispatcher>,
 ) {
-    if hud_state
-        .as_ref()
-        .is_some_and(|hud_state| hud_state.keyboard_capture_active())
+    if hud_state.keyboard_capture_active()
         || !primary_window.focused
         || terminal_manager.active_id().is_some()
     {
@@ -95,14 +93,11 @@ pub(crate) fn handle_global_terminal_spawn_shortcut(
 pub(crate) fn handle_terminal_lifecycle_shortcuts(
     mut messages: MessageReader<KeyboardInput>,
     keys: Res<ButtonInput<KeyCode>>,
-    hud_state: Option<Res<HudState>>,
+    hud_state: Res<HudState>,
     mut dispatcher: ResMut<HudDispatcher>,
     mut app_exits: MessageWriter<AppExit>,
 ) {
-    if hud_state
-        .as_ref()
-        .is_some_and(|hud_state| hud_state.keyboard_capture_active())
-    {
+    if hud_state.keyboard_capture_active() {
         return;
     }
 
