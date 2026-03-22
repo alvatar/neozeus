@@ -6,29 +6,30 @@ use crate::{
     app_config::{DEFAULT_CELL_HEIGHT_PX, DEFAULT_CELL_WIDTH_PX},
     hud::{AgentDirectory, HudModuleId, HudState},
     terminals::{
-        active_terminal_viewport, blend_rgba_in_place, build_attach_command_argv,
-        compute_terminal_damage, create_detached_session_tmux_commands,
-        find_kitty_config_path_with, generate_unique_session_name,
-        initialize_terminal_text_renderer, is_emoji_like, is_private_use_like,
-        parse_kitty_config_file, parse_persisted_terminal_sessions, pixel_perfect_cell_size,
-        pixel_perfect_terminal_logical_size, poll_terminal_snapshots, provision_terminal_target,
-        rasterize_terminal_glyph, read_client_message, read_server_message,
-        reconcile_terminal_sessions, resolve_alacritty_color, resolve_daemon_socket_path_with,
-        resolve_terminal_font_report, resolve_terminal_sessions_path_with,
-        save_terminal_sessions_if_dirty, send_bytes_tmux_commands, send_command_payload_bytes,
-        serialize_persisted_terminal_sessions, snap_to_pixel_grid, sync_terminal_panel_frames,
-        sync_terminal_presentations, terminal_texture_screen_size, write_client_message,
-        write_server_message, xterm_indexed_rgb, ClientMessage, DaemonEvent, DaemonRequest,
-        DaemonServerHandle, KittyFontConfig, PersistedTerminalSessions, PresentedTerminal,
-        ServerMessage, SocketTerminalDaemonClient, TerminalAttachTarget, TerminalCommand,
-        TerminalDaemonClient, TerminalDamage, TerminalDisplayMode, TerminalFontRole,
-        TerminalFontState, TerminalFrameUpdate, TerminalGlyphCacheKey, TerminalLifecycle,
-        TerminalManager, TerminalPanel, TerminalPanelFrame, TerminalPresentation,
-        TerminalPresentationStore, TerminalProvisionTarget, TerminalRuntimeState,
-        TerminalSessionClient, TerminalSessionPersistenceState, TerminalSessionRecord,
-        TerminalSurface, TerminalTextRenderer, TerminalTextureState, TerminalUpdate,
-        TerminalViewState, TmuxPaneClient, DAEMON_PROTOCOL_VERSION, PERSISTENT_SESSION_PREFIX,
-        PERSISTENT_TMUX_SESSION_PREFIX,
+        active_terminal_cell_size, active_terminal_dimensions, active_terminal_viewport,
+        blend_rgba_in_place, build_attach_command_argv, compute_terminal_damage,
+        create_detached_session_tmux_commands, find_kitty_config_path_with,
+        generate_unique_session_name, initialize_terminal_text_renderer, is_emoji_like,
+        is_private_use_like, parse_kitty_config_file, parse_persisted_terminal_sessions,
+        pixel_perfect_cell_size, pixel_perfect_terminal_logical_size, poll_terminal_snapshots,
+        provision_terminal_target, rasterize_terminal_glyph, read_client_message,
+        read_server_message, reconcile_terminal_sessions, resolve_alacritty_color,
+        resolve_daemon_socket_path_with, resolve_terminal_font_report,
+        resolve_terminal_sessions_path_with, save_terminal_sessions_if_dirty,
+        send_bytes_tmux_commands, send_command_payload_bytes,
+        serialize_persisted_terminal_sessions, snap_to_pixel_grid, sync_active_terminal_dimensions,
+        sync_terminal_panel_frames, sync_terminal_presentations, terminal_texture_screen_size,
+        write_client_message, write_server_message, xterm_indexed_rgb, ClientMessage, DaemonEvent,
+        DaemonRequest, DaemonServerHandle, KittyFontConfig, PersistedTerminalSessions,
+        PresentedTerminal, ServerMessage, SocketTerminalDaemonClient, TerminalAttachTarget,
+        TerminalCommand, TerminalDaemonClient, TerminalDamage, TerminalDisplayMode,
+        TerminalFontRole, TerminalFontState, TerminalFrameUpdate, TerminalGlyphCacheKey,
+        TerminalLifecycle, TerminalManager, TerminalPanel, TerminalPanelFrame,
+        TerminalPresentation, TerminalPresentationStore, TerminalProvisionTarget,
+        TerminalRuntimeState, TerminalSessionClient, TerminalSessionPersistenceState,
+        TerminalSessionRecord, TerminalSurface, TerminalTextRenderer, TerminalTextureState,
+        TerminalUpdate, TerminalViewState, TmuxPaneClient, DAEMON_PROTOCOL_VERSION,
+        PERSISTENT_SESSION_PREFIX, PERSISTENT_TMUX_SESSION_PREFIX,
     },
 };
 use alacritty_terminal::vte::ansi::{Color as AnsiColor, NamedColor};
@@ -156,13 +157,10 @@ fn active_terminal_viewport_reserves_agent_list_column() {
 }
 
 #[test]
-fn active_terminal_presentation_preserves_terminal_aspect_with_margin() {
+fn active_terminal_presentation_uses_texture_logical_size_and_centers_in_viewport() {
     let (bridge, _) = test_bridge();
     let mut manager = TerminalManager::default();
     let id = manager.create_terminal(bridge);
-    for (_, terminal) in manager.iter_mut() {
-        terminal.snapshot.surface = Some(TerminalSurface::new(120, 38));
-    }
 
     let window = Window {
         resolution: (1400, 900).into(),
@@ -179,19 +177,21 @@ fn active_terminal_presentation_preserves_terminal_aspect_with_margin() {
     agent_list.shell.current_rect = rect;
     agent_list.shell.target_rect = rect;
 
-    let fitted_cell_size = pixel_perfect_cell_size(120, 38, &window, &hud_state);
-    let fitted_texture_size = UVec2::new(120 * fitted_cell_size.x, 38 * fitted_cell_size.y);
+    let view_state = TerminalViewState::default();
+    let dimensions = active_terminal_dimensions(&window, &hud_state, &view_state);
+    for (_, terminal) in manager.iter_mut() {
+        terminal.snapshot.surface = Some(TerminalSurface::new(dimensions.cols, dimensions.rows));
+    }
+    let cell_size = active_terminal_cell_size(&window, &view_state);
     let texture_state = TerminalTextureState {
-        texture_size: fitted_texture_size,
-        cell_size: fitted_cell_size,
+        texture_size: UVec2::new(
+            dimensions.cols as u32 * cell_size.x,
+            dimensions.rows as u32 * cell_size.y,
+        ),
+        cell_size,
     };
-    let expected_size = terminal_texture_screen_size(
-        &texture_state,
-        &TerminalViewState::default(),
-        &window,
-        &hud_state,
-        false,
-    );
+    let expected_size =
+        terminal_texture_screen_size(&texture_state, &view_state, &window, &hud_state, false);
 
     let mut presentation_store = TerminalPresentationStore::default();
     presentation_store.register(
@@ -213,7 +213,7 @@ fn active_terminal_presentation_preserves_terminal_aspect_with_margin() {
     world.insert_resource(manager);
     world.insert_resource(presentation_store);
     world.insert_resource(crate::hud::TerminalVisibilityState::default());
-    world.insert_resource(TerminalViewState::default());
+    world.insert_resource(view_state);
     world.insert_resource(hud_state);
     world.spawn((window, PrimaryWindow));
     world.spawn((
@@ -248,18 +248,24 @@ fn active_terminal_presentation_preserves_terminal_aspect_with_margin() {
     assert!((transform.translation.x - 150.0).abs() < 0.2);
     assert!(transform.translation.y.abs() < 0.2);
     assert!((transform.translation.z - 0.3).abs() < 0.01);
-    assert!(expected_size.x < 1100.0);
-    assert!(expected_size.y < 900.0);
+    assert!(expected_size.x <= 1068.0);
+    assert!(expected_size.y <= 868.0);
 }
 
 #[test]
-fn active_terminal_smooth_mode_respects_zoom_distance() {
+fn active_terminal_resize_requests_follow_zoom_distance() {
+    let client = Arc::new(FakeDaemonClient::default());
+    client
+        .sessions
+        .lock()
+        .unwrap()
+        .insert("neozeus-session-1".into());
+    let runtime_spawner = fake_runtime_spawner(client.clone());
     let (bridge, _) = test_bridge();
+
     let mut manager = TerminalManager::default();
-    let id = manager.create_terminal(bridge);
-    for (_, terminal) in manager.iter_mut() {
-        terminal.snapshot.surface = Some(TerminalSurface::new(120, 38));
-    }
+    let terminal_id = manager.create_terminal_with_session(bridge, "neozeus-session-1".into());
+    manager.get_mut(terminal_id).unwrap().snapshot.surface = Some(TerminalSurface::new(120, 38));
 
     let window = Window {
         resolution: (1400, 900).into(),
@@ -276,61 +282,26 @@ fn active_terminal_smooth_mode_respects_zoom_distance() {
     agent_list.shell.current_rect = rect;
     agent_list.shell.target_rect = rect;
 
-    let fitted_cell_size = pixel_perfect_cell_size(120, 38, &window, &hud_state);
-    let fitted_texture_size = UVec2::new(120 * fitted_cell_size.x, 38 * fitted_cell_size.y);
-
-    let mut presentation_store = TerminalPresentationStore::default();
-    presentation_store.register(
-        id,
-        PresentedTerminal {
-            image: Default::default(),
-            texture_state: TerminalTextureState {
-                texture_size: fitted_texture_size,
-                cell_size: fitted_cell_size,
-            },
-            display_mode: TerminalDisplayMode::Smooth,
-            uploaded_revision: 0,
-            panel_entity: Entity::PLACEHOLDER,
-            frame_entity: Entity::PLACEHOLDER,
-        },
-    );
-
-    let mut world = World::default();
-    let mut time = Time::<()>::default();
-    time.advance_by(Duration::from_secs(1));
-    world.insert_resource(time);
-    world.insert_resource(manager);
-    world.insert_resource(presentation_store);
-    world.insert_resource(crate::hud::TerminalVisibilityState::default());
     let mut view_state = TerminalViewState::default();
     view_state.distance = 5.0;
+    let expected = active_terminal_dimensions(&window, &hud_state, &view_state);
+
+    let mut world = World::default();
+    world.insert_resource(manager);
+    world.insert_resource(runtime_spawner);
     world.insert_resource(view_state);
     world.insert_resource(hud_state);
     world.spawn((window, PrimaryWindow));
-    world.spawn((
-        TerminalPanel { id },
-        TerminalPresentation {
-            home_position: Vec2::ZERO,
-            current_position: Vec2::ZERO,
-            target_position: Vec2::ZERO,
-            current_size: Vec2::ONE,
-            target_size: Vec2::ONE,
-            current_alpha: 1.0,
-            target_alpha: 1.0,
-            current_z: 0.0,
-            target_z: 0.0,
-        },
-        Transform::default(),
-        Sprite::default(),
-        Visibility::Visible,
-    ));
 
-    world.run_system_once(sync_terminal_presentations).unwrap();
+    world
+        .run_system_once(sync_active_terminal_dimensions)
+        .unwrap();
 
-    let mut query = world.query::<&TerminalPresentation>();
-    let presentation = query.single(&world).unwrap();
-    assert!(presentation.current_size.x > fitted_texture_size.x as f32 / 2.0);
-    assert!(presentation.current_size.y > fitted_texture_size.y as f32 / 2.0);
+    let requests = client.resize_requests.lock().unwrap().clone();
+    assert_eq!(
+        requests,
+        vec![("neozeus-session-1".into(), expected.cols, expected.rows)]
+    );
 }
 
 #[test]

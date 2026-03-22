@@ -13,6 +13,7 @@ pub(crate) struct ManagedTerminal {
     pub(crate) snapshot: TerminalSnapshot,
     pub(crate) pending_damage: Option<TerminalDamage>,
     pub(crate) surface_revision: u64,
+    pub(crate) requested_dimensions: Option<crate::terminals::TerminalDimensions>,
 }
 
 #[derive(Resource)]
@@ -48,6 +49,7 @@ impl TerminalManager {
                 snapshot: TerminalSnapshot::default(),
                 pending_damage: None,
                 surface_revision: 0,
+                requested_dimensions: None,
             },
         );
         self.creation_order.push(id);
@@ -157,6 +159,10 @@ impl TerminalManager {
 
     pub(crate) fn get(&self, id: TerminalId) -> Option<&ManagedTerminal> {
         self.terminals.get(&id)
+    }
+
+    pub(crate) fn get_mut(&mut self, id: TerminalId) -> Option<&mut ManagedTerminal> {
+        self.terminals.get_mut(&id)
     }
 
     pub(crate) fn remove_terminal(&mut self, id: TerminalId) -> Option<ManagedTerminal> {

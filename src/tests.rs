@@ -69,6 +69,7 @@ pub(super) fn test_bridge() -> (TerminalBridge, Arc<TerminalUpdateMailbox>) {
 pub(super) struct FakeDaemonClient {
     pub(super) sessions: Mutex<BTreeSet<String>>,
     pub(super) sent_commands: Mutex<Vec<(String, TerminalCommand)>>,
+    pub(super) resize_requests: Mutex<Vec<(String, usize, usize)>>,
     pub(super) fail_kill: Mutex<bool>,
     pub(super) next_session_index: Mutex<u64>,
     updates: Mutex<std::collections::HashMap<String, Vec<mpsc::Sender<TerminalUpdate>>>>,
@@ -141,7 +142,11 @@ impl TerminalDaemonClient for FakeDaemonClient {
         Ok(())
     }
 
-    fn resize_session(&self, _session_id: &str, _cols: usize, _rows: usize) -> Result<(), String> {
+    fn resize_session(&self, session_id: &str, cols: usize, rows: usize) -> Result<(), String> {
+        self.resize_requests
+            .lock()
+            .unwrap()
+            .push((session_id.to_owned(), cols, rows));
         Ok(())
     }
 
