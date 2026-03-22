@@ -5,7 +5,7 @@ use crate::{
     },
     terminals::{TerminalFontState, TerminalManager, TerminalPresentationStore, TerminalViewState},
 };
-use bevy::{prelude::*, sprite_render::MeshMaterial2d, window::PrimaryWindow};
+use bevy::{prelude::*, window::PrimaryWindow};
 use bevy_vello::{
     parley::PositionedLayoutItem,
     prelude::{
@@ -13,13 +13,10 @@ use bevy_vello::{
         peniko::{self, Fill},
         vello, VelloFont, VelloScene2d, VelloTextAlign, VelloTextAnchor, VelloTextStyle,
     },
-    render::VelloCanvasMaterial,
 };
 
 #[derive(Component)]
 pub(crate) struct HudVectorSceneMarker;
-
-pub(crate) const VELLO_CANVAS_FOREGROUND_Z: f32 = 100.0;
 
 pub(crate) struct HudColors;
 
@@ -426,14 +423,6 @@ fn draw_message_box(
         HudColors::TEXT_MUTED,
         VelloTextAnchor::TopLeft,
     );
-}
-
-pub(crate) fn elevate_vello_canvas_above_world(
-    mut canvases: Query<&mut Transform, With<MeshMaterial2d<VelloCanvasMaterial>>>,
-) {
-    for mut transform in &mut canvases {
-        transform.translation.z = VELLO_CANVAS_FOREGROUND_Z;
-    }
 }
 
 fn draw_module_shell(painter: &mut HudPainter, module_id: HudModuleId, shell_rect: HudRect) {

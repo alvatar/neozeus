@@ -4,9 +4,9 @@ use crate::hud::{
     dispatch_hud_scroll, handle_hud_module_shortcuts, handle_hud_pointer_input, hud_needs_redraw,
     kill_active_terminal, parse_persisted_hud_state, resolve_agent_label,
     resolve_hud_layout_path_with, save_hud_layout_if_dirty, serialize_persisted_hud_state,
-    AgentDirectory, HudDragState, HudIntent, HudModuleId, HudModuleModel, HudPersistenceState,
-    HudRect, HudState, PersistedHudModuleState, PersistedHudState, TerminalVisibilityPolicy,
-    TerminalVisibilityState,
+    AgentDirectory, HudDragState, HudIntent, HudModuleId, HudModuleModel, HudOffscreenCompositor,
+    HudPersistenceState, HudRect, HudState, PersistedHudModuleState, PersistedHudState,
+    TerminalVisibilityPolicy, TerminalVisibilityState,
 };
 use crate::terminals::{
     TerminalManager, TerminalPanel, TerminalPanelFrame, TerminalPresentationStore,
@@ -39,6 +39,7 @@ fn setup_hud_requests_initial_redraw() {
     let mut world = World::default();
     world.insert_resource(HudState::default());
     world.insert_resource(HudPersistenceState::default());
+    world.insert_resource(HudOffscreenCompositor::default());
     world.init_resource::<Messages<RequestRedraw>>();
 
     world.run_system_once(crate::hud::setup_hud).unwrap();
@@ -52,6 +53,13 @@ fn setup_hud_requests_initial_redraw() {
             .count(),
         1
     );
+    assert_eq!(
+        world
+            .query::<&crate::hud::HudCompositeLayerMarker>()
+            .iter(&world)
+            .count(),
+        1
+    );
     let camera_orders = world
         .query::<&Camera>()
         .iter(&world)
@@ -61,25 +69,58 @@ fn setup_hud_requests_initial_redraw() {
 }
 
 #[test]
-fn elevate_vello_canvas_above_world_moves_canvas_in_front() {
+fn sync_hud_offscreen_compositor_hides_vello_canvas_and_binds_texture() {
     let mut world = World::default();
+    world.insert_resource(HudOffscreenCompositor::default());
+    world.insert_resource(Assets::<VelloCanvasMaterial>::default());
+    let texture = Handle::<Image>::default();
+    let material = world
+        .resource_mut::<Assets<VelloCanvasMaterial>>()
+        .add(VelloCanvasMaterial {
+            texture: texture.clone(),
+        });
     world.spawn((
-        MeshMaterial2d::<VelloCanvasMaterial>(Handle::default()),
-        Transform::from_xyz(0.0, 0.0, -2.0),
+        Window {
+            resolution: (1400, 900).into(),
+            ..default()
+        },
+        PrimaryWindow,
     ));
-
+    world.spawn((
+        MeshMaterial2d::<VelloCanvasMaterial>(material),
+        Visibility::Visible,
+    ));
     world
-        .run_system_once(crate::hud::elevate_vello_canvas_above_world)
+        .run_system_once(
+            |mut commands: Commands, mut compositor: ResMut<HudOffscreenCompositor>| {
+                crate::hud::setup_hud_offscreen_compositor(&mut commands, &mut compositor);
+            },
+        )
         .unwrap();
 
-    let transform = world
-        .query::<&Transform>()
-        .single(&world)
-        .expect("vello canvas missing");
+    world
+        .run_system_once(crate::hud::sync_hud_offscreen_compositor)
+        .unwrap();
+
+    let mut canvas_query =
+        world.query_filtered::<&Visibility, With<MeshMaterial2d<VelloCanvasMaterial>>>();
+    assert_eq!(canvas_query.single(&world).unwrap(), &Visibility::Hidden);
+
+    let mut sprite_query = world.query::<(
+        &crate::hud::HudCompositeLayerMarker,
+        &Sprite,
+        &Transform,
+        &Visibility,
+    )>();
+    let (marker, sprite, transform, visibility) = sprite_query.single(&world).unwrap();
+    assert_eq!(marker.id, crate::hud::HudCompositeLayerId::MainHud);
+    assert_eq!(sprite.image, texture);
+    assert_eq!(sprite.custom_size, Some(Vec2::new(1400.0, 900.0)));
     assert_eq!(
         transform.translation.z,
-        crate::hud::VELLO_CANVAS_FOREGROUND_Z
+        crate::hud::HUD_COMPOSITE_FOREGROUND_Z
     );
+    assert_eq!(visibility, &Visibility::Visible);
 }
 
 #[test]
