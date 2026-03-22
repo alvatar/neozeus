@@ -28,6 +28,7 @@ use crate::{
 };
 use bevy::{
     camera::visibility::RenderLayers,
+    ecs::system::SystemParam,
     prelude::*,
     render::{settings::WgpuSettings, RenderPlugin},
     window::RequestRedraw,
@@ -241,6 +242,19 @@ const PRESENTATION_EPSILON: f32 = 0.25;
 const ALPHA_EPSILON: f32 = 0.01;
 const Z_EPSILON: f32 = 0.01;
 
+#[derive(SystemParam)]
+struct SceneSetupContext<'w, 's> {
+    commands: Commands<'w, 's>,
+    images: ResMut<'w, Assets<Image>>,
+    terminal_manager: ResMut<'w, TerminalManager>,
+    presentation_store: ResMut<'w, TerminalPresentationStore>,
+    agent_directory: ResMut<'w, AgentDirectory>,
+    runtime_spawner: Res<'w, TerminalRuntimeSpawner>,
+    tmux_client: Res<'w, TmuxClientResource>,
+    session_persistence: ResMut<'w, TerminalSessionPersistenceState>,
+    visibility_state: ResMut<'w, TerminalVisibilityState>,
+}
+
 pub(crate) fn should_request_visual_redraw(
     terminal_work_pending: bool,
     presentation_animating: bool,
@@ -300,25 +314,11 @@ fn request_redraw_while_visuals_active(
     }
 }
 
-#[allow(
-    clippy::too_many_arguments,
-    reason = "scene startup now owns camera/HUD-surface plus verifier/recovery/persistence resources together"
-)]
-fn setup_scene(
-    mut commands: Commands,
-    mut images: ResMut<Assets<Image>>,
-    mut terminal_manager: ResMut<TerminalManager>,
-    mut presentation_store: ResMut<TerminalPresentationStore>,
-    mut agent_directory: ResMut<AgentDirectory>,
-    runtime_spawner: Res<TerminalRuntimeSpawner>,
-    tmux_client: Res<TmuxClientResource>,
-    mut session_persistence: ResMut<TerminalSessionPersistenceState>,
-    mut visibility_state: ResMut<TerminalVisibilityState>,
-    auto_verify: Option<Res<AutoVerifyConfig>>,
-) {
-    commands.spawn((Camera2d, RenderLayers::layer(0), TerminalCameraMarker));
+fn setup_scene(mut ctx: SceneSetupContext, auto_verify: Option<Res<AutoVerifyConfig>>) {
+    ctx.commands
+        .spawn((Camera2d, RenderLayers::layer(0), TerminalCameraMarker));
 
-    commands.spawn((
+    ctx.commands.spawn((
         Sprite {
             color: Color::srgba(0.03, 0.03, 0.04, 0.0),
             custom_size: Some(Vec2::ONE),
@@ -329,10 +329,10 @@ fn setup_scene(
         TerminalHudSurfaceMarker,
     ));
 
-    session_persistence.path = resolve_terminal_sessions_path();
+    ctx.session_persistence.path = resolve_terminal_sessions_path();
 
     if let Some(config) = auto_verify {
-        let client = tmux_client.client();
+        let client = ctx.tmux_client.client();
         let Ok(session_name) = generate_unique_session_name(client, VERIFIER_TMUX_SESSION_PREFIX)
         else {
             append_debug_log("verifier terminal spawn failed: could not allocate tmux session");
@@ -351,33 +351,34 @@ fn setup_scene(
             return;
         }
         let (terminal_id, dispatcher_bridge) = spawn_attached_terminal_with_presentation(
-            &mut commands,
-            &mut images,
-            &mut terminal_manager,
-            &mut presentation_store,
-            &runtime_spawner,
+            &mut ctx.commands,
+            &mut ctx.images,
+            &mut ctx.terminal_manager,
+            &mut ctx.presentation_store,
+            &ctx.runtime_spawner,
             session_name.clone(),
             true,
         );
-        visibility_state.policy = TerminalVisibilityPolicy::Isolate(terminal_id);
+        ctx.visibility_state.policy = TerminalVisibilityPolicy::Isolate(terminal_id);
         append_debug_log(format!(
             "spawned verifier terminal {} session={}",
             terminal_id.0, session_name
         ));
         start_auto_verify_dispatcher(
             dispatcher_bridge,
-            runtime_spawner.notifier(),
+            ctx.runtime_spawner.notifier(),
             config.clone(),
         );
         return;
     }
 
-    let persisted = session_persistence
+    let persisted = ctx
+        .session_persistence
         .path
         .as_ref()
         .map(load_persisted_terminal_sessions_from)
         .unwrap_or_default();
-    let live_sessions = match tmux_client.client().list_sessions() {
+    let live_sessions = match ctx.tmux_client.client().list_sessions() {
         Ok(sessions) => sessions,
         Err(error) => {
             append_debug_log(format!("tmux session discovery failed: {error}"));
@@ -386,7 +387,7 @@ fn setup_scene(
     };
     let reconciled = reconcile_terminal_sessions(&persisted, &live_sessions);
     if !reconciled.prune.is_empty() || !reconciled.import.is_empty() {
-        mark_terminal_sessions_dirty(&mut session_persistence, None);
+        mark_terminal_sessions_dirty(&mut ctx.session_persistence, None);
     }
 
     for record in &reconciled.prune {
@@ -402,11 +403,11 @@ fn setup_scene(
             .iter()
             .any(|existing| existing.session_name == record.session_name);
         let (terminal_id, _) = spawn_attached_terminal_with_presentation(
-            &mut commands,
-            &mut images,
-            &mut terminal_manager,
-            &mut presentation_store,
-            &runtime_spawner,
+            &mut ctx.commands,
+            &mut ctx.images,
+            &mut ctx.terminal_manager,
+            &mut ctx.presentation_store,
+            &ctx.runtime_spawner,
             record.session_name.clone(),
             false,
         );
@@ -417,7 +418,7 @@ fn setup_scene(
             record.session_name
         ));
         if let Some(label) = record.label {
-            agent_directory.labels.insert(terminal_id, label);
+            ctx.agent_directory.labels.insert(terminal_id, label);
         }
     }
 
@@ -442,13 +443,14 @@ fn setup_scene(
         &restored_session_names,
         &imported_session_names,
     ) {
-        let focused_id = terminal_manager
+        let focused_id = ctx
+            .terminal_manager
             .iter()
             .find(|(_, terminal)| terminal.session_name == session_name)
             .map(|(terminal_id, _)| terminal_id);
         if let Some(terminal_id) = focused_id {
-            terminal_manager.focus_terminal(terminal_id);
-            visibility_state.policy = startup_visibility_policy_for_focus(Some(terminal_id));
+            ctx.terminal_manager.focus_terminal(terminal_id);
+            ctx.visibility_state.policy = startup_visibility_policy_for_focus(Some(terminal_id));
             append_debug_log(format!(
                 "restored startup focus terminal {} session={}",
                 terminal_id.0, session_name

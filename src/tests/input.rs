@@ -157,6 +157,7 @@ fn global_spawn_shortcut_enqueues_spawn_even_when_hidden_terminals_exist() {
     };
     world.insert_resource(ButtonInput::<KeyCode>::default());
     world.insert_resource(manager);
+    world.insert_resource(crate::hud::HudState::default());
     world.insert_resource(HudDispatcher::default());
     world.init_resource::<Messages<KeyboardInput>>();
     world.spawn((window, PrimaryWindow));
@@ -210,6 +211,7 @@ fn exit_application_shortcut_only_uses_plain_f10() {
 fn f10_enqueues_app_exit() {
     let mut world = World::default();
     world.insert_resource(ButtonInput::<KeyCode>::default());
+    world.insert_resource(crate::hud::HudState::default());
     world.insert_resource(HudDispatcher::default());
     world.init_resource::<Messages<KeyboardInput>>();
     world.init_resource::<Messages<AppExit>>();

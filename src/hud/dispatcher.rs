@@ -10,11 +10,30 @@ use crate::{
         TmuxClientResource, PERSISTENT_TMUX_SESSION_PREFIX,
     },
 };
-use bevy::prelude::*;
+use bevy::{ecs::system::SystemParam, prelude::*};
 
 #[derive(Resource, Default)]
 pub(crate) struct HudDispatcher {
     pub(crate) commands: Vec<HudCommand>,
+}
+
+#[derive(SystemParam)]
+pub(crate) struct HudCommandContext<'w, 's> {
+    pub(crate) commands: Commands<'w, 's>,
+    pub(crate) images: ResMut<'w, Assets<Image>>,
+    pub(crate) time: Res<'w, Time>,
+    pub(crate) terminal_manager: ResMut<'w, TerminalManager>,
+    pub(crate) presentation_store: ResMut<'w, TerminalPresentationStore>,
+    pub(crate) runtime_spawner: Res<'w, TerminalRuntimeSpawner>,
+    pub(crate) tmux_client: Res<'w, TmuxClientResource>,
+    pub(crate) hud_state: ResMut<'w, HudState>,
+    pub(crate) dispatcher: ResMut<'w, HudDispatcher>,
+    pub(crate) agent_directory: ResMut<'w, AgentDirectory>,
+    pub(crate) session_persistence: ResMut<'w, TerminalSessionPersistenceState>,
+    pub(crate) visibility_state: ResMut<'w, TerminalVisibilityState>,
+    pub(crate) view_state: ResMut<'w, TerminalViewState>,
+    pub(crate) terminal_panels: Query<'w, 's, (Entity, &'static TerminalPanel)>,
+    pub(crate) terminal_frames: Query<'w, 's, (Entity, &'static TerminalPanelFrame)>,
 }
 
 #[allow(
@@ -75,32 +94,12 @@ pub(crate) fn kill_active_terminal(
     ));
 }
 
-#[allow(
-    clippy::too_many_arguments,
-    reason = "HUD command application touches app/domain resources, terminal runtime, and HUD state together"
-)]
-pub(crate) fn apply_hud_commands(
-    mut commands: Commands,
-    mut images: ResMut<Assets<Image>>,
-    time: Res<Time>,
-    mut terminal_manager: ResMut<TerminalManager>,
-    mut presentation_store: ResMut<TerminalPresentationStore>,
-    runtime_spawner: Res<TerminalRuntimeSpawner>,
-    tmux_client: Res<TmuxClientResource>,
-    mut hud_state: ResMut<HudState>,
-    mut dispatcher: ResMut<HudDispatcher>,
-    mut agent_directory: ResMut<AgentDirectory>,
-    mut session_persistence: ResMut<TerminalSessionPersistenceState>,
-    mut visibility_state: ResMut<TerminalVisibilityState>,
-    mut view_state: ResMut<TerminalViewState>,
-    terminal_panels: Query<(Entity, &TerminalPanel)>,
-    terminal_frames: Query<(Entity, &TerminalPanelFrame)>,
-) {
-    let queued = std::mem::take(&mut dispatcher.commands);
+pub(crate) fn apply_hud_commands(mut ctx: HudCommandContext) {
+    let queued = std::mem::take(&mut ctx.dispatcher.commands);
     for command in queued {
         match command {
             HudCommand::SpawnTerminal => {
-                let client = tmux_client.client();
+                let client = ctx.tmux_client.client();
                 let Ok(session_name) =
                     generate_unique_session_name(client, PERSISTENT_TMUX_SESSION_PREFIX)
                 else {
@@ -120,61 +119,66 @@ pub(crate) fn apply_hud_commands(
                     continue;
                 }
                 let (terminal_id, _) = spawn_attached_terminal_with_presentation(
-                    &mut commands,
-                    &mut images,
-                    &mut terminal_manager,
-                    &mut presentation_store,
-                    &runtime_spawner,
+                    &mut ctx.commands,
+                    &mut ctx.images,
+                    &mut ctx.terminal_manager,
+                    &mut ctx.presentation_store,
+                    &ctx.runtime_spawner,
                     session_name.clone(),
                     true,
                 );
-                hud_state.reconcile_direct_terminal_input(terminal_manager.active_id());
-                view_state.focus_terminal(Some(terminal_id));
-                mark_terminal_sessions_dirty(&mut session_persistence, Some(&time));
+                ctx.hud_state
+                    .reconcile_direct_terminal_input(ctx.terminal_manager.active_id());
+                ctx.view_state.focus_terminal(Some(terminal_id));
+                mark_terminal_sessions_dirty(&mut ctx.session_persistence, Some(&ctx.time));
                 append_debug_log(format!(
                     "spawned terminal {} session={}",
                     terminal_id.0, session_name
                 ));
             }
             HudCommand::FocusTerminal(id) => {
-                terminal_manager.focus_terminal(id);
-                hud_state.reconcile_direct_terminal_input(terminal_manager.active_id());
-                view_state.focus_terminal(terminal_manager.active_id());
-                mark_terminal_sessions_dirty(&mut session_persistence, Some(&time));
+                ctx.terminal_manager.focus_terminal(id);
+                ctx.hud_state
+                    .reconcile_direct_terminal_input(ctx.terminal_manager.active_id());
+                ctx.view_state
+                    .focus_terminal(ctx.terminal_manager.active_id());
+                mark_terminal_sessions_dirty(&mut ctx.session_persistence, Some(&ctx.time));
             }
             HudCommand::HideAllButTerminal(id) => {
-                visibility_state.policy = TerminalVisibilityPolicy::Isolate(id);
+                ctx.visibility_state.policy = TerminalVisibilityPolicy::Isolate(id);
                 append_debug_log(format!("hud visibility isolate {}", id.0));
             }
             HudCommand::ShowAllTerminals => {
-                visibility_state.policy = TerminalVisibilityPolicy::ShowAll;
+                ctx.visibility_state.policy = TerminalVisibilityPolicy::ShowAll;
                 append_debug_log("hud visibility show-all");
             }
             HudCommand::ToggleModule(id) => {
-                let enabled = hud_state
+                let enabled = ctx
+                    .hud_state
                     .get(id)
                     .is_some_and(|module| !module.shell.enabled);
-                hud_state.set_module_enabled(id, enabled);
+                ctx.hud_state.set_module_enabled(id, enabled);
             }
             HudCommand::ResetModule(id) => {
-                hud_state.reset_module(id);
+                ctx.hud_state.reset_module(id);
                 append_debug_log(format!("hud module reset {}", id.number()));
             }
             HudCommand::ToggleActiveTerminalDisplayMode => {
-                let active_id = terminal_manager.active_id();
-                presentation_store.toggle_active_display_mode(active_id);
+                let active_id = ctx.terminal_manager.active_id();
+                ctx.presentation_store.toggle_active_display_mode(active_id);
             }
             HudCommand::ResetTerminalView => {
-                view_state.distance = 10.0;
-                view_state.reset_active_offset(terminal_manager.active_id());
+                ctx.view_state.distance = 10.0;
+                ctx.view_state
+                    .reset_active_offset(ctx.terminal_manager.active_id());
             }
             HudCommand::SendActiveTerminalCommand(command) => {
-                if let Some(bridge) = terminal_manager.active_bridge() {
+                if let Some(bridge) = ctx.terminal_manager.active_bridge() {
                     bridge.send(crate::terminals::TerminalCommand::SendCommand(command));
                 }
             }
             HudCommand::SendTerminalCommand(id, command) => {
-                if let Some(terminal) = terminal_manager.get(id) {
+                if let Some(terminal) = ctx.terminal_manager.get(id) {
                     terminal
                         .bridge
                         .send(crate::terminals::TerminalCommand::SendCommand(command));
@@ -182,19 +186,20 @@ pub(crate) fn apply_hud_commands(
             }
             HudCommand::KillActiveTerminal => {
                 kill_active_terminal(
-                    &mut commands,
-                    &time,
-                    &mut terminal_manager,
-                    &mut presentation_store,
-                    tmux_client.client(),
-                    &mut agent_directory,
-                    &mut session_persistence,
-                    &mut visibility_state,
-                    &mut view_state,
-                    &terminal_panels,
-                    &terminal_frames,
+                    &mut ctx.commands,
+                    &ctx.time,
+                    &mut ctx.terminal_manager,
+                    &mut ctx.presentation_store,
+                    ctx.tmux_client.client(),
+                    &mut ctx.agent_directory,
+                    &mut ctx.session_persistence,
+                    &mut ctx.visibility_state,
+                    &mut ctx.view_state,
+                    &ctx.terminal_panels,
+                    &ctx.terminal_frames,
                 );
-                hud_state.reconcile_direct_terminal_input(terminal_manager.active_id());
+                ctx.hud_state
+                    .reconcile_direct_terminal_input(ctx.terminal_manager.active_id());
             }
         }
     }
