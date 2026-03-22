@@ -280,6 +280,19 @@ pub(crate) fn zoom_terminal_view(
     view_state.distance = (view_state.distance - zoom_delta * 0.8).clamp(2.0, 40.0);
 }
 
+fn message_box_event_text(event: &KeyboardInput) -> Option<String> {
+    event
+        .text
+        .as_ref()
+        .filter(|text| !text.is_empty())
+        .map(|text| text.to_string())
+        .or_else(|| match &event.logical_key {
+            Key::Character(text) if !text.is_empty() => Some(text.to_string()),
+            Key::Space => Some(" ".to_owned()),
+            _ => None,
+        })
+}
+
 pub(crate) fn handle_terminal_message_box_keyboard(
     mut messages: MessageReader<KeyboardInput>,
     keys: Res<ButtonInput<KeyCode>>,
@@ -293,12 +306,10 @@ pub(crate) fn handle_terminal_message_box_keyboard(
         return;
     }
 
-    let ctrl = keys.pressed(KeyCode::ControlLeft) || keys.pressed(KeyCode::ControlRight);
-    let alt = keys.pressed(KeyCode::AltLeft) || keys.pressed(KeyCode::AltRight);
-    let super_key = keys.pressed(KeyCode::SuperLeft) || keys.pressed(KeyCode::SuperRight);
+    let (ctrl, alt, super_key) = has_plain_modifiers(&keys);
 
     if hud_state.message_box.visible {
-        let mut changed = false;
+        let mut needs_redraw = false;
         for event in messages.read() {
             if event.state != ButtonState::Pressed {
                 continue;
@@ -314,43 +325,59 @@ pub(crate) fn handle_terminal_message_box_keyboard(
                     }
                 }
                 hud_state.close_message_box();
-                changed = true;
+                needs_redraw = true;
                 break;
             }
 
-            match event.key_code {
-                KeyCode::Escape => {
-                    hud_state.close_message_box();
-                    changed = true;
-                    break;
-                }
-                KeyCode::Backspace if !ctrl && !alt && !super_key => {
-                    if hud_state.message_box.text.pop().is_some() {
-                        changed = true;
-                    }
-                }
-                KeyCode::Enter => {}
-                _ if ctrl || alt || super_key => {}
-                _ => {
-                    let appended = event
-                        .text
-                        .as_ref()
-                        .filter(|text| !text.is_empty())
-                        .map(|text| text.to_string())
-                        .or_else(|| match &event.logical_key {
-                            Key::Character(text) if !text.is_empty() => Some(text.to_string()),
-                            Key::Space => Some(" ".to_owned()),
-                            _ => None,
-                        });
-                    if let Some(text) = appended {
-                        hud_state.message_box.text.push_str(&text);
-                        changed = true;
-                    }
-                }
+            if event.key_code == KeyCode::Escape {
+                hud_state.close_message_box();
+                needs_redraw = true;
+                break;
             }
+
+            let handled = if ctrl && !alt && !super_key {
+                match event.key_code {
+                    KeyCode::KeyA => hud_state.message_box.move_line_start(),
+                    KeyCode::KeyB => hud_state.message_box.move_left(),
+                    KeyCode::KeyD => hud_state.message_box.delete_forward_char(),
+                    KeyCode::KeyE => hud_state.message_box.move_line_end(),
+                    KeyCode::KeyF => hud_state.message_box.move_right(),
+                    KeyCode::KeyH => hud_state.message_box.delete_backward_char(),
+                    KeyCode::KeyK => hud_state.message_box.kill_to_end_of_line(),
+                    KeyCode::KeyN => hud_state.message_box.move_down(),
+                    KeyCode::KeyP => hud_state.message_box.move_up(),
+                    KeyCode::KeyY => hud_state.message_box.yank(),
+                    _ => false,
+                }
+            } else if alt && !ctrl && !super_key {
+                match event.key_code {
+                    KeyCode::KeyB => hud_state.message_box.move_word_backward(),
+                    KeyCode::KeyF => hud_state.message_box.move_word_forward(),
+                    _ => false,
+                }
+            } else if !(ctrl || alt || super_key) {
+                match event.key_code {
+                    KeyCode::Enter => hud_state.message_box.insert_newline(),
+                    KeyCode::Backspace => hud_state.message_box.delete_backward_char(),
+                    KeyCode::Delete => hud_state.message_box.delete_forward_char(),
+                    KeyCode::ArrowLeft => hud_state.message_box.move_left(),
+                    KeyCode::ArrowRight => hud_state.message_box.move_right(),
+                    KeyCode::ArrowUp => hud_state.message_box.move_up(),
+                    KeyCode::ArrowDown => hud_state.message_box.move_down(),
+                    KeyCode::Home => hud_state.message_box.move_line_start(),
+                    KeyCode::End => hud_state.message_box.move_line_end(),
+                    KeyCode::Tab => hud_state.message_box.insert_text("\t"),
+                    _ => message_box_event_text(event)
+                        .is_some_and(|text| hud_state.message_box.insert_text(&text)),
+                }
+            } else {
+                false
+            };
+
+            needs_redraw |= handled;
         }
 
-        if changed {
+        if needs_redraw {
             redraws.write(RequestRedraw);
         }
         return;

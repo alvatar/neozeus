@@ -97,6 +97,20 @@ impl<'scene, 'res> HudPainter<'scene, 'res> {
         );
     }
 
+    pub(crate) fn text_size(&self, text: &str, size: f32) -> Vec2 {
+        let Some(font) = self.fonts.get(&Handle::<VelloFont>::default()) else {
+            return Vec2::ZERO;
+        };
+        let style = VelloTextStyle {
+            font: Handle::default(),
+            brush: peniko::Brush::Solid(apply_alpha(HudColors::TEXT, self.alpha)),
+            font_size: size,
+            ..Default::default()
+        };
+        let layout = font.layout(text, &style, VelloTextAlign::Start, None);
+        Vec2::new(layout.width() as f32, layout.height() as f32)
+    }
+
     #[allow(
         clippy::too_many_arguments,
         reason = "Vello text drawing needs scene/font/window/position/style inputs together"
@@ -197,6 +211,10 @@ fn message_box_rect(window: &Window) -> HudRect {
     }
 }
 
+fn slice_chars(text: &str, start_chars: usize, max_chars: usize) -> String {
+    text.chars().skip(start_chars).take(max_chars).collect()
+}
+
 fn draw_message_box(
     painter: &mut HudPainter,
     window: &Window,
@@ -245,7 +263,7 @@ fn draw_message_box(
     );
     painter.label(
         Vec2::new(rect.x + rect.w - 24.0, rect.y + 12.0),
-        "Enter compose · Ctrl-S send · Esc cancel",
+        "Enter newline · Ctrl-S send · Esc cancel",
         16.0,
         HudColors::TEXT_MUTED,
         VelloTextAnchor::TopRight,
@@ -260,22 +278,83 @@ fn draw_message_box(
     painter.fill_rect(body_rect, HudColors::TITLE, 6.0);
     painter.stroke_rect(body_rect, HudColors::TEXT_MUTED, 4.0);
 
-    let visible_text = if message_box.text.is_empty() {
-        "█".to_owned()
-    } else {
-        format!("{}█", message_box.text)
-    };
-    painter.label(
-        Vec2::new(body_rect.x + 18.0, body_rect.y + 16.0),
-        &visible_text,
-        18.0,
-        HudColors::TEXT,
-        VelloTextAnchor::TopLeft,
+    let line_height = 24.0;
+    let text_size = 18.0;
+    let content_x = body_rect.x + 18.0;
+    let content_y = body_rect.y + 16.0;
+    let max_visible_lines = ((body_rect.h - 24.0) / line_height).floor().max(1.0) as usize;
+    let max_visible_cols = ((body_rect.w - 36.0) / 10.0).floor().max(8.0) as usize;
+    let lines = message_box.text.split('\n').collect::<Vec<_>>();
+    let (cursor_line, cursor_col) = message_box.cursor_line_and_column();
+    let start_line = cursor_line.saturating_sub(max_visible_lines.saturating_sub(1));
+    let end_line = (start_line + max_visible_lines).min(lines.len());
+
+    painter.scene.push_clip_layer(
+        Fill::NonZero,
+        Affine::IDENTITY,
+        &hud_rect_to_scene(window, body_rect),
     );
 
+    for (visible_index, line_index) in (start_line..end_line).enumerate() {
+        let line = lines[line_index];
+        let start_col = if line_index == cursor_line {
+            cursor_col.saturating_sub(max_visible_cols.saturating_sub(1))
+        } else {
+            0
+        };
+        let display_text = slice_chars(line, start_col, max_visible_cols);
+        let y = content_y + visible_index as f32 * line_height;
+
+        if line_index == cursor_line {
+            painter.fill_rect(
+                HudRect {
+                    x: body_rect.x + 8.0,
+                    y: y - 3.0,
+                    w: body_rect.w - 16.0,
+                    h: line_height,
+                },
+                HudColors::ROW_HOVERED,
+                4.0,
+            );
+        }
+
+        if !display_text.is_empty() {
+            painter.label(
+                Vec2::new(content_x, y),
+                &display_text,
+                text_size,
+                HudColors::TEXT,
+                VelloTextAnchor::TopLeft,
+            );
+        }
+
+        if line_index == cursor_line {
+            let visible_cursor_col = cursor_col.saturating_sub(start_col);
+            let before_cursor = slice_chars(line, start_col, visible_cursor_col);
+            let cursor_x = content_x + painter.text_size(&before_cursor, text_size).x;
+            painter.fill_rect(
+                HudRect {
+                    x: cursor_x,
+                    y,
+                    w: 2.5,
+                    h: 20.0,
+                },
+                HudColors::BORDER,
+                1.0,
+            );
+        }
+    }
+
+    painter.scene.pop_layer();
+
+    let (line_number, column_number) = message_box.cursor_line_and_column();
     painter.label(
         Vec2::new(rect.x + 24.0, rect.y + rect.h - 32.0),
-        "Type your message here. The box is modal and sends to the focused terminal.",
+        &format!(
+            "Ln {} Col {} · C-a/C-e line · C-b/C-f char · C-p/C-n line · M-b/M-f word · C-d delete · C-k kill · C-y yank",
+            line_number + 1,
+            column_number + 1,
+        ),
         15.0,
         HudColors::TEXT_MUTED,
         VelloTextAnchor::TopLeft,
