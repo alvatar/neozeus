@@ -12,7 +12,7 @@ use crate::{
         pixel_perfect_cell_size, pixel_perfect_terminal_logical_size, poll_terminal_snapshots,
         provision_terminal_target, rasterize_terminal_glyph, reconcile_terminal_sessions,
         resolve_alacritty_color, resolve_terminal_font_report, resolve_terminal_sessions_path_with,
-        save_terminal_sessions_if_dirty, send_bytes_tmux_commands,
+        save_terminal_sessions_if_dirty, send_bytes_tmux_commands, send_command_payload_bytes,
         serialize_persisted_terminal_sessions, snap_to_pixel_grid, sync_terminal_panel_frames,
         sync_terminal_presentations, xterm_indexed_rgb, KittyFontConfig, PersistedTerminalSessions,
         PresentedTerminal, TerminalAttachTarget, TerminalDamage, TerminalDisplayMode,
@@ -466,6 +466,18 @@ fn send_bytes_tmux_commands_split_control_and_literal_sequences() {
                 std::ffi::OsString::from("0d"),
             ],
         ]
+    );
+}
+
+#[test]
+fn send_command_payload_bytes_turn_multiline_text_into_enter_sequences() {
+    assert_eq!(
+        send_command_payload_bytes("echo hi\npwd"),
+        b"echo hi\rpwd\r"
+    );
+    assert_eq!(
+        send_command_payload_bytes("echo hi\r\npwd"),
+        b"echo hi\rpwd\r"
     );
 }
 

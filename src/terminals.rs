@@ -13,7 +13,9 @@ mod tmux;
 mod types;
 
 #[cfg(test)]
-pub(crate) use backend::{compute_terminal_damage, resolve_alacritty_color, xterm_indexed_rgb};
+pub(crate) use backend::{
+    compute_terminal_damage, resolve_alacritty_color, send_command_payload_bytes, xterm_indexed_rgb,
+};
 pub(crate) use bridge::TerminalBridge;
 pub(crate) use debug::{
     append_debug_log, note_key_event, note_terminal_error, with_debug_stats, TerminalDebugStats,

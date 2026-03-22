@@ -91,6 +91,28 @@ const TMUX_VIEWER_HISTORY_LIMIT: usize = 4096;
 const PTY_BACKEND_STATUS: &str = "backend: alacritty_terminal + portable-pty";
 const TMUX_VIEWER_BACKEND_STATUS: &str = "backend: tmux detached session viewer";
 
+pub(crate) fn send_command_payload_bytes(command: &str) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(command.len() + 1);
+    let mut chars = command.chars().peekable();
+    while let Some(ch) = chars.next() {
+        match ch {
+            '\r' => {
+                if matches!(chars.peek(), Some('\n')) {
+                    let _ = chars.next();
+                }
+                bytes.push(b'\r');
+            }
+            '\n' => bytes.push(b'\r'),
+            _ => {
+                let mut encoded = [0_u8; 4];
+                bytes.extend_from_slice(ch.encode_utf8(&mut encoded).as_bytes());
+            }
+        }
+    }
+    bytes.push(b'\r');
+    bytes
+}
+
 struct TmuxPaneSnapshot {
     cols: usize,
     rows: usize,
@@ -223,8 +245,7 @@ pub(crate) fn terminal_worker(
                     InputThreadEvent::WriteResult(result)
                 }
                 TerminalCommand::SendCommand(command) => {
-                    let payload = format!("{command}\r");
-                    let bytes = payload.into_bytes();
+                    let bytes = send_command_payload_bytes(&command);
                     append_debug_log(format!(
                         "pty write command `{command}`: {} bytes",
                         bytes.len()
@@ -545,8 +566,8 @@ fn apply_tmux_viewer_command(
         }
         TerminalCommand::SendCommand(command) => {
             *scroll_offset_lines = 0;
-            let payload = format!("{command}\r");
-            send_tmux_bytes(session_name, payload.as_bytes(), debug_stats)
+            let payload = send_command_payload_bytes(&command);
+            send_tmux_bytes(session_name, &payload, debug_stats)
         }
         TerminalCommand::ScrollDisplay(lines) => {
             if lines >= 0 {
