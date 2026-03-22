@@ -18,24 +18,6 @@ use bevy_vello::{
 #[derive(Component)]
 pub(crate) struct HudVectorSceneMarker;
 
-#[derive(Component)]
-pub(crate) struct HudMessageBoxOverlayRoot;
-
-#[derive(Component)]
-pub(crate) struct HudMessageBoxOverlayPanel;
-
-#[derive(Component)]
-pub(crate) struct HudMessageBoxOverlayTitle;
-
-#[derive(Component)]
-pub(crate) struct HudMessageBoxOverlayHelp;
-
-#[derive(Component)]
-pub(crate) struct HudMessageBoxOverlayBody;
-
-#[derive(Component)]
-pub(crate) struct HudMessageBoxOverlayFooter;
-
 pub(crate) struct HudColors;
 
 impl HudColors {
@@ -50,15 +32,7 @@ impl HudColors {
     pub(crate) const ROW: peniko::Color = peniko::Color::from_rgba8(26, 34, 38, 220);
     pub(crate) const ROW_HOVERED: peniko::Color = peniko::Color::from_rgba8(48, 62, 68, 230);
     pub(crate) const ROW_FOCUSED: peniko::Color = peniko::Color::from_rgba8(66, 98, 92, 236);
-    #[allow(
-        dead_code,
-        reason = "legacy Vello message-box path retained temporarily"
-    )]
     pub(crate) const OVERLAY: peniko::Color = peniko::Color::from_rgba8(8, 10, 12, 214);
-    #[allow(
-        dead_code,
-        reason = "legacy Vello message-box path retained temporarily"
-    )]
     pub(crate) const MESSAGE_BOX: peniko::Color = peniko::Color::from_rgba8(20, 24, 28, 252);
 }
 
@@ -123,10 +97,6 @@ impl<'scene, 'res> HudPainter<'scene, 'res> {
         );
     }
 
-    #[allow(
-        dead_code,
-        reason = "legacy Vello message-box path retained temporarily"
-    )]
     pub(crate) fn text_size(&self, text: &str, size: f32) -> Vec2 {
         let Some(font) = self.fonts.get(&Handle::<VelloFont>::default()) else {
             return Vec2::ZERO;
@@ -241,18 +211,10 @@ fn message_box_rect(window: &Window) -> HudRect {
     }
 }
 
-#[allow(
-    dead_code,
-    reason = "legacy Vello message-box path retained temporarily"
-)]
 fn slice_chars(text: &str, start_chars: usize, max_chars: usize) -> String {
     text.chars().skip(start_chars).take(max_chars).collect()
 }
 
-#[allow(
-    dead_code,
-    reason = "legacy Vello message-box path retained temporarily"
-)]
 fn message_box_lines(text: &str) -> Vec<(usize, usize, &str)> {
     text.split('\n')
         .scan(0usize, |start, line| {
@@ -264,10 +226,6 @@ fn message_box_lines(text: &str) -> Vec<(usize, usize, &str)> {
         .collect()
 }
 
-#[allow(
-    dead_code,
-    reason = "legacy Vello message-box path retained temporarily"
-)]
 fn draw_message_box(
     painter: &mut HudPainter,
     window: &Window,
@@ -544,92 +502,13 @@ pub(crate) fn render_hud_scene(
         built.pop_layer();
     }
 
+    let mut painter = HudPainter::new(&mut built, &fonts, &primary_window, 1.0);
+    draw_message_box(
+        &mut painter,
+        &primary_window,
+        &hud_state.message_box,
+        &agent_directory,
+    );
+
     **scene = VelloScene2d::from(built);
-}
-
-#[allow(
-    clippy::too_many_arguments,
-    reason = "message box overlay sync updates multiple UI nodes from shared HUD state"
-)]
-pub(crate) fn sync_message_box_overlay(
-    primary_window: Single<&Window, With<PrimaryWindow>>,
-    hud_state: Res<HudState>,
-    agent_directory: Res<AgentDirectory>,
-    mut root_query: Query<(&mut Node, &mut Visibility), With<HudMessageBoxOverlayRoot>>,
-    mut panel_query: Query<
-        &mut Node,
-        (
-            With<HudMessageBoxOverlayPanel>,
-            Without<HudMessageBoxOverlayRoot>,
-        ),
-    >,
-    mut title_query: Query<&mut Text, With<HudMessageBoxOverlayTitle>>,
-    mut help_query: Query<&mut Text, With<HudMessageBoxOverlayHelp>>,
-    mut body_query: Query<&mut Text, With<HudMessageBoxOverlayBody>>,
-    mut footer_query: Query<&mut Text, With<HudMessageBoxOverlayFooter>>,
-) {
-    let Ok((mut root_node, mut root_visibility)) = root_query.single_mut() else {
-        return;
-    };
-    root_node.width = Val::Px(primary_window.width());
-    root_node.height = Val::Px(primary_window.height());
-
-    if !hud_state.message_box.visible {
-        *root_visibility = Visibility::Hidden;
-        return;
-    }
-    *root_visibility = Visibility::Visible;
-
-    let rect = message_box_rect(&primary_window);
-    if let Ok(mut panel_node) = panel_query.single_mut() {
-        panel_node.left = Val::Px(rect.x);
-        panel_node.top = Val::Px(rect.y);
-        panel_node.width = Val::Px(rect.w);
-        panel_node.height = Val::Px(rect.h);
-    }
-
-    let target_label = hud_state
-        .message_box
-        .target_terminal
-        .and_then(|terminal_id| agent_directory.labels.get(&terminal_id).cloned())
-        .unwrap_or_else(|| {
-            hud_state
-                .message_box
-                .target_terminal
-                .map(|terminal_id| format!("terminal {}", terminal_id.0))
-                .unwrap_or_else(|| "no target".to_owned())
-        });
-    if let Ok(mut title) = title_query.single_mut() {
-        *title = Text::new(format!("Message {}", target_label));
-    }
-    if let Ok(mut help) = help_query.single_mut() {
-        *help = Text::new("Enter newline · Ctrl-S send · Esc cancel");
-    }
-    if let Ok(mut body) = body_query.single_mut() {
-        *body = Text::new(if hud_state.message_box.text.is_empty() {
-            " ".to_owned()
-        } else {
-            hud_state.message_box.text.clone()
-        });
-    }
-    if let Ok(mut footer) = footer_query.single_mut() {
-        let (line_number, column_number) = hud_state.message_box.cursor_line_and_column();
-        let selection_status = hud_state
-            .message_box
-            .region_bounds()
-            .map(|(start, end)| {
-                format!(
-                    "Selection {} chars",
-                    hud_state.message_box.text[start..end].chars().count()
-                )
-            })
-            .or_else(|| hud_state.message_box.mark.map(|_| "Mark set".to_owned()))
-            .unwrap_or_else(|| "No selection".to_owned());
-        *footer = Text::new(format!(
-            "Ln {} · Col {} · {}",
-            line_number + 1,
-            column_number + 1,
-            selection_status
-        ));
-    }
 }
