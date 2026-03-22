@@ -4,7 +4,7 @@ use crate::{
         animate_hud_modules, apply_hud_commands, handle_hud_module_shortcuts,
         handle_hud_pointer_input, hud_needs_redraw, render_hud_scene, save_hud_layout_if_dirty,
         setup_hud, AgentDirectory, HudDispatcher, HudPersistenceState, HudState,
-        TerminalVisibilityState,
+        TerminalVisibilityPolicy, TerminalVisibilityState,
     },
     input::{
         drag_terminal_view, focus_terminal_on_panel_click, forward_keyboard_input,
@@ -255,6 +255,14 @@ pub(crate) fn choose_startup_focus_session_name<'a>(
         .or_else(|| imported_session_names.first().copied())
 }
 
+pub(crate) fn startup_visibility_policy_for_focus(
+    focused_id: Option<crate::terminals::TerminalId>,
+) -> TerminalVisibilityPolicy {
+    focused_id
+        .map(TerminalVisibilityPolicy::Isolate)
+        .unwrap_or(TerminalVisibilityPolicy::ShowAll)
+}
+
 fn request_redraw_while_visuals_active(
     terminal_manager: Res<TerminalManager>,
     presentation_store: Res<TerminalPresentationStore>,
@@ -301,6 +309,7 @@ fn setup_scene(
     runtime_spawner: Res<TerminalRuntimeSpawner>,
     tmux_client: Res<TmuxClientResource>,
     mut session_persistence: ResMut<TerminalSessionPersistenceState>,
+    mut visibility_state: ResMut<TerminalVisibilityState>,
     auto_verify: Option<Res<AutoVerifyConfig>>,
 ) {
     commands.spawn((Camera2d, VelloView, TerminalCameraMarker));
@@ -346,6 +355,7 @@ fn setup_scene(
             session_name.clone(),
             true,
         );
+        visibility_state.policy = TerminalVisibilityPolicy::Isolate(terminal_id);
         append_debug_log(format!(
             "spawned verifier terminal {} session={}",
             terminal_id.0, session_name
@@ -434,6 +444,7 @@ fn setup_scene(
             .map(|(terminal_id, _)| terminal_id);
         if let Some(terminal_id) = focused_id {
             terminal_manager.focus_terminal(terminal_id);
+            visibility_state.policy = startup_visibility_policy_for_focus(Some(terminal_id));
             append_debug_log(format!(
                 "restored startup focus terminal {} session={}",
                 terminal_id.0, session_name
