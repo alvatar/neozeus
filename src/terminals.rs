@@ -57,6 +57,8 @@ pub(crate) use session_persistence::{
     parse_persisted_terminal_sessions, resolve_terminal_sessions_path_with,
     serialize_persisted_terminal_sessions, PersistedTerminalSessions, TerminalSessionRecord,
 };
+#[cfg(test)]
+pub(crate) use tmux::create_detached_session_tmux_commands;
 pub(crate) use tmux::{
     build_attach_command_argv, generate_unique_session_name, is_persistent_session_name,
     provision_terminal_target, TmuxClient, TmuxClientResource, PERSISTENT_TMUX_SESSION_PREFIX,

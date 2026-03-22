@@ -56,7 +56,10 @@ impl TmuxClient for SystemTmuxClient {
     }
 
     fn create_detached_session(&self, name: &str) -> Result<(), String> {
-        run_tmux(&["new-session", "-d", "-s", name]).map(|_| ())
+        for args in create_detached_session_tmux_commands(name) {
+            run_tmux_os(&args).map(|_| ())?;
+        }
+        Ok(())
     }
 
     fn list_sessions(&self) -> Result<Vec<String>, String> {
@@ -94,16 +97,48 @@ impl TmuxClient for SystemTmuxClient {
     }
 }
 
-fn run_tmux(args: &[&str]) -> Result<String, String> {
-    let output = Command::new("tmux")
-        .args(args)
-        .output()
-        .map_err(|error| format!("failed to execute tmux {}: {error}", args.join(" ")))?;
+pub(crate) fn create_detached_session_tmux_commands(name: &str) -> Vec<Vec<OsString>> {
+    vec![
+        vec![
+            OsString::from("new-session"),
+            OsString::from("-d"),
+            OsString::from("-s"),
+            OsString::from(name),
+        ],
+        vec![
+            OsString::from("set-option"),
+            OsString::from("-t"),
+            OsString::from(name),
+            OsString::from("destroy-unattached"),
+            OsString::from("off"),
+        ],
+    ]
+}
+
+fn run_tmux_os(args: &[OsString]) -> Result<String, String> {
+    let output = Command::new("tmux").args(args).output().map_err(|error| {
+        format!(
+            "failed to execute tmux {}: {error}",
+            args.iter()
+                .map(|arg| arg.to_string_lossy())
+                .collect::<Vec<_>>()
+                .join(" ")
+        )
+    })?;
     if output.status.success() {
         Ok(String::from_utf8_lossy(&output.stdout).trim().to_owned())
     } else {
         Err(stderr_or_status(&output.stderr, output.status.code()))
     }
+}
+
+fn run_tmux(args: &[&str]) -> Result<String, String> {
+    run_tmux_os(
+        &args
+            .iter()
+            .map(|arg| OsString::from(*arg))
+            .collect::<Vec<_>>(),
+    )
 }
 
 fn stderr_or_status(stderr: &[u8], status_code: Option<i32>) -> String {

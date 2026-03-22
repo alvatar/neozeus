@@ -6,12 +6,12 @@ use crate::{
     hud::AgentDirectory,
     terminals::{
         blend_rgba_in_place, build_attach_command_argv, compute_terminal_damage,
-        find_kitty_config_path, generate_unique_session_name, initialize_terminal_text_renderer,
-        is_emoji_like, is_private_use_like, parse_kitty_config_file,
-        parse_persisted_terminal_sessions, pixel_perfect_cell_size,
-        pixel_perfect_terminal_logical_size, poll_terminal_snapshots, provision_terminal_target,
-        rasterize_terminal_glyph, reconcile_terminal_sessions, resolve_alacritty_color,
-        resolve_terminal_font_report, resolve_terminal_sessions_path_with,
+        create_detached_session_tmux_commands, find_kitty_config_path,
+        generate_unique_session_name, initialize_terminal_text_renderer, is_emoji_like,
+        is_private_use_like, parse_kitty_config_file, parse_persisted_terminal_sessions,
+        pixel_perfect_cell_size, pixel_perfect_terminal_logical_size, poll_terminal_snapshots,
+        provision_terminal_target, rasterize_terminal_glyph, reconcile_terminal_sessions,
+        resolve_alacritty_color, resolve_terminal_font_report, resolve_terminal_sessions_path_with,
         save_terminal_sessions_if_dirty, serialize_persisted_terminal_sessions, snap_to_pixel_grid,
         sync_terminal_presentations, xterm_indexed_rgb, KittyFontConfig, PersistedTerminalSessions,
         PresentedTerminal, TerminalAttachTarget, TerminalDamage, TerminalDisplayMode,
@@ -394,6 +394,29 @@ fn saving_terminal_sessions_persists_focus_order_and_labels() {
     assert!(!persisted.sessions[0].last_focused);
     assert_eq!(persisted.sessions[1].session_name, "neozeus-session-b");
     assert!(persisted.sessions[1].last_focused);
+}
+
+#[test]
+fn create_detached_session_tmux_commands_keep_sessions_alive_when_unattached() {
+    let commands = create_detached_session_tmux_commands("neozeus-session-a");
+    assert_eq!(
+        commands,
+        vec![
+            vec![
+                std::ffi::OsString::from("new-session"),
+                std::ffi::OsString::from("-d"),
+                std::ffi::OsString::from("-s"),
+                std::ffi::OsString::from("neozeus-session-a"),
+            ],
+            vec![
+                std::ffi::OsString::from("set-option"),
+                std::ffi::OsString::from("-t"),
+                std::ffi::OsString::from("neozeus-session-a"),
+                std::ffi::OsString::from("destroy-unattached"),
+                std::ffi::OsString::from("off"),
+            ],
+        ]
+    );
 }
 
 #[test]
