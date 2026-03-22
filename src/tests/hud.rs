@@ -50,6 +50,13 @@ fn setup_hud_requests_initial_redraw() {
             .count(),
         1
     );
+    assert_eq!(
+        world
+            .query::<&crate::hud::HudMessageBoxOverlayRoot>()
+            .iter(&world)
+            .count(),
+        1
+    );
     let camera_orders = world
         .query::<&Camera>()
         .iter(&world)

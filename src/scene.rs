@@ -5,10 +5,10 @@ use crate::{
         apply_terminal_lifecycle_requests, apply_terminal_send_requests,
         apply_terminal_view_requests, apply_visibility_requests, dispatch_hud_intents,
         handle_hud_module_shortcuts, handle_hud_pointer_input, hud_needs_redraw, render_hud_scene,
-        save_hud_layout_if_dirty, setup_hud, AgentDirectory, HudIntent, HudModuleRequest,
-        HudPersistenceState, HudState, TerminalFocusRequest, TerminalLifecycleRequest,
-        TerminalSendRequest, TerminalViewRequest, TerminalVisibilityPolicy,
-        TerminalVisibilityRequest, TerminalVisibilityState,
+        save_hud_layout_if_dirty, setup_hud, sync_message_box_overlay, AgentDirectory, HudIntent,
+        HudModuleRequest, HudPersistenceState, HudState, TerminalFocusRequest,
+        TerminalLifecycleRequest, TerminalSendRequest, TerminalViewRequest,
+        TerminalVisibilityPolicy, TerminalVisibilityRequest, TerminalVisibilityState,
     },
     input::{
         drag_terminal_view, focus_terminal_on_panel_click, handle_global_terminal_spawn_shortcut,
@@ -244,7 +244,10 @@ fn configure_app(app: &mut App) -> Result<(), String> {
             )
                 .in_set(NeoZeusSet::HudAnimation),
         )
-        .add_systems(Update, render_hud_scene.in_set(NeoZeusSet::HudRender))
+        .add_systems(
+            Update,
+            (render_hud_scene, sync_message_box_overlay).in_set(NeoZeusSet::HudRender),
+        )
         .add_systems(
             Update,
             request_redraw_while_visuals_active.in_set(NeoZeusSet::Redraw),
