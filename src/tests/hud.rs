@@ -35,17 +35,9 @@ fn drain_hud_commands(world: &mut World) -> Vec<HudIntent> {
 #[test]
 fn setup_hud_requests_initial_redraw() {
     let mut world = World::default();
-    world.insert_resource(Assets::<Image>::default());
     world.insert_resource(HudState::default());
     world.insert_resource(HudPersistenceState::default());
     world.init_resource::<Messages<RequestRedraw>>();
-    world.spawn((
-        Window {
-            resolution: (1400, 900).into(),
-            ..default()
-        },
-        PrimaryWindow,
-    ));
 
     world.run_system_once(crate::hud::setup_hud).unwrap();
 
@@ -63,7 +55,7 @@ fn setup_hud_requests_initial_redraw() {
         .iter(&world)
         .map(|camera| camera.order)
         .collect::<Vec<_>>();
-    assert_eq!(camera_orders, vec![0]);
+    assert!(camera_orders.is_empty());
 }
 
 #[test]
