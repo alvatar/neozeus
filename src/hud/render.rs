@@ -18,9 +18,6 @@ use bevy_vello::{
 #[derive(Component)]
 pub(crate) struct HudVectorSceneMarker;
 
-#[derive(Component)]
-pub(crate) struct HudOverlaySceneMarker;
-
 pub(crate) struct HudColors;
 
 impl HudColors {
@@ -463,14 +460,7 @@ pub(crate) fn render_hud_scene(
     agent_directory: Res<AgentDirectory>,
     font_state: Res<TerminalFontState>,
     fonts: Res<Assets<VelloFont>>,
-    mut hud_scene: Single<
-        &mut VelloScene2d,
-        (With<HudVectorSceneMarker>, Without<HudOverlaySceneMarker>),
-    >,
-    mut overlay_scene: Single<
-        &mut VelloScene2d,
-        (With<HudOverlaySceneMarker>, Without<HudVectorSceneMarker>),
-    >,
+    mut scene: Single<&mut VelloScene2d, With<HudVectorSceneMarker>>,
 ) {
     let mut built = vello::Scene::new();
     let inputs = HudRenderInputs {
@@ -512,8 +502,7 @@ pub(crate) fn render_hud_scene(
         built.pop_layer();
     }
 
-    let mut overlay = vello::Scene::new();
-    let mut painter = HudPainter::new(&mut overlay, &fonts, &primary_window, 1.0);
+    let mut painter = HudPainter::new(&mut built, &fonts, &primary_window, 1.0);
     draw_message_box(
         &mut painter,
         &primary_window,
@@ -521,6 +510,5 @@ pub(crate) fn render_hud_scene(
         &agent_directory,
     );
 
-    **hud_scene = VelloScene2d::from(built);
-    **overlay_scene = VelloScene2d::from(overlay);
+    **scene = VelloScene2d::from(built);
 }

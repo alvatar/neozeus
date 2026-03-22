@@ -50,20 +50,12 @@ fn setup_hud_requests_initial_redraw() {
             .count(),
         1
     );
-    assert_eq!(
-        world
-            .query::<&crate::hud::HudOverlaySceneMarker>()
-            .iter(&world)
-            .count(),
-        1
-    );
     let camera_orders = world
         .query::<&Camera>()
         .iter(&world)
         .map(|camera| camera.order)
         .collect::<Vec<_>>();
-    assert!(camera_orders.contains(&1));
-    assert!(camera_orders.contains(&2));
+    assert_eq!(camera_orders, vec![100]);
 }
 
 #[test]
