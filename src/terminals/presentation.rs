@@ -171,12 +171,17 @@ pub(crate) fn terminal_texture_screen_size(
     smooth_terminal_screen_size(texture_state, view_state, window)
 }
 
+#[allow(
+    clippy::too_many_arguments,
+    reason = "presentation sync needs terminal/presentation/view/HUD state together"
+)]
 pub(crate) fn sync_terminal_presentations(
     time: Res<Time>,
     terminal_manager: Res<TerminalManager>,
     presentation_store: Res<TerminalPresentationStore>,
     visibility_state: Res<TerminalVisibilityState>,
     view_state: Res<TerminalViewState>,
+    hud_state: Res<crate::hud::HudState>,
     primary_window: Single<&Window, With<PrimaryWindow>>,
     mut panels: Query<(
         &TerminalPanel,
@@ -196,7 +201,7 @@ pub(crate) fn sync_terminal_presentations(
     let blend = 1.0 - (-time.delta_secs() * 10.0).exp();
 
     for (panel, mut presentation, mut transform, mut sprite, mut visibility) in &mut panels {
-        if active_id.is_none() {
+        if hud_state.message_box.visible || active_id.is_none() {
             *visibility = Visibility::Hidden;
             continue;
         }
@@ -294,6 +299,7 @@ pub(crate) fn sync_terminal_hud_surface(
     terminal_manager: Res<TerminalManager>,
     presentation_store: Res<TerminalPresentationStore>,
     visibility_state: Res<TerminalVisibilityState>,
+    hud_state: Res<crate::hud::HudState>,
     panels: Query<(&TerminalPanel, &TerminalPresentation)>,
     mut hud_surface: Single<
         (&mut Transform, &mut Sprite, &mut Visibility),
@@ -301,6 +307,10 @@ pub(crate) fn sync_terminal_hud_surface(
     >,
 ) {
     let (transform, sprite, visibility) = &mut *hud_surface;
+    if hud_state.message_box.visible {
+        **visibility = Visibility::Hidden;
+        return;
+    }
     let Some(active_id) = terminal_manager.active_id() else {
         **visibility = Visibility::Hidden;
         return;
