@@ -2,8 +2,9 @@ use crate::{
     app_config::{
         DEBUG_TEXTURE_DUMP_PATH, DEFAULT_BG, DEFAULT_CELL_HEIGHT_PX, DEFAULT_CELL_WIDTH_PX,
     },
+    hud::HudState,
     terminals::{
-        active_terminal_cell_size, append_debug_log, is_emoji_like, is_private_use_like,
+        active_terminal_layout, append_debug_log, is_emoji_like, is_private_use_like,
         TerminalDamage, TerminalFontState, TerminalManager, TerminalPresentationStore,
         TerminalSurface, TerminalTextRenderer, TerminalViewState,
     },
@@ -96,6 +97,7 @@ pub(crate) fn sync_terminal_texture(
     mut presentation_store: ResMut<TerminalPresentationStore>,
     font_state: Res<TerminalFontState>,
     view_state: Res<TerminalViewState>,
+    hud_state: Res<HudState>,
     primary_window: Single<&Window, With<PrimaryWindow>>,
     mut glyph_cache: ResMut<TerminalGlyphCache>,
     mut images: ResMut<Assets<Image>>,
@@ -124,7 +126,7 @@ pub(crate) fn sync_terminal_texture(
 
         let is_active_terminal = Some(terminal_id) == active_id;
         let desired_cell_size = if is_active_terminal {
-            active_terminal_cell_size(&primary_window, &view_state)
+            active_terminal_layout(&primary_window, &hud_state, &view_state).cell_size
         } else {
             UVec2::new(DEFAULT_CELL_WIDTH_PX, DEFAULT_CELL_HEIGHT_PX)
         };

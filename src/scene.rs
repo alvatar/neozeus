@@ -175,7 +175,10 @@ fn configure_app(app: &mut App) -> Result<(), String> {
         )
         .configure_sets(
             Update,
-            NeoZeusSet::HudCommands.before(NeoZeusSet::HudAnimation),
+            NeoZeusSet::HudCommands
+                .before(NeoZeusSet::RasterTerminal)
+                .before(NeoZeusSet::PresentTerminal)
+                .before(NeoZeusSet::HudAnimation),
         )
         .configure_sets(
             Update,

@@ -14,6 +14,13 @@ pub(crate) const HUD_FRAME_PADDING: Vec2 = Vec2::ZERO;
 pub(crate) const ACTIVE_TERMINAL_MARGIN: Vec2 = Vec2::splat(16.0);
 pub(crate) const DIRECT_INPUT_FRAME_OUTSET: f32 = 6.0;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct ActiveTerminalLayout {
+    pub(crate) cell_size: UVec2,
+    pub(crate) dimensions: TerminalDimensions,
+    pub(crate) texture_size: UVec2,
+}
+
 fn terminal_home_position(slot: usize) -> Vec2 {
     const COLUMNS: usize = 3;
     const STEP_X: f32 = 360.0;
@@ -134,17 +141,34 @@ pub(crate) fn active_terminal_cell_size(window: &Window, view_state: &TerminalVi
     )
 }
 
+#[cfg(test)]
 pub(crate) fn active_terminal_dimensions(
     window: &Window,
     hud_state: &HudState,
     view_state: &TerminalViewState,
 ) -> TerminalDimensions {
+    active_terminal_layout(window, hud_state, view_state).dimensions
+}
+
+pub(crate) fn active_terminal_layout(
+    window: &Window,
+    hud_state: &HudState,
+    view_state: &TerminalViewState,
+) -> ActiveTerminalLayout {
+    let cell_size = active_terminal_cell_size(window, view_state);
     let (fit_size_logical, _) = active_terminal_fit_area(window, hud_state);
     let fit_size_physical = logical_to_physical_size(fit_size_logical, window);
-    let cell_size = active_terminal_cell_size(window, view_state);
-    TerminalDimensions {
+    let dimensions = TerminalDimensions {
         cols: ((fit_size_physical.x / cell_size.x.max(1) as f32).floor() as usize).max(1),
         rows: ((fit_size_physical.y / cell_size.y.max(1) as f32).floor() as usize).max(1),
+    };
+    ActiveTerminalLayout {
+        cell_size,
+        dimensions,
+        texture_size: UVec2::new(
+            dimensions.cols as u32 * cell_size.x.max(1),
+            dimensions.rows as u32 * cell_size.y.max(1),
+        ),
     }
 }
 
@@ -158,7 +182,7 @@ pub(crate) fn sync_active_terminal_dimensions(
     let Some(active_id) = terminal_manager.active_id() else {
         return;
     };
-    let desired_dimensions = active_terminal_dimensions(&primary_window, &hud_state, &view_state);
+    let desired_layout = active_terminal_layout(&primary_window, &hud_state, &view_state);
     let Some(terminal) = terminal_manager.get_mut(active_id) else {
         return;
     };
@@ -167,24 +191,26 @@ pub(crate) fn sync_active_terminal_dimensions(
         .surface
         .as_ref()
         .map(|surface| {
-            surface.cols == desired_dimensions.cols && surface.rows == desired_dimensions.rows
+            surface.cols == desired_layout.dimensions.cols
+                && surface.rows == desired_layout.dimensions.rows
         })
         .unwrap_or(false);
-    if current_dimensions_match || terminal.requested_dimensions == Some(desired_dimensions) {
+    if current_dimensions_match || terminal.requested_dimensions == Some(desired_layout.dimensions)
+    {
         return;
     }
     if let Err(error) = runtime_spawner.resize_session(
         &terminal.session_name,
-        desired_dimensions.cols,
-        desired_dimensions.rows,
+        desired_layout.dimensions.cols,
+        desired_layout.dimensions.rows,
     ) {
         append_debug_log(format!(
             "active terminal resize failed session={} cols={} rows={}: {error}",
-            terminal.session_name, desired_dimensions.cols, desired_dimensions.rows,
+            terminal.session_name, desired_layout.dimensions.cols, desired_layout.dimensions.rows,
         ));
         return;
     }
-    terminal.requested_dimensions = Some(desired_dimensions);
+    terminal.requested_dimensions = Some(desired_layout.dimensions);
 }
 
 #[cfg(test)]
@@ -325,6 +351,14 @@ pub(crate) fn sync_terminal_presentations(
     let snap_switch =
         *last_active_id != active_id || *last_visibility_policy != Some(visibility_policy);
     let background_ids = ordered_background_ids(&terminal_manager, active_id);
+    let active_layout = active_terminal_layout(&primary_window, &hud_state, &view_state);
+    let active_size = physical_to_logical_size(
+        Vec2::new(
+            active_layout.texture_size.x.max(1) as f32,
+            active_layout.texture_size.y.max(1) as f32,
+        ),
+        &primary_window,
+    );
     let blend = 1.0 - (-time.delta_secs() * 10.0).exp();
 
     for (panel, mut presentation, mut transform, mut sprite, mut visibility) in &mut panels {
@@ -352,7 +386,6 @@ pub(crate) fn sync_terminal_presentations(
             &hud_state,
         );
         let (_, viewport_center) = active_terminal_viewport(&primary_window, &hud_state);
-        let active_size = terminal_logical_size(&presented_terminal.texture_state, &primary_window);
         let pixel_perfect = Some(panel.id) == active_id
             && presented_terminal.display_mode == TerminalDisplayMode::PixelPerfect;
         let background_rank = background_ids
