@@ -279,34 +279,55 @@ fn switching_active_terminal_snaps_immediately_without_animation() {
     let view_state = TerminalViewState::default();
     let dimensions = active_terminal_dimensions(&window, &hud_state, &view_state);
     let cell_size = active_terminal_cell_size(&window, &view_state);
-    let texture_state = TerminalTextureState {
+    let active_texture_state = TerminalTextureState {
         texture_size: UVec2::new(
             dimensions.cols as u32 * cell_size.x,
             dimensions.rows as u32 * cell_size.y,
         ),
         cell_size,
     };
-    let expected_size =
-        terminal_texture_screen_size(&texture_state, &view_state, &window, &hud_state, false);
+    let stale_background_texture_state = TerminalTextureState {
+        texture_size: UVec2::new(
+            dimensions.cols as u32 * DEFAULT_CELL_WIDTH_PX,
+            dimensions.rows as u32 * DEFAULT_CELL_HEIGHT_PX,
+        ),
+        cell_size: UVec2::new(DEFAULT_CELL_WIDTH_PX, DEFAULT_CELL_HEIGHT_PX),
+    };
+    let expected_size = terminal_texture_screen_size(
+        &active_texture_state,
+        &view_state,
+        &window,
+        &hud_state,
+        false,
+    );
 
     for (_, terminal) in manager.iter_mut() {
         terminal.snapshot.surface = Some(TerminalSurface::new(dimensions.cols, dimensions.rows));
     }
 
     let mut presentation_store = TerminalPresentationStore::default();
-    for id in [id_one, id_two] {
-        presentation_store.register(
-            id,
-            PresentedTerminal {
-                image: Default::default(),
-                texture_state: texture_state.clone(),
-                display_mode: TerminalDisplayMode::Smooth,
-                uploaded_revision: 0,
-                panel_entity: Entity::PLACEHOLDER,
-                frame_entity: Entity::PLACEHOLDER,
-            },
-        );
-    }
+    presentation_store.register(
+        id_one,
+        PresentedTerminal {
+            image: Default::default(),
+            texture_state: active_texture_state,
+            display_mode: TerminalDisplayMode::Smooth,
+            uploaded_revision: 0,
+            panel_entity: Entity::PLACEHOLDER,
+            frame_entity: Entity::PLACEHOLDER,
+        },
+    );
+    presentation_store.register(
+        id_two,
+        PresentedTerminal {
+            image: Default::default(),
+            texture_state: stale_background_texture_state,
+            display_mode: TerminalDisplayMode::Smooth,
+            uploaded_revision: 0,
+            panel_entity: Entity::PLACEHOLDER,
+            frame_entity: Entity::PLACEHOLDER,
+        },
+    );
 
     let mut app = App::new();
     let mut time = Time::<()>::default();
