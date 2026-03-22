@@ -5,13 +5,7 @@ use crate::{
     },
     terminals::{TerminalFontState, TerminalManager, TerminalPresentationStore, TerminalViewState},
 };
-use bevy::{
-    asset::RenderAssetUsages,
-    image::ImageSampler,
-    prelude::*,
-    render::render_resource::{Extent3d, TextureDimension, TextureFormat},
-    window::PrimaryWindow,
-};
+use bevy::{prelude::*, window::PrimaryWindow};
 use bevy_vello::{
     parley::PositionedLayoutItem,
     prelude::{
@@ -23,18 +17,6 @@ use bevy_vello::{
 
 #[derive(Component)]
 pub(crate) struct HudVectorSceneMarker;
-
-#[derive(Component)]
-pub(crate) struct HudCompositeCameraMarker;
-
-#[derive(Component)]
-pub(crate) struct HudCompositeSpriteMarker;
-
-#[derive(Resource, Clone)]
-pub(crate) struct HudRenderTargetState {
-    pub(crate) image: Handle<Image>,
-    pub(crate) logical_size: UVec2,
-}
 
 pub(crate) struct HudColors;
 
@@ -52,29 +34,6 @@ impl HudColors {
     pub(crate) const ROW_FOCUSED: peniko::Color = peniko::Color::from_rgba8(66, 98, 92, 236);
     pub(crate) const OVERLAY: peniko::Color = peniko::Color::from_rgba8(8, 10, 12, 214);
     pub(crate) const MESSAGE_BOX: peniko::Color = peniko::Color::from_rgba8(20, 24, 28, 252);
-}
-
-pub(crate) fn create_hud_render_target_image(size: UVec2) -> Image {
-    let mut image = Image::new_fill(
-        Extent3d {
-            width: size.x.max(1),
-            height: size.y.max(1),
-            depth_or_array_layers: 1,
-        },
-        TextureDimension::D2,
-        &[0, 0, 0, 0],
-        TextureFormat::Rgba8UnormSrgb,
-        RenderAssetUsages::default(),
-    );
-    image.sampler = ImageSampler::nearest();
-    image
-}
-
-pub(crate) fn hud_logical_window_size(window: &Window) -> UVec2 {
-    UVec2::new(
-        window.width().max(1.0).round() as u32,
-        window.height().max(1.0).round() as u32,
-    )
 }
 
 pub(crate) fn apply_alpha(color: peniko::Color, factor: f32) -> peniko::Color {
@@ -486,33 +445,6 @@ fn draw_module_shell(painter: &mut HudPainter, module_id: HudModuleId, shell_rec
         HudColors::TEXT,
         VelloTextAnchor::TopLeft,
     );
-}
-
-#[allow(
-    clippy::too_many_arguments,
-    reason = "HUD scene rebuild reads HUD, terminal, font, and Vello scene resources together"
-)]
-pub(crate) fn sync_hud_render_target(
-    primary_window: Single<&Window, With<PrimaryWindow>>,
-    mut render_target: ResMut<HudRenderTargetState>,
-    mut images: ResMut<Assets<Image>>,
-    mut sprite: Single<(&mut Sprite, &mut Transform), With<HudCompositeSpriteMarker>>,
-) {
-    let logical_size = hud_logical_window_size(&primary_window);
-    if render_target.logical_size != logical_size {
-        render_target.logical_size = logical_size;
-        if let Some(image) = images.get_mut(&render_target.image) {
-            *image = create_hud_render_target_image(logical_size);
-        }
-    }
-
-    let (overlay_sprite, overlay_transform) = &mut *sprite;
-    overlay_sprite.image = render_target.image.clone();
-    overlay_sprite.custom_size = Some(Vec2::new(primary_window.width(), primary_window.height()));
-    overlay_sprite.color = Color::WHITE;
-    overlay_transform.translation = Vec3::new(0.0, 0.0, 100.0);
-    overlay_transform.rotation = Quat::IDENTITY;
-    overlay_transform.scale = Vec3::ONE;
 }
 
 #[allow(

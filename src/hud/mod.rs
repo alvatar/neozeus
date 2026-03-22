@@ -28,7 +28,7 @@ pub(crate) use persistence::{
     serialize_persisted_hud_state, PersistedHudModuleState, PersistedHudState,
 };
 pub(crate) use persistence::{save_hud_layout_if_dirty, HudPersistenceState};
-pub(crate) use render::{render_hud_scene, sync_hud_render_target, HudVectorSceneMarker};
+pub(crate) use render::{render_hud_scene, HudVectorSceneMarker};
 pub(crate) use state::{
     default_hud_module_instance, AgentDirectory, HudDragState, HudModuleId, HudModuleModel,
     HudRect, HudState, TerminalVisibilityPolicy, TerminalVisibilityState, HUD_BUTTON_GAP,
@@ -36,26 +36,15 @@ pub(crate) use state::{
     HUD_ROW_HEIGHT, HUD_TITLEBAR_HEIGHT,
 };
 
-use bevy::{
-    camera::{
-        visibility::{NoFrustumCulling, RenderLayers},
-        ClearColorConfig, RenderTarget,
-    },
-    prelude::*,
-    window::{PrimaryWindow, RequestRedraw},
-};
-use bevy_vello::prelude::{VelloScene2d, VelloView};
+use bevy::{camera::visibility::NoFrustumCulling, prelude::*, window::RequestRedraw};
+use bevy_vello::prelude::VelloScene2d;
 
 pub(crate) fn append_hud_log(message: impl AsRef<str>) {
     crate::terminals::append_debug_log(format!("hud: {}", message.as_ref()));
 }
 
-const HUD_RENDER_LAYER: usize = 1;
-
 pub(crate) fn setup_hud(
     mut commands: Commands,
-    primary_window: Single<&Window, With<PrimaryWindow>>,
-    mut images: ResMut<Assets<Image>>,
     mut hud_state: ResMut<HudState>,
     mut persistence_state: ResMut<HudPersistenceState>,
     mut redraws: MessageWriter<RequestRedraw>,
@@ -84,40 +73,11 @@ pub(crate) fn setup_hud(
         hud_state.insert(definition.id, module);
     }
 
-    let target_size = render::hud_logical_window_size(&primary_window);
-    let image_handle = images.add(render::create_hud_render_target_image(target_size));
-    let mut overlay_sprite = Sprite::from_image(image_handle.clone());
-    overlay_sprite.custom_size = Some(Vec2::new(primary_window.width(), primary_window.height()));
-
-    commands.insert_resource(render::HudRenderTargetState {
-        image: image_handle.clone(),
-        logical_size: target_size,
-    });
-
-    commands.spawn((
-        Camera2d,
-        Camera {
-            clear_color: ClearColorConfig::Custom(Color::NONE),
-            ..default()
-        },
-        RenderTarget::Image(image_handle.clone().into()),
-        VelloView,
-        RenderLayers::layer(HUD_RENDER_LAYER),
-        render::HudCompositeCameraMarker,
-    ));
-
     commands.spawn((
         VelloScene2d::default(),
         Transform::from_xyz(0.0, 0.0, 50.0),
         NoFrustumCulling,
-        RenderLayers::layer(HUD_RENDER_LAYER),
         HudVectorSceneMarker,
-    ));
-
-    commands.spawn((
-        overlay_sprite,
-        Transform::from_xyz(0.0, 0.0, 100.0),
-        render::HudCompositeSpriteMarker,
     ));
     redraws.write(RequestRedraw);
 }
