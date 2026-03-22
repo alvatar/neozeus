@@ -69,7 +69,7 @@ fn setup_hud_requests_initial_redraw() {
 }
 
 #[test]
-fn sync_structural_hud_layout_docks_agent_list_to_full_height_right_column() {
+fn sync_structural_hud_layout_docks_agent_list_to_full_height_left_column() {
     let mut world = World::default();
     let mut hud_state = HudState::default();
     hud_state.insert(
@@ -393,7 +393,7 @@ fn agent_list_is_not_draggable() {
         resolution: (1400, 900).into(),
         ..Default::default()
     };
-    window.set_cursor_position(Some(Vec2::new(1200.0, 16.0)));
+    window.set_cursor_position(Some(Vec2::new(120.0, 16.0)));
 
     world.insert_resource(ButtonInput::<MouseButton>::default());
     world.insert_resource(Messages::<MouseWheel>::default());

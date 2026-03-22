@@ -1,5 +1,5 @@
 use crate::{
-    app_config::{DEFAULT_CELL_HEIGHT_PX, DEFAULT_CELL_WIDTH_PX, TERMINAL_MARGIN},
+    app_config::{DEFAULT_CELL_HEIGHT_PX, DEFAULT_CELL_WIDTH_PX},
     hud::{HudModuleId, HudState, TerminalVisibilityPolicy, TerminalVisibilityState},
     terminals::{
         create_terminal_image, TerminalDisplayMode, TerminalHudSurfaceMarker, TerminalId,
@@ -9,7 +9,7 @@ use crate::{
 };
 use bevy::{prelude::*, window::PrimaryWindow};
 
-pub(crate) const HUD_FRAME_PADDING: Vec2 = Vec2::new(18.0, 18.0);
+pub(crate) const HUD_FRAME_PADDING: Vec2 = Vec2::ZERO;
 
 fn terminal_home_position(slot: usize) -> Vec2 {
     const COLUMNS: usize = 3;
@@ -90,19 +90,20 @@ fn logical_to_physical_size(size: Vec2, window: &Window) -> Vec2 {
     size * window_scale_factor(window)
 }
 
+#[cfg(test)]
 fn physical_to_logical_size(size: Vec2, window: &Window) -> Vec2 {
     size / window_scale_factor(window)
 }
 
 pub(crate) fn active_terminal_viewport(window: &Window, hud_state: &HudState) -> (Vec2, Vec2) {
-    let reserved_right = hud_state
+    let reserved_left = hud_state
         .get(HudModuleId::AgentList)
         .filter(|module| module.shell.enabled)
         .map(|module| module.shell.current_rect.w)
         .unwrap_or(0.0)
         .clamp(0.0, window.width());
-    let usable_size = Vec2::new((window.width() - reserved_right).max(64.0), window.height());
-    let center = Vec2::new(-reserved_right * 0.5, 0.0);
+    let usable_size = Vec2::new((window.width() - reserved_left).max(64.0), window.height());
+    let center = Vec2::new(reserved_left * 0.5, 0.0);
     (usable_size, center)
 }
 
@@ -136,19 +137,13 @@ pub(crate) fn snap_to_pixel_grid(position: Vec2, window: &Window) -> Vec2 {
 }
 
 fn smooth_terminal_screen_size(
-    texture_state: &TerminalTextureState,
-    view_state: &TerminalViewState,
+    _texture_state: &TerminalTextureState,
+    _view_state: &TerminalViewState,
     window: &Window,
     hud_state: &HudState,
 ) -> Vec2 {
-    let texture_width = texture_state.texture_size.x.max(1) as f32;
-    let texture_height = texture_state.texture_size.y.max(1) as f32;
     let (viewport_size, _) = active_terminal_viewport(window, hud_state);
-    let fit_width = (viewport_size.x - TERMINAL_MARGIN * 2.0).max(64.0);
-    let fit_height = (viewport_size.y - TERMINAL_MARGIN * 2.0).max(64.0);
-    let fit_scale = (fit_width / texture_width).min(fit_height / texture_height);
-    let zoom_scale = 10.0 / view_state.distance.max(0.1);
-    Vec2::new(texture_width, texture_height) * fit_scale * zoom_scale
+    viewport_size
 }
 
 fn hud_terminal_target_position(window: &Window, hud_state: &HudState) -> Vec2 {
@@ -160,6 +155,7 @@ fn hud_surface_size(terminal_size: Vec2) -> Vec2 {
     terminal_size + HUD_FRAME_PADDING * 2.0
 }
 
+#[cfg(test)]
 pub(crate) fn pixel_perfect_terminal_logical_size(
     texture_state: &TerminalTextureState,
     window: &Window,
@@ -181,12 +177,8 @@ pub(crate) fn terminal_texture_screen_size(
     pixel_perfect: bool,
 ) -> Vec2 {
     if pixel_perfect {
-        let logical_size = pixel_perfect_terminal_logical_size(texture_state, window);
         let (viewport_size, _) = active_terminal_viewport(window, hud_state);
-        return Vec2::new(
-            logical_size.x.min(viewport_size.x),
-            logical_size.y.min(viewport_size.y),
-        );
+        return viewport_size;
     }
 
     smooth_terminal_screen_size(texture_state, view_state, window, hud_state)
@@ -273,12 +265,7 @@ pub(crate) fn sync_terminal_presentations(
         );
         let (viewport_size, viewport_center) =
             active_terminal_viewport(&primary_window, &hud_state);
-        let native_hud_size =
-            pixel_perfect_terminal_logical_size(&presented_terminal.texture_state, &primary_window);
-        let hud_size = Vec2::new(
-            native_hud_size.x.min(viewport_size.x),
-            native_hud_size.y.min(viewport_size.y),
-        );
+        let hud_size = viewport_size;
         let pixel_perfect = Some(panel.id) == active_id
             && presented_terminal.display_mode == TerminalDisplayMode::PixelPerfect;
         let background_rank = background_ids
@@ -289,16 +276,10 @@ pub(crate) fn sync_terminal_presentations(
         match active_id {
             Some(id) if id == panel.id => {
                 presentation.target_alpha = 1.0;
-                if pixel_perfect {
-                    presentation.target_position =
-                        hud_terminal_target_position(&primary_window, &hud_state);
-                    presentation.target_size = hud_size;
-                    presentation.target_z = 3.0;
-                } else {
-                    presentation.target_position = viewport_center + view_state.offset;
-                    presentation.target_size = smooth_size;
-                    presentation.target_z = 0.3;
-                }
+                presentation.target_position =
+                    hud_terminal_target_position(&primary_window, &hud_state);
+                presentation.target_size = if pixel_perfect { hud_size } else { smooth_size };
+                presentation.target_z = if pixel_perfect { 3.0 } else { 0.3 };
             }
             _ => {
                 presentation.target_position =
@@ -380,7 +361,7 @@ pub(crate) fn sync_terminal_panel_frames(
     };
 
     *visibility = Visibility::Visible;
-    sprite.custom_size = Some((presentation.current_size + Vec2::splat(18.0)).max(Vec2::ONE));
+    sprite.custom_size = Some(presentation.current_size.max(Vec2::ONE));
     sprite.color = Color::srgba(1.0, 0.48, 0.08, 0.96);
     transform.translation = presentation
         .current_position

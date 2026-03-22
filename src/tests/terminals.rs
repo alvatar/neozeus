@@ -151,8 +151,92 @@ fn active_terminal_viewport_reserves_agent_list_column() {
 
     assert_eq!(
         active_terminal_viewport(&window, &hud_state),
-        (Vec2::new(1100.0, 900.0), Vec2::new(-150.0, 0.0))
+        (Vec2::new(1100.0, 900.0), Vec2::new(150.0, 0.0))
     );
+}
+
+#[test]
+fn active_terminal_presentation_fills_remaining_viewport_exactly() {
+    let (bridge, _) = test_bridge();
+    let mut manager = TerminalManager::default();
+    let id = manager.create_terminal(bridge);
+    for (_, terminal) in manager.iter_mut() {
+        terminal.snapshot.surface = Some(TerminalSurface::new(120, 38));
+    }
+
+    let mut presentation_store = TerminalPresentationStore::default();
+    presentation_store.register(
+        id,
+        PresentedTerminal {
+            image: Default::default(),
+            texture_state: TerminalTextureState {
+                texture_size: UVec2::new(1200, 760),
+                cell_size: UVec2::new(10, 20),
+            },
+            display_mode: TerminalDisplayMode::Smooth,
+            uploaded_revision: 0,
+            panel_entity: Entity::PLACEHOLDER,
+            frame_entity: Entity::PLACEHOLDER,
+        },
+    );
+
+    let mut hud_state = HudState::default();
+    hud_state.insert(
+        HudModuleId::AgentList,
+        crate::hud::default_hud_module_instance(&crate::hud::HUD_MODULE_DEFINITIONS[1]),
+    );
+    let window = Window {
+        resolution: (1400, 900).into(),
+        ..Default::default()
+    };
+    let rect = crate::hud::docked_agent_list_rect(&window);
+    let agent_list = hud_state.get_mut(HudModuleId::AgentList).unwrap();
+    agent_list.shell.enabled = true;
+    agent_list.shell.current_rect = rect;
+    agent_list.shell.target_rect = rect;
+
+    let mut world = World::default();
+    let mut time = Time::<()>::default();
+    time.advance_by(Duration::from_secs(1));
+    world.insert_resource(time);
+    world.insert_resource(manager);
+    world.insert_resource(presentation_store);
+    world.insert_resource(crate::hud::TerminalVisibilityState::default());
+    world.insert_resource(TerminalViewState::default());
+    world.insert_resource(hud_state);
+    world.spawn((window, PrimaryWindow));
+    world.spawn((
+        TerminalPanel { id },
+        TerminalPresentation {
+            home_position: Vec2::ZERO,
+            current_position: Vec2::ZERO,
+            target_position: Vec2::ZERO,
+            current_size: Vec2::ONE,
+            target_size: Vec2::ONE,
+            current_alpha: 1.0,
+            target_alpha: 1.0,
+            current_z: 0.0,
+            target_z: 0.0,
+        },
+        Transform::default(),
+        Sprite::default(),
+        Visibility::Visible,
+    ));
+
+    world.run_system_once(sync_terminal_presentations).unwrap();
+
+    let mut query = world.query::<(&TerminalPresentation, &Transform)>();
+    let (presentation, transform) = query.single(&world).unwrap();
+    assert!(presentation.current_size.distance(Vec2::new(1100.0, 900.0)) < 0.2);
+    assert!(
+        presentation
+            .current_position
+            .distance(Vec2::new(150.0, 0.0))
+            < 0.2
+    );
+    assert!((transform.translation.x - 150.0).abs() < 0.2);
+    assert!(transform.translation.y.abs() < 0.2);
+    assert!((transform.translation.z - 0.3).abs() < 0.01);
 }
 
 #[test]
@@ -866,7 +950,7 @@ fn direct_input_mode_shows_orange_terminal_frame() {
     assert_eq!(frames.len(), 1);
     assert_eq!(*frames[0].3, Visibility::Visible);
     assert_eq!(frames[0].1.translation, Vec3::new(30.0, -20.0, 0.48));
-    assert_eq!(frames[0].2.custom_size, Some(Vec2::new(338.0, 198.0)));
+    assert_eq!(frames[0].2.custom_size, Some(Vec2::new(320.0, 180.0)));
 }
 
 #[test]

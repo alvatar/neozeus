@@ -76,16 +76,6 @@ impl HudModuleShell {
         }
     }
 
-    pub(crate) fn content_rect(&self) -> HudRect {
-        let title_h = HUD_TITLEBAR_HEIGHT.min(self.current_rect.h);
-        HudRect {
-            x: self.current_rect.x,
-            y: self.current_rect.y + title_h,
-            w: self.current_rect.w,
-            h: (self.current_rect.h - title_h).max(0.0),
-        }
-    }
-
     pub(crate) fn is_animating(&self) -> bool {
         (self.current_rect.x - self.target_rect.x).abs() > HUD_ANIMATION_EPSILON
             || (self.current_rect.y - self.target_rect.y).abs() > HUD_ANIMATION_EPSILON
@@ -267,7 +257,7 @@ pub(crate) struct HudModuleDefinition {
 
 pub(crate) fn docked_agent_list_rect(window: &Window) -> HudRect {
     HudRect {
-        x: (window.width() - HUD_AGENT_LIST_WIDTH).max(0.0),
+        x: 0.0,
         y: 0.0,
         w: HUD_AGENT_LIST_WIDTH.min(window.width()),
         h: window.height(),
