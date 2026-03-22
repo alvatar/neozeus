@@ -387,21 +387,18 @@ fn agent_rows_follow_terminal_order_and_focus() {
     let id_two = manager.create_terminal(bridge_two);
     manager.focus_terminal(id_two);
 
-    let rows = agent_rows(
-        HudRect {
-            x: 24.0,
-            y: 96.0,
-            w: 300.0,
-            h: 420.0,
-        },
-        0.0,
-        None,
-        &manager,
-        &AgentDirectory::default(),
-    );
+    let shell_rect = HudRect {
+        x: 24.0,
+        y: 96.0,
+        w: 300.0,
+        h: 420.0,
+    };
+    let rows = agent_rows(shell_rect, 0.0, None, &manager, &AgentDirectory::default());
     assert_eq!(rows.len(), 2);
     assert_eq!(rows[0].terminal_id, id_one);
     assert_eq!(rows[0].label, "agent-1");
+    assert!(rows[0].rect.y > shell_rect.y + 20.0);
+    assert!(rows[0].rect.x > shell_rect.x + 20.0);
     assert_eq!(rows[1].terminal_id, id_two);
     assert!(rows[1].focused);
 }
