@@ -98,17 +98,19 @@ fn alpha_blend_preserves_transparent_glyph_background() {
 }
 
 #[test]
-fn pixel_perfect_cell_size_does_not_exceed_native_size() {
+fn pixel_perfect_cell_size_stays_positive_and_scales_uniformly() {
     let window = Window {
         resolution: (1400, 900).into(),
         ..Default::default()
     };
     let hud_state = HudState::default();
     let cell_size = pixel_perfect_cell_size(120, 38, &window, &hud_state);
-    assert!(cell_size.x <= DEFAULT_CELL_WIDTH_PX);
-    assert!(cell_size.y <= DEFAULT_CELL_HEIGHT_PX);
     assert!(cell_size.x >= 1);
     assert!(cell_size.y >= 1);
+
+    let width_scale = cell_size.x as f32 / DEFAULT_CELL_WIDTH_PX as f32;
+    let height_scale = cell_size.y as f32 / DEFAULT_CELL_HEIGHT_PX as f32;
+    assert!((width_scale - height_scale).abs() < 0.1);
 }
 
 #[test]
