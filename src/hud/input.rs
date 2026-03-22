@@ -19,7 +19,10 @@ fn cursor_hud_position(window: &Window) -> Option<Vec2> {
     window.cursor_position()
 }
 
-fn content_hit_rect(rect: HudRect) -> HudRect {
+fn content_hit_rect(module_id: HudModuleId, rect: HudRect) -> HudRect {
+    if module_id == HudModuleId::AgentList {
+        return rect;
+    }
     HudRect {
         x: rect.x,
         y: rect.y + HUD_TITLEBAR_HEIGHT.min(rect.h),
@@ -69,7 +72,7 @@ pub(crate) fn handle_hud_pointer_input(mut ctx: HudPointerContext) {
                     grab_offset: Vec2::new(cursor.x - titlebar_rect.x, cursor.y - titlebar_rect.y),
                 });
             } else if let Some(module) = ctx.hud_state.get(module_id) {
-                let content_rect = content_hit_rect(module.shell.current_rect);
+                let content_rect = content_hit_rect(module_id, module.shell.current_rect);
                 if content_rect.contains(cursor) {
                     modules::handle_pointer_click(
                         module_id,
@@ -111,7 +114,7 @@ pub(crate) fn handle_hud_pointer_input(mut ctx: HudPointerContext) {
     if scroll_delta != 0.0 {
         if let Some(module_id) = ctx.hud_state.topmost_enabled_at(cursor) {
             if let Some(module) = ctx.hud_state.get_mut(module_id) {
-                let content_rect = content_hit_rect(module.shell.current_rect);
+                let content_rect = content_hit_rect(module_id, module.shell.current_rect);
                 if content_rect.contains(cursor) {
                     modules::handle_scroll(
                         module_id,
@@ -130,7 +133,7 @@ pub(crate) fn handle_hud_pointer_input(mut ctx: HudPointerContext) {
         .topmost_enabled_at(cursor)
         .and_then(|module_id| {
             ctx.hud_state.get(module_id).and_then(|module| {
-                let content_rect = content_hit_rect(module.shell.current_rect);
+                let content_rect = content_hit_rect(module_id, module.shell.current_rect);
                 content_rect.contains(cursor).then_some(module_id)
             })
         });
@@ -139,7 +142,7 @@ pub(crate) fn handle_hud_pointer_input(mut ctx: HudPointerContext) {
         let Some(module) = ctx.hud_state.get_mut(module_id) else {
             continue;
         };
-        let content_rect = content_hit_rect(module.shell.current_rect);
+        let content_rect = content_hit_rect(module_id, module.shell.current_rect);
         let point = if hovered_module_id == Some(module_id) {
             Some(cursor)
         } else {

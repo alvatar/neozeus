@@ -425,7 +425,22 @@ fn draw_message_box(
     );
 }
 
+fn module_content_rect(module_id: HudModuleId, shell_rect: HudRect) -> HudRect {
+    if module_id == HudModuleId::AgentList {
+        return shell_rect;
+    }
+    HudRect {
+        x: shell_rect.x,
+        y: shell_rect.y + HUD_TITLEBAR_HEIGHT.min(shell_rect.h),
+        w: shell_rect.w,
+        h: (shell_rect.h - HUD_TITLEBAR_HEIGHT.min(shell_rect.h)).max(0.0),
+    }
+}
+
 fn draw_module_shell(painter: &mut HudPainter, module_id: HudModuleId, shell_rect: HudRect) {
+    if module_id == HudModuleId::AgentList {
+        return;
+    }
     painter.fill_rect(shell_rect, HudColors::FRAME, 8.0);
     painter.stroke_rect(shell_rect, HudColors::BORDER, 8.0);
     painter.fill_rect(
@@ -485,7 +500,7 @@ pub(crate) fn render_hud_scene(
         let mut painter = HudPainter::new(&mut built, &fonts, &primary_window, alpha);
         draw_module_shell(&mut painter, module_id, shell_rect);
 
-        let content_rect = module.shell.content_rect();
+        let content_rect = module_content_rect(module_id, module.shell.current_rect);
         built.push_clip_layer(
             Fill::NonZero,
             Affine::IDENTITY,
