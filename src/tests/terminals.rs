@@ -682,12 +682,15 @@ fn terminal_presentations_stay_hidden_when_no_terminal_is_active() {
 }
 
 #[test]
-fn terminal_panel_frames_are_hidden() {
+fn terminal_panel_frames_are_hidden_without_direct_input_mode() {
     let mut world = World::default();
+    world.insert_resource(crate::hud::HudState::default());
     world.spawn((
         TerminalPanelFrame {
             id: crate::terminals::TerminalId(1),
         },
+        Transform::default(),
+        Sprite::default(),
         Visibility::Visible,
     ));
 
@@ -697,6 +700,46 @@ fn terminal_panel_frames_are_hidden() {
     let vis = query.iter(&world).collect::<Vec<_>>();
     assert_eq!(vis.len(), 1);
     assert_eq!(*vis[0].1, Visibility::Hidden);
+}
+
+#[test]
+fn direct_input_mode_shows_orange_terminal_frame() {
+    let terminal_id = crate::terminals::TerminalId(7);
+    let mut hud_state = crate::hud::HudState::default();
+    hud_state.open_direct_terminal_input(terminal_id);
+
+    let mut world = World::default();
+    world.insert_resource(hud_state);
+    world.spawn((
+        TerminalPanel { id: terminal_id },
+        TerminalPresentation {
+            home_position: Vec2::ZERO,
+            current_position: Vec2::new(30.0, -20.0),
+            target_position: Vec2::ZERO,
+            current_size: Vec2::new(320.0, 180.0),
+            target_size: Vec2::ZERO,
+            current_alpha: 1.0,
+            target_alpha: 1.0,
+            current_z: 0.5,
+            target_z: 0.0,
+        },
+        Visibility::Visible,
+    ));
+    world.spawn((
+        TerminalPanelFrame { id: terminal_id },
+        Transform::default(),
+        Sprite::default(),
+        Visibility::Hidden,
+    ));
+
+    world.run_system_once(sync_terminal_panel_frames).unwrap();
+
+    let mut query = world.query::<(&TerminalPanelFrame, &Transform, &Sprite, &Visibility)>();
+    let frames = query.iter(&world).collect::<Vec<_>>();
+    assert_eq!(frames.len(), 1);
+    assert_eq!(*frames[0].3, Visibility::Visible);
+    assert_eq!(frames[0].1.translation, Vec3::new(30.0, -20.0, 0.48));
+    assert_eq!(frames[0].2.custom_size, Some(Vec2::new(338.0, 198.0)));
 }
 
 #[test]

@@ -288,10 +288,45 @@ pub(crate) fn sync_terminal_presentations(
 }
 
 pub(crate) fn sync_terminal_panel_frames(
-    mut frames: Query<&mut Visibility, With<TerminalPanelFrame>>,
+    hud_state: Res<crate::hud::HudState>,
+    panels: Query<
+        (&TerminalPanel, &TerminalPresentation, &Visibility),
+        Without<TerminalPanelFrame>,
+    >,
+    mut frames: Query<
+        (
+            &TerminalPanelFrame,
+            &mut Transform,
+            &mut Sprite,
+            &mut Visibility,
+        ),
+        Without<TerminalPanel>,
+    >,
 ) {
-    for mut visibility in &mut frames {
-        *visibility = Visibility::Hidden;
+    for (frame, mut transform, mut sprite, mut visibility) in &mut frames {
+        let Some(target_terminal) = hud_state.direct_input_terminal else {
+            *visibility = Visibility::Hidden;
+            continue;
+        };
+        let Some((_, presentation, panel_visibility)) =
+            panels.iter().find(|(panel, _, _)| panel.id == frame.id)
+        else {
+            *visibility = Visibility::Hidden;
+            continue;
+        };
+        if target_terminal != frame.id || *panel_visibility != Visibility::Visible {
+            *visibility = Visibility::Hidden;
+            continue;
+        }
+
+        *visibility = Visibility::Visible;
+        sprite.custom_size = Some((presentation.current_size + Vec2::splat(18.0)).max(Vec2::ONE));
+        sprite.color = Color::srgba(1.0, 0.48, 0.08, 0.96);
+        transform.translation = presentation
+            .current_position
+            .extend(presentation.current_z - 0.02);
+        transform.rotation = Quat::IDENTITY;
+        transform.scale = Vec3::ONE;
     }
 }
 

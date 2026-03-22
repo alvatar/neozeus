@@ -128,6 +128,7 @@ pub(crate) fn apply_hud_commands(
                     session_name.clone(),
                     true,
                 );
+                hud_state.reconcile_direct_terminal_input(terminal_manager.active_id());
                 view_state.focus_terminal(Some(terminal_id));
                 mark_terminal_sessions_dirty(&mut session_persistence, Some(&time));
                 append_debug_log(format!(
@@ -137,6 +138,7 @@ pub(crate) fn apply_hud_commands(
             }
             HudCommand::FocusTerminal(id) => {
                 terminal_manager.focus_terminal(id);
+                hud_state.reconcile_direct_terminal_input(terminal_manager.active_id());
                 view_state.focus_terminal(terminal_manager.active_id());
                 mark_terminal_sessions_dirty(&mut session_persistence, Some(&time));
             }
@@ -178,19 +180,22 @@ pub(crate) fn apply_hud_commands(
                         .send(crate::terminals::TerminalCommand::SendCommand(command));
                 }
             }
-            HudCommand::KillActiveTerminal => kill_active_terminal(
-                &mut commands,
-                &time,
-                &mut terminal_manager,
-                &mut presentation_store,
-                tmux_client.client(),
-                &mut agent_directory,
-                &mut session_persistence,
-                &mut visibility_state,
-                &mut view_state,
-                &terminal_panels,
-                &terminal_frames,
-            ),
+            HudCommand::KillActiveTerminal => {
+                kill_active_terminal(
+                    &mut commands,
+                    &time,
+                    &mut terminal_manager,
+                    &mut presentation_store,
+                    tmux_client.client(),
+                    &mut agent_directory,
+                    &mut session_persistence,
+                    &mut visibility_state,
+                    &mut view_state,
+                    &terminal_panels,
+                    &terminal_frames,
+                );
+                hud_state.reconcile_direct_terminal_input(terminal_manager.active_id());
+            }
         }
     }
 }

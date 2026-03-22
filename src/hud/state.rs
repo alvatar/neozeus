@@ -405,6 +405,7 @@ pub(crate) struct HudState {
     pub(crate) drag: Option<HudDragState>,
     pub(crate) dirty_layout: bool,
     pub(crate) message_box: HudMessageBoxState,
+    pub(crate) direct_input_terminal: Option<TerminalId>,
 }
 
 impl HudState {
@@ -475,12 +476,44 @@ impl HudState {
             .any(|module| module.shell.enabled && module.shell.is_animating())
     }
 
+    pub(crate) fn keyboard_capture_active(&self) -> bool {
+        self.message_box.visible || self.direct_input_terminal.is_some()
+    }
+
     pub(crate) fn open_message_box(&mut self, target_terminal: TerminalId) {
+        self.direct_input_terminal = None;
         self.message_box.reset_for_target(target_terminal);
     }
 
     pub(crate) fn close_message_box(&mut self) {
         self.message_box = HudMessageBoxState::default();
+    }
+
+    pub(crate) fn open_direct_terminal_input(&mut self, target_terminal: TerminalId) {
+        self.close_message_box();
+        self.direct_input_terminal = Some(target_terminal);
+    }
+
+    pub(crate) fn close_direct_terminal_input(&mut self) {
+        self.direct_input_terminal = None;
+    }
+
+    pub(crate) fn toggle_direct_terminal_input(&mut self, target_terminal: TerminalId) -> bool {
+        if self.direct_input_terminal == Some(target_terminal) {
+            self.close_direct_terminal_input();
+            return false;
+        }
+        self.open_direct_terminal_input(target_terminal);
+        true
+    }
+
+    pub(crate) fn reconcile_direct_terminal_input(&mut self, active_id: Option<TerminalId>) {
+        if self
+            .direct_input_terminal
+            .is_some_and(|terminal_id| Some(terminal_id) != active_id)
+        {
+            self.close_direct_terminal_input();
+        }
     }
 }
 

@@ -51,6 +51,7 @@ pub(crate) fn setup_hud(
     hud_state.drag = None;
     hud_state.dirty_layout = false;
     hud_state.message_box = HudMessageBoxState::default();
+    hud_state.direct_input_terminal = None;
     for definition in HUD_MODULE_DEFINITIONS.iter() {
         let mut module = default_hud_module_instance(definition);
         if let Some(saved) = persisted.modules.get(&definition.id) {

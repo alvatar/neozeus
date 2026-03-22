@@ -43,7 +43,7 @@ pub(crate) fn handle_hud_pointer_input(
     agent_directory: Res<AgentDirectory>,
     mut dispatcher: ResMut<HudDispatcher>,
 ) {
-    if hud_state.message_box.visible {
+    if hud_state.keyboard_capture_active() {
         hud_state.drag = None;
         return;
     }
@@ -163,7 +163,7 @@ pub(crate) fn handle_hud_module_shortcuts(
 ) {
     if hud_state
         .as_ref()
-        .is_some_and(|hud_state| hud_state.message_box.visible)
+        .is_some_and(|hud_state| hud_state.keyboard_capture_active())
     {
         return;
     }

@@ -26,6 +26,14 @@ fn has_plain_modifiers(keys: &ButtonInput<KeyCode>) -> (bool, bool, bool) {
     )
 }
 
+fn is_plain_ctrl_enter(event: &KeyboardInput, ctrl: bool, alt: bool, super_key: bool) -> bool {
+    event.state == ButtonState::Pressed
+        && event.key_code == KeyCode::Enter
+        && ctrl
+        && !alt
+        && !super_key
+}
+
 pub(crate) fn should_spawn_terminal_globally(
     event: &KeyboardInput,
     keys: &ButtonInput<KeyCode>,
@@ -69,7 +77,7 @@ pub(crate) fn handle_global_terminal_spawn_shortcut(
 ) {
     if hud_state
         .as_ref()
-        .is_some_and(|hud_state| hud_state.message_box.visible)
+        .is_some_and(|hud_state| hud_state.keyboard_capture_active())
         || !primary_window.focused
         || terminal_manager.active_id().is_some()
     {
@@ -93,7 +101,7 @@ pub(crate) fn handle_terminal_lifecycle_shortcuts(
 ) {
     if hud_state
         .as_ref()
-        .is_some_and(|hud_state| hud_state.message_box.visible)
+        .is_some_and(|hud_state| hud_state.keyboard_capture_active())
     {
         return;
     }
@@ -169,7 +177,7 @@ pub(crate) fn hide_terminal_on_background_click(
     mouse_buttons: Res<ButtonInput<MouseButton>>,
     time: Res<Time>,
     primary_window: Single<&Window, With<PrimaryWindow>>,
-    hud_state: Res<HudState>,
+    mut hud_state: ResMut<HudState>,
     panels: Query<(&TerminalPanel, &TerminalPresentation, &Visibility)>,
     mut terminal_manager: ResMut<TerminalManager>,
     mut session_persistence: ResMut<TerminalSessionPersistenceState>,
@@ -193,6 +201,7 @@ pub(crate) fn hide_terminal_on_background_click(
         return;
     }
     if terminal_manager.clear_active_terminal().is_some() {
+        hud_state.reconcile_direct_terminal_input(terminal_manager.active_id());
         mark_terminal_sessions_dirty(&mut session_persistence, Some(&time));
     }
 }
@@ -280,6 +289,62 @@ pub(crate) fn zoom_terminal_view(
     view_state.distance = (view_state.distance - zoom_delta * 0.8).clamp(2.0, 40.0);
 }
 
+pub(crate) fn handle_terminal_direct_input_keyboard(
+    mut messages: MessageReader<KeyboardInput>,
+    keys: Res<ButtonInput<KeyCode>>,
+    primary_window: Single<&Window, With<PrimaryWindow>>,
+    terminal_manager: Res<TerminalManager>,
+    mut hud_state: ResMut<HudState>,
+    mut redraws: MessageWriter<RequestRedraw>,
+) {
+    if !primary_window.focused || hud_state.message_box.visible {
+        return;
+    }
+
+    let (ctrl, alt, super_key) = has_plain_modifiers(&keys);
+    let had_direct_input = hud_state.direct_input_terminal.is_some();
+    hud_state.reconcile_direct_terminal_input(terminal_manager.active_id());
+    if had_direct_input && hud_state.direct_input_terminal.is_none() {
+        redraws.write(RequestRedraw);
+    }
+
+    if let Some(target_terminal) = hud_state.direct_input_terminal {
+        let Some(terminal) = terminal_manager.get(target_terminal) else {
+            hud_state.close_direct_terminal_input();
+            redraws.write(RequestRedraw);
+            return;
+        };
+        let mut mode_changed = false;
+        for event in messages.read() {
+            if is_plain_ctrl_enter(event, ctrl, alt, super_key) {
+                let _ = hud_state.toggle_direct_terminal_input(target_terminal);
+                mode_changed = true;
+                break;
+            }
+            if let Some(command) = keyboard_input_to_terminal_command(event, &keys) {
+                terminal.bridge.note_key_event(event);
+                terminal.bridge.send(command);
+            }
+        }
+        if mode_changed {
+            redraws.write(RequestRedraw);
+        }
+        return;
+    }
+
+    let Some(active_id) = terminal_manager.active_id() else {
+        return;
+    };
+    for event in messages.read() {
+        if !is_plain_ctrl_enter(event, ctrl, alt, super_key) {
+            continue;
+        }
+        let _ = hud_state.toggle_direct_terminal_input(active_id);
+        redraws.write(RequestRedraw);
+        break;
+    }
+}
+
 fn message_box_event_text(event: &KeyboardInput) -> Option<String> {
     event
         .text
@@ -307,6 +372,10 @@ pub(crate) fn handle_terminal_message_box_keyboard(
     }
 
     let (ctrl, alt, super_key) = has_plain_modifiers(&keys);
+
+    if hud_state.direct_input_terminal.is_some() {
+        return;
+    }
 
     if hud_state.message_box.visible {
         let mut needs_redraw = false;
@@ -399,11 +468,14 @@ pub(crate) fn handle_terminal_message_box_keyboard(
     }
 }
 
-#[cfg(test)]
 pub(crate) fn keyboard_input_to_terminal_command(
     event: &KeyboardInput,
     keys: &ButtonInput<KeyCode>,
 ) -> Option<TerminalCommand> {
+    if event.state != ButtonState::Pressed {
+        return None;
+    }
+
     let ctrl = keys.pressed(KeyCode::ControlLeft) || keys.pressed(KeyCode::ControlRight);
     let alt = keys.pressed(KeyCode::AltLeft) || keys.pressed(KeyCode::AltRight);
     let super_key = keys.pressed(KeyCode::SuperLeft) || keys.pressed(KeyCode::SuperRight);
@@ -445,15 +517,33 @@ pub(crate) fn keyboard_input_to_terminal_command(
     }
 }
 
-#[cfg(test)]
 pub(crate) fn ctrl_sequence(key_code: KeyCode) -> Option<&'static str> {
     match key_code {
         KeyCode::KeyA => Some("\u{1}"),
+        KeyCode::KeyB => Some("\u{2}"),
         KeyCode::KeyC => Some("\u{3}"),
         KeyCode::KeyD => Some("\u{4}"),
         KeyCode::KeyE => Some("\u{5}"),
+        KeyCode::KeyF => Some("\u{6}"),
+        KeyCode::KeyG => Some("\u{7}"),
+        KeyCode::KeyH => Some("\u{8}"),
+        KeyCode::KeyI => Some("\u{9}"),
+        KeyCode::KeyJ => Some("\n"),
+        KeyCode::KeyK => Some("\u{b}"),
         KeyCode::KeyL => Some("\u{c}"),
+        KeyCode::KeyM => Some("\r"),
+        KeyCode::KeyN => Some("\u{e}"),
+        KeyCode::KeyO => Some("\u{f}"),
+        KeyCode::KeyP => Some("\u{10}"),
+        KeyCode::KeyQ => Some("\u{11}"),
+        KeyCode::KeyR => Some("\u{12}"),
+        KeyCode::KeyS => Some("\u{13}"),
+        KeyCode::KeyT => Some("\u{14}"),
         KeyCode::KeyU => Some("\u{15}"),
+        KeyCode::KeyV => Some("\u{16}"),
+        KeyCode::KeyW => Some("\u{17}"),
+        KeyCode::KeyX => Some("\u{18}"),
+        KeyCode::KeyY => Some("\u{19}"),
         KeyCode::KeyZ => Some("\u{1a}"),
         _ => None,
     }
