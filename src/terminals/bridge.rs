@@ -64,6 +64,10 @@ impl TerminalBridge {
         });
     }
 
+    #[allow(
+        dead_code,
+        reason = "direct keyboard capture is currently replaced by compose box"
+    )]
     pub(crate) fn note_key_event(&self, event: &KeyboardInput) {
         note_key_event(&self.inner.debug_stats, event);
     }

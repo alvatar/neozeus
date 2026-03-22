@@ -263,7 +263,15 @@ pub(crate) enum TerminalProvisionTarget {
 }
 
 pub(crate) enum TerminalCommand {
+    #[allow(
+        dead_code,
+        reason = "legacy direct-input path kept for tests/possible future reuse"
+    )]
     InputText(String),
+    #[allow(
+        dead_code,
+        reason = "legacy direct-input path kept for tests/possible future reuse"
+    )]
     InputEvent(String),
     SendCommand(String),
     ScrollDisplay(i32),
