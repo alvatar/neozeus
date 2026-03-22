@@ -43,14 +43,23 @@ pub(super) fn temp_dir(prefix: &str) -> PathBuf {
     dir
 }
 
-pub(super) fn test_bridge() -> (TerminalBridge, Arc<TerminalUpdateMailbox>) {
-    let (input_tx, _input_rx) = mpsc::channel::<TerminalCommand>();
+pub(super) fn capturing_bridge() -> (
+    TerminalBridge,
+    mpsc::Receiver<TerminalCommand>,
+    Arc<TerminalUpdateMailbox>,
+) {
+    let (input_tx, input_rx) = mpsc::channel::<TerminalCommand>();
     let mailbox = Arc::new(TerminalUpdateMailbox::default());
     let bridge = TerminalBridge::new(
         input_tx,
         mailbox.clone(),
         Arc::new(Mutex::new(TerminalDebugStats::default())),
     );
+    (bridge, input_rx, mailbox)
+}
+
+pub(super) fn test_bridge() -> (TerminalBridge, Arc<TerminalUpdateMailbox>) {
+    let (bridge, _input_rx, mailbox) = capturing_bridge();
     (bridge, mailbox)
 }
 

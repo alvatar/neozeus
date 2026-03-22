@@ -1,11 +1,12 @@
-use super::{pressed_text, test_bridge};
+use super::{capturing_bridge, pressed_text, test_bridge};
 use crate::{
     hud::{HudCommand, HudDispatcher},
     input::{
         ctrl_sequence, focus_terminal_on_panel_click, handle_global_terminal_spawn_shortcut,
-        handle_terminal_lifecycle_shortcuts, handle_terminal_message_box_keyboard,
-        hide_terminal_on_background_click, keyboard_input_to_terminal_command,
-        should_exit_application, should_kill_active_terminal, should_spawn_terminal_globally,
+        handle_terminal_direct_input_keyboard, handle_terminal_lifecycle_shortcuts,
+        handle_terminal_message_box_keyboard, hide_terminal_on_background_click,
+        keyboard_input_to_terminal_command, should_exit_application, should_kill_active_terminal,
+        should_spawn_terminal_globally,
     },
     terminals::{
         TerminalCommand, TerminalManager, TerminalPanel, TerminalPresentation,
@@ -42,12 +43,27 @@ fn dispatch_message_box_key(world: &mut World, event: KeyboardInput) {
         .unwrap();
 }
 
-fn world_with_active_terminal(
+fn dispatch_terminal_ui_key(world: &mut World, event: KeyboardInput) {
+    world.insert_resource(Messages::<KeyboardInput>::default());
+    world.resource_mut::<Messages<KeyboardInput>>().write(event);
+    world
+        .run_system_once(handle_terminal_direct_input_keyboard)
+        .unwrap();
+    world
+        .run_system_once(handle_terminal_message_box_keyboard)
+        .unwrap();
+}
+
+fn world_with_active_terminal_and_receiver(
     cursor: Vec2,
     panel_visible: bool,
     panel_position: Vec2,
-) -> (World, crate::terminals::TerminalId) {
-    let (bridge, _) = test_bridge();
+) -> (
+    World,
+    crate::terminals::TerminalId,
+    std::sync::mpsc::Receiver<TerminalCommand>,
+) {
+    let (bridge, input_rx, _) = capturing_bridge();
     let mut manager = TerminalManager::default();
     let terminal_id = manager.create_terminal(bridge);
 
@@ -84,6 +100,16 @@ fn world_with_active_terminal(
         },
     ));
 
+    (world, terminal_id, input_rx)
+}
+
+fn world_with_active_terminal(
+    cursor: Vec2,
+    panel_visible: bool,
+    panel_position: Vec2,
+) -> (World, crate::terminals::TerminalId) {
+    let (world, terminal_id, _input_rx) =
+        world_with_active_terminal_and_receiver(cursor, panel_visible, panel_position);
     (world, terminal_id)
 }
 
@@ -348,6 +374,54 @@ fn enter_opens_message_box_for_active_terminal() {
 }
 
 #[test]
+fn ctrl_enter_toggles_direct_input_mode_for_active_terminal() {
+    let (mut world, terminal_id) =
+        world_with_active_terminal(Vec2::new(10.0, 10.0), false, Vec2::ZERO);
+    world.init_resource::<Messages<RequestRedraw>>();
+    let mut keys = ButtonInput::<KeyCode>::default();
+    keys.press(KeyCode::ControlLeft);
+    world.insert_resource(keys);
+
+    dispatch_terminal_ui_key(&mut world, pressed_key(KeyCode::Enter, Key::Enter));
+
+    let hud_state = world.resource::<crate::hud::HudState>();
+    assert_eq!(hud_state.direct_input_terminal, Some(terminal_id));
+    assert!(!hud_state.message_box.visible);
+    assert_eq!(world.resource::<Messages<RequestRedraw>>().len(), 1);
+
+    dispatch_terminal_ui_key(&mut world, pressed_key(KeyCode::Enter, Key::Enter));
+
+    let hud_state = world.resource::<crate::hud::HudState>();
+    assert_eq!(hud_state.direct_input_terminal, None);
+    assert!(!hud_state.message_box.visible);
+    assert_eq!(world.resource::<Messages<RequestRedraw>>().len(), 2);
+}
+
+#[test]
+fn direct_input_mode_sends_keys_to_terminal_without_opening_message_box() {
+    let (mut world, terminal_id, input_rx) =
+        world_with_active_terminal_and_receiver(Vec2::new(10.0, 10.0), false, Vec2::ZERO);
+    let mut hud_state = crate::hud::HudState::default();
+    hud_state.open_direct_terminal_input(terminal_id);
+    world.insert_resource(hud_state);
+    world.insert_resource(HudDispatcher::default());
+    world.init_resource::<Messages<RequestRedraw>>();
+
+    dispatch_terminal_ui_key(&mut world, pressed_text(KeyCode::KeyA, Some("a")));
+    dispatch_terminal_ui_key(&mut world, pressed_key(KeyCode::Enter, Key::Enter));
+
+    assert_eq!(
+        input_rx.try_recv().unwrap(),
+        TerminalCommand::InputText("a".into())
+    );
+    assert_eq!(
+        input_rx.try_recv().unwrap(),
+        TerminalCommand::InputEvent("\r".into())
+    );
+    assert!(!world.resource::<crate::hud::HudState>().message_box.visible);
+}
+
+#[test]
 fn message_box_supports_multiline_typing_and_ctrl_s_send() {
     let (mut world, terminal_id) =
         world_with_active_terminal(Vec2::new(10.0, 10.0), false, Vec2::ZERO);
@@ -525,6 +599,30 @@ fn lifecycle_shortcuts_are_suppressed_while_message_box_is_open() {
     let mut world = World::default();
     let mut hud_state = crate::hud::HudState::default();
     hud_state.open_message_box(crate::terminals::TerminalId(1));
+    world.insert_resource(hud_state);
+    let mut keys = ButtonInput::<KeyCode>::default();
+    keys.press(KeyCode::ControlLeft);
+    world.insert_resource(keys);
+    world.insert_resource(HudDispatcher::default());
+    world.init_resource::<Messages<KeyboardInput>>();
+    world.init_resource::<Messages<AppExit>>();
+    world
+        .resource_mut::<Messages<KeyboardInput>>()
+        .write(pressed_text(KeyCode::KeyK, Some("k")));
+
+    world
+        .run_system_once(handle_terminal_lifecycle_shortcuts)
+        .unwrap();
+
+    assert!(world.resource::<HudDispatcher>().commands.is_empty());
+    assert_eq!(world.resource::<Messages<AppExit>>().len(), 0);
+}
+
+#[test]
+fn lifecycle_shortcuts_are_suppressed_while_direct_input_is_open() {
+    let mut world = World::default();
+    let mut hud_state = crate::hud::HudState::default();
+    hud_state.open_direct_terminal_input(crate::terminals::TerminalId(1));
     world.insert_resource(hud_state);
     let mut keys = ButtonInput::<KeyCode>::default();
     keys.press(KeyCode::ControlLeft);
