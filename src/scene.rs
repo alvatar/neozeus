@@ -31,7 +31,7 @@ use bevy::{
     ecs::system::SystemParam,
     prelude::*,
     render::{settings::WgpuSettings, RenderPlugin},
-    window::RequestRedraw,
+    window::{MonitorSelection, RequestRedraw, WindowMode},
     winit::{EventLoopProxyWrapper, WinitSettings},
 };
 use bevy_vello::VelloPlugin;
@@ -79,6 +79,23 @@ pub(crate) enum NeoZeusSet {
     Redraw,
 }
 
+pub(crate) fn resolve_window_mode(raw: Option<&str>) -> WindowMode {
+    match raw.map(str::trim).filter(|value| !value.is_empty()) {
+        Some(value) if value.eq_ignore_ascii_case("windowed") => WindowMode::Windowed,
+        _ => WindowMode::BorderlessFullscreen(MonitorSelection::Current),
+    }
+}
+
+fn primary_window_config() -> Window {
+    Window {
+        title: env::var("NEOZEUS_WINDOW_TITLE").unwrap_or_else(|_| "neozeus".to_owned()),
+        name: Some(env::var("NEOZEUS_APP_ID").unwrap_or_else(|_| "neozeus".to_owned())),
+        mode: resolve_window_mode(env::var("NEOZEUS_WINDOW_MODE").ok().as_deref()),
+        resolution: (1400, 900).into(),
+        ..default()
+    }
+}
+
 fn configure_app(app: &mut App) {
     app.add_plugins(
         DefaultPlugins
@@ -91,13 +108,7 @@ fn configure_app(app: &mut App) {
                 ..default()
             })
             .set(WindowPlugin {
-                primary_window: Some(Window {
-                    title: env::var("NEOZEUS_WINDOW_TITLE")
-                        .unwrap_or_else(|_| "neozeus".to_owned()),
-                    name: Some(env::var("NEOZEUS_APP_ID").unwrap_or_else(|_| "neozeus".to_owned())),
-                    resolution: (1400, 900).into(),
-                    ..default()
-                }),
+                primary_window: Some(primary_window_config()),
                 ..default()
             }),
     )
