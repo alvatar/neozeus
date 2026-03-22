@@ -17,17 +17,17 @@ use crate::{
         resolve_terminal_font_report, resolve_terminal_sessions_path_with,
         save_terminal_sessions_if_dirty, send_bytes_tmux_commands, send_command_payload_bytes,
         serialize_persisted_terminal_sessions, snap_to_pixel_grid, sync_terminal_panel_frames,
-        sync_terminal_presentations, write_client_message, write_server_message, xterm_indexed_rgb,
-        ClientMessage, DaemonEvent, DaemonRequest, DaemonServerHandle, KittyFontConfig,
-        PersistedTerminalSessions, PresentedTerminal, ServerMessage, SocketTerminalDaemonClient,
-        TerminalAttachTarget, TerminalCommand, TerminalDaemonClient, TerminalDamage,
-        TerminalDisplayMode, TerminalFontRole, TerminalFontState, TerminalFrameUpdate,
-        TerminalGlyphCacheKey, TerminalLifecycle, TerminalManager, TerminalPanel,
-        TerminalPanelFrame, TerminalPresentation, TerminalPresentationStore,
-        TerminalProvisionTarget, TerminalRuntimeState, TerminalSessionClient,
-        TerminalSessionPersistenceState, TerminalSessionRecord, TerminalSurface,
-        TerminalTextRenderer, TerminalTextureState, TerminalUpdate, TerminalViewState,
-        TmuxPaneClient, DAEMON_PROTOCOL_VERSION, PERSISTENT_SESSION_PREFIX,
+        sync_terminal_presentations, terminal_texture_screen_size, write_client_message,
+        write_server_message, xterm_indexed_rgb, ClientMessage, DaemonEvent, DaemonRequest,
+        DaemonServerHandle, KittyFontConfig, PersistedTerminalSessions, PresentedTerminal,
+        ServerMessage, SocketTerminalDaemonClient, TerminalAttachTarget, TerminalCommand,
+        TerminalDaemonClient, TerminalDamage, TerminalDisplayMode, TerminalFontRole,
+        TerminalFontState, TerminalFrameUpdate, TerminalGlyphCacheKey, TerminalLifecycle,
+        TerminalManager, TerminalPanel, TerminalPanelFrame, TerminalPresentation,
+        TerminalPresentationStore, TerminalProvisionTarget, TerminalRuntimeState,
+        TerminalSessionClient, TerminalSessionPersistenceState, TerminalSessionRecord,
+        TerminalSurface, TerminalTextRenderer, TerminalTextureState, TerminalUpdate,
+        TerminalViewState, TmuxPaneClient, DAEMON_PROTOCOL_VERSION, PERSISTENT_SESSION_PREFIX,
         PERSISTENT_TMUX_SESSION_PREFIX,
     },
 };
@@ -181,12 +181,16 @@ fn active_terminal_presentation_preserves_terminal_aspect_with_margin() {
 
     let fitted_cell_size = pixel_perfect_cell_size(120, 38, &window, &hud_state);
     let fitted_texture_size = UVec2::new(120 * fitted_cell_size.x, 38 * fitted_cell_size.y);
-    let expected_size = pixel_perfect_terminal_logical_size(
-        &TerminalTextureState {
-            texture_size: fitted_texture_size,
-            cell_size: fitted_cell_size,
-        },
+    let texture_state = TerminalTextureState {
+        texture_size: fitted_texture_size,
+        cell_size: fitted_cell_size,
+    };
+    let expected_size = terminal_texture_screen_size(
+        &texture_state,
+        &TerminalViewState::default(),
         &window,
+        &hud_state,
+        false,
     );
 
     let mut presentation_store = TerminalPresentationStore::default();
@@ -194,10 +198,7 @@ fn active_terminal_presentation_preserves_terminal_aspect_with_margin() {
         id,
         PresentedTerminal {
             image: Default::default(),
-            texture_state: TerminalTextureState {
-                texture_size: fitted_texture_size,
-                cell_size: fitted_cell_size,
-            },
+            texture_state: texture_state.clone(),
             display_mode: TerminalDisplayMode::Smooth,
             uploaded_revision: 0,
             panel_entity: Entity::PLACEHOLDER,
@@ -249,6 +250,87 @@ fn active_terminal_presentation_preserves_terminal_aspect_with_margin() {
     assert!((transform.translation.z - 0.3).abs() < 0.01);
     assert!(expected_size.x < 1100.0);
     assert!(expected_size.y < 900.0);
+}
+
+#[test]
+fn active_terminal_smooth_mode_respects_zoom_distance() {
+    let (bridge, _) = test_bridge();
+    let mut manager = TerminalManager::default();
+    let id = manager.create_terminal(bridge);
+    for (_, terminal) in manager.iter_mut() {
+        terminal.snapshot.surface = Some(TerminalSurface::new(120, 38));
+    }
+
+    let window = Window {
+        resolution: (1400, 900).into(),
+        ..Default::default()
+    };
+    let mut hud_state = HudState::default();
+    hud_state.insert(
+        HudModuleId::AgentList,
+        crate::hud::default_hud_module_instance(&crate::hud::HUD_MODULE_DEFINITIONS[1]),
+    );
+    let rect = crate::hud::docked_agent_list_rect(&window);
+    let agent_list = hud_state.get_mut(HudModuleId::AgentList).unwrap();
+    agent_list.shell.enabled = true;
+    agent_list.shell.current_rect = rect;
+    agent_list.shell.target_rect = rect;
+
+    let fitted_cell_size = pixel_perfect_cell_size(120, 38, &window, &hud_state);
+    let fitted_texture_size = UVec2::new(120 * fitted_cell_size.x, 38 * fitted_cell_size.y);
+
+    let mut presentation_store = TerminalPresentationStore::default();
+    presentation_store.register(
+        id,
+        PresentedTerminal {
+            image: Default::default(),
+            texture_state: TerminalTextureState {
+                texture_size: fitted_texture_size,
+                cell_size: fitted_cell_size,
+            },
+            display_mode: TerminalDisplayMode::Smooth,
+            uploaded_revision: 0,
+            panel_entity: Entity::PLACEHOLDER,
+            frame_entity: Entity::PLACEHOLDER,
+        },
+    );
+
+    let mut world = World::default();
+    let mut time = Time::<()>::default();
+    time.advance_by(Duration::from_secs(1));
+    world.insert_resource(time);
+    world.insert_resource(manager);
+    world.insert_resource(presentation_store);
+    world.insert_resource(crate::hud::TerminalVisibilityState::default());
+    let mut view_state = TerminalViewState::default();
+    view_state.distance = 5.0;
+    world.insert_resource(view_state);
+    world.insert_resource(hud_state);
+    world.spawn((window, PrimaryWindow));
+    world.spawn((
+        TerminalPanel { id },
+        TerminalPresentation {
+            home_position: Vec2::ZERO,
+            current_position: Vec2::ZERO,
+            target_position: Vec2::ZERO,
+            current_size: Vec2::ONE,
+            target_size: Vec2::ONE,
+            current_alpha: 1.0,
+            target_alpha: 1.0,
+            current_z: 0.0,
+            target_z: 0.0,
+        },
+        Transform::default(),
+        Sprite::default(),
+        Visibility::Visible,
+    ));
+
+    world.run_system_once(sync_terminal_presentations).unwrap();
+
+    let mut query = world.query::<&TerminalPresentation>();
+    let presentation = query.single(&world).unwrap();
+    assert!(presentation.current_size.x > fitted_texture_size.x as f32 / 2.0);
+    assert!(presentation.current_size.y > fitted_texture_size.y as f32 / 2.0);
 }
 
 #[test]

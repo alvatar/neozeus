@@ -293,7 +293,11 @@ pub(crate) fn sync_terminal_presentations(
                 presentation.target_alpha = 1.0;
                 presentation.target_position =
                     hud_terminal_target_position(&primary_window, &hud_state);
-                presentation.target_size = active_size;
+                presentation.target_size = if pixel_perfect {
+                    active_size
+                } else {
+                    smooth_size
+                };
                 presentation.target_z = if pixel_perfect { 3.0 } else { 0.3 };
             }
             _ => {
