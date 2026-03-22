@@ -12,15 +12,15 @@ use crate::{
         pixel_perfect_cell_size, pixel_perfect_terminal_logical_size, poll_terminal_snapshots,
         provision_terminal_target, rasterize_terminal_glyph, reconcile_terminal_sessions,
         resolve_alacritty_color, resolve_terminal_font_report, resolve_terminal_sessions_path_with,
-        save_terminal_sessions_if_dirty, serialize_persisted_terminal_sessions, snap_to_pixel_grid,
-        sync_terminal_presentations, xterm_indexed_rgb, KittyFontConfig, PersistedTerminalSessions,
-        PresentedTerminal, TerminalAttachTarget, TerminalDamage, TerminalDisplayMode,
-        TerminalFontRole, TerminalFontState, TerminalFrameUpdate, TerminalGlyphCacheKey,
-        TerminalLifecycle, TerminalManager, TerminalPanel, TerminalPresentation,
-        TerminalPresentationStore, TerminalProvisionTarget, TerminalRuntimeState,
-        TerminalSessionPersistenceState, TerminalSessionRecord, TerminalSurface,
-        TerminalTextRenderer, TerminalTextureState, TerminalUpdate, TerminalViewState, TmuxClient,
-        PERSISTENT_TMUX_SESSION_PREFIX,
+        save_terminal_sessions_if_dirty, send_bytes_tmux_commands,
+        serialize_persisted_terminal_sessions, snap_to_pixel_grid, sync_terminal_presentations,
+        xterm_indexed_rgb, KittyFontConfig, PersistedTerminalSessions, PresentedTerminal,
+        TerminalAttachTarget, TerminalDamage, TerminalDisplayMode, TerminalFontRole,
+        TerminalFontState, TerminalFrameUpdate, TerminalGlyphCacheKey, TerminalLifecycle,
+        TerminalManager, TerminalPanel, TerminalPresentation, TerminalPresentationStore,
+        TerminalProvisionTarget, TerminalRuntimeState, TerminalSessionPersistenceState,
+        TerminalSessionRecord, TerminalSurface, TerminalTextRenderer, TerminalTextureState,
+        TerminalUpdate, TerminalViewState, TmuxClient, PERSISTENT_TMUX_SESSION_PREFIX,
     },
 };
 use alacritty_terminal::vte::ansi::{Color as AnsiColor, NamedColor};
@@ -405,6 +405,10 @@ fn create_detached_session_tmux_commands_keep_sessions_alive_when_unattached() {
             vec![
                 std::ffi::OsString::from("new-session"),
                 std::ffi::OsString::from("-d"),
+                std::ffi::OsString::from("-x"),
+                std::ffi::OsString::from("120"),
+                std::ffi::OsString::from("-y"),
+                std::ffi::OsString::from("38"),
                 std::ffi::OsString::from("-s"),
                 std::ffi::OsString::from("neozeus-session-a"),
             ],
@@ -414,6 +418,51 @@ fn create_detached_session_tmux_commands_keep_sessions_alive_when_unattached() {
                 std::ffi::OsString::from("neozeus-session-a"),
                 std::ffi::OsString::from("destroy-unattached"),
                 std::ffi::OsString::from("off"),
+            ],
+            vec![
+                std::ffi::OsString::from("set-option"),
+                std::ffi::OsString::from("-t"),
+                std::ffi::OsString::from("neozeus-session-a"),
+                std::ffi::OsString::from("status"),
+                std::ffi::OsString::from("off"),
+            ],
+        ]
+    );
+}
+
+#[test]
+fn send_bytes_tmux_commands_split_control_and_literal_sequences() {
+    let commands = send_bytes_tmux_commands("neozeus-session-a", b"ab\x1b[A\r");
+    assert_eq!(
+        commands,
+        vec![
+            vec![
+                std::ffi::OsString::from("send-keys"),
+                std::ffi::OsString::from("-t"),
+                std::ffi::OsString::from("=neozeus-session-a:0.0"),
+                std::ffi::OsString::from("-l"),
+                std::ffi::OsString::from("ab"),
+            ],
+            vec![
+                std::ffi::OsString::from("send-keys"),
+                std::ffi::OsString::from("-t"),
+                std::ffi::OsString::from("=neozeus-session-a:0.0"),
+                std::ffi::OsString::from("-H"),
+                std::ffi::OsString::from("1b"),
+            ],
+            vec![
+                std::ffi::OsString::from("send-keys"),
+                std::ffi::OsString::from("-t"),
+                std::ffi::OsString::from("=neozeus-session-a:0.0"),
+                std::ffi::OsString::from("-l"),
+                std::ffi::OsString::from("[A"),
+            ],
+            vec![
+                std::ffi::OsString::from("send-keys"),
+                std::ffi::OsString::from("-t"),
+                std::ffi::OsString::from("=neozeus-session-a:0.0"),
+                std::ffi::OsString::from("-H"),
+                std::ffi::OsString::from("0d"),
             ],
         ]
     );

@@ -1,7 +1,8 @@
 use crate::{
     app_config::{DEFAULT_COLS, DEFAULT_ROWS},
     terminals::{
-        append_debug_log, build_attach_command_argv, note_terminal_error, with_debug_stats,
+        append_debug_log, build_attach_command_argv, capture_pane_tmux_command,
+        note_terminal_error, pane_state_tmux_command, send_bytes_tmux_commands, with_debug_stats,
         PtySession, RuntimeNotifier, TerminalAttachTarget, TerminalCell, TerminalCellContent,
         TerminalCommand, TerminalCursor, TerminalCursorShape, TerminalDamage, TerminalDimensions,
         TerminalFrameUpdate, TerminalRuntimeState, TerminalSurface, TerminalUpdate,
@@ -19,8 +20,10 @@ use bevy_egui::egui;
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 use std::{
     io::{Read, Write},
+    process::Command,
     sync::{mpsc, mpsc::Receiver, Arc, Mutex},
     thread,
+    time::Duration,
 };
 
 use crate::terminals::TerminalDebugStats;
@@ -65,6 +68,7 @@ fn send_terminal_frame_update(
     notifier: &RuntimeNotifier,
     previous_surface: Option<&TerminalSurface>,
     surface: TerminalSurface,
+    backend_status: &str,
 ) {
     let damage = compute_terminal_damage(previous_surface, &surface);
     if matches!(damage, TerminalDamage::Rows(ref rows) if rows.is_empty()) {
@@ -75,11 +79,25 @@ fn send_terminal_frame_update(
         TerminalUpdate::Frame(TerminalFrameUpdate {
             surface,
             damage,
-            runtime: TerminalRuntimeState::running("backend: alacritty_terminal + portable-pty"),
+            runtime: TerminalRuntimeState::running(backend_status),
         }),
         debug_stats,
         notifier,
     );
+}
+
+const TMUX_VIEWER_POLL_INTERVAL: Duration = Duration::from_millis(33);
+const TMUX_VIEWER_HISTORY_LIMIT: usize = 4096;
+const PTY_BACKEND_STATUS: &str = "backend: alacritty_terminal + portable-pty";
+const TMUX_VIEWER_BACKEND_STATUS: &str = "backend: tmux detached session viewer";
+
+struct TmuxPaneSnapshot {
+    cols: usize,
+    rows: usize,
+    cursor_x: usize,
+    cursor_y: usize,
+    cursor_visible: bool,
+    lines: Vec<String>,
 }
 
 pub(crate) fn terminal_worker(
@@ -89,6 +107,17 @@ pub(crate) fn terminal_worker(
     notifier: RuntimeNotifier,
     attach_target: TerminalAttachTarget,
 ) {
+    if let TerminalAttachTarget::TmuxViewer { session_name } = &attach_target {
+        tmux_viewer_worker(
+            input_rx,
+            update_mailbox,
+            debug_stats,
+            notifier,
+            session_name,
+        );
+        return;
+    }
+
     let PtySession {
         master,
         writer,
@@ -325,6 +354,7 @@ pub(crate) fn terminal_worker(
                         &notifier,
                         previous_surface.as_ref(),
                         surface.clone(),
+                        PTY_BACKEND_STATUS,
                     );
                     previous_surface = Some(surface);
                 }
@@ -386,6 +416,7 @@ pub(crate) fn terminal_worker(
                 &notifier,
                 previous_surface.as_ref(),
                 surface.clone(),
+                PTY_BACKEND_STATUS,
             );
             previous_surface = Some(surface);
         }
@@ -394,6 +425,273 @@ pub(crate) fn terminal_worker(
     let _ = child.kill();
     let _ = reader_thread.join();
     let _ = input_thread.join();
+}
+
+fn tmux_viewer_worker(
+    input_rx: Receiver<TerminalCommand>,
+    update_mailbox: Arc<TerminalUpdateMailbox>,
+    debug_stats: Arc<Mutex<TerminalDebugStats>>,
+    notifier: RuntimeNotifier,
+    session_name: &str,
+) {
+    append_debug_log(format!("tmux viewer worker start session={session_name}"));
+    let mut previous_surface: Option<TerminalSurface> = None;
+    let mut scroll_offset_lines = 0usize;
+
+    loop {
+        match input_rx.recv_timeout(TMUX_VIEWER_POLL_INTERVAL) {
+            Ok(command) => {
+                if let Err(error) = apply_tmux_viewer_command(
+                    session_name,
+                    command,
+                    &debug_stats,
+                    &mut scroll_offset_lines,
+                ) {
+                    send_terminal_status_update(
+                        &update_mailbox,
+                        &debug_stats,
+                        TerminalRuntimeState::failed(error),
+                        previous_surface.clone(),
+                        &notifier,
+                    );
+                    return;
+                }
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => {}
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                send_terminal_status_update(
+                    &update_mailbox,
+                    &debug_stats,
+                    TerminalRuntimeState::disconnected("tmux viewer input channel disconnected"),
+                    previous_surface.clone(),
+                    &notifier,
+                );
+                return;
+            }
+        }
+
+        while let Ok(command) = input_rx.try_recv() {
+            if let Err(error) = apply_tmux_viewer_command(
+                session_name,
+                command,
+                &debug_stats,
+                &mut scroll_offset_lines,
+            ) {
+                send_terminal_status_update(
+                    &update_mailbox,
+                    &debug_stats,
+                    TerminalRuntimeState::failed(error),
+                    previous_surface.clone(),
+                    &notifier,
+                );
+                return;
+            }
+        }
+
+        if !tmux_session_exists(session_name) {
+            send_terminal_status_update(
+                &update_mailbox,
+                &debug_stats,
+                TerminalRuntimeState::disconnected(format!(
+                    "tmux session `{session_name}` no longer exists"
+                )),
+                previous_surface.clone(),
+                &notifier,
+            );
+            return;
+        }
+
+        match capture_tmux_surface(session_name, scroll_offset_lines) {
+            Ok((surface, max_scroll_lines)) => {
+                scroll_offset_lines = scroll_offset_lines.min(max_scroll_lines);
+                send_terminal_frame_update(
+                    &update_mailbox,
+                    &debug_stats,
+                    &notifier,
+                    previous_surface.as_ref(),
+                    surface.clone(),
+                    TMUX_VIEWER_BACKEND_STATUS,
+                );
+                previous_surface = Some(surface);
+            }
+            Err(error) => {
+                send_terminal_status_update(
+                    &update_mailbox,
+                    &debug_stats,
+                    TerminalRuntimeState::failed(error),
+                    previous_surface.clone(),
+                    &notifier,
+                );
+                return;
+            }
+        }
+    }
+}
+
+fn apply_tmux_viewer_command(
+    session_name: &str,
+    command: TerminalCommand,
+    debug_stats: &Arc<Mutex<TerminalDebugStats>>,
+    scroll_offset_lines: &mut usize,
+) -> Result<(), String> {
+    match command {
+        TerminalCommand::InputText(text) => {
+            *scroll_offset_lines = 0;
+            send_tmux_bytes(session_name, text.as_bytes(), debug_stats)
+        }
+        TerminalCommand::InputEvent(event) => {
+            *scroll_offset_lines = 0;
+            send_tmux_bytes(session_name, event.as_bytes(), debug_stats)
+        }
+        TerminalCommand::SendCommand(command) => {
+            *scroll_offset_lines = 0;
+            let payload = format!("{command}\r");
+            send_tmux_bytes(session_name, payload.as_bytes(), debug_stats)
+        }
+        TerminalCommand::ScrollDisplay(lines) => {
+            if lines >= 0 {
+                *scroll_offset_lines = scroll_offset_lines.saturating_add(lines as usize);
+            } else {
+                *scroll_offset_lines = scroll_offset_lines.saturating_sub((-lines) as usize);
+            }
+            Ok(())
+        }
+    }
+}
+
+fn send_tmux_bytes(
+    session_name: &str,
+    bytes: &[u8],
+    debug_stats: &Arc<Mutex<TerminalDebugStats>>,
+) -> Result<(), String> {
+    for args in send_bytes_tmux_commands(session_name, bytes) {
+        run_tmux_command(&args)?;
+    }
+    with_debug_stats(debug_stats, |stats| {
+        stats.pty_bytes_written += bytes.len() as u64;
+    });
+    Ok(())
+}
+
+fn capture_tmux_surface(
+    session_name: &str,
+    scroll_offset_lines: usize,
+) -> Result<(TerminalSurface, usize), String> {
+    let snapshot = read_tmux_pane_snapshot(session_name)?;
+    let max_scroll_lines = snapshot.lines.len().saturating_sub(snapshot.rows);
+    let surface = build_surface_from_tmux_snapshot(&snapshot, scroll_offset_lines);
+    Ok((surface, max_scroll_lines))
+}
+
+fn read_tmux_pane_snapshot(session_name: &str) -> Result<TmuxPaneSnapshot, String> {
+    let state_output = run_tmux_command(&pane_state_tmux_command(session_name))?;
+    let mut state_parts = state_output.trim().split('\t');
+    let cols = state_parts
+        .next()
+        .and_then(|value| value.parse::<usize>().ok())
+        .ok_or_else(|| format!("invalid tmux pane width for `{session_name}`"))?;
+    let rows = state_parts
+        .next()
+        .and_then(|value| value.parse::<usize>().ok())
+        .ok_or_else(|| format!("invalid tmux pane height for `{session_name}`"))?;
+    let cursor_x = state_parts
+        .next()
+        .and_then(|value| value.parse::<usize>().ok())
+        .ok_or_else(|| format!("invalid tmux cursor_x for `{session_name}`"))?;
+    let cursor_y = state_parts
+        .next()
+        .and_then(|value| value.parse::<usize>().ok())
+        .ok_or_else(|| format!("invalid tmux cursor_y for `{session_name}`"))?;
+    let cursor_visible = state_parts
+        .next()
+        .and_then(|value| value.parse::<u8>().ok())
+        .is_some_and(|flag| flag != 0);
+
+    let capture_output = run_tmux_command(&capture_pane_tmux_command(
+        session_name,
+        TMUX_VIEWER_HISTORY_LIMIT,
+    ))?;
+    let mut lines = capture_output
+        .split('\n')
+        .map(|line| line.strip_suffix('\r').unwrap_or(line).to_owned())
+        .collect::<Vec<_>>();
+    if capture_output.ends_with('\n') {
+        let _ = lines.pop();
+    }
+
+    Ok(TmuxPaneSnapshot {
+        cols: cols.max(1),
+        rows: rows.max(1),
+        cursor_x,
+        cursor_y,
+        cursor_visible,
+        lines,
+    })
+}
+
+fn build_surface_from_tmux_snapshot(
+    snapshot: &TmuxPaneSnapshot,
+    scroll_offset_lines: usize,
+) -> TerminalSurface {
+    let dimensions = TerminalDimensions {
+        cols: snapshot.cols.max(1),
+        rows: snapshot.rows.max(1),
+    };
+    let config = TermConfig {
+        scrolling_history: TMUX_VIEWER_HISTORY_LIMIT,
+        ..TermConfig::default()
+    };
+    let mut terminal = Term::new(config, &dimensions, VoidListener);
+    let mut parser = ansi::Processor::<ansi::StdSyncHandler>::new();
+    parser.advance(&mut terminal, b"\x1b[2J\x1b[H");
+
+    let max_scroll_lines = snapshot.lines.len().saturating_sub(snapshot.rows);
+    let start = max_scroll_lines.saturating_sub(scroll_offset_lines.min(max_scroll_lines));
+    for (row_index, line) in snapshot
+        .lines
+        .iter()
+        .skip(start)
+        .take(snapshot.rows)
+        .enumerate()
+    {
+        let move_sequence = format!("\x1b[{};1H\x1b[0m", row_index + 1);
+        parser.advance(&mut terminal, move_sequence.as_bytes());
+        parser.advance(&mut terminal, line.as_bytes());
+        parser.advance(&mut terminal, b"\x1b[K");
+    }
+
+    let mut surface = build_surface(&terminal);
+    if let Some(cursor) = surface.cursor.as_mut() {
+        cursor.x = snapshot.cursor_x.min(snapshot.cols.saturating_sub(1));
+        cursor.y = snapshot.cursor_y.min(snapshot.rows.saturating_sub(1));
+        cursor.visible = snapshot.cursor_visible && scroll_offset_lines == 0;
+    }
+    surface
+}
+
+fn tmux_session_exists(session_name: &str) -> bool {
+    Command::new("tmux")
+        .args(["has-session", "-t", session_name])
+        .output()
+        .map(|output| output.status.success())
+        .unwrap_or(false)
+}
+
+fn run_tmux_command(args: &[std::ffi::OsString]) -> Result<String, String> {
+    let output = Command::new("tmux").args(args).output().map_err(|error| {
+        format!(
+            "failed to execute tmux {}: {error}",
+            args.iter()
+                .map(|arg| arg.to_string_lossy())
+                .collect::<Vec<_>>()
+                .join(" ")
+        )
+    })?;
+    if output.status.success() {
+        Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+    } else {
+        Err(String::from_utf8_lossy(&output.stderr).trim().to_owned())
+    }
 }
 
 fn set_reader_runtime_state(
