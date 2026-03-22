@@ -118,7 +118,25 @@ fn reset_module_restores_default_toolbar_state() {
 }
 
 #[test]
-fn alt_shift_module_shortcut_resets_module_instead_of_toggling() {
+fn plain_digit_module_shortcut_toggles_module() {
+    let mut world = World::default();
+    world.insert_resource(ButtonInput::<KeyCode>::default());
+    world.insert_resource(HudDispatcher::default());
+    world.init_resource::<Messages<KeyboardInput>>();
+    world
+        .resource_mut::<Messages<KeyboardInput>>()
+        .write(pressed_text(KeyCode::Digit1, Some("1")));
+
+    world.run_system_once(handle_hud_module_shortcuts).unwrap();
+
+    assert_eq!(
+        world.resource::<HudDispatcher>().commands,
+        vec![HudCommand::ToggleModule(HudModuleId::AgentList)]
+    );
+}
+
+#[test]
+fn alt_shift_module_shortcut_still_resets_module() {
     let mut world = World::default();
     let mut keys = ButtonInput::<KeyCode>::default();
     keys.press(KeyCode::AltLeft);
@@ -136,6 +154,24 @@ fn alt_shift_module_shortcut_resets_module_instead_of_toggling() {
         world.resource::<HudDispatcher>().commands,
         vec![HudCommand::ResetModule(HudModuleId::DebugToolbar)]
     );
+}
+
+#[test]
+fn module_shortcuts_are_suppressed_while_direct_input_is_open() {
+    let mut world = World::default();
+    let mut hud_state = HudState::default();
+    hud_state.open_direct_terminal_input(crate::terminals::TerminalId(1));
+    world.insert_resource(hud_state);
+    world.insert_resource(ButtonInput::<KeyCode>::default());
+    world.insert_resource(HudDispatcher::default());
+    world.init_resource::<Messages<KeyboardInput>>();
+    world
+        .resource_mut::<Messages<KeyboardInput>>()
+        .write(pressed_text(KeyCode::Digit1, Some("1")));
+
+    world.run_system_once(handle_hud_module_shortcuts).unwrap();
+
+    assert!(world.resource::<HudDispatcher>().commands.is_empty());
 }
 
 #[test]
