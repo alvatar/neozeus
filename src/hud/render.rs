@@ -5,8 +5,7 @@ use crate::{
     },
     terminals::{TerminalFontState, TerminalManager, TerminalPresentationStore, TerminalViewState},
 };
-use bevy::sprite_render::{AlphaMode2d, Material2dProperties, PreparedMaterial2d};
-use bevy::{prelude::*, render::render_asset::RenderAssets, window::PrimaryWindow};
+use bevy::{prelude::*, sprite_render::MeshMaterial2d, window::PrimaryWindow};
 use bevy_vello::{
     parley::PositionedLayoutItem,
     prelude::{
@@ -20,7 +19,7 @@ use bevy_vello::{
 #[derive(Component)]
 pub(crate) struct HudVectorSceneMarker;
 
-pub(crate) const VELLO_CANVAS_DEPTH_BIAS: f32 = 10_000.0;
+pub(crate) const VELLO_CANVAS_FOREGROUND_Z: f32 = 100.0;
 
 pub(crate) struct HudColors;
 
@@ -429,21 +428,11 @@ fn draw_message_box(
     );
 }
 
-pub(crate) fn vello_canvas_material_order() -> (AlphaMode2d, f32) {
-    (AlphaMode2d::Blend, VELLO_CANVAS_DEPTH_BIAS)
-}
-
-pub(crate) fn enforce_vello_canvas_material_order(properties: &mut Material2dProperties) {
-    let (alpha_mode, depth_bias) = vello_canvas_material_order();
-    properties.alpha_mode = alpha_mode;
-    properties.depth_bias = depth_bias;
-}
-
-pub(crate) fn promote_vello_canvas_material_order(
-    mut materials: ResMut<RenderAssets<PreparedMaterial2d<VelloCanvasMaterial>>>,
+pub(crate) fn elevate_vello_canvas_above_world(
+    mut canvases: Query<&mut Transform, With<MeshMaterial2d<VelloCanvasMaterial>>>,
 ) {
-    for (_, prepared) in materials.iter_mut() {
-        enforce_vello_canvas_material_order(&mut prepared.properties);
+    for mut transform in &mut canvases {
+        transform.translation.z = VELLO_CANVAS_FOREGROUND_Z;
     }
 }
 
