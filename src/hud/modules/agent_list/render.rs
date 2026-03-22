@@ -1,6 +1,6 @@
 use crate::hud::{
     render::{HudColors, HudPainter, HudRenderInputs},
-    HudModuleModel, HudRect, HUD_MODULE_PADDING, HUD_ROW_HEIGHT,
+    HudModuleModel, HudRect,
 };
 use bevy::prelude::Vec2;
 use bevy_vello::prelude::VelloTextAnchor;
@@ -37,14 +37,4 @@ pub(crate) fn render_content(
             VelloTextAnchor::TopLeft,
         );
     }
-    painter.label(
-        Vec2::new(
-            content_rect.x + HUD_MODULE_PADDING,
-            content_rect.y + content_rect.h - HUD_ROW_HEIGHT,
-        ),
-        "click row: focus + isolate",
-        13.0,
-        HudColors::TEXT_MUTED,
-        VelloTextAnchor::TopLeft,
-    );
 }
