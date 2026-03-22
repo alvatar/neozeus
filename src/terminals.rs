@@ -61,9 +61,9 @@ pub(crate) use session_persistence::{
 pub(crate) use tmux::create_detached_session_tmux_commands;
 pub(crate) use tmux::{
     build_attach_command_argv, capture_pane_tmux_command, generate_unique_session_name,
-    is_persistent_session_name, pane_state_tmux_command, provision_terminal_target,
-    send_bytes_tmux_commands, TmuxClient, TmuxClientResource, PERSISTENT_TMUX_SESSION_PREFIX,
-    VERIFIER_TMUX_SESSION_PREFIX,
+    is_persistent_session_name, list_panes_tmux_command, pane_state_tmux_command,
+    provision_terminal_target, send_bytes_tmux_commands, TmuxClient, TmuxClientResource,
+    PERSISTENT_TMUX_SESSION_PREFIX, VERIFIER_TMUX_SESSION_PREFIX,
 };
 #[cfg(test)]
 pub(crate) use types::TerminalLifecycle;

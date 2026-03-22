@@ -432,35 +432,35 @@ fn create_detached_session_tmux_commands_keep_sessions_alive_when_unattached() {
 
 #[test]
 fn send_bytes_tmux_commands_split_control_and_literal_sequences() {
-    let commands = send_bytes_tmux_commands("neozeus-session-a", b"ab\x1b[A\r");
+    let commands = send_bytes_tmux_commands("%42", b"ab\x1b[A\r");
     assert_eq!(
         commands,
         vec![
             vec![
                 std::ffi::OsString::from("send-keys"),
                 std::ffi::OsString::from("-t"),
-                std::ffi::OsString::from("=neozeus-session-a:0.0"),
+                std::ffi::OsString::from("%42"),
                 std::ffi::OsString::from("-l"),
                 std::ffi::OsString::from("ab"),
             ],
             vec![
                 std::ffi::OsString::from("send-keys"),
                 std::ffi::OsString::from("-t"),
-                std::ffi::OsString::from("=neozeus-session-a:0.0"),
+                std::ffi::OsString::from("%42"),
                 std::ffi::OsString::from("-H"),
                 std::ffi::OsString::from("1b"),
             ],
             vec![
                 std::ffi::OsString::from("send-keys"),
                 std::ffi::OsString::from("-t"),
-                std::ffi::OsString::from("=neozeus-session-a:0.0"),
+                std::ffi::OsString::from("%42"),
                 std::ffi::OsString::from("-l"),
                 std::ffi::OsString::from("[A"),
             ],
             vec![
                 std::ffi::OsString::from("send-keys"),
                 std::ffi::OsString::from("-t"),
-                std::ffi::OsString::from("=neozeus-session-a:0.0"),
+                std::ffi::OsString::from("%42"),
                 std::ffi::OsString::from("-H"),
                 std::ffi::OsString::from("0d"),
             ],

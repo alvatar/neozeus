@@ -2,12 +2,12 @@ use crate::{
     app_config::{DEFAULT_COLS, DEFAULT_ROWS},
     terminals::{
         append_debug_log, build_attach_command_argv, capture_pane_tmux_command,
-        note_terminal_error, pane_state_tmux_command, send_bytes_tmux_commands, with_debug_stats,
-        PtySession, RuntimeNotifier, TerminalAttachTarget, TerminalCell, TerminalCellContent,
-        TerminalCommand, TerminalCursor, TerminalCursorShape, TerminalDamage, TerminalDimensions,
-        TerminalFrameUpdate, TerminalRuntimeState, TerminalSurface, TerminalUpdate,
-        TerminalUpdateMailbox, PTY_OUTPUT_BATCH_BYTES, PTY_OUTPUT_BATCH_WINDOW,
-        PTY_OUTPUT_WAIT_TIMEOUT,
+        list_panes_tmux_command, note_terminal_error, pane_state_tmux_command,
+        send_bytes_tmux_commands, with_debug_stats, PtySession, RuntimeNotifier,
+        TerminalAttachTarget, TerminalCell, TerminalCellContent, TerminalCommand, TerminalCursor,
+        TerminalCursorShape, TerminalDamage, TerminalDimensions, TerminalFrameUpdate,
+        TerminalRuntimeState, TerminalSurface, TerminalUpdate, TerminalUpdateMailbox,
+        PTY_OUTPUT_BATCH_BYTES, PTY_OUTPUT_BATCH_WINDOW, PTY_OUTPUT_WAIT_TIMEOUT,
     },
 };
 use alacritty_terminal::{
@@ -564,7 +564,8 @@ fn send_tmux_bytes(
     bytes: &[u8],
     debug_stats: &Arc<Mutex<TerminalDebugStats>>,
 ) -> Result<(), String> {
-    for args in send_bytes_tmux_commands(session_name, bytes) {
+    let pane_target = resolve_tmux_active_pane_target(session_name)?;
+    for args in send_bytes_tmux_commands(&pane_target, bytes) {
         run_tmux_command(&args)?;
     }
     with_debug_stats(debug_stats, |stats| {
@@ -584,7 +585,8 @@ fn capture_tmux_surface(
 }
 
 fn read_tmux_pane_snapshot(session_name: &str) -> Result<TmuxPaneSnapshot, String> {
-    let state_output = run_tmux_command(&pane_state_tmux_command(session_name))?;
+    let pane_target = resolve_tmux_active_pane_target(session_name)?;
+    let state_output = run_tmux_command(&pane_state_tmux_command(&pane_target))?;
     let mut state_parts = state_output.trim().split('\t');
     let cols = state_parts
         .next()
@@ -608,7 +610,7 @@ fn read_tmux_pane_snapshot(session_name: &str) -> Result<TmuxPaneSnapshot, Strin
         .is_some_and(|flag| flag != 0);
 
     let capture_output = run_tmux_command(&capture_pane_tmux_command(
-        session_name,
+        &pane_target,
         TMUX_VIEWER_HISTORY_LIMIT,
     ))?;
     let mut lines = capture_output
@@ -627,6 +629,25 @@ fn read_tmux_pane_snapshot(session_name: &str) -> Result<TmuxPaneSnapshot, Strin
         cursor_visible,
         lines,
     })
+}
+
+fn resolve_tmux_active_pane_target(session_name: &str) -> Result<String, String> {
+    let panes_output = run_tmux_command(&list_panes_tmux_command(session_name))?;
+    let mut first_pane = None;
+    for line in panes_output.lines() {
+        let mut parts = line.split('\t');
+        let Some(pane_id) = parts.next().filter(|value| !value.is_empty()) else {
+            continue;
+        };
+        let active = parts.next().and_then(|value| value.parse::<u8>().ok()) == Some(1);
+        if first_pane.is_none() {
+            first_pane = Some(pane_id.to_owned());
+        }
+        if active {
+            return Ok(pane_id.to_owned());
+        }
+    }
+    first_pane.ok_or_else(|| format!("tmux session `{session_name}` has no panes"))
 }
 
 fn build_surface_from_tmux_snapshot(
