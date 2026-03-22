@@ -27,12 +27,21 @@ pub(crate) use state::{
     HUD_MODULE_PADDING, HUD_ROW_HEIGHT, HUD_TITLEBAR_HEIGHT,
 };
 
-use bevy::{camera::visibility::NoFrustumCulling, prelude::*, window::RequestRedraw};
-use bevy_vello::prelude::VelloScene2d;
+use bevy::{
+    camera::{
+        visibility::{NoFrustumCulling, RenderLayers},
+        ClearColorConfig,
+    },
+    prelude::*,
+    window::RequestRedraw,
+};
+use bevy_vello::prelude::{VelloScene2d, VelloView};
 
 pub(crate) fn append_hud_log(message: impl AsRef<str>) {
     crate::terminals::append_debug_log(format!("hud: {}", message.as_ref()));
 }
+
+const HUD_RENDER_LAYER: usize = 1;
 
 pub(crate) fn setup_hud(
     mut commands: Commands,
@@ -65,9 +74,21 @@ pub(crate) fn setup_hud(
     }
 
     commands.spawn((
+        Camera2d,
+        Camera {
+            order: 1,
+            clear_color: ClearColorConfig::None,
+            ..default()
+        },
+        VelloView,
+        RenderLayers::layer(HUD_RENDER_LAYER),
+    ));
+
+    commands.spawn((
         VelloScene2d::default(),
         Transform::from_xyz(0.0, 0.0, 50.0),
         NoFrustumCulling,
+        RenderLayers::layer(HUD_RENDER_LAYER),
         HudVectorSceneMarker,
     ));
     redraws.write(RequestRedraw);
