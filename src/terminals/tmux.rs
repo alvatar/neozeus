@@ -129,11 +129,17 @@ pub(crate) fn create_detached_session_tmux_commands(name: &str) -> Vec<Vec<OsStr
     ]
 }
 
-pub(crate) fn tmux_pane_target(session_name: &str) -> OsString {
-    OsString::from(format!("={session_name}:0.0"))
+pub(crate) fn list_panes_tmux_command(session_name: &str) -> Vec<OsString> {
+    vec![
+        OsString::from("list-panes"),
+        OsString::from("-t"),
+        OsString::from(session_name),
+        OsString::from("-F"),
+        OsString::from("#{pane_id}\t#{pane_active}"),
+    ]
 }
 
-pub(crate) fn capture_pane_tmux_command(session_name: &str, history_limit: usize) -> Vec<OsString> {
+pub(crate) fn capture_pane_tmux_command(pane_target: &str, history_limit: usize) -> Vec<OsString> {
     vec![
         OsString::from("capture-pane"),
         OsString::from("-p"),
@@ -142,21 +148,21 @@ pub(crate) fn capture_pane_tmux_command(session_name: &str, history_limit: usize
         OsString::from("-S"),
         OsString::from(format!("-{}", history_limit.max(1))),
         OsString::from("-t"),
-        tmux_pane_target(session_name),
+        OsString::from(pane_target),
     ]
 }
 
-pub(crate) fn pane_state_tmux_command(session_name: &str) -> Vec<OsString> {
+pub(crate) fn pane_state_tmux_command(pane_target: &str) -> Vec<OsString> {
     vec![
         OsString::from("display-message"),
         OsString::from("-p"),
         OsString::from("-t"),
-        tmux_pane_target(session_name),
+        OsString::from(pane_target),
         OsString::from("#{pane_width}\t#{pane_height}\t#{cursor_x}\t#{cursor_y}\t#{cursor_flag}"),
     ]
 }
 
-pub(crate) fn send_bytes_tmux_commands(session_name: &str, bytes: &[u8]) -> Vec<Vec<OsString>> {
+pub(crate) fn send_bytes_tmux_commands(pane_target: &str, bytes: &[u8]) -> Vec<Vec<OsString>> {
     let mut commands = Vec::new();
     let mut start = 0usize;
     while start < bytes.len() {
@@ -164,7 +170,7 @@ pub(crate) fn send_bytes_tmux_commands(session_name: &str, bytes: &[u8]) -> Vec<
             commands.push(vec![
                 OsString::from("send-keys"),
                 OsString::from("-t"),
-                tmux_pane_target(session_name),
+                OsString::from(pane_target),
                 OsString::from("-H"),
                 OsString::from(format!("{:02x}", bytes[start])),
             ]);
@@ -180,7 +186,7 @@ pub(crate) fn send_bytes_tmux_commands(session_name: &str, bytes: &[u8]) -> Vec<
         commands.push(vec![
             OsString::from("send-keys"),
             OsString::from("-t"),
-            tmux_pane_target(session_name),
+            OsString::from(pane_target),
             OsString::from("-l"),
             OsString::from(text),
         ]);
