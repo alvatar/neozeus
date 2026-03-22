@@ -28,7 +28,7 @@ pub(crate) use persistence::{
     serialize_persisted_hud_state, PersistedHudModuleState, PersistedHudState,
 };
 pub(crate) use persistence::{save_hud_layout_if_dirty, HudPersistenceState};
-pub(crate) use render::{render_hud_scene, HudVectorSceneMarker};
+pub(crate) use render::{render_hud_scene, HudOverlaySceneMarker, HudVectorSceneMarker};
 pub(crate) use state::{
     default_hud_module_instance, AgentDirectory, HudDragState, HudModuleId, HudModuleModel,
     HudRect, HudState, TerminalVisibilityPolicy, TerminalVisibilityState, HUD_BUTTON_GAP,
@@ -51,6 +51,7 @@ pub(crate) fn append_hud_log(message: impl AsRef<str>) {
 }
 
 const HUD_RENDER_LAYER: usize = 1;
+const HUD_OVERLAY_RENDER_LAYER: usize = 2;
 
 pub(crate) fn setup_hud(
     mut commands: Commands,
@@ -94,11 +95,30 @@ pub(crate) fn setup_hud(
     ));
 
     commands.spawn((
+        Camera2d,
+        Camera {
+            order: 2,
+            clear_color: ClearColorConfig::None,
+            ..default()
+        },
+        VelloView,
+        RenderLayers::layer(HUD_OVERLAY_RENDER_LAYER),
+    ));
+
+    commands.spawn((
         VelloScene2d::default(),
         Transform::from_xyz(0.0, 0.0, 50.0),
         NoFrustumCulling,
         RenderLayers::layer(HUD_RENDER_LAYER),
         HudVectorSceneMarker,
+    ));
+
+    commands.spawn((
+        VelloScene2d::default(),
+        Transform::from_xyz(0.0, 0.0, 60.0),
+        NoFrustumCulling,
+        RenderLayers::layer(HUD_OVERLAY_RENDER_LAYER),
+        HudOverlaySceneMarker,
     ));
     redraws.write(RequestRedraw);
 }
