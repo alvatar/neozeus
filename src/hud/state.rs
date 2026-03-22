@@ -473,7 +473,7 @@ impl HudState {
     pub(crate) fn is_animating(&self) -> bool {
         self.modules
             .values()
-            .any(|module| module.shell.enabled && module.shell.is_animating())
+            .any(|module| module.shell.is_animating())
     }
 
     pub(crate) fn keyboard_capture_active(&self) -> bool {
