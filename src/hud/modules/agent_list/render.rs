@@ -27,23 +27,13 @@ pub(crate) fn render_content(
         {
             continue;
         }
-        let fill = if row.focused {
-            HudColors::BUTTON_ACTIVE
-        } else if row.hovered {
-            HudColors::ROW_HOVERED
-        } else {
-            HudColors::ROW
-        };
-        painter.fill_rect(row.rect, fill, 6.0);
+        painter.fill_rect(row.rect, HudColors::BUTTON_ACTIVE, 0.0);
+        painter.stroke_rect(row.rect, HudColors::BUTTON_BORDER, 0.0);
         painter.label(
             Vec2::new(row.rect.x + 10.0, row.rect.y + 7.0),
             &row.label,
             15.0,
-            if row.focused {
-                HudColors::TEXT_ON_ACCENT
-            } else {
-                HudColors::TEXT
-            },
+            HudColors::TEXT_ON_ACCENT,
             VelloTextAnchor::TopLeft,
         );
     }

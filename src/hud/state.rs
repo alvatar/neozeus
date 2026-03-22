@@ -8,6 +8,7 @@ pub(crate) const HUD_ROW_HEIGHT: f32 = 28.0;
 pub(crate) const HUD_BUTTON_HEIGHT: f32 = 28.0;
 pub(crate) const HUD_BUTTON_GAP: f32 = 8.0;
 pub(crate) const HUD_BUTTON_MIN_WIDTH: f32 = 72.0;
+pub(crate) const HUD_AGENT_LIST_WIDTH: f32 = 300.0;
 pub(crate) const HUD_ANIMATION_EPSILON: f32 = 0.25;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -264,6 +265,15 @@ pub(crate) struct HudModuleDefinition {
     pub(crate) default_rect: HudRect,
 }
 
+pub(crate) fn docked_agent_list_rect(window: &Window) -> HudRect {
+    HudRect {
+        x: (window.width() - HUD_AGENT_LIST_WIDTH).max(0.0),
+        y: 0.0,
+        w: HUD_AGENT_LIST_WIDTH.min(window.width()),
+        h: window.height(),
+    }
+}
+
 pub(crate) const HUD_MODULE_DEFINITIONS: [HudModuleDefinition; 2] = [
     HudModuleDefinition {
         id: HudModuleId::DebugToolbar,
@@ -279,10 +289,10 @@ pub(crate) const HUD_MODULE_DEFINITIONS: [HudModuleDefinition; 2] = [
         id: HudModuleId::AgentList,
         default_enabled: true,
         default_rect: HudRect {
-            x: 24.0,
-            y: 104.0,
-            w: 300.0,
-            h: 420.0,
+            x: 0.0,
+            y: 0.0,
+            w: HUD_AGENT_LIST_WIDTH,
+            h: 720.0,
         },
     },
 ];

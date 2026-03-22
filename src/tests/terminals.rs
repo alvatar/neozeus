@@ -4,18 +4,18 @@ use super::{
 };
 use crate::{
     app_config::{DEFAULT_CELL_HEIGHT_PX, DEFAULT_CELL_WIDTH_PX},
-    hud::AgentDirectory,
+    hud::{AgentDirectory, HudModuleId, HudState},
     terminals::{
-        blend_rgba_in_place, build_attach_command_argv, compute_terminal_damage,
-        create_detached_session_tmux_commands, find_kitty_config_path_with,
-        generate_unique_session_name, initialize_terminal_text_renderer, is_emoji_like,
-        is_private_use_like, parse_kitty_config_file, parse_persisted_terminal_sessions,
-        pixel_perfect_cell_size, pixel_perfect_terminal_logical_size, poll_terminal_snapshots,
-        provision_terminal_target, rasterize_terminal_glyph, read_client_message,
-        read_server_message, reconcile_terminal_sessions, resolve_alacritty_color,
-        resolve_daemon_socket_path_with, resolve_terminal_font_report,
-        resolve_terminal_sessions_path_with, save_terminal_sessions_if_dirty,
-        send_bytes_tmux_commands, send_command_payload_bytes,
+        active_terminal_viewport, blend_rgba_in_place, build_attach_command_argv,
+        compute_terminal_damage, create_detached_session_tmux_commands,
+        find_kitty_config_path_with, generate_unique_session_name,
+        initialize_terminal_text_renderer, is_emoji_like, is_private_use_like,
+        parse_kitty_config_file, parse_persisted_terminal_sessions, pixel_perfect_cell_size,
+        pixel_perfect_terminal_logical_size, poll_terminal_snapshots, provision_terminal_target,
+        rasterize_terminal_glyph, read_client_message, read_server_message,
+        reconcile_terminal_sessions, resolve_alacritty_color, resolve_daemon_socket_path_with,
+        resolve_terminal_font_report, resolve_terminal_sessions_path_with,
+        save_terminal_sessions_if_dirty, send_bytes_tmux_commands, send_command_payload_bytes,
         serialize_persisted_terminal_sessions, snap_to_pixel_grid, sync_terminal_panel_frames,
         sync_terminal_presentations, write_client_message, write_server_message, xterm_indexed_rgb,
         ClientMessage, DaemonEvent, DaemonRequest, DaemonServerHandle, KittyFontConfig,
@@ -97,14 +97,15 @@ fn alpha_blend_preserves_transparent_glyph_background() {
 }
 
 #[test]
-fn pixel_perfect_cell_size_shrinks_native_raster_to_fit_window() {
+fn pixel_perfect_cell_size_does_not_exceed_native_size() {
     let window = Window {
         resolution: (1400, 900).into(),
         ..Default::default()
     };
-    let cell_size = pixel_perfect_cell_size(120, 38, &window);
-    assert!(cell_size.x < DEFAULT_CELL_WIDTH_PX);
-    assert!(cell_size.y < DEFAULT_CELL_HEIGHT_PX);
+    let hud_state = HudState::default();
+    let cell_size = pixel_perfect_cell_size(120, 38, &window, &hud_state);
+    assert!(cell_size.x <= DEFAULT_CELL_WIDTH_PX);
+    assert!(cell_size.y <= DEFAULT_CELL_HEIGHT_PX);
     assert!(cell_size.x >= 1);
     assert!(cell_size.y >= 1);
 }
@@ -128,6 +129,29 @@ fn pixel_perfect_terminal_logical_size_uses_scale_factor() {
     assert_eq!(
         pixel_perfect_terminal_logical_size(&texture_state, &window),
         Vec2::new(100.0, 60.0)
+    );
+}
+
+#[test]
+fn active_terminal_viewport_reserves_agent_list_column() {
+    let window = Window {
+        resolution: (1400, 900).into(),
+        ..Default::default()
+    };
+    let mut hud_state = HudState::default();
+    hud_state.insert(
+        HudModuleId::AgentList,
+        crate::hud::default_hud_module_instance(&crate::hud::HUD_MODULE_DEFINITIONS[1]),
+    );
+    let rect = crate::hud::docked_agent_list_rect(&window);
+    let agent_list = hud_state.get_mut(HudModuleId::AgentList).unwrap();
+    agent_list.shell.enabled = true;
+    agent_list.shell.current_rect = rect;
+    agent_list.shell.target_rect = rect;
+
+    assert_eq!(
+        active_terminal_viewport(&window, &hud_state),
+        (Vec2::new(1100.0, 900.0), Vec2::new(-150.0, 0.0))
     );
 }
 

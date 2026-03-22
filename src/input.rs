@@ -216,6 +216,7 @@ pub(crate) fn drag_terminal_view(
     primary_window: Single<&Window, With<PrimaryWindow>>,
     terminal_manager: Res<TerminalManager>,
     presentation_store: Res<TerminalPresentationStore>,
+    hud_state: Res<HudState>,
     mut view_state: ResMut<TerminalViewState>,
     mut pointer_state: ResMut<TerminalPointerState>,
 ) {
@@ -243,8 +244,13 @@ pub(crate) fn drag_terminal_view(
     };
     let pixel_perfect = presentation_store.active_display_mode(terminal_manager.active_id())
         == Some(TerminalDisplayMode::PixelPerfect);
-    let screen_size =
-        terminal_texture_screen_size(texture_state, &view_state, &primary_window, pixel_perfect);
+    let screen_size = terminal_texture_screen_size(
+        texture_state,
+        &view_state,
+        &primary_window,
+        &hud_state,
+        pixel_perfect,
+    );
     let screen_cell_height = if texture_state.cell_size.y == 0 || texture_state.texture_size.y == 0
     {
         1.0
