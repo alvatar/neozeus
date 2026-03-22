@@ -114,12 +114,20 @@ pub(crate) struct HudDragState {
     pub(crate) grab_offset: Vec2,
 }
 
+#[derive(Clone, Debug, Default, PartialEq)]
+pub(crate) struct HudMessageBoxState {
+    pub(crate) visible: bool,
+    pub(crate) target_terminal: Option<TerminalId>,
+    pub(crate) text: String,
+}
+
 #[derive(Resource, Default)]
 pub(crate) struct HudState {
     pub(crate) modules: BTreeMap<HudModuleId, HudModuleInstance>,
     pub(crate) z_order: Vec<HudModuleId>,
     pub(crate) drag: Option<HudDragState>,
     pub(crate) dirty_layout: bool,
+    pub(crate) message_box: HudMessageBoxState,
 }
 
 impl HudState {
@@ -188,6 +196,16 @@ impl HudState {
         self.modules
             .values()
             .any(|module| module.shell.enabled && module.shell.is_animating())
+    }
+
+    pub(crate) fn open_message_box(&mut self, target_terminal: TerminalId) {
+        self.message_box.visible = true;
+        self.message_box.target_terminal = Some(target_terminal);
+        self.message_box.text.clear();
+    }
+
+    pub(crate) fn close_message_box(&mut self) {
+        self.message_box = HudMessageBoxState::default();
     }
 }
 

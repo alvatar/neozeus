@@ -15,7 +15,7 @@ use bevy::{
         ButtonState,
     },
     prelude::*,
-    window::PrimaryWindow,
+    window::{PrimaryWindow, RequestRedraw},
 };
 
 fn has_plain_modifiers(keys: &ButtonInput<KeyCode>) -> (bool, bool, bool) {
@@ -64,9 +64,15 @@ pub(crate) fn handle_global_terminal_spawn_shortcut(
     keys: Res<ButtonInput<KeyCode>>,
     primary_window: Single<&Window, With<PrimaryWindow>>,
     terminal_manager: Res<TerminalManager>,
+    hud_state: Option<Res<HudState>>,
     mut dispatcher: ResMut<HudDispatcher>,
 ) {
-    if !primary_window.focused || terminal_manager.active_id().is_some() {
+    if hud_state
+        .as_ref()
+        .is_some_and(|hud_state| hud_state.message_box.visible)
+        || !primary_window.focused
+        || terminal_manager.active_id().is_some()
+    {
         return;
     }
 
@@ -81,9 +87,17 @@ pub(crate) fn handle_global_terminal_spawn_shortcut(
 pub(crate) fn handle_terminal_lifecycle_shortcuts(
     mut messages: MessageReader<KeyboardInput>,
     keys: Res<ButtonInput<KeyCode>>,
+    hud_state: Option<Res<HudState>>,
     mut dispatcher: ResMut<HudDispatcher>,
     mut app_exits: MessageWriter<AppExit>,
 ) {
+    if hud_state
+        .as_ref()
+        .is_some_and(|hud_state| hud_state.message_box.visible)
+    {
+        return;
+    }
+
     for event in messages.read() {
         if should_exit_application(event, &keys) {
             app_exits.write(AppExit::Success);
@@ -128,7 +142,10 @@ pub(crate) fn focus_terminal_on_panel_click(
     panels: Query<(&TerminalPanel, &TerminalPresentation, &Visibility)>,
     mut dispatcher: ResMut<HudDispatcher>,
 ) {
-    if !mouse_buttons.just_pressed(MouseButton::Left) || !primary_window.focused {
+    if hud_state.message_box.visible
+        || !mouse_buttons.just_pressed(MouseButton::Left)
+        || !primary_window.focused
+    {
         return;
     }
     let Some(cursor) = primary_window.cursor_position() else {
@@ -157,7 +174,10 @@ pub(crate) fn hide_terminal_on_background_click(
     mut terminal_manager: ResMut<TerminalManager>,
     mut session_persistence: ResMut<TerminalSessionPersistenceState>,
 ) {
-    if !mouse_buttons.just_pressed(MouseButton::Left) || !primary_window.focused {
+    if hud_state.message_box.visible
+        || !mouse_buttons.just_pressed(MouseButton::Left)
+        || !primary_window.focused
+    {
         return;
     }
     let Some(_) = terminal_manager.active_id() else {
@@ -260,28 +280,99 @@ pub(crate) fn zoom_terminal_view(
     view_state.distance = (view_state.distance - zoom_delta * 0.8).clamp(2.0, 40.0);
 }
 
-pub(crate) fn forward_keyboard_input(
+pub(crate) fn handle_terminal_message_box_keyboard(
     mut messages: MessageReader<KeyboardInput>,
     keys: Res<ButtonInput<KeyCode>>,
+    primary_window: Single<&Window, With<PrimaryWindow>>,
     terminal_manager: Res<TerminalManager>,
-    _primary_window: Single<&Window, With<PrimaryWindow>>,
+    mut hud_state: ResMut<HudState>,
+    mut dispatcher: ResMut<HudDispatcher>,
+    mut redraws: MessageWriter<RequestRedraw>,
 ) {
-    let Some(bridge) = terminal_manager.active_bridge() else {
+    if !primary_window.focused {
+        return;
+    }
+
+    let ctrl = keys.pressed(KeyCode::ControlLeft) || keys.pressed(KeyCode::ControlRight);
+    let alt = keys.pressed(KeyCode::AltLeft) || keys.pressed(KeyCode::AltRight);
+    let super_key = keys.pressed(KeyCode::SuperLeft) || keys.pressed(KeyCode::SuperRight);
+
+    if hud_state.message_box.visible {
+        let mut changed = false;
+        for event in messages.read() {
+            if event.state != ButtonState::Pressed {
+                continue;
+            }
+
+            if ctrl && !alt && !super_key && event.key_code == KeyCode::KeyS {
+                if let Some(target_terminal) = hud_state.message_box.target_terminal {
+                    let payload = hud_state.message_box.text.clone();
+                    if !payload.is_empty() {
+                        dispatcher
+                            .commands
+                            .push(HudCommand::SendTerminalCommand(target_terminal, payload));
+                    }
+                }
+                hud_state.close_message_box();
+                changed = true;
+                break;
+            }
+
+            match event.key_code {
+                KeyCode::Escape => {
+                    hud_state.close_message_box();
+                    changed = true;
+                    break;
+                }
+                KeyCode::Backspace if !ctrl && !alt && !super_key => {
+                    if hud_state.message_box.text.pop().is_some() {
+                        changed = true;
+                    }
+                }
+                KeyCode::Enter => {}
+                _ if ctrl || alt || super_key => {}
+                _ => {
+                    let appended = event
+                        .text
+                        .as_ref()
+                        .filter(|text| !text.is_empty())
+                        .map(|text| text.to_string())
+                        .or_else(|| match &event.logical_key {
+                            Key::Character(text) if !text.is_empty() => Some(text.to_string()),
+                            Key::Space => Some(" ".to_owned()),
+                            _ => None,
+                        });
+                    if let Some(text) = appended {
+                        hud_state.message_box.text.push_str(&text);
+                        changed = true;
+                    }
+                }
+            }
+        }
+
+        if changed {
+            redraws.write(RequestRedraw);
+        }
+        return;
+    }
+
+    let Some(active_id) = terminal_manager.active_id() else {
         return;
     };
-
     for event in messages.read() {
-        if event.state != ButtonState::Pressed {
+        if event.state != ButtonState::Pressed || event.key_code != KeyCode::Enter {
             continue;
         }
-
-        bridge.note_key_event(event);
-        if let Some(command) = keyboard_input_to_terminal_command(event, &keys) {
-            bridge.send(command);
+        if ctrl || alt || super_key {
+            continue;
         }
+        hud_state.open_message_box(active_id);
+        redraws.write(RequestRedraw);
+        break;
     }
 }
 
+#[cfg(test)]
 pub(crate) fn keyboard_input_to_terminal_command(
     event: &KeyboardInput,
     keys: &ButtonInput<KeyCode>,
@@ -327,6 +418,7 @@ pub(crate) fn keyboard_input_to_terminal_command(
     }
 }
 
+#[cfg(test)]
 pub(crate) fn ctrl_sequence(key_code: KeyCode) -> Option<&'static str> {
     match key_code {
         KeyCode::KeyA => Some("\u{1}"),
