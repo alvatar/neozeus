@@ -80,6 +80,15 @@ impl TerminalRuntimeSpawner {
         self.daemon.client().kill_session(session_id)
     }
 
+    pub(crate) fn resize_session(
+        &self,
+        session_id: &str,
+        cols: usize,
+        rows: usize,
+    ) -> Result<(), String> {
+        self.daemon.client().resize_session(session_id, cols, rows)
+    }
+
     pub(crate) fn spawn_attached(&self, session_id: &str) -> Result<TerminalBridge, String> {
         let attached = self.daemon.client().attach_session(session_id)?;
         Ok(spawn_daemon_terminal_runtime(

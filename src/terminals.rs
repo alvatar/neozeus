@@ -68,13 +68,15 @@ pub(crate) use lifecycle::{
     kill_active_terminal_session_and_remove, spawn_attached_terminal_with_presentation,
 };
 pub(crate) use mailbox::TerminalUpdateMailbox;
+pub(crate) use presentation::{
+    active_terminal_cell_size, spawn_terminal_presentation, sync_active_terminal_dimensions,
+    sync_terminal_hud_surface, sync_terminal_panel_frames, sync_terminal_presentations,
+    terminal_texture_screen_size,
+};
 #[cfg(test)]
 pub(crate) use presentation::{
-    active_terminal_viewport, pixel_perfect_terminal_logical_size, snap_to_pixel_grid,
-};
-pub(crate) use presentation::{
-    pixel_perfect_cell_size, spawn_terminal_presentation, sync_terminal_hud_surface,
-    sync_terminal_panel_frames, sync_terminal_presentations, terminal_texture_screen_size,
+    active_terminal_dimensions, active_terminal_viewport, pixel_perfect_cell_size,
+    pixel_perfect_terminal_logical_size, snap_to_pixel_grid,
 };
 pub(crate) use presentation_state::{
     PresentedTerminal, TerminalCameraMarker, TerminalDisplayMode, TerminalHudSurfaceMarker,

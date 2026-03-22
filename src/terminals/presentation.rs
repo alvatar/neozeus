@@ -2,9 +2,10 @@ use crate::{
     app_config::{DEFAULT_CELL_HEIGHT_PX, DEFAULT_CELL_WIDTH_PX},
     hud::{HudModuleId, HudState, TerminalVisibilityPolicy, TerminalVisibilityState},
     terminals::{
-        create_terminal_image, TerminalDisplayMode, TerminalHudSurfaceMarker, TerminalId,
-        TerminalManager, TerminalPanel, TerminalPanelFrame, TerminalPanelSprite,
-        TerminalPresentation, TerminalPresentationStore, TerminalTextureState, TerminalViewState,
+        append_debug_log, create_terminal_image, TerminalDimensions, TerminalDisplayMode,
+        TerminalHudSurfaceMarker, TerminalId, TerminalManager, TerminalPanel, TerminalPanelFrame,
+        TerminalPanelSprite, TerminalPresentation, TerminalPresentationStore,
+        TerminalRuntimeSpawner, TerminalTextureState, TerminalViewState,
     },
 };
 use bevy::{prelude::*, window::PrimaryWindow};
@@ -117,6 +118,76 @@ fn active_terminal_fit_area(window: &Window, hud_state: &HudState) -> (Vec2, Vec
     (fit_size, viewport_center)
 }
 
+fn terminal_zoom_scale(view_state: &TerminalViewState) -> f32 {
+    10.0 / view_state.distance.max(0.1)
+}
+
+pub(crate) fn active_terminal_cell_size(window: &Window, view_state: &TerminalViewState) -> UVec2 {
+    let zoom_scale = terminal_zoom_scale(view_state);
+    let cell_size = logical_to_physical_size(
+        Vec2::new(DEFAULT_CELL_WIDTH_PX as f32, DEFAULT_CELL_HEIGHT_PX as f32) * zoom_scale,
+        window,
+    );
+    UVec2::new(
+        cell_size.x.round().max(1.0) as u32,
+        cell_size.y.round().max(1.0) as u32,
+    )
+}
+
+pub(crate) fn active_terminal_dimensions(
+    window: &Window,
+    hud_state: &HudState,
+    view_state: &TerminalViewState,
+) -> TerminalDimensions {
+    let (fit_size_logical, _) = active_terminal_fit_area(window, hud_state);
+    let fit_size_physical = logical_to_physical_size(fit_size_logical, window);
+    let cell_size = active_terminal_cell_size(window, view_state);
+    TerminalDimensions {
+        cols: ((fit_size_physical.x / cell_size.x.max(1) as f32).floor() as usize).max(1),
+        rows: ((fit_size_physical.y / cell_size.y.max(1) as f32).floor() as usize).max(1),
+    }
+}
+
+pub(crate) fn sync_active_terminal_dimensions(
+    mut terminal_manager: ResMut<TerminalManager>,
+    runtime_spawner: Res<TerminalRuntimeSpawner>,
+    view_state: Res<TerminalViewState>,
+    hud_state: Res<HudState>,
+    primary_window: Single<&Window, With<PrimaryWindow>>,
+) {
+    let Some(active_id) = terminal_manager.active_id() else {
+        return;
+    };
+    let desired_dimensions = active_terminal_dimensions(&primary_window, &hud_state, &view_state);
+    let Some(terminal) = terminal_manager.get_mut(active_id) else {
+        return;
+    };
+    let current_dimensions_match = terminal
+        .snapshot
+        .surface
+        .as_ref()
+        .map(|surface| {
+            surface.cols == desired_dimensions.cols && surface.rows == desired_dimensions.rows
+        })
+        .unwrap_or(false);
+    if current_dimensions_match || terminal.requested_dimensions == Some(desired_dimensions) {
+        return;
+    }
+    if let Err(error) = runtime_spawner.resize_session(
+        &terminal.session_name,
+        desired_dimensions.cols,
+        desired_dimensions.rows,
+    ) {
+        append_debug_log(format!(
+            "active terminal resize failed session={} cols={} rows={}: {error}",
+            terminal.session_name, desired_dimensions.cols, desired_dimensions.rows,
+        ));
+        return;
+    }
+    terminal.requested_dimensions = Some(desired_dimensions);
+}
+
+#[cfg(test)]
 pub(crate) fn pixel_perfect_cell_size(
     cols: usize,
     rows: usize,
@@ -189,16 +260,12 @@ pub(crate) fn pixel_perfect_terminal_logical_size(
 
 pub(crate) fn terminal_texture_screen_size(
     texture_state: &TerminalTextureState,
-    view_state: &TerminalViewState,
+    _view_state: &TerminalViewState,
     window: &Window,
-    hud_state: &HudState,
-    pixel_perfect: bool,
+    _hud_state: &HudState,
+    _pixel_perfect: bool,
 ) -> Vec2 {
-    if pixel_perfect {
-        return terminal_logical_size(texture_state, window);
-    }
-
-    smooth_terminal_screen_size(texture_state, view_state, window, hud_state)
+    terminal_logical_size(texture_state, window)
 }
 
 fn ordered_background_ids(
@@ -294,11 +361,7 @@ pub(crate) fn sync_terminal_presentations(
                 presentation.target_alpha = 1.0;
                 presentation.target_position =
                     hud_terminal_target_position(&primary_window, &hud_state);
-                presentation.target_size = if pixel_perfect {
-                    active_size
-                } else {
-                    smooth_size
-                };
+                presentation.target_size = active_size;
                 presentation.target_z = if pixel_perfect { 3.0 } else { 0.3 };
             }
             _ => {

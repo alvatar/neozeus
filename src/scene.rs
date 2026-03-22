@@ -21,12 +21,12 @@ use crate::{
         append_debug_log, configure_terminal_fonts, load_persisted_terminal_sessions_from,
         mark_terminal_sessions_dirty, reconcile_terminal_sessions, resolve_terminal_sessions_path,
         save_terminal_sessions_if_dirty, spawn_attached_terminal_with_presentation,
-        sync_terminal_hud_surface, sync_terminal_panel_frames, sync_terminal_presentations,
-        sync_terminal_texture, TerminalCameraMarker, TerminalDaemonClientResource,
-        TerminalFontState, TerminalGlyphCache, TerminalHudSurfaceMarker, TerminalManager,
-        TerminalPanel, TerminalPointerState, TerminalPresentation, TerminalPresentationStore,
-        TerminalRuntimeSpawner, TerminalSessionPersistenceState, TerminalViewState,
-        VERIFIER_SESSION_PREFIX,
+        sync_active_terminal_dimensions, sync_terminal_hud_surface, sync_terminal_panel_frames,
+        sync_terminal_presentations, sync_terminal_texture, TerminalCameraMarker,
+        TerminalDaemonClientResource, TerminalFontState, TerminalGlyphCache,
+        TerminalHudSurfaceMarker, TerminalManager, TerminalPanel, TerminalPointerState,
+        TerminalPresentation, TerminalPresentationStore, TerminalRuntimeSpawner,
+        TerminalSessionPersistenceState, TerminalViewState, VERIFIER_SESSION_PREFIX,
     },
     verification::{start_auto_verify_dispatcher, AutoVerifyConfig},
 };
@@ -161,6 +161,7 @@ fn configure_app(app: &mut App) -> Result<(), String> {
         .configure_sets(
             Update,
             NeoZeusSet::UiInput
+                .before(NeoZeusSet::RasterTerminal)
                 .before(NeoZeusSet::PresentTerminal)
                 .before(NeoZeusSet::HudIntentDispatch),
         )
@@ -200,7 +201,13 @@ fn configure_app(app: &mut App) -> Result<(), String> {
         )
         .add_systems(
             Update,
-            (configure_terminal_fonts, sync_terminal_texture).in_set(NeoZeusSet::RasterTerminal),
+            (
+                sync_active_terminal_dimensions,
+                configure_terminal_fonts,
+                sync_terminal_texture,
+            )
+                .chain()
+                .in_set(NeoZeusSet::RasterTerminal),
         )
         .add_systems(
             Update,
