@@ -704,6 +704,22 @@ fn hud_needs_redraw_when_drag_or_animation_is_active() {
 }
 
 #[test]
+fn disabled_hud_module_still_requests_redraw_while_fading_out() {
+    let mut state = HudState::default();
+    state.insert(
+        HudModuleId::AgentList,
+        crate::hud::default_hud_module_instance(&crate::hud::HUD_MODULE_DEFINITIONS[1]),
+    );
+
+    state.set_module_enabled(HudModuleId::AgentList, false);
+
+    let module = state.get(HudModuleId::AgentList).unwrap();
+    assert!(!module.shell.enabled);
+    assert!(module.shell.is_animating());
+    assert!(hud_needs_redraw(&state));
+}
+
+#[test]
 fn killing_active_terminal_removes_runtime_presentation_and_labels() {
     let client = Arc::new(FakeTmuxClient::default());
     client
