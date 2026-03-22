@@ -141,14 +141,8 @@ fn hud_terminal_target_position(window: &Window) -> Vec2 {
     snap_to_pixel_grid(Vec2::new(0.0, (top + bottom) * 0.5 - 8.0), window)
 }
 
-const WORLD_FRAME_PADDING: Vec2 = Vec2::new(18.0, 18.0);
-
 fn hud_surface_size(terminal_size: Vec2) -> Vec2 {
     terminal_size + HUD_FRAME_PADDING * 2.0
-}
-
-fn world_surface_size(terminal_size: Vec2) -> Vec2 {
-    terminal_size + WORLD_FRAME_PADDING * 2.0
 }
 
 pub(crate) fn pixel_perfect_terminal_logical_size(
@@ -289,58 +283,10 @@ pub(crate) fn sync_terminal_presentations(
 }
 
 pub(crate) fn sync_terminal_panel_frames(
-    terminal_manager: Res<TerminalManager>,
-    presentation_store: Res<TerminalPresentationStore>,
-    visibility_state: Res<TerminalVisibilityState>,
-    panels: Query<(&TerminalPanel, &TerminalPresentation)>,
-    mut frames: Query<(
-        &TerminalPanelFrame,
-        &mut Transform,
-        &mut Sprite,
-        &mut Visibility,
-    )>,
+    mut frames: Query<&mut Visibility, With<TerminalPanelFrame>>,
 ) {
-    for (frame, mut transform, mut sprite, mut visibility) in &mut frames {
-        if terminal_manager.active_id().is_none() {
-            *visibility = Visibility::Hidden;
-            continue;
-        }
-        let Some(terminal) = terminal_manager.get(frame.id) else {
-            *visibility = Visibility::Hidden;
-            continue;
-        };
-        let Some(presented_terminal) = presentation_store.get(frame.id) else {
-            *visibility = Visibility::Hidden;
-            continue;
-        };
-        let Some((_, presentation)) = panels.iter().find(|(panel, _)| panel.id == frame.id) else {
-            *visibility = Visibility::Hidden;
-            continue;
-        };
-        if terminal.snapshot.surface.is_none() {
-            *visibility = Visibility::Hidden;
-            continue;
-        }
-        if matches!(visibility_state.policy, TerminalVisibilityPolicy::Isolate(id) if id != frame.id)
-        {
-            *visibility = Visibility::Hidden;
-            continue;
-        }
-        if terminal_manager.active_id() == Some(frame.id)
-            && presented_terminal.display_mode == TerminalDisplayMode::PixelPerfect
-        {
-            *visibility = Visibility::Hidden;
-            continue;
-        }
-
-        *visibility = Visibility::Visible;
-        sprite.custom_size = Some(world_surface_size(presentation.current_size));
-        sprite.color = Color::srgba(0.08, 0.08, 0.09, 0.92 * presentation.current_alpha);
-        transform.translation = presentation
-            .current_position
-            .extend(presentation.current_z - 0.01);
-        transform.rotation = Quat::IDENTITY;
-        transform.scale = Vec3::ONE;
+    for mut visibility in &mut frames {
+        *visibility = Visibility::Hidden;
     }
 }
 
