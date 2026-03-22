@@ -406,22 +406,30 @@ pub(crate) fn handle_terminal_message_box_keyboard(
 
             let handled = if ctrl && !alt && !super_key {
                 match event.key_code {
+                    KeyCode::Space => hud_state.message_box.set_mark(),
                     KeyCode::KeyA => hud_state.message_box.move_line_start(),
                     KeyCode::KeyB => hud_state.message_box.move_left(),
                     KeyCode::KeyD => hud_state.message_box.delete_forward_char(),
                     KeyCode::KeyE => hud_state.message_box.move_line_end(),
                     KeyCode::KeyF => hud_state.message_box.move_right(),
                     KeyCode::KeyH => hud_state.message_box.delete_backward_char(),
+                    KeyCode::KeyJ => hud_state.message_box.newline_and_indent(),
                     KeyCode::KeyK => hud_state.message_box.kill_to_end_of_line(),
                     KeyCode::KeyN => hud_state.message_box.move_down(),
+                    KeyCode::KeyO => hud_state.message_box.open_line(),
                     KeyCode::KeyP => hud_state.message_box.move_up(),
+                    KeyCode::KeyW => hud_state.message_box.kill_region(),
                     KeyCode::KeyY => hud_state.message_box.yank(),
                     _ => false,
                 }
             } else if alt && !ctrl && !super_key {
                 match event.key_code {
+                    KeyCode::Backspace => hud_state.message_box.kill_word_backward(),
                     KeyCode::KeyB => hud_state.message_box.move_word_backward(),
+                    KeyCode::KeyD => hud_state.message_box.kill_word_forward(),
                     KeyCode::KeyF => hud_state.message_box.move_word_forward(),
+                    KeyCode::KeyW => hud_state.message_box.copy_region(),
+                    KeyCode::KeyY => hud_state.message_box.yank_pop(),
                     _ => false,
                 }
             } else if !(ctrl || alt || super_key) {
