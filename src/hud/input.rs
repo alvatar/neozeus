@@ -43,6 +43,10 @@ pub(crate) fn handle_hud_pointer_input(
     agent_directory: Res<AgentDirectory>,
     mut dispatcher: ResMut<HudDispatcher>,
 ) {
+    if hud_state.message_box.visible {
+        hud_state.drag = None;
+        return;
+    }
     let Some(cursor) = cursor_hud_position(&primary_window) else {
         if mouse_buttons.just_released(MouseButton::Left) {
             hud_state.drag = None;
@@ -154,8 +158,15 @@ pub(crate) fn handle_hud_pointer_input(
 pub(crate) fn handle_hud_module_shortcuts(
     mut messages: MessageReader<KeyboardInput>,
     keys: Res<ButtonInput<KeyCode>>,
+    hud_state: Option<Res<HudState>>,
     mut dispatcher: ResMut<HudDispatcher>,
 ) {
+    if hud_state
+        .as_ref()
+        .is_some_and(|hud_state| hud_state.message_box.visible)
+    {
+        return;
+    }
     let alt = keys.pressed(KeyCode::AltLeft) || keys.pressed(KeyCode::AltRight);
     if !alt {
         return;

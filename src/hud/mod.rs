@@ -21,10 +21,10 @@ pub(crate) use persistence::{
 pub(crate) use persistence::{save_hud_layout_if_dirty, HudPersistenceState};
 pub(crate) use render::{render_hud_scene, HudVectorSceneMarker};
 pub(crate) use state::{
-    default_hud_module_instance, AgentDirectory, HudDragState, HudModuleId, HudModuleModel,
-    HudRect, HudState, TerminalVisibilityPolicy, TerminalVisibilityState, HUD_BUTTON_GAP,
-    HUD_BUTTON_HEIGHT, HUD_BUTTON_MIN_WIDTH, HUD_MODULE_DEFINITIONS, HUD_MODULE_PADDING,
-    HUD_ROW_HEIGHT, HUD_TITLEBAR_HEIGHT,
+    default_hud_module_instance, AgentDirectory, HudDragState, HudMessageBoxState, HudModuleId,
+    HudModuleModel, HudRect, HudState, TerminalVisibilityPolicy, TerminalVisibilityState,
+    HUD_BUTTON_GAP, HUD_BUTTON_HEIGHT, HUD_BUTTON_MIN_WIDTH, HUD_MODULE_DEFINITIONS,
+    HUD_MODULE_PADDING, HUD_ROW_HEIGHT, HUD_TITLEBAR_HEIGHT,
 };
 
 use bevy::{camera::visibility::NoFrustumCulling, prelude::*, window::RequestRedraw};
@@ -50,6 +50,7 @@ pub(crate) fn setup_hud(
     hud_state.z_order.clear();
     hud_state.drag = None;
     hud_state.dirty_layout = false;
+    hud_state.message_box = HudMessageBoxState::default();
     for definition in HUD_MODULE_DEFINITIONS.iter() {
         let mut module = default_hud_module_instance(definition);
         if let Some(saved) = persisted.modules.get(&definition.id) {

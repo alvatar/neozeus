@@ -7,8 +7,8 @@ use crate::{
         TerminalVisibilityPolicy, TerminalVisibilityState,
     },
     input::{
-        drag_terminal_view, focus_terminal_on_panel_click, forward_keyboard_input,
-        handle_global_terminal_spawn_shortcut, handle_terminal_lifecycle_shortcuts,
+        drag_terminal_view, focus_terminal_on_panel_click, handle_global_terminal_spawn_shortcut,
+        handle_terminal_lifecycle_shortcuts, handle_terminal_message_box_keyboard,
         hide_terminal_on_background_click, zoom_terminal_view,
     },
     terminals::{
@@ -163,11 +163,11 @@ fn configure_app(app: &mut App) {
             (
                 handle_global_terminal_spawn_shortcut,
                 handle_terminal_lifecycle_shortcuts,
+                handle_terminal_message_box_keyboard,
                 focus_terminal_on_panel_click,
                 hide_terminal_on_background_click,
                 drag_terminal_view,
                 zoom_terminal_view,
-                forward_keyboard_input,
             )
                 .in_set(NeoZeusSet::UiInput),
         )

@@ -1,5 +1,8 @@
 use crate::{
-    hud::{modules, AgentDirectory, HudModuleId, HudRect, HudState, HUD_TITLEBAR_HEIGHT},
+    hud::{
+        modules, AgentDirectory, HudMessageBoxState, HudModuleId, HudRect, HudState,
+        HUD_TITLEBAR_HEIGHT,
+    },
     terminals::{TerminalFontState, TerminalManager, TerminalPresentationStore, TerminalViewState},
 };
 use bevy::{prelude::*, window::PrimaryWindow};
@@ -29,6 +32,8 @@ impl HudColors {
     pub(crate) const ROW: peniko::Color = peniko::Color::from_rgba8(26, 34, 38, 220);
     pub(crate) const ROW_HOVERED: peniko::Color = peniko::Color::from_rgba8(48, 62, 68, 230);
     pub(crate) const ROW_FOCUSED: peniko::Color = peniko::Color::from_rgba8(66, 98, 92, 236);
+    pub(crate) const OVERLAY: peniko::Color = peniko::Color::from_rgba8(10, 12, 14, 168);
+    pub(crate) const MESSAGE_BOX: peniko::Color = peniko::Color::from_rgba8(24, 30, 34, 245);
 }
 
 pub(crate) fn apply_alpha(color: peniko::Color, factor: f32) -> peniko::Color {
@@ -179,6 +184,86 @@ pub(crate) struct HudRenderInputs<'a> {
     pub(crate) font_state: &'a TerminalFontState,
 }
 
+fn message_box_rect(window: &Window) -> HudRect {
+    let size = Vec2::new((window.width() - 160.0).clamp(320.0, 880.0), 108.0);
+    HudRect {
+        x: window.width() * 0.5 - size.x * 0.5,
+        y: window.height() * 0.5 - size.y * 0.5,
+        w: size.x,
+        h: size.y,
+    }
+}
+
+fn draw_message_box(
+    painter: &mut HudPainter,
+    window: &Window,
+    message_box: &HudMessageBoxState,
+    agent_directory: &AgentDirectory,
+) {
+    if !message_box.visible {
+        return;
+    }
+
+    let backdrop = HudRect {
+        x: 0.0,
+        y: 0.0,
+        w: window.width(),
+        h: window.height(),
+    };
+    painter.fill_rect(backdrop, HudColors::OVERLAY, 0.0);
+
+    let rect = message_box_rect(window);
+    painter.fill_rect(rect, HudColors::MESSAGE_BOX, 10.0);
+    painter.stroke_rect(rect, HudColors::BORDER, 10.0);
+
+    let target_label = message_box
+        .target_terminal
+        .and_then(|terminal_id| agent_directory.labels.get(&terminal_id).cloned())
+        .unwrap_or_else(|| {
+            message_box
+                .target_terminal
+                .map(|terminal_id| format!("terminal {}", terminal_id.0))
+                .unwrap_or_else(|| "no target".to_owned())
+        });
+    painter.label(
+        Vec2::new(rect.x + 18.0, rect.y + 14.0),
+        &format!("message box → {}", target_label),
+        16.0,
+        HudColors::TEXT,
+        VelloTextAnchor::TopLeft,
+    );
+    painter.label(
+        Vec2::new(rect.x + 18.0, rect.y + 38.0),
+        "Ctrl-S send · Esc cancel",
+        13.0,
+        HudColors::TEXT_MUTED,
+        VelloTextAnchor::TopLeft,
+    );
+
+    let visible_text = if message_box.text.is_empty() {
+        "█".to_owned()
+    } else {
+        format!("{}█", message_box.text)
+    };
+    painter.fill_rect(
+        HudRect {
+            x: rect.x + 16.0,
+            y: rect.y + 60.0,
+            w: rect.w - 32.0,
+            h: 32.0,
+        },
+        HudColors::TITLE,
+        6.0,
+    );
+    painter.label(
+        Vec2::new(rect.x + 24.0, rect.y + 68.0),
+        &visible_text,
+        18.0,
+        HudColors::TEXT,
+        VelloTextAnchor::TopLeft,
+    );
+}
+
 fn draw_module_shell(painter: &mut HudPainter, module_id: HudModuleId, shell_rect: HudRect) {
     painter.fill_rect(shell_rect, HudColors::FRAME, 8.0);
     painter.stroke_rect(shell_rect, HudColors::BORDER, 8.0);
@@ -255,6 +340,14 @@ pub(crate) fn render_hud_scene(
         );
         built.pop_layer();
     }
+
+    let mut painter = HudPainter::new(&mut built, &fonts, &primary_window, 1.0);
+    draw_message_box(
+        &mut painter,
+        &primary_window,
+        &hud_state.message_box,
+        &agent_directory,
+    );
 
     **scene = VelloScene2d::from(built);
 }

@@ -171,6 +171,13 @@ pub(crate) fn apply_hud_commands(
                     bridge.send(crate::terminals::TerminalCommand::SendCommand(command));
                 }
             }
+            HudCommand::SendTerminalCommand(id, command) => {
+                if let Some(terminal) = terminal_manager.get(id) {
+                    terminal
+                        .bridge
+                        .send(crate::terminals::TerminalCommand::SendCommand(command));
+                }
+            }
             HudCommand::KillActiveTerminal => kill_active_terminal(
                 &mut commands,
                 &time,
