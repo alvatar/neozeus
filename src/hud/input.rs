@@ -2,7 +2,7 @@ use crate::{
     hud::{
         modules, AgentDirectory, HudIntent, HudModuleId, HudRect, HudState, HUD_TITLEBAR_HEIGHT,
     },
-    terminals::{TerminalManager, TerminalPresentationStore, TerminalViewState},
+    terminals::{TerminalId, TerminalManager, TerminalPresentationStore, TerminalViewState},
 };
 use bevy::{
     ecs::system::SystemParam,
@@ -167,10 +167,41 @@ pub(crate) fn handle_hud_pointer_input(mut ctx: HudPointerContext) {
     }
 }
 
+fn adjacent_agent_terminal_id(
+    terminal_manager: &TerminalManager,
+    step: isize,
+) -> Option<TerminalId> {
+    let terminal_ids = terminal_manager.terminal_ids();
+    if terminal_ids.is_empty() {
+        return None;
+    }
+
+    let current_index = match terminal_manager.active_id() {
+        Some(active_id) => terminal_ids.iter().position(|id| *id == active_id)?,
+        None => {
+            return Some(if step < 0 {
+                *terminal_ids.last()?
+            } else {
+                terminal_ids[0]
+            });
+        }
+    };
+
+    let next_index = if step < 0 {
+        current_index.saturating_sub(step.unsigned_abs())
+    } else {
+        current_index
+            .saturating_add(step as usize)
+            .min(terminal_ids.len().saturating_sub(1))
+    };
+    (next_index != current_index).then_some(terminal_ids[next_index])
+}
+
 pub(crate) fn handle_hud_module_shortcuts(
     mut messages: MessageReader<KeyboardInput>,
     keys: Res<ButtonInput<KeyCode>>,
     hud_state: Res<HudState>,
+    terminal_manager: Res<TerminalManager>,
     mut hud_commands: MessageWriter<HudIntent>,
 ) {
     if hud_state.keyboard_capture_active() {
@@ -202,6 +233,20 @@ pub(crate) fn handle_hud_module_shortcuts(
         if event.state != ButtonState::Pressed {
             continue;
         }
+
+        if matches!(action, ShortcutAction::Toggle) {
+            let navigation_target = match event.key_code {
+                KeyCode::KeyJ => adjacent_agent_terminal_id(&terminal_manager, 1),
+                KeyCode::KeyK => adjacent_agent_terminal_id(&terminal_manager, -1),
+                _ => None,
+            };
+            if let Some(terminal_id) = navigation_target {
+                hud_commands.write(HudIntent::FocusTerminal(terminal_id));
+                hud_commands.write(HudIntent::HideAllButTerminal(terminal_id));
+                continue;
+            }
+        }
+
         let module_id = match event.key_code {
             KeyCode::Digit0 => Some(HudModuleId::DebugToolbar),
             KeyCode::Digit1 => Some(HudModuleId::AgentList),
