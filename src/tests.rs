@@ -4,8 +4,9 @@ mod scene;
 mod terminals;
 
 use crate::terminals::{
-    CachedTerminalGlyph, TerminalBridge, TerminalCommand, TerminalDebugStats, TerminalSurface,
-    TerminalUpdateMailbox, TmuxClient, TmuxClientResource,
+    CachedTerminalGlyph, TerminalBridge, TerminalCommand, TerminalDebugStats,
+    TerminalSessionClient, TerminalSurface, TerminalUpdateMailbox, TmuxClientResource,
+    TmuxPaneClient, TmuxPaneDescriptor, TmuxPaneState,
 };
 use bevy::{
     input::{
@@ -79,7 +80,7 @@ impl FakeTmuxClient {
     }
 }
 
-impl TmuxClient for FakeTmuxClient {
+impl TerminalSessionClient for FakeTmuxClient {
     fn ensure_tmux_available(&self) -> Result<(), String> {
         Ok(())
     }
@@ -107,6 +108,33 @@ impl TmuxClient for FakeTmuxClient {
             return Err("kill failed".into());
         }
         self.sessions.lock().unwrap().remove(name);
+        Ok(())
+    }
+}
+
+impl TmuxPaneClient for FakeTmuxClient {
+    fn list_panes(&self, _session_name: &str) -> Result<Vec<TmuxPaneDescriptor>, String> {
+        Ok(vec![TmuxPaneDescriptor {
+            pane_id: "%1".into(),
+            active: true,
+        }])
+    }
+
+    fn pane_state(&self, _pane_target: &str) -> Result<TmuxPaneState, String> {
+        Ok(TmuxPaneState {
+            cols: 120,
+            rows: 38,
+            cursor_x: 0,
+            cursor_y: 0,
+            cursor_visible: true,
+        })
+    }
+
+    fn capture_pane(&self, _pane_target: &str, _history_limit: usize) -> Result<String, String> {
+        Ok(String::new())
+    }
+
+    fn send_bytes(&self, _pane_target: &str, _bytes: &[u8]) -> Result<(), String> {
         Ok(())
     }
 }

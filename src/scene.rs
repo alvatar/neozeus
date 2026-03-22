@@ -1,10 +1,14 @@
 use crate::{
     app_config::GPU_NOT_FOUND_PANIC_FRAGMENT,
     hud::{
-        animate_hud_modules, apply_hud_commands, handle_hud_module_shortcuts,
-        handle_hud_pointer_input, hud_needs_redraw, render_hud_scene, save_hud_layout_if_dirty,
-        setup_hud, AgentDirectory, HudDispatcher, HudPersistenceState, HudState,
-        TerminalVisibilityPolicy, TerminalVisibilityState,
+        animate_hud_modules, apply_hud_module_requests, apply_terminal_focus_requests,
+        apply_terminal_lifecycle_requests, apply_terminal_send_requests,
+        apply_terminal_view_requests, apply_visibility_requests, dispatch_hud_intents,
+        handle_hud_module_shortcuts, handle_hud_pointer_input, hud_needs_redraw, render_hud_scene,
+        save_hud_layout_if_dirty, setup_hud, AgentDirectory, HudIntent, HudModuleRequest,
+        HudPersistenceState, HudState, TerminalFocusRequest, TerminalLifecycleRequest,
+        TerminalSendRequest, TerminalViewRequest, TerminalVisibilityPolicy,
+        TerminalVisibilityRequest, TerminalVisibilityState,
     },
     input::{
         drag_terminal_view, focus_terminal_on_panel_click, handle_global_terminal_spawn_shortcut,
@@ -72,6 +76,7 @@ pub(crate) enum NeoZeusSet {
     RasterTerminal,
     UiInput,
     HudInput,
+    HudIntentDispatch,
     HudCommands,
     PresentTerminal,
     HudAnimation,
@@ -132,10 +137,16 @@ fn configure_app(app: &mut App) {
         .insert_resource(TerminalGlyphCache::default())
         .insert_resource(crate::terminals::TerminalTextRenderer::default())
         .insert_resource(HudState::default())
-        .insert_resource(HudDispatcher::default())
         .insert_resource(HudPersistenceState::default())
         .insert_resource(AgentDirectory::default())
         .insert_resource(TerminalVisibilityState::default())
+        .add_message::<HudIntent>()
+        .add_message::<TerminalFocusRequest>()
+        .add_message::<TerminalVisibilityRequest>()
+        .add_message::<HudModuleRequest>()
+        .add_message::<TerminalViewRequest>()
+        .add_message::<TerminalSendRequest>()
+        .add_message::<TerminalLifecycleRequest>()
         .configure_sets(
             Update,
             NeoZeusSet::PollTerminal.before(NeoZeusSet::RasterTerminal),
@@ -148,9 +159,16 @@ fn configure_app(app: &mut App) {
             Update,
             NeoZeusSet::UiInput
                 .before(NeoZeusSet::PresentTerminal)
-                .before(NeoZeusSet::HudCommands),
+                .before(NeoZeusSet::HudIntentDispatch),
         )
-        .configure_sets(Update, NeoZeusSet::HudInput.before(NeoZeusSet::HudCommands))
+        .configure_sets(
+            Update,
+            NeoZeusSet::HudInput.before(NeoZeusSet::HudIntentDispatch),
+        )
+        .configure_sets(
+            Update,
+            NeoZeusSet::HudIntentDispatch.before(NeoZeusSet::HudCommands),
+        )
         .configure_sets(
             Update,
             NeoZeusSet::HudCommands.before(NeoZeusSet::HudAnimation),
@@ -191,7 +209,22 @@ fn configure_app(app: &mut App) {
             Update,
             (handle_hud_pointer_input, handle_hud_module_shortcuts).in_set(NeoZeusSet::HudInput),
         )
-        .add_systems(Update, apply_hud_commands.in_set(NeoZeusSet::HudCommands))
+        .add_systems(
+            Update,
+            dispatch_hud_intents.in_set(NeoZeusSet::HudIntentDispatch),
+        )
+        .add_systems(
+            Update,
+            (
+                apply_terminal_focus_requests,
+                apply_visibility_requests,
+                apply_hud_module_requests,
+                apply_terminal_view_requests,
+                apply_terminal_send_requests,
+                apply_terminal_lifecycle_requests,
+            )
+                .in_set(NeoZeusSet::HudCommands),
+        )
         .add_systems(
             Update,
             (
@@ -343,53 +376,58 @@ fn setup_scene(mut ctx: SceneSetupContext, auto_verify: Option<Res<AutoVerifyCon
     ctx.session_persistence.path = resolve_terminal_sessions_path();
 
     if let Some(config) = auto_verify {
-        let client = ctx.tmux_client.client();
-        let Ok(session_name) = generate_unique_session_name(client, VERIFIER_TMUX_SESSION_PREFIX)
-        else {
-            append_debug_log("verifier terminal spawn failed: could not allocate tmux session");
-            return;
-        };
-        if let Err(error) = provision_terminal_target(
-            client,
-            &TerminalProvisionTarget::TmuxDetached {
-                session_name: session_name.clone(),
-            },
-        ) {
-            append_debug_log(format!(
-                "verifier terminal spawn failed for {}: {error}",
-                session_name
-            ));
-            return;
-        }
-        let (terminal_id, dispatcher_bridge) = spawn_attached_terminal_with_presentation(
-            &mut ctx.commands,
-            &mut ctx.images,
-            &mut ctx.terminal_manager,
-            &mut ctx.presentation_store,
-            &ctx.runtime_spawner,
-            session_name.clone(),
-            true,
-        );
-        ctx.visibility_state.policy = TerminalVisibilityPolicy::Isolate(terminal_id);
-        append_debug_log(format!(
-            "spawned verifier terminal {} session={}",
-            terminal_id.0, session_name
-        ));
-        start_auto_verify_dispatcher(
-            dispatcher_bridge,
-            ctx.runtime_spawner.notifier(),
-            config.clone(),
-        );
+        setup_verifier_terminal(&mut ctx, config.clone());
         return;
     }
 
+    restore_startup_terminals(&mut ctx);
+}
+
+fn setup_verifier_terminal(ctx: &mut SceneSetupContext, config: AutoVerifyConfig) {
+    let client = ctx.tmux_client.session_client();
+    let Ok(session_name) = generate_unique_session_name(client, VERIFIER_TMUX_SESSION_PREFIX)
+    else {
+        append_debug_log("verifier terminal spawn failed: could not allocate tmux session");
+        return;
+    };
+    if let Err(error) = provision_terminal_target(
+        client,
+        &TerminalProvisionTarget::TmuxDetached {
+            session_name: session_name.clone(),
+        },
+    ) {
+        append_debug_log(format!(
+            "verifier terminal spawn failed for {}: {error}",
+            session_name
+        ));
+        return;
+    }
+    let (terminal_id, dispatcher_bridge) = spawn_attached_terminal_with_presentation(
+        &mut ctx.commands,
+        &mut ctx.images,
+        &mut ctx.terminal_manager,
+        &mut ctx.presentation_store,
+        &ctx.runtime_spawner,
+        &ctx.tmux_client,
+        session_name.clone(),
+        true,
+    );
+    ctx.visibility_state.policy = TerminalVisibilityPolicy::Isolate(terminal_id);
+    append_debug_log(format!(
+        "spawned verifier terminal {} session={}",
+        terminal_id.0, session_name
+    ));
+    start_auto_verify_dispatcher(dispatcher_bridge, ctx.runtime_spawner.notifier(), config);
+}
+
+fn restore_startup_terminals(ctx: &mut SceneSetupContext) {
     let persisted = ctx
         .session_persistence
         .path
         .as_ref()
         .map(load_persisted_terminal_sessions_from)
         .unwrap_or_default();
-    let live_sessions = match ctx.tmux_client.client().list_sessions() {
+    let live_sessions = match ctx.tmux_client.session_client().list_sessions() {
         Ok(sessions) => sessions,
         Err(error) => {
             append_debug_log(format!("tmux session discovery failed: {error}"));
@@ -419,6 +457,7 @@ fn setup_scene(mut ctx: SceneSetupContext, auto_verify: Option<Res<AutoVerifyCon
             &mut ctx.terminal_manager,
             &mut ctx.presentation_store,
             &ctx.runtime_spawner,
+            &ctx.tmux_client,
             record.session_name.clone(),
             false,
         );

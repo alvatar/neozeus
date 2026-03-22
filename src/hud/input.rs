@@ -1,7 +1,6 @@
 use crate::{
     hud::{
-        modules, AgentDirectory, HudCommand, HudDispatcher, HudModuleId, HudRect, HudState,
-        HUD_TITLEBAR_HEIGHT,
+        modules, AgentDirectory, HudIntent, HudModuleId, HudRect, HudState, HUD_TITLEBAR_HEIGHT,
     },
     terminals::{TerminalManager, TerminalPresentationStore, TerminalViewState},
 };
@@ -39,7 +38,7 @@ pub(crate) struct HudPointerContext<'w, 's> {
     presentation_store: Res<'w, TerminalPresentationStore>,
     view_state: Res<'w, TerminalViewState>,
     agent_directory: Res<'w, AgentDirectory>,
-    dispatcher: ResMut<'w, HudDispatcher>,
+    hud_commands: MessageWriter<'w, HudIntent>,
 }
 
 pub(crate) fn handle_hud_pointer_input(mut ctx: HudPointerContext) {
@@ -53,6 +52,8 @@ pub(crate) fn handle_hud_pointer_input(mut ctx: HudPointerContext) {
         }
         return;
     };
+
+    let mut emitted_commands = Vec::new();
 
     if ctx.mouse_buttons.just_pressed(MouseButton::Left) {
         if let Some(module_id) = ctx.hud_state.topmost_enabled_at(cursor) {
@@ -80,7 +81,7 @@ pub(crate) fn handle_hud_pointer_input(mut ctx: HudPointerContext) {
                         &ctx.view_state,
                         &ctx.agent_directory,
                         &ctx.hud_state,
-                        &mut ctx.dispatcher,
+                        &mut emitted_commands,
                     );
                 }
             }
@@ -157,13 +158,17 @@ pub(crate) fn handle_hud_pointer_input(mut ctx: HudPointerContext) {
             modules::clear_hover(module_id, &mut module.model)
         };
     }
+
+    for command in emitted_commands {
+        ctx.hud_commands.write(command);
+    }
 }
 
 pub(crate) fn handle_hud_module_shortcuts(
     mut messages: MessageReader<KeyboardInput>,
     keys: Res<ButtonInput<KeyCode>>,
     hud_state: Res<HudState>,
-    mut dispatcher: ResMut<HudDispatcher>,
+    mut hud_commands: MessageWriter<HudIntent>,
 ) {
     if hud_state.keyboard_capture_active() {
         return;
@@ -202,9 +207,9 @@ pub(crate) fn handle_hud_module_shortcuts(
         let Some(module_id) = module_id else {
             continue;
         };
-        dispatcher.commands.push(match action {
-            ShortcutAction::Toggle => HudCommand::ToggleModule(module_id),
-            ShortcutAction::Reset => HudCommand::ResetModule(module_id),
+        hud_commands.write(match action {
+            ShortcutAction::Toggle => HudIntent::ToggleModule(module_id),
+            ShortcutAction::Reset => HudIntent::ResetModule(module_id),
         });
     }
 }

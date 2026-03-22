@@ -4,7 +4,7 @@ mod debug_toolbar;
 use crate::{
     hud::{
         render::{HudPainter, HudRenderInputs},
-        AgentDirectory, HudDispatcher, HudModuleId, HudModuleModel, HudRect, HudState,
+        AgentDirectory, HudIntent, HudModuleId, HudModuleModel, HudRect, HudState,
     },
     terminals::{TerminalManager, TerminalPresentationStore, TerminalViewState},
 };
@@ -19,7 +19,7 @@ pub(crate) use debug_toolbar::debug_toolbar_buttons;
 
 #[allow(
     clippy::too_many_arguments,
-    reason = "module click routing needs shell geometry, terminal state, agent data, and dispatcher together"
+    reason = "module click routing needs shell geometry, terminal state, agent data, and command output together"
 )]
 pub(crate) fn handle_pointer_click(
     module_id: HudModuleId,
@@ -31,7 +31,7 @@ pub(crate) fn handle_pointer_click(
     view_state: &TerminalViewState,
     agent_directory: &AgentDirectory,
     hud_state: &HudState,
-    dispatcher: &mut HudDispatcher,
+    emitted_commands: &mut Vec<HudIntent>,
 ) {
     match module_id {
         HudModuleId::DebugToolbar => debug_toolbar::handle_pointer_click(
@@ -42,7 +42,7 @@ pub(crate) fn handle_pointer_click(
             presentation_store,
             view_state,
             hud_state,
-            dispatcher,
+            emitted_commands,
         ),
         HudModuleId::AgentList => agent_list::handle_pointer_click(
             model,
@@ -50,7 +50,7 @@ pub(crate) fn handle_pointer_click(
             point,
             terminal_manager,
             agent_directory,
-            dispatcher,
+            emitted_commands,
         ),
     }
 }

@@ -13,7 +13,22 @@ use std::{
 pub(crate) const PERSISTENT_TMUX_SESSION_PREFIX: &str = "neozeus-session-";
 pub(crate) const VERIFIER_TMUX_SESSION_PREFIX: &str = "neozeus-verifier-";
 
-pub(crate) trait TmuxClient: Send + Sync {
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct TmuxPaneDescriptor {
+    pub(crate) pane_id: String,
+    pub(crate) active: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct TmuxPaneState {
+    pub(crate) cols: usize,
+    pub(crate) rows: usize,
+    pub(crate) cursor_x: usize,
+    pub(crate) cursor_y: usize,
+    pub(crate) cursor_visible: bool,
+}
+
+pub(crate) trait TerminalSessionClient: Send + Sync {
     fn ensure_tmux_available(&self) -> Result<(), String>;
     fn create_detached_session(&self, name: &str) -> Result<(), String>;
     fn list_sessions(&self) -> Result<Vec<String>, String>;
@@ -21,31 +36,51 @@ pub(crate) trait TmuxClient: Send + Sync {
     fn kill_session(&self, name: &str) -> Result<(), String>;
 }
 
+pub(crate) trait TmuxPaneClient: Send + Sync {
+    fn list_panes(&self, session_name: &str) -> Result<Vec<TmuxPaneDescriptor>, String>;
+    fn pane_state(&self, pane_target: &str) -> Result<TmuxPaneState, String>;
+    fn capture_pane(&self, pane_target: &str, history_limit: usize) -> Result<String, String>;
+    fn send_bytes(&self, pane_target: &str, bytes: &[u8]) -> Result<(), String>;
+}
+
 #[derive(Resource, Clone)]
 pub(crate) struct TmuxClientResource {
-    client: Arc<dyn TmuxClient>,
+    session_client: Arc<dyn TerminalSessionClient>,
+    pane_client: Arc<dyn TmuxPaneClient>,
 }
 
 impl TmuxClientResource {
     pub(crate) fn system() -> Self {
+        let client = Arc::new(SystemTmuxClient);
         Self {
-            client: Arc::new(SystemTmuxClient),
+            session_client: client.clone(),
+            pane_client: client,
         }
     }
 
     #[cfg(test)]
-    pub(crate) fn from_client(client: Arc<dyn TmuxClient>) -> Self {
-        Self { client }
+    pub(crate) fn from_client<T>(client: Arc<T>) -> Self
+    where
+        T: TerminalSessionClient + TmuxPaneClient + 'static,
+    {
+        Self {
+            session_client: client.clone(),
+            pane_client: client,
+        }
     }
 
-    pub(crate) fn client(&self) -> &dyn TmuxClient {
-        self.client.as_ref()
+    pub(crate) fn session_client(&self) -> &dyn TerminalSessionClient {
+        self.session_client.as_ref()
+    }
+
+    pub(crate) fn shared_pane_client(&self) -> Arc<dyn TmuxPaneClient> {
+        self.pane_client.clone()
     }
 }
 
 struct SystemTmuxClient;
 
-impl TmuxClient for SystemTmuxClient {
+impl TerminalSessionClient for SystemTmuxClient {
     fn ensure_tmux_available(&self) -> Result<(), String> {
         let output = Command::new("tmux")
             .arg("-V")
@@ -97,6 +132,43 @@ impl TmuxClient for SystemTmuxClient {
 
     fn kill_session(&self, name: &str) -> Result<(), String> {
         run_tmux(&["kill-session", "-t", name]).map(|_| ())
+    }
+}
+
+impl TmuxPaneClient for SystemTmuxClient {
+    fn list_panes(&self, session_name: &str) -> Result<Vec<TmuxPaneDescriptor>, String> {
+        let output = run_tmux_os(&list_panes_tmux_command(session_name))?;
+        Ok(output
+            .lines()
+            .filter_map(|line| {
+                let mut parts = line.split('\t');
+                let pane_id = parts.next()?.trim();
+                if pane_id.is_empty() {
+                    return None;
+                }
+                let active = parts.next().and_then(|value| value.parse::<u8>().ok()) == Some(1);
+                Some(TmuxPaneDescriptor {
+                    pane_id: pane_id.to_owned(),
+                    active,
+                })
+            })
+            .collect())
+    }
+
+    fn pane_state(&self, pane_target: &str) -> Result<TmuxPaneState, String> {
+        let output = run_tmux_os(&pane_state_tmux_command(pane_target))?;
+        parse_pane_state_output(&output, pane_target)
+    }
+
+    fn capture_pane(&self, pane_target: &str, history_limit: usize) -> Result<String, String> {
+        run_tmux_os(&capture_pane_tmux_command(pane_target, history_limit))
+    }
+
+    fn send_bytes(&self, pane_target: &str, bytes: &[u8]) -> Result<(), String> {
+        for args in send_bytes_tmux_commands(pane_target, bytes) {
+            run_tmux_os(&args)?;
+        }
+        Ok(())
     }
 }
 
@@ -195,6 +267,38 @@ pub(crate) fn send_bytes_tmux_commands(pane_target: &str, bytes: &[u8]) -> Vec<V
     commands
 }
 
+fn parse_pane_state_output(output: &str, pane_target: &str) -> Result<TmuxPaneState, String> {
+    let mut state_parts = output.trim().split('\t');
+    let cols = state_parts
+        .next()
+        .and_then(|value| value.parse::<usize>().ok())
+        .ok_or_else(|| format!("invalid tmux pane width for `{pane_target}`"))?;
+    let rows = state_parts
+        .next()
+        .and_then(|value| value.parse::<usize>().ok())
+        .ok_or_else(|| format!("invalid tmux pane height for `{pane_target}`"))?;
+    let cursor_x = state_parts
+        .next()
+        .and_then(|value| value.parse::<usize>().ok())
+        .ok_or_else(|| format!("invalid tmux cursor_x for `{pane_target}`"))?;
+    let cursor_y = state_parts
+        .next()
+        .and_then(|value| value.parse::<usize>().ok())
+        .ok_or_else(|| format!("invalid tmux cursor_y for `{pane_target}`"))?;
+    let cursor_visible = state_parts
+        .next()
+        .and_then(|value| value.parse::<u8>().ok())
+        .is_some_and(|flag| flag != 0);
+
+    Ok(TmuxPaneState {
+        cols: cols.max(1),
+        rows: rows.max(1),
+        cursor_x,
+        cursor_y,
+        cursor_visible,
+    })
+}
+
 fn run_tmux_os(args: &[OsString]) -> Result<String, String> {
     let output = Command::new("tmux").args(args).output().map_err(|error| {
         format!(
@@ -206,7 +310,7 @@ fn run_tmux_os(args: &[OsString]) -> Result<String, String> {
         )
     })?;
     if output.status.success() {
-        Ok(String::from_utf8_lossy(&output.stdout).trim().to_owned())
+        Ok(String::from_utf8_lossy(&output.stdout).into_owned())
     } else {
         Err(stderr_or_status(&output.stderr, output.status.code()))
     }
@@ -231,7 +335,7 @@ fn stderr_or_status(stderr: &[u8], status_code: Option<i32>) -> String {
 }
 
 pub(crate) fn provision_terminal_target(
-    client: &dyn TmuxClient,
+    client: &dyn TerminalSessionClient,
     target: &TerminalProvisionTarget,
 ) -> Result<(), String> {
     match target {
@@ -244,7 +348,7 @@ pub(crate) fn provision_terminal_target(
 }
 
 pub(crate) fn generate_unique_session_name(
-    client: &dyn TmuxClient,
+    client: &dyn TerminalSessionClient,
     prefix: &str,
 ) -> Result<String, String> {
     client.ensure_tmux_available()?;
@@ -274,15 +378,8 @@ pub(crate) fn build_attach_command_argv(
             std::env::var_os("SHELL").unwrap_or_else(|| OsString::from("bash")),
             Vec::new(),
         ),
-        TerminalAttachTarget::TmuxAttach { session_name } => (
-            OsString::from("tmux"),
-            vec![
-                OsString::from("attach-session"),
-                OsString::from("-t"),
-                OsString::from(session_name),
-            ],
-        ),
-        TerminalAttachTarget::TmuxViewer { session_name } => (
+        TerminalAttachTarget::TmuxAttach { session_name }
+        | TerminalAttachTarget::TmuxViewer { session_name } => (
             OsString::from("tmux"),
             vec![
                 OsString::from("attach-session"),
@@ -291,6 +388,23 @@ pub(crate) fn build_attach_command_argv(
             ],
         ),
     }
+}
+
+pub(crate) fn resolve_tmux_active_pane_target(
+    client: &dyn TmuxPaneClient,
+    session_name: &str,
+) -> Result<String, String> {
+    let panes = client.list_panes(session_name)?;
+    let mut first_pane = None;
+    for pane in panes {
+        if first_pane.is_none() {
+            first_pane = Some(pane.pane_id.clone());
+        }
+        if pane.active {
+            return Ok(pane.pane_id);
+        }
+    }
+    first_pane.ok_or_else(|| format!("tmux session `{session_name}` has no panes"))
 }
 
 pub(crate) fn is_persistent_session_name(name: &str) -> bool {

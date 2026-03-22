@@ -101,7 +101,13 @@ pub(crate) fn initialize_terminal_text_renderer(
 
 pub(crate) fn resolve_terminal_font_report() -> Result<TerminalFontReport, String> {
     let requested_family = load_kitty_font_family()?.unwrap_or_else(|| "monospace".to_owned());
-    let primary = fc_match_face(&requested_family, "kitty primary font")?;
+    resolve_terminal_font_stack_for_family(&requested_family)
+}
+
+fn resolve_terminal_font_stack_for_family(
+    requested_family: &str,
+) -> Result<TerminalFontReport, String> {
+    let primary = fc_match_face(requested_family, "kitty primary font")?;
     let mut fallbacks = Vec::new();
     let mut seen_paths = BTreeSet::from([primary.path.clone()]);
 
@@ -122,7 +128,7 @@ pub(crate) fn resolve_terminal_font_report() -> Result<TerminalFontReport, Strin
     }
 
     Ok(TerminalFontReport {
-        requested_family,
+        requested_family: requested_family.to_owned(),
         primary,
         fallbacks,
     })
@@ -145,29 +151,45 @@ fn load_kitty_font_family() -> Result<Option<String>, String> {
 }
 
 pub(crate) fn find_kitty_config_path() -> Option<PathBuf> {
-    if let Some(dir) = env::var_os("KITTY_CONFIG_DIRECTORY") {
+    find_kitty_config_path_with(
+        env::var_os("KITTY_CONFIG_DIRECTORY").as_deref(),
+        env::var_os("XDG_CONFIG_HOME").as_deref(),
+        env::var_os("HOME").as_deref(),
+        env::var_os("XDG_CONFIG_DIRS").as_deref(),
+        Some(Path::new("/etc/xdg/kitty/kitty.conf")),
+    )
+}
+
+pub(crate) fn find_kitty_config_path_with(
+    kitty_config_directory: Option<&std::ffi::OsStr>,
+    xdg_config_home: Option<&std::ffi::OsStr>,
+    home: Option<&std::ffi::OsStr>,
+    xdg_config_dirs: Option<&std::ffi::OsStr>,
+    system_path: Option<&Path>,
+) -> Option<PathBuf> {
+    if let Some(dir) = kitty_config_directory {
         let path = PathBuf::from(dir).join("kitty.conf");
         if path.is_file() {
             return Some(path);
         }
     }
 
-    if let Some(xdg_config_home) = env::var_os("XDG_CONFIG_HOME") {
+    if let Some(xdg_config_home) = xdg_config_home {
         let path = PathBuf::from(xdg_config_home).join("kitty/kitty.conf");
         if path.is_file() {
             return Some(path);
         }
     }
 
-    if let Some(home) = env::var_os("HOME") {
+    if let Some(home) = home {
         let path = PathBuf::from(home).join(".config/kitty/kitty.conf");
         if path.is_file() {
             return Some(path);
         }
     }
 
-    if let Some(xdg_config_dirs) = env::var_os("XDG_CONFIG_DIRS") {
-        for base in env::split_paths(&xdg_config_dirs) {
+    if let Some(xdg_config_dirs) = xdg_config_dirs {
+        for base in env::split_paths(xdg_config_dirs) {
             let path = base.join("kitty/kitty.conf");
             if path.is_file() {
                 return Some(path);
@@ -175,7 +197,7 @@ pub(crate) fn find_kitty_config_path() -> Option<PathBuf> {
         }
     }
 
-    let system_path = PathBuf::from("/etc/xdg/kitty/kitty.conf");
+    let system_path = system_path?.to_path_buf();
     system_path.is_file().then_some(system_path)
 }
 

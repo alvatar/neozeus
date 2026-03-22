@@ -4,9 +4,9 @@ use crate::hud::{
     dispatch_hud_scroll, handle_hud_module_shortcuts, handle_hud_pointer_input, hud_needs_redraw,
     kill_active_terminal, parse_persisted_hud_state, resolve_agent_label,
     resolve_hud_layout_path_with, save_hud_layout_if_dirty, serialize_persisted_hud_state,
-    AgentDirectory, HudCommand, HudDispatcher, HudDragState, HudModuleId, HudModuleModel,
-    HudPersistenceState, HudRect, HudState, PersistedHudModuleState, PersistedHudState,
-    TerminalVisibilityPolicy, TerminalVisibilityState,
+    AgentDirectory, HudDragState, HudIntent, HudModuleId, HudModuleModel, HudPersistenceState,
+    HudRect, HudState, PersistedHudModuleState, PersistedHudState, TerminalVisibilityPolicy,
+    TerminalVisibilityState,
 };
 use crate::terminals::{
     TerminalManager, TerminalPanel, TerminalPanelFrame, TerminalPresentationStore,
@@ -19,6 +19,18 @@ use bevy::{
     window::{PrimaryWindow, RequestRedraw},
 };
 use std::{fs, path::PathBuf, sync::Arc, time::Duration};
+
+fn init_hud_commands(world: &mut World) {
+    world.init_resource::<Messages<HudIntent>>();
+}
+
+fn drain_hud_commands(world: &mut World) -> Vec<HudIntent> {
+    world
+        .run_system_once(|mut reader: bevy::prelude::MessageReader<HudIntent>| {
+            reader.read().cloned().collect::<Vec<_>>()
+        })
+        .unwrap()
+}
 
 #[test]
 fn setup_hud_requests_initial_redraw() {
@@ -122,7 +134,7 @@ fn plain_digit_module_shortcut_toggles_module() {
     let mut world = World::default();
     world.insert_resource(ButtonInput::<KeyCode>::default());
     world.insert_resource(HudState::default());
-    world.insert_resource(HudDispatcher::default());
+    init_hud_commands(&mut world);
     world.init_resource::<Messages<KeyboardInput>>();
     world
         .resource_mut::<Messages<KeyboardInput>>()
@@ -131,8 +143,8 @@ fn plain_digit_module_shortcut_toggles_module() {
     world.run_system_once(handle_hud_module_shortcuts).unwrap();
 
     assert_eq!(
-        world.resource::<HudDispatcher>().commands,
-        vec![HudCommand::ToggleModule(HudModuleId::AgentList)]
+        drain_hud_commands(&mut world),
+        vec![HudIntent::ToggleModule(HudModuleId::AgentList)]
     );
 }
 
@@ -144,7 +156,7 @@ fn alt_shift_module_shortcut_still_resets_module() {
     keys.press(KeyCode::ShiftLeft);
     world.insert_resource(keys);
     world.insert_resource(HudState::default());
-    world.insert_resource(HudDispatcher::default());
+    init_hud_commands(&mut world);
     world.init_resource::<Messages<KeyboardInput>>();
     world
         .resource_mut::<Messages<KeyboardInput>>()
@@ -153,8 +165,8 @@ fn alt_shift_module_shortcut_still_resets_module() {
     world.run_system_once(handle_hud_module_shortcuts).unwrap();
 
     assert_eq!(
-        world.resource::<HudDispatcher>().commands,
-        vec![HudCommand::ResetModule(HudModuleId::DebugToolbar)]
+        drain_hud_commands(&mut world),
+        vec![HudIntent::ResetModule(HudModuleId::DebugToolbar)]
     );
 }
 
@@ -165,7 +177,7 @@ fn module_shortcuts_are_suppressed_while_direct_input_is_open() {
     hud_state.open_direct_terminal_input(crate::terminals::TerminalId(1));
     world.insert_resource(hud_state);
     world.insert_resource(ButtonInput::<KeyCode>::default());
-    world.insert_resource(HudDispatcher::default());
+    init_hud_commands(&mut world);
     world.init_resource::<Messages<KeyboardInput>>();
     world
         .resource_mut::<Messages<KeyboardInput>>()
@@ -173,7 +185,7 @@ fn module_shortcuts_are_suppressed_while_direct_input_is_open() {
 
     world.run_system_once(handle_hud_module_shortcuts).unwrap();
 
-    assert!(world.resource::<HudDispatcher>().commands.is_empty());
+    assert!(drain_hud_commands(&mut world).is_empty());
 }
 
 #[test]
@@ -281,7 +293,7 @@ fn hud_pointer_drag_updates_module_target_rect_and_marks_layout_dirty() {
     world.insert_resource(TerminalPresentationStore::default());
     world.insert_resource(TerminalViewState::default());
     world.insert_resource(AgentDirectory::default());
-    world.insert_resource(HudDispatcher::default());
+    init_hud_commands(&mut world);
     world.spawn((window, PrimaryWindow));
 
     world
@@ -390,7 +402,7 @@ fn clicking_debug_toolbar_button_emits_spawn_terminal_command() {
         HudModuleId::AgentList,
         crate::hud::default_hud_module_instance(&crate::hud::HUD_MODULE_DEFINITIONS[1]),
     );
-    let mut dispatcher = HudDispatcher::default();
+    let mut emitted_commands = Vec::new();
     let buttons = debug_toolbar_buttons(
         HudRect {
             x: 24.0,
@@ -430,13 +442,10 @@ fn clicking_debug_toolbar_button_emits_spawn_terminal_command() {
         &TerminalViewState::default(),
         &AgentDirectory::default(),
         &hud_state,
-        &mut dispatcher,
+        &mut emitted_commands,
     );
 
-    assert_eq!(
-        dispatcher.commands,
-        vec![crate::hud::HudCommand::SpawnTerminal]
-    );
+    assert_eq!(emitted_commands, vec![crate::hud::HudIntent::SpawnTerminal]);
 }
 
 #[test]
@@ -453,7 +462,7 @@ fn clicking_debug_toolbar_command_button_emits_terminal_command() {
         HudModuleId::AgentList,
         crate::hud::default_hud_module_instance(&crate::hud::HUD_MODULE_DEFINITIONS[1]),
     );
-    let mut dispatcher = HudDispatcher::default();
+    let mut emitted_commands = Vec::new();
     let buttons = debug_toolbar_buttons(
         HudRect {
             x: 24.0,
@@ -490,12 +499,12 @@ fn clicking_debug_toolbar_command_button_emits_terminal_command() {
         &TerminalViewState::default(),
         &AgentDirectory::default(),
         &hud_state,
-        &mut dispatcher,
+        &mut emitted_commands,
     );
 
     assert_eq!(
-        dispatcher.commands,
-        vec![crate::hud::HudCommand::SendActiveTerminalCommand(
+        emitted_commands,
+        vec![crate::hud::HudIntent::SendActiveTerminalCommand(
             "pwd".into()
         )]
     );
@@ -513,7 +522,7 @@ fn clicking_agent_list_row_emits_focus_and_isolate_commands() {
         HudModuleId::AgentList,
         crate::hud::default_hud_module_instance(&crate::hud::HUD_MODULE_DEFINITIONS[1]),
     );
-    let mut dispatcher = HudDispatcher::default();
+    let mut emitted_commands = Vec::new();
     let rows = agent_rows(
         HudRect {
             x: 24.0,
@@ -553,17 +562,17 @@ fn clicking_agent_list_row_emits_focus_and_isolate_commands() {
         &TerminalViewState::default(),
         &AgentDirectory::default(),
         &hud_state,
-        &mut dispatcher,
+        &mut emitted_commands,
     );
 
-    assert_eq!(dispatcher.commands.len(), 2);
+    assert_eq!(emitted_commands.len(), 2);
     assert_eq!(
-        dispatcher.commands[0],
-        crate::hud::HudCommand::FocusTerminal(id_two)
+        emitted_commands[0],
+        crate::hud::HudIntent::FocusTerminal(id_two)
     );
     assert_eq!(
-        dispatcher.commands[1],
-        crate::hud::HudCommand::HideAllButTerminal(id_two)
+        emitted_commands[1],
+        crate::hud::HudIntent::HideAllButTerminal(id_two)
     );
 }
 
@@ -743,6 +752,8 @@ fn killing_active_terminal_removes_runtime_presentation_and_labels() {
             texture_state: Default::default(),
             display_mode: Default::default(),
             uploaded_revision: 0,
+            panel_entity: Entity::PLACEHOLDER,
+            frame_entity: Entity::PLACEHOLDER,
         },
     );
 
@@ -762,8 +773,14 @@ fn killing_active_terminal_removes_runtime_presentation_and_labels() {
         policy: TerminalVisibilityPolicy::Isolate(id),
     });
     world.insert_resource(TerminalViewState::default());
-    world.spawn((TerminalPanel { id },));
-    world.spawn((TerminalPanelFrame { id },));
+    let panel_entity = world.spawn((TerminalPanel { id },)).id();
+    let frame_entity = world.spawn((TerminalPanelFrame { id },)).id();
+    {
+        let mut store = world.resource_mut::<TerminalPresentationStore>();
+        let presented = store.get_mut(id).expect("missing presented terminal");
+        presented.panel_entity = panel_entity;
+        presented.frame_entity = frame_entity;
+    }
 
     world
         .run_system_once(
@@ -775,21 +792,17 @@ fn killing_active_terminal_removes_runtime_presentation_and_labels() {
              mut agent_directory: ResMut<AgentDirectory>,
              mut session_persistence: ResMut<TerminalSessionPersistenceState>,
              mut visibility_state: ResMut<TerminalVisibilityState>,
-             mut view_state: ResMut<TerminalViewState>,
-             terminal_panels: Query<(Entity, &TerminalPanel)>,
-             terminal_frames: Query<(Entity, &TerminalPanelFrame)>| {
-                kill_active_terminal(
+             mut view_state: ResMut<TerminalViewState>| {
+                let _ = kill_active_terminal(
                     &mut commands,
                     &time,
                     &mut terminal_manager,
                     &mut presentation_store,
-                    tmux.client(),
+                    tmux.session_client(),
                     &mut agent_directory,
                     &mut session_persistence,
                     &mut visibility_state,
                     &mut view_state,
-                    &terminal_panels,
-                    &terminal_frames,
                 );
             },
         )
@@ -842,6 +855,8 @@ fn killing_active_terminal_preserves_local_state_when_tmux_kill_fails() {
             texture_state: Default::default(),
             display_mode: Default::default(),
             uploaded_revision: 0,
+            panel_entity: Entity::PLACEHOLDER,
+            frame_entity: Entity::PLACEHOLDER,
         },
     );
 
@@ -861,8 +876,14 @@ fn killing_active_terminal_preserves_local_state_when_tmux_kill_fails() {
         policy: TerminalVisibilityPolicy::Isolate(id),
     });
     world.insert_resource(TerminalViewState::default());
-    world.spawn((TerminalPanel { id },));
-    world.spawn((TerminalPanelFrame { id },));
+    let panel_entity = world.spawn((TerminalPanel { id },)).id();
+    let frame_entity = world.spawn((TerminalPanelFrame { id },)).id();
+    {
+        let mut store = world.resource_mut::<TerminalPresentationStore>();
+        let presented = store.get_mut(id).expect("missing presented terminal");
+        presented.panel_entity = panel_entity;
+        presented.frame_entity = frame_entity;
+    }
 
     world
         .run_system_once(
@@ -874,21 +895,17 @@ fn killing_active_terminal_preserves_local_state_when_tmux_kill_fails() {
              mut agent_directory: ResMut<AgentDirectory>,
              mut session_persistence: ResMut<TerminalSessionPersistenceState>,
              mut visibility_state: ResMut<TerminalVisibilityState>,
-             mut view_state: ResMut<TerminalViewState>,
-             terminal_panels: Query<(Entity, &TerminalPanel)>,
-             terminal_frames: Query<(Entity, &TerminalPanelFrame)>| {
-                kill_active_terminal(
+             mut view_state: ResMut<TerminalViewState>| {
+                let _ = kill_active_terminal(
                     &mut commands,
                     &time,
                     &mut terminal_manager,
                     &mut presentation_store,
-                    tmux.client(),
+                    tmux.session_client(),
                     &mut agent_directory,
                     &mut session_persistence,
                     &mut visibility_state,
                     &mut view_state,
-                    &terminal_panels,
-                    &terminal_frames,
                 );
             },
         )

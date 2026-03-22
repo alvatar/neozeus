@@ -2,6 +2,7 @@ use super::backend::terminal_worker;
 use crate::terminals::{
     append_debug_log, note_terminal_error, TerminalAttachTarget, TerminalBridge,
     TerminalDebugStats, TerminalRuntimeState, TerminalUpdate, TerminalUpdateMailbox,
+    TmuxPaneClient,
 };
 use bevy::{
     prelude::Resource,
@@ -43,14 +44,19 @@ impl TerminalRuntimeSpawner {
         self.notifier.clone()
     }
 
-    pub(crate) fn spawn_attached(&self, attach_target: TerminalAttachTarget) -> TerminalBridge {
-        spawn_terminal_runtime(self.notifier.clone(), attach_target)
+    pub(crate) fn spawn_attached(
+        &self,
+        attach_target: TerminalAttachTarget,
+        tmux_client: Option<Arc<dyn TmuxPaneClient>>,
+    ) -> TerminalBridge {
+        spawn_terminal_runtime(self.notifier.clone(), attach_target, tmux_client)
     }
 }
 
 pub(crate) fn spawn_terminal_runtime(
     notifier: RuntimeNotifier,
     attach_target: TerminalAttachTarget,
+    tmux_client: Option<Arc<dyn TmuxPaneClient>>,
 ) -> TerminalBridge {
     let (input_tx, input_rx) = mpsc::channel();
     let update_mailbox = Arc::new(TerminalUpdateMailbox::default());
@@ -61,6 +67,7 @@ pub(crate) fn spawn_terminal_runtime(
     let worker_debug_stats = debug_stats.clone();
     let worker_notifier = notifier.clone();
     let worker_attach_target = attach_target.clone();
+    let worker_tmux_client = tmux_client.clone();
     thread::spawn(move || {
         append_debug_log("terminal worker thread spawn");
         let panic_mailbox = worker_mailbox.clone();
@@ -73,6 +80,7 @@ pub(crate) fn spawn_terminal_runtime(
                 worker_debug_stats,
                 worker_notifier,
                 worker_attach_target,
+                worker_tmux_client,
             )
         }));
         if let Err(payload) = result {
