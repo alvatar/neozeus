@@ -37,10 +37,8 @@ fn is_plain_ctrl_enter(event: &KeyboardInput, ctrl: bool, alt: bool, super_key: 
 pub(crate) fn should_spawn_terminal_globally(
     event: &KeyboardInput,
     keys: &ButtonInput<KeyCode>,
-    has_active_terminal: bool,
 ) -> bool {
-    if has_active_terminal || event.state != ButtonState::Pressed || event.key_code != KeyCode::KeyZ
-    {
+    if event.state != ButtonState::Pressed || event.key_code != KeyCode::KeyZ {
         return false;
     }
 
@@ -71,19 +69,15 @@ pub(crate) fn handle_global_terminal_spawn_shortcut(
     mut messages: MessageReader<KeyboardInput>,
     keys: Res<ButtonInput<KeyCode>>,
     primary_window: Single<&Window, With<PrimaryWindow>>,
-    terminal_manager: Res<TerminalManager>,
     hud_state: Res<HudState>,
     mut hud_commands: MessageWriter<HudIntent>,
 ) {
-    if hud_state.keyboard_capture_active()
-        || !primary_window.focused
-        || terminal_manager.active_id().is_some()
-    {
+    if hud_state.keyboard_capture_active() || !primary_window.focused {
         return;
     }
 
     for event in messages.read() {
-        if should_spawn_terminal_globally(event, &keys, false) {
+        if should_spawn_terminal_globally(event, &keys) {
             hud_commands.write(HudIntent::SpawnTerminal);
             break;
         }

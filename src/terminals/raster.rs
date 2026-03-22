@@ -5,8 +5,8 @@ use crate::{
     hud::HudState,
     terminals::{
         append_debug_log, is_emoji_like, is_private_use_like, pixel_perfect_cell_size,
-        TerminalDamage, TerminalDisplayMode, TerminalFontState, TerminalManager,
-        TerminalPresentationStore, TerminalSurface, TerminalTextRenderer,
+        TerminalDamage, TerminalFontState, TerminalManager, TerminalPresentationStore,
+        TerminalSurface, TerminalTextRenderer,
     },
 };
 use bevy::{
@@ -123,9 +123,8 @@ pub(crate) fn sync_terminal_texture(
             continue;
         };
 
-        let pixel_perfect = Some(terminal_id) == active_id
-            && presented_terminal.display_mode == TerminalDisplayMode::PixelPerfect;
-        let desired_cell_size = if pixel_perfect {
+        let is_active_terminal = Some(terminal_id) == active_id;
+        let desired_cell_size = if is_active_terminal {
             pixel_perfect_cell_size(surface.cols, surface.rows, &primary_window, &hud_state)
         } else {
             UVec2::new(DEFAULT_CELL_WIDTH_PX, DEFAULT_CELL_HEIGHT_PX)
