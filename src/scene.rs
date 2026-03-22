@@ -93,6 +93,7 @@ fn configure_app(app: &mut App) {
                 primary_window: Some(Window {
                     title: env::var("NEOZEUS_WINDOW_TITLE")
                         .unwrap_or_else(|_| "neozeus".to_owned()),
+                    name: Some(env::var("NEOZEUS_APP_ID").unwrap_or_else(|_| "neozeus".to_owned())),
                     resolution: (1400, 900).into(),
                     ..default()
                 }),

@@ -4,6 +4,11 @@ Initial comparison result: the Alacritty path and the shadow-terminal/WezTerm pa
 
 Run with `cargo run`.
 
+Window manager identity defaults to `neozeus` and can be overridden with:
+
+- `NEOZEUS_APP_ID` — native window/app id (Wayland app_id / WM-visible name)
+- `NEOZEUS_WINDOW_TITLE` — human-facing window title
+
 ## Verification
 
 Default development checks stay headless and cheap:
