@@ -8,6 +8,7 @@ Window manager identity defaults to `neozeus` and can be overridden with:
 
 - `NEOZEUS_APP_ID` — native window/app id (Wayland app_id / WM-visible name)
 - `NEOZEUS_WINDOW_TITLE` — human-facing window title
+- `NEOZEUS_WINDOW_MODE` — `windowed` to disable the default borderless fullscreen startup mode
 
 ## Verification
 
