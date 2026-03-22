@@ -60,8 +60,9 @@ pub(crate) use session_persistence::{
 #[cfg(test)]
 pub(crate) use tmux::create_detached_session_tmux_commands;
 pub(crate) use tmux::{
-    build_attach_command_argv, generate_unique_session_name, is_persistent_session_name,
-    provision_terminal_target, TmuxClient, TmuxClientResource, PERSISTENT_TMUX_SESSION_PREFIX,
+    build_attach_command_argv, capture_pane_tmux_command, generate_unique_session_name,
+    is_persistent_session_name, pane_state_tmux_command, provision_terminal_target,
+    send_bytes_tmux_commands, TmuxClient, TmuxClientResource, PERSISTENT_TMUX_SESSION_PREFIX,
     VERIFIER_TMUX_SESSION_PREFIX,
 };
 #[cfg(test)]
@@ -83,7 +84,7 @@ pub(crate) fn spawn_attached_terminal_with_presentation(
     session_name: String,
     focus: bool,
 ) -> (TerminalId, TerminalBridge) {
-    let bridge = runtime_spawner.spawn_attached(TerminalAttachTarget::TmuxAttach {
+    let bridge = runtime_spawner.spawn_attached(TerminalAttachTarget::TmuxViewer {
         session_name: session_name.clone(),
     });
     let (terminal_id, slot) = if focus {

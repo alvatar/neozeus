@@ -238,7 +238,14 @@ pub(crate) type DrainedTerminalUpdates = (
 pub(crate) enum TerminalAttachTarget {
     #[allow(dead_code, reason = "raw shell attach is kept as fallback/test path")]
     RawShell,
+    #[allow(
+        dead_code,
+        reason = "legacy direct tmux client path kept while viewer backend lands"
+    )]
     TmuxAttach {
+        session_name: String,
+    },
+    TmuxViewer {
         session_name: String,
     },
 }

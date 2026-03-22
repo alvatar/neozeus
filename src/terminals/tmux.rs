@@ -1,4 +1,7 @@
-use crate::terminals::{TerminalAttachTarget, TerminalProvisionTarget};
+use crate::{
+    app_config::{DEFAULT_COLS, DEFAULT_ROWS},
+    terminals::{TerminalAttachTarget, TerminalProvisionTarget},
+};
 use bevy::prelude::Resource;
 use std::{
     ffi::OsString,
@@ -102,6 +105,10 @@ pub(crate) fn create_detached_session_tmux_commands(name: &str) -> Vec<Vec<OsStr
         vec![
             OsString::from("new-session"),
             OsString::from("-d"),
+            OsString::from("-x"),
+            OsString::from(DEFAULT_COLS.to_string()),
+            OsString::from("-y"),
+            OsString::from(DEFAULT_ROWS.to_string()),
             OsString::from("-s"),
             OsString::from(name),
         ],
@@ -112,7 +119,74 @@ pub(crate) fn create_detached_session_tmux_commands(name: &str) -> Vec<Vec<OsStr
             OsString::from("destroy-unattached"),
             OsString::from("off"),
         ],
+        vec![
+            OsString::from("set-option"),
+            OsString::from("-t"),
+            OsString::from(name),
+            OsString::from("status"),
+            OsString::from("off"),
+        ],
     ]
+}
+
+pub(crate) fn tmux_pane_target(session_name: &str) -> OsString {
+    OsString::from(format!("={session_name}:0.0"))
+}
+
+pub(crate) fn capture_pane_tmux_command(session_name: &str, history_limit: usize) -> Vec<OsString> {
+    vec![
+        OsString::from("capture-pane"),
+        OsString::from("-p"),
+        OsString::from("-e"),
+        OsString::from("-N"),
+        OsString::from("-S"),
+        OsString::from(format!("-{}", history_limit.max(1))),
+        OsString::from("-t"),
+        tmux_pane_target(session_name),
+    ]
+}
+
+pub(crate) fn pane_state_tmux_command(session_name: &str) -> Vec<OsString> {
+    vec![
+        OsString::from("display-message"),
+        OsString::from("-p"),
+        OsString::from("-t"),
+        tmux_pane_target(session_name),
+        OsString::from("#{pane_width}\t#{pane_height}\t#{cursor_x}\t#{cursor_y}\t#{cursor_flag}"),
+    ]
+}
+
+pub(crate) fn send_bytes_tmux_commands(session_name: &str, bytes: &[u8]) -> Vec<Vec<OsString>> {
+    let mut commands = Vec::new();
+    let mut start = 0usize;
+    while start < bytes.len() {
+        if matches!(bytes[start], 0x00..=0x1f | 0x7f) {
+            commands.push(vec![
+                OsString::from("send-keys"),
+                OsString::from("-t"),
+                tmux_pane_target(session_name),
+                OsString::from("-H"),
+                OsString::from(format!("{:02x}", bytes[start])),
+            ]);
+            start += 1;
+            continue;
+        }
+
+        let mut end = start;
+        while end < bytes.len() && !matches!(bytes[end], 0x00..=0x1f | 0x7f) {
+            end += 1;
+        }
+        let text = String::from_utf8_lossy(&bytes[start..end]).into_owned();
+        commands.push(vec![
+            OsString::from("send-keys"),
+            OsString::from("-t"),
+            tmux_pane_target(session_name),
+            OsString::from("-l"),
+            OsString::from(text),
+        ]);
+        start = end;
+    }
+    commands
 }
 
 fn run_tmux_os(args: &[OsString]) -> Result<String, String> {
@@ -195,6 +269,14 @@ pub(crate) fn build_attach_command_argv(
             Vec::new(),
         ),
         TerminalAttachTarget::TmuxAttach { session_name } => (
+            OsString::from("tmux"),
+            vec![
+                OsString::from("attach-session"),
+                OsString::from("-t"),
+                OsString::from(session_name),
+            ],
+        ),
+        TerminalAttachTarget::TmuxViewer { session_name } => (
             OsString::from("tmux"),
             vec![
                 OsString::from("attach-session"),
