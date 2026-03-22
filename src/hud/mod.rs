@@ -1,4 +1,5 @@
 mod animation;
+mod compositor;
 mod dispatcher;
 mod input;
 mod message_box;
@@ -9,6 +10,13 @@ mod render;
 mod state;
 
 pub(crate) use animation::animate_hud_modules;
+pub(crate) use compositor::{
+    setup_hud_offscreen_compositor, sync_hud_offscreen_compositor, HudOffscreenCompositor,
+};
+#[cfg(test)]
+pub(crate) use compositor::{
+    HudCompositeLayerId, HudCompositeLayerMarker, HUD_COMPOSITE_FOREGROUND_Z,
+};
 #[cfg(test)]
 pub(crate) use dispatcher::kill_active_terminal;
 pub(crate) use dispatcher::{
@@ -28,9 +36,7 @@ pub(crate) use persistence::{
     serialize_persisted_hud_state, PersistedHudModuleState, PersistedHudState,
 };
 pub(crate) use persistence::{save_hud_layout_if_dirty, HudPersistenceState};
-#[cfg(test)]
-pub(crate) use render::VELLO_CANVAS_FOREGROUND_Z;
-pub(crate) use render::{elevate_vello_canvas_above_world, render_hud_scene, HudVectorSceneMarker};
+pub(crate) use render::{render_hud_scene, HudVectorSceneMarker};
 pub(crate) use state::{
     default_hud_module_instance, AgentDirectory, HudDragState, HudModuleId, HudModuleModel,
     HudRect, HudState, TerminalVisibilityPolicy, TerminalVisibilityState, HUD_BUTTON_GAP,
@@ -49,6 +55,7 @@ pub(crate) fn setup_hud(
     mut commands: Commands,
     mut hud_state: ResMut<HudState>,
     mut persistence_state: ResMut<HudPersistenceState>,
+    mut compositor: ResMut<HudOffscreenCompositor>,
     mut redraws: MessageWriter<RequestRedraw>,
 ) {
     persistence_state.path = persistence::resolve_hud_layout_path();
@@ -81,6 +88,7 @@ pub(crate) fn setup_hud(
         NoFrustumCulling,
         HudVectorSceneMarker,
     ));
+    setup_hud_offscreen_compositor(&mut commands, &mut compositor);
     redraws.write(RequestRedraw);
 }
 
