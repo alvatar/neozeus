@@ -167,11 +167,27 @@ pub(crate) fn handle_hud_module_shortcuts(
     {
         return;
     }
+
+    let ctrl = keys.pressed(KeyCode::ControlLeft) || keys.pressed(KeyCode::ControlRight);
     let alt = keys.pressed(KeyCode::AltLeft) || keys.pressed(KeyCode::AltRight);
-    if !alt {
-        return;
-    }
+    let super_key = keys.pressed(KeyCode::SuperLeft) || keys.pressed(KeyCode::SuperRight);
     let shift = keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight);
+
+    enum ShortcutAction {
+        Toggle,
+        Reset,
+    }
+
+    let action = if !ctrl && !alt && !super_key && !shift {
+        Some(ShortcutAction::Toggle)
+    } else if !ctrl && alt && !super_key && shift {
+        Some(ShortcutAction::Reset)
+    } else {
+        None
+    };
+    let Some(action) = action else {
+        return;
+    };
 
     for event in messages.read() {
         if event.state != ButtonState::Pressed {
@@ -185,10 +201,9 @@ pub(crate) fn handle_hud_module_shortcuts(
         let Some(module_id) = module_id else {
             continue;
         };
-        dispatcher.commands.push(if shift {
-            HudCommand::ResetModule(module_id)
-        } else {
-            HudCommand::ToggleModule(module_id)
+        dispatcher.commands.push(match action {
+            ShortcutAction::Toggle => HudCommand::ToggleModule(module_id),
+            ShortcutAction::Reset => HudCommand::ResetModule(module_id),
         });
     }
 }
