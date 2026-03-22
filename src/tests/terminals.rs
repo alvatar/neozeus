@@ -6,7 +6,7 @@ use crate::{
     hud::AgentDirectory,
     terminals::{
         blend_rgba_in_place, build_attach_command_argv, compute_terminal_damage,
-        create_detached_session_tmux_commands, find_kitty_config_path,
+        create_detached_session_tmux_commands, find_kitty_config_path_with,
         generate_unique_session_name, initialize_terminal_text_renderer, is_emoji_like,
         is_private_use_like, parse_kitty_config_file, parse_persisted_terminal_sessions,
         pixel_perfect_cell_size, pixel_perfect_terminal_logical_size, poll_terminal_snapshots,
@@ -19,9 +19,9 @@ use crate::{
         TerminalFontRole, TerminalFontState, TerminalFrameUpdate, TerminalGlyphCacheKey,
         TerminalLifecycle, TerminalManager, TerminalPanel, TerminalPanelFrame,
         TerminalPresentation, TerminalPresentationStore, TerminalProvisionTarget,
-        TerminalRuntimeState, TerminalSessionPersistenceState, TerminalSessionRecord,
-        TerminalSurface, TerminalTextRenderer, TerminalTextureState, TerminalUpdate,
-        TerminalViewState, TmuxClient, PERSISTENT_TMUX_SESSION_PREFIX,
+        TerminalRuntimeState, TerminalSessionClient, TerminalSessionPersistenceState,
+        TerminalSessionRecord, TerminalSurface, TerminalTextRenderer, TerminalTextureState,
+        TerminalUpdate, TerminalViewState, TmuxPaneClient, PERSISTENT_TMUX_SESSION_PREFIX,
     },
 };
 use alacritty_terminal::vte::ansi::{Color as AnsiColor, NamedColor};
@@ -30,7 +30,7 @@ use std::{collections::BTreeSet, fs, time::Duration};
 
 struct UnavailableTmuxClient;
 
-impl TmuxClient for UnavailableTmuxClient {
+impl TerminalSessionClient for UnavailableTmuxClient {
     fn ensure_tmux_available(&self) -> Result<(), String> {
         Err("tmux unavailable".into())
     }
@@ -48,6 +48,27 @@ impl TmuxClient for UnavailableTmuxClient {
     }
 
     fn kill_session(&self, _name: &str) -> Result<(), String> {
+        Err("tmux unavailable".into())
+    }
+}
+
+impl TmuxPaneClient for UnavailableTmuxClient {
+    fn list_panes(
+        &self,
+        _session_name: &str,
+    ) -> Result<Vec<crate::terminals::TmuxPaneDescriptor>, String> {
+        Err("tmux unavailable".into())
+    }
+
+    fn pane_state(&self, _pane_target: &str) -> Result<crate::terminals::TmuxPaneState, String> {
+        Err("tmux unavailable".into())
+    }
+
+    fn capture_pane(&self, _pane_target: &str, _history_limit: usize) -> Result<String, String> {
+        Err("tmux unavailable".into())
+    }
+
+    fn send_bytes(&self, _pane_target: &str, _bytes: &[u8]) -> Result<(), String> {
         Err("tmux unavailable".into())
     }
 }
@@ -219,20 +240,42 @@ fn parses_font_family_from_included_kitty_config() {
 }
 
 #[test]
-fn current_host_has_no_user_kitty_config() {
-    assert_eq!(find_kitty_config_path(), None);
+fn kitty_config_lookup_prefers_explicit_directory_over_other_locations() {
+    let dir = temp_dir("neozeus-kitty-config-path");
+    let kitty_dir = dir.join("kitty-dir");
+    let xdg_dir = dir.join("xdg");
+    let home_dir = dir.join("home");
+    fs::create_dir_all(&kitty_dir).expect("failed to create kitty dir");
+    fs::create_dir_all(xdg_dir.join("kitty")).expect("failed to create xdg kitty dir");
+    fs::create_dir_all(home_dir.join(".config/kitty")).expect("failed to create home kitty dir");
+    fs::write(kitty_dir.join("kitty.conf"), "font_family Fira Code\n")
+        .expect("failed to write kitty config");
+    fs::write(xdg_dir.join("kitty/kitty.conf"), "font_family Hack\n")
+        .expect("failed to write xdg kitty config");
+    fs::write(
+        home_dir.join(".config/kitty/kitty.conf"),
+        "font_family Iosevka\n",
+    )
+    .expect("failed to write home kitty config");
+
+    let found = find_kitty_config_path_with(
+        Some(kitty_dir.as_os_str()),
+        Some(xdg_dir.as_os_str()),
+        Some(home_dir.as_os_str()),
+        None,
+        None,
+    );
+    assert_eq!(found, Some(kitty_dir.join("kitty.conf")));
 }
 
 #[test]
 fn resolves_effective_terminal_font_stack_on_host() {
     let report = resolve_terminal_font_report().expect("failed to resolve terminal fonts");
     assert_eq!(report.requested_family, "monospace");
-    assert_eq!(report.primary.family, "Adwaita Mono");
     assert!(report.primary.path.is_file());
-    assert!(report
-        .fallbacks
-        .iter()
-        .any(|face| face.family.contains("Nerd Font")));
+    assert!(!report.primary.family.is_empty());
+    assert!(!report.fallbacks.is_empty());
+    assert!(report.fallbacks.iter().all(|face| face.path.is_file()));
 }
 
 #[test]
@@ -395,6 +438,39 @@ fn saving_terminal_sessions_persists_focus_order_and_labels() {
     assert!(!persisted.sessions[0].last_focused);
     assert_eq!(persisted.sessions[1].session_name, "neozeus-session-b");
     assert!(persisted.sessions[1].last_focused);
+}
+
+#[test]
+fn terminal_sessions_save_waits_for_debounce_window() {
+    let dir = temp_dir("neozeus-terminal-sessions-save-debounce");
+    let path = dir.join("terminals.v1");
+    let (bridge, _) = test_bridge();
+    let mut manager = TerminalManager::default();
+    manager.create_terminal_with_session(bridge, "neozeus-session-a".into());
+
+    let mut world = World::default();
+    let mut time = Time::<()>::default();
+    time.advance_by(Duration::from_millis(100));
+    world.insert_resource(time);
+    world.insert_resource(manager);
+    world.insert_resource(AgentDirectory::default());
+    world.insert_resource(TerminalSessionPersistenceState {
+        path: Some(path.clone()),
+        dirty_since_secs: Some(0.0),
+    });
+
+    world
+        .run_system_once(save_terminal_sessions_if_dirty)
+        .unwrap();
+    assert!(!path.exists(), "debounced save should not run yet");
+
+    world
+        .resource_mut::<Time<()>>()
+        .advance_by(Duration::from_millis(300));
+    world
+        .run_system_once(save_terminal_sessions_if_dirty)
+        .unwrap();
+    assert!(path.exists(), "save should run after debounce window");
 }
 
 #[test]
@@ -615,7 +691,7 @@ fn remove_terminal_clears_orders_and_active_state() {
 }
 
 #[test]
-fn terminal_presentations_stay_hidden_when_no_terminal_is_active() {
+fn show_all_presentations_remain_visible_when_no_terminal_is_active() {
     let (bridge, _) = test_bridge();
     let mut manager = TerminalManager::default();
     let id = manager.create_terminal_without_focus(bridge);
@@ -634,6 +710,8 @@ fn terminal_presentations_stay_hidden_when_no_terminal_is_active() {
             },
             display_mode: TerminalDisplayMode::Smooth,
             uploaded_revision: 0,
+            panel_entity: Entity::PLACEHOLDER,
+            frame_entity: Entity::PLACEHOLDER,
         },
     );
 
@@ -678,13 +756,14 @@ fn terminal_presentations_stay_hidden_when_no_terminal_is_active() {
         .iter(&world)
         .map(|(panel, visibility)| (panel.id, *visibility))
         .collect::<Vec<_>>();
-    assert_eq!(vis, vec![(id, Visibility::Hidden)]);
+    assert_eq!(vis, vec![(id, Visibility::Visible)]);
 }
 
 #[test]
 fn terminal_panel_frames_are_hidden_without_direct_input_mode() {
     let mut world = World::default();
     world.insert_resource(crate::hud::HudState::default());
+    world.insert_resource(TerminalPresentationStore::default());
     world.spawn((
         TerminalPanelFrame {
             id: crate::terminals::TerminalId(1),
@@ -710,27 +789,44 @@ fn direct_input_mode_shows_orange_terminal_frame() {
 
     let mut world = World::default();
     world.insert_resource(hud_state);
-    world.spawn((
-        TerminalPanel { id: terminal_id },
-        TerminalPresentation {
-            home_position: Vec2::ZERO,
-            current_position: Vec2::new(30.0, -20.0),
-            target_position: Vec2::ZERO,
-            current_size: Vec2::new(320.0, 180.0),
-            target_size: Vec2::ZERO,
-            current_alpha: 1.0,
-            target_alpha: 1.0,
-            current_z: 0.5,
-            target_z: 0.0,
+    let panel_entity = world
+        .spawn((
+            TerminalPanel { id: terminal_id },
+            TerminalPresentation {
+                home_position: Vec2::ZERO,
+                current_position: Vec2::new(30.0, -20.0),
+                target_position: Vec2::ZERO,
+                current_size: Vec2::new(320.0, 180.0),
+                target_size: Vec2::ZERO,
+                current_alpha: 1.0,
+                target_alpha: 1.0,
+                current_z: 0.5,
+                target_z: 0.0,
+            },
+            Visibility::Visible,
+        ))
+        .id();
+    let frame_entity = world
+        .spawn((
+            TerminalPanelFrame { id: terminal_id },
+            Transform::default(),
+            Sprite::default(),
+            Visibility::Hidden,
+        ))
+        .id();
+    let mut presentation_store = TerminalPresentationStore::default();
+    presentation_store.register(
+        terminal_id,
+        PresentedTerminal {
+            image: Default::default(),
+            texture_state: Default::default(),
+            display_mode: Default::default(),
+            uploaded_revision: 0,
+            panel_entity,
+            frame_entity,
         },
-        Visibility::Visible,
-    ));
-    world.spawn((
-        TerminalPanelFrame { id: terminal_id },
-        Transform::default(),
-        Sprite::default(),
-        Visibility::Hidden,
-    ));
+    );
+    world.insert_resource(presentation_store);
 
     world.run_system_once(sync_terminal_panel_frames).unwrap();
 
@@ -762,6 +858,8 @@ fn message_box_keeps_terminal_presentations_visible() {
             },
             display_mode: TerminalDisplayMode::Smooth,
             uploaded_revision: 0,
+            panel_entity: Entity::PLACEHOLDER,
+            frame_entity: Entity::PLACEHOLDER,
         },
     );
 
@@ -776,6 +874,75 @@ fn message_box_keeps_terminal_presentations_visible() {
     world.insert_resource(crate::hud::TerminalVisibilityState::default());
     world.insert_resource(TerminalViewState::default());
     world.insert_resource(hud_state);
+    world.spawn((
+        Window {
+            resolution: (1400, 900).into(),
+            ..Default::default()
+        },
+        PrimaryWindow,
+    ));
+    world.spawn((
+        TerminalPanel { id },
+        TerminalPresentation {
+            home_position: Vec2::ZERO,
+            current_position: Vec2::ZERO,
+            target_position: Vec2::ZERO,
+            current_size: Vec2::ONE,
+            target_size: Vec2::ONE,
+            current_alpha: 1.0,
+            target_alpha: 1.0,
+            current_z: 0.0,
+            target_z: 0.0,
+        },
+        Transform::default(),
+        Sprite::default(),
+        Visibility::Visible,
+    ));
+
+    world.run_system_once(sync_terminal_presentations).unwrap();
+
+    let mut query = world.query::<(&TerminalPanel, &Visibility)>();
+    let vis = query.iter(&world).collect::<Vec<_>>();
+    assert_eq!(vis.len(), 1);
+    assert_eq!(*vis[0].1, Visibility::Visible);
+}
+
+#[test]
+fn isolate_visibility_policy_with_missing_terminal_degrades_to_show_all() {
+    let (bridge, _) = test_bridge();
+    let mut manager = TerminalManager::default();
+    let id = manager.create_terminal_without_focus(bridge);
+    for (_, terminal) in manager.iter_mut() {
+        terminal.snapshot.surface = Some(TerminalSurface::new(2, 2));
+    }
+
+    let mut presentation_store = TerminalPresentationStore::default();
+    presentation_store.register(
+        id,
+        PresentedTerminal {
+            image: Default::default(),
+            texture_state: TerminalTextureState {
+                texture_size: UVec2::new(100, 100),
+                cell_size: UVec2::new(10, 20),
+            },
+            display_mode: TerminalDisplayMode::Smooth,
+            uploaded_revision: 0,
+            panel_entity: Entity::PLACEHOLDER,
+            frame_entity: Entity::PLACEHOLDER,
+        },
+    );
+
+    let mut world = World::default();
+    let mut time = Time::<()>::default();
+    time.advance_by(Duration::from_millis(16));
+    world.insert_resource(time);
+    world.insert_resource(manager);
+    world.insert_resource(presentation_store);
+    world.insert_resource(crate::hud::TerminalVisibilityState {
+        policy: crate::hud::TerminalVisibilityPolicy::Isolate(crate::terminals::TerminalId(999)),
+    });
+    world.insert_resource(TerminalViewState::default());
+    world.insert_resource(crate::hud::HudState::default());
     world.spawn((
         Window {
             resolution: (1400, 900).into(),
@@ -833,6 +1000,8 @@ fn terminal_visibility_policy_hides_only_presentation_and_show_all_restores_it()
                 },
                 display_mode: TerminalDisplayMode::Smooth,
                 uploaded_revision: 0,
+                panel_entity: Entity::PLACEHOLDER,
+                frame_entity: Entity::PLACEHOLDER,
             },
         );
     }

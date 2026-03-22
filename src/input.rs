@@ -1,5 +1,5 @@
 use crate::{
-    hud::{HudCommand, HudDispatcher, HudState},
+    hud::{HudIntent, HudState, TerminalVisibilityPolicy, TerminalVisibilityState},
     terminals::{
         mark_terminal_sessions_dirty, terminal_texture_screen_size, TerminalCommand,
         TerminalDisplayMode, TerminalManager, TerminalPanel, TerminalPointerState,
@@ -73,7 +73,7 @@ pub(crate) fn handle_global_terminal_spawn_shortcut(
     primary_window: Single<&Window, With<PrimaryWindow>>,
     terminal_manager: Res<TerminalManager>,
     hud_state: Res<HudState>,
-    mut dispatcher: ResMut<HudDispatcher>,
+    mut hud_commands: MessageWriter<HudIntent>,
 ) {
     if hud_state.keyboard_capture_active()
         || !primary_window.focused
@@ -84,7 +84,7 @@ pub(crate) fn handle_global_terminal_spawn_shortcut(
 
     for event in messages.read() {
         if should_spawn_terminal_globally(event, &keys, false) {
-            dispatcher.commands.push(HudCommand::SpawnTerminal);
+            hud_commands.write(HudIntent::SpawnTerminal);
             break;
         }
     }
@@ -94,7 +94,7 @@ pub(crate) fn handle_terminal_lifecycle_shortcuts(
     mut messages: MessageReader<KeyboardInput>,
     keys: Res<ButtonInput<KeyCode>>,
     hud_state: Res<HudState>,
-    mut dispatcher: ResMut<HudDispatcher>,
+    mut hud_commands: MessageWriter<HudIntent>,
     mut app_exits: MessageWriter<AppExit>,
 ) {
     if hud_state.keyboard_capture_active() {
@@ -107,7 +107,7 @@ pub(crate) fn handle_terminal_lifecycle_shortcuts(
             break;
         }
         if should_kill_active_terminal(event, &keys) {
-            dispatcher.commands.push(HudCommand::KillActiveTerminal);
+            hud_commands.write(HudIntent::KillActiveTerminal);
         }
     }
 }
@@ -143,7 +143,7 @@ pub(crate) fn focus_terminal_on_panel_click(
     primary_window: Single<&Window, With<PrimaryWindow>>,
     hud_state: Res<HudState>,
     panels: Query<(&TerminalPanel, &TerminalPresentation, &Visibility)>,
-    mut dispatcher: ResMut<HudDispatcher>,
+    mut hud_commands: MessageWriter<HudIntent>,
 ) {
     if hud_state.message_box.visible
         || !mouse_buttons.just_pressed(MouseButton::Left)
@@ -160,14 +160,14 @@ pub(crate) fn focus_terminal_on_panel_click(
     let Some(panel) = topmost_terminal_panel_at_cursor(&primary_window, &panels, cursor) else {
         return;
     };
-    dispatcher
-        .commands
-        .push(HudCommand::FocusTerminal(panel.id));
-    dispatcher
-        .commands
-        .push(HudCommand::HideAllButTerminal(panel.id));
+    hud_commands.write(HudIntent::FocusTerminal(panel.id));
+    hud_commands.write(HudIntent::HideAllButTerminal(panel.id));
 }
 
+#[allow(
+    clippy::too_many_arguments,
+    reason = "background-click clear needs input, focus, visibility, view, and persistence resources together"
+)]
 pub(crate) fn hide_terminal_on_background_click(
     mouse_buttons: Res<ButtonInput<MouseButton>>,
     time: Res<Time>,
@@ -176,6 +176,8 @@ pub(crate) fn hide_terminal_on_background_click(
     panels: Query<(&TerminalPanel, &TerminalPresentation, &Visibility)>,
     mut terminal_manager: ResMut<TerminalManager>,
     mut session_persistence: ResMut<TerminalSessionPersistenceState>,
+    mut visibility_state: ResMut<TerminalVisibilityState>,
+    mut view_state: ResMut<TerminalViewState>,
 ) {
     if hud_state.message_box.visible
         || !mouse_buttons.just_pressed(MouseButton::Left)
@@ -196,6 +198,8 @@ pub(crate) fn hide_terminal_on_background_click(
         return;
     }
     if terminal_manager.clear_active_terminal().is_some() {
+        visibility_state.policy = TerminalVisibilityPolicy::ShowAll;
+        view_state.focus_terminal(None);
         hud_state.reconcile_direct_terminal_input(terminal_manager.active_id());
         mark_terminal_sessions_dirty(&mut session_persistence, Some(&time));
     }
@@ -359,7 +363,7 @@ pub(crate) fn handle_terminal_message_box_keyboard(
     primary_window: Single<&Window, With<PrimaryWindow>>,
     terminal_manager: Res<TerminalManager>,
     mut hud_state: ResMut<HudState>,
-    mut dispatcher: ResMut<HudDispatcher>,
+    mut hud_commands: MessageWriter<HudIntent>,
     mut redraws: MessageWriter<RequestRedraw>,
 ) {
     if !primary_window.focused {
@@ -383,9 +387,8 @@ pub(crate) fn handle_terminal_message_box_keyboard(
                 if let Some(target_terminal) = hud_state.message_box.target_terminal {
                     let payload = hud_state.message_box.text.clone();
                     if !payload.is_empty() {
-                        dispatcher
-                            .commands
-                            .push(HudCommand::SendTerminalCommand(target_terminal, payload));
+                        hud_commands
+                            .write(HudIntent::SendTerminalCommand(target_terminal, payload));
                     }
                 }
                 hud_state.close_message_box();

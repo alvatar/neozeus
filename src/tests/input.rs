@@ -1,6 +1,6 @@
 use super::{capturing_bridge, pressed_text, test_bridge};
 use crate::{
-    hud::{HudCommand, HudDispatcher},
+    hud::{HudIntent, TerminalVisibilityState},
     input::{
         ctrl_sequence, focus_terminal_on_panel_click, handle_global_terminal_spawn_shortcut,
         handle_terminal_direct_input_keyboard, handle_terminal_lifecycle_shortcuts,
@@ -33,6 +33,18 @@ fn pressed_key(key_code: KeyCode, logical_key: Key) -> KeyboardInput {
         repeat: false,
         window: Entity::PLACEHOLDER,
     }
+}
+
+fn init_hud_commands(world: &mut World) {
+    world.init_resource::<Messages<HudIntent>>();
+}
+
+fn drain_hud_commands(world: &mut World) -> Vec<HudIntent> {
+    world
+        .run_system_once(|mut reader: bevy::prelude::MessageReader<HudIntent>| {
+            reader.read().cloned().collect::<Vec<_>>()
+        })
+        .unwrap()
 }
 
 fn dispatch_message_box_key(world: &mut World, event: KeyboardInput) {
@@ -77,8 +89,10 @@ fn world_with_active_terminal_and_receiver(
     world.insert_resource(Time::<()>::default());
     world.insert_resource(manager);
     world.insert_resource(crate::hud::HudState::default());
-    world.insert_resource(HudDispatcher::default());
     world.insert_resource(TerminalSessionPersistenceState::default());
+    world.insert_resource(TerminalVisibilityState::default());
+    world.insert_resource(crate::terminals::TerminalViewState::default());
+    init_hud_commands(&mut world);
     world.spawn((window, PrimaryWindow));
     world.spawn((
         TerminalPanel { id: terminal_id },
@@ -158,7 +172,7 @@ fn global_spawn_shortcut_enqueues_spawn_even_when_hidden_terminals_exist() {
     world.insert_resource(ButtonInput::<KeyCode>::default());
     world.insert_resource(manager);
     world.insert_resource(crate::hud::HudState::default());
-    world.insert_resource(HudDispatcher::default());
+    init_hud_commands(&mut world);
     world.init_resource::<Messages<KeyboardInput>>();
     world.spawn((window, PrimaryWindow));
 
@@ -171,8 +185,8 @@ fn global_spawn_shortcut_enqueues_spawn_even_when_hidden_terminals_exist() {
         .unwrap();
 
     assert_eq!(
-        world.resource::<HudDispatcher>().commands,
-        vec![HudCommand::SpawnTerminal]
+        drain_hud_commands(&mut world),
+        vec![HudIntent::SpawnTerminal]
     );
 }
 
@@ -212,7 +226,7 @@ fn f10_enqueues_app_exit() {
     let mut world = World::default();
     world.insert_resource(ButtonInput::<KeyCode>::default());
     world.insert_resource(crate::hud::HudState::default());
-    world.insert_resource(HudDispatcher::default());
+    init_hud_commands(&mut world);
     world.init_resource::<Messages<KeyboardInput>>();
     world.init_resource::<Messages<AppExit>>();
 
@@ -225,7 +239,7 @@ fn f10_enqueues_app_exit() {
         .unwrap();
 
     assert_eq!(world.resource::<Messages<AppExit>>().len(), 1);
-    assert!(world.resource::<HudDispatcher>().commands.is_empty());
+    assert!(drain_hud_commands(&mut world).is_empty());
 }
 
 #[test]
@@ -242,6 +256,16 @@ fn background_click_hides_active_terminal() {
 
     let manager = world.resource::<TerminalManager>();
     assert_eq!(manager.active_id(), None);
+    assert_eq!(
+        world.resource::<TerminalVisibilityState>().policy,
+        crate::hud::TerminalVisibilityPolicy::ShowAll
+    );
+    assert_eq!(
+        world
+            .resource::<crate::terminals::TerminalViewState>()
+            .offset,
+        Vec2::ZERO
+    );
     assert!(world
         .resource::<TerminalSessionPersistenceState>()
         .dirty_since_secs
@@ -301,7 +325,7 @@ fn clicking_terminal_panel_enqueues_focus_and_isolate_for_topmost_visible_panel(
 
     world.insert_resource(ButtonInput::<MouseButton>::default());
     world.insert_resource(crate::hud::HudState::default());
-    world.insert_resource(HudDispatcher::default());
+    init_hud_commands(&mut world);
     world.spawn((window, PrimaryWindow));
     world.spawn((
         TerminalPanel {
@@ -346,10 +370,10 @@ fn clicking_terminal_panel_enqueues_focus_and_isolate_for_topmost_visible_panel(
         .unwrap();
 
     assert_eq!(
-        world.resource::<HudDispatcher>().commands,
+        drain_hud_commands(&mut world),
         vec![
-            HudCommand::FocusTerminal(crate::terminals::TerminalId(2)),
-            HudCommand::HideAllButTerminal(crate::terminals::TerminalId(2)),
+            HudIntent::FocusTerminal(crate::terminals::TerminalId(2)),
+            HudIntent::HideAllButTerminal(crate::terminals::TerminalId(2)),
         ]
     );
 }
@@ -406,7 +430,7 @@ fn direct_input_mode_sends_keys_to_terminal_without_opening_message_box() {
     let mut hud_state = crate::hud::HudState::default();
     hud_state.open_direct_terminal_input(terminal_id);
     world.insert_resource(hud_state);
-    world.insert_resource(HudDispatcher::default());
+    init_hud_commands(&mut world);
     world.init_resource::<Messages<RequestRedraw>>();
 
     dispatch_terminal_ui_key(&mut world, pressed_text(KeyCode::KeyA, Some("a")));
@@ -430,7 +454,7 @@ fn message_box_supports_multiline_typing_and_ctrl_s_send() {
     let mut hud_state = crate::hud::HudState::default();
     hud_state.open_message_box(terminal_id);
     world.insert_resource(hud_state);
-    world.insert_resource(HudDispatcher::default());
+    init_hud_commands(&mut world);
     world.init_resource::<Messages<KeyboardInput>>();
     world.init_resource::<Messages<RequestRedraw>>();
 
@@ -449,8 +473,8 @@ fn message_box_supports_multiline_typing_and_ctrl_s_send() {
     dispatch_message_box_key(&mut world, pressed_text(KeyCode::KeyS, Some("s")));
 
     assert_eq!(
-        world.resource::<HudDispatcher>().commands,
-        vec![HudCommand::SendTerminalCommand(terminal_id, "a\nb".into())]
+        drain_hud_commands(&mut world),
+        vec![HudIntent::SendTerminalCommand(terminal_id, "a\nb".into())]
     );
     let hud_state = world.resource::<crate::hud::HudState>();
     assert!(!hud_state.message_box.visible);
@@ -465,7 +489,7 @@ fn message_box_ctrl_bindings_edit_multiline_text() {
     hud_state.open_message_box(terminal_id);
     hud_state.message_box.insert_text("alpha\nbeta");
     world.insert_resource(hud_state);
-    world.insert_resource(HudDispatcher::default());
+    init_hud_commands(&mut world);
     world.init_resource::<Messages<KeyboardInput>>();
     world.init_resource::<Messages<RequestRedraw>>();
 
@@ -549,7 +573,7 @@ fn message_box_mark_region_ctrl_w_and_ctrl_y_work() {
     hud_state.message_box.insert_text("alpha beta gamma");
     hud_state.message_box.cursor = 6;
     world.insert_resource(hud_state);
-    world.insert_resource(HudDispatcher::default());
+    init_hud_commands(&mut world);
     world.init_resource::<Messages<KeyboardInput>>();
     world.init_resource::<Messages<RequestRedraw>>();
 
@@ -612,7 +636,7 @@ fn message_box_meta_copy_kill_ring_history_and_backward_kill_word_work() {
     hud_state.message_box.insert_text("one two three");
     hud_state.message_box.cursor = 4;
     world.insert_resource(hud_state);
-    world.insert_resource(HudDispatcher::default());
+    init_hud_commands(&mut world);
     world.init_resource::<Messages<KeyboardInput>>();
     world.init_resource::<Messages<RequestRedraw>>();
 
@@ -694,7 +718,7 @@ fn message_box_ctrl_o_and_ctrl_j_work() {
     hud_state.message_box.insert_text("ab");
     hud_state.message_box.cursor = 1;
     world.insert_resource(hud_state);
-    world.insert_resource(HudDispatcher::default());
+    init_hud_commands(&mut world);
     world.init_resource::<Messages<KeyboardInput>>();
     world.init_resource::<Messages<RequestRedraw>>();
 
@@ -736,7 +760,7 @@ fn message_box_alt_word_motion_and_ctrl_d_work() {
     hud_state.open_message_box(terminal_id);
     hud_state.message_box.insert_text("one two");
     world.insert_resource(hud_state);
-    world.insert_resource(HudDispatcher::default());
+    init_hud_commands(&mut world);
     world.init_resource::<Messages<KeyboardInput>>();
     world.init_resource::<Messages<RequestRedraw>>();
 
@@ -793,7 +817,7 @@ fn lifecycle_shortcuts_are_suppressed_while_message_box_is_open() {
     let mut keys = ButtonInput::<KeyCode>::default();
     keys.press(KeyCode::ControlLeft);
     world.insert_resource(keys);
-    world.insert_resource(HudDispatcher::default());
+    init_hud_commands(&mut world);
     world.init_resource::<Messages<KeyboardInput>>();
     world.init_resource::<Messages<AppExit>>();
     world
@@ -804,7 +828,7 @@ fn lifecycle_shortcuts_are_suppressed_while_message_box_is_open() {
         .run_system_once(handle_terminal_lifecycle_shortcuts)
         .unwrap();
 
-    assert!(world.resource::<HudDispatcher>().commands.is_empty());
+    assert!(drain_hud_commands(&mut world).is_empty());
     assert_eq!(world.resource::<Messages<AppExit>>().len(), 0);
 }
 
@@ -817,7 +841,7 @@ fn lifecycle_shortcuts_are_suppressed_while_direct_input_is_open() {
     let mut keys = ButtonInput::<KeyCode>::default();
     keys.press(KeyCode::ControlLeft);
     world.insert_resource(keys);
-    world.insert_resource(HudDispatcher::default());
+    init_hud_commands(&mut world);
     world.init_resource::<Messages<KeyboardInput>>();
     world.init_resource::<Messages<AppExit>>();
     world
@@ -828,7 +852,7 @@ fn lifecycle_shortcuts_are_suppressed_while_direct_input_is_open() {
         .run_system_once(handle_terminal_lifecycle_shortcuts)
         .unwrap();
 
-    assert!(world.resource::<HudDispatcher>().commands.is_empty());
+    assert!(drain_hud_commands(&mut world).is_empty());
     assert_eq!(world.resource::<Messages<AppExit>>().len(), 0);
 }
 

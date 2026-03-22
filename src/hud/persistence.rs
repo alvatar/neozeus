@@ -131,15 +131,6 @@ fn parse_hud_module_id(name: &str) -> Option<HudModuleId> {
     }
 }
 
-impl HudModuleId {
-    pub(crate) const fn title_key(self) -> &'static str {
-        match self {
-            Self::DebugToolbar => "DebugToolbar",
-            Self::AgentList => "AgentList",
-        }
-    }
-}
-
 pub(crate) fn load_persisted_hud_state_from(path: &PathBuf) -> PersistedHudState {
     match fs::read_to_string(path) {
         Ok(text) => parse_persisted_hud_state(&text),

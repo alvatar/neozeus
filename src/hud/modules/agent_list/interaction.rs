@@ -1,5 +1,5 @@
 use crate::{
-    hud::{AgentDirectory, HudCommand, HudDispatcher, HudModuleModel, HudRect, HUD_ROW_HEIGHT},
+    hud::{AgentDirectory, HudIntent, HudModuleModel, HudRect, HUD_ROW_HEIGHT},
     terminals::TerminalManager,
 };
 use bevy::prelude::Vec2;
@@ -12,7 +12,7 @@ pub(crate) fn handle_pointer_click(
     point: Vec2,
     terminal_manager: &TerminalManager,
     agent_directory: &AgentDirectory,
-    dispatcher: &mut HudDispatcher,
+    emitted_commands: &mut Vec<HudIntent>,
 ) {
     let HudModuleModel::AgentList(state) = model else {
         return;
@@ -25,12 +25,8 @@ pub(crate) fn handle_pointer_click(
         agent_directory,
     ) {
         if row.rect.contains(point) {
-            dispatcher
-                .commands
-                .push(HudCommand::FocusTerminal(row.terminal_id));
-            dispatcher
-                .commands
-                .push(HudCommand::HideAllButTerminal(row.terminal_id));
+            emitted_commands.push(HudIntent::FocusTerminal(row.terminal_id));
+            emitted_commands.push(HudIntent::HideAllButTerminal(row.terminal_id));
             break;
         }
     }

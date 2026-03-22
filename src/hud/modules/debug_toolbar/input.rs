@@ -1,5 +1,5 @@
 use crate::{
-    hud::{HudCommand, HudDispatcher, HudModuleModel, HudRect, HudState},
+    hud::{HudIntent, HudModuleModel, HudRect, HudState},
     terminals::{TerminalManager, TerminalPresentationStore, TerminalViewState},
 };
 use bevy::prelude::Vec2;
@@ -8,7 +8,7 @@ use super::{debug_toolbar_buttons, DebugToolbarAction};
 
 #[allow(
     clippy::too_many_arguments,
-    reason = "toolbar hit routing needs geometry, terminal state, HUD state, and dispatcher together"
+    reason = "toolbar hit routing needs geometry, terminal state, HUD state, and command output together"
 )]
 pub(crate) fn handle_pointer_click(
     model: &HudModuleModel,
@@ -18,7 +18,7 @@ pub(crate) fn handle_pointer_click(
     presentation_store: &TerminalPresentationStore,
     view_state: &TerminalViewState,
     hud_state: &HudState,
-    dispatcher: &mut HudDispatcher,
+    emitted_commands: &mut Vec<HudIntent>,
 ) {
     if !matches!(model, HudModuleModel::DebugToolbar(_)) {
         return;
@@ -34,21 +34,17 @@ pub(crate) fn handle_pointer_click(
             continue;
         }
         match button.action {
-            DebugToolbarAction::SpawnTerminal => {
-                dispatcher.commands.push(HudCommand::SpawnTerminal)
+            DebugToolbarAction::SpawnTerminal => emitted_commands.push(HudIntent::SpawnTerminal),
+            DebugToolbarAction::ShowAll => emitted_commands.push(HudIntent::ShowAllTerminals),
+            DebugToolbarAction::TogglePixelPerfect => {
+                emitted_commands.push(HudIntent::ToggleActiveTerminalDisplayMode)
             }
-            DebugToolbarAction::ShowAll => dispatcher.commands.push(HudCommand::ShowAllTerminals),
-            DebugToolbarAction::TogglePixelPerfect => dispatcher
-                .commands
-                .push(HudCommand::ToggleActiveTerminalDisplayMode),
-            DebugToolbarAction::ResetView => {
-                dispatcher.commands.push(HudCommand::ResetTerminalView)
+            DebugToolbarAction::ResetView => emitted_commands.push(HudIntent::ResetTerminalView),
+            DebugToolbarAction::SendCommand(command) => {
+                emitted_commands.push(HudIntent::SendActiveTerminalCommand(command.to_owned()))
             }
-            DebugToolbarAction::SendCommand(command) => dispatcher
-                .commands
-                .push(HudCommand::SendActiveTerminalCommand(command.to_owned())),
             DebugToolbarAction::ToggleModule(id) => {
-                dispatcher.commands.push(HudCommand::ToggleModule(id));
+                emitted_commands.push(HudIntent::ToggleModule(id));
             }
         }
         break;

@@ -44,26 +44,30 @@ pub(crate) fn spawn_terminal_presentation(
     };
 
     let image_handle = images.add(create_terminal_image(UVec2::ONE));
-    commands.spawn((
-        Sprite {
-            color: Color::srgba(0.08, 0.08, 0.09, 0.94),
-            custom_size: Some(Vec2::ONE),
-            ..default()
-        },
-        Transform::from_xyz(
-            home_position.x,
-            home_position.y,
-            presentation.current_z - 0.01,
-        ),
-        TerminalPanelFrame { id },
-    ));
-    commands.spawn((
-        Sprite::from_image(image_handle.clone()),
-        Transform::from_xyz(home_position.x, home_position.y, presentation.current_z),
-        TerminalPanelSprite,
-        TerminalPanel { id },
-        presentation,
-    ));
+    let frame_entity = commands
+        .spawn((
+            Sprite {
+                color: Color::srgba(0.08, 0.08, 0.09, 0.94),
+                custom_size: Some(Vec2::ONE),
+                ..default()
+            },
+            Transform::from_xyz(
+                home_position.x,
+                home_position.y,
+                presentation.current_z - 0.01,
+            ),
+            TerminalPanelFrame { id },
+        ))
+        .id();
+    let panel_entity = commands
+        .spawn((
+            Sprite::from_image(image_handle.clone()),
+            Transform::from_xyz(home_position.x, home_position.y, presentation.current_z),
+            TerminalPanelSprite,
+            TerminalPanel { id },
+            presentation,
+        ))
+        .id();
 
     presentation_store.register(
         id,
@@ -75,6 +79,8 @@ pub(crate) fn spawn_terminal_presentation(
             },
             display_mode: TerminalDisplayMode::Smooth,
             uploaded_revision: 0,
+            panel_entity,
+            frame_entity,
         },
     );
 }
@@ -171,6 +177,36 @@ pub(crate) fn terminal_texture_screen_size(
     smooth_terminal_screen_size(texture_state, view_state, window)
 }
 
+fn ordered_background_ids(
+    terminal_manager: &TerminalManager,
+    active_id: Option<TerminalId>,
+) -> Vec<TerminalId> {
+    let mut ordered = Vec::new();
+    for id in terminal_manager.focus_order().iter().copied().rev() {
+        if Some(id) != active_id && !ordered.contains(&id) {
+            ordered.push(id);
+        }
+    }
+    for id in terminal_manager.terminal_ids().iter().copied() {
+        if Some(id) != active_id && !ordered.contains(&id) {
+            ordered.push(id);
+        }
+    }
+    ordered
+}
+
+fn effective_visibility_policy(
+    terminal_manager: &TerminalManager,
+    visibility_state: &TerminalVisibilityState,
+) -> TerminalVisibilityPolicy {
+    match visibility_state.policy {
+        TerminalVisibilityPolicy::Isolate(id) if terminal_manager.get(id).is_none() => {
+            TerminalVisibilityPolicy::ShowAll
+        }
+        policy => policy,
+    }
+}
+
 #[allow(
     clippy::too_many_arguments,
     reason = "presentation sync needs terminal/presentation/view state together"
@@ -191,19 +227,11 @@ pub(crate) fn sync_terminal_presentations(
     )>,
 ) {
     let active_id = terminal_manager.active_id();
-    let background_ids = terminal_manager
-        .focus_order()
-        .iter()
-        .copied()
-        .filter(|id| Some(*id) != active_id)
-        .collect::<Vec<_>>();
+    let visibility_policy = effective_visibility_policy(&terminal_manager, &visibility_state);
+    let background_ids = ordered_background_ids(&terminal_manager, active_id);
     let blend = 1.0 - (-time.delta_secs() * 10.0).exp();
 
     for (panel, mut presentation, mut transform, mut sprite, mut visibility) in &mut panels {
-        if active_id.is_none() {
-            *visibility = Visibility::Hidden;
-            continue;
-        }
         let Some(terminal) = terminal_manager.get(panel.id) else {
             *visibility = Visibility::Hidden;
             continue;
@@ -216,8 +244,7 @@ pub(crate) fn sync_terminal_presentations(
             *visibility = Visibility::Hidden;
             continue;
         }
-        if matches!(visibility_state.policy, TerminalVisibilityPolicy::Isolate(id) if id != panel.id)
-        {
+        if matches!(visibility_policy, TerminalVisibilityPolicy::Isolate(id) if id != panel.id) {
             *visibility = Visibility::Hidden;
             continue;
         }
@@ -236,22 +263,25 @@ pub(crate) fn sync_terminal_presentations(
             .position(|id| *id == panel.id)
             .unwrap_or_default() as f32;
 
-        if Some(panel.id) == active_id {
-            presentation.target_alpha = 1.0;
-            if pixel_perfect {
-                presentation.target_position = hud_terminal_target_position(&primary_window);
-                presentation.target_size = hud_size;
-                presentation.target_z = 3.0;
-            } else {
-                presentation.target_position = view_state.offset;
-                presentation.target_size = smooth_size;
-                presentation.target_z = 0.3;
+        match active_id {
+            Some(id) if id == panel.id => {
+                presentation.target_alpha = 1.0;
+                if pixel_perfect {
+                    presentation.target_position = hud_terminal_target_position(&primary_window);
+                    presentation.target_size = hud_size;
+                    presentation.target_z = 3.0;
+                } else {
+                    presentation.target_position = view_state.offset;
+                    presentation.target_size = smooth_size;
+                    presentation.target_z = 0.3;
+                }
             }
-        } else {
-            presentation.target_position = view_state.offset + presentation.home_position;
-            presentation.target_size = smooth_size * 0.62;
-            presentation.target_alpha = 0.84;
-            presentation.target_z = -0.05 - background_rank * 0.02;
+            _ => {
+                presentation.target_position = view_state.offset + presentation.home_position;
+                presentation.target_size = smooth_size * 0.62;
+                presentation.target_alpha = 0.84;
+                presentation.target_z = -0.05 - background_rank * 0.02;
+            }
         }
 
         presentation.current_position = presentation
@@ -286,60 +316,66 @@ pub(crate) fn sync_terminal_presentations(
     }
 }
 
+#[allow(
+    clippy::type_complexity,
+    reason = "frame sync needs disjoint panel/frame queries with explicit visibility borrowing"
+)]
 pub(crate) fn sync_terminal_panel_frames(
     hud_state: Res<crate::hud::HudState>,
+    presentation_store: Res<TerminalPresentationStore>,
     panels: Query<
-        (&TerminalPanel, &TerminalPresentation, &Visibility),
-        Without<TerminalPanelFrame>,
+        (&TerminalPresentation, &Visibility),
+        (With<TerminalPanel>, Without<TerminalPanelFrame>),
     >,
     mut frames: Query<
-        (
-            &TerminalPanelFrame,
-            &mut Transform,
-            &mut Sprite,
-            &mut Visibility,
-        ),
-        Without<TerminalPanel>,
+        (&mut Transform, &mut Sprite, &mut Visibility),
+        (With<TerminalPanelFrame>, Without<TerminalPanel>),
     >,
 ) {
-    for (frame, mut transform, mut sprite, mut visibility) in &mut frames {
-        let Some(target_terminal) = hud_state.direct_input_terminal else {
-            *visibility = Visibility::Hidden;
-            continue;
-        };
-        let Some((_, presentation, panel_visibility)) =
-            panels.iter().find(|(panel, _, _)| panel.id == frame.id)
-        else {
-            *visibility = Visibility::Hidden;
-            continue;
-        };
-        if target_terminal != frame.id || *panel_visibility != Visibility::Visible {
-            *visibility = Visibility::Hidden;
-            continue;
-        }
-
-        *visibility = Visibility::Visible;
-        sprite.custom_size = Some((presentation.current_size + Vec2::splat(18.0)).max(Vec2::ONE));
-        sprite.color = Color::srgba(1.0, 0.48, 0.08, 0.96);
-        transform.translation = presentation
-            .current_position
-            .extend(presentation.current_z - 0.02);
-        transform.rotation = Quat::IDENTITY;
-        transform.scale = Vec3::ONE;
+    for (_, _, mut frame_visibility) in &mut frames {
+        *frame_visibility = Visibility::Hidden;
     }
+
+    let Some(target_terminal) = hud_state.direct_input_terminal else {
+        return;
+    };
+    let Some(presented_terminal) = presentation_store.get(target_terminal) else {
+        return;
+    };
+    let Ok((presentation, panel_visibility)) = panels.get(presented_terminal.panel_entity) else {
+        return;
+    };
+    if *panel_visibility != Visibility::Visible {
+        return;
+    }
+    let Ok((mut transform, mut sprite, mut visibility)) =
+        frames.get_mut(presented_terminal.frame_entity)
+    else {
+        return;
+    };
+
+    *visibility = Visibility::Visible;
+    sprite.custom_size = Some((presentation.current_size + Vec2::splat(18.0)).max(Vec2::ONE));
+    sprite.color = Color::srgba(1.0, 0.48, 0.08, 0.96);
+    transform.translation = presentation
+        .current_position
+        .extend(presentation.current_z - 0.02);
+    transform.rotation = Quat::IDENTITY;
+    transform.scale = Vec3::ONE;
 }
 
 pub(crate) fn sync_terminal_hud_surface(
     terminal_manager: Res<TerminalManager>,
     presentation_store: Res<TerminalPresentationStore>,
     visibility_state: Res<TerminalVisibilityState>,
-    panels: Query<(&TerminalPanel, &TerminalPresentation)>,
+    panels: Query<&TerminalPresentation, With<TerminalPanel>>,
     mut hud_surface: Single<
         (&mut Transform, &mut Sprite, &mut Visibility),
         With<TerminalHudSurfaceMarker>,
     >,
 ) {
     let (transform, sprite, visibility) = &mut *hud_surface;
+    let visibility_policy = effective_visibility_policy(&terminal_manager, &visibility_state);
     let Some(active_id) = terminal_manager.active_id() else {
         **visibility = Visibility::Hidden;
         return;
@@ -348,7 +384,7 @@ pub(crate) fn sync_terminal_hud_surface(
         **visibility = Visibility::Hidden;
         return;
     };
-    if matches!(visibility_state.policy, TerminalVisibilityPolicy::Isolate(id) if id != active_id) {
+    if matches!(visibility_policy, TerminalVisibilityPolicy::Isolate(id) if id != active_id) {
         **visibility = Visibility::Hidden;
         return;
     }
@@ -360,7 +396,7 @@ pub(crate) fn sync_terminal_hud_surface(
         **visibility = Visibility::Hidden;
         return;
     }
-    let Some((_, presentation)) = panels.iter().find(|(panel, _)| panel.id == active_id) else {
+    let Ok(presentation) = panels.get(presented_terminal.panel_entity) else {
         **visibility = Visibility::Hidden;
         return;
     };
