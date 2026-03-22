@@ -4,10 +4,10 @@ use crate::{
         animate_hud_modules, apply_hud_module_requests, apply_terminal_focus_requests,
         apply_terminal_lifecycle_requests, apply_terminal_send_requests,
         apply_terminal_view_requests, apply_visibility_requests, dispatch_hud_intents,
-        elevate_vello_canvas_above_world, handle_hud_module_shortcuts, handle_hud_pointer_input,
-        hud_needs_redraw, render_hud_scene, save_hud_layout_if_dirty, setup_hud, AgentDirectory,
-        HudIntent, HudModuleRequest, HudPersistenceState, HudState, TerminalFocusRequest,
-        TerminalLifecycleRequest, TerminalSendRequest, TerminalViewRequest,
+        handle_hud_module_shortcuts, handle_hud_pointer_input, hud_needs_redraw,
+        promote_vello_canvas_material_order, render_hud_scene, save_hud_layout_if_dirty, setup_hud,
+        AgentDirectory, HudIntent, HudModuleRequest, HudPersistenceState, HudState,
+        TerminalFocusRequest, TerminalLifecycleRequest, TerminalSendRequest, TerminalViewRequest,
         TerminalVisibilityPolicy, TerminalVisibilityRequest, TerminalVisibilityState,
     },
     input::{
@@ -33,11 +33,15 @@ use bevy::{
     camera::visibility::RenderLayers,
     ecs::system::SystemParam,
     prelude::*,
-    render::{settings::WgpuSettings, RenderPlugin},
+    render::{
+        render_asset::prepare_assets, settings::WgpuSettings, Render, RenderApp, RenderPlugin,
+        RenderSystems,
+    },
+    sprite_render::PreparedMaterial2d,
     window::{MonitorSelection, RequestRedraw, WindowMode},
     winit::{EventLoopProxyWrapper, WinitSettings},
 };
-use bevy_vello::{prelude::VelloView, VelloPlugin};
+use bevy_vello::{prelude::VelloView, render::VelloCanvasMaterial, VelloPlugin};
 use std::{any::Any, env, sync::Arc};
 
 pub(crate) fn build_app() -> Result<App, String> {
@@ -119,6 +123,15 @@ fn configure_app(app: &mut App) -> Result<(), String> {
     )
     .add_plugins(VelloPlugin::default());
 
+    if let Some(render_app) = app.get_sub_app_mut(RenderApp) {
+        render_app.add_systems(
+            Render,
+            promote_vello_canvas_material_order
+                .in_set(RenderSystems::PrepareMeshes)
+                .after(prepare_assets::<PreparedMaterial2d<VelloCanvasMaterial>>),
+        );
+    }
+
     let event_loop_proxy = {
         let proxy = app.world().resource::<EventLoopProxyWrapper>();
         (**proxy).clone()
@@ -184,7 +197,6 @@ fn configure_app(app: &mut App) -> Result<(), String> {
         )
         .configure_sets(Update, NeoZeusSet::HudRender.before(NeoZeusSet::Redraw))
         .add_systems(Startup, (setup_scene, setup_hud).chain())
-        .add_systems(PostStartup, elevate_vello_canvas_above_world)
         .add_systems(
             Update,
             crate::terminals::poll_terminal_snapshots.in_set(NeoZeusSet::PollTerminal),

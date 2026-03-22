@@ -28,9 +28,11 @@ pub(crate) use persistence::{
     serialize_persisted_hud_state, PersistedHudModuleState, PersistedHudState,
 };
 pub(crate) use persistence::{save_hud_layout_if_dirty, HudPersistenceState};
+pub(crate) use render::{
+    promote_vello_canvas_material_order, render_hud_scene, HudVectorSceneMarker,
+};
 #[cfg(test)]
-pub(crate) use render::VELLO_CANVAS_FOREGROUND_Z;
-pub(crate) use render::{elevate_vello_canvas_above_world, render_hud_scene, HudVectorSceneMarker};
+pub(crate) use render::{vello_canvas_material_order, VELLO_CANVAS_DEPTH_BIAS};
 pub(crate) use state::{
     default_hud_module_instance, AgentDirectory, HudDragState, HudModuleId, HudModuleModel,
     HudRect, HudState, TerminalVisibilityPolicy, TerminalVisibilityState, HUD_BUTTON_GAP,
