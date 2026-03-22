@@ -27,12 +27,13 @@ use crate::{
     verification::{start_auto_verify_dispatcher, AutoVerifyConfig},
 };
 use bevy::{
+    camera::visibility::RenderLayers,
     prelude::*,
     render::{settings::WgpuSettings, RenderPlugin},
     window::RequestRedraw,
     winit::{EventLoopProxyWrapper, WinitSettings},
 };
-use bevy_vello::{prelude::VelloView, VelloPlugin};
+use bevy_vello::VelloPlugin;
 use std::{any::Any, env, sync::Arc};
 
 pub(crate) fn build_app() -> Result<App, String> {
@@ -314,7 +315,7 @@ fn setup_scene(
     mut visibility_state: ResMut<TerminalVisibilityState>,
     auto_verify: Option<Res<AutoVerifyConfig>>,
 ) {
-    commands.spawn((Camera2d, VelloView, TerminalCameraMarker));
+    commands.spawn((Camera2d, RenderLayers::layer(0), TerminalCameraMarker));
 
     commands.spawn((
         Sprite {

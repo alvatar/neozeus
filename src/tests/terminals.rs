@@ -743,7 +743,7 @@ fn direct_input_mode_shows_orange_terminal_frame() {
 }
 
 #[test]
-fn message_box_hides_terminal_presentations() {
+fn message_box_keeps_terminal_presentations_visible() {
     let (bridge, _) = test_bridge();
     let mut manager = TerminalManager::default();
     let id = manager.create_terminal(bridge);
@@ -806,7 +806,7 @@ fn message_box_hides_terminal_presentations() {
     let mut query = world.query::<(&TerminalPanel, &Visibility)>();
     let vis = query.iter(&world).collect::<Vec<_>>();
     assert_eq!(vis.len(), 1);
-    assert_eq!(*vis[0].1, Visibility::Hidden);
+    assert_eq!(*vis[0].1, Visibility::Visible);
 }
 
 #[test]
