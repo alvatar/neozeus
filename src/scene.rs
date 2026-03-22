@@ -4,11 +4,11 @@ use crate::{
         animate_hud_modules, apply_hud_module_requests, apply_terminal_focus_requests,
         apply_terminal_lifecycle_requests, apply_terminal_send_requests,
         apply_terminal_view_requests, apply_visibility_requests, dispatch_hud_intents,
-        handle_hud_module_shortcuts, handle_hud_pointer_input, hud_needs_redraw, render_hud_scene,
-        save_hud_layout_if_dirty, setup_hud, AgentDirectory, HudIntent, HudModuleRequest,
-        HudPersistenceState, HudState, TerminalFocusRequest, TerminalLifecycleRequest,
-        TerminalSendRequest, TerminalViewRequest, TerminalVisibilityPolicy,
-        TerminalVisibilityRequest, TerminalVisibilityState,
+        elevate_vello_canvas_above_world, handle_hud_module_shortcuts, handle_hud_pointer_input,
+        hud_needs_redraw, render_hud_scene, save_hud_layout_if_dirty, setup_hud, AgentDirectory,
+        HudIntent, HudModuleRequest, HudPersistenceState, HudState, TerminalFocusRequest,
+        TerminalLifecycleRequest, TerminalSendRequest, TerminalViewRequest,
+        TerminalVisibilityPolicy, TerminalVisibilityRequest, TerminalVisibilityState,
     },
     input::{
         drag_terminal_view, focus_terminal_on_panel_click, handle_global_terminal_spawn_shortcut,
@@ -184,6 +184,7 @@ fn configure_app(app: &mut App) -> Result<(), String> {
         )
         .configure_sets(Update, NeoZeusSet::HudRender.before(NeoZeusSet::Redraw))
         .add_systems(Startup, (setup_scene, setup_hud).chain())
+        .add_systems(PostStartup, elevate_vello_canvas_above_world)
         .add_systems(
             Update,
             crate::terminals::poll_terminal_snapshots.in_set(NeoZeusSet::PollTerminal),

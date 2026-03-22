@@ -16,8 +16,10 @@ use bevy::{
     ecs::system::RunSystemOnce,
     input::{keyboard::KeyboardInput, mouse::MouseWheel},
     prelude::*,
+    sprite_render::MeshMaterial2d,
     window::{PrimaryWindow, RequestRedraw},
 };
+use bevy_vello::render::VelloCanvasMaterial;
 use std::{fs, path::PathBuf, sync::Arc, time::Duration};
 
 fn init_hud_commands(world: &mut World) {
@@ -56,6 +58,28 @@ fn setup_hud_requests_initial_redraw() {
         .map(|camera| camera.order)
         .collect::<Vec<_>>();
     assert!(camera_orders.is_empty());
+}
+
+#[test]
+fn elevate_vello_canvas_above_world_moves_canvas_in_front() {
+    let mut world = World::default();
+    world.spawn((
+        MeshMaterial2d::<VelloCanvasMaterial>(Handle::default()),
+        Transform::from_xyz(0.0, 0.0, -2.0),
+    ));
+
+    world
+        .run_system_once(crate::hud::elevate_vello_canvas_above_world)
+        .unwrap();
+
+    let transform = world
+        .query::<&Transform>()
+        .single(&world)
+        .expect("vello canvas missing");
+    assert_eq!(
+        transform.translation.z,
+        crate::hud::VELLO_CANVAS_FOREGROUND_Z
+    );
 }
 
 #[test]
