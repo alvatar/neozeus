@@ -13,14 +13,15 @@ use crate::{
         provision_terminal_target, rasterize_terminal_glyph, reconcile_terminal_sessions,
         resolve_alacritty_color, resolve_terminal_font_report, resolve_terminal_sessions_path_with,
         save_terminal_sessions_if_dirty, send_bytes_tmux_commands,
-        serialize_persisted_terminal_sessions, snap_to_pixel_grid, sync_terminal_presentations,
-        xterm_indexed_rgb, KittyFontConfig, PersistedTerminalSessions, PresentedTerminal,
-        TerminalAttachTarget, TerminalDamage, TerminalDisplayMode, TerminalFontRole,
-        TerminalFontState, TerminalFrameUpdate, TerminalGlyphCacheKey, TerminalLifecycle,
-        TerminalManager, TerminalPanel, TerminalPresentation, TerminalPresentationStore,
-        TerminalProvisionTarget, TerminalRuntimeState, TerminalSessionPersistenceState,
-        TerminalSessionRecord, TerminalSurface, TerminalTextRenderer, TerminalTextureState,
-        TerminalUpdate, TerminalViewState, TmuxClient, PERSISTENT_TMUX_SESSION_PREFIX,
+        serialize_persisted_terminal_sessions, snap_to_pixel_grid, sync_terminal_panel_frames,
+        sync_terminal_presentations, xterm_indexed_rgb, KittyFontConfig, PersistedTerminalSessions,
+        PresentedTerminal, TerminalAttachTarget, TerminalDamage, TerminalDisplayMode,
+        TerminalFontRole, TerminalFontState, TerminalFrameUpdate, TerminalGlyphCacheKey,
+        TerminalLifecycle, TerminalManager, TerminalPanel, TerminalPanelFrame,
+        TerminalPresentation, TerminalPresentationStore, TerminalProvisionTarget,
+        TerminalRuntimeState, TerminalSessionPersistenceState, TerminalSessionRecord,
+        TerminalSurface, TerminalTextRenderer, TerminalTextureState, TerminalUpdate,
+        TerminalViewState, TmuxClient, PERSISTENT_TMUX_SESSION_PREFIX,
     },
 };
 use alacritty_terminal::vte::ansi::{Color as AnsiColor, NamedColor};
@@ -665,6 +666,24 @@ fn terminal_presentations_stay_hidden_when_no_terminal_is_active() {
         .map(|(panel, visibility)| (panel.id, *visibility))
         .collect::<Vec<_>>();
     assert_eq!(vis, vec![(id, Visibility::Hidden)]);
+}
+
+#[test]
+fn terminal_panel_frames_are_hidden() {
+    let mut world = World::default();
+    world.spawn((
+        TerminalPanelFrame {
+            id: crate::terminals::TerminalId(1),
+        },
+        Visibility::Visible,
+    ));
+
+    world.run_system_once(sync_terminal_panel_frames).unwrap();
+
+    let mut query = world.query::<(&TerminalPanelFrame, &Visibility)>();
+    let vis = query.iter(&world).collect::<Vec<_>>();
+    assert_eq!(vis.len(), 1);
+    assert_eq!(*vis[0].1, Visibility::Hidden);
 }
 
 #[test]
