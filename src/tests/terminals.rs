@@ -1044,7 +1044,7 @@ fn direct_input_mode_shows_orange_terminal_frame() {
     assert_eq!(frames.len(), 1);
     assert_eq!(*frames[0].3, Visibility::Visible);
     assert_eq!(frames[0].1.translation, Vec3::new(30.0, -20.0, 0.48));
-    assert_eq!(frames[0].2.custom_size, Some(Vec2::new(320.0, 180.0)));
+    assert_eq!(frames[0].2.custom_size, Some(Vec2::new(332.0, 192.0)));
 }
 
 #[test]

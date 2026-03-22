@@ -11,6 +11,7 @@ use bevy::{prelude::*, window::PrimaryWindow};
 
 pub(crate) const HUD_FRAME_PADDING: Vec2 = Vec2::ZERO;
 pub(crate) const ACTIVE_TERMINAL_MARGIN: Vec2 = Vec2::splat(16.0);
+pub(crate) const DIRECT_INPUT_FRAME_OUTSET: f32 = 6.0;
 
 fn terminal_home_position(slot: usize) -> Vec2 {
     const COLUMNS: usize = 3;
@@ -380,7 +381,9 @@ pub(crate) fn sync_terminal_panel_frames(
     };
 
     *visibility = Visibility::Visible;
-    sprite.custom_size = Some(presentation.current_size.max(Vec2::ONE));
+    sprite.custom_size = Some(
+        (presentation.current_size + Vec2::splat(DIRECT_INPUT_FRAME_OUTSET * 2.0)).max(Vec2::ONE),
+    );
     sprite.color = Color::srgba(1.0, 0.48, 0.08, 0.96);
     transform.translation = presentation
         .current_position
