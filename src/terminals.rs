@@ -1,6 +1,11 @@
 mod ansi_surface;
+#[allow(
+    dead_code,
+    reason = "legacy local runtime backend retained while daemon is primary"
+)]
 mod backend;
 mod bridge;
+mod daemon;
 mod damage;
 mod debug;
 mod fonts;
@@ -8,20 +13,45 @@ mod lifecycle;
 mod mailbox;
 mod presentation;
 mod presentation_state;
+#[allow(
+    dead_code,
+    reason = "legacy local PTY worker retained while daemon is primary"
+)]
 mod pty_backend;
 mod pty_spawn;
 mod raster;
 mod registry;
 mod runtime;
 mod session_persistence;
+#[allow(
+    dead_code,
+    reason = "legacy tmux compatibility path retained outside default daemon flow"
+)]
 mod tmux;
+#[allow(
+    dead_code,
+    reason = "legacy tmux viewer retained outside default daemon flow"
+)]
 mod tmux_viewer_backend;
 mod types;
 
-pub(crate) use backend::{build_surface, send_command_payload_bytes};
+pub(crate) use backend::{build_surface, compute_terminal_damage, send_command_payload_bytes};
 #[cfg(test)]
-pub(crate) use backend::{compute_terminal_damage, resolve_alacritty_color, xterm_indexed_rgb};
+pub(crate) use backend::{resolve_alacritty_color, xterm_indexed_rgb};
 pub(crate) use bridge::TerminalBridge;
+pub(crate) use daemon::is_persistent_session_name;
+#[cfg(test)]
+pub(crate) use daemon::{
+    read_client_message, read_server_message, resolve_daemon_socket_path_with,
+    write_client_message, write_server_message, ClientMessage, DaemonEvent, DaemonRequest,
+    DaemonServerHandle, DaemonSessionInfo, ServerMessage, SocketTerminalDaemonClient,
+    TerminalDaemonClient,
+};
+pub(crate) use daemon::{
+    resolve_daemon_socket_path, run_daemon_server, AttachedDaemonSession,
+    TerminalDaemonClientResource, DAEMON_PROTOCOL_VERSION, PERSISTENT_SESSION_PREFIX,
+    VERIFIER_SESSION_PREFIX,
+};
 pub(crate) use debug::{
     append_debug_log, note_key_event, note_terminal_error, with_debug_stats, TerminalDebugStats,
 };
@@ -49,6 +79,7 @@ pub(crate) use presentation_state::{
     TerminalPanel, TerminalPanelFrame, TerminalPanelSprite, TerminalPointerState,
     TerminalPresentation, TerminalPresentationStore, TerminalTextureState, TerminalViewState,
 };
+pub(crate) use pty_spawn::{spawn_pty, write_input};
 #[cfg(test)]
 pub(crate) use raster::{
     blend_rgba_in_place, rasterize_terminal_glyph, CachedTerminalGlyph, TerminalFontRole,
@@ -69,11 +100,11 @@ pub(crate) use session_persistence::{
 };
 #[cfg(test)]
 pub(crate) use tmux::create_detached_session_tmux_commands;
+pub(crate) use tmux::{build_attach_command_argv, resolve_tmux_active_pane_target, TmuxPaneClient};
+#[cfg(test)]
 pub(crate) use tmux::{
-    build_attach_command_argv, generate_unique_session_name, is_persistent_session_name,
-    provision_terminal_target, resolve_tmux_active_pane_target, TerminalSessionClient,
-    TmuxClientResource, TmuxPaneClient, PERSISTENT_TMUX_SESSION_PREFIX,
-    VERIFIER_TMUX_SESSION_PREFIX,
+    generate_unique_session_name, provision_terminal_target, TerminalSessionClient,
+    PERSISTENT_TMUX_SESSION_PREFIX,
 };
 #[cfg(test)]
 pub(crate) use tmux::{send_bytes_tmux_commands, TmuxPaneDescriptor, TmuxPaneState};

@@ -8,11 +8,24 @@ mod verification;
 #[cfg(test)]
 mod tests;
 
-use crate::{app_config::DEBUG_LOG_PATH, scene::build_app, terminals::append_debug_log};
-use std::fs;
+use crate::{
+    app_config::DEBUG_LOG_PATH,
+    scene::build_app,
+    terminals::{append_debug_log, resolve_daemon_socket_path, run_daemon_server},
+};
+use std::{env, fs, path::PathBuf};
 
 fn main() {
     let _ = fs::write(DEBUG_LOG_PATH, "");
+    let args = env::args().collect::<Vec<_>>();
+    if args.get(1).is_some_and(|arg| arg == "daemon") {
+        if let Err(error) = run_daemon_mode(&args[2..]) {
+            eprintln!("{error}");
+            std::process::exit(1);
+        }
+        return;
+    }
+
     append_debug_log("app start");
     match build_app() {
         Ok(mut app) => {
@@ -23,4 +36,22 @@ fn main() {
             std::process::exit(1);
         }
     }
+}
+
+fn run_daemon_mode(args: &[String]) -> Result<(), String> {
+    let socket_path = parse_daemon_socket_path(args)
+        .or_else(resolve_daemon_socket_path)
+        .ok_or_else(|| "failed to resolve daemon socket path".to_owned())?;
+    append_debug_log(format!("daemon start socket={}", socket_path.display()));
+    run_daemon_server(&socket_path)
+}
+
+fn parse_daemon_socket_path(args: &[String]) -> Option<PathBuf> {
+    let mut args = args.iter();
+    while let Some(arg) = args.next() {
+        if arg == "--socket" {
+            return args.next().map(PathBuf::from);
+        }
+    }
+    None
 }

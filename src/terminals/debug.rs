@@ -10,7 +10,15 @@ use std::{
 pub(crate) struct TerminalDebugStats {
     pub(crate) key_events_seen: u64,
     pub(crate) commands_queued: u64,
+    #[allow(
+        dead_code,
+        reason = "legacy/local backend stats retained for debug parity"
+    )]
     pub(crate) pty_bytes_written: u64,
+    #[allow(
+        dead_code,
+        reason = "legacy/local backend stats retained for debug parity"
+    )]
     pub(crate) pty_bytes_read: u64,
     pub(crate) snapshots_sent: u64,
     pub(crate) snapshots_applied: u64,

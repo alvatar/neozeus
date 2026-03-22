@@ -242,12 +242,12 @@ pub(crate) enum TerminalAttachTarget {
         dead_code,
         reason = "legacy direct tmux client path kept while viewer backend lands"
     )]
-    TmuxAttach {
-        session_name: String,
-    },
-    TmuxViewer {
-        session_name: String,
-    },
+    TmuxAttach { session_name: String },
+    #[allow(
+        dead_code,
+        reason = "legacy tmux viewer attach target retained outside default daemon flow"
+    )]
+    TmuxViewer { session_name: String },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -257,9 +257,11 @@ pub(crate) enum TerminalProvisionTarget {
         reason = "raw shell provision remains part of the abstraction surface"
     )]
     RawShell,
-    TmuxDetached {
-        session_name: String,
-    },
+    #[allow(
+        dead_code,
+        reason = "legacy tmux detached provision target retained outside default daemon flow"
+    )]
+    TmuxDetached { session_name: String },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

@@ -1,8 +1,7 @@
-use super::backend::terminal_worker;
 use crate::terminals::{
-    append_debug_log, note_terminal_error, TerminalAttachTarget, TerminalBridge,
-    TerminalDebugStats, TerminalRuntimeState, TerminalUpdate, TerminalUpdateMailbox,
-    TmuxPaneClient,
+    append_debug_log, note_terminal_error, with_debug_stats, AttachedDaemonSession, TerminalBridge,
+    TerminalDaemonClientResource, TerminalDebugStats, TerminalRuntimeState, TerminalUpdate,
+    TerminalUpdateMailbox,
 };
 use bevy::{
     prelude::Resource,
@@ -15,28 +14,48 @@ use std::{
 
 #[derive(Clone)]
 pub(crate) struct RuntimeNotifier {
-    proxy: EventLoopProxy<WinitUserEvent>,
+    proxy: Option<EventLoopProxy<WinitUserEvent>>,
 }
 
 impl RuntimeNotifier {
     pub(crate) fn new(proxy: EventLoopProxy<WinitUserEvent>) -> Self {
-        Self { proxy }
+        Self { proxy: Some(proxy) }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn noop() -> Self {
+        Self { proxy: None }
     }
 
     pub(crate) fn wake(&self) {
-        let _ = self.proxy.send_event(WinitUserEvent::WakeUp);
+        if let Some(proxy) = &self.proxy {
+            let _ = proxy.send_event(WinitUserEvent::WakeUp);
+        }
     }
 }
 
 #[derive(Resource, Clone)]
 pub(crate) struct TerminalRuntimeSpawner {
     notifier: RuntimeNotifier,
+    daemon: TerminalDaemonClientResource,
 }
 
 impl TerminalRuntimeSpawner {
-    pub(crate) fn new(proxy: EventLoopProxy<WinitUserEvent>) -> Self {
+    pub(crate) fn new(
+        proxy: EventLoopProxy<WinitUserEvent>,
+        daemon: TerminalDaemonClientResource,
+    ) -> Self {
         Self {
             notifier: RuntimeNotifier::new(proxy),
+            daemon,
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn for_tests(daemon: TerminalDaemonClientResource) -> Self {
+        Self {
+            notifier: RuntimeNotifier::noop(),
+            daemon,
         }
     }
 
@@ -44,76 +63,132 @@ impl TerminalRuntimeSpawner {
         self.notifier.clone()
     }
 
-    pub(crate) fn spawn_attached(
-        &self,
-        attach_target: TerminalAttachTarget,
-        tmux_client: Option<Arc<dyn TmuxPaneClient>>,
-    ) -> TerminalBridge {
-        spawn_terminal_runtime(self.notifier.clone(), attach_target, tmux_client)
+    pub(crate) fn list_sessions(&self) -> Result<Vec<String>, String> {
+        self.daemon.client().list_sessions().map(|sessions| {
+            sessions
+                .into_iter()
+                .map(|session| session.session_id)
+                .collect()
+        })
+    }
+
+    pub(crate) fn create_session(&self, prefix: &str) -> Result<String, String> {
+        self.daemon.client().create_session(prefix)
+    }
+
+    pub(crate) fn kill_session(&self, session_id: &str) -> Result<(), String> {
+        self.daemon.client().kill_session(session_id)
+    }
+
+    pub(crate) fn spawn_attached(&self, session_id: &str) -> Result<TerminalBridge, String> {
+        let attached = self.daemon.client().attach_session(session_id)?;
+        Ok(spawn_daemon_terminal_runtime(
+            self.notifier.clone(),
+            self.daemon.clone(),
+            session_id.to_owned(),
+            attached,
+        ))
     }
 }
 
-pub(crate) fn spawn_terminal_runtime(
+pub(crate) fn spawn_daemon_terminal_runtime(
     notifier: RuntimeNotifier,
-    attach_target: TerminalAttachTarget,
-    tmux_client: Option<Arc<dyn TmuxPaneClient>>,
+    daemon: TerminalDaemonClientResource,
+    session_id: String,
+    attached: AttachedDaemonSession,
 ) -> TerminalBridge {
     let (input_tx, input_rx) = mpsc::channel();
     let update_mailbox = Arc::new(TerminalUpdateMailbox::default());
     let debug_stats = Arc::new(Mutex::new(TerminalDebugStats::default()));
     let bridge = TerminalBridge::new(input_tx, update_mailbox.clone(), debug_stats.clone());
 
-    let worker_mailbox = update_mailbox.clone();
-    let worker_debug_stats = debug_stats.clone();
-    let worker_notifier = notifier.clone();
-    let worker_attach_target = attach_target.clone();
-    let worker_tmux_client = tmux_client.clone();
+    push_initial_snapshot(
+        &update_mailbox,
+        &debug_stats,
+        &notifier,
+        attached.snapshot.clone(),
+    );
+
+    let command_mailbox = update_mailbox.clone();
+    let command_debug_stats = debug_stats.clone();
+    let command_notifier = notifier.clone();
+    let command_daemon = daemon.clone();
+    let command_session_id = session_id.clone();
     thread::spawn(move || {
-        append_debug_log("terminal worker thread spawn");
-        let panic_mailbox = worker_mailbox.clone();
-        let panic_debug_stats = worker_debug_stats.clone();
-        let panic_notifier = worker_notifier.clone();
-        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            terminal_worker(
-                input_rx,
-                worker_mailbox,
-                worker_debug_stats,
-                worker_notifier,
-                worker_attach_target,
-                worker_tmux_client,
-            )
-        }));
-        if let Err(payload) = result {
-            let message = panic_payload_to_string(payload);
-            append_debug_log(format!("terminal worker panic: {message}"));
-            let push = panic_mailbox.push(TerminalUpdate::Status {
-                runtime: TerminalRuntimeState::failed(format!(
-                    "terminal worker panicked: {message}"
-                )),
-                surface: None,
-            });
-            crate::terminals::with_debug_stats(&panic_debug_stats, |stats| {
-                stats.snapshots_sent += 1;
-            });
-            note_terminal_error(
-                &panic_debug_stats,
-                format!("terminal worker panicked: {message}"),
-            );
-            if push.should_wake {
-                panic_notifier.wake();
+        while let Ok(command) = input_rx.recv() {
+            if let Err(error) = command_daemon
+                .client()
+                .send_command(&command_session_id, command)
+            {
+                publish_runtime_status(
+                    &command_mailbox,
+                    &command_debug_stats,
+                    &command_notifier,
+                    TerminalRuntimeState::failed(error.clone()),
+                );
+                note_terminal_error(&command_debug_stats, error);
+                break;
             }
         }
     });
 
+    let update_notifier = notifier.clone();
+    let update_debug_stats = debug_stats.clone();
+    let update_mailbox_thread = update_mailbox.clone();
+    thread::spawn(move || {
+        while let Ok(update) = attached.updates.recv() {
+            let push = update_mailbox_thread.push(update);
+            with_debug_stats(&update_debug_stats, |stats| {
+                stats.snapshots_sent += 1;
+            });
+            if push.should_wake {
+                update_notifier.wake();
+            }
+        }
+        publish_runtime_status(
+            &update_mailbox_thread,
+            &update_debug_stats,
+            &update_notifier,
+            TerminalRuntimeState::disconnected("daemon update stream disconnected"),
+        );
+    });
+
+    append_debug_log(format!("spawned daemon bridge session={session_id}"));
     bridge
 }
 
-fn panic_payload_to_string(payload: Box<dyn std::any::Any + Send>) -> String {
-    match payload.downcast::<String>() {
-        Ok(message) => *message,
-        Err(payload) => match payload.downcast::<&'static str>() {
-            Ok(message) => (*message).to_owned(),
-            Err(_) => "unknown panic payload".to_owned(),
-        },
+fn push_initial_snapshot(
+    update_mailbox: &Arc<TerminalUpdateMailbox>,
+    debug_stats: &Arc<Mutex<TerminalDebugStats>>,
+    notifier: &RuntimeNotifier,
+    snapshot: crate::terminals::TerminalSnapshot,
+) {
+    let push = update_mailbox.push(TerminalUpdate::Status {
+        runtime: snapshot.runtime,
+        surface: snapshot.surface,
+    });
+    with_debug_stats(debug_stats, |stats| {
+        stats.snapshots_sent += 1;
+    });
+    if push.should_wake {
+        notifier.wake();
+    }
+}
+
+fn publish_runtime_status(
+    update_mailbox: &Arc<TerminalUpdateMailbox>,
+    debug_stats: &Arc<Mutex<TerminalDebugStats>>,
+    notifier: &RuntimeNotifier,
+    runtime: TerminalRuntimeState,
+) {
+    let push = update_mailbox.push(TerminalUpdate::Status {
+        runtime,
+        surface: None,
+    });
+    with_debug_stats(debug_stats, |stats| {
+        stats.snapshots_sent += 1;
+    });
+    if push.should_wake {
+        notifier.wake();
     }
 }

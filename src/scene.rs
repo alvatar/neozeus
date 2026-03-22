@@ -17,16 +17,15 @@ use crate::{
         zoom_terminal_view,
     },
     terminals::{
-        append_debug_log, configure_terminal_fonts, generate_unique_session_name,
-        load_persisted_terminal_sessions_from, mark_terminal_sessions_dirty,
-        provision_terminal_target, reconcile_terminal_sessions, resolve_terminal_sessions_path,
+        append_debug_log, configure_terminal_fonts, load_persisted_terminal_sessions_from,
+        mark_terminal_sessions_dirty, reconcile_terminal_sessions, resolve_terminal_sessions_path,
         save_terminal_sessions_if_dirty, spawn_attached_terminal_with_presentation,
         sync_terminal_hud_surface, sync_terminal_panel_frames, sync_terminal_presentations,
-        sync_terminal_texture, TerminalCameraMarker, TerminalFontState, TerminalGlyphCache,
-        TerminalHudSurfaceMarker, TerminalManager, TerminalPanel, TerminalPointerState,
-        TerminalPresentation, TerminalPresentationStore, TerminalProvisionTarget,
+        sync_terminal_texture, TerminalCameraMarker, TerminalDaemonClientResource,
+        TerminalFontState, TerminalGlyphCache, TerminalHudSurfaceMarker, TerminalManager,
+        TerminalPanel, TerminalPointerState, TerminalPresentation, TerminalPresentationStore,
         TerminalRuntimeSpawner, TerminalSessionPersistenceState, TerminalViewState,
-        TmuxClientResource, VERIFIER_TMUX_SESSION_PREFIX,
+        VERIFIER_SESSION_PREFIX,
     },
     verification::{start_auto_verify_dispatcher, AutoVerifyConfig},
 };
@@ -59,7 +58,8 @@ pub(crate) fn build_app() -> Result<App, String> {
     std::panic::set_hook(Box::new(move |info| (*restore_hook)(info)));
 
     match result {
-        Ok(()) => Ok(app),
+        Ok(Ok(())) => Ok(app),
+        Ok(Err(error)) => Err(error),
         Err(payload) => {
             if let Some(error) = format_startup_panic(payload.as_ref()) {
                 Err(error)
@@ -101,7 +101,7 @@ fn primary_window_config() -> Window {
     }
 }
 
-fn configure_app(app: &mut App) {
+fn configure_app(app: &mut App) -> Result<(), String> {
     app.add_plugins(
         DefaultPlugins
             .set(RenderPlugin {
@@ -123,13 +123,14 @@ fn configure_app(app: &mut App) {
         let proxy = app.world().resource::<EventLoopProxyWrapper>();
         (**proxy).clone()
     };
+    let daemon_client = TerminalDaemonClientResource::system()?;
 
     app.insert_resource(ClearColor(Color::srgb(0.02, 0.02, 0.02)))
         .insert_resource(WinitSettings::desktop_app())
         .insert_resource(TerminalManager::default())
         .insert_resource(TerminalPresentationStore::default())
-        .insert_resource(TerminalRuntimeSpawner::new(event_loop_proxy))
-        .insert_resource(TmuxClientResource::system())
+        .insert_resource(daemon_client.clone())
+        .insert_resource(TerminalRuntimeSpawner::new(event_loop_proxy, daemon_client))
         .insert_resource(TerminalSessionPersistenceState::default())
         .insert_resource(TerminalFontState::default())
         .insert_resource(TerminalViewState::default())
@@ -252,6 +253,8 @@ fn configure_app(app: &mut App) {
     if let Some(config) = AutoVerifyConfig::from_env() {
         app.insert_resource(config);
     }
+
+    Ok(())
 }
 
 pub(crate) fn format_startup_panic(payload: &(dyn Any + Send)) -> Option<String> {
@@ -294,7 +297,6 @@ struct SceneSetupContext<'w, 's> {
     presentation_store: ResMut<'w, TerminalPresentationStore>,
     agent_directory: ResMut<'w, AgentDirectory>,
     runtime_spawner: Res<'w, TerminalRuntimeSpawner>,
-    tmux_client: Res<'w, TmuxClientResource>,
     session_persistence: ResMut<'w, TerminalSessionPersistenceState>,
     visibility_state: ResMut<'w, TerminalVisibilityState>,
 }
@@ -384,34 +386,32 @@ fn setup_scene(mut ctx: SceneSetupContext, auto_verify: Option<Res<AutoVerifyCon
 }
 
 fn setup_verifier_terminal(ctx: &mut SceneSetupContext, config: AutoVerifyConfig) {
-    let client = ctx.tmux_client.session_client();
-    let Ok(session_name) = generate_unique_session_name(client, VERIFIER_TMUX_SESSION_PREFIX)
-    else {
-        append_debug_log("verifier terminal spawn failed: could not allocate tmux session");
-        return;
+    let session_name = match ctx.runtime_spawner.create_session(VERIFIER_SESSION_PREFIX) {
+        Ok(session_name) => session_name,
+        Err(error) => {
+            append_debug_log(format!("verifier terminal spawn failed: {error}"));
+            return;
+        }
     };
-    if let Err(error) = provision_terminal_target(
-        client,
-        &TerminalProvisionTarget::TmuxDetached {
-            session_name: session_name.clone(),
-        },
-    ) {
-        append_debug_log(format!(
-            "verifier terminal spawn failed for {}: {error}",
-            session_name
-        ));
-        return;
-    }
-    let (terminal_id, dispatcher_bridge) = spawn_attached_terminal_with_presentation(
+    let (terminal_id, dispatcher_bridge) = match spawn_attached_terminal_with_presentation(
         &mut ctx.commands,
         &mut ctx.images,
         &mut ctx.terminal_manager,
         &mut ctx.presentation_store,
         &ctx.runtime_spawner,
-        &ctx.tmux_client,
         session_name.clone(),
         true,
-    );
+    ) {
+        Ok(result) => result,
+        Err(error) => {
+            append_debug_log(format!(
+                "verifier terminal attach failed for {}: {error}",
+                session_name
+            ));
+            let _ = ctx.runtime_spawner.kill_session(&session_name);
+            return;
+        }
+    };
     ctx.visibility_state.policy = TerminalVisibilityPolicy::Isolate(terminal_id);
     append_debug_log(format!(
         "spawned verifier terminal {} session={}",
@@ -427,10 +427,10 @@ fn restore_startup_terminals(ctx: &mut SceneSetupContext) {
         .as_ref()
         .map(load_persisted_terminal_sessions_from)
         .unwrap_or_default();
-    let live_sessions = match ctx.tmux_client.session_client().list_sessions() {
+    let live_sessions = match ctx.runtime_spawner.list_sessions() {
         Ok(sessions) => sessions,
         Err(error) => {
-            append_debug_log(format!("tmux session discovery failed: {error}"));
+            append_debug_log(format!("daemon session discovery failed: {error}"));
             return;
         }
     };
@@ -451,16 +451,24 @@ fn restore_startup_terminals(ctx: &mut SceneSetupContext) {
             .restore
             .iter()
             .any(|existing| existing.session_name == record.session_name);
-        let (terminal_id, _) = spawn_attached_terminal_with_presentation(
+        let (terminal_id, _) = match spawn_attached_terminal_with_presentation(
             &mut ctx.commands,
             &mut ctx.images,
             &mut ctx.terminal_manager,
             &mut ctx.presentation_store,
             &ctx.runtime_spawner,
-            &ctx.tmux_client,
             record.session_name.clone(),
             false,
-        );
+        ) {
+            Ok(result) => result,
+            Err(error) => {
+                append_debug_log(format!(
+                    "startup attach failed for {}: {error}",
+                    record.session_name
+                ));
+                continue;
+            }
+        };
         append_debug_log(format!(
             "{} terminal {} session={}",
             if restored { "restored" } else { "imported" },
