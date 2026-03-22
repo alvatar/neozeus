@@ -5,12 +5,10 @@ use crate::{
         TerminalVisibilityPolicy, TerminalVisibilityRequest, TerminalVisibilityState,
     },
     terminals::{
-        append_debug_log, generate_unique_session_name, kill_active_terminal_session_and_remove,
-        mark_terminal_sessions_dirty, provision_terminal_target,
+        append_debug_log, kill_active_terminal_session_and_remove, mark_terminal_sessions_dirty,
         spawn_attached_terminal_with_presentation, TerminalManager, TerminalPresentationStore,
-        TerminalProvisionTarget, TerminalRuntimeSpawner, TerminalSessionPersistenceState,
-        TerminalViewState, TmuxClientResource,
-        PERSISTENT_TMUX_SESSION_PREFIX,
+        TerminalRuntimeSpawner, TerminalSessionPersistenceState, TerminalViewState,
+        PERSISTENT_SESSION_PREFIX,
     },
 };
 use bevy::prelude::*;
@@ -25,7 +23,7 @@ pub(crate) fn kill_active_terminal(
     time: &Time,
     terminal_manager: &mut TerminalManager,
     presentation_store: &mut TerminalPresentationStore,
-    session_client: &dyn crate::terminals::TerminalSessionClient,
+    runtime_spawner: &TerminalRuntimeSpawner,
     agent_directory: &mut AgentDirectory,
     session_persistence: &mut TerminalSessionPersistenceState,
     visibility_state: &mut TerminalVisibilityState,
@@ -36,7 +34,7 @@ pub(crate) fn kill_active_terminal(
         time,
         terminal_manager,
         presentation_store,
-        session_client,
+        runtime_spawner,
         agent_directory,
         session_persistence,
         visibility_state,
@@ -218,7 +216,6 @@ pub(crate) fn apply_terminal_lifecycle_requests(
     mut terminal_manager: ResMut<TerminalManager>,
     mut presentation_store: ResMut<TerminalPresentationStore>,
     runtime_spawner: Res<TerminalRuntimeSpawner>,
-    tmux_client: Res<TmuxClientResource>,
     mut hud_state: ResMut<HudState>,
     mut agent_directory: ResMut<AgentDirectory>,
     mut session_persistence: ResMut<TerminalSessionPersistenceState>,
@@ -228,35 +225,32 @@ pub(crate) fn apply_terminal_lifecycle_requests(
     for request in requests.read() {
         match request {
             TerminalLifecycleRequest::Spawn => {
-                let session_client = tmux_client.session_client();
-                let Ok(session_name) =
-                    generate_unique_session_name(session_client, PERSISTENT_TMUX_SESSION_PREFIX)
-                else {
-                    append_debug_log("spawn terminal failed: could not allocate tmux session name");
-                    continue;
+                let session_name = match runtime_spawner.create_session(PERSISTENT_SESSION_PREFIX) {
+                    Ok(session_name) => session_name,
+                    Err(error) => {
+                        append_debug_log(format!("spawn terminal failed: {error}"));
+                        continue;
+                    }
                 };
-                if let Err(error) = provision_terminal_target(
-                    session_client,
-                    &TerminalProvisionTarget::TmuxDetached {
-                        session_name: session_name.clone(),
-                    },
-                ) {
-                    append_debug_log(format!(
-                        "spawn terminal failed for {}: {error}",
-                        session_name
-                    ));
-                    continue;
-                }
-                let (terminal_id, _) = spawn_attached_terminal_with_presentation(
+                let (terminal_id, _) = match spawn_attached_terminal_with_presentation(
                     &mut commands,
                     &mut images,
                     &mut terminal_manager,
                     &mut presentation_store,
                     &runtime_spawner,
-                    &tmux_client,
                     session_name.clone(),
                     true,
-                );
+                ) {
+                    Ok(result) => result,
+                    Err(error) => {
+                        append_debug_log(format!(
+                            "attach terminal failed for {}: {error}",
+                            session_name
+                        ));
+                        let _ = runtime_spawner.kill_session(&session_name);
+                        continue;
+                    }
+                };
                 hud_state.reconcile_direct_terminal_input(terminal_manager.active_id());
                 if matches!(
                     visibility_state.policy,
@@ -277,7 +271,7 @@ pub(crate) fn apply_terminal_lifecycle_requests(
                     &time,
                     &mut terminal_manager,
                     &mut presentation_store,
-                    tmux_client.session_client(),
+                    &runtime_spawner,
                     &mut agent_directory,
                     &mut session_persistence,
                     &mut visibility_state,

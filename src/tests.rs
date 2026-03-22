@@ -4,9 +4,10 @@ mod scene;
 mod terminals;
 
 use crate::terminals::{
-    CachedTerminalGlyph, TerminalBridge, TerminalCommand, TerminalDebugStats,
-    TerminalSessionClient, TerminalSurface, TerminalUpdateMailbox, TmuxClientResource,
-    TmuxPaneClient, TmuxPaneDescriptor, TmuxPaneState,
+    AttachedDaemonSession, CachedTerminalGlyph, DaemonSessionInfo, TerminalBridge, TerminalCommand,
+    TerminalDaemonClient, TerminalDaemonClientResource, TerminalDebugStats, TerminalRuntimeSpawner,
+    TerminalRuntimeState, TerminalSessionClient, TerminalSnapshot, TerminalSurface, TerminalUpdate,
+    TerminalUpdateMailbox, TmuxPaneClient, TmuxPaneDescriptor, TmuxPaneState,
 };
 use bevy::{
     input::{
@@ -65,10 +66,107 @@ pub(super) fn test_bridge() -> (TerminalBridge, Arc<TerminalUpdateMailbox>) {
 }
 
 #[derive(Default)]
+pub(super) struct FakeDaemonClient {
+    pub(super) sessions: Mutex<BTreeSet<String>>,
+    pub(super) sent_commands: Mutex<Vec<(String, TerminalCommand)>>,
+    pub(super) fail_kill: Mutex<bool>,
+    pub(super) next_session_index: Mutex<u64>,
+    updates: Mutex<std::collections::HashMap<String, Vec<mpsc::Sender<TerminalUpdate>>>>,
+}
+
+impl FakeDaemonClient {
+    pub(super) fn emit_update(&self, session_id: &str, update: TerminalUpdate) {
+        let senders = self
+            .updates
+            .lock()
+            .unwrap()
+            .get(session_id)
+            .cloned()
+            .unwrap_or_default();
+        for sender in senders {
+            let _ = sender.send(update.clone());
+        }
+    }
+}
+
+impl TerminalDaemonClient for FakeDaemonClient {
+    fn list_sessions(&self) -> Result<Vec<DaemonSessionInfo>, String> {
+        Ok(self
+            .sessions
+            .lock()
+            .unwrap()
+            .iter()
+            .cloned()
+            .map(|session_id| DaemonSessionInfo {
+                session_id,
+                runtime: TerminalRuntimeState::running("fake daemon"),
+                revision: 0,
+            })
+            .collect())
+    }
+
+    fn create_session(&self, prefix: &str) -> Result<String, String> {
+        let mut next = self.next_session_index.lock().unwrap();
+        let session_id = format!("{prefix}{}", *next);
+        *next += 1;
+        self.sessions.lock().unwrap().insert(session_id.clone());
+        Ok(session_id)
+    }
+
+    fn attach_session(&self, session_id: &str) -> Result<AttachedDaemonSession, String> {
+        if !self.sessions.lock().unwrap().contains(session_id) {
+            return Err(format!("daemon session `{session_id}` not found"));
+        }
+        let (tx, rx) = mpsc::channel();
+        self.updates
+            .lock()
+            .unwrap()
+            .entry(session_id.to_owned())
+            .or_default()
+            .push(tx);
+        Ok(AttachedDaemonSession {
+            snapshot: TerminalSnapshot {
+                surface: Some(TerminalSurface::new(120, 38)),
+                runtime: TerminalRuntimeState::running("fake daemon"),
+            },
+            updates: rx,
+        })
+    }
+
+    fn send_command(&self, session_id: &str, command: TerminalCommand) -> Result<(), String> {
+        self.sent_commands
+            .lock()
+            .unwrap()
+            .push((session_id.to_owned(), command));
+        Ok(())
+    }
+
+    fn resize_session(&self, _session_id: &str, _cols: usize, _rows: usize) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn kill_session(&self, session_id: &str) -> Result<(), String> {
+        if *self.fail_kill.lock().unwrap() {
+            return Err("kill failed".into());
+        }
+        self.sessions.lock().unwrap().remove(session_id);
+        self.updates.lock().unwrap().remove(session_id);
+        Ok(())
+    }
+}
+
+pub(super) fn fake_daemon_resource(client: Arc<FakeDaemonClient>) -> TerminalDaemonClientResource {
+    TerminalDaemonClientResource::from_client(client)
+}
+
+pub(super) fn fake_runtime_spawner(client: Arc<FakeDaemonClient>) -> TerminalRuntimeSpawner {
+    TerminalRuntimeSpawner::for_tests(fake_daemon_resource(client))
+}
+
+#[derive(Default)]
 pub(super) struct FakeTmuxClient {
     pub(super) sessions: Mutex<BTreeSet<String>>,
     pub(super) collision_checks_remaining: Mutex<usize>,
-    pub(super) fail_kill: Mutex<bool>,
 }
 
 impl FakeTmuxClient {
@@ -104,9 +202,6 @@ impl TerminalSessionClient for FakeTmuxClient {
     }
 
     fn kill_session(&self, name: &str) -> Result<(), String> {
-        if *self.fail_kill.lock().unwrap() {
-            return Err("kill failed".into());
-        }
         self.sessions.lock().unwrap().remove(name);
         Ok(())
     }
@@ -137,10 +232,6 @@ impl TmuxPaneClient for FakeTmuxClient {
     fn send_bytes(&self, _pane_target: &str, _bytes: &[u8]) -> Result<(), String> {
         Ok(())
     }
-}
-
-pub(super) fn fake_tmux_resource(client: Arc<FakeTmuxClient>) -> TmuxClientResource {
-    TmuxClientResource::from_client(client)
 }
 
 pub(super) fn surface_with_text(rows: usize, cols: usize, y: usize, text: &str) -> TerminalSurface {

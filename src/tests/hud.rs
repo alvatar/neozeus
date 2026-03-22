@@ -1,4 +1,4 @@
-use super::{fake_tmux_resource, pressed_text, temp_dir, test_bridge, FakeTmuxClient};
+use super::{fake_runtime_spawner, pressed_text, temp_dir, test_bridge, FakeDaemonClient};
 use crate::hud::{
     agent_rows, apply_persisted_layout, debug_toolbar_buttons, dispatch_hud_pointer_click,
     dispatch_hud_scroll, handle_hud_module_shortcuts, handle_hud_pointer_input, hud_needs_redraw,
@@ -732,7 +732,7 @@ fn disabled_hud_module_still_requests_redraw_while_fading_out() {
 
 #[test]
 fn killing_active_terminal_removes_runtime_presentation_and_labels() {
-    let client = Arc::new(FakeTmuxClient::default());
+    let client = Arc::new(FakeDaemonClient::default());
     client
         .sessions
         .lock()
@@ -767,7 +767,7 @@ fn killing_active_terminal_removes_runtime_presentation_and_labels() {
     world.insert_resource(manager);
     world.insert_resource(store);
     world.insert_resource(directory);
-    world.insert_resource(fake_tmux_resource(client.clone()));
+    world.insert_resource(fake_runtime_spawner(client.clone()));
     world.insert_resource(TerminalSessionPersistenceState::default());
     world.insert_resource(TerminalVisibilityState {
         policy: TerminalVisibilityPolicy::Isolate(id),
@@ -788,7 +788,7 @@ fn killing_active_terminal_removes_runtime_presentation_and_labels() {
              time: Res<Time>,
              mut terminal_manager: ResMut<TerminalManager>,
              mut presentation_store: ResMut<TerminalPresentationStore>,
-             tmux: Res<crate::terminals::TmuxClientResource>,
+             runtime_spawner: Res<crate::terminals::TerminalRuntimeSpawner>,
              mut agent_directory: ResMut<AgentDirectory>,
              mut session_persistence: ResMut<TerminalSessionPersistenceState>,
              mut visibility_state: ResMut<TerminalVisibilityState>,
@@ -798,7 +798,7 @@ fn killing_active_terminal_removes_runtime_presentation_and_labels() {
                     &time,
                     &mut terminal_manager,
                     &mut presentation_store,
-                    tmux.session_client(),
+                    &runtime_spawner,
                     &mut agent_directory,
                     &mut session_persistence,
                     &mut visibility_state,
@@ -834,7 +834,7 @@ fn killing_active_terminal_removes_runtime_presentation_and_labels() {
 
 #[test]
 fn killing_active_terminal_preserves_local_state_when_tmux_kill_fails() {
-    let client = Arc::new(FakeTmuxClient::default());
+    let client = Arc::new(FakeDaemonClient::default());
     *client.fail_kill.lock().unwrap() = true;
     client
         .sessions
@@ -870,7 +870,7 @@ fn killing_active_terminal_preserves_local_state_when_tmux_kill_fails() {
     world.insert_resource(manager);
     world.insert_resource(store);
     world.insert_resource(directory);
-    world.insert_resource(fake_tmux_resource(client.clone()));
+    world.insert_resource(fake_runtime_spawner(client.clone()));
     world.insert_resource(TerminalSessionPersistenceState::default());
     world.insert_resource(TerminalVisibilityState {
         policy: TerminalVisibilityPolicy::Isolate(id),
@@ -891,7 +891,7 @@ fn killing_active_terminal_preserves_local_state_when_tmux_kill_fails() {
              time: Res<Time>,
              mut terminal_manager: ResMut<TerminalManager>,
              mut presentation_store: ResMut<TerminalPresentationStore>,
-             tmux: Res<crate::terminals::TmuxClientResource>,
+             runtime_spawner: Res<crate::terminals::TerminalRuntimeSpawner>,
              mut agent_directory: ResMut<AgentDirectory>,
              mut session_persistence: ResMut<TerminalSessionPersistenceState>,
              mut visibility_state: ResMut<TerminalVisibilityState>,
@@ -901,7 +901,7 @@ fn killing_active_terminal_preserves_local_state_when_tmux_kill_fails() {
                     &time,
                     &mut terminal_manager,
                     &mut presentation_store,
-                    tmux.session_client(),
+                    &runtime_spawner,
                     &mut agent_directory,
                     &mut session_persistence,
                     &mut visibility_state,

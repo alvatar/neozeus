@@ -1,5 +1,6 @@
 use super::{
-    assert_glyph_has_visible_pixels, surface_with_text, temp_dir, test_bridge, FakeTmuxClient,
+    assert_glyph_has_visible_pixels, fake_runtime_spawner, surface_with_text, temp_dir,
+    test_bridge, FakeDaemonClient, FakeTmuxClient,
 };
 use crate::{
     app_config::{DEFAULT_CELL_HEIGHT_PX, DEFAULT_CELL_WIDTH_PX},
@@ -10,23 +11,29 @@ use crate::{
         generate_unique_session_name, initialize_terminal_text_renderer, is_emoji_like,
         is_private_use_like, parse_kitty_config_file, parse_persisted_terminal_sessions,
         pixel_perfect_cell_size, pixel_perfect_terminal_logical_size, poll_terminal_snapshots,
-        provision_terminal_target, rasterize_terminal_glyph, reconcile_terminal_sessions,
-        resolve_alacritty_color, resolve_terminal_font_report, resolve_terminal_sessions_path_with,
-        save_terminal_sessions_if_dirty, send_bytes_tmux_commands, send_command_payload_bytes,
+        provision_terminal_target, rasterize_terminal_glyph, read_client_message,
+        read_server_message, reconcile_terminal_sessions, resolve_alacritty_color,
+        resolve_daemon_socket_path_with, resolve_terminal_font_report,
+        resolve_terminal_sessions_path_with, save_terminal_sessions_if_dirty,
+        send_bytes_tmux_commands, send_command_payload_bytes,
         serialize_persisted_terminal_sessions, snap_to_pixel_grid, sync_terminal_panel_frames,
-        sync_terminal_presentations, xterm_indexed_rgb, KittyFontConfig, PersistedTerminalSessions,
-        PresentedTerminal, TerminalAttachTarget, TerminalDamage, TerminalDisplayMode,
-        TerminalFontRole, TerminalFontState, TerminalFrameUpdate, TerminalGlyphCacheKey,
-        TerminalLifecycle, TerminalManager, TerminalPanel, TerminalPanelFrame,
-        TerminalPresentation, TerminalPresentationStore, TerminalProvisionTarget,
-        TerminalRuntimeState, TerminalSessionClient, TerminalSessionPersistenceState,
-        TerminalSessionRecord, TerminalSurface, TerminalTextRenderer, TerminalTextureState,
-        TerminalUpdate, TerminalViewState, TmuxPaneClient, PERSISTENT_TMUX_SESSION_PREFIX,
+        sync_terminal_presentations, write_client_message, write_server_message, xterm_indexed_rgb,
+        ClientMessage, DaemonEvent, DaemonRequest, DaemonServerHandle, KittyFontConfig,
+        PersistedTerminalSessions, PresentedTerminal, ServerMessage, SocketTerminalDaemonClient,
+        TerminalAttachTarget, TerminalCommand, TerminalDaemonClient, TerminalDamage,
+        TerminalDisplayMode, TerminalFontRole, TerminalFontState, TerminalFrameUpdate,
+        TerminalGlyphCacheKey, TerminalLifecycle, TerminalManager, TerminalPanel,
+        TerminalPanelFrame, TerminalPresentation, TerminalPresentationStore,
+        TerminalProvisionTarget, TerminalRuntimeState, TerminalSessionClient,
+        TerminalSessionPersistenceState, TerminalSessionRecord, TerminalSurface,
+        TerminalTextRenderer, TerminalTextureState, TerminalUpdate, TerminalViewState,
+        TmuxPaneClient, DAEMON_PROTOCOL_VERSION, PERSISTENT_SESSION_PREFIX,
+        PERSISTENT_TMUX_SESSION_PREFIX,
     },
 };
 use alacritty_terminal::vte::ansi::{Color as AnsiColor, NamedColor};
 use bevy::{ecs::system::RunSystemOnce, prelude::*, window::PrimaryWindow};
-use std::{collections::BTreeSet, fs, time::Duration};
+use std::{collections::BTreeSet, fs, os::unix::net::UnixStream, sync::Arc, time::Duration};
 
 struct UnavailableTmuxClient;
 
@@ -1085,4 +1092,329 @@ fn terminal_visibility_policy_hides_only_presentation_and_show_all_restores_it()
     vis.sort_by_key(|(id, _)| id.0);
     assert_eq!(vis[0], (id_one, Visibility::Visible));
     assert_eq!(vis[1], (id_two, Visibility::Visible));
+}
+
+fn start_test_daemon(prefix: &str) -> (DaemonServerHandle, std::path::PathBuf) {
+    let dir = temp_dir(prefix);
+    let socket_path = dir.join("daemon.sock");
+    let handle = DaemonServerHandle::start(socket_path.clone()).expect("daemon should start");
+    (handle, socket_path)
+}
+
+fn surface_to_text(surface: &TerminalSurface) -> String {
+    let mut text = String::new();
+    for y in 0..surface.rows {
+        if y > 0 {
+            text.push('\n');
+        }
+        for x in 0..surface.cols {
+            text.push_str(&surface.cell(x, y).content.to_owned_string());
+        }
+    }
+    text
+}
+
+fn wait_for_surface_containing(
+    updates: &std::sync::mpsc::Receiver<TerminalUpdate>,
+    needle: &str,
+) -> TerminalSurface {
+    let deadline = std::time::Instant::now() + Duration::from_secs(3);
+    loop {
+        let remaining = deadline
+            .checked_duration_since(std::time::Instant::now())
+            .expect("timed out waiting for daemon update");
+        let update = updates
+            .recv_timeout(remaining)
+            .expect("timed out waiting for daemon update");
+        let surface = match update {
+            TerminalUpdate::Frame(frame) => frame.surface,
+            TerminalUpdate::Status {
+                surface: Some(surface),
+                ..
+            } => surface,
+            TerminalUpdate::Status { .. } => continue,
+        };
+        if surface_to_text(&surface).contains(needle) {
+            return surface;
+        }
+    }
+}
+
+#[test]
+fn daemon_socket_path_prefers_xdg_runtime_then_tmp_user() {
+    let path = resolve_daemon_socket_path_with(
+        Some("/run/user/1000"),
+        Some("/home/alvatar"),
+        Some("oracle"),
+    )
+    .expect("xdg runtime path should resolve");
+    assert_eq!(
+        path,
+        std::path::PathBuf::from("/run/user/1000/neozeus/daemon.sock")
+    );
+
+    let fallback = resolve_daemon_socket_path_with(None, Some("/home/alvatar"), Some("oracle"))
+        .expect("tmp fallback should resolve");
+    assert!(fallback.ends_with("neozeus-oracle/daemon.sock"));
+}
+
+#[test]
+fn daemon_protocol_roundtrip_preserves_terminal_messages() {
+    let message = ClientMessage::Request {
+        request_id: 7,
+        request: DaemonRequest::SendCommand {
+            session_id: "neozeus-session-7".into(),
+            command: TerminalCommand::SendCommand("printf 'hi'".into()),
+        },
+    };
+    let mut bytes = Vec::new();
+    write_client_message(&mut bytes, &message).expect("client message should encode");
+    let decoded = read_client_message(&mut bytes.as_slice()).expect("client message should decode");
+    assert_eq!(decoded, message);
+
+    let mut surface = TerminalSurface::new(3, 1);
+    surface.set_text_cell(0, 0, "h");
+    surface.set_text_cell(1, 0, "i");
+    let response = ServerMessage::Event(DaemonEvent::SessionUpdated {
+        session_id: "neozeus-session-7".into(),
+        update: TerminalUpdate::Status {
+            runtime: TerminalRuntimeState::running("daemon"),
+            surface: Some(surface.clone()),
+        },
+        revision: 9,
+    });
+    let mut server_bytes = Vec::new();
+    write_server_message(&mut server_bytes, &response).expect("server message should encode");
+    let decoded =
+        read_server_message(&mut server_bytes.as_slice()).expect("server message should decode");
+    assert_eq!(decoded, response);
+}
+
+#[test]
+fn daemon_server_cleans_up_stale_socket_file() {
+    let dir = temp_dir("neozeus-daemon-stale-socket");
+    let socket_path = dir.join("daemon.sock");
+    fs::write(&socket_path, b"stale").expect("failed to write stale socket file");
+
+    let _server =
+        DaemonServerHandle::start(socket_path.clone()).expect("server should replace stale socket");
+    let _client = SocketTerminalDaemonClient::connect(&socket_path)
+        .expect("client should connect after stale cleanup");
+}
+
+#[test]
+fn daemon_handshake_rejects_protocol_mismatch() {
+    let (_server, socket_path) = start_test_daemon("neozeus-daemon-mismatch");
+    let mut stream =
+        UnixStream::connect(&socket_path).expect("raw daemon socket connect should succeed");
+    let request = ClientMessage::Request {
+        request_id: 1,
+        request: DaemonRequest::Handshake {
+            version: DAEMON_PROTOCOL_VERSION + 1,
+        },
+    };
+    write_client_message(&mut stream, &request).expect("handshake request should write");
+    let response = read_server_message(&mut stream).expect("handshake response should read");
+    match response {
+        ServerMessage::Response { response, .. } => {
+            let error = response.expect_err("mismatched handshake should fail");
+            assert!(error.contains("protocol version mismatch"));
+        }
+        other => panic!("unexpected handshake response: {other:?}"),
+    }
+}
+
+#[test]
+fn daemon_create_attach_command_output_and_kill_roundtrip() {
+    let (_server, socket_path) = start_test_daemon("neozeus-daemon-roundtrip");
+    let client =
+        SocketTerminalDaemonClient::connect(&socket_path).expect("daemon client should connect");
+    let session_id = client
+        .create_session(PERSISTENT_SESSION_PREFIX)
+        .expect("daemon session should be created");
+    let sessions = client.list_sessions().expect("daemon sessions should list");
+    assert!(sessions
+        .iter()
+        .any(|session| session.session_id == session_id));
+
+    let attached = client
+        .attach_session(&session_id)
+        .expect("daemon session should attach");
+    assert!(attached.snapshot.surface.is_some());
+
+    client
+        .send_command(
+            &session_id,
+            TerminalCommand::SendCommand("printf 'neozeus-daemon-ok'".into()),
+        )
+        .expect("daemon command should send");
+    let surface = wait_for_surface_containing(&attached.updates, "neozeus-daemon-ok");
+    assert!(surface_to_text(&surface).contains("neozeus-daemon-ok"));
+
+    client
+        .kill_session(&session_id)
+        .expect("daemon session should kill");
+    let sessions = client
+        .list_sessions()
+        .expect("daemon sessions should relist");
+    assert!(!sessions
+        .iter()
+        .any(|session| session.session_id == session_id));
+}
+
+#[test]
+fn daemon_sessions_survive_client_reconnect() {
+    let (_server, socket_path) = start_test_daemon("neozeus-daemon-reconnect");
+    let client_a =
+        SocketTerminalDaemonClient::connect(&socket_path).expect("first client should connect");
+    let session_id = client_a
+        .create_session(PERSISTENT_SESSION_PREFIX)
+        .expect("daemon session should be created");
+    let attached_a = client_a
+        .attach_session(&session_id)
+        .expect("first client should attach");
+    client_a
+        .send_command(
+            &session_id,
+            TerminalCommand::SendCommand("printf 'persist-across-ui'".into()),
+        )
+        .expect("first client command should send");
+    let _ = wait_for_surface_containing(&attached_a.updates, "persist-across-ui");
+    drop(client_a);
+
+    let client_b =
+        SocketTerminalDaemonClient::connect(&socket_path).expect("second client should connect");
+    let sessions = client_b
+        .list_sessions()
+        .expect("sessions should still exist after reconnect");
+    assert!(sessions
+        .iter()
+        .any(|session| session.session_id == session_id));
+    let attached_b = client_b
+        .attach_session(&session_id)
+        .expect("second client should reattach");
+    let snapshot = attached_b
+        .snapshot
+        .surface
+        .expect("reattach snapshot should include surface");
+    assert!(surface_to_text(&snapshot).contains("persist-across-ui"));
+}
+
+#[test]
+fn daemon_runtime_bridge_pushes_initial_snapshot_and_forwards_commands() {
+    let client = Arc::new(FakeDaemonClient::default());
+    client
+        .sessions
+        .lock()
+        .unwrap()
+        .insert("neozeus-session-1".into());
+    let spawner = fake_runtime_spawner(client.clone());
+    let bridge = spawner
+        .spawn_attached("neozeus-session-1")
+        .expect("daemon bridge should attach");
+
+    let (frame, status, _) = bridge.drain_updates();
+    assert!(frame.is_none());
+    assert!(status.is_some());
+    bridge.send(TerminalCommand::SendCommand("pwd".into()));
+    std::thread::sleep(Duration::from_millis(20));
+    let commands = client.sent_commands.lock().unwrap().clone();
+    assert!(commands.iter().any(|(session_id, command)| {
+        session_id == "neozeus-session-1"
+            && matches!(command, TerminalCommand::SendCommand(value) if value == "pwd")
+    }));
+}
+
+#[test]
+fn daemon_resize_session_request_succeeds() {
+    let (_server, socket_path) = start_test_daemon("neozeus-daemon-resize");
+    let client =
+        SocketTerminalDaemonClient::connect(&socket_path).expect("daemon client should connect");
+    let session_id = client
+        .create_session(PERSISTENT_SESSION_PREFIX)
+        .expect("daemon session should be created");
+    client
+        .resize_session(&session_id, 100, 30)
+        .expect("daemon resize should succeed");
+}
+
+#[test]
+fn daemon_runtime_bridge_applies_streamed_updates() {
+    let client = Arc::new(FakeDaemonClient::default());
+    client
+        .sessions
+        .lock()
+        .unwrap()
+        .insert("neozeus-session-2".into());
+    let spawner = fake_runtime_spawner(client.clone());
+    let bridge = spawner
+        .spawn_attached("neozeus-session-2")
+        .expect("daemon bridge should attach");
+    client.emit_update(
+        "neozeus-session-2",
+        TerminalUpdate::Status {
+            runtime: TerminalRuntimeState::running("fake daemon streamed"),
+            surface: Some(surface_with_text(1, 4, 0, "ok")),
+        },
+    );
+    std::thread::sleep(Duration::from_millis(20));
+    let (_, status, _) = bridge.drain_updates();
+    let surface = status
+        .expect("bridge should receive streamed update")
+        .1
+        .expect("streamed status should carry surface");
+    assert!(surface_to_text(&surface).contains("ok"));
+}
+
+#[test]
+fn daemon_attach_missing_session_returns_error() {
+    let (_server, socket_path) = start_test_daemon("neozeus-daemon-missing-attach");
+    let client =
+        SocketTerminalDaemonClient::connect(&socket_path).expect("daemon client should connect");
+    let error = client
+        .attach_session("neozeus-session-missing")
+        .expect_err("missing daemon session attach should fail");
+    assert!(error.contains("not found"));
+}
+
+#[test]
+fn daemon_kill_missing_session_returns_error() {
+    let (_server, socket_path) = start_test_daemon("neozeus-daemon-missing-kill");
+    let client =
+        SocketTerminalDaemonClient::connect(&socket_path).expect("daemon client should connect");
+    let error = client
+        .kill_session("neozeus-session-missing")
+        .expect_err("missing daemon session kill should fail");
+    assert!(error.contains("not found"));
+}
+
+#[test]
+fn daemon_multiple_clients_receive_updates_for_same_session() {
+    let (_server, socket_path) = start_test_daemon("neozeus-daemon-multi-client");
+    let client_a =
+        SocketTerminalDaemonClient::connect(&socket_path).expect("first client should connect");
+    let session_id = client_a
+        .create_session(PERSISTENT_SESSION_PREFIX)
+        .expect("daemon session should be created");
+    let attached_a = client_a
+        .attach_session(&session_id)
+        .expect("first client should attach");
+
+    let client_b =
+        SocketTerminalDaemonClient::connect(&socket_path).expect("second client should connect");
+    let attached_b = client_b
+        .attach_session(&session_id)
+        .expect("second client should attach");
+
+    client_a
+        .send_command(
+            &session_id,
+            TerminalCommand::SendCommand("printf 'fanout'".into()),
+        )
+        .expect("daemon command should send");
+
+    let surface_a = wait_for_surface_containing(&attached_a.updates, "fanout");
+    let surface_b = wait_for_surface_containing(&attached_b.updates, "fanout");
+    assert!(surface_to_text(&surface_a).contains("fanout"));
+    assert!(surface_to_text(&surface_b).contains("fanout"));
 }
