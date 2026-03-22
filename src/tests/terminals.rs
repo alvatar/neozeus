@@ -1418,3 +1418,135 @@ fn daemon_multiple_clients_receive_updates_for_same_session() {
     assert!(surface_to_text(&surface_a).contains("fanout"));
     assert!(surface_to_text(&surface_b).contains("fanout"));
 }
+
+fn wait_for_surface_dimensions(
+    updates: &std::sync::mpsc::Receiver<TerminalUpdate>,
+    cols: usize,
+    rows: usize,
+) -> TerminalSurface {
+    let deadline = std::time::Instant::now() + Duration::from_secs(3);
+    loop {
+        let remaining = deadline
+            .checked_duration_since(std::time::Instant::now())
+            .expect("timed out waiting for resized surface");
+        let update = updates
+            .recv_timeout(remaining)
+            .expect("timed out waiting for resized surface");
+        let surface = match update {
+            TerminalUpdate::Frame(frame) => frame.surface,
+            TerminalUpdate::Status {
+                surface: Some(surface),
+                ..
+            } => surface,
+            TerminalUpdate::Status { .. } => continue,
+        };
+        if surface.cols == cols && surface.rows == rows {
+            return surface;
+        }
+    }
+}
+
+#[test]
+fn daemon_protocol_rejects_truncated_frame() {
+    let bytes = vec![8, 0, 0, 0, 1, 2, 3];
+    let error = read_client_message(&mut bytes.as_slice())
+        .expect_err("truncated protocol frame should fail");
+    assert!(error.contains("frame payload") || error.contains("truncated"));
+}
+
+#[test]
+fn daemon_protocol_rejects_trailing_bytes_in_frame() {
+    let message = ClientMessage::Request {
+        request_id: 11,
+        request: DaemonRequest::ListSessions,
+    };
+    let mut bytes = Vec::new();
+    write_client_message(&mut bytes, &message).expect("client message should encode");
+    let original_len = u32::from_le_bytes(bytes[0..4].try_into().unwrap()) as usize;
+    let payload = &bytes[4..4 + original_len];
+    let mut corrupted = Vec::new();
+    corrupted.extend_from_slice(&((original_len + 1) as u32).to_le_bytes());
+    corrupted.extend_from_slice(payload);
+    corrupted.push(0xff);
+    let error = read_client_message(&mut corrupted.as_slice())
+        .expect_err("protocol frame with trailing payload bytes should fail");
+    assert!(error.contains("trailing bytes"));
+}
+
+#[test]
+fn daemon_resize_session_updates_attached_surface_dimensions() {
+    let (_server, socket_path) = start_test_daemon("neozeus-daemon-resize-surface");
+    let client =
+        SocketTerminalDaemonClient::connect(&socket_path).expect("daemon client should connect");
+    let session_id = client
+        .create_session(PERSISTENT_SESSION_PREFIX)
+        .expect("daemon session should be created");
+    let attached = client
+        .attach_session(&session_id)
+        .expect("daemon session should attach");
+    client
+        .resize_session(&session_id, 100, 30)
+        .expect("daemon resize should succeed");
+    let surface = wait_for_surface_dimensions(&attached.updates, 100, 30);
+    assert_eq!((surface.cols, surface.rows), (100, 30));
+}
+
+#[test]
+fn daemon_duplicate_attach_in_same_client_is_rejected() {
+    let (_server, socket_path) = start_test_daemon("neozeus-daemon-duplicate-attach");
+    let client =
+        SocketTerminalDaemonClient::connect(&socket_path).expect("daemon client should connect");
+    let session_id = client
+        .create_session(PERSISTENT_SESSION_PREFIX)
+        .expect("daemon session should be created");
+    let _attached = client
+        .attach_session(&session_id)
+        .expect("first attach should succeed");
+    let error = client
+        .attach_session(&session_id)
+        .expect_err("duplicate attach in same client should fail");
+    assert!(error.contains("already attached"));
+}
+
+#[test]
+fn daemon_killing_one_session_preserves_other_sessions() {
+    let (_server, socket_path) = start_test_daemon("neozeus-daemon-isolated-kill");
+    let client =
+        SocketTerminalDaemonClient::connect(&socket_path).expect("daemon client should connect");
+    let first = client
+        .create_session(PERSISTENT_SESSION_PREFIX)
+        .expect("first daemon session should be created");
+    let second = client
+        .create_session(PERSISTENT_SESSION_PREFIX)
+        .expect("second daemon session should be created");
+    client
+        .kill_session(&first)
+        .expect("first session should kill");
+    let sessions = client
+        .list_sessions()
+        .expect("sessions should list after kill");
+    assert!(!sessions.iter().any(|session| session.session_id == first));
+    assert!(sessions.iter().any(|session| session.session_id == second));
+}
+
+#[test]
+fn daemon_session_lifecycle_churn_stays_consistent() {
+    let (_server, socket_path) = start_test_daemon("neozeus-daemon-churn");
+    let client =
+        SocketTerminalDaemonClient::connect(&socket_path).expect("daemon client should connect");
+    for _ in 0..5 {
+        let session_id = client
+            .create_session(PERSISTENT_SESSION_PREFIX)
+            .expect("daemon session should be created during churn");
+        let _attached = client
+            .attach_session(&session_id)
+            .expect("daemon session should attach during churn");
+        client
+            .kill_session(&session_id)
+            .expect("daemon session should kill during churn");
+    }
+    let sessions = client
+        .list_sessions()
+        .expect("sessions should list after churn");
+    assert!(sessions.is_empty());
+}

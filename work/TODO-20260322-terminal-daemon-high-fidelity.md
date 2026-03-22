@@ -361,13 +361,18 @@ Goal: replace the lossy tmux snapshot viewer path with a daemon-owned PTY archit
 ### Completion
 - [x] Added daemon-focused regression coverage:
   - [x] protocol roundtrip
+  - [x] malformed/truncated/trailing-bytes protocol failures
   - [x] socket path resolution
   - [x] stale socket cleanup
   - [x] handshake mismatch failure
   - [x] missing attach/kill failure paths
+  - [x] duplicate attach rejection in one client
   - [x] create/attach/send/output/kill integration flow
+  - [x] resize request updates attached surface dimensions
   - [x] reconnect with live session preservation
   - [x] multiple subscribers receive updates
+  - [x] killing one session preserves other live sessions
+  - [x] repeated create/attach/kill churn remains consistent
   - [x] daemon-backed bridge initial snapshot / command forwarding / streamed update application
 - [x] Existing non-daemon terminal/HUD/input regression suite remains green.
 - [x] Final verification completed.
@@ -384,4 +389,4 @@ Goal: replace the lossy tmux snapshot viewer path with a daemon-owned PTY archit
 ## Final result
 - [x] Daemon implementation complete.
 - [x] TODO fully completed and converted from plan to completion record.
-- [x] Final test count: `108 passed; 0 failed`.
+- [x] Final test count: `114 passed; 0 failed`.
