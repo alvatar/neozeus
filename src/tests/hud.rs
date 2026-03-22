@@ -16,9 +16,10 @@ use bevy::{
     ecs::system::RunSystemOnce,
     input::{keyboard::KeyboardInput, mouse::MouseWheel},
     prelude::*,
-    sprite_render::AlphaMode2d,
+    sprite_render::MeshMaterial2d,
     window::{PrimaryWindow, RequestRedraw},
 };
+use bevy_vello::render::VelloCanvasMaterial;
 use std::{fs, path::PathBuf, sync::Arc, time::Duration};
 
 fn init_hud_commands(world: &mut World) {
@@ -60,11 +61,25 @@ fn setup_hud_requests_initial_redraw() {
 }
 
 #[test]
-fn vello_canvas_material_order_uses_blend_and_positive_depth_bias() {
-    let (alpha_mode, depth_bias) = crate::hud::vello_canvas_material_order();
+fn elevate_vello_canvas_above_world_moves_canvas_in_front() {
+    let mut world = World::default();
+    world.spawn((
+        MeshMaterial2d::<VelloCanvasMaterial>(Handle::default()),
+        Transform::from_xyz(0.0, 0.0, -2.0),
+    ));
 
-    assert_eq!(alpha_mode, AlphaMode2d::Blend);
-    assert_eq!(depth_bias, crate::hud::VELLO_CANVAS_DEPTH_BIAS);
+    world
+        .run_system_once(crate::hud::elevate_vello_canvas_above_world)
+        .unwrap();
+
+    let transform = world
+        .query::<&Transform>()
+        .single(&world)
+        .expect("vello canvas missing");
+    assert_eq!(
+        transform.translation.z,
+        crate::hud::VELLO_CANVAS_FOREGROUND_Z
+    );
 }
 
 #[test]
