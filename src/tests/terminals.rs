@@ -253,6 +253,140 @@ fn active_terminal_presentation_uses_texture_logical_size_and_centers_in_viewpor
 }
 
 #[test]
+fn switching_active_terminal_snaps_immediately_without_animation() {
+    let (bridge_one, _) = test_bridge();
+    let (bridge_two, _) = test_bridge();
+    let mut manager = TerminalManager::default();
+    let id_one = manager.create_terminal(bridge_one);
+    let id_two = manager.create_terminal(bridge_two);
+    manager.focus_terminal(id_one);
+
+    let window = Window {
+        resolution: (1400, 900).into(),
+        ..Default::default()
+    };
+    let mut hud_state = HudState::default();
+    hud_state.insert(
+        HudModuleId::AgentList,
+        crate::hud::default_hud_module_instance(&crate::hud::HUD_MODULE_DEFINITIONS[1]),
+    );
+    let rect = crate::hud::docked_agent_list_rect(&window);
+    let agent_list = hud_state.get_mut(HudModuleId::AgentList).unwrap();
+    agent_list.shell.enabled = true;
+    agent_list.shell.current_rect = rect;
+    agent_list.shell.target_rect = rect;
+
+    let view_state = TerminalViewState::default();
+    let dimensions = active_terminal_dimensions(&window, &hud_state, &view_state);
+    let cell_size = active_terminal_cell_size(&window, &view_state);
+    let texture_state = TerminalTextureState {
+        texture_size: UVec2::new(
+            dimensions.cols as u32 * cell_size.x,
+            dimensions.rows as u32 * cell_size.y,
+        ),
+        cell_size,
+    };
+    let expected_size =
+        terminal_texture_screen_size(&texture_state, &view_state, &window, &hud_state, false);
+
+    for (_, terminal) in manager.iter_mut() {
+        terminal.snapshot.surface = Some(TerminalSurface::new(dimensions.cols, dimensions.rows));
+    }
+
+    let mut presentation_store = TerminalPresentationStore::default();
+    for id in [id_one, id_two] {
+        presentation_store.register(
+            id,
+            PresentedTerminal {
+                image: Default::default(),
+                texture_state: texture_state.clone(),
+                display_mode: TerminalDisplayMode::Smooth,
+                uploaded_revision: 0,
+                panel_entity: Entity::PLACEHOLDER,
+                frame_entity: Entity::PLACEHOLDER,
+            },
+        );
+    }
+
+    let mut app = App::new();
+    let mut time = Time::<()>::default();
+    time.advance_by(Duration::from_secs(1));
+    app.insert_resource(time);
+    app.insert_resource(manager);
+    app.insert_resource(presentation_store);
+    app.insert_resource(crate::hud::TerminalVisibilityState {
+        policy: crate::hud::TerminalVisibilityPolicy::ShowAll,
+    });
+    app.insert_resource(view_state);
+    app.insert_resource(hud_state);
+    app.add_systems(Update, sync_terminal_presentations);
+    app.world_mut().spawn((window, PrimaryWindow));
+    app.world_mut().spawn((
+        TerminalPanel { id: id_one },
+        TerminalPresentation {
+            home_position: Vec2::new(-360.0, 120.0),
+            current_position: Vec2::new(-360.0, 120.0),
+            target_position: Vec2::new(-360.0, 120.0),
+            current_size: Vec2::new(200.0, 120.0),
+            target_size: Vec2::new(200.0, 120.0),
+            current_alpha: 1.0,
+            target_alpha: 1.0,
+            current_z: 0.3,
+            target_z: 0.3,
+        },
+        Transform::default(),
+        Sprite::default(),
+        Visibility::Visible,
+    ));
+    app.world_mut().spawn((
+        TerminalPanel { id: id_two },
+        TerminalPresentation {
+            home_position: Vec2::new(0.0, 120.0),
+            current_position: Vec2::new(0.0, 120.0),
+            target_position: Vec2::new(0.0, 120.0),
+            current_size: Vec2::new(200.0, 120.0),
+            target_size: Vec2::new(200.0, 120.0),
+            current_alpha: 0.84,
+            target_alpha: 0.84,
+            current_z: -0.05,
+            target_z: -0.05,
+        },
+        Transform::default(),
+        Sprite::default(),
+        Visibility::Visible,
+    ));
+
+    app.update();
+
+    {
+        let mut manager = app.world_mut().resource_mut::<TerminalManager>();
+        manager.focus_terminal(id_two);
+    }
+    app.world_mut()
+        .resource_mut::<crate::hud::TerminalVisibilityState>()
+        .policy = crate::hud::TerminalVisibilityPolicy::Isolate(id_two);
+
+    app.update();
+
+    let world = app.world_mut();
+    let mut query = world.query::<(&TerminalPanel, &TerminalPresentation, &Visibility)>();
+    let rows = query.iter(world).collect::<Vec<_>>();
+    let first = rows
+        .iter()
+        .find(|(panel, _, _)| panel.id == id_one)
+        .unwrap();
+    let second = rows
+        .iter()
+        .find(|(panel, _, _)| panel.id == id_two)
+        .unwrap();
+    assert_eq!(*first.2, Visibility::Hidden);
+    assert_eq!(second.1.current_position, Vec2::new(150.0, 0.0));
+    assert_eq!(second.1.current_size, expected_size);
+    assert_eq!(second.1.current_alpha, 1.0);
+    assert_eq!(second.1.current_z, 0.3);
+}
+
+#[test]
 fn active_terminal_resize_requests_follow_zoom_distance() {
     let client = Arc::new(FakeDaemonClient::default());
     client

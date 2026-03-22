@@ -310,6 +310,8 @@ pub(crate) fn sync_terminal_presentations(
     view_state: Res<TerminalViewState>,
     hud_state: Res<HudState>,
     primary_window: Single<&Window, With<PrimaryWindow>>,
+    mut last_active_id: Local<Option<TerminalId>>,
+    mut last_visibility_policy: Local<Option<TerminalVisibilityPolicy>>,
     mut panels: Query<(
         &TerminalPanel,
         &mut TerminalPresentation,
@@ -320,6 +322,8 @@ pub(crate) fn sync_terminal_presentations(
 ) {
     let active_id = terminal_manager.active_id();
     let visibility_policy = effective_visibility_policy(&terminal_manager, &visibility_state);
+    let snap_switch =
+        *last_active_id != active_id || *last_visibility_policy != Some(visibility_policy);
     let background_ids = ordered_background_ids(&terminal_manager, active_id);
     let blend = 1.0 - (-time.delta_secs() * 10.0).exp();
 
@@ -373,26 +377,33 @@ pub(crate) fn sync_terminal_presentations(
             }
         }
 
-        presentation.current_position = presentation
-            .current_position
-            .lerp(presentation.target_position, blend);
-        presentation.current_size = presentation
-            .current_size
-            .lerp(presentation.target_size, blend);
-        presentation.current_alpha +=
-            (presentation.target_alpha - presentation.current_alpha) * blend;
-        presentation.current_z += (presentation.target_z - presentation.current_z) * blend;
-
-        if pixel_perfect {
-            if presentation
+        if snap_switch {
+            presentation.current_position = presentation.target_position;
+            presentation.current_size = presentation.target_size;
+            presentation.current_alpha = presentation.target_alpha;
+            presentation.current_z = presentation.target_z;
+        } else {
+            presentation.current_position = presentation
                 .current_position
-                .distance(presentation.target_position)
-                < 0.75
-            {
-                presentation.current_position = presentation.target_position;
-            }
-            if presentation.current_size.distance(presentation.target_size) < 0.75 {
-                presentation.current_size = presentation.target_size;
+                .lerp(presentation.target_position, blend);
+            presentation.current_size = presentation
+                .current_size
+                .lerp(presentation.target_size, blend);
+            presentation.current_alpha +=
+                (presentation.target_alpha - presentation.current_alpha) * blend;
+            presentation.current_z += (presentation.target_z - presentation.current_z) * blend;
+
+            if pixel_perfect {
+                if presentation
+                    .current_position
+                    .distance(presentation.target_position)
+                    < 0.75
+                {
+                    presentation.current_position = presentation.target_position;
+                }
+                if presentation.current_size.distance(presentation.target_size) < 0.75 {
+                    presentation.current_size = presentation.target_size;
+                }
             }
         }
 
@@ -403,6 +414,9 @@ pub(crate) fn sync_terminal_presentations(
         transform.rotation = Quat::IDENTITY;
         transform.scale = Vec3::ONE;
     }
+
+    *last_active_id = active_id;
+    *last_visibility_policy = Some(visibility_policy);
 }
 
 #[allow(
