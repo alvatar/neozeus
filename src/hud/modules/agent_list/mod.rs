@@ -6,6 +6,11 @@ use crate::{
     terminals::{TerminalId, TerminalManager},
 };
 
+pub(crate) const AGENT_LIST_HEADER_HEIGHT: f32 = 52.0;
+pub(crate) const AGENT_LIST_LEFT_RAIL_WIDTH: f32 = 42.0;
+pub(crate) const AGENT_LIST_ROW_MARKER_WIDTH: f32 = 22.0;
+pub(crate) const AGENT_LIST_ROW_MARKER_GAP: f32 = 8.0;
+
 pub(crate) use interaction::{clear_hover, handle_hover, handle_pointer_click, handle_scroll};
 pub(crate) use render::render_content;
 
@@ -42,9 +47,9 @@ pub(crate) fn agent_rows(
     agent_directory: &AgentDirectory,
 ) -> Vec<AgentRow> {
     let terminal_ids = terminal_manager.terminal_ids();
-    let content_x = shell_rect.x + HUD_MODULE_PADDING;
-    let content_y = shell_rect.y + HUD_MODULE_PADDING;
-    let content_w = (shell_rect.w - HUD_MODULE_PADDING * 2.0).max(0.0);
+    let content_x = shell_rect.x + AGENT_LIST_LEFT_RAIL_WIDTH + HUD_MODULE_PADDING;
+    let content_y = shell_rect.y + HUD_MODULE_PADDING + AGENT_LIST_HEADER_HEIGHT;
+    let content_w = (shell_rect.w - AGENT_LIST_LEFT_RAIL_WIDTH - HUD_MODULE_PADDING * 2.0).max(0.0);
     terminal_ids
         .iter()
         .enumerate()
