@@ -156,7 +156,7 @@ fn active_terminal_viewport_reserves_agent_list_column() {
 }
 
 #[test]
-fn active_terminal_presentation_fills_remaining_viewport_exactly() {
+fn active_terminal_presentation_preserves_terminal_aspect_with_margin() {
     let (bridge, _) = test_bridge();
     let mut manager = TerminalManager::default();
     let id = manager.create_terminal(bridge);
@@ -164,14 +164,39 @@ fn active_terminal_presentation_fills_remaining_viewport_exactly() {
         terminal.snapshot.surface = Some(TerminalSurface::new(120, 38));
     }
 
+    let window = Window {
+        resolution: (1400, 900).into(),
+        ..Default::default()
+    };
+    let mut hud_state = HudState::default();
+    hud_state.insert(
+        HudModuleId::AgentList,
+        crate::hud::default_hud_module_instance(&crate::hud::HUD_MODULE_DEFINITIONS[1]),
+    );
+    let rect = crate::hud::docked_agent_list_rect(&window);
+    let agent_list = hud_state.get_mut(HudModuleId::AgentList).unwrap();
+    agent_list.shell.enabled = true;
+    agent_list.shell.current_rect = rect;
+    agent_list.shell.target_rect = rect;
+
+    let fitted_cell_size = pixel_perfect_cell_size(120, 38, &window, &hud_state);
+    let fitted_texture_size = UVec2::new(120 * fitted_cell_size.x, 38 * fitted_cell_size.y);
+    let expected_size = pixel_perfect_terminal_logical_size(
+        &TerminalTextureState {
+            texture_size: fitted_texture_size,
+            cell_size: fitted_cell_size,
+        },
+        &window,
+    );
+
     let mut presentation_store = TerminalPresentationStore::default();
     presentation_store.register(
         id,
         PresentedTerminal {
             image: Default::default(),
             texture_state: TerminalTextureState {
-                texture_size: UVec2::new(1200, 760),
-                cell_size: UVec2::new(10, 20),
+                texture_size: fitted_texture_size,
+                cell_size: fitted_cell_size,
             },
             display_mode: TerminalDisplayMode::Smooth,
             uploaded_revision: 0,
@@ -179,21 +204,6 @@ fn active_terminal_presentation_fills_remaining_viewport_exactly() {
             frame_entity: Entity::PLACEHOLDER,
         },
     );
-
-    let mut hud_state = HudState::default();
-    hud_state.insert(
-        HudModuleId::AgentList,
-        crate::hud::default_hud_module_instance(&crate::hud::HUD_MODULE_DEFINITIONS[1]),
-    );
-    let window = Window {
-        resolution: (1400, 900).into(),
-        ..Default::default()
-    };
-    let rect = crate::hud::docked_agent_list_rect(&window);
-    let agent_list = hud_state.get_mut(HudModuleId::AgentList).unwrap();
-    agent_list.shell.enabled = true;
-    agent_list.shell.current_rect = rect;
-    agent_list.shell.target_rect = rect;
 
     let mut world = World::default();
     let mut time = Time::<()>::default();
@@ -227,7 +237,7 @@ fn active_terminal_presentation_fills_remaining_viewport_exactly() {
 
     let mut query = world.query::<(&TerminalPresentation, &Transform)>();
     let (presentation, transform) = query.single(&world).unwrap();
-    assert!(presentation.current_size.distance(Vec2::new(1100.0, 900.0)) < 0.2);
+    assert!(presentation.current_size.distance(expected_size) < 0.2);
     assert!(
         presentation
             .current_position
@@ -237,6 +247,8 @@ fn active_terminal_presentation_fills_remaining_viewport_exactly() {
     assert!((transform.translation.x - 150.0).abs() < 0.2);
     assert!(transform.translation.y.abs() < 0.2);
     assert!((transform.translation.z - 0.3).abs() < 0.01);
+    assert!(expected_size.x < 1100.0);
+    assert!(expected_size.y < 900.0);
 }
 
 #[test]

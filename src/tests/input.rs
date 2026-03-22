@@ -146,23 +146,21 @@ fn plain_text_uses_text_payload() {
 }
 
 #[test]
-fn global_spawn_shortcut_only_uses_plain_z_when_no_terminal_is_active() {
+fn global_spawn_shortcut_only_uses_plain_z() {
     let keys = ButtonInput::<KeyCode>::default();
     let event = pressed_text(KeyCode::KeyZ, Some("z"));
-    assert!(should_spawn_terminal_globally(&event, &keys, false));
-    assert!(!should_spawn_terminal_globally(&event, &keys, true));
+    assert!(should_spawn_terminal_globally(&event, &keys));
 
     let mut ctrl_keys = ButtonInput::<KeyCode>::default();
     ctrl_keys.press(KeyCode::ControlLeft);
-    assert!(!should_spawn_terminal_globally(&event, &ctrl_keys, false));
+    assert!(!should_spawn_terminal_globally(&event, &ctrl_keys));
 }
 
 #[test]
-fn global_spawn_shortcut_enqueues_spawn_even_when_hidden_terminals_exist() {
+fn global_spawn_shortcut_enqueues_spawn_even_with_active_terminal() {
     let (bridge, _) = test_bridge();
     let mut manager = TerminalManager::default();
     manager.create_terminal(bridge);
-    let _ = manager.clear_active_terminal();
 
     let mut world = World::default();
     let window = Window {
