@@ -17,6 +17,10 @@ pub(crate) struct TerminalDebugStats {
     pub(crate) updates_dropped: u64,
     pub(crate) dirty_rows_uploaded: u64,
     pub(crate) compose_micros: u64,
+    #[allow(
+        dead_code,
+        reason = "direct keyboard capture is currently replaced by compose box"
+    )]
     pub(crate) last_key: String,
     pub(crate) last_command: String,
     pub(crate) last_error: String,
@@ -54,6 +58,10 @@ pub(crate) fn note_terminal_error(
     });
 }
 
+#[allow(
+    dead_code,
+    reason = "direct keyboard capture is currently replaced by compose box"
+)]
 pub(crate) fn note_key_event(debug_stats: &Arc<Mutex<TerminalDebugStats>>, event: &KeyboardInput) {
     let summary = format!(
         "{:?} text={:?} logical={:?}",
