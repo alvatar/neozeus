@@ -93,7 +93,11 @@ pub(crate) fn render_content(
             Vec2::new(button.rect.x + 10.0, button.rect.y + 6.0),
             &button.label,
             14.0,
-            HudColors::TEXT,
+            if button.active {
+                HudColors::TEXT_ON_ACCENT
+            } else {
+                HudColors::TEXT
+            },
             VelloTextAnchor::TopLeft,
         );
     }

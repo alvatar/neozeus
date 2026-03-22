@@ -21,19 +21,20 @@ pub(crate) struct HudVectorSceneMarker;
 pub(crate) struct HudColors;
 
 impl HudColors {
-    pub(crate) const FRAME: peniko::Color = peniko::Color::from_rgba8(32, 42, 46, 232);
-    pub(crate) const TITLE: peniko::Color = peniko::Color::from_rgba8(18, 24, 27, 240);
-    pub(crate) const BORDER: peniko::Color = peniko::Color::from_rgba8(255, 140, 32, 210);
-    pub(crate) const TEXT: peniko::Color = peniko::Color::from_rgba8(235, 235, 235, 255);
-    pub(crate) const TEXT_MUTED: peniko::Color = peniko::Color::from_rgba8(160, 175, 180, 255);
-    pub(crate) const BUTTON: peniko::Color = peniko::Color::from_rgba8(42, 54, 59, 232);
-    pub(crate) const BUTTON_ACTIVE: peniko::Color = peniko::Color::from_rgba8(80, 112, 108, 240);
-    pub(crate) const BUTTON_BORDER: peniko::Color = peniko::Color::from_rgba8(255, 140, 32, 180);
-    pub(crate) const ROW: peniko::Color = peniko::Color::from_rgba8(26, 34, 38, 220);
-    pub(crate) const ROW_HOVERED: peniko::Color = peniko::Color::from_rgba8(48, 62, 68, 230);
-    pub(crate) const ROW_FOCUSED: peniko::Color = peniko::Color::from_rgba8(66, 98, 92, 236);
-    pub(crate) const OVERLAY: peniko::Color = peniko::Color::from_rgba8(8, 10, 12, 214);
-    pub(crate) const MESSAGE_BOX: peniko::Color = peniko::Color::from_rgba8(20, 24, 28, 252);
+    pub(crate) const FRAME: peniko::Color = peniko::Color::from_rgba8(26, 26, 26, 255);
+    pub(crate) const TITLE: peniko::Color = peniko::Color::from_rgba8(26, 26, 26, 255);
+    pub(crate) const BORDER: peniko::Color = peniko::Color::from_rgba8(57, 26, 6, 255);
+    pub(crate) const TEXT: peniko::Color = peniko::Color::from_rgba8(238, 96, 2, 255);
+    pub(crate) const TEXT_MUTED: peniko::Color = peniko::Color::from_rgba8(216, 196, 162, 255);
+    pub(crate) const TEXT_ON_ACCENT: peniko::Color = peniko::Color::from_rgba8(0, 0, 0, 255);
+    pub(crate) const BUTTON: peniko::Color = peniko::Color::from_rgba8(26, 26, 26, 255);
+    pub(crate) const BUTTON_ACTIVE: peniko::Color = peniko::Color::from_rgba8(255, 102, 0, 255);
+    pub(crate) const BUTTON_BORDER: peniko::Color = peniko::Color::from_rgba8(57, 26, 6, 255);
+    pub(crate) const ROW: peniko::Color = peniko::Color::from_rgba8(26, 26, 26, 255);
+    pub(crate) const ROW_HOVERED: peniko::Color = peniko::Color::from_rgba8(44, 32, 24, 255);
+    pub(crate) const ROW_FOCUSED: peniko::Color = peniko::Color::from_rgba8(44, 32, 24, 255);
+    pub(crate) const OVERLAY: peniko::Color = peniko::Color::from_rgba8(7, 7, 7, 255);
+    pub(crate) const MESSAGE_BOX: peniko::Color = peniko::Color::from_rgba8(7, 7, 7, 255);
 }
 
 pub(crate) fn apply_alpha(color: peniko::Color, factor: f32) -> peniko::Color {
