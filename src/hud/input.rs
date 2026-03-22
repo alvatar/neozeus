@@ -63,7 +63,7 @@ pub(crate) fn handle_hud_pointer_input(mut ctx: HudPointerContext) {
                 .get(module_id)
                 .map(|module| module.shell.titlebar_rect())
                 .unwrap_or_default();
-            if titlebar_rect.contains(cursor) {
+            if titlebar_rect.contains(cursor) && module_id != HudModuleId::AgentList {
                 ctx.hud_state.drag = Some(crate::hud::HudDragState {
                     module_id,
                     grab_offset: Vec2::new(cursor.x - titlebar_rect.x, cursor.y - titlebar_rect.y),

@@ -69,6 +69,36 @@ fn setup_hud_requests_initial_redraw() {
 }
 
 #[test]
+fn sync_structural_hud_layout_docks_agent_list_to_full_height_right_column() {
+    let mut world = World::default();
+    let mut hud_state = HudState::default();
+    hud_state.insert(
+        HudModuleId::AgentList,
+        crate::hud::default_hud_module_instance(&crate::hud::HUD_MODULE_DEFINITIONS[1]),
+    );
+    world.insert_resource(hud_state);
+    world.spawn((
+        Window {
+            resolution: (1400, 900).into(),
+            ..default()
+        },
+        PrimaryWindow,
+    ));
+
+    world
+        .run_system_once(crate::hud::sync_structural_hud_layout)
+        .unwrap();
+
+    let expected_rect = {
+        let mut query = world.query_filtered::<&Window, With<PrimaryWindow>>();
+        crate::hud::docked_agent_list_rect(query.single(&world).unwrap())
+    };
+    let hud_state = world.resource::<HudState>();
+    let module = hud_state.get(HudModuleId::AgentList).unwrap();
+    assert_eq!(module.shell.current_rect, expected_rect);
+}
+
+#[test]
 fn sync_hud_offscreen_compositor_hides_vello_canvas_and_binds_texture() {
     let mut world = World::default();
     world.insert_resource(HudOffscreenCompositor::default());
@@ -351,7 +381,7 @@ fn agent_rows_mark_hovered_terminal() {
 }
 
 #[test]
-fn hud_pointer_drag_updates_module_target_rect_and_marks_layout_dirty() {
+fn agent_list_is_not_draggable() {
     let mut world = World::default();
     let mut hud_state = HudState::default();
     hud_state.insert(
@@ -360,9 +390,10 @@ fn hud_pointer_drag_updates_module_target_rect_and_marks_layout_dirty() {
     );
     let mut window = Window {
         focused: true,
+        resolution: (1400, 900).into(),
         ..Default::default()
     };
-    window.set_cursor_position(Some(Vec2::new(40.0, 110.0)));
+    window.set_cursor_position(Some(Vec2::new(1200.0, 16.0)));
 
     world.insert_resource(ButtonInput::<MouseButton>::default());
     world.insert_resource(Messages::<MouseWheel>::default());
@@ -373,34 +404,18 @@ fn hud_pointer_drag_updates_module_target_rect_and_marks_layout_dirty() {
     world.insert_resource(AgentDirectory::default());
     init_hud_commands(&mut world);
     world.spawn((window, PrimaryWindow));
+    world
+        .run_system_once(crate::hud::sync_structural_hud_layout)
+        .unwrap();
 
     world
         .resource_mut::<ButtonInput<MouseButton>>()
         .press(MouseButton::Left);
     world.run_system_once(handle_hud_pointer_input).unwrap();
 
-    {
-        let hud_state = world.resource::<HudState>();
-        assert!(hud_state.drag.is_some());
-    }
-
-    world
-        .resource_mut::<ButtonInput<MouseButton>>()
-        .clear_just_pressed(MouseButton::Left);
-    {
-        let mut query = world.query_filtered::<&mut Window, With<PrimaryWindow>>();
-        let mut window = query
-            .single_mut(&mut world)
-            .expect("primary window missing");
-        window.set_cursor_position(Some(Vec2::new(220.0, 180.0)));
-    }
-    world.run_system_once(handle_hud_pointer_input).unwrap();
-
     let hud_state = world.resource::<HudState>();
-    let module = hud_state.get(HudModuleId::AgentList).unwrap();
-    assert!(hud_state.dirty_layout);
-    assert!(module.shell.target_rect.x > crate::hud::HUD_MODULE_DEFINITIONS[1].default_rect.x);
-    assert!(module.shell.target_rect.y > crate::hud::HUD_MODULE_DEFINITIONS[1].default_rect.y);
+    assert!(hud_state.drag.is_none());
+    assert!(!hud_state.dirty_layout);
 }
 
 #[test]

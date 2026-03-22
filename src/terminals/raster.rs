@@ -2,6 +2,7 @@ use crate::{
     app_config::{
         DEBUG_TEXTURE_DUMP_PATH, DEFAULT_BG, DEFAULT_CELL_HEIGHT_PX, DEFAULT_CELL_WIDTH_PX,
     },
+    hud::HudState,
     terminals::{
         append_debug_log, is_emoji_like, is_private_use_like, pixel_perfect_cell_size,
         TerminalDamage, TerminalDisplayMode, TerminalFontState, TerminalManager,
@@ -87,10 +88,15 @@ fn dump_terminal_image_ppm(image: &Image, path: &Path) -> Result<(), String> {
     fs::write(path, output).map_err(|error| format!("failed to write {}: {error}", path.display()))
 }
 
+#[allow(
+    clippy::too_many_arguments,
+    reason = "texture sync needs terminal, presentation, font, HUD layout, window, image, and renderer state together"
+)]
 pub(crate) fn sync_terminal_texture(
     mut terminal_manager: ResMut<TerminalManager>,
     mut presentation_store: ResMut<TerminalPresentationStore>,
     font_state: Res<TerminalFontState>,
+    hud_state: Res<HudState>,
     primary_window: Single<&Window, With<PrimaryWindow>>,
     mut glyph_cache: ResMut<TerminalGlyphCache>,
     mut images: ResMut<Assets<Image>>,
@@ -120,7 +126,7 @@ pub(crate) fn sync_terminal_texture(
         let pixel_perfect = Some(terminal_id) == active_id
             && presented_terminal.display_mode == TerminalDisplayMode::PixelPerfect;
         let desired_cell_size = if pixel_perfect {
-            pixel_perfect_cell_size(surface.cols, surface.rows, &primary_window)
+            pixel_perfect_cell_size(surface.cols, surface.rows, &primary_window, &hud_state)
         } else {
             UVec2::new(DEFAULT_CELL_WIDTH_PX, DEFAULT_CELL_HEIGHT_PX)
         };

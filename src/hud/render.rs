@@ -21,8 +21,8 @@ pub(crate) struct HudVectorSceneMarker;
 pub(crate) struct HudColors;
 
 impl HudColors {
-    pub(crate) const FRAME: peniko::Color = peniko::Color::from_rgba8(26, 26, 26, 255);
-    pub(crate) const TITLE: peniko::Color = peniko::Color::from_rgba8(26, 26, 26, 255);
+    pub(crate) const FRAME: peniko::Color = peniko::Color::from_rgba8(7, 7, 7, 255);
+    pub(crate) const TITLE: peniko::Color = peniko::Color::from_rgba8(7, 7, 7, 255);
     pub(crate) const BORDER: peniko::Color = peniko::Color::from_rgba8(57, 26, 6, 255);
     pub(crate) const TEXT: peniko::Color = peniko::Color::from_rgba8(238, 96, 2, 255);
     pub(crate) const TEXT_MUTED: peniko::Color = peniko::Color::from_rgba8(216, 196, 162, 255);
@@ -30,7 +30,6 @@ impl HudColors {
     pub(crate) const BUTTON: peniko::Color = peniko::Color::from_rgba8(26, 26, 26, 255);
     pub(crate) const BUTTON_ACTIVE: peniko::Color = peniko::Color::from_rgba8(255, 102, 0, 255);
     pub(crate) const BUTTON_BORDER: peniko::Color = peniko::Color::from_rgba8(57, 26, 6, 255);
-    pub(crate) const ROW: peniko::Color = peniko::Color::from_rgba8(26, 26, 26, 255);
     pub(crate) const ROW_HOVERED: peniko::Color = peniko::Color::from_rgba8(44, 32, 24, 255);
     pub(crate) const ROW_FOCUSED: peniko::Color = peniko::Color::from_rgba8(44, 32, 24, 255);
     pub(crate) const OVERLAY: peniko::Color = peniko::Color::from_rgba8(7, 7, 7, 255);
@@ -78,23 +77,23 @@ impl<'scene, 'res> HudPainter<'scene, 'res> {
         }
     }
 
-    pub(crate) fn fill_rect(&mut self, rect: HudRect, color: peniko::Color, radius: f64) {
+    pub(crate) fn fill_rect(&mut self, rect: HudRect, color: peniko::Color, _radius: f64) {
         self.scene.fill(
             Fill::NonZero,
             Affine::IDENTITY,
             apply_alpha(color, self.alpha),
             None,
-            &RoundedRect::from_rect(hud_rect_to_scene(self.window, rect), radius),
+            &RoundedRect::from_rect(hud_rect_to_scene(self.window, rect), 0.0),
         );
     }
 
-    pub(crate) fn stroke_rect(&mut self, rect: HudRect, color: peniko::Color, radius: f64) {
+    pub(crate) fn stroke_rect(&mut self, rect: HudRect, color: peniko::Color, _radius: f64) {
         self.scene.stroke(
             &Stroke::new(1.5),
             Affine::IDENTITY,
             apply_alpha(color, self.alpha),
             None,
-            &RoundedRect::from_rect(hud_rect_to_scene(self.window, rect), radius),
+            &RoundedRect::from_rect(hud_rect_to_scene(self.window, rect), 0.0),
         );
     }
 

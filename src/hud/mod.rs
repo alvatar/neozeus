@@ -38,13 +38,17 @@ pub(crate) use persistence::{
 pub(crate) use persistence::{save_hud_layout_if_dirty, HudPersistenceState};
 pub(crate) use render::{render_hud_scene, HudVectorSceneMarker};
 pub(crate) use state::{
-    default_hud_module_instance, AgentDirectory, HudDragState, HudModuleId, HudModuleModel,
-    HudRect, HudState, TerminalVisibilityPolicy, TerminalVisibilityState, HUD_BUTTON_GAP,
-    HUD_BUTTON_HEIGHT, HUD_BUTTON_MIN_WIDTH, HUD_MODULE_DEFINITIONS, HUD_MODULE_PADDING,
-    HUD_ROW_HEIGHT, HUD_TITLEBAR_HEIGHT,
+    default_hud_module_instance, docked_agent_list_rect, AgentDirectory, HudDragState, HudModuleId,
+    HudModuleModel, HudRect, HudState, TerminalVisibilityPolicy, TerminalVisibilityState,
+    HUD_BUTTON_GAP, HUD_BUTTON_HEIGHT, HUD_BUTTON_MIN_WIDTH, HUD_MODULE_DEFINITIONS,
+    HUD_MODULE_PADDING, HUD_ROW_HEIGHT, HUD_TITLEBAR_HEIGHT,
 };
 
-use bevy::{camera::visibility::NoFrustumCulling, prelude::*, window::RequestRedraw};
+use bevy::{
+    camera::visibility::NoFrustumCulling,
+    prelude::*,
+    window::{PrimaryWindow, RequestRedraw},
+};
 use bevy_vello::prelude::VelloScene2d;
 
 pub(crate) fn append_hud_log(message: impl AsRef<str>) {
@@ -90,6 +94,18 @@ pub(crate) fn setup_hud(
     ));
     setup_hud_offscreen_compositor(&mut commands, &mut compositor);
     redraws.write(RequestRedraw);
+}
+
+pub(crate) fn sync_structural_hud_layout(
+    primary_window: Single<&Window, With<PrimaryWindow>>,
+    mut hud_state: ResMut<HudState>,
+) {
+    let rect = docked_agent_list_rect(&primary_window);
+    let Some(agent_list) = hud_state.get_mut(HudModuleId::AgentList) else {
+        return;
+    };
+    agent_list.shell.target_rect = rect;
+    agent_list.shell.current_rect = rect;
 }
 
 pub(crate) fn hud_needs_redraw(hud_state: &HudState) -> bool {
