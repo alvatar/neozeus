@@ -18,6 +18,8 @@ pub(crate) use bloom::{
 #[cfg(test)]
 pub(crate) use bloom::{
     AgentListBloomBlurCameraMarker, AgentListBloomCompositeMarker,
+    AgentListBloomDebugBackdropMarker, AgentListBloomDebugBlurPreviewMarker,
+    AgentListBloomDebugCompositePreviewMarker, AgentListBloomDebugSourcePreviewMarker,
     AgentListBloomSourceCameraMarker, AgentListBloomSourceSprite,
 };
 pub(crate) use compositor::{
@@ -124,7 +126,8 @@ pub(crate) fn hud_needs_redraw(hud_state: &HudState) -> bool {
 
 #[cfg(test)]
 pub(crate) use bloom::{
-    agent_list_bloom_layers, agent_list_bloom_z, resolve_agent_list_bloom_intensity,
+    agent_list_bloom_layers, agent_list_bloom_z, resolve_agent_list_bloom_debug_preview,
+    resolve_agent_list_bloom_intensity,
 };
 #[cfg(test)]
 pub(crate) use modules::{
