@@ -6,11 +6,11 @@ use crate::{
         apply_terminal_view_requests, apply_visibility_requests, dispatch_hud_intents,
         handle_hud_module_shortcuts, handle_hud_pointer_input, hud_needs_redraw, render_hud_scene,
         save_hud_layout_if_dirty, setup_hud, setup_hud_widget_bloom, sync_hud_offscreen_compositor,
-        sync_hud_widget_bloom, sync_structural_hud_layout, AgentDirectory, HudBloomBlurMaterial,
-        HudBloomCompositeMaterial, HudBloomSettings, HudIntent, HudModuleRequest,
-        HudOffscreenCompositor, HudPersistenceState, HudState, HudWidgetBloom,
-        TerminalFocusRequest, TerminalLifecycleRequest, TerminalSendRequest, TerminalViewRequest,
-        TerminalVisibilityPolicy, TerminalVisibilityRequest, TerminalVisibilityState,
+        sync_hud_widget_bloom, sync_structural_hud_layout, AgentDirectory, HudBloomSettings,
+        HudIntent, HudModuleRequest, HudOffscreenCompositor, HudPersistenceState, HudState,
+        HudWidgetBloom, TerminalFocusRequest, TerminalLifecycleRequest, TerminalSendRequest,
+        TerminalViewRequest, TerminalVisibilityPolicy, TerminalVisibilityRequest,
+        TerminalVisibilityState,
     },
     input::{
         drag_terminal_view, focus_terminal_on_panel_click, handle_global_terminal_spawn_shortcut,
@@ -36,7 +36,6 @@ use bevy::{
     ecs::system::SystemParam,
     prelude::*,
     render::{settings::WgpuSettings, RenderPlugin},
-    sprite_render::Material2dPlugin,
     window::{MonitorSelection, RequestRedraw, WindowMode},
     winit::{EventLoopProxyWrapper, WinitSettings},
 };
@@ -134,11 +133,7 @@ fn configure_app(app: &mut App) -> Result<(), String> {
                 ..default()
             }),
     )
-    .add_plugins((
-        VelloPlugin::default(),
-        Material2dPlugin::<HudBloomBlurMaterial>::default(),
-        Material2dPlugin::<HudBloomCompositeMaterial>::default(),
-    ));
+    .add_plugins(VelloPlugin::default());
 
     let event_loop_proxy = {
         let proxy = app.world().resource::<EventLoopProxyWrapper>();
