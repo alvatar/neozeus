@@ -370,14 +370,21 @@ pub(crate) fn generate_unique_session_name(
     ))
 }
 
+#[cfg(test)]
+fn raw_shell_program() -> OsString {
+    OsString::from("/bin/sh")
+}
+
+#[cfg(not(test))]
+fn raw_shell_program() -> OsString {
+    std::env::var_os("SHELL").unwrap_or_else(|| OsString::from("bash"))
+}
+
 pub(crate) fn build_attach_command_argv(
     target: &TerminalAttachTarget,
 ) -> (OsString, Vec<OsString>) {
     match target {
-        TerminalAttachTarget::RawShell => (
-            std::env::var_os("SHELL").unwrap_or_else(|| OsString::from("bash")),
-            Vec::new(),
-        ),
+        TerminalAttachTarget::RawShell => (raw_shell_program(), Vec::new()),
         TerminalAttachTarget::TmuxAttach { session_name }
         | TerminalAttachTarget::TmuxViewer { session_name } => (
             OsString::from("tmux"),

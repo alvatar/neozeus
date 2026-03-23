@@ -2,6 +2,9 @@ use crate::terminals::{build_attach_command_argv, PtySession, TerminalAttachTarg
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 use std::io::Write;
 
+#[cfg(test)]
+use std::fs;
+
 pub(crate) fn spawn_pty(
     cols: u16,
     rows: u16,
@@ -45,7 +48,42 @@ fn build_attach_command(target: &TerminalAttachTarget) -> CommandBuilder {
     for arg in args {
         command.arg(arg);
     }
+    #[cfg(test)]
+    if matches!(target, TerminalAttachTarget::RawShell) {
+        apply_test_shell_isolation(&mut command);
+    }
     command
+}
+
+#[cfg(test)]
+fn apply_test_shell_isolation(command: &mut CommandBuilder) {
+    let root = std::env::temp_dir().join(format!("neozeus-test-shell-{}", std::process::id()));
+    let home = root.join("home");
+    let xdg_config = root.join("xdg-config");
+    let xdg_state = root.join("xdg-state");
+    let xdg_cache = root.join("xdg-cache");
+    let zdotdir = root.join("zdotdir");
+    let kitty = root.join("kitty");
+    let history = root.join("history");
+    let zshenv = zdotdir.join(".zshenv");
+
+    for dir in [&home, &xdg_config, &xdg_state, &xdg_cache, &zdotdir, &kitty] {
+        let _ = fs::create_dir_all(dir);
+    }
+    let _ = fs::write(&zshenv, "");
+
+    command.env("HOME", home.as_os_str());
+    command.env("XDG_CONFIG_HOME", xdg_config.as_os_str());
+    command.env("XDG_STATE_HOME", xdg_state.as_os_str());
+    command.env("XDG_CACHE_HOME", xdg_cache.as_os_str());
+    command.env("KITTY_CONFIG_DIRECTORY", kitty.as_os_str());
+    command.env("ZDOTDIR", zdotdir.as_os_str());
+    command.env("ZSHENV", zshenv.as_os_str());
+    command.env("HISTFILE", history.as_os_str());
+    command.env("BASH_ENV", "/dev/null");
+    command.env("ENV", "/dev/null");
+    command.env("SHELL", "/bin/sh");
+    command.env("PATH", "/usr/bin:/bin");
 }
 
 pub(crate) fn write_input(writer: &mut dyn Write, bytes: &[u8]) -> std::io::Result<()> {

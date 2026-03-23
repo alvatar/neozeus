@@ -299,10 +299,15 @@ impl TerminalDaemonClient for SocketTerminalDaemonClient {
 }
 
 pub(crate) fn resolve_daemon_socket_path_with(
+    override_path: Option<&str>,
     xdg_runtime_dir: Option<&str>,
     home: Option<&str>,
     user: Option<&str>,
 ) -> Option<PathBuf> {
+    if let Some(override_path) = override_path.filter(|value| !value.is_empty()) {
+        return Some(PathBuf::from(override_path));
+    }
+
     if let Some(xdg_runtime_dir) = xdg_runtime_dir.filter(|value| !value.is_empty()) {
         return Some(
             PathBuf::from(xdg_runtime_dir)
@@ -325,6 +330,7 @@ pub(crate) fn resolve_daemon_socket_path_with(
 
 pub(crate) fn resolve_daemon_socket_path() -> Option<PathBuf> {
     resolve_daemon_socket_path_with(
+        env::var("NEOZEUS_DAEMON_SOCKET_PATH").ok().as_deref(),
         env::var("XDG_RUNTIME_DIR").ok().as_deref(),
         env::var("HOME").ok().as_deref(),
         env::var("USER").ok().as_deref(),

@@ -86,6 +86,68 @@ neozeus_gui_place_window() {
     swaymsg "[con_id=${con_id}] move position ${x} px ${y} px" >/dev/null
 }
 
+neozeus_gui_prepare_isolated_app_env() {
+    local prefix=${1:-neozeus-gui}
+    NEOZEUS_GUI_ISO_ROOT=$(mktemp -d "/tmp/${prefix}-XXXXXX")
+    NEOZEUS_GUI_ISO_HOME="$NEOZEUS_GUI_ISO_ROOT/home"
+    NEOZEUS_GUI_ISO_XDG_CONFIG_HOME="$NEOZEUS_GUI_ISO_ROOT/xdg-config"
+    NEOZEUS_GUI_ISO_XDG_STATE_HOME="$NEOZEUS_GUI_ISO_ROOT/xdg-state"
+    NEOZEUS_GUI_ISO_XDG_CACHE_HOME="$NEOZEUS_GUI_ISO_ROOT/xdg-cache"
+    NEOZEUS_GUI_ISO_ZDOTDIR="$NEOZEUS_GUI_ISO_ROOT/zdotdir"
+    NEOZEUS_GUI_ISO_KITTY_DIR="$NEOZEUS_GUI_ISO_ROOT/kitty"
+    NEOZEUS_GUI_ISO_HISTFILE="$NEOZEUS_GUI_ISO_ROOT/history"
+    NEOZEUS_GUI_ISO_ZSHENV="$NEOZEUS_GUI_ISO_ZDOTDIR/.zshenv"
+    NEOZEUS_GUI_ISO_DAEMON_SOCKET="$NEOZEUS_GUI_ISO_ROOT/daemon.sock"
+
+    mkdir -p \
+        "$NEOZEUS_GUI_ISO_HOME" \
+        "$NEOZEUS_GUI_ISO_XDG_CONFIG_HOME" \
+        "$NEOZEUS_GUI_ISO_XDG_STATE_HOME" \
+        "$NEOZEUS_GUI_ISO_XDG_CACHE_HOME" \
+        "$NEOZEUS_GUI_ISO_ZDOTDIR" \
+        "$NEOZEUS_GUI_ISO_KITTY_DIR"
+    : >"$NEOZEUS_GUI_ISO_ZSHENV"
+}
+
+neozeus_gui_cleanup_isolated_app_env() {
+    if [[ -n "${NEOZEUS_GUI_ISO_ROOT:-}" ]]; then
+        rm -rf "$NEOZEUS_GUI_ISO_ROOT"
+        unset \
+            NEOZEUS_GUI_ISO_ROOT \
+            NEOZEUS_GUI_ISO_HOME \
+            NEOZEUS_GUI_ISO_XDG_CONFIG_HOME \
+            NEOZEUS_GUI_ISO_XDG_STATE_HOME \
+            NEOZEUS_GUI_ISO_XDG_CACHE_HOME \
+            NEOZEUS_GUI_ISO_ZDOTDIR \
+            NEOZEUS_GUI_ISO_KITTY_DIR \
+            NEOZEUS_GUI_ISO_HISTFILE \
+            NEOZEUS_GUI_ISO_ZSHENV \
+            NEOZEUS_GUI_ISO_DAEMON_SOCKET
+    fi
+}
+
+neozeus_gui_launch_isolated() {
+    local app=$1
+    local run_log=$2
+    shift 2
+    env \
+        HOME="$NEOZEUS_GUI_ISO_HOME" \
+        XDG_CONFIG_HOME="$NEOZEUS_GUI_ISO_XDG_CONFIG_HOME" \
+        XDG_STATE_HOME="$NEOZEUS_GUI_ISO_XDG_STATE_HOME" \
+        XDG_CACHE_HOME="$NEOZEUS_GUI_ISO_XDG_CACHE_HOME" \
+        ZDOTDIR="$NEOZEUS_GUI_ISO_ZDOTDIR" \
+        ZSHENV="$NEOZEUS_GUI_ISO_ZSHENV" \
+        HISTFILE="$NEOZEUS_GUI_ISO_HISTFILE" \
+        KITTY_CONFIG_DIRECTORY="$NEOZEUS_GUI_ISO_KITTY_DIR" \
+        SHELL="/bin/sh" \
+        BASH_ENV="/dev/null" \
+        ENV="/dev/null" \
+        NEOZEUS_DAEMON_SOCKET_PATH="$NEOZEUS_GUI_ISO_DAEMON_SOCKET" \
+        "$@" \
+        nohup "$app" >"$run_log" 2>&1 </dev/null &
+    echo $!
+}
+
 neozeus_gui_cleanup_pid() {
     local pid=${1:-}
     if [[ -z "$pid" ]]; then

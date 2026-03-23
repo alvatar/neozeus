@@ -9,12 +9,12 @@ use crate::{
         active_terminal_cell_size, active_terminal_dimensions, active_terminal_viewport,
         blend_rgba_in_place, build_attach_command_argv, compute_terminal_damage,
         create_detached_session_tmux_commands, create_terminal_image, find_kitty_config_path_with,
-        generate_unique_session_name, initialize_terminal_text_renderer, is_emoji_like,
+        generate_unique_session_name, initialize_terminal_text_renderer_with_locale, is_emoji_like,
         is_private_use_like, parse_kitty_config_file, parse_persisted_terminal_sessions,
         pixel_perfect_cell_size, pixel_perfect_terminal_logical_size, poll_terminal_snapshots,
         provision_terminal_target, rasterize_terminal_glyph, read_client_message,
         read_server_message, reconcile_terminal_sessions, resolve_alacritty_color,
-        resolve_daemon_socket_path_with, resolve_terminal_font_report,
+        resolve_daemon_socket_path_with, resolve_terminal_font_report_for_family,
         resolve_terminal_notes_path_with, resolve_terminal_sessions_path_with,
         save_terminal_notes_if_dirty, save_terminal_sessions_if_dirty, send_bytes_tmux_commands,
         send_command_payload_bytes, serialize_persisted_terminal_sessions,
@@ -37,6 +37,19 @@ use crate::{
 use alacritty_terminal::vte::ansi::{Color as AnsiColor, NamedColor};
 use bevy::{ecs::system::RunSystemOnce, prelude::*, window::PrimaryWindow};
 use std::{collections::BTreeSet, fs, os::unix::net::UnixStream, sync::Arc, time::Duration};
+
+fn test_terminal_font_report() -> crate::terminals::TerminalFontReport {
+    resolve_terminal_font_report_for_family("monospace")
+        .expect("failed to resolve terminal fonts for test family")
+}
+
+fn initialize_test_terminal_text_renderer(
+    report: &crate::terminals::TerminalFontReport,
+    renderer: &mut TerminalTextRenderer,
+) {
+    initialize_terminal_text_renderer_with_locale(report, renderer, "en-US")
+        .expect("failed to initialize terminal text renderer");
+}
 
 struct UnavailableTmuxClient;
 
@@ -416,10 +429,9 @@ fn switching_active_terminal_snaps_immediately_without_animation() {
 
 #[test]
 fn sync_terminal_texture_keeps_cached_switch_frame_until_resized_surface_arrives() {
-    let report = resolve_terminal_font_report().expect("failed to resolve terminal fonts");
+    let report = test_terminal_font_report();
     let mut renderer = TerminalTextRenderer::default();
-    initialize_terminal_text_renderer(&report, &mut renderer)
-        .expect("failed to initialize terminal text renderer");
+    initialize_test_terminal_text_renderer(&report, &mut renderer);
     let font_state = TerminalFontState {
         report: Some(Ok(report)),
     };
@@ -522,10 +534,9 @@ fn sync_terminal_texture_keeps_cached_switch_frame_until_resized_surface_arrives
 
 #[test]
 fn sync_terminal_texture_promotes_active_terminal_once_resized_surface_arrives() {
-    let report = resolve_terminal_font_report().expect("failed to resolve terminal fonts");
+    let report = test_terminal_font_report();
     let mut renderer = TerminalTextRenderer::default();
-    initialize_terminal_text_renderer(&report, &mut renderer)
-        .expect("failed to initialize terminal text renderer");
+    initialize_test_terminal_text_renderer(&report, &mut renderer);
     let font_state = TerminalFontState {
         report: Some(Ok(report)),
     };
@@ -810,7 +821,7 @@ fn kitty_config_lookup_prefers_explicit_directory_over_other_locations() {
 
 #[test]
 fn resolves_effective_terminal_font_stack_on_host() {
-    let report = resolve_terminal_font_report().expect("failed to resolve terminal fonts");
+    let report = test_terminal_font_report();
     assert_eq!(report.requested_family, "monospace");
     assert!(report.primary.path.is_file());
     assert!(!report.primary.family.is_empty());
@@ -827,10 +838,9 @@ fn detects_special_font_ranges() {
 
 #[test]
 fn standalone_text_renderer_rasterizes_ascii_glyph() {
-    let report = resolve_terminal_font_report().expect("failed to resolve terminal fonts");
+    let report = test_terminal_font_report();
     let mut renderer = TerminalTextRenderer::default();
-    initialize_terminal_text_renderer(&report, &mut renderer)
-        .expect("failed to initialize terminal text renderer");
+    initialize_test_terminal_text_renderer(&report, &mut renderer);
     let font_state = TerminalFontState {
         report: Some(Ok(report)),
     };
@@ -1202,9 +1212,9 @@ fn build_attach_command_argv_uses_tmux_attach_for_tmux_target() {
 }
 
 #[test]
-fn build_attach_command_argv_uses_shell_for_raw_target() {
+fn build_attach_command_argv_uses_test_shell_for_raw_target() {
     let (program, args) = build_attach_command_argv(&TerminalAttachTarget::RawShell);
-    assert!(!program.is_empty());
+    assert_eq!(program, std::ffi::OsString::from("/bin/sh"));
     assert!(args.is_empty());
 }
 
@@ -1779,8 +1789,21 @@ fn wait_for_surface_containing(
 }
 
 #[test]
-fn daemon_socket_path_prefers_xdg_runtime_then_tmp_user() {
+fn daemon_socket_path_prefers_override_then_xdg_runtime_then_tmp_user() {
+    let override_path = resolve_daemon_socket_path_with(
+        Some("/tmp/neozeus-test/daemon.sock"),
+        Some("/run/user/1000"),
+        Some("/home/alvatar"),
+        Some("oracle"),
+    )
+    .expect("override path should resolve");
+    assert_eq!(
+        override_path,
+        std::path::PathBuf::from("/tmp/neozeus-test/daemon.sock")
+    );
+
     let path = resolve_daemon_socket_path_with(
+        None,
         Some("/run/user/1000"),
         Some("/home/alvatar"),
         Some("oracle"),
@@ -1791,8 +1814,9 @@ fn daemon_socket_path_prefers_xdg_runtime_then_tmp_user() {
         std::path::PathBuf::from("/run/user/1000/neozeus/daemon.sock")
     );
 
-    let fallback = resolve_daemon_socket_path_with(None, Some("/home/alvatar"), Some("oracle"))
-        .expect("tmp fallback should resolve");
+    let fallback =
+        resolve_daemon_socket_path_with(None, None, Some("/home/alvatar"), Some("oracle"))
+            .expect("tmp fallback should resolve");
     assert!(fallback.ends_with("neozeus-oracle/daemon.sock"));
 }
 
