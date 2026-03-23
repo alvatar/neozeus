@@ -43,6 +43,10 @@ fn row_marker_rect(rect: HudRect) -> HudRect {
     }
 }
 
+#[allow(
+    clippy::too_many_arguments,
+    reason = "agent-list text glow helper needs position/color/anchor plus non-uniform scaling"
+)]
 fn glow_label(
     painter: &mut HudPainter,
     position: Vec2,
@@ -50,6 +54,8 @@ fn glow_label(
     size: f32,
     color: peniko::Color,
     anchor: VelloTextAnchor,
+    scale_x: f32,
+    scale_y: f32,
 ) {
     for (offset, alpha) in [
         (Vec2::new(0.0, 0.0), 0.18),
@@ -57,15 +63,17 @@ fn glow_label(
         (Vec2::new(-0.7, 0.0), 0.12),
         (Vec2::new(0.0, 0.7), 0.08),
     ] {
-        painter.label(
+        painter.label_scaled(
             position + offset,
             text,
             size,
             apply_alpha(color, alpha),
             anchor,
+            scale_x,
+            scale_y,
         );
     }
-    painter.label(position, text, size, color, anchor);
+    painter.label_scaled(position, text, size, color, anchor, scale_x, scale_y);
 }
 
 fn glow_rect(painter: &mut HudPainter, rect: HudRect, stroke: peniko::Color, fill: peniko::Color) {
@@ -112,6 +120,8 @@ fn draw_left_rail(painter: &mut HudPainter, content_rect: HudRect) {
                 13.0,
                 EVA_CYAN,
                 VelloTextAnchor::TopLeft,
+                0.9,
+                1.05,
             );
         }
         idx += 1;
@@ -141,6 +151,8 @@ pub(crate) fn render_content(
         18.0,
         EVA_ORANGE_BRIGHT,
         VelloTextAnchor::TopLeft,
+        0.82,
+        1.08,
     );
     glow_label(
         painter,
@@ -152,6 +164,8 @@ pub(crate) fn render_content(
         13.0,
         EVA_ORANGE_DIM,
         VelloTextAnchor::TopRight,
+        0.88,
+        1.04,
     );
     painter.fill_rect(
         HudRect {
@@ -219,6 +233,8 @@ pub(crate) fn render_content(
                 EVA_ORANGE
             },
             VelloTextAnchor::TopLeft,
+            0.76,
+            1.14,
         );
         glow_label(
             painter,
@@ -227,6 +243,8 @@ pub(crate) fn render_content(
             11.0,
             HudColors::TEXT_ON_ACCENT,
             VelloTextAnchor::Top,
+            0.84,
+            1.08,
         );
     }
 }

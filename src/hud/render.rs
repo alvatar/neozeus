@@ -123,6 +123,23 @@ impl<'scene, 'res> HudPainter<'scene, 'res> {
         color: peniko::Color,
         anchor: VelloTextAnchor,
     ) {
+        self.label_scaled(position, text, size, color, anchor, 1.0, 1.0);
+    }
+
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "scaled Vello text drawing needs scene/font/window/position/style inputs together"
+    )]
+    pub(crate) fn label_scaled(
+        &mut self,
+        position: Vec2,
+        text: &str,
+        size: f32,
+        color: peniko::Color,
+        anchor: VelloTextAnchor,
+        scale_x: f32,
+        scale_y: f32,
+    ) {
         let Some(font) = self.fonts.get(&Handle::<VelloFont>::default()) else {
             return;
         };
@@ -134,8 +151,8 @@ impl<'scene, 'res> HudPainter<'scene, 'res> {
             ..Default::default()
         };
         let layout = font.layout(text, &style, VelloTextAlign::Start, None);
-        let width = layout.width() as f64;
-        let height = layout.height() as f64;
+        let width = layout.width() as f64 * scale_x as f64;
+        let height = layout.height() as f64 * scale_y as f64;
         let (x, y) = hud_to_scene(self.window, position);
         let (dx, dy) = match anchor {
             VelloTextAnchor::TopLeft => (0.0, 0.0),
@@ -148,7 +165,8 @@ impl<'scene, 'res> HudPainter<'scene, 'res> {
             VelloTextAnchor::Right => (-width, -height / 2.0),
             VelloTextAnchor::BottomRight => (-width, -height),
         };
-        let transform = Affine::translate((x + dx, y + dy));
+        let transform = Affine::translate((x + dx, y + dy))
+            * Affine::scale_non_uniform(scale_x as f64, scale_y as f64);
 
         for line in layout.lines() {
             for item in line.items() {
