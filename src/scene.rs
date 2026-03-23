@@ -6,11 +6,12 @@ use crate::{
         apply_terminal_task_requests, apply_terminal_view_requests, apply_visibility_requests,
         dispatch_hud_intents, handle_hud_module_shortcuts, handle_hud_pointer_input,
         hud_needs_redraw, render_hud_scene, save_hud_layout_if_dirty, setup_hud,
-        sync_hud_offscreen_compositor, sync_structural_hud_layout, AgentDirectory,
-        HudBloomSettings, HudIntent, HudModuleRequest, HudOffscreenCompositor, HudPersistenceState,
-        HudState, HudWidgetBloom, TerminalFocusRequest, TerminalLifecycleRequest,
-        TerminalSendRequest, TerminalTaskRequest, TerminalViewRequest, TerminalVisibilityPolicy,
-        TerminalVisibilityRequest, TerminalVisibilityState,
+        setup_hud_widget_bloom, sync_hud_offscreen_compositor, sync_hud_widget_bloom,
+        sync_structural_hud_layout, AgentDirectory, HudBloomSettings, HudIntent, HudModuleRequest,
+        HudOffscreenCompositor, HudPersistenceState, HudState, HudWidgetBloom,
+        TerminalFocusRequest, TerminalLifecycleRequest, TerminalSendRequest, TerminalTaskRequest,
+        TerminalViewRequest, TerminalVisibilityPolicy, TerminalVisibilityRequest,
+        TerminalVisibilityState,
     },
     input::{
         drag_terminal_view, focus_terminal_on_panel_click, handle_global_terminal_spawn_shortcut,
@@ -209,7 +210,10 @@ fn configure_app(app: &mut App) -> Result<(), String> {
             NeoZeusSet::HudAnimation.before(NeoZeusSet::HudRender),
         )
         .configure_sets(Update, NeoZeusSet::HudRender.before(NeoZeusSet::Redraw))
-        .add_systems(Startup, (setup_scene, setup_hud).chain())
+        .add_systems(
+            Startup,
+            (setup_scene, setup_hud, setup_hud_widget_bloom).chain(),
+        )
         .add_systems(PostStartup, sync_hud_offscreen_compositor)
         .add_systems(
             Update,
@@ -288,7 +292,11 @@ fn configure_app(app: &mut App) -> Result<(), String> {
         )
         .add_systems(
             Update,
-            (render_hud_scene, sync_hud_offscreen_compositor)
+            (
+                sync_hud_widget_bloom,
+                render_hud_scene,
+                sync_hud_offscreen_compositor,
+            )
                 .chain()
                 .in_set(NeoZeusSet::HudRender),
         )
