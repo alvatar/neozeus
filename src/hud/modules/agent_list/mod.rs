@@ -11,6 +11,12 @@ pub(crate) const AGENT_LIST_LEFT_RAIL_WIDTH: f32 = 20.0;
 pub(crate) const AGENT_LIST_ROW_MARKER_WIDTH: f32 = 12.0;
 pub(crate) const AGENT_LIST_ROW_MARKER_GAP: f32 = 10.0;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(crate) enum AgentListRowSection {
+    Main,
+    Marker,
+}
+
 pub(crate) use interaction::{clear_hover, handle_hover, handle_pointer_click, handle_scroll};
 pub(crate) use render::render_content;
 
@@ -87,6 +93,23 @@ pub(crate) struct AgentRow {
     pub(crate) rect: HudRect,
     pub(crate) focused: bool,
     pub(crate) hovered: bool,
+}
+
+pub(crate) fn agent_row_rect(rect: HudRect, section: AgentListRowSection) -> HudRect {
+    match section {
+        AgentListRowSection::Main => HudRect {
+            x: rect.x,
+            y: rect.y + 2.0,
+            w: (rect.w - AGENT_LIST_ROW_MARKER_WIDTH - AGENT_LIST_ROW_MARKER_GAP).max(12.0),
+            h: (rect.h - 4.0).max(10.0),
+        },
+        AgentListRowSection::Marker => HudRect {
+            x: rect.x + rect.w - AGENT_LIST_ROW_MARKER_WIDTH,
+            y: rect.y + 2.0,
+            w: AGENT_LIST_ROW_MARKER_WIDTH,
+            h: (rect.h - 4.0).max(10.0),
+        },
+    }
 }
 
 pub(crate) fn resolve_agent_label(

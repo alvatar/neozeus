@@ -6,8 +6,8 @@ use bevy::prelude::Vec2;
 use bevy_vello::{prelude::VelloTextAnchor, vello::peniko};
 
 use super::{
-    agent_button_irregularities, agent_rows, AGENT_LIST_HEADER_HEIGHT, AGENT_LIST_LEFT_RAIL_WIDTH,
-    AGENT_LIST_ROW_MARKER_GAP, AGENT_LIST_ROW_MARKER_WIDTH,
+    agent_button_irregularities, agent_row_rect, agent_rows, AgentListRowSection,
+    AGENT_LIST_HEADER_HEIGHT, AGENT_LIST_LEFT_RAIL_WIDTH,
 };
 
 const EVA_ORANGE: peniko::Color = peniko::Color::from_rgba8(181, 66, 11, 255);
@@ -23,24 +23,6 @@ fn inflate_rect(rect: HudRect, amount: f32) -> HudRect {
         y: rect.y - amount,
         w: rect.w + amount * 2.0,
         h: rect.h + amount * 2.0,
-    }
-}
-
-fn row_main_rect(rect: HudRect) -> HudRect {
-    HudRect {
-        x: rect.x,
-        y: rect.y + 2.0,
-        w: (rect.w - AGENT_LIST_ROW_MARKER_WIDTH - AGENT_LIST_ROW_MARKER_GAP).max(12.0),
-        h: (rect.h - 4.0).max(10.0),
-    }
-}
-
-fn row_marker_rect(rect: HudRect) -> HudRect {
-    HudRect {
-        x: rect.x + rect.w - AGENT_LIST_ROW_MARKER_WIDTH,
-        y: rect.y + 2.0,
-        w: AGENT_LIST_ROW_MARKER_WIDTH,
-        h: (rect.h - 4.0).max(10.0),
     }
 }
 
@@ -201,8 +183,8 @@ pub(crate) fn render_content(
             continue;
         }
 
-        let main_rect = row_main_rect(row.rect);
-        let marker_rect = row_marker_rect(row.rect);
+        let main_rect = agent_row_rect(row.rect, AgentListRowSection::Main);
+        let marker_rect = agent_row_rect(row.rect, AgentListRowSection::Marker);
         let stroke = if row.focused {
             EVA_SELECTED
         } else if row.hovered {

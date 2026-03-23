@@ -5,9 +5,10 @@ use crate::{
         apply_terminal_lifecycle_requests, apply_terminal_send_requests,
         apply_terminal_view_requests, apply_visibility_requests, dispatch_hud_intents,
         handle_hud_module_shortcuts, handle_hud_pointer_input, hud_needs_redraw, render_hud_scene,
-        save_hud_layout_if_dirty, setup_hud, sync_hud_offscreen_compositor,
-        sync_structural_hud_layout, AgentDirectory, HudIntent, HudModuleRequest,
-        HudOffscreenCompositor, HudPersistenceState, HudState, TerminalFocusRequest,
+        save_hud_layout_if_dirty, setup_hud, setup_hud_widget_bloom, sync_hud_offscreen_compositor,
+        sync_hud_widget_bloom, sync_structural_hud_layout, AgentDirectory, HudBloomBlurMaterial,
+        HudBloomCompositeMaterial, HudIntent, HudModuleRequest, HudOffscreenCompositor,
+        HudPersistenceState, HudState, HudWidgetBloom, TerminalFocusRequest,
         TerminalLifecycleRequest, TerminalSendRequest, TerminalViewRequest,
         TerminalVisibilityPolicy, TerminalVisibilityRequest, TerminalVisibilityState,
     },
@@ -35,6 +36,7 @@ use bevy::{
     ecs::system::SystemParam,
     prelude::*,
     render::{settings::WgpuSettings, RenderPlugin},
+    sprite_render::Material2dPlugin,
     window::{MonitorSelection, RequestRedraw, WindowMode},
     winit::{EventLoopProxyWrapper, WinitSettings},
 };
@@ -118,7 +120,11 @@ fn configure_app(app: &mut App) -> Result<(), String> {
                 ..default()
             }),
     )
-    .add_plugins(VelloPlugin::default());
+    .add_plugins((
+        VelloPlugin::default(),
+        Material2dPlugin::<HudBloomBlurMaterial>::default(),
+        Material2dPlugin::<HudBloomCompositeMaterial>::default(),
+    ));
 
     let event_loop_proxy = {
         let proxy = app.world().resource::<EventLoopProxyWrapper>();
@@ -141,6 +147,7 @@ fn configure_app(app: &mut App) -> Result<(), String> {
         .insert_resource(HudState::default())
         .insert_resource(HudPersistenceState::default())
         .insert_resource(HudOffscreenCompositor::default())
+        .insert_resource(HudWidgetBloom::default())
         .insert_resource(AgentDirectory::default())
         .insert_resource(TerminalVisibilityState::default())
         .add_message::<HudIntent>()
@@ -189,7 +196,10 @@ fn configure_app(app: &mut App) -> Result<(), String> {
             NeoZeusSet::HudAnimation.before(NeoZeusSet::HudRender),
         )
         .configure_sets(Update, NeoZeusSet::HudRender.before(NeoZeusSet::Redraw))
-        .add_systems(Startup, (setup_scene, setup_hud).chain())
+        .add_systems(
+            Startup,
+            (setup_scene, setup_hud, setup_hud_widget_bloom).chain(),
+        )
         .add_systems(PostStartup, sync_hud_offscreen_compositor)
         .add_systems(
             Update,
@@ -266,7 +276,11 @@ fn configure_app(app: &mut App) -> Result<(), String> {
         )
         .add_systems(
             Update,
-            (render_hud_scene, sync_hud_offscreen_compositor)
+            (
+                sync_hud_widget_bloom,
+                render_hud_scene,
+                sync_hud_offscreen_compositor,
+            )
                 .chain()
                 .in_set(NeoZeusSet::HudRender),
         )

@@ -1,4 +1,5 @@
 mod animation;
+mod bloom;
 mod compositor;
 mod dispatcher;
 mod input;
@@ -10,6 +11,15 @@ mod render;
 mod state;
 
 pub(crate) use animation::animate_hud_modules;
+pub(crate) use bloom::{
+    setup_hud_widget_bloom, sync_hud_widget_bloom, HudBloomBlurMaterial, HudBloomCompositeMaterial,
+    HudWidgetBloom,
+};
+#[cfg(test)]
+pub(crate) use bloom::{
+    AgentListBloomBlurCameraMarker, AgentListBloomCompositeMarker,
+    AgentListBloomSourceCameraMarker, AgentListBloomSourceSprite,
+};
 pub(crate) use compositor::{
     setup_hud_offscreen_compositor, sync_hud_offscreen_compositor, HudOffscreenCompositor,
 };
@@ -113,8 +123,10 @@ pub(crate) fn hud_needs_redraw(hud_state: &HudState) -> bool {
 }
 
 #[cfg(test)]
+pub(crate) use bloom::{agent_list_bloom_layers, agent_list_bloom_z};
+#[cfg(test)]
 pub(crate) use modules::{
-    agent_button_irregularities, agent_rows, debug_toolbar_buttons,
+    agent_button_irregularities, agent_row_rect, agent_rows, debug_toolbar_buttons,
     handle_pointer_click as dispatch_hud_pointer_click, handle_scroll as dispatch_hud_scroll,
-    resolve_agent_label,
+    resolve_agent_label, AgentListRowSection,
 };
