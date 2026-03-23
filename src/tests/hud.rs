@@ -21,7 +21,7 @@ use bevy::{
     input::{keyboard::KeyboardInput, mouse::MouseWheel},
     prelude::*,
     sprite_render::MeshMaterial2d,
-    window::{PrimaryWindow, RequestRedraw},
+    window::{PrimaryWindow, RequestRedraw, WindowResolution},
 };
 use bevy_vello::render::VelloCanvasMaterial;
 use std::{fs, path::PathBuf, sync::Arc, time::Duration};
@@ -121,6 +121,46 @@ fn setup_hud_widget_bloom_spawns_cameras_and_composite_quad() {
     let (transform, visibility, _) = composite_query.single(&world).unwrap();
     assert_eq!(transform.translation.z, agent_list_bloom_z());
     assert_eq!(visibility, &Visibility::Hidden);
+}
+
+#[test]
+fn setup_hud_widget_bloom_uses_logical_window_size_for_targets() {
+    let mut world = World::default();
+    world.insert_resource(HudWidgetBloom::default());
+    world.insert_resource(Assets::<Mesh>::default());
+    world.insert_resource(Assets::<Image>::default());
+    world.insert_resource(Assets::<HudBloomBlurMaterial>::default());
+    world.insert_resource(Assets::<HudBloomCompositeMaterial>::default());
+    world.spawn((
+        Window {
+            resolution: WindowResolution::new(1400, 900).with_scale_factor_override(2.0),
+            ..default()
+        },
+        PrimaryWindow,
+    ));
+
+    world
+        .run_system_once(crate::hud::setup_hud_widget_bloom)
+        .unwrap();
+
+    let target_handles = {
+        let mut target_query = world.query::<&RenderTarget>();
+        target_query
+            .iter(&world)
+            .filter_map(|target| match target {
+                RenderTarget::Image(handle) => Some(handle.handle.clone()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+    };
+    let images = world.resource::<Assets<Image>>();
+    let target_sizes = target_handles
+        .iter()
+        .filter_map(|handle| images.get(handle.id()))
+        .map(|image| image.texture_descriptor.size)
+        .collect::<Vec<_>>();
+    assert!(target_sizes.iter().all(|size| size.width == 700));
+    assert!(target_sizes.iter().all(|size| size.height == 450));
 }
 
 #[test]

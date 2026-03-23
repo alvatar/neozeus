@@ -306,8 +306,8 @@ fn build_bloom_specs(
 
 fn window_size(window: &Window) -> UVec2 {
     UVec2::new(
-        window.physical_width().max(1),
-        window.physical_height().max(1),
+        window.width().round().max(1.0) as u32,
+        window.height().round().max(1.0) as u32,
     )
 }
 
