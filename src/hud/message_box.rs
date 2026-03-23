@@ -1,6 +1,9 @@
 use crate::{hud::HudRect, terminals::TerminalId};
 use bevy::{prelude::Vec2, window::Window};
-use std::collections::BTreeMap;
+use std::{
+    collections::BTreeMap,
+    ops::{Deref, DerefMut},
+};
 
 const HUD_MESSAGE_BOX_KILL_RING_LIMIT: usize = 32;
 const HUD_MESSAGE_BOX_ACTION_BUTTON_W: f32 = 170.0;
@@ -111,7 +114,38 @@ pub(crate) fn message_box_action_at(window: &Window, point: Vec2) -> Option<HudM
         .map(|button| button.action)
 }
 
-pub(crate) type HudTaskDialogState = HudMessageBoxState;
+#[derive(Clone, Debug, Default, PartialEq)]
+pub(crate) struct HudTaskDialogState {
+    inner: HudMessageBoxState,
+}
+
+impl Deref for HudTaskDialogState {
+    type Target = HudMessageBoxState;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
+impl DerefMut for HudTaskDialogState {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.inner
+    }
+}
+
+impl HudTaskDialogState {
+    pub(crate) fn open_with_text(&mut self, target_terminal: TerminalId, text: &str) {
+        self.inner.visible = true;
+        self.inner.target_terminal = Some(target_terminal);
+        self.inner.load_text(text);
+    }
+
+    pub(crate) fn close(&mut self) {
+        self.inner.visible = false;
+        self.inner.target_terminal = None;
+        self.inner.clear_editor();
+    }
+}
 
 pub(crate) fn task_dialog_rect(window: &Window) -> HudRect {
     message_box_rect(window)

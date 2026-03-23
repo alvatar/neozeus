@@ -215,8 +215,7 @@ impl HudState {
     pub(crate) fn open_task_dialog(&mut self, target_terminal: TerminalId, text: &str) {
         self.close_message_box();
         self.direct_input_terminal = None;
-        self.task_dialog
-            .reset_for_target_with_text(target_terminal, text);
+        self.task_dialog.open_with_text(target_terminal, text);
     }
 
     pub(crate) fn close_task_dialog(&mut self) {

@@ -785,15 +785,47 @@ fn clicking_task_dialog_clear_done_button_persists_updated_text() {
 
     assert_eq!(
         drain_hud_commands(&mut world),
-        vec![HudIntent::SetTerminalTaskText(
-            terminal_id,
-            "- [ ] keep".into()
-        )]
+        vec![HudIntent::ClearDoneTerminalTasks(terminal_id)]
     );
     assert_eq!(world.resource::<Messages<RequestRedraw>>().len(), 1);
     let hud_state = world.resource::<HudState>();
     assert!(hud_state.task_dialog.visible);
+    assert_eq!(hud_state.task_dialog.text, "- [x] done\n- [ ] keep");
+}
+
+#[test]
+fn clear_done_task_request_updates_open_dialog_from_persisted_state() {
+    let (bridge, _, _) = super::capturing_bridge();
+    let mut manager = TerminalManager::default();
+    let terminal_id = manager.create_terminal_with_session(bridge, "session-a".into());
+
+    let mut notes_state = TerminalNotesState::default();
+    assert!(notes_state.set_note_text("session-a", "- [x] done\n- [ ] keep"));
+
+    let mut hud_state = HudState::default();
+    hud_state.open_task_dialog(terminal_id, "stale local");
+
+    let mut world = World::default();
+    world.insert_resource(Time::<()>::default());
+    world.insert_resource(manager);
+    world.insert_resource(notes_state);
+    world.insert_resource(hud_state);
+    world.init_resource::<Messages<crate::hud::TerminalTaskRequest>>();
+    world.init_resource::<Messages<RequestRedraw>>();
+    world
+        .resource_mut::<Messages<crate::hud::TerminalTaskRequest>>()
+        .write(crate::hud::TerminalTaskRequest::ClearDone { terminal_id });
+
+    world.run_system_once(apply_terminal_task_requests).unwrap();
+
+    {
+        let notes_state = world.resource::<TerminalNotesState>();
+        assert_eq!(notes_state.note_text("session-a"), Some("- [ ] keep"));
+    }
+    let hud_state = world.resource::<HudState>();
     assert_eq!(hud_state.task_dialog.text, "- [ ] keep");
+    assert!(hud_state.task_dialog.visible);
+    assert_eq!(world.resource::<Messages<RequestRedraw>>().len(), 1);
 }
 
 #[test]
@@ -810,6 +842,7 @@ fn set_task_text_request_clears_persisted_task_presence_when_empty() {
     world.insert_resource(Time::<()>::default());
     world.insert_resource(manager);
     world.insert_resource(notes_state);
+    world.insert_resource(HudState::default());
     world.init_resource::<Messages<crate::hud::TerminalTaskRequest>>();
     world.init_resource::<Messages<RequestRedraw>>();
     world
@@ -840,6 +873,7 @@ fn consume_next_task_request_sends_message_and_marks_task_done() {
     world.insert_resource(Time::<()>::default());
     world.insert_resource(manager);
     world.insert_resource(notes_state);
+    world.insert_resource(HudState::default());
     world.init_resource::<Messages<crate::hud::TerminalTaskRequest>>();
     world.init_resource::<Messages<RequestRedraw>>();
     world

@@ -581,15 +581,6 @@ fn message_box_supports_multiline_typing_and_ctrl_s_send() {
 fn ctrl_t_clears_done_tasks_for_active_terminal_when_dialog_is_closed() {
     let (mut world, terminal_id) =
         world_with_active_terminal(Vec2::new(10.0, 10.0), false, Vec2::ZERO);
-    let session_name = world
-        .resource::<TerminalManager>()
-        .get(terminal_id)
-        .unwrap()
-        .session_name
-        .clone();
-    world
-        .resource_mut::<TerminalNotesState>()
-        .set_note_text(&session_name, "- [x] done\n  detail\n- [ ] keep");
     world.init_resource::<Messages<KeyboardInput>>();
     world.init_resource::<Messages<RequestRedraw>>();
 
@@ -600,15 +591,12 @@ fn ctrl_t_clears_done_tasks_for_active_terminal_when_dialog_is_closed() {
 
     assert_eq!(
         drain_hud_commands(&mut world),
-        vec![HudIntent::SetTerminalTaskText(
-            terminal_id,
-            "- [ ] keep".into()
-        )]
+        vec![HudIntent::ClearDoneTerminalTasks(terminal_id)]
     );
 }
 
 #[test]
-fn task_dialog_ctrl_t_clears_done_tasks_and_persists_immediately() {
+fn task_dialog_ctrl_t_emits_clear_done_request() {
     let (mut world, terminal_id) =
         world_with_active_terminal(Vec2::new(10.0, 10.0), false, Vec2::ZERO);
     let mut hud_state = crate::hud::HudState::default();
@@ -625,16 +613,27 @@ fn task_dialog_ctrl_t_clears_done_tasks_and_persists_immediately() {
 
     assert_eq!(
         drain_hud_commands(&mut world),
-        vec![HudIntent::SetTerminalTaskText(
-            terminal_id,
-            "- [ ] keep".into()
-        )]
+        vec![HudIntent::ClearDoneTerminalTasks(terminal_id)]
     );
     assert_eq!(
         world.resource::<crate::hud::HudState>().task_dialog.text,
-        "- [ ] keep"
+        "- [x] done\n  detail\n- [ ] keep"
     );
     assert!(world.resource::<crate::hud::HudState>().task_dialog.visible);
+}
+
+#[test]
+fn reopening_task_dialog_uses_persisted_text_not_stale_editor_state() {
+    let terminal_id = crate::terminals::TerminalId(7);
+    let mut hud_state = crate::hud::HudState::default();
+
+    hud_state.open_task_dialog(terminal_id, "persisted one");
+    hud_state.task_dialog.insert_text("\nunsaved");
+    hud_state.close_task_dialog();
+
+    hud_state.open_task_dialog(terminal_id, "persisted two");
+    assert!(hud_state.task_dialog.visible);
+    assert_eq!(hud_state.task_dialog.text, "persisted two");
 }
 
 #[test]
@@ -663,7 +662,7 @@ fn task_dialog_escape_persists_tasks_and_closes() {
 }
 
 #[test]
-fn message_box_ctrl_t_appends_task_and_closes() {
+fn message_box_ctrl_t_does_not_enqueue_task_shortcuts() {
     let (mut world, terminal_id) =
         world_with_active_terminal(Vec2::new(10.0, 10.0), false, Vec2::ZERO);
     let mut hud_state = crate::hud::HudState::default();
@@ -679,44 +678,10 @@ fn message_box_ctrl_t_appends_task_and_closes() {
     world.insert_resource(keys);
     dispatch_message_box_key(&mut world, pressed_text(KeyCode::KeyT, Some("t")));
 
-    assert_eq!(
-        drain_hud_commands(&mut world),
-        vec![HudIntent::AppendTerminalTask(
-            terminal_id,
-            "follow up\n  details".into()
-        )]
-    );
+    assert!(drain_hud_commands(&mut world).is_empty());
     let hud_state = world.resource::<crate::hud::HudState>();
-    assert!(!hud_state.message_box.visible);
-}
-
-#[test]
-fn message_box_ctrl_shift_t_prepends_task_and_closes() {
-    let (mut world, terminal_id) =
-        world_with_active_terminal(Vec2::new(10.0, 10.0), false, Vec2::ZERO);
-    let mut hud_state = crate::hud::HudState::default();
-    hud_state.open_message_box(terminal_id);
-    hud_state.message_box.insert_text("urgent first");
-    world.insert_resource(hud_state);
-    init_hud_commands(&mut world);
-    world.init_resource::<Messages<KeyboardInput>>();
-    world.init_resource::<Messages<RequestRedraw>>();
-
-    let mut keys = ButtonInput::<KeyCode>::default();
-    keys.press(KeyCode::ControlLeft);
-    keys.press(KeyCode::ShiftLeft);
-    world.insert_resource(keys);
-    dispatch_message_box_key(&mut world, pressed_text(KeyCode::KeyT, Some("T")));
-
-    assert_eq!(
-        drain_hud_commands(&mut world),
-        vec![HudIntent::PrependTerminalTask(
-            terminal_id,
-            "urgent first".into()
-        )]
-    );
-    let hud_state = world.resource::<crate::hud::HudState>();
-    assert!(!hud_state.message_box.visible);
+    assert!(hud_state.message_box.visible);
+    assert_eq!(hud_state.message_box.text, "follow up\n  details");
 }
 
 #[test]
