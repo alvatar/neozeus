@@ -1,5 +1,7 @@
 use crate::{
-    hud::{HudIntent, HudState, TerminalVisibilityPolicy, TerminalVisibilityState},
+    hud::{
+        HudIntent, HudMessageBoxAction, HudState, TerminalVisibilityPolicy, TerminalVisibilityState,
+    },
     terminals::{
         mark_terminal_sessions_dirty, terminal_texture_screen_size, TerminalCommand,
         TerminalDisplayMode, TerminalManager, TerminalPanel, TerminalPointerState,
@@ -357,6 +359,24 @@ fn message_box_event_text(event: &KeyboardInput) -> Option<String> {
         })
 }
 
+fn message_box_task_intent(
+    hud_state: &mut HudState,
+    action: HudMessageBoxAction,
+) -> Option<HudIntent> {
+    let target_terminal = hud_state.message_box.target_terminal?;
+    let payload = hud_state.message_box.text.trim().to_owned();
+    if payload.is_empty() {
+        return None;
+    }
+    hud_state.close_message_box();
+    Some(match action {
+        HudMessageBoxAction::AppendTask => HudIntent::AppendTerminalTask(target_terminal, payload),
+        HudMessageBoxAction::PrependTask => {
+            HudIntent::PrependTerminalTask(target_terminal, payload)
+        }
+    })
+}
+
 pub(crate) fn handle_terminal_message_box_keyboard(
     mut messages: MessageReader<KeyboardInput>,
     keys: Res<ButtonInput<KeyCode>>,
@@ -371,6 +391,7 @@ pub(crate) fn handle_terminal_message_box_keyboard(
     }
 
     let (ctrl, alt, super_key) = has_plain_modifiers(&keys);
+    let shift = keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight);
 
     if hud_state.direct_input_terminal.is_some() {
         return;
@@ -394,6 +415,19 @@ pub(crate) fn handle_terminal_message_box_keyboard(
                 hud_state.close_message_box();
                 needs_redraw = true;
                 break;
+            }
+
+            if ctrl && !alt && !super_key && event.key_code == KeyCode::KeyT {
+                let action = if shift {
+                    HudMessageBoxAction::PrependTask
+                } else {
+                    HudMessageBoxAction::AppendTask
+                };
+                if let Some(intent) = message_box_task_intent(&mut hud_state, action) {
+                    hud_commands.write(intent);
+                    needs_redraw = true;
+                    break;
+                }
             }
 
             if event.key_code == KeyCode::Escape {

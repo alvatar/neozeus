@@ -648,6 +648,55 @@ fn sync_hud_widget_bloom_spawns_agent_list_source_sprites() {
 }
 
 #[test]
+fn sync_hud_widget_bloom_only_uses_active_agent_source() {
+    let mut world = World::default();
+    let (bridge_one, _) = test_bridge();
+    let (bridge_two, _) = test_bridge();
+    let mut manager = TerminalManager::default();
+    let id_one = manager.create_terminal(bridge_one);
+    let id_two = manager.create_terminal(bridge_two);
+    manager.focus_terminal(id_two);
+
+    let mut hud_state = HudState::default();
+    hud_state.insert(
+        HudModuleId::AgentList,
+        crate::hud::default_hud_module_instance(&crate::hud::HUD_MODULE_DEFINITIONS[1]),
+    );
+    world.insert_resource(manager);
+    world.insert_resource(hud_state);
+    world.insert_resource(AgentDirectory::default());
+    world.insert_resource(HudBloomSettings::default());
+    world.insert_resource(HudWidgetBloom::default());
+    world.insert_resource(Assets::<Image>::default());
+    world.spawn((
+        Window {
+            resolution: (1400, 900).into(),
+            ..default()
+        },
+        PrimaryWindow,
+    ));
+
+    world
+        .run_system_once(crate::hud::setup_hud_widget_bloom)
+        .unwrap();
+    world
+        .run_system_once(crate::hud::sync_structural_hud_layout)
+        .unwrap();
+    world
+        .run_system_once(crate::hud::sync_hud_widget_bloom)
+        .unwrap();
+
+    let source_sprites = world
+        .query::<&AgentListBloomSourceSprite>()
+        .iter(&world)
+        .copied()
+        .collect::<Vec<_>>();
+    assert_eq!(source_sprites.len(), 1);
+    assert_eq!(source_sprites[0].terminal_id, id_two);
+    assert_ne!(source_sprites[0].terminal_id, id_one);
+}
+
+#[test]
 fn agent_list_is_not_draggable() {
     let mut world = World::default();
     let mut hud_state = HudState::default();

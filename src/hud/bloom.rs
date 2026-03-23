@@ -156,6 +156,10 @@ fn build_bloom_specs(
     terminal_manager: &TerminalManager,
     agent_directory: &AgentDirectory,
 ) -> Vec<BloomSourceSpec> {
+    let Some(active_id) = terminal_manager.active_id() else {
+        return Vec::new();
+    };
+
     let mut specs = Vec::new();
     for row in agent_rows(
         content_rect,
@@ -164,7 +168,9 @@ fn build_bloom_specs(
         terminal_manager,
         agent_directory,
     ) {
-        if row.rect.y + row.rect.h < content_rect.y || row.rect.y > content_rect.y + content_rect.h
+        if row.terminal_id != active_id
+            || row.rect.y + row.rect.h < content_rect.y
+            || row.rect.y > content_rect.y + content_rect.h
         {
             continue;
         }
