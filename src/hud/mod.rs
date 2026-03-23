@@ -136,5 +136,6 @@ pub(crate) use bloom::{
 pub(crate) use modules::{
     agent_row_rect, agent_rows, debug_toolbar_buttons,
     handle_pointer_click as dispatch_hud_pointer_click, handle_scroll as dispatch_hud_scroll,
-    resolve_agent_label, AgentListRowSection,
+    resolve_agent_label, AgentListRowSection, AGENT_LIST_ACCENT_RED_B, AGENT_LIST_ACCENT_RED_G,
+    AGENT_LIST_ACCENT_RED_R,
 };

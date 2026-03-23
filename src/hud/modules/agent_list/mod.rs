@@ -11,6 +11,9 @@ pub(crate) const AGENT_LIST_LEFT_RAIL_WIDTH: f32 = 20.0;
 pub(crate) const AGENT_LIST_ROW_MARKER_WIDTH: f32 = 12.0;
 pub(crate) const AGENT_LIST_ROW_MARKER_GAP: f32 = 10.0;
 pub(crate) const AGENT_LIST_ROW_GAP: f32 = 14.0;
+pub(crate) const AGENT_LIST_ACCENT_RED_R: u8 = 253;
+pub(crate) const AGENT_LIST_ACCENT_RED_G: u8 = 0;
+pub(crate) const AGENT_LIST_ACCENT_RED_B: u8 = 1;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum AgentListRowSection {

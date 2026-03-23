@@ -1,11 +1,15 @@
 use crate::hud::{
-    modules::{agent_row_rect, agent_rows, AgentListRowSection},
+    modules::{
+        agent_row_rect, agent_rows, AgentListRowSection, AGENT_LIST_ACCENT_RED_B,
+        AGENT_LIST_ACCENT_RED_G, AGENT_LIST_ACCENT_RED_R,
+    },
     AgentDirectory, HudModuleId, HudRect, HudState,
 };
 use crate::terminals::{TerminalId, TerminalManager};
 use bevy::{
     asset::RenderAssetUsages,
     camera::{visibility::RenderLayers, CameraOutputMode, ClearColorConfig, RenderTarget},
+    color::{LinearRgba, Srgba},
     ecs::system::SystemParam,
     image::ImageSampler,
     prelude::*,
@@ -303,11 +307,27 @@ fn blur_uniform(texel_step: Vec2, gain: f32) -> AgentListBloomBlurUniform {
     }
 }
 
+fn bloom_reference_red(scale: f32, alpha: f32) -> Color {
+    let linear: LinearRgba = Srgba::rgba_u8(
+        AGENT_LIST_ACCENT_RED_R,
+        AGENT_LIST_ACCENT_RED_G,
+        AGENT_LIST_ACCENT_RED_B,
+        255,
+    )
+    .into();
+    Color::linear_rgba(
+        linear.red * scale,
+        linear.green * scale,
+        linear.blue * scale,
+        alpha,
+    )
+}
+
 fn bloom_source_color(focused: bool, hovered: bool, kind: AgentListBloomSourceKind) -> Color {
     match (focused, hovered, kind) {
-        (true, _, AgentListBloomSourceKind::Accent) => Color::linear_rgba(5.0, 0.0, 0.10, 1.0),
-        (_, true, AgentListBloomSourceKind::Accent) => Color::linear_rgba(2.4, 0.0, 0.07, 0.7),
-        (_, _, AgentListBloomSourceKind::Accent) => Color::linear_rgba(1.0, 0.0, 0.04, 0.3),
+        (true, _, AgentListBloomSourceKind::Accent) => bloom_reference_red(5.0, 1.0),
+        (_, true, AgentListBloomSourceKind::Accent) => bloom_reference_red(2.4, 0.7),
+        (_, _, AgentListBloomSourceKind::Accent) => bloom_reference_red(1.0, 0.3),
     }
 }
 
