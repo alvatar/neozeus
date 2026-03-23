@@ -50,6 +50,8 @@ fn setup_hud_requests_initial_redraw() {
     world.insert_resource(HudState::default());
     world.insert_resource(HudPersistenceState::default());
     world.insert_resource(HudOffscreenCompositor::default());
+    world.insert_resource(Assets::<Mesh>::default());
+    world.insert_resource(Assets::<crate::hud::HudCompositeMaterial>::default());
     world.init_resource::<Messages<RequestRedraw>>();
 
     world.run_system_once(crate::hud::setup_hud).unwrap();
@@ -70,12 +72,11 @@ fn setup_hud_requests_initial_redraw() {
             .count(),
         1
     );
-    let camera_orders = world
-        .query::<&Camera>()
-        .iter(&world)
-        .map(|camera| camera.order)
-        .collect::<Vec<_>>();
-    assert!(camera_orders.is_empty());
+    let mut camera_query = world
+        .query_filtered::<(&Camera, &RenderLayers), With<crate::hud::HudCompositeCameraMarker>>();
+    let (camera, layers) = camera_query.single(&world).unwrap();
+    assert_eq!(camera.order, 50);
+    assert!(layers.intersects(&RenderLayers::layer(crate::hud::HUD_COMPOSITE_RENDER_LAYER,)));
 }
 
 #[test]
@@ -300,6 +301,8 @@ fn sync_hud_offscreen_compositor_hides_vello_canvas_and_binds_texture() {
     let mut world = World::default();
     world.insert_resource(HudOffscreenCompositor::default());
     world.insert_resource(Assets::<VelloCanvasMaterial>::default());
+    world.insert_resource(Assets::<crate::hud::HudCompositeMaterial>::default());
+    world.insert_resource(Assets::<Mesh>::default());
     let texture = Handle::<Image>::default();
     let material = world
         .resource_mut::<Assets<VelloCanvasMaterial>>()
@@ -313,14 +316,24 @@ fn sync_hud_offscreen_compositor_hides_vello_canvas_and_binds_texture() {
         },
         PrimaryWindow,
     ));
-    world.spawn((
-        MeshMaterial2d::<VelloCanvasMaterial>(material),
-        Visibility::Visible,
-    ));
+    let source_canvas = world
+        .spawn((
+            MeshMaterial2d::<VelloCanvasMaterial>(material),
+            Visibility::Visible,
+        ))
+        .id();
     world
         .run_system_once(
-            |mut commands: Commands, mut compositor: ResMut<HudOffscreenCompositor>| {
-                crate::hud::setup_hud_offscreen_compositor(&mut commands, &mut compositor);
+            |mut commands: Commands,
+             mut compositor: ResMut<HudOffscreenCompositor>,
+             mut meshes: ResMut<Assets<Mesh>>,
+             mut composite_materials: ResMut<Assets<crate::hud::HudCompositeMaterial>>| {
+                crate::hud::setup_hud_offscreen_compositor(
+                    &mut commands,
+                    &mut compositor,
+                    &mut meshes,
+                    &mut composite_materials,
+                );
             },
         )
         .unwrap();
@@ -329,25 +342,43 @@ fn sync_hud_offscreen_compositor_hides_vello_canvas_and_binds_texture() {
         .run_system_once(crate::hud::sync_hud_offscreen_compositor)
         .unwrap();
 
-    let mut canvas_query =
-        world.query_filtered::<&Visibility, With<MeshMaterial2d<VelloCanvasMaterial>>>();
-    assert_eq!(canvas_query.single(&world).unwrap(), &Visibility::Hidden);
+    assert_eq!(
+        world.get::<Visibility>(source_canvas),
+        Some(&Visibility::Hidden)
+    );
 
-    let mut sprite_query = world.query::<(
+    let mut camera_query = world
+        .query_filtered::<(&Camera, &RenderLayers), With<crate::hud::HudCompositeCameraMarker>>();
+    let (camera, layers) = camera_query.single(&world).unwrap();
+    assert_eq!(camera.order, 50);
+    assert!(layers.intersects(&RenderLayers::layer(crate::hud::HUD_COMPOSITE_RENDER_LAYER,)));
+
+    let mut quad_query = world.query::<(
         &crate::hud::HudCompositeLayerMarker,
-        &Sprite,
+        &MeshMaterial2d<crate::hud::HudCompositeMaterial>,
         &Transform,
         &Visibility,
+        &RenderLayers,
     )>();
-    let (marker, sprite, transform, visibility) = sprite_query.single(&world).unwrap();
+    let (marker, composite_material, transform, visibility, quad_layers) =
+        quad_query.single(&world).unwrap();
     assert_eq!(marker.id, crate::hud::HudCompositeLayerId::MainHud);
-    assert_eq!(sprite.image, texture);
-    assert_eq!(sprite.custom_size, Some(Vec2::new(1400.0, 900.0)));
+    let composite_texture = {
+        let materials = world.resource::<Assets<crate::hud::HudCompositeMaterial>>();
+        materials
+            .get(composite_material.id())
+            .expect("composite material exists")
+            .texture
+            .clone()
+    };
+    assert_eq!(composite_texture, texture);
+    assert_eq!(transform.scale, Vec3::new(1400.0, 900.0, 1.0));
     assert_eq!(
         transform.translation.z,
         crate::hud::HUD_COMPOSITE_FOREGROUND_Z
     );
     assert_eq!(visibility, &Visibility::Visible);
+    assert!(quad_layers.intersects(&RenderLayers::layer(crate::hud::HUD_COMPOSITE_RENDER_LAYER,)));
 }
 
 #[test]

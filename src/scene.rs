@@ -139,6 +139,7 @@ fn configure_app(app: &mut App) -> Result<(), String> {
     .add_plugins((
         VelloPlugin::default(),
         Material2dPlugin::<AgentListBloomBlurMaterial>::default(),
+        Material2dPlugin::<crate::hud::HudCompositeMaterial>::default(),
     ));
 
     let event_loop_proxy = {
