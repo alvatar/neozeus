@@ -5,8 +5,9 @@ use crate::{
     hud::HudState,
     terminals::{
         active_terminal_layout, append_debug_log, is_emoji_like, is_private_use_like,
-        TerminalDamage, TerminalFontState, TerminalManager, TerminalPresentationStore,
-        TerminalSurface, TerminalTextRenderer, TerminalViewState,
+        TerminalDamage, TerminalDimensions, TerminalFontState, TerminalManager,
+        TerminalPresentationStore, TerminalSurface, TerminalTextRenderer, TerminalTextureState,
+        TerminalViewState,
     },
 };
 use bevy::{
@@ -88,6 +89,34 @@ fn dump_terminal_image_ppm(image: &Image, path: &Path) -> Result<(), String> {
     fs::write(path, output).map_err(|error| format!("failed to write {}: {error}", path.display()))
 }
 
+fn default_texture_state_for_surface(surface: &TerminalSurface) -> TerminalTextureState {
+    TerminalTextureState {
+        texture_size: UVec2::new(
+            surface.cols as u32 * DEFAULT_CELL_WIDTH_PX,
+            surface.rows as u32 * DEFAULT_CELL_HEIGHT_PX,
+        ),
+        cell_size: UVec2::new(DEFAULT_CELL_WIDTH_PX, DEFAULT_CELL_HEIGHT_PX),
+    }
+}
+
+fn can_render_active_layout(surface: &TerminalSurface, dimensions: TerminalDimensions) -> bool {
+    surface.cols == dimensions.cols && surface.rows == dimensions.rows
+}
+
+fn cached_or_default_texture_state(
+    presented_terminal: &crate::terminals::PresentedTerminal,
+    surface: &TerminalSurface,
+) -> TerminalTextureState {
+    if presented_terminal.uploaded_revision == 0
+        || presented_terminal.texture_state.texture_size == UVec2::ONE
+        || presented_terminal.texture_state.cell_size == UVec2::ZERO
+    {
+        default_texture_state_for_surface(surface)
+    } else {
+        presented_terminal.texture_state.clone()
+    }
+}
+
 #[allow(
     clippy::too_many_arguments,
     reason = "texture sync needs terminal, presentation, font, HUD layout, window, image, and renderer state together"
@@ -114,6 +143,8 @@ pub(crate) fn sync_terminal_texture(
     }
 
     let active_id = terminal_manager.active_id();
+    let active_layout =
+        active_id.map(|_| active_terminal_layout(&primary_window, &hud_state, &view_state));
     for (terminal_id, terminal) in terminal_manager.iter_mut() {
         let Some(surface) = &terminal.snapshot.surface else {
             terminal.pending_damage = None;
@@ -124,24 +155,26 @@ pub(crate) fn sync_terminal_texture(
             continue;
         };
 
-        let is_active_terminal = Some(terminal_id) == active_id;
-        let desired_cell_size = if is_active_terminal {
-            active_terminal_layout(&primary_window, &hud_state, &view_state).cell_size
+        let upload_state = if Some(terminal_id) == active_id {
+            let active_layout = active_layout.expect("active layout missing for active terminal");
+            presented_terminal.desired_texture_state = TerminalTextureState {
+                texture_size: active_layout.texture_size,
+                cell_size: active_layout.cell_size,
+            };
+            if can_render_active_layout(surface, active_layout.dimensions) {
+                presented_terminal.desired_texture_state.clone()
+            } else {
+                cached_or_default_texture_state(presented_terminal, surface)
+            }
         } else {
-            UVec2::new(DEFAULT_CELL_WIDTH_PX, DEFAULT_CELL_HEIGHT_PX)
+            let cached = cached_or_default_texture_state(presented_terminal, surface);
+            presented_terminal.desired_texture_state = cached.clone();
+            cached
         };
-        if presented_terminal.texture_state.cell_size != desired_cell_size {
-            presented_terminal.texture_state.cell_size = desired_cell_size;
-        }
 
-        let cell_size = presented_terminal.texture_state.cell_size;
-        let texture_size = UVec2::new(
-            surface.cols as u32 * cell_size.x.max(1),
-            surface.rows as u32 * cell_size.y.max(1),
-        );
         let has_pending_surface = terminal.surface_revision != presented_terminal.uploaded_revision;
-        let mut full_redraw = font_state.is_changed()
-            || presented_terminal.texture_state.texture_size != texture_size;
+        let mut full_redraw =
+            font_state.is_changed() || presented_terminal.texture_state != upload_state;
         let mut dirty_rows = if full_redraw {
             (0..surface.rows).collect::<Vec<_>>()
         } else if has_pending_surface {
@@ -165,15 +198,16 @@ pub(crate) fn sync_terminal_texture(
         }
 
         if let Some(target_image) = images.get_mut(&presented_terminal.image) {
-            if target_image.texture_descriptor.size.width != texture_size.x
-                || target_image.texture_descriptor.size.height != texture_size.y
+            if target_image.texture_descriptor.size.width != upload_state.texture_size.x
+                || target_image.texture_descriptor.size.height != upload_state.texture_size.y
             {
-                *target_image = create_terminal_image(texture_size);
+                *target_image = create_terminal_image(upload_state.texture_size);
                 full_redraw = true;
                 dirty_rows = (0..surface.rows).collect();
             }
 
-            let expected_len = (texture_size.x * texture_size.y * 4) as usize;
+            let expected_len =
+                (upload_state.texture_size.x * upload_state.texture_size.y * 4) as usize;
             let pixels = target_image.data.get_or_insert_with(|| {
                 vec![
                     DEFAULT_BG.r(),
@@ -203,10 +237,10 @@ pub(crate) fn sync_terminal_texture(
             let compose_started = std::time::Instant::now();
             repaint_terminal_pixels(
                 pixels,
-                texture_size.x,
+                upload_state.texture_size.x,
                 surface,
                 &dirty_rows,
-                cell_size,
+                upload_state.cell_size,
                 &mut text_renderer,
                 &mut glyph_cache,
                 &font_state,
@@ -220,7 +254,7 @@ pub(crate) fn sync_terminal_texture(
                 let _ = dump_terminal_image_ppm(target_image, Path::new(DEBUG_TEXTURE_DUMP_PATH));
             }
 
-            presented_terminal.texture_state.texture_size = texture_size;
+            presented_terminal.texture_state = upload_state;
             presented_terminal.uploaded_revision = terminal.surface_revision;
             terminal.pending_damage = None;
         } else {

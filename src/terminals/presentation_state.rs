@@ -62,7 +62,7 @@ pub(crate) enum TerminalDisplayMode {
     PixelPerfect,
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct TerminalTextureState {
     pub(crate) texture_size: UVec2,
     pub(crate) cell_size: UVec2,
@@ -103,6 +103,7 @@ pub(crate) struct TerminalPresentation {
 pub(crate) struct PresentedTerminal {
     pub(crate) image: Handle<Image>,
     pub(crate) texture_state: TerminalTextureState,
+    pub(crate) desired_texture_state: TerminalTextureState,
     pub(crate) display_mode: TerminalDisplayMode,
     pub(crate) uploaded_revision: u64,
     pub(crate) panel_entity: Entity,
