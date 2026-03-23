@@ -183,8 +183,8 @@ fn setup_hud_widget_bloom_uses_logical_window_size_for_targets() {
         .iter()
         .map(|image| image.texture_descriptor.size)
         .collect::<Vec<_>>();
-    assert!(target_sizes.iter().all(|size| size.width == 350));
-    assert!(target_sizes.iter().all(|size| size.height == 225));
+    assert!(target_sizes.iter().all(|size| size.width == 700));
+    assert!(target_sizes.iter().all(|size| size.height == 450));
     assert!(target_images
         .iter()
         .all(|image| image.texture_descriptor.format == TextureFormat::Rgba16Float));
@@ -234,12 +234,12 @@ fn agent_list_reference_red_matches_sample() {
 
 #[test]
 fn parses_agent_bloom_intensity_override() {
-    assert_eq!(resolve_agent_list_bloom_intensity(None), 1.35);
-    assert_eq!(resolve_agent_list_bloom_intensity(Some("")), 1.35);
+    assert_eq!(resolve_agent_list_bloom_intensity(None), 0.10);
+    assert_eq!(resolve_agent_list_bloom_intensity(Some("")), 0.10);
     assert_eq!(resolve_agent_list_bloom_intensity(Some("2.0")), 2.0);
     assert_eq!(resolve_agent_list_bloom_intensity(Some(" 0.0 ")), 0.0);
-    assert_eq!(resolve_agent_list_bloom_intensity(Some("-1")), 1.35);
-    assert_eq!(resolve_agent_list_bloom_intensity(Some("abc")), 1.35);
+    assert_eq!(resolve_agent_list_bloom_intensity(Some("-1")), 0.10);
+    assert_eq!(resolve_agent_list_bloom_intensity(Some("abc")), 0.10);
 }
 
 #[test]
@@ -791,10 +791,7 @@ fn sync_hud_widget_bloom_spawns_agent_list_source_sprites() {
         .into_iter()
         .next()
         .expect("agent row exists");
-        let accent = crate::hud::bloom_source_rect(
-            AgentListBloomSourceKind::Accent,
-            agent_row_rect(row.rect, AgentListRowSection::Accent),
-        );
+        let accent = agent_row_rect(row.rect, AgentListRowSection::Accent);
         let target_size = {
             let mut camera_query =
                 world.query_filtered::<&RenderTarget, With<AgentListBloomCameraMarker>>();
