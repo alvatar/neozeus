@@ -20,8 +20,8 @@ use super::compositor::HUD_COMPOSITE_FOREGROUND_Z;
 
 const BLOOM_SOURCE_LAYER: usize = 29;
 const BLOOM_COMPOSITE_Z: f32 = HUD_COMPOSITE_FOREGROUND_Z + 0.1;
-const DEFAULT_BLOOM_INTENSITY: f32 = 0.78;
-const BLOOM_COMPOSITE_ALPHA: f32 = 0.72;
+const DEFAULT_BLOOM_INTENSITY: f32 = 0.92;
+const BLOOM_COMPOSITE_ALPHA: f32 = 0.84;
 
 #[derive(Resource, Clone, Copy, Debug)]
 pub(crate) struct HudBloomSettings {
@@ -127,9 +127,9 @@ fn rect_transform(window: &Window, rect: HudRect, z: f32) -> Transform {
 
 fn bloom_source_color(focused: bool, hovered: bool, kind: AgentListBloomSourceKind) -> Color {
     match (focused, hovered, kind) {
-        (true, _, AgentListBloomSourceKind::Accent) => Color::srgba(4.6, 0.22, 0.18, 0.44),
-        (_, true, AgentListBloomSourceKind::Accent) => Color::srgba(3.0, 0.18, 0.15, 0.24),
-        (_, _, AgentListBloomSourceKind::Accent) => Color::srgba(2.0, 0.14, 0.12, 0.12),
+        (true, _, AgentListBloomSourceKind::Accent) => Color::srgba(5.0, 0.26, 0.22, 0.48),
+        (_, true, AgentListBloomSourceKind::Accent) => Color::srgba(3.2, 0.18, 0.15, 0.18),
+        (_, _, AgentListBloomSourceKind::Accent) => Color::srgba(2.0, 0.14, 0.12, 0.08),
     }
 }
 
