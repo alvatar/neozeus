@@ -181,12 +181,12 @@ fn sync_structural_hud_layout_docks_agent_list_to_full_height_left_column() {
 
 #[test]
 fn parses_agent_bloom_intensity_override() {
-    assert_eq!(resolve_agent_list_bloom_intensity(None), 0.35);
-    assert_eq!(resolve_agent_list_bloom_intensity(Some("")), 0.35);
+    assert_eq!(resolve_agent_list_bloom_intensity(None), 0.82);
+    assert_eq!(resolve_agent_list_bloom_intensity(Some("")), 0.82);
     assert_eq!(resolve_agent_list_bloom_intensity(Some("2.0")), 2.0);
     assert_eq!(resolve_agent_list_bloom_intensity(Some(" 0.0 ")), 0.0);
-    assert_eq!(resolve_agent_list_bloom_intensity(Some("-1")), 0.35);
-    assert_eq!(resolve_agent_list_bloom_intensity(Some("abc")), 0.35);
+    assert_eq!(resolve_agent_list_bloom_intensity(Some("-1")), 0.82);
+    assert_eq!(resolve_agent_list_bloom_intensity(Some("abc")), 0.82);
 }
 
 #[test]
@@ -509,6 +509,7 @@ fn agent_rows_follow_terminal_order_and_focus() {
     assert!(rows[0].rect.x > shell_rect.x + 20.0);
     assert_eq!(rows[1].terminal_id, id_two);
     assert!(rows[1].focused);
+    assert_eq!(rows[1].rect.y - rows[0].rect.y, 36.0);
 }
 
 #[test]
@@ -586,13 +587,10 @@ fn sync_hud_widget_bloom_spawns_agent_list_source_sprites() {
         .iter(&world)
         .copied()
         .collect::<Vec<_>>();
-    assert_eq!(source_sprites.len(), 2);
+    assert_eq!(source_sprites.len(), 1);
     assert!(source_sprites
         .iter()
-        .any(|sprite| sprite.kind == AgentListBloomSourceKind::Main));
-    assert!(source_sprites
-        .iter()
-        .any(|sprite| sprite.kind == AgentListBloomSourceKind::Marker));
+        .all(|sprite| sprite.kind == AgentListBloomSourceKind::Marker));
 
     let mut composite_query = world.query::<(
         &Visibility,
@@ -941,7 +939,7 @@ fn agent_list_scroll_clamps_to_content_height() {
     let HudModuleModel::AgentList(state) = model else {
         panic!("expected agent list model");
     };
-    assert_eq!(state.scroll_offset, 28.0);
+    assert_eq!(state.scroll_offset, 60.0);
 }
 
 #[test]
