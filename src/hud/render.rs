@@ -35,7 +35,7 @@ impl HudColors {
     pub(crate) const BUTTON_BORDER: peniko::Color = peniko::Color::from_rgba8(57, 26, 6, 255);
     pub(crate) const ROW_HOVERED: peniko::Color = peniko::Color::from_rgba8(44, 32, 24, 255);
     pub(crate) const ROW_FOCUSED: peniko::Color = peniko::Color::from_rgba8(44, 32, 24, 255);
-    pub(crate) const MESSAGE_BOX: peniko::Color = peniko::Color::from_rgba8(7, 7, 7, 255);
+    pub(crate) const MESSAGE_BOX: peniko::Color = peniko::Color::from_rgba8(0, 0, 0, 255);
 }
 
 pub(crate) fn apply_alpha(color: peniko::Color, factor: f32) -> peniko::Color {
@@ -254,7 +254,7 @@ fn draw_message_box(
         w: rect.w,
         h: 44.0,
     };
-    painter.fill_rect(title_rect, HudColors::TITLE, 12.0);
+    painter.fill_rect(title_rect, HudColors::MESSAGE_BOX, 12.0);
 
     let target_label = message_box
         .target_terminal
@@ -280,7 +280,7 @@ fn draw_message_box(
         w: rect.w - 44.0,
         h: (info_row_y - 12.0 - (rect.y + 64.0)).max(96.0),
     };
-    painter.fill_rect(body_rect, HudColors::TITLE, 6.0);
+    painter.fill_rect(body_rect, HudColors::MESSAGE_BOX, 6.0);
     painter.stroke_rect(body_rect, HudColors::TEXT_MUTED, 4.0);
 
     let line_height = 24.0;
