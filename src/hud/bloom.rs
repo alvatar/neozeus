@@ -6,10 +6,8 @@ use crate::terminals::{TerminalId, TerminalManager};
 use bevy::{
     asset::RenderAssetUsages,
     camera::{visibility::RenderLayers, ClearColorConfig, RenderTarget},
-    core_pipeline::tonemapping::{DebandDither, Tonemapping},
     ecs::system::SystemParam,
     image::ImageSampler,
-    post_process::bloom::{Bloom, BloomCompositeMode, BloomPrefilter},
     prelude::*,
     reflect::TypePath,
     render::render_resource::{
@@ -24,13 +22,13 @@ use std::env;
 use super::compositor::HUD_COMPOSITE_FOREGROUND_Z;
 
 const BLOOM_SOURCE_LAYER: usize = 29;
+const BLOOM_BLUR_H_LAYER: usize = 30;
+const BLOOM_BLUR_V_LAYER: usize = 31;
 const BLOOM_COMPOSITE_Z: f32 = HUD_COMPOSITE_FOREGROUND_Z + 0.1;
 const BLOOM_TARGET_FORMAT: TextureFormat = TextureFormat::Rgba16Float;
-const BLOOM_COMPOSITE_SHADER_PATH: &str = "shaders/hud_agent_list_bloom_composite.wgsl";
+const BLOOM_BLUR_SHADER_PATH: &str = "shaders/hud_agent_list_bloom_blur.wgsl";
 const DEFAULT_BLOOM_INTENSITY: f32 = 1.35;
-const BLOOM_COMPOSITE_ALPHA: f32 = 1.0;
-const BLOOM_CORE_MASK_INSET_PX: f32 = 1.0;
-const BLOOM_CORE_MASK_FEATHER_PX: f32 = 10.0;
+const BLOOM_COMPOSITE_GAIN: f32 = 0.92;
 
 #[derive(Resource, Clone, Copy, Debug)]
 pub(crate) struct HudBloomSettings {
@@ -61,24 +59,35 @@ pub(crate) struct AgentListBloomCameraMarker;
 #[derive(Component)]
 pub(crate) struct AgentListBloomCompositeMarker;
 
+#[derive(Component)]
+struct AgentListBloomBlurHorizontalCameraMarker;
+
+#[derive(Component)]
+struct AgentListBloomBlurVerticalCameraMarker;
+
+#[derive(Component)]
+struct AgentListBloomBlurHorizontalQuadMarker;
+
+#[derive(Component)]
+struct AgentListBloomBlurVerticalQuadMarker;
+
 #[derive(Clone, Copy, Debug, ShaderType)]
-pub(crate) struct AgentListBloomCompositeUniform {
-    pub(crate) core_center_size: Vec4,
-    pub(crate) settings: Vec4,
+pub(crate) struct AgentListBloomBlurUniform {
+    pub(crate) texel_step_gain: Vec4,
 }
 
 #[derive(Asset, TypePath, AsBindGroup, Debug, Clone)]
-pub(crate) struct AgentListBloomCompositeMaterial {
+pub(crate) struct AgentListBloomBlurMaterial {
     #[texture(0)]
     #[sampler(1)]
     pub(crate) image: Handle<Image>,
     #[uniform(2)]
-    pub(crate) uniform: AgentListBloomCompositeUniform,
+    pub(crate) uniform: AgentListBloomBlurUniform,
 }
 
-impl Material2d for AgentListBloomCompositeMaterial {
+impl Material2d for AgentListBloomBlurMaterial {
     fn fragment_shader() -> ShaderRef {
-        BLOOM_COMPOSITE_SHADER_PATH.into()
+        BLOOM_BLUR_SHADER_PATH.into()
     }
 
     fn alpha_mode(&self) -> AlphaMode2d {
@@ -104,15 +113,17 @@ struct BloomSourceSpec {
     color: Color,
 }
 
-fn active_accent_rect(specs: &[BloomSourceSpec]) -> Option<HudRect> {
-    specs.first().map(|spec| spec.rect)
-}
-
 #[derive(Clone, Debug, Default)]
 struct AgentListBloomPass {
-    image: Handle<Image>,
-    camera: Option<Entity>,
-    composite_entity: Option<Entity>,
+    source_image: Handle<Image>,
+    blur_h_image: Handle<Image>,
+    blur_v_image: Handle<Image>,
+    source_camera: Option<Entity>,
+    blur_h_camera: Option<Entity>,
+    blur_v_camera: Option<Entity>,
+    blur_h_quad: Option<Entity>,
+    blur_v_quad: Option<Entity>,
+    composite_sprite: Option<Entity>,
 }
 
 #[derive(Resource, Clone, Debug, Default)]
@@ -164,50 +175,21 @@ fn rect_transform(window: &Window, rect: HudRect, z: f32) -> Transform {
     )
 }
 
-fn bloom_composite_uniform(
-    window: &Window,
-    rect: Option<HudRect>,
-) -> AgentListBloomCompositeUniform {
-    let Some(rect) = rect else {
-        return AgentListBloomCompositeUniform {
-            core_center_size: Vec4::ZERO,
-            settings: Vec4::new(BLOOM_COMPOSITE_ALPHA, BLOOM_CORE_MASK_INSET_PX, 0.0, 0.0),
-        };
-    };
+fn fullscreen_transform(window: &Window, z: f32) -> Transform {
+    Transform::from_xyz(0.0, 0.0, z).with_scale(Vec3::new(window.width(), window.height(), 1.0))
+}
 
-    let transform = rect_transform(window, rect, 0.0);
-    AgentListBloomCompositeUniform {
-        core_center_size: Vec4::new(
-            transform.translation.x,
-            transform.translation.y,
-            (rect.w - BLOOM_CORE_MASK_INSET_PX * 2.0).max(0.0),
-            (rect.h - BLOOM_CORE_MASK_INSET_PX * 2.0).max(0.0),
-        ),
-        settings: Vec4::new(BLOOM_COMPOSITE_ALPHA, BLOOM_CORE_MASK_FEATHER_PX, 0.0, 0.0),
+fn blur_uniform(texel_step: Vec2) -> AgentListBloomBlurUniform {
+    AgentListBloomBlurUniform {
+        texel_step_gain: Vec4::new(texel_step.x, texel_step.y, 1.0, 0.0),
     }
 }
 
 fn bloom_source_color(focused: bool, hovered: bool, kind: AgentListBloomSourceKind) -> Color {
     match (focused, hovered, kind) {
-        (true, _, AgentListBloomSourceKind::Accent) => Color::linear_rgba(10.0, 0.42, 0.36, 0.92),
-        (_, true, AgentListBloomSourceKind::Accent) => Color::linear_rgba(5.5, 0.24, 0.20, 0.32),
-        (_, _, AgentListBloomSourceKind::Accent) => Color::linear_rgba(2.5, 0.16, 0.14, 0.10),
-    }
-}
-
-fn bloom_component(intensity: f32) -> Bloom {
-    Bloom {
-        intensity,
-        low_frequency_boost: 0.72,
-        low_frequency_boost_curvature: 0.78,
-        high_pass_frequency: 0.84,
-        prefilter: BloomPrefilter {
-            threshold: 0.0,
-            threshold_softness: 0.0,
-        },
-        composite_mode: BloomCompositeMode::Additive,
-        max_mip_dimension: 1024,
-        scale: Vec2::ONE,
+        (true, _, AgentListBloomSourceKind::Accent) => Color::linear_rgba(3.2, 0.06, 0.12, 0.70),
+        (_, true, AgentListBloomSourceKind::Accent) => Color::linear_rgba(1.5, 0.04, 0.08, 0.22),
+        (_, _, AgentListBloomSourceKind::Accent) => Color::linear_rgba(0.8, 0.03, 0.06, 0.10),
     }
 }
 
@@ -255,17 +237,19 @@ fn build_bloom_specs(
 pub(crate) struct HudWidgetBloomSetupContext<'w, 's> {
     commands: Commands<'w, 's>,
     primary_window: Single<'w, 's, &'static Window, With<PrimaryWindow>>,
-    settings: Res<'w, HudBloomSettings>,
     images: ResMut<'w, Assets<Image>>,
     meshes: ResMut<'w, Assets<Mesh>>,
-    composite_materials: ResMut<'w, Assets<AgentListBloomCompositeMaterial>>,
+    blur_materials: ResMut<'w, Assets<AgentListBloomBlurMaterial>>,
     bloom: ResMut<'w, HudWidgetBloom>,
 }
 
 pub(crate) fn setup_hud_widget_bloom(mut ctx: HudWidgetBloomSetupContext) {
     let size = window_size(&ctx.primary_window);
-    let image = ctx.images.add(bloom_target_image(size));
-    let camera = ctx
+    let source_image = ctx.images.add(bloom_target_image(size));
+    let blur_h_image = ctx.images.add(bloom_target_image(size));
+    let blur_v_image = ctx.images.add(bloom_target_image(size));
+
+    let source_camera = ctx
         .commands
         .spawn((
             Camera2d,
@@ -274,30 +258,90 @@ pub(crate) fn setup_hud_widget_bloom(mut ctx: HudWidgetBloomSetupContext) {
                 clear_color: ClearColorConfig::Custom(Color::NONE),
                 ..default()
             },
-            RenderTarget::Image(image.clone().into()),
+            RenderTarget::Image(source_image.clone().into()),
             RenderLayers::layer(BLOOM_SOURCE_LAYER),
-            bloom_component(ctx.settings.agent_list_intensity),
-            Tonemapping::AgX,
-            DebandDither::Enabled,
             AgentListBloomCameraMarker,
         ))
         .id();
-    let composite_material = ctx
-        .composite_materials
-        .add(AgentListBloomCompositeMaterial {
-            image: image.clone(),
-            uniform: bloom_composite_uniform(&ctx.primary_window, None),
-        });
-    let composite_entity = ctx
+
+    let blur_h_material = ctx.blur_materials.add(AgentListBloomBlurMaterial {
+        image: source_image.clone(),
+        uniform: blur_uniform(Vec2::new(1.0 / size.x.max(1) as f32, 0.0)),
+    });
+    let blur_h_quad = ctx
         .commands
         .spawn((
             Mesh2d(ctx.meshes.add(Rectangle::default())),
-            MeshMaterial2d(composite_material.clone()),
-            Transform::from_xyz(0.0, 0.0, BLOOM_COMPOSITE_Z).with_scale(Vec3::new(
-                ctx.primary_window.width(),
-                ctx.primary_window.height(),
-                1.0,
-            )),
+            MeshMaterial2d(blur_h_material.clone()),
+            fullscreen_transform(&ctx.primary_window, 0.0),
+            RenderLayers::layer(BLOOM_BLUR_H_LAYER),
+            Visibility::Hidden,
+            AgentListBloomBlurHorizontalQuadMarker,
+        ))
+        .id();
+    let blur_h_camera = ctx
+        .commands
+        .spawn((
+            Camera2d,
+            Camera {
+                order: -99,
+                clear_color: ClearColorConfig::Custom(Color::NONE),
+                ..default()
+            },
+            RenderTarget::Image(blur_h_image.clone().into()),
+            RenderLayers::layer(BLOOM_BLUR_H_LAYER),
+            AgentListBloomBlurHorizontalCameraMarker,
+        ))
+        .id();
+
+    let blur_v_material = ctx.blur_materials.add(AgentListBloomBlurMaterial {
+        image: blur_h_image.clone(),
+        uniform: blur_uniform(Vec2::new(0.0, 1.0 / size.y.max(1) as f32)),
+    });
+    let blur_v_quad = ctx
+        .commands
+        .spawn((
+            Mesh2d(ctx.meshes.add(Rectangle::default())),
+            MeshMaterial2d(blur_v_material.clone()),
+            fullscreen_transform(&ctx.primary_window, 0.0),
+            RenderLayers::layer(BLOOM_BLUR_V_LAYER),
+            Visibility::Hidden,
+            AgentListBloomBlurVerticalQuadMarker,
+        ))
+        .id();
+    let blur_v_camera = ctx
+        .commands
+        .spawn((
+            Camera2d,
+            Camera {
+                order: -98,
+                clear_color: ClearColorConfig::Custom(Color::NONE),
+                ..default()
+            },
+            RenderTarget::Image(blur_v_image.clone().into()),
+            RenderLayers::layer(BLOOM_BLUR_V_LAYER),
+            AgentListBloomBlurVerticalCameraMarker,
+        ))
+        .id();
+
+    let composite_sprite = ctx
+        .commands
+        .spawn((
+            Sprite {
+                image: blur_v_image.clone(),
+                color: Color::linear_rgba(
+                    BLOOM_COMPOSITE_GAIN,
+                    BLOOM_COMPOSITE_GAIN,
+                    BLOOM_COMPOSITE_GAIN,
+                    1.0,
+                ),
+                custom_size: Some(Vec2::new(
+                    ctx.primary_window.width(),
+                    ctx.primary_window.height(),
+                )),
+                ..default()
+            },
+            Transform::from_xyz(0.0, 0.0, BLOOM_COMPOSITE_Z),
             RenderLayers::layer(0),
             Visibility::Hidden,
             AgentListBloomCompositeMarker,
@@ -305,21 +349,54 @@ pub(crate) fn setup_hud_widget_bloom(mut ctx: HudWidgetBloomSetupContext) {
         .id();
 
     ctx.bloom.agent_list = AgentListBloomPass {
-        image,
-        camera: Some(camera),
-        composite_entity: Some(composite_entity),
+        source_image,
+        blur_h_image,
+        blur_v_image,
+        source_camera: Some(source_camera),
+        blur_h_camera: Some(blur_h_camera),
+        blur_v_camera: Some(blur_v_camera),
+        blur_h_quad: Some(blur_h_quad),
+        blur_v_quad: Some(blur_v_quad),
+        composite_sprite: Some(composite_sprite),
     };
 }
 
-type BloomCameraFilter = With<AgentListBloomCameraMarker>;
+type BloomSourceCameraFilter = (
+    With<AgentListBloomCameraMarker>,
+    Without<AgentListBloomBlurHorizontalCameraMarker>,
+    Without<AgentListBloomBlurVerticalCameraMarker>,
+);
+type BloomBlurHorizontalCameraFilter = (
+    With<AgentListBloomBlurHorizontalCameraMarker>,
+    Without<AgentListBloomCameraMarker>,
+    Without<AgentListBloomBlurVerticalCameraMarker>,
+);
+type BloomBlurVerticalCameraFilter = (
+    With<AgentListBloomBlurVerticalCameraMarker>,
+    Without<AgentListBloomCameraMarker>,
+    Without<AgentListBloomBlurHorizontalCameraMarker>,
+);
 type BloomCompositeFilter = (
     With<AgentListBloomCompositeMarker>,
     Without<AgentListBloomSourceSprite>,
-    Without<AgentListBloomCameraMarker>,
+    Without<AgentListBloomBlurHorizontalQuadMarker>,
+    Without<AgentListBloomBlurVerticalQuadMarker>,
 );
 type BloomSourceSpriteFilter = (
     With<AgentListBloomSourceSprite>,
     Without<AgentListBloomCompositeMarker>,
+);
+type BloomBlurHorizontalQuadFilter = (
+    With<AgentListBloomBlurHorizontalQuadMarker>,
+    Without<AgentListBloomBlurVerticalQuadMarker>,
+    Without<AgentListBloomCompositeMarker>,
+    Without<AgentListBloomSourceSprite>,
+);
+type BloomBlurVerticalQuadFilter = (
+    With<AgentListBloomBlurVerticalQuadMarker>,
+    Without<AgentListBloomBlurHorizontalQuadMarker>,
+    Without<AgentListBloomCompositeMarker>,
+    Without<AgentListBloomSourceSprite>,
 );
 
 #[derive(SystemParam)]
@@ -332,17 +409,39 @@ pub(crate) struct HudWidgetBloomContext<'w, 's> {
     commands: Commands<'w, 's>,
     bloom: ResMut<'w, HudWidgetBloom>,
     images: ResMut<'w, Assets<Image>>,
-    cameras: Query<'w, 's, (&'static mut RenderTarget, &'static mut Bloom), BloomCameraFilter>,
-    composite_materials: ResMut<'w, Assets<AgentListBloomCompositeMaterial>>,
+    blur_materials: ResMut<'w, Assets<AgentListBloomBlurMaterial>>,
+    source_cameras: Query<'w, 's, &'static mut RenderTarget, BloomSourceCameraFilter>,
+    blur_h_cameras: Query<'w, 's, &'static mut RenderTarget, BloomBlurHorizontalCameraFilter>,
+    blur_v_cameras: Query<'w, 's, &'static mut RenderTarget, BloomBlurVerticalCameraFilter>,
     composites: Query<
         'w,
         's,
         (
-            &'static MeshMaterial2d<AgentListBloomCompositeMaterial>,
+            &'static mut Sprite,
             &'static mut Transform,
             &'static mut Visibility,
         ),
         BloomCompositeFilter,
+    >,
+    blur_h_quads: Query<
+        'w,
+        's,
+        (
+            &'static MeshMaterial2d<AgentListBloomBlurMaterial>,
+            &'static mut Transform,
+            &'static mut Visibility,
+        ),
+        BloomBlurHorizontalQuadFilter,
+    >,
+    blur_v_quads: Query<
+        'w,
+        's,
+        (
+            &'static MeshMaterial2d<AgentListBloomBlurMaterial>,
+            &'static mut Transform,
+            &'static mut Visibility,
+        ),
+        BloomBlurVerticalQuadFilter,
     >,
     source_sprites: Query<
         'w,
@@ -362,14 +461,58 @@ pub(crate) fn sync_hud_widget_bloom(mut ctx: HudWidgetBloomContext) {
     let size = window_size(&ctx.primary_window);
     let pass = &mut ctx.bloom.agent_list;
 
-    if !image_matches_size(&ctx.images, &pass.image, size) {
-        pass.image = ctx.images.add(bloom_target_image(size));
+    if !image_matches_size(&ctx.images, &pass.source_image, size) {
+        pass.source_image = ctx.images.add(bloom_target_image(size));
+    }
+    if !image_matches_size(&ctx.images, &pass.blur_h_image, size) {
+        pass.blur_h_image = ctx.images.add(bloom_target_image(size));
+    }
+    if !image_matches_size(&ctx.images, &pass.blur_v_image, size) {
+        pass.blur_v_image = ctx.images.add(bloom_target_image(size));
     }
 
-    if let Some(camera) = pass.camera {
-        if let Ok((mut target, mut bloom)) = ctx.cameras.get_mut(camera) {
-            *target = RenderTarget::Image(pass.image.clone().into());
-            *bloom = bloom_component(ctx.settings.agent_list_intensity);
+    if let Some(camera) = pass.source_camera {
+        if let Ok(mut target) = ctx.source_cameras.get_mut(camera) {
+            *target = RenderTarget::Image(pass.source_image.clone().into());
+        }
+    }
+    if let Some(camera) = pass.blur_h_camera {
+        if let Ok(mut target) = ctx.blur_h_cameras.get_mut(camera) {
+            *target = RenderTarget::Image(pass.blur_h_image.clone().into());
+        }
+    }
+    if let Some(camera) = pass.blur_v_camera {
+        if let Ok(mut target) = ctx.blur_v_cameras.get_mut(camera) {
+            *target = RenderTarget::Image(pass.blur_v_image.clone().into());
+        }
+    }
+
+    if let Some(quad) = pass.blur_h_quad {
+        if let Ok((material_handle, mut transform, mut visibility)) = ctx.blur_h_quads.get_mut(quad)
+        {
+            transform.translation = Vec3::ZERO;
+            transform.rotation = Quat::IDENTITY;
+            transform.scale =
+                Vec3::new(ctx.primary_window.width(), ctx.primary_window.height(), 1.0);
+            *visibility = Visibility::Hidden;
+            if let Some(material) = ctx.blur_materials.get_mut(material_handle.id()) {
+                material.image = pass.source_image.clone();
+                material.uniform = blur_uniform(Vec2::new(1.0 / size.x.max(1) as f32, 0.0));
+            }
+        }
+    }
+    if let Some(quad) = pass.blur_v_quad {
+        if let Ok((material_handle, mut transform, mut visibility)) = ctx.blur_v_quads.get_mut(quad)
+        {
+            transform.translation = Vec3::ZERO;
+            transform.rotation = Quat::IDENTITY;
+            transform.scale =
+                Vec3::new(ctx.primary_window.width(), ctx.primary_window.height(), 1.0);
+            *visibility = Visibility::Hidden;
+            if let Some(material) = ctx.blur_materials.get_mut(material_handle.id()) {
+                material.image = pass.blur_h_image.clone();
+                material.uniform = blur_uniform(Vec2::new(0.0, 1.0 / size.y.max(1) as f32));
+            }
         }
     }
 
@@ -442,25 +585,46 @@ pub(crate) fn sync_hud_widget_bloom(mut ctx: HudWidgetBloomContext) {
         }
     }
 
-    if let Some(composite) = pass.composite_entity {
-        if let Ok((material_handle, mut transform, mut visibility)) =
-            ctx.composites.get_mut(composite)
-        {
+    let active = !specs.is_empty();
+    if let Some(quad) = pass.blur_h_quad {
+        if let Ok((_, _, mut visibility)) = ctx.blur_h_quads.get_mut(quad) {
+            *visibility = if active {
+                Visibility::Visible
+            } else {
+                Visibility::Hidden
+            };
+        }
+    }
+    if let Some(quad) = pass.blur_v_quad {
+        if let Ok((_, _, mut visibility)) = ctx.blur_v_quads.get_mut(quad) {
+            *visibility = if active {
+                Visibility::Visible
+            } else {
+                Visibility::Hidden
+            };
+        }
+    }
+    if let Some(composite) = pass.composite_sprite {
+        if let Ok((mut sprite, mut transform, mut visibility)) = ctx.composites.get_mut(composite) {
+            sprite.image = pass.blur_v_image.clone();
+            sprite.color = Color::linear_rgba(
+                BLOOM_COMPOSITE_GAIN * ctx.settings.agent_list_intensity,
+                BLOOM_COMPOSITE_GAIN * ctx.settings.agent_list_intensity,
+                BLOOM_COMPOSITE_GAIN * ctx.settings.agent_list_intensity,
+                1.0,
+            );
+            sprite.custom_size = Some(Vec2::new(
+                ctx.primary_window.width(),
+                ctx.primary_window.height(),
+            ));
             transform.translation = Vec3::new(0.0, 0.0, BLOOM_COMPOSITE_Z);
             transform.rotation = Quat::IDENTITY;
-            transform.scale =
-                Vec3::new(ctx.primary_window.width(), ctx.primary_window.height(), 1.0);
-            *visibility = if specs.is_empty() {
-                Visibility::Hidden
-            } else {
+            transform.scale = Vec3::ONE;
+            *visibility = if active {
                 Visibility::Visible
+            } else {
+                Visibility::Hidden
             };
-
-            if let Some(material) = ctx.composite_materials.get_mut(material_handle.id()) {
-                material.image = pass.image.clone();
-                material.uniform =
-                    bloom_composite_uniform(&ctx.primary_window, active_accent_rect(&specs));
-            }
         }
     }
 }
