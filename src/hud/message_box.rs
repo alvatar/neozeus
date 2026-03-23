@@ -1,5 +1,6 @@
 use crate::{hud::HudRect, terminals::TerminalId};
 use bevy::{prelude::Vec2, window::Window};
+use std::collections::BTreeMap;
 
 const HUD_MESSAGE_BOX_KILL_RING_LIMIT: usize = 32;
 const HUD_MESSAGE_BOX_ACTION_BUTTON_W: f32 = 170.0;
@@ -29,6 +30,14 @@ pub(crate) struct HudMessageBoxYankState {
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
+struct HudMessageBoxDraft {
+    text: String,
+    cursor: usize,
+    mark: Option<usize>,
+    preferred_column: Option<usize>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
 pub(crate) struct HudMessageBoxState {
     pub(crate) visible: bool,
     pub(crate) target_terminal: Option<TerminalId>,
@@ -38,6 +47,7 @@ pub(crate) struct HudMessageBoxState {
     pub(crate) preferred_column: Option<usize>,
     pub(crate) kill_ring: Vec<String>,
     pub(crate) yank_state: Option<HudMessageBoxYankState>,
+    drafts: BTreeMap<TerminalId, HudMessageBoxDraft>,
 }
 
 pub(crate) fn message_box_rect(window: &Window) -> HudRect {
@@ -90,9 +100,7 @@ pub(crate) fn message_box_action_at(window: &Window, point: Vec2) -> Option<HudM
 }
 
 impl HudMessageBoxState {
-    pub(crate) fn reset_for_target(&mut self, target_terminal: TerminalId) {
-        self.visible = true;
-        self.target_terminal = Some(target_terminal);
+    fn clear_editor(&mut self) {
         self.text.clear();
         self.cursor = 0;
         self.mark = None;
@@ -100,14 +108,57 @@ impl HudMessageBoxState {
         self.yank_state = None;
     }
 
+    fn save_current_draft(&mut self) {
+        let Some(target_terminal) = self.target_terminal else {
+            return;
+        };
+        self.drafts.insert(
+            target_terminal,
+            HudMessageBoxDraft {
+                text: self.text.clone(),
+                cursor: self.cursor,
+                mark: self.mark,
+                preferred_column: self.preferred_column,
+            },
+        );
+    }
+
+    fn restore_draft(&mut self, target_terminal: TerminalId) {
+        if let Some(draft) = self.drafts.get(&target_terminal).cloned() {
+            self.text = draft.text;
+            self.cursor = draft.cursor.min(self.text.len());
+            self.mark = draft.mark.map(|mark| mark.min(self.text.len()));
+            self.preferred_column = draft.preferred_column;
+            self.yank_state = None;
+            return;
+        }
+
+        self.clear_editor();
+    }
+
+    pub(crate) fn reset_for_target(&mut self, target_terminal: TerminalId) {
+        self.save_current_draft();
+        self.visible = true;
+        self.target_terminal = Some(target_terminal);
+        self.restore_draft(target_terminal);
+    }
+
     pub(crate) fn close(&mut self) {
+        self.save_current_draft();
         self.visible = false;
         self.target_terminal = None;
-        self.text.clear();
-        self.cursor = 0;
         self.mark = None;
         self.preferred_column = None;
         self.yank_state = None;
+    }
+
+    pub(crate) fn close_and_discard_current(&mut self) {
+        if let Some(target_terminal) = self.target_terminal {
+            self.drafts.remove(&target_terminal);
+        }
+        self.visible = false;
+        self.target_terminal = None;
+        self.clear_editor();
     }
 
     pub(crate) fn region_bounds(&self) -> Option<(usize, usize)> {

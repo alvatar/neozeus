@@ -368,7 +368,7 @@ fn message_box_task_intent(
     if payload.is_empty() {
         return None;
     }
-    hud_state.close_message_box();
+    hud_state.close_message_box_and_discard_draft();
     Some(match action {
         HudMessageBoxAction::AppendTask => HudIntent::AppendTerminalTask(target_terminal, payload),
         HudMessageBoxAction::PrependTask => {
@@ -412,7 +412,7 @@ pub(crate) fn handle_terminal_message_box_keyboard(
                             .write(HudIntent::SendTerminalCommand(target_terminal, payload));
                     }
                 }
-                hud_state.close_message_box();
+                hud_state.close_message_box_and_discard_draft();
                 needs_redraw = true;
                 break;
             }
