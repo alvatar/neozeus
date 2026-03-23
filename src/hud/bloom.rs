@@ -35,12 +35,13 @@ const BLOOM_COMPOSITE_LAYER: usize = 34;
 const BLOOM_COMPOSITE_Z: f32 = HUD_COMPOSITE_FOREGROUND_Z + 0.1;
 const BLOOM_TARGET_FORMAT: TextureFormat = TextureFormat::Rgba16Float;
 const BLOOM_BLUR_SHADER_PATH: &str = "shaders/hud_agent_list_bloom_blur.wgsl";
-const BLOOM_SCALE_DIVISOR: u32 = 2;
-const DEFAULT_BLOOM_INTENSITY: f32 = 1.35;
-const SMALL_BLUR_GAIN: f32 = 1.0;
-const WIDE_BLUR_GAIN: f32 = 0.8;
-const SMALL_BLUR_STEP_SCALE: f32 = 2.25;
-const WIDE_BLUR_STEP_SCALE: f32 = 7.0;
+const BLOOM_SCALE_DIVISOR: u32 = 1;
+const DEFAULT_BLOOM_INTENSITY: f32 = 0.10;
+const BLOOM_INTENSITY_SCALE: f32 = 14.0;
+const SMALL_BLUR_GAIN: f32 = 2.0;
+const WIDE_BLUR_GAIN: f32 = 1.5;
+const SMALL_BLUR_STEP_SCALE: f32 = 6.0;
+const WIDE_BLUR_STEP_SCALE: f32 = 18.0;
 const BLOOM_DEBUG_PREVIEW_Z: f32 = HUD_COMPOSITE_FOREGROUND_Z + 2.0;
 const BLOOM_DEBUG_PREVIEW_WIDTH: f32 = 160.0;
 const BLOOM_DEBUG_PREVIEW_HEIGHT: f32 = 120.0;
@@ -325,9 +326,9 @@ fn bloom_reference_red(scale: f32, alpha: f32) -> Color {
 
 fn bloom_source_color(focused: bool, hovered: bool, kind: AgentListBloomSourceKind) -> Color {
     match (focused, hovered, kind) {
-        (true, _, AgentListBloomSourceKind::Accent) => bloom_reference_red(5.0, 1.0),
-        (_, true, AgentListBloomSourceKind::Accent) => bloom_reference_red(2.4, 0.7),
-        (_, _, AgentListBloomSourceKind::Accent) => bloom_reference_red(1.0, 0.3),
+        (true, _, AgentListBloomSourceKind::Accent) => bloom_reference_red(14.0, 1.0),
+        (_, true, AgentListBloomSourceKind::Accent) => bloom_reference_red(6.0, 0.8),
+        (_, _, AgentListBloomSourceKind::Accent) => bloom_reference_red(2.5, 0.35),
     }
 }
 
@@ -342,17 +343,6 @@ fn additive_blend_state() -> BlendState {
             src_factor: BlendFactor::Zero,
             dst_factor: BlendFactor::One,
             operation: BlendOperation::Add,
-        },
-    }
-}
-
-pub(crate) fn bloom_source_rect(kind: AgentListBloomSourceKind, rect: HudRect) -> HudRect {
-    match kind {
-        AgentListBloomSourceKind::Accent => HudRect {
-            x: (rect.x - 5.0).max(0.0),
-            y: (rect.y - 4.0).max(0.0),
-            w: rect.w + 14.0,
-            h: rect.h + 8.0,
         },
     }
 }
@@ -384,7 +374,7 @@ fn build_bloom_specs(
         }
 
         let kind = AgentListBloomSourceKind::Accent;
-        let rect = bloom_source_rect(kind, agent_row_rect(row.rect, AgentListRowSection::Accent));
+        let rect = agent_row_rect(row.rect, AgentListRowSection::Accent);
         specs.push(BloomSourceSpec {
             key: AgentListBloomSourceSprite {
                 terminal_id: row.terminal_id,
@@ -1190,10 +1180,11 @@ pub(crate) fn sync_hud_widget_bloom(mut ctx: HudWidgetBloomContext) {
     if let Some(composite) = pass.composite_sprite {
         if let Ok((mut sprite, mut transform, mut visibility)) = ctx.composites.get_mut(composite) {
             sprite.image = pass.blur_small_v_image.clone();
+            let intensity = ctx.settings.agent_list_intensity * BLOOM_INTENSITY_SCALE;
             sprite.color = Color::linear_rgba(
-                SMALL_BLUR_GAIN * ctx.settings.agent_list_intensity,
-                SMALL_BLUR_GAIN * ctx.settings.agent_list_intensity,
-                SMALL_BLUR_GAIN * ctx.settings.agent_list_intensity,
+                SMALL_BLUR_GAIN * intensity,
+                SMALL_BLUR_GAIN * intensity,
+                SMALL_BLUR_GAIN * intensity,
                 1.0,
             );
             sprite.custom_size = Some(Vec2::new(
@@ -1215,10 +1206,11 @@ pub(crate) fn sync_hud_widget_bloom(mut ctx: HudWidgetBloomContext) {
             ctx.wide_composites.get_mut(composite)
         {
             sprite.image = pass.blur_wide_v_image.clone();
+            let intensity = ctx.settings.agent_list_intensity * BLOOM_INTENSITY_SCALE;
             sprite.color = Color::linear_rgba(
-                WIDE_BLUR_GAIN * ctx.settings.agent_list_intensity,
-                WIDE_BLUR_GAIN * ctx.settings.agent_list_intensity,
-                WIDE_BLUR_GAIN * ctx.settings.agent_list_intensity,
+                WIDE_BLUR_GAIN * intensity,
+                WIDE_BLUR_GAIN * intensity,
+                WIDE_BLUR_GAIN * intensity,
                 1.0,
             );
             sprite.custom_size = Some(Vec2::new(
