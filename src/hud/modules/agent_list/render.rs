@@ -6,21 +6,42 @@ use bevy::prelude::Vec2;
 use bevy_vello::{prelude::VelloTextAnchor, vello::peniko};
 
 use super::{
-    agent_row_rect, agent_rows, AgentListRowSection, AGENT_LIST_ACCENT_RED_B,
-    AGENT_LIST_ACCENT_RED_G, AGENT_LIST_ACCENT_RED_R, AGENT_LIST_HEADER_HEIGHT,
+    agent_row_rect, agent_rows, AgentListRowSection, AGENT_LIST_BLOOM_RED_B,
+    AGENT_LIST_BLOOM_RED_G, AGENT_LIST_BLOOM_RED_R, AGENT_LIST_BORDER_ORANGE_B,
+    AGENT_LIST_BORDER_ORANGE_G, AGENT_LIST_BORDER_ORANGE_R, AGENT_LIST_HEADER_HEIGHT,
     AGENT_LIST_LEFT_RAIL_WIDTH,
 };
 
-const EVA_ORANGE: peniko::Color = peniko::Color::from_rgba8(181, 66, 11, 255);
-const EVA_ORANGE_BRIGHT: peniko::Color = peniko::Color::from_rgba8(181, 66, 11, 255);
-const EVA_ORANGE_DIM: peniko::Color = peniko::Color::from_rgba8(181, 66, 11, 255);
-const EVA_SELECTED: peniko::Color = peniko::Color::from_rgba8(181, 66, 11, 255);
+const EVA_ORANGE: peniko::Color = peniko::Color::from_rgba8(
+    AGENT_LIST_BORDER_ORANGE_R,
+    AGENT_LIST_BORDER_ORANGE_G,
+    AGENT_LIST_BORDER_ORANGE_B,
+    255,
+);
+const EVA_ORANGE_BRIGHT: peniko::Color = peniko::Color::from_rgba8(
+    AGENT_LIST_BORDER_ORANGE_R,
+    AGENT_LIST_BORDER_ORANGE_G,
+    AGENT_LIST_BORDER_ORANGE_B,
+    255,
+);
+const EVA_ORANGE_DIM: peniko::Color = peniko::Color::from_rgba8(
+    AGENT_LIST_BORDER_ORANGE_R,
+    AGENT_LIST_BORDER_ORANGE_G,
+    AGENT_LIST_BORDER_ORANGE_B,
+    255,
+);
+const EVA_SELECTED: peniko::Color = peniko::Color::from_rgba8(
+    AGENT_LIST_BORDER_ORANGE_R,
+    AGENT_LIST_BORDER_ORANGE_G,
+    AGENT_LIST_BORDER_ORANGE_B,
+    255,
+);
 const EVA_CYAN: peniko::Color = peniko::Color::from_rgba8(96, 238, 255, 255);
 const EVA_BLACK: peniko::Color = peniko::Color::from_rgba8(0, 0, 0, 255);
 const EVA_EMISSIVE_RED: peniko::Color = peniko::Color::from_rgba8(
-    AGENT_LIST_ACCENT_RED_R,
-    AGENT_LIST_ACCENT_RED_G,
-    AGENT_LIST_ACCENT_RED_B,
+    AGENT_LIST_BLOOM_RED_R,
+    AGENT_LIST_BLOOM_RED_G,
+    AGENT_LIST_BLOOM_RED_B,
     255,
 );
 const TASK_RED: peniko::Color = peniko::Color::from_rgba8(255, 24, 24, 255);
@@ -49,7 +70,7 @@ fn draw_button_rect(
     fill: peniko::Color,
 ) {
     painter.fill_rect(rect, fill, 0.0);
-    painter.stroke_rect(rect, stroke, 0.0);
+    painter.stroke_rect_width(rect, stroke, 2.5);
 }
 
 fn marker_fill(has_notes: bool) -> peniko::Color {

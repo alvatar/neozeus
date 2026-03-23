@@ -1,7 +1,7 @@
 use crate::hud::{
     modules::{
-        agent_row_rect, agent_rows, AgentListRowSection, AGENT_LIST_ACCENT_RED_B,
-        AGENT_LIST_ACCENT_RED_G, AGENT_LIST_ACCENT_RED_R,
+        agent_row_rect, agent_rows, AgentListRowSection, AGENT_LIST_BLOOM_RED_B,
+        AGENT_LIST_BLOOM_RED_G, AGENT_LIST_BLOOM_RED_R,
     },
     AgentDirectory, HudModuleId, HudRect, HudState,
 };
@@ -36,10 +36,10 @@ const BLOOM_BLUR_SHADER_PATH: &str = "shaders/hud_agent_list_bloom_blur.wgsl";
 const BLOOM_SCALE_DIVISOR: u32 = 1;
 const DEFAULT_BLOOM_INTENSITY: f32 = 0.10;
 const BLOOM_INTENSITY_SCALE: f32 = 9.0;
-const SMALL_BLUR_GAIN: f32 = 1.2;
-const WIDE_BLUR_GAIN: f32 = 0.8;
-const SMALL_BLUR_STEP_SCALE: f32 = 4.5;
-const WIDE_BLUR_STEP_SCALE: f32 = 11.0;
+const SMALL_BLUR_GAIN: f32 = 1.25;
+const WIDE_BLUR_GAIN: f32 = 0.85;
+const SMALL_BLUR_STEP_SCALE: f32 = 5.25;
+const WIDE_BLUR_STEP_SCALE: f32 = 12.5;
 const BLOOM_DEBUG_PREVIEW_Z: f32 = HUD_COMPOSITE_FOREGROUND_Z + 2.0;
 const BLOOM_DEBUG_PREVIEW_WIDTH: f32 = 160.0;
 const BLOOM_DEBUG_PREVIEW_HEIGHT: f32 = 120.0;
@@ -152,7 +152,8 @@ impl Material2d for AgentListBloomBlurMaterial {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum AgentListBloomSourceKind {
-    Accent,
+    Main,
+    Marker,
 }
 
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -290,9 +291,9 @@ fn blur_uniform(texel_size: Vec2, radius_pixels: f32, gain: f32) -> AgentListBlo
 
 fn bloom_reference_red(scale: f32, alpha: f32) -> Color {
     let linear: LinearRgba = Srgba::rgba_u8(
-        AGENT_LIST_ACCENT_RED_R,
-        AGENT_LIST_ACCENT_RED_G,
-        AGENT_LIST_ACCENT_RED_B,
+        AGENT_LIST_BLOOM_RED_R,
+        AGENT_LIST_BLOOM_RED_G,
+        AGENT_LIST_BLOOM_RED_B,
         255,
     )
     .into();
@@ -306,9 +307,12 @@ fn bloom_reference_red(scale: f32, alpha: f32) -> Color {
 
 fn bloom_source_color(focused: bool, hovered: bool, kind: AgentListBloomSourceKind) -> Color {
     match (focused, hovered, kind) {
-        (true, _, AgentListBloomSourceKind::Accent) => bloom_reference_red(14.0, 1.0),
-        (_, true, AgentListBloomSourceKind::Accent) => bloom_reference_red(6.0, 0.8),
-        (_, _, AgentListBloomSourceKind::Accent) => bloom_reference_red(2.5, 0.35),
+        (true, _, AgentListBloomSourceKind::Main) => bloom_reference_red(4.0, 1.0),
+        (_, true, AgentListBloomSourceKind::Main) => bloom_reference_red(2.2, 0.8),
+        (_, _, AgentListBloomSourceKind::Main) => bloom_reference_red(0.8, 0.25),
+        (true, _, AgentListBloomSourceKind::Marker) => bloom_reference_red(8.0, 1.0),
+        (_, true, AgentListBloomSourceKind::Marker) => bloom_reference_red(4.0, 0.85),
+        (_, _, AgentListBloomSourceKind::Marker) => bloom_reference_red(1.4, 0.3),
     }
 }
 
@@ -353,16 +357,25 @@ fn build_bloom_specs(
             continue;
         }
 
-        let kind = AgentListBloomSourceKind::Accent;
-        let rect = agent_row_rect(row.rect, AgentListRowSection::Accent);
-        specs.push(BloomSourceSpec {
-            key: AgentListBloomSourceSprite {
-                terminal_id: row.terminal_id,
-                kind,
-            },
-            rect,
-            color: bloom_source_color(row.focused, row.hovered, kind),
-        });
+        for (kind, rect) in [
+            (
+                AgentListBloomSourceKind::Main,
+                agent_row_rect(row.rect, AgentListRowSection::Main),
+            ),
+            (
+                AgentListBloomSourceKind::Marker,
+                agent_row_rect(row.rect, AgentListRowSection::Marker),
+            ),
+        ] {
+            specs.push(BloomSourceSpec {
+                key: AgentListBloomSourceSprite {
+                    terminal_id: row.terminal_id,
+                    kind,
+                },
+                rect,
+                color: bloom_source_color(row.focused, row.hovered, kind),
+            });
+        }
     }
     specs
 }
