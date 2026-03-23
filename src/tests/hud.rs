@@ -183,12 +183,12 @@ fn sync_structural_hud_layout_docks_agent_list_to_full_height_left_column() {
 
 #[test]
 fn parses_agent_bloom_intensity_override() {
-    assert_eq!(resolve_agent_list_bloom_intensity(None), 0.92);
-    assert_eq!(resolve_agent_list_bloom_intensity(Some("")), 0.92);
+    assert_eq!(resolve_agent_list_bloom_intensity(None), 1.35);
+    assert_eq!(resolve_agent_list_bloom_intensity(Some("")), 1.35);
     assert_eq!(resolve_agent_list_bloom_intensity(Some("2.0")), 2.0);
     assert_eq!(resolve_agent_list_bloom_intensity(Some(" 0.0 ")), 0.0);
-    assert_eq!(resolve_agent_list_bloom_intensity(Some("-1")), 0.92);
-    assert_eq!(resolve_agent_list_bloom_intensity(Some("abc")), 0.92);
+    assert_eq!(resolve_agent_list_bloom_intensity(Some("-1")), 1.35);
+    assert_eq!(resolve_agent_list_bloom_intensity(Some("abc")), 1.35);
 }
 
 #[test]
@@ -201,11 +201,16 @@ fn agent_row_rect_splits_main_and_marker_geometry() {
     };
     let main = agent_row_rect(row, AgentListRowSection::Main);
     let marker = agent_row_rect(row, AgentListRowSection::Marker);
+    let accent = agent_row_rect(row, AgentListRowSection::Accent);
     assert!(main.w > marker.w);
     assert!(main.x < marker.x);
     assert_eq!(main.y, row.y + 2.0);
     assert_eq!(marker.y, row.y + 2.0);
     assert_eq!(main.h, marker.h);
+    assert_eq!(accent.x, row.x + 3.0);
+    assert_eq!(accent.y, row.y + 3.0);
+    assert_eq!(accent.w, 8.0);
+    assert_eq!(accent.h, row.h - 6.0);
 }
 
 #[test]
