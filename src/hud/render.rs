@@ -497,7 +497,7 @@ fn draw_task_dialog(
     painter.label(
         Vec2::new(rect.x + 24.0, info_row_y),
         &format!(
-            "Ln {} · Col {} · {} · Format: - [] task or - [ ] task · Ctrl-S save · Esc cancel",
+            "Ln {} · Col {} · {} · Format: - [] task or - [ ] task · Esc close+persist",
             line_number + 1,
             column_number + 1,
             editor_selection_status(task_dialog)

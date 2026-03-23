@@ -74,12 +74,6 @@ fn task_dialog_intent(hud_state: &mut HudState, action: HudTaskDialogAction) -> 
             hud_state.task_dialog.load_text(&updated);
             None
         }
-        HudTaskDialogAction::Save => {
-            let target_terminal = hud_state.task_dialog.target_terminal?;
-            let payload = hud_state.task_dialog.text.clone();
-            hud_state.close_task_dialog_and_discard_draft();
-            Some(HudIntent::SetTerminalTaskText(target_terminal, payload))
-        }
     }
 }
 

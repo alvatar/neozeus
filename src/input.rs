@@ -1,11 +1,11 @@
 use crate::{
     hud::{
-        HudIntent, HudMessageBoxAction, HudState, HudTaskDialogAction, TerminalVisibilityPolicy,
+        HudIntent, HudMessageBoxAction, HudState, TerminalVisibilityPolicy,
         TerminalVisibilityState,
     },
     terminals::{
-        clear_done_tasks, mark_terminal_sessions_dirty, terminal_texture_screen_size,
-        TerminalCommand, TerminalDisplayMode, TerminalManager, TerminalNotesState, TerminalPanel,
+        mark_terminal_sessions_dirty, terminal_texture_screen_size, TerminalCommand,
+        TerminalDisplayMode, TerminalManager, TerminalNotesState, TerminalPanel,
         TerminalPointerState, TerminalPresentation, TerminalPresentationStore,
         TerminalSessionPersistenceState, TerminalViewState,
     },
@@ -380,20 +380,11 @@ fn message_box_task_intent(
     })
 }
 
-fn task_dialog_intent(hud_state: &mut HudState, action: HudTaskDialogAction) -> Option<HudIntent> {
-    match action {
-        HudTaskDialogAction::ClearDone => {
-            let (updated, _) = clear_done_tasks(&hud_state.task_dialog.text);
-            hud_state.task_dialog.load_text(&updated);
-            None
-        }
-        HudTaskDialogAction::Save => {
-            let target_terminal = hud_state.task_dialog.target_terminal?;
-            let payload = hud_state.task_dialog.text.clone();
-            hud_state.close_task_dialog_and_discard_draft();
-            Some(HudIntent::SetTerminalTaskText(target_terminal, payload))
-        }
-    }
+fn close_task_dialog_intent(hud_state: &mut HudState) -> Option<HudIntent> {
+    let target_terminal = hud_state.task_dialog.target_terminal?;
+    let payload = hud_state.task_dialog.text.clone();
+    hud_state.close_task_dialog();
+    Some(HudIntent::SetTerminalTaskText(target_terminal, payload))
 }
 
 fn handle_text_editor_event(
@@ -531,17 +522,10 @@ pub(crate) fn handle_terminal_message_box_keyboard(
                 continue;
             }
 
-            if ctrl && !alt && !super_key && event.key_code == KeyCode::KeyS {
-                if let Some(intent) = task_dialog_intent(&mut hud_state, HudTaskDialogAction::Save)
-                {
+            if event.key_code == KeyCode::Escape {
+                if let Some(intent) = close_task_dialog_intent(&mut hud_state) {
                     hud_commands.write(intent);
                 }
-                needs_redraw = true;
-                break;
-            }
-
-            if event.key_code == KeyCode::Escape {
-                hud_state.close_task_dialog();
                 needs_redraw = true;
                 break;
             }

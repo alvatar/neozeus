@@ -578,7 +578,7 @@ fn message_box_supports_multiline_typing_and_ctrl_s_send() {
 }
 
 #[test]
-fn task_dialog_ctrl_s_saves_tasks_and_closes() {
+fn task_dialog_escape_persists_tasks_and_closes() {
     let (mut world, terminal_id) =
         world_with_active_terminal(Vec2::new(10.0, 10.0), false, Vec2::ZERO);
     let mut hud_state = crate::hud::HudState::default();
@@ -589,10 +589,7 @@ fn task_dialog_ctrl_s_saves_tasks_and_closes() {
     world.init_resource::<Messages<KeyboardInput>>();
     world.init_resource::<Messages<RequestRedraw>>();
 
-    let mut keys = ButtonInput::<KeyCode>::default();
-    keys.press(KeyCode::ControlLeft);
-    world.insert_resource(keys);
-    dispatch_message_box_key(&mut world, pressed_text(KeyCode::KeyS, Some("s")));
+    dispatch_message_box_key(&mut world, pressed_key(KeyCode::Escape, Key::Escape));
 
     assert_eq!(
         drain_hud_commands(&mut world),
@@ -603,19 +600,6 @@ fn task_dialog_ctrl_s_saves_tasks_and_closes() {
     );
     let hud_state = world.resource::<crate::hud::HudState>();
     assert!(!hud_state.task_dialog.visible);
-}
-
-#[test]
-fn task_dialog_escape_preserves_draft_for_reopen() {
-    let terminal_id = crate::terminals::TerminalId(7);
-    let mut hud_state = crate::hud::HudState::default();
-    hud_state.open_task_dialog(terminal_id, "- [ ] first");
-    hud_state.task_dialog.insert_text("\n- [ ] second");
-    hud_state.close_task_dialog();
-
-    hud_state.open_task_dialog(terminal_id, "ignored");
-    assert!(hud_state.task_dialog.visible);
-    assert_eq!(hud_state.task_dialog.text, "- [ ] first\n- [ ] second");
 }
 
 #[test]
