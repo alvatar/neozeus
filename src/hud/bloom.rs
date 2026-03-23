@@ -27,11 +27,9 @@ use std::env;
 use super::compositor::HUD_COMPOSITE_FOREGROUND_Z;
 
 const BLOOM_SOURCE_LAYER: usize = 29;
-const BLOOM_BLUR_SMALL_H_LAYER: usize = 30;
-const BLOOM_BLUR_SMALL_V_LAYER: usize = 31;
-const BLOOM_BLUR_WIDE_H_LAYER: usize = 32;
-const BLOOM_BLUR_WIDE_V_LAYER: usize = 33;
-const BLOOM_COMPOSITE_LAYER: usize = 34;
+const BLOOM_BLUR_SMALL_LAYER: usize = 30;
+const BLOOM_BLUR_WIDE_LAYER: usize = 31;
+const BLOOM_COMPOSITE_LAYER: usize = 32;
 const BLOOM_COMPOSITE_Z: f32 = HUD_COMPOSITE_FOREGROUND_Z + 0.1;
 const BLOOM_TARGET_FORMAT: TextureFormat = TextureFormat::Rgba16Float;
 const BLOOM_BLUR_SHADER_PATH: &str = "shaders/hud_agent_list_bloom_blur.wgsl";
@@ -102,28 +100,16 @@ struct AgentListBloomWideCompositeMarker;
 struct AgentListBloomAdditiveCameraMarker;
 
 #[derive(Component)]
-struct AgentListBloomBlurSmallHorizontalCameraMarker;
+struct AgentListBloomBlurSmallCameraMarker;
 
 #[derive(Component)]
-struct AgentListBloomBlurSmallVerticalCameraMarker;
+struct AgentListBloomBlurWideCameraMarker;
 
 #[derive(Component)]
-struct AgentListBloomBlurWideHorizontalCameraMarker;
+struct AgentListBloomBlurSmallQuadMarker;
 
 #[derive(Component)]
-struct AgentListBloomBlurWideVerticalCameraMarker;
-
-#[derive(Component)]
-struct AgentListBloomBlurSmallHorizontalQuadMarker;
-
-#[derive(Component)]
-struct AgentListBloomBlurSmallVerticalQuadMarker;
-
-#[derive(Component)]
-struct AgentListBloomBlurWideHorizontalQuadMarker;
-
-#[derive(Component)]
-struct AgentListBloomBlurWideVerticalQuadMarker;
+struct AgentListBloomBlurWideQuadMarker;
 
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
 enum AgentListBloomDebugPreviewStage {
@@ -185,19 +171,13 @@ struct BloomSourceSpec {
 #[derive(Clone, Debug, Default)]
 struct AgentListBloomPass {
     source_image: Handle<Image>,
-    blur_small_h_image: Handle<Image>,
-    blur_small_v_image: Handle<Image>,
-    blur_wide_h_image: Handle<Image>,
-    blur_wide_v_image: Handle<Image>,
+    blur_small_image: Handle<Image>,
+    blur_wide_image: Handle<Image>,
     source_camera: Option<Entity>,
-    blur_small_h_camera: Option<Entity>,
-    blur_small_v_camera: Option<Entity>,
-    blur_wide_h_camera: Option<Entity>,
-    blur_wide_v_camera: Option<Entity>,
-    blur_small_h_quad: Option<Entity>,
-    blur_small_v_quad: Option<Entity>,
-    blur_wide_h_quad: Option<Entity>,
-    blur_wide_v_quad: Option<Entity>,
+    blur_small_camera: Option<Entity>,
+    blur_wide_camera: Option<Entity>,
+    blur_small_quad: Option<Entity>,
+    blur_wide_quad: Option<Entity>,
     composite_sprite: Option<Entity>,
     wide_composite_sprite: Option<Entity>,
 }
@@ -302,9 +282,9 @@ fn bloom_debug_backdrop_transform(window: &Window, z: f32) -> Transform {
     Transform::from_xyz(x, y, z).with_scale(Vec3::new(panel_width, panel_height, 1.0))
 }
 
-fn blur_uniform(texel_step: Vec2, gain: f32) -> AgentListBloomBlurUniform {
+fn blur_uniform(texel_size: Vec2, radius_pixels: f32, gain: f32) -> AgentListBloomBlurUniform {
     AgentListBloomBlurUniform {
-        texel_step_gain: Vec4::new(texel_step.x, texel_step.y, gain, 0.0),
+        texel_step_gain: Vec4::new(texel_size.x, texel_size.y, radius_pixels, gain),
     }
 }
 
@@ -400,11 +380,13 @@ pub(crate) struct HudWidgetBloomSetupContext<'w, 's> {
 
 pub(crate) fn setup_hud_widget_bloom(mut ctx: HudWidgetBloomSetupContext) {
     let target_size = bloom_target_size(&ctx.primary_window);
+    let target_texel_size = Vec2::new(
+        1.0 / target_size.x.max(1) as f32,
+        1.0 / target_size.y.max(1) as f32,
+    );
     let source_image = ctx.images.add(bloom_target_image(target_size));
-    let blur_small_h_image = ctx.images.add(bloom_target_image(target_size));
-    let blur_small_v_image = ctx.images.add(bloom_target_image(target_size));
-    let blur_wide_h_image = ctx.images.add(bloom_target_image(target_size));
-    let blur_wide_v_image = ctx.images.add(bloom_target_image(target_size));
+    let blur_small_image = ctx.images.add(bloom_target_image(target_size));
+    let blur_wide_image = ctx.images.add(bloom_target_image(target_size));
 
     let source_camera = ctx
         .commands
@@ -421,25 +403,22 @@ pub(crate) fn setup_hud_widget_bloom(mut ctx: HudWidgetBloomSetupContext) {
         ))
         .id();
 
-    let small_h_material = ctx.blur_materials.add(AgentListBloomBlurMaterial {
+    let small_material = ctx.blur_materials.add(AgentListBloomBlurMaterial {
         image: source_image.clone(),
-        uniform: blur_uniform(
-            Vec2::new(SMALL_BLUR_STEP_SCALE / target_size.x.max(1) as f32, 0.0),
-            1.0,
-        ),
+        uniform: blur_uniform(target_texel_size, SMALL_BLUR_STEP_SCALE, 1.0),
     });
-    let blur_small_h_quad = ctx
+    let blur_small_quad = ctx
         .commands
         .spawn((
             Mesh2d(ctx.meshes.add(Rectangle::default())),
-            MeshMaterial2d(small_h_material),
+            MeshMaterial2d(small_material),
             fullscreen_transform_for_frame(target_size.as_vec2(), 0.0),
-            RenderLayers::layer(BLOOM_BLUR_SMALL_H_LAYER),
+            RenderLayers::layer(BLOOM_BLUR_SMALL_LAYER),
             Visibility::Hidden,
-            AgentListBloomBlurSmallHorizontalQuadMarker,
+            AgentListBloomBlurSmallQuadMarker,
         ))
         .id();
-    let blur_small_h_camera = ctx
+    let blur_small_camera = ctx
         .commands
         .spawn((
             Camera2d,
@@ -448,31 +427,28 @@ pub(crate) fn setup_hud_widget_bloom(mut ctx: HudWidgetBloomSetupContext) {
                 clear_color: ClearColorConfig::Custom(Color::NONE),
                 ..default()
             },
-            RenderTarget::Image(blur_small_h_image.clone().into()),
-            RenderLayers::layer(BLOOM_BLUR_SMALL_H_LAYER),
-            AgentListBloomBlurSmallHorizontalCameraMarker,
+            RenderTarget::Image(blur_small_image.clone().into()),
+            RenderLayers::layer(BLOOM_BLUR_SMALL_LAYER),
+            AgentListBloomBlurSmallCameraMarker,
         ))
         .id();
 
-    let small_v_material = ctx.blur_materials.add(AgentListBloomBlurMaterial {
-        image: blur_small_h_image.clone(),
-        uniform: blur_uniform(
-            Vec2::new(0.0, SMALL_BLUR_STEP_SCALE / target_size.y.max(1) as f32),
-            1.0,
-        ),
+    let wide_material = ctx.blur_materials.add(AgentListBloomBlurMaterial {
+        image: source_image.clone(),
+        uniform: blur_uniform(target_texel_size, WIDE_BLUR_STEP_SCALE, 1.0),
     });
-    let blur_small_v_quad = ctx
+    let blur_wide_quad = ctx
         .commands
         .spawn((
             Mesh2d(ctx.meshes.add(Rectangle::default())),
-            MeshMaterial2d(small_v_material),
+            MeshMaterial2d(wide_material),
             fullscreen_transform_for_frame(target_size.as_vec2(), 0.0),
-            RenderLayers::layer(BLOOM_BLUR_SMALL_V_LAYER),
+            RenderLayers::layer(BLOOM_BLUR_WIDE_LAYER),
             Visibility::Hidden,
-            AgentListBloomBlurSmallVerticalQuadMarker,
+            AgentListBloomBlurWideQuadMarker,
         ))
         .id();
-    let blur_small_v_camera = ctx
+    let blur_wide_camera = ctx
         .commands
         .spawn((
             Camera2d,
@@ -481,75 +457,9 @@ pub(crate) fn setup_hud_widget_bloom(mut ctx: HudWidgetBloomSetupContext) {
                 clear_color: ClearColorConfig::Custom(Color::NONE),
                 ..default()
             },
-            RenderTarget::Image(blur_small_v_image.clone().into()),
-            RenderLayers::layer(BLOOM_BLUR_SMALL_V_LAYER),
-            AgentListBloomBlurSmallVerticalCameraMarker,
-        ))
-        .id();
-
-    let wide_h_material = ctx.blur_materials.add(AgentListBloomBlurMaterial {
-        image: blur_small_v_image.clone(),
-        uniform: blur_uniform(
-            Vec2::new(WIDE_BLUR_STEP_SCALE / target_size.x.max(1) as f32, 0.0),
-            1.0,
-        ),
-    });
-    let blur_wide_h_quad = ctx
-        .commands
-        .spawn((
-            Mesh2d(ctx.meshes.add(Rectangle::default())),
-            MeshMaterial2d(wide_h_material),
-            fullscreen_transform_for_frame(target_size.as_vec2(), 0.0),
-            RenderLayers::layer(BLOOM_BLUR_WIDE_H_LAYER),
-            Visibility::Hidden,
-            AgentListBloomBlurWideHorizontalQuadMarker,
-        ))
-        .id();
-    let blur_wide_h_camera = ctx
-        .commands
-        .spawn((
-            Camera2d,
-            Camera {
-                order: -97,
-                clear_color: ClearColorConfig::Custom(Color::NONE),
-                ..default()
-            },
-            RenderTarget::Image(blur_wide_h_image.clone().into()),
-            RenderLayers::layer(BLOOM_BLUR_WIDE_H_LAYER),
-            AgentListBloomBlurWideHorizontalCameraMarker,
-        ))
-        .id();
-
-    let wide_v_material = ctx.blur_materials.add(AgentListBloomBlurMaterial {
-        image: blur_wide_h_image.clone(),
-        uniform: blur_uniform(
-            Vec2::new(0.0, WIDE_BLUR_STEP_SCALE / target_size.y.max(1) as f32),
-            1.0,
-        ),
-    });
-    let blur_wide_v_quad = ctx
-        .commands
-        .spawn((
-            Mesh2d(ctx.meshes.add(Rectangle::default())),
-            MeshMaterial2d(wide_v_material),
-            fullscreen_transform_for_frame(target_size.as_vec2(), 0.0),
-            RenderLayers::layer(BLOOM_BLUR_WIDE_V_LAYER),
-            Visibility::Hidden,
-            AgentListBloomBlurWideVerticalQuadMarker,
-        ))
-        .id();
-    let blur_wide_v_camera = ctx
-        .commands
-        .spawn((
-            Camera2d,
-            Camera {
-                order: -96,
-                clear_color: ClearColorConfig::Custom(Color::NONE),
-                ..default()
-            },
-            RenderTarget::Image(blur_wide_v_image.clone().into()),
-            RenderLayers::layer(BLOOM_BLUR_WIDE_V_LAYER),
-            AgentListBloomBlurWideVerticalCameraMarker,
+            RenderTarget::Image(blur_wide_image.clone().into()),
+            RenderLayers::layer(BLOOM_BLUR_WIDE_LAYER),
+            AgentListBloomBlurWideCameraMarker,
         ))
         .id();
 
@@ -557,7 +467,7 @@ pub(crate) fn setup_hud_widget_bloom(mut ctx: HudWidgetBloomSetupContext) {
         .commands
         .spawn((
             Sprite {
-                image: blur_small_v_image.clone(),
+                image: blur_small_image.clone(),
                 color: Color::linear_rgba(SMALL_BLUR_GAIN, SMALL_BLUR_GAIN, SMALL_BLUR_GAIN, 1.0),
                 custom_size: Some(Vec2::new(
                     ctx.primary_window.width(),
@@ -576,7 +486,7 @@ pub(crate) fn setup_hud_widget_bloom(mut ctx: HudWidgetBloomSetupContext) {
         .commands
         .spawn((
             Sprite {
-                image: blur_wide_v_image.clone(),
+                image: blur_wide_image.clone(),
                 color: Color::linear_rgba(WIDE_BLUR_GAIN, WIDE_BLUR_GAIN, WIDE_BLUR_GAIN, 1.0),
                 custom_size: Some(Vec2::new(
                     ctx.primary_window.width(),
@@ -647,7 +557,7 @@ pub(crate) fn setup_hud_widget_bloom(mut ctx: HudWidgetBloomSetupContext) {
         .commands
         .spawn((
             Sprite {
-                image: blur_small_v_image.clone(),
+                image: blur_small_image.clone(),
                 color: Color::WHITE,
                 custom_size: Some(Vec2::new(
                     BLOOM_DEBUG_PREVIEW_WIDTH,
@@ -671,7 +581,7 @@ pub(crate) fn setup_hud_widget_bloom(mut ctx: HudWidgetBloomSetupContext) {
         .commands
         .spawn((
             Sprite {
-                image: blur_wide_v_image.clone(),
+                image: blur_wide_image.clone(),
                 color: Color::WHITE,
                 custom_size: Some(Vec2::new(
                     BLOOM_DEBUG_PREVIEW_WIDTH,
@@ -709,19 +619,13 @@ pub(crate) fn setup_hud_widget_bloom(mut ctx: HudWidgetBloomSetupContext) {
 
     ctx.bloom.agent_list = AgentListBloomPass {
         source_image,
-        blur_small_h_image,
-        blur_small_v_image,
-        blur_wide_h_image,
-        blur_wide_v_image,
+        blur_small_image,
+        blur_wide_image,
         source_camera: Some(source_camera),
-        blur_small_h_camera: Some(blur_small_h_camera),
-        blur_small_v_camera: Some(blur_small_v_camera),
-        blur_wide_h_camera: Some(blur_wide_h_camera),
-        blur_wide_v_camera: Some(blur_wide_v_camera),
-        blur_small_h_quad: Some(blur_small_h_quad),
-        blur_small_v_quad: Some(blur_small_v_quad),
-        blur_wide_h_quad: Some(blur_wide_h_quad),
-        blur_wide_v_quad: Some(blur_wide_v_quad),
+        blur_small_camera: Some(blur_small_camera),
+        blur_wide_camera: Some(blur_wide_camera),
+        blur_small_quad: Some(blur_small_quad),
+        blur_wide_quad: Some(blur_wide_quad),
         composite_sprite: Some(composite_sprite),
         wide_composite_sprite: Some(wide_composite_sprite),
     };
@@ -729,98 +633,50 @@ pub(crate) fn setup_hud_widget_bloom(mut ctx: HudWidgetBloomSetupContext) {
 
 type BloomSourceCameraFilter = (
     With<AgentListBloomCameraMarker>,
-    Without<AgentListBloomBlurSmallHorizontalCameraMarker>,
-    Without<AgentListBloomBlurSmallVerticalCameraMarker>,
-    Without<AgentListBloomBlurWideHorizontalCameraMarker>,
-    Without<AgentListBloomBlurWideVerticalCameraMarker>,
+    Without<AgentListBloomBlurSmallCameraMarker>,
+    Without<AgentListBloomBlurWideCameraMarker>,
 );
-type BloomBlurSmallHorizontalCameraFilter = (
-    With<AgentListBloomBlurSmallHorizontalCameraMarker>,
+type BloomBlurSmallCameraFilter = (
+    With<AgentListBloomBlurSmallCameraMarker>,
     Without<AgentListBloomCameraMarker>,
-    Without<AgentListBloomBlurSmallVerticalCameraMarker>,
-    Without<AgentListBloomBlurWideHorizontalCameraMarker>,
-    Without<AgentListBloomBlurWideVerticalCameraMarker>,
+    Without<AgentListBloomBlurWideCameraMarker>,
 );
-type BloomBlurSmallVerticalCameraFilter = (
-    With<AgentListBloomBlurSmallVerticalCameraMarker>,
+type BloomBlurWideCameraFilter = (
+    With<AgentListBloomBlurWideCameraMarker>,
     Without<AgentListBloomCameraMarker>,
-    Without<AgentListBloomBlurSmallHorizontalCameraMarker>,
-    Without<AgentListBloomBlurWideHorizontalCameraMarker>,
-    Without<AgentListBloomBlurWideVerticalCameraMarker>,
-);
-type BloomBlurWideHorizontalCameraFilter = (
-    With<AgentListBloomBlurWideHorizontalCameraMarker>,
-    Without<AgentListBloomCameraMarker>,
-    Without<AgentListBloomBlurSmallHorizontalCameraMarker>,
-    Without<AgentListBloomBlurSmallVerticalCameraMarker>,
-    Without<AgentListBloomBlurWideVerticalCameraMarker>,
-);
-type BloomBlurWideVerticalCameraFilter = (
-    With<AgentListBloomBlurWideVerticalCameraMarker>,
-    Without<AgentListBloomCameraMarker>,
-    Without<AgentListBloomBlurSmallHorizontalCameraMarker>,
-    Without<AgentListBloomBlurSmallVerticalCameraMarker>,
-    Without<AgentListBloomBlurWideHorizontalCameraMarker>,
+    Without<AgentListBloomBlurSmallCameraMarker>,
 );
 type BloomCompositeFilter = (
     With<AgentListBloomCompositeMarker>,
     Without<AgentListBloomWideCompositeMarker>,
     Without<AgentListBloomSourceSprite>,
-    Without<AgentListBloomBlurSmallHorizontalQuadMarker>,
-    Without<AgentListBloomBlurSmallVerticalQuadMarker>,
-    Without<AgentListBloomBlurWideHorizontalQuadMarker>,
-    Without<AgentListBloomBlurWideVerticalQuadMarker>,
+    Without<AgentListBloomBlurSmallQuadMarker>,
+    Without<AgentListBloomBlurWideQuadMarker>,
 );
 type BloomWideCompositeFilter = (
     With<AgentListBloomWideCompositeMarker>,
     Without<AgentListBloomCompositeMarker>,
     Without<AgentListBloomSourceSprite>,
-    Without<AgentListBloomBlurSmallHorizontalQuadMarker>,
-    Without<AgentListBloomBlurSmallVerticalQuadMarker>,
-    Without<AgentListBloomBlurWideHorizontalQuadMarker>,
-    Without<AgentListBloomBlurWideVerticalQuadMarker>,
+    Without<AgentListBloomBlurSmallQuadMarker>,
+    Without<AgentListBloomBlurWideQuadMarker>,
 );
 type BloomSourceSpriteFilter = (
     With<AgentListBloomSourceSprite>,
     Without<AgentListBloomCompositeMarker>,
     Without<AgentListBloomWideCompositeMarker>,
-    Without<AgentListBloomBlurSmallHorizontalQuadMarker>,
-    Without<AgentListBloomBlurSmallVerticalQuadMarker>,
-    Without<AgentListBloomBlurWideHorizontalQuadMarker>,
-    Without<AgentListBloomBlurWideVerticalQuadMarker>,
+    Without<AgentListBloomBlurSmallQuadMarker>,
+    Without<AgentListBloomBlurWideQuadMarker>,
 );
-type BloomBlurSmallHorizontalQuadFilter = (
-    With<AgentListBloomBlurSmallHorizontalQuadMarker>,
-    Without<AgentListBloomBlurSmallVerticalQuadMarker>,
-    Without<AgentListBloomBlurWideHorizontalQuadMarker>,
-    Without<AgentListBloomBlurWideVerticalQuadMarker>,
+type BloomBlurSmallQuadFilter = (
+    With<AgentListBloomBlurSmallQuadMarker>,
+    Without<AgentListBloomBlurWideQuadMarker>,
     Without<AgentListBloomCompositeMarker>,
     Without<AgentListBloomWideCompositeMarker>,
     Without<AgentListBloomSourceSprite>,
 );
-type BloomBlurSmallVerticalQuadFilter = (
-    With<AgentListBloomBlurSmallVerticalQuadMarker>,
-    Without<AgentListBloomBlurSmallHorizontalQuadMarker>,
-    Without<AgentListBloomBlurWideHorizontalQuadMarker>,
-    Without<AgentListBloomBlurWideVerticalQuadMarker>,
-    Without<AgentListBloomCompositeMarker>,
-    Without<AgentListBloomWideCompositeMarker>,
-    Without<AgentListBloomSourceSprite>,
-);
-type BloomBlurWideHorizontalQuadFilter = (
-    With<AgentListBloomBlurWideHorizontalQuadMarker>,
-    Without<AgentListBloomBlurSmallHorizontalQuadMarker>,
-    Without<AgentListBloomBlurSmallVerticalQuadMarker>,
-    Without<AgentListBloomBlurWideVerticalQuadMarker>,
-    Without<AgentListBloomCompositeMarker>,
-    Without<AgentListBloomWideCompositeMarker>,
-    Without<AgentListBloomSourceSprite>,
-);
-type BloomBlurWideVerticalQuadFilter = (
-    With<AgentListBloomBlurWideVerticalQuadMarker>,
-    Without<AgentListBloomBlurSmallHorizontalQuadMarker>,
-    Without<AgentListBloomBlurSmallVerticalQuadMarker>,
-    Without<AgentListBloomBlurWideHorizontalQuadMarker>,
+type BloomBlurWideQuadFilter = (
+    With<AgentListBloomBlurWideQuadMarker>,
+    Without<AgentListBloomBlurSmallQuadMarker>,
     Without<AgentListBloomCompositeMarker>,
     Without<AgentListBloomWideCompositeMarker>,
     Without<AgentListBloomSourceSprite>,
@@ -831,10 +687,8 @@ type BloomDebugBackdropFilter = (
     Without<AgentListBloomCompositeMarker>,
     Without<AgentListBloomWideCompositeMarker>,
     Without<AgentListBloomSourceSprite>,
-    Without<AgentListBloomBlurSmallHorizontalQuadMarker>,
-    Without<AgentListBloomBlurSmallVerticalQuadMarker>,
-    Without<AgentListBloomBlurWideHorizontalQuadMarker>,
-    Without<AgentListBloomBlurWideVerticalQuadMarker>,
+    Without<AgentListBloomBlurSmallQuadMarker>,
+    Without<AgentListBloomBlurWideQuadMarker>,
 );
 type BloomDebugPreviewFilter = (
     With<AgentListBloomDebugPreviewMarker>,
@@ -842,10 +696,8 @@ type BloomDebugPreviewFilter = (
     Without<AgentListBloomCompositeMarker>,
     Without<AgentListBloomWideCompositeMarker>,
     Without<AgentListBloomSourceSprite>,
-    Without<AgentListBloomBlurSmallHorizontalQuadMarker>,
-    Without<AgentListBloomBlurSmallVerticalQuadMarker>,
-    Without<AgentListBloomBlurWideHorizontalQuadMarker>,
-    Without<AgentListBloomBlurWideVerticalQuadMarker>,
+    Without<AgentListBloomBlurSmallQuadMarker>,
+    Without<AgentListBloomBlurWideQuadMarker>,
 );
 
 #[derive(SystemParam)]
@@ -860,14 +712,8 @@ pub(crate) struct HudWidgetBloomContext<'w, 's> {
     images: ResMut<'w, Assets<Image>>,
     blur_materials: ResMut<'w, Assets<AgentListBloomBlurMaterial>>,
     source_cameras: Query<'w, 's, &'static mut RenderTarget, BloomSourceCameraFilter>,
-    blur_small_h_cameras:
-        Query<'w, 's, &'static mut RenderTarget, BloomBlurSmallHorizontalCameraFilter>,
-    blur_small_v_cameras:
-        Query<'w, 's, &'static mut RenderTarget, BloomBlurSmallVerticalCameraFilter>,
-    blur_wide_h_cameras:
-        Query<'w, 's, &'static mut RenderTarget, BloomBlurWideHorizontalCameraFilter>,
-    blur_wide_v_cameras:
-        Query<'w, 's, &'static mut RenderTarget, BloomBlurWideVerticalCameraFilter>,
+    blur_small_cameras: Query<'w, 's, &'static mut RenderTarget, BloomBlurSmallCameraFilter>,
+    blur_wide_cameras: Query<'w, 's, &'static mut RenderTarget, BloomBlurWideCameraFilter>,
     composites: Query<
         'w,
         's,
@@ -901,7 +747,7 @@ pub(crate) struct HudWidgetBloomContext<'w, 's> {
         ),
         BloomDebugPreviewFilter,
     >,
-    blur_small_h_quads: Query<
+    blur_small_quads: Query<
         'w,
         's,
         (
@@ -909,9 +755,9 @@ pub(crate) struct HudWidgetBloomContext<'w, 's> {
             &'static mut Transform,
             &'static mut Visibility,
         ),
-        BloomBlurSmallHorizontalQuadFilter,
+        BloomBlurSmallQuadFilter,
     >,
-    blur_small_v_quads: Query<
+    blur_wide_quads: Query<
         'w,
         's,
         (
@@ -919,27 +765,7 @@ pub(crate) struct HudWidgetBloomContext<'w, 's> {
             &'static mut Transform,
             &'static mut Visibility,
         ),
-        BloomBlurSmallVerticalQuadFilter,
-    >,
-    blur_wide_h_quads: Query<
-        'w,
-        's,
-        (
-            &'static MeshMaterial2d<AgentListBloomBlurMaterial>,
-            &'static mut Transform,
-            &'static mut Visibility,
-        ),
-        BloomBlurWideHorizontalQuadFilter,
-    >,
-    blur_wide_v_quads: Query<
-        'w,
-        's,
-        (
-            &'static MeshMaterial2d<AgentListBloomBlurMaterial>,
-            &'static mut Transform,
-            &'static mut Visibility,
-        ),
-        BloomBlurWideVerticalQuadFilter,
+        BloomBlurWideQuadFilter,
     >,
     source_sprites: Query<
         'w,
@@ -959,20 +785,19 @@ pub(crate) fn sync_hud_widget_bloom(mut ctx: HudWidgetBloomContext) {
     let target_size = bloom_target_size(&ctx.primary_window);
     let pass = &mut ctx.bloom.agent_list;
 
+    let target_texel_size = Vec2::new(
+        1.0 / target_size.x.max(1) as f32,
+        1.0 / target_size.y.max(1) as f32,
+    );
+
     if !image_matches_size(&ctx.images, &pass.source_image, target_size) {
         pass.source_image = ctx.images.add(bloom_target_image(target_size));
     }
-    if !image_matches_size(&ctx.images, &pass.blur_small_h_image, target_size) {
-        pass.blur_small_h_image = ctx.images.add(bloom_target_image(target_size));
+    if !image_matches_size(&ctx.images, &pass.blur_small_image, target_size) {
+        pass.blur_small_image = ctx.images.add(bloom_target_image(target_size));
     }
-    if !image_matches_size(&ctx.images, &pass.blur_small_v_image, target_size) {
-        pass.blur_small_v_image = ctx.images.add(bloom_target_image(target_size));
-    }
-    if !image_matches_size(&ctx.images, &pass.blur_wide_h_image, target_size) {
-        pass.blur_wide_h_image = ctx.images.add(bloom_target_image(target_size));
-    }
-    if !image_matches_size(&ctx.images, &pass.blur_wide_v_image, target_size) {
-        pass.blur_wide_v_image = ctx.images.add(bloom_target_image(target_size));
+    if !image_matches_size(&ctx.images, &pass.blur_wide_image, target_size) {
+        pass.blur_wide_image = ctx.images.add(bloom_target_image(target_size));
     }
 
     if let Some(camera) = pass.source_camera {
@@ -980,30 +805,20 @@ pub(crate) fn sync_hud_widget_bloom(mut ctx: HudWidgetBloomContext) {
             *target = RenderTarget::Image(pass.source_image.clone().into());
         }
     }
-    if let Some(camera) = pass.blur_small_h_camera {
-        if let Ok(mut target) = ctx.blur_small_h_cameras.get_mut(camera) {
-            *target = RenderTarget::Image(pass.blur_small_h_image.clone().into());
+    if let Some(camera) = pass.blur_small_camera {
+        if let Ok(mut target) = ctx.blur_small_cameras.get_mut(camera) {
+            *target = RenderTarget::Image(pass.blur_small_image.clone().into());
         }
     }
-    if let Some(camera) = pass.blur_small_v_camera {
-        if let Ok(mut target) = ctx.blur_small_v_cameras.get_mut(camera) {
-            *target = RenderTarget::Image(pass.blur_small_v_image.clone().into());
-        }
-    }
-    if let Some(camera) = pass.blur_wide_h_camera {
-        if let Ok(mut target) = ctx.blur_wide_h_cameras.get_mut(camera) {
-            *target = RenderTarget::Image(pass.blur_wide_h_image.clone().into());
-        }
-    }
-    if let Some(camera) = pass.blur_wide_v_camera {
-        if let Ok(mut target) = ctx.blur_wide_v_cameras.get_mut(camera) {
-            *target = RenderTarget::Image(pass.blur_wide_v_image.clone().into());
+    if let Some(camera) = pass.blur_wide_camera {
+        if let Ok(mut target) = ctx.blur_wide_cameras.get_mut(camera) {
+            *target = RenderTarget::Image(pass.blur_wide_image.clone().into());
         }
     }
 
-    if let Some(quad) = pass.blur_small_h_quad {
+    if let Some(quad) = pass.blur_small_quad {
         if let Ok((material_handle, mut transform, mut visibility)) =
-            ctx.blur_small_h_quads.get_mut(quad)
+            ctx.blur_small_quads.get_mut(quad)
         {
             transform.translation = Vec3::ZERO;
             transform.rotation = Quat::IDENTITY;
@@ -1011,61 +826,21 @@ pub(crate) fn sync_hud_widget_bloom(mut ctx: HudWidgetBloomContext) {
             *visibility = Visibility::Hidden;
             if let Some(material) = ctx.blur_materials.get_mut(material_handle.id()) {
                 material.image = pass.source_image.clone();
-                material.uniform = blur_uniform(
-                    Vec2::new(SMALL_BLUR_STEP_SCALE / target_size.x.max(1) as f32, 0.0),
-                    1.0,
-                );
+                material.uniform = blur_uniform(target_texel_size, SMALL_BLUR_STEP_SCALE, 1.0);
             }
         }
     }
-    if let Some(quad) = pass.blur_small_v_quad {
+    if let Some(quad) = pass.blur_wide_quad {
         if let Ok((material_handle, mut transform, mut visibility)) =
-            ctx.blur_small_v_quads.get_mut(quad)
+            ctx.blur_wide_quads.get_mut(quad)
         {
             transform.translation = Vec3::ZERO;
             transform.rotation = Quat::IDENTITY;
             transform.scale = Vec3::new(target_size.x as f32, target_size.y as f32, 1.0);
             *visibility = Visibility::Hidden;
             if let Some(material) = ctx.blur_materials.get_mut(material_handle.id()) {
-                material.image = pass.blur_small_h_image.clone();
-                material.uniform = blur_uniform(
-                    Vec2::new(0.0, SMALL_BLUR_STEP_SCALE / target_size.y.max(1) as f32),
-                    1.0,
-                );
-            }
-        }
-    }
-    if let Some(quad) = pass.blur_wide_h_quad {
-        if let Ok((material_handle, mut transform, mut visibility)) =
-            ctx.blur_wide_h_quads.get_mut(quad)
-        {
-            transform.translation = Vec3::ZERO;
-            transform.rotation = Quat::IDENTITY;
-            transform.scale = Vec3::new(target_size.x as f32, target_size.y as f32, 1.0);
-            *visibility = Visibility::Hidden;
-            if let Some(material) = ctx.blur_materials.get_mut(material_handle.id()) {
-                material.image = pass.blur_small_v_image.clone();
-                material.uniform = blur_uniform(
-                    Vec2::new(WIDE_BLUR_STEP_SCALE / target_size.x.max(1) as f32, 0.0),
-                    1.0,
-                );
-            }
-        }
-    }
-    if let Some(quad) = pass.blur_wide_v_quad {
-        if let Ok((material_handle, mut transform, mut visibility)) =
-            ctx.blur_wide_v_quads.get_mut(quad)
-        {
-            transform.translation = Vec3::ZERO;
-            transform.rotation = Quat::IDENTITY;
-            transform.scale = Vec3::new(target_size.x as f32, target_size.y as f32, 1.0);
-            *visibility = Visibility::Hidden;
-            if let Some(material) = ctx.blur_materials.get_mut(material_handle.id()) {
-                material.image = pass.blur_wide_h_image.clone();
-                material.uniform = blur_uniform(
-                    Vec2::new(0.0, WIDE_BLUR_STEP_SCALE / target_size.y.max(1) as f32),
-                    1.0,
-                );
+                material.image = pass.source_image.clone();
+                material.uniform = blur_uniform(target_texel_size, WIDE_BLUR_STEP_SCALE, 1.0);
             }
         }
     }
@@ -1141,8 +916,8 @@ pub(crate) fn sync_hud_widget_bloom(mut ctx: HudWidgetBloomContext) {
     }
 
     let active = !specs.is_empty();
-    if let Some(quad) = pass.blur_small_h_quad {
-        if let Ok((_, _, mut visibility)) = ctx.blur_small_h_quads.get_mut(quad) {
+    if let Some(quad) = pass.blur_small_quad {
+        if let Ok((_, _, mut visibility)) = ctx.blur_small_quads.get_mut(quad) {
             *visibility = if active {
                 Visibility::Visible
             } else {
@@ -1150,26 +925,8 @@ pub(crate) fn sync_hud_widget_bloom(mut ctx: HudWidgetBloomContext) {
             };
         }
     }
-    if let Some(quad) = pass.blur_small_v_quad {
-        if let Ok((_, _, mut visibility)) = ctx.blur_small_v_quads.get_mut(quad) {
-            *visibility = if active {
-                Visibility::Visible
-            } else {
-                Visibility::Hidden
-            };
-        }
-    }
-    if let Some(quad) = pass.blur_wide_h_quad {
-        if let Ok((_, _, mut visibility)) = ctx.blur_wide_h_quads.get_mut(quad) {
-            *visibility = if active {
-                Visibility::Visible
-            } else {
-                Visibility::Hidden
-            };
-        }
-    }
-    if let Some(quad) = pass.blur_wide_v_quad {
-        if let Ok((_, _, mut visibility)) = ctx.blur_wide_v_quads.get_mut(quad) {
+    if let Some(quad) = pass.blur_wide_quad {
+        if let Ok((_, _, mut visibility)) = ctx.blur_wide_quads.get_mut(quad) {
             *visibility = if active {
                 Visibility::Visible
             } else {
@@ -1179,7 +936,7 @@ pub(crate) fn sync_hud_widget_bloom(mut ctx: HudWidgetBloomContext) {
     }
     if let Some(composite) = pass.composite_sprite {
         if let Ok((mut sprite, mut transform, mut visibility)) = ctx.composites.get_mut(composite) {
-            sprite.image = pass.blur_small_v_image.clone();
+            sprite.image = pass.blur_small_image.clone();
             let intensity = ctx.settings.agent_list_intensity * BLOOM_INTENSITY_SCALE;
             sprite.color = Color::linear_rgba(
                 SMALL_BLUR_GAIN * intensity,
@@ -1205,7 +962,7 @@ pub(crate) fn sync_hud_widget_bloom(mut ctx: HudWidgetBloomContext) {
         if let Ok((mut sprite, mut transform, mut visibility)) =
             ctx.wide_composites.get_mut(composite)
         {
-            sprite.image = pass.blur_wide_v_image.clone();
+            sprite.image = pass.blur_wide_image.clone();
             let intensity = ctx.settings.agent_list_intensity * BLOOM_INTENSITY_SCALE;
             sprite.color = Color::linear_rgba(
                 WIDE_BLUR_GAIN * intensity,
@@ -1240,8 +997,8 @@ pub(crate) fn sync_hud_widget_bloom(mut ctx: HudWidgetBloomContext) {
     for (marker, mut sprite, mut transform, mut visibility) in &mut ctx.debug_previews {
         sprite.image = match marker.stage {
             AgentListBloomDebugPreviewStage::Source => pass.source_image.clone(),
-            AgentListBloomDebugPreviewStage::SmallBlur => pass.blur_small_v_image.clone(),
-            AgentListBloomDebugPreviewStage::WideBlur => pass.blur_wide_v_image.clone(),
+            AgentListBloomDebugPreviewStage::SmallBlur => pass.blur_small_image.clone(),
+            AgentListBloomDebugPreviewStage::WideBlur => pass.blur_wide_image.clone(),
         };
         sprite.custom_size = Some(Vec2::new(
             BLOOM_DEBUG_PREVIEW_WIDTH,
