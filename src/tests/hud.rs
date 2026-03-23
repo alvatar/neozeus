@@ -750,22 +750,21 @@ fn message_box_rect_is_top_aligned_and_shorter() {
 }
 
 #[test]
-fn clicking_task_dialog_save_button_emits_set_task_text_intent() {
+fn clicking_task_dialog_clear_done_button_updates_editor_without_emitting_intent() {
     let mut world = World::default();
     let terminal_id = crate::terminals::TerminalId(7);
     let mut hud_state = HudState::default();
-    hud_state.open_task_dialog(terminal_id, "- [ ] first");
-    hud_state.task_dialog.insert_text("\n- [ ] second");
+    hud_state.open_task_dialog(terminal_id, "- [x] done\n- [ ] keep");
 
     let mut window = Window {
         focused: true,
         resolution: (1400, 900).into(),
         ..Default::default()
     };
-    let save_button = task_dialog_action_buttons(&window)[1];
+    let clear_done_button = task_dialog_action_buttons(&window)[0];
     window.set_cursor_position(Some(Vec2::new(
-        save_button.rect.x + 4.0,
-        save_button.rect.y + 4.0,
+        clear_done_button.rect.x + 4.0,
+        clear_done_button.rect.y + 4.0,
     )));
 
     world.insert_resource(ButtonInput::<MouseButton>::default());
@@ -784,15 +783,11 @@ fn clicking_task_dialog_save_button_emits_set_task_text_intent() {
         .press(MouseButton::Left);
     world.run_system_once(handle_hud_pointer_input).unwrap();
 
-    assert_eq!(
-        drain_hud_commands(&mut world),
-        vec![HudIntent::SetTerminalTaskText(
-            terminal_id,
-            "- [ ] first\n- [ ] second".into()
-        )]
-    );
+    assert!(drain_hud_commands(&mut world).is_empty());
     assert_eq!(world.resource::<Messages<RequestRedraw>>().len(), 1);
-    assert!(!world.resource::<HudState>().task_dialog.visible);
+    let hud_state = world.resource::<HudState>();
+    assert!(hud_state.task_dialog.visible);
+    assert_eq!(hud_state.task_dialog.text, "- [ ] keep");
 }
 
 #[test]

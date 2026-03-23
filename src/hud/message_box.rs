@@ -18,7 +18,6 @@ pub(crate) enum HudMessageBoxAction {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum HudTaskDialogAction {
     ClearDone,
-    Save,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -118,31 +117,19 @@ pub(crate) fn task_dialog_rect(window: &Window) -> HudRect {
     message_box_rect(window)
 }
 
-pub(crate) fn task_dialog_action_buttons(window: &Window) -> [HudTaskDialogActionButton; 2] {
+pub(crate) fn task_dialog_action_buttons(window: &Window) -> [HudTaskDialogActionButton; 1] {
     let rect = task_dialog_rect(window);
     let base_y = rect.y + rect.h - 36.0;
-    [
-        HudTaskDialogActionButton {
-            action: HudTaskDialogAction::ClearDone,
-            rect: HudRect {
-                x: rect.x + 24.0,
-                y: base_y,
-                w: HUD_MESSAGE_BOX_ACTION_BUTTON_W,
-                h: HUD_MESSAGE_BOX_ACTION_BUTTON_H,
-            },
-            label: "Clear done [x]",
+    [HudTaskDialogActionButton {
+        action: HudTaskDialogAction::ClearDone,
+        rect: HudRect {
+            x: rect.x + 24.0,
+            y: base_y,
+            w: HUD_MESSAGE_BOX_ACTION_BUTTON_W,
+            h: HUD_MESSAGE_BOX_ACTION_BUTTON_H,
         },
-        HudTaskDialogActionButton {
-            action: HudTaskDialogAction::Save,
-            rect: HudRect {
-                x: rect.x + rect.w - 24.0 - HUD_MESSAGE_BOX_ACTION_BUTTON_W,
-                y: base_y,
-                w: HUD_MESSAGE_BOX_ACTION_BUTTON_W,
-                h: HUD_MESSAGE_BOX_ACTION_BUTTON_H,
-            },
-            label: "Save",
-        },
-    ]
+        label: "Clear done [x]",
+    }]
 }
 
 pub(crate) fn task_dialog_action_at(window: &Window, point: Vec2) -> Option<HudTaskDialogAction> {

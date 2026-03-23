@@ -223,10 +223,6 @@ impl HudState {
         self.task_dialog.close();
     }
 
-    pub(crate) fn close_task_dialog_and_discard_draft(&mut self) {
-        self.task_dialog.close_and_discard_current();
-    }
-
     pub(crate) fn open_direct_terminal_input(&mut self, target_terminal: TerminalId) {
         self.close_message_box();
         self.close_task_dialog();
