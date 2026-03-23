@@ -10,13 +10,13 @@ use super::{
     AGENT_LIST_LEFT_RAIL_WIDTH,
 };
 
-const EVA_RED: peniko::Color = peniko::Color::from_rgba8(128, 15, 15, 255);
-const EVA_RED_BRIGHT: peniko::Color = peniko::Color::from_rgba8(222, 32, 32, 255);
-const EVA_RED_DIM: peniko::Color = peniko::Color::from_rgba8(88, 10, 10, 255);
-const EVA_RED_SOFT: peniko::Color = peniko::Color::from_rgba8(176, 48, 32, 255);
-const EVA_BLACK: peniko::Color = peniko::Color::from_rgba8(3, 3, 3, 255);
-const EVA_BLACK_SOFT: peniko::Color = peniko::Color::from_rgba8(10, 4, 4, 255);
-const EVA_TEXT: peniko::Color = peniko::Color::from_rgba8(255, 208, 208, 255);
+const EVA_RED: peniko::Color = peniko::Color::from_rgba8(124, 18, 18, 255);
+const EVA_RED_BRIGHT: peniko::Color = peniko::Color::from_rgba8(236, 44, 44, 255);
+const EVA_RED_DIM: peniko::Color = peniko::Color::from_rgba8(72, 12, 12, 255);
+const EVA_RED_SOFT: peniko::Color = peniko::Color::from_rgba8(154, 34, 34, 255);
+const EVA_BLACK: peniko::Color = peniko::Color::from_rgba8(0, 0, 0, 255);
+const EVA_BLACK_SOFT: peniko::Color = peniko::Color::from_rgba8(6, 6, 6, 255);
+const EVA_TEXT: peniko::Color = peniko::Color::from_rgba8(235, 228, 228, 255);
 const TASK_RED: peniko::Color = peniko::Color::from_rgba8(255, 24, 24, 255);
 
 #[allow(
@@ -70,7 +70,7 @@ fn draw_left_rail(painter: &mut HudPainter, content_rect: HudRect) {
                 w: 8.0,
                 h: 2.0,
             },
-            apply_alpha(EVA_RED_SOFT, 0.72),
+            apply_alpha(EVA_RED_DIM, 0.52),
             0.0,
         );
 
@@ -83,7 +83,7 @@ fn draw_left_rail(painter: &mut HudPainter, content_rect: HudRect) {
                     w: 4.0,
                     h: 2.0,
                 },
-                apply_alpha(EVA_RED_DIM, 0.68),
+                apply_alpha(EVA_RED_DIM, 0.38),
                 0.0,
             );
         }
@@ -137,7 +137,7 @@ pub(crate) fn render_content(
             w: (content_rect.w - AGENT_LIST_LEFT_RAIL_WIDTH - HUD_MODULE_PADDING * 2.0).max(0.0),
             h: 2.0,
         },
-        apply_alpha(EVA_RED_SOFT, 0.75),
+        apply_alpha(EVA_RED_SOFT, 0.58),
         0.0,
     );
 
@@ -164,11 +164,11 @@ pub(crate) fn render_content(
             EVA_RED
         };
         let fill = if row.focused {
-            apply_alpha(EVA_BLACK_SOFT, 0.96)
+            apply_alpha(EVA_BLACK_SOFT, 0.985)
         } else if row.hovered {
-            apply_alpha(EVA_BLACK_SOFT, 0.92)
+            apply_alpha(EVA_BLACK_SOFT, 0.955)
         } else {
-            apply_alpha(EVA_BLACK, 0.92)
+            apply_alpha(EVA_BLACK, 0.94)
         };
         let has_notes = inputs
             .terminal_manager
@@ -180,7 +180,7 @@ pub(crate) fn render_content(
         if row.focused {
             painter.fill_rect(accent_rect, EVA_RED_BRIGHT, 0.0);
         } else if row.hovered {
-            painter.fill_rect(accent_rect, apply_alpha(EVA_RED_SOFT, 0.7), 0.0);
+            painter.fill_rect(accent_rect, apply_alpha(EVA_RED_SOFT, 0.42), 0.0);
         }
 
         draw_label(
