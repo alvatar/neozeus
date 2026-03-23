@@ -1,5 +1,5 @@
 use crate::hud::{
-    render::{apply_alpha, HudColors, HudPainter, HudRenderInputs},
+    render::{apply_alpha, HudPainter, HudRenderInputs},
     HudModuleModel, HudRect, HUD_MODULE_PADDING,
 };
 use bevy::prelude::Vec2;
@@ -10,9 +10,10 @@ use super::{
     AGENT_LIST_ROW_MARKER_WIDTH,
 };
 
-const EVA_ORANGE: peniko::Color = peniko::Color::from_rgba8(255, 120, 12, 255);
-const EVA_ORANGE_BRIGHT: peniko::Color = peniko::Color::from_rgba8(255, 146, 26, 255);
-const EVA_ORANGE_DIM: peniko::Color = peniko::Color::from_rgba8(222, 92, 14, 255);
+const EVA_ORANGE: peniko::Color = peniko::Color::from_rgba8(240, 141, 47, 255);
+const EVA_ORANGE_BRIGHT: peniko::Color = peniko::Color::from_rgba8(240, 141, 47, 255);
+const EVA_ORANGE_DIM: peniko::Color = peniko::Color::from_rgba8(176, 104, 34, 255);
+const EVA_SELECTED: peniko::Color = peniko::Color::from_rgba8(175, 201, 181, 255);
 const EVA_CYAN: peniko::Color = peniko::Color::from_rgba8(96, 238, 255, 255);
 const EVA_BLACK: peniko::Color = peniko::Color::from_rgba8(0, 0, 0, 255);
 
@@ -196,11 +197,11 @@ pub(crate) fn render_content(
         let main_rect = row_main_rect(row.rect);
         let marker_rect = row_marker_rect(row.rect);
         let stroke = if row.focused {
-            EVA_ORANGE_BRIGHT
+            EVA_SELECTED
         } else if row.hovered {
-            EVA_ORANGE
+            EVA_ORANGE_BRIGHT
         } else {
-            EVA_ORANGE_DIM
+            EVA_ORANGE
         };
         let fill = if row.focused {
             apply_alpha(EVA_BLACK, 0.94)
@@ -216,9 +217,9 @@ pub(crate) fn render_content(
             marker_rect,
             stroke,
             if row.focused {
-                apply_alpha(EVA_ORANGE_BRIGHT, 0.96)
+                apply_alpha(EVA_SELECTED, 0.96)
             } else {
-                apply_alpha(EVA_ORANGE, 0.78)
+                apply_alpha(EVA_ORANGE, 0.82)
             },
         );
 
@@ -228,7 +229,7 @@ pub(crate) fn render_content(
             &row.label.to_uppercase(),
             16.0,
             if row.focused {
-                EVA_ORANGE_BRIGHT
+                EVA_SELECTED
             } else {
                 EVA_ORANGE
             },
@@ -236,15 +237,6 @@ pub(crate) fn render_content(
             0.76,
             1.14,
         );
-        glow_label(
-            painter,
-            Vec2::new(marker_rect.x + marker_rect.w * 0.5, marker_rect.y + 3.0),
-            &format!("{:02}", index + 1),
-            11.0,
-            HudColors::TEXT_ON_ACCENT,
-            VelloTextAnchor::Top,
-            0.84,
-            1.08,
-        );
+        let _ = index;
     }
 }
