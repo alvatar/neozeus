@@ -20,8 +20,8 @@ use super::compositor::HUD_COMPOSITE_FOREGROUND_Z;
 
 const BLOOM_SOURCE_LAYER: usize = 29;
 const BLOOM_COMPOSITE_Z: f32 = HUD_COMPOSITE_FOREGROUND_Z + 0.1;
-const DEFAULT_BLOOM_INTENSITY: f32 = 0.35;
-const BLOOM_COMPOSITE_ALPHA: f32 = 0.68;
+const DEFAULT_BLOOM_INTENSITY: f32 = 0.82;
+const BLOOM_COMPOSITE_ALPHA: f32 = 0.92;
 
 #[derive(Resource, Clone, Copy, Debug)]
 pub(crate) struct HudBloomSettings {
@@ -54,7 +54,6 @@ pub(crate) struct AgentListBloomCompositeMarker;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum AgentListBloomSourceKind {
-    Main,
     Marker,
 }
 
@@ -128,12 +127,9 @@ fn rect_transform(window: &Window, rect: HudRect, z: f32) -> Transform {
 
 fn bloom_source_color(focused: bool, hovered: bool, kind: AgentListBloomSourceKind) -> Color {
     match (focused, hovered, kind) {
-        (true, _, AgentListBloomSourceKind::Main) => Color::srgba(1.35, 0.40, 0.07, 0.10),
-        (true, _, AgentListBloomSourceKind::Marker) => Color::srgba(5.8, 1.90, 0.34, 0.44),
-        (_, true, AgentListBloomSourceKind::Main) => Color::srgba(1.00, 0.31, 0.05, 0.07),
-        (_, true, AgentListBloomSourceKind::Marker) => Color::srgba(4.4, 1.40, 0.24, 0.31),
-        (_, _, AgentListBloomSourceKind::Main) => Color::srgba(0.62, 0.19, 0.03, 0.04),
-        (_, _, AgentListBloomSourceKind::Marker) => Color::srgba(3.1, 0.98, 0.16, 0.20),
+        (true, _, AgentListBloomSourceKind::Marker) => Color::srgba(6.4, 2.33, 0.39, 0.72),
+        (_, true, AgentListBloomSourceKind::Marker) => Color::srgba(4.95, 1.81, 0.30, 0.50),
+        (_, _, AgentListBloomSourceKind::Marker) => Color::srgba(3.68, 1.35, 0.22, 0.32),
     }
 }
 
@@ -173,25 +169,16 @@ fn build_bloom_specs(
             continue;
         }
 
-        for (kind, rect) in [
-            (
-                AgentListBloomSourceKind::Main,
-                agent_row_rect(row.rect, AgentListRowSection::Main),
-            ),
-            (
-                AgentListBloomSourceKind::Marker,
-                agent_row_rect(row.rect, AgentListRowSection::Marker),
-            ),
-        ] {
-            specs.push(BloomSourceSpec {
-                key: AgentListBloomSourceSprite {
-                    terminal_id: row.terminal_id,
-                    kind,
-                },
-                rect,
-                color: bloom_source_color(row.focused, row.hovered, kind),
-            });
-        }
+        let kind = AgentListBloomSourceKind::Marker;
+        let rect = agent_row_rect(row.rect, AgentListRowSection::Marker);
+        specs.push(BloomSourceSpec {
+            key: AgentListBloomSourceSprite {
+                terminal_id: row.terminal_id,
+                kind,
+            },
+            rect,
+            color: bloom_source_color(row.focused, row.hovered, kind),
+        });
     }
     specs
 }
