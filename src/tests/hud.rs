@@ -181,12 +181,12 @@ fn sync_structural_hud_layout_docks_agent_list_to_full_height_left_column() {
 
 #[test]
 fn parses_agent_bloom_intensity_override() {
-    assert_eq!(resolve_agent_list_bloom_intensity(None), 0.82);
-    assert_eq!(resolve_agent_list_bloom_intensity(Some("")), 0.82);
+    assert_eq!(resolve_agent_list_bloom_intensity(None), 0.68);
+    assert_eq!(resolve_agent_list_bloom_intensity(Some("")), 0.68);
     assert_eq!(resolve_agent_list_bloom_intensity(Some("2.0")), 2.0);
     assert_eq!(resolve_agent_list_bloom_intensity(Some(" 0.0 ")), 0.0);
-    assert_eq!(resolve_agent_list_bloom_intensity(Some("-1")), 0.82);
-    assert_eq!(resolve_agent_list_bloom_intensity(Some("abc")), 0.82);
+    assert_eq!(resolve_agent_list_bloom_intensity(Some("-1")), 0.68);
+    assert_eq!(resolve_agent_list_bloom_intensity(Some("abc")), 0.68);
 }
 
 #[test]
