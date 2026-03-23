@@ -5,6 +5,8 @@ const HUD_MESSAGE_BOX_KILL_RING_LIMIT: usize = 32;
 const HUD_MESSAGE_BOX_ACTION_BUTTON_W: f32 = 170.0;
 const HUD_MESSAGE_BOX_ACTION_BUTTON_H: f32 = 28.0;
 const HUD_MESSAGE_BOX_ACTION_BUTTON_GAP: f32 = 12.0;
+const HUD_MESSAGE_BOX_TOP_MARGIN: f32 = 28.0;
+const HUD_MESSAGE_BOX_HEIGHT_RATIO: f32 = 0.52;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum HudMessageBoxAction {
@@ -41,11 +43,11 @@ pub(crate) struct HudMessageBoxState {
 pub(crate) fn message_box_rect(window: &Window) -> HudRect {
     let size = Vec2::new(
         (window.width() * 0.84).clamp(520.0, 1680.0),
-        (window.height() * 0.72).clamp(260.0, 980.0),
+        (window.height() * HUD_MESSAGE_BOX_HEIGHT_RATIO).clamp(240.0, 760.0),
     );
     HudRect {
         x: window.width() * 0.5 - size.x * 0.5,
-        y: window.height() * 0.5 - size.y * 0.5,
+        y: HUD_MESSAGE_BOX_TOP_MARGIN,
         w: size.x,
         h: size.y,
     }
