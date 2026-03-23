@@ -84,61 +84,39 @@ fn glow_rect(
     fill: peniko::Color,
     seed: u32,
 ) {
-    painter.fill_rect(inflate_rect(rect, 2.0), apply_alpha(stroke, 0.07), 0.0);
-    painter.fill_rect(inflate_rect(rect, 1.0), apply_alpha(stroke, 0.05), 0.0);
-    painter.stroke_rect(inflate_rect(rect, 2.0), apply_alpha(stroke, 0.22), 0.0);
-    painter.stroke_rect(inflate_rect(rect, 1.0), apply_alpha(stroke, 0.40), 0.0);
+    painter.fill_rect(inflate_rect(rect, 4.0), apply_alpha(stroke, 0.05), 0.0);
+    painter.fill_rect(inflate_rect(rect, 2.5), apply_alpha(stroke, 0.10), 0.0);
+    painter.fill_rect(inflate_rect(rect, 1.5), apply_alpha(stroke, 0.12), 0.0);
+    painter.stroke_rect(inflate_rect(rect, 3.0), apply_alpha(stroke, 0.18), 0.0);
+    painter.stroke_rect(inflate_rect(rect, 2.0), apply_alpha(stroke, 0.32), 0.0);
+    painter.stroke_rect(inflate_rect(rect, 1.0), apply_alpha(stroke, 0.52), 0.0);
     painter.fill_rect(rect, fill, 0.0);
 
     for (band_rect, alpha) in agent_button_irregularities(rect, seed) {
-        painter.fill_rect(band_rect, apply_alpha(stroke, alpha), 0.0);
+        painter.fill_rect(band_rect, apply_alpha(stroke, alpha * 1.6), 0.0);
     }
 
-    painter.stroke_rect(rect, stroke, 0.0);
+    painter.stroke_rect(rect, apply_alpha(stroke, 0.96), 0.0);
 }
 
 fn draw_left_rail(painter: &mut HudPainter, content_rect: HudRect) {
-    let rail_x = content_rect.x + 12.0;
-    let top = content_rect.y + HUD_MODULE_PADDING;
+    let tick_x = content_rect.x + 5.0;
+    let top = content_rect.y + HUD_MODULE_PADDING + 4.0;
     let bottom = content_rect.y + content_rect.h - HUD_MODULE_PADDING;
-    painter.fill_rect(
-        HudRect {
-            x: rail_x,
-            y: top,
-            w: 2.0,
-            h: (bottom - top).max(0.0),
-        },
-        apply_alpha(EVA_CYAN, 0.85),
-        0.0,
-    );
 
-    let mut idx = 0usize;
-    let mut y = top + 24.0;
+    let mut y = top + 18.0;
     while y <= bottom - 2.0 {
         painter.fill_rect(
             HudRect {
-                x: rail_x - 6.0,
+                x: tick_x,
                 y,
-                w: 14.0,
+                w: 8.0,
                 h: 2.0,
             },
-            apply_alpha(EVA_CYAN, 0.8),
+            apply_alpha(EVA_CYAN, 0.82),
             0.0,
         );
-        if idx < 6 {
-            glow_label(
-                painter,
-                Vec2::new(rail_x - 28.0, y - 10.0),
-                &format!("+{:02}", idx + 1),
-                13.0,
-                EVA_CYAN,
-                VelloTextAnchor::TopLeft,
-                0.9,
-                1.05,
-            );
-        }
-        idx += 1;
-        y += 48.0;
+        y += 34.0;
     }
 }
 
