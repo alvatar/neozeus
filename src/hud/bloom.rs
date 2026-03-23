@@ -1,47 +1,31 @@
 use crate::hud::{
     modules::{agent_row_rect, agent_rows, AgentListRowSection},
-    AgentDirectory, HudModuleId, HudOffscreenCompositor, HudRect, HudState,
+    AgentDirectory, HudModuleId, HudRect, HudState,
 };
 use crate::terminals::{TerminalId, TerminalManager};
 use bevy::{
     asset::RenderAssetUsages,
     camera::{visibility::RenderLayers, ClearColorConfig, RenderTarget},
+    core_pipeline::tonemapping::{DebandDither, Tonemapping},
     ecs::system::SystemParam,
     image::ImageSampler,
-    mesh::{Mesh, Mesh2d, MeshVertexBufferLayoutRef},
+    post_process::bloom::{Bloom, BloomCompositeMode, BloomPrefilter},
     prelude::*,
-    reflect::TypePath,
-    render::render_resource::{
-        AsBindGroup, BlendComponent, BlendFactor, BlendOperation, BlendState, Extent3d,
-        RenderPipelineDescriptor, ShaderType, SpecializedMeshPipelineError, TextureDimension,
-        TextureFormat, TextureUsages,
-    },
-    shader::ShaderRef,
-    sprite_render::{AlphaMode2d, Material2d, Material2dKey, MeshMaterial2d},
+    render::render_resource::{Extent3d, TextureDimension, TextureFormat, TextureUsages},
     window::PrimaryWindow,
 };
-
-use super::{compositor::HUD_COMPOSITE_FOREGROUND_Z, modules::agent_button_irregularities};
 use std::env;
 
+use super::compositor::HUD_COMPOSITE_FOREGROUND_Z;
+
 const BLOOM_SOURCE_LAYER: usize = 29;
-const BLOOM_BLUR_LAYER: usize = 30;
-const BLOOM_SHADER_PATH: &str = "shaders/hud_agent_list_bloom.wgsl";
-const BLOOM_Z: f32 = HUD_COMPOSITE_FOREGROUND_Z - 0.1;
-const DEFAULT_BLOOM_INTENSITY: f32 = 8.0;
-const BLOOM_TEXEL_RADIUS: f32 = 3.0;
-const BLOOM_STROKE_THICKNESS: f32 = 3.2;
-const BLOOM_DEBUG_PREVIEW_Z: f32 = HUD_COMPOSITE_FOREGROUND_Z + 0.5;
-const BLOOM_DEBUG_PREVIEW_MARGIN: f32 = 20.0;
-const BLOOM_DEBUG_PREVIEW_GAP: f32 = 16.0;
-const BLOOM_DEBUG_PREVIEW_WIDTH: f32 = 210.0;
-const BLOOM_DEBUG_PREVIEW_HEIGHT: f32 = 120.0;
-const BLOOM_DEBUG_PREVIEW_BACKDROP_PADDING: f32 = 10.0;
+const BLOOM_COMPOSITE_Z: f32 = HUD_COMPOSITE_FOREGROUND_Z + 0.1;
+const DEFAULT_BLOOM_INTENSITY: f32 = 0.35;
+const BLOOM_COMPOSITE_ALPHA: f32 = 0.95;
 
 #[derive(Resource, Clone, Copy, Debug)]
 pub(crate) struct HudBloomSettings {
     pub(crate) agent_list_intensity: f32,
-    pub(crate) agent_list_debug_preview: bool,
 }
 
 impl Default for HudBloomSettings {
@@ -49,11 +33,6 @@ impl Default for HudBloomSettings {
         Self {
             agent_list_intensity: resolve_agent_list_bloom_intensity(
                 env::var("NEOZEUS_AGENT_BLOOM_INTENSITY").ok().as_deref(),
-            ),
-            agent_list_debug_preview: resolve_agent_list_bloom_debug_preview(
-                env::var("NEOZEUS_AGENT_BLOOM_DEBUG_PREVIEW")
-                    .ok()
-                    .as_deref(),
             ),
         }
     }
@@ -67,54 +46,22 @@ pub(crate) fn resolve_agent_list_bloom_intensity(raw: Option<&str>) -> f32 {
         .unwrap_or(DEFAULT_BLOOM_INTENSITY)
 }
 
-pub(crate) fn resolve_agent_list_bloom_debug_preview(raw: Option<&str>) -> bool {
-    matches!(
-        raw.map(str::trim),
-        Some("1")
-            | Some("true")
-            | Some("TRUE")
-            | Some("on")
-            | Some("ON")
-            | Some("yes")
-            | Some("YES")
-    )
-}
-
 #[derive(Component)]
-pub(crate) struct AgentListBloomSourceCameraMarker;
-
-#[derive(Component)]
-pub(crate) struct AgentListBloomBlurCameraMarker;
-
-#[derive(Component)]
-pub(crate) struct AgentListBloomBlurQuadMarker;
+pub(crate) struct AgentListBloomCameraMarker;
 
 #[derive(Component)]
 pub(crate) struct AgentListBloomCompositeMarker;
 
-#[derive(Component)]
-pub(crate) struct AgentListBloomDebugBackdropMarker;
-
-#[derive(Component)]
-pub(crate) struct AgentListBloomDebugSourcePreviewMarker;
-
-#[derive(Component)]
-pub(crate) struct AgentListBloomDebugBlurPreviewMarker;
-
-#[derive(Component)]
-pub(crate) struct AgentListBloomDebugCompositePreviewMarker;
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-enum BloomRectKind {
+pub(crate) enum AgentListBloomSourceKind {
     Main,
     Marker,
 }
 
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct AgentListBloomSourceSprite {
-    terminal_id: TerminalId,
-    rect_kind: BloomRectKind,
-    segment_index: u8,
+    pub(crate) terminal_id: TerminalId,
+    pub(crate) kind: AgentListBloomSourceKind,
 }
 
 #[derive(Clone, Debug)]
@@ -124,92 +71,11 @@ struct BloomSourceSpec {
     color: Color,
 }
 
-#[derive(Clone, Copy, Debug, ShaderType)]
-struct HudBloomParams {
-    texel_step: Vec2,
-    direction: Vec2,
-    intensity: f32,
-    _padding: f32,
-}
-
-#[derive(Asset, TypePath, AsBindGroup, Clone, Debug)]
-pub(crate) struct HudBloomBlurMaterial {
-    #[uniform(0)]
-    params: HudBloomParams,
-    #[texture(1)]
-    #[sampler(2)]
-    source_texture: Handle<Image>,
-}
-
-impl Material2d for HudBloomBlurMaterial {
-    fn fragment_shader() -> ShaderRef {
-        BLOOM_SHADER_PATH.into()
-    }
-
-    fn alpha_mode(&self) -> AlphaMode2d {
-        AlphaMode2d::Blend
-    }
-}
-
-#[derive(Asset, TypePath, AsBindGroup, Clone, Debug)]
-pub(crate) struct HudBloomCompositeMaterial {
-    #[uniform(0)]
-    params: HudBloomParams,
-    #[texture(1)]
-    #[sampler(2)]
-    source_texture: Handle<Image>,
-}
-
-impl Material2d for HudBloomCompositeMaterial {
-    fn fragment_shader() -> ShaderRef {
-        BLOOM_SHADER_PATH.into()
-    }
-
-    fn alpha_mode(&self) -> AlphaMode2d {
-        AlphaMode2d::Blend
-    }
-
-    fn specialize(
-        descriptor: &mut RenderPipelineDescriptor,
-        _layout: &MeshVertexBufferLayoutRef,
-        _key: Material2dKey<Self>,
-    ) -> Result<(), SpecializedMeshPipelineError> {
-        let Some(fragment) = descriptor.fragment.as_mut() else {
-            return Ok(());
-        };
-        let Some(target) = fragment.targets.first_mut().and_then(Option::as_mut) else {
-            return Ok(());
-        };
-        target.blend = Some(BlendState {
-            color: BlendComponent {
-                src_factor: BlendFactor::One,
-                dst_factor: BlendFactor::One,
-                operation: BlendOperation::Add,
-            },
-            alpha: BlendComponent {
-                src_factor: BlendFactor::One,
-                dst_factor: BlendFactor::One,
-                operation: BlendOperation::Add,
-            },
-        });
-        Ok(())
-    }
-}
-
 #[derive(Clone, Debug, Default)]
 struct AgentListBloomPass {
-    source_image: Handle<Image>,
-    blur_image: Handle<Image>,
-    source_camera: Option<Entity>,
-    blur_camera: Option<Entity>,
-    blur_quad: Option<Entity>,
-    composite_quad: Option<Entity>,
-    debug_backdrop: Option<Entity>,
-    debug_source_preview: Option<Entity>,
-    debug_blur_preview: Option<Entity>,
-    debug_composite_preview: Option<Entity>,
-    blur_material: Option<Handle<HudBloomBlurMaterial>>,
-    composite_material: Option<Handle<HudBloomCompositeMaterial>>,
+    image: Handle<Image>,
+    camera: Option<Entity>,
+    composite_sprite: Option<Entity>,
 }
 
 #[derive(Resource, Clone, Debug, Default)]
@@ -217,21 +83,7 @@ pub(crate) struct HudWidgetBloom {
     agent_list: AgentListBloomPass,
 }
 
-fn peniko_to_color(color: bevy_vello::vello::peniko::Color, alpha: f32) -> Color {
-    let rgba = color.to_rgba8();
-    let scaled_alpha = ((rgba.a as f32) * alpha.clamp(0.0, 1.0)).round() as u8;
-    Color::srgba_u8(rgba.r, rgba.g, rgba.b, scaled_alpha)
-}
-
-fn bloom_emission_color(focused: bool) -> bevy_vello::vello::peniko::Color {
-    if focused {
-        bevy_vello::vello::peniko::Color::from_rgba8(255, 150, 40, 255)
-    } else {
-        bevy_vello::vello::peniko::Color::from_rgba8(255, 108, 24, 255)
-    }
-}
-
-fn render_target_image(size: UVec2) -> Image {
+fn bloom_target_image(size: UVec2) -> Image {
     let mut image = Image::new_fill(
         Extent3d {
             width: size.x.max(1),
@@ -259,53 +111,45 @@ fn image_matches_size(images: &Assets<Image>, handle: &Handle<Image>, size: UVec
         .unwrap_or(false)
 }
 
-fn bloom_params(size: UVec2, direction: Vec2, intensity: f32) -> HudBloomParams {
-    HudBloomParams {
-        texel_step: Vec2::new(1.0 / size.x.max(1) as f32, 1.0 / size.y.max(1) as f32),
-        direction,
-        intensity,
-        _padding: 0.0,
+fn window_size(window: &Window) -> UVec2 {
+    UVec2::new(
+        window.width().round().max(1.0) as u32,
+        window.height().round().max(1.0) as u32,
+    )
+}
+
+fn rect_transform(window: &Window, rect: HudRect, z: f32) -> Transform {
+    Transform::from_xyz(
+        rect.x + rect.w * 0.5 - window.width() * 0.5,
+        window.height() * 0.5 - (rect.y + rect.h * 0.5),
+        z,
+    )
+}
+
+fn bloom_source_color(focused: bool, hovered: bool, kind: AgentListBloomSourceKind) -> Color {
+    match (focused, hovered, kind) {
+        (true, _, AgentListBloomSourceKind::Main) => Color::srgba(5.2, 2.0, 0.45, 0.36),
+        (true, _, AgentListBloomSourceKind::Marker) => Color::srgba(7.0, 2.6, 0.6, 0.56),
+        (_, true, AgentListBloomSourceKind::Main) => Color::srgba(4.2, 1.55, 0.32, 0.28),
+        (_, true, AgentListBloomSourceKind::Marker) => Color::srgba(5.8, 2.05, 0.42, 0.40),
+        (_, _, AgentListBloomSourceKind::Main) => Color::srgba(3.2, 1.15, 0.22, 0.22),
+        (_, _, AgentListBloomSourceKind::Marker) => Color::srgba(4.3, 1.5, 0.3, 0.30),
     }
 }
 
-fn edge_segments(rect: HudRect, thickness: f32) -> [HudRect; 4] {
-    let edge = thickness.max(1.0);
-    [
-        HudRect {
-            x: rect.x,
-            y: rect.y,
-            w: rect.w.max(1.0),
-            h: edge,
+fn bloom_component(intensity: f32) -> Bloom {
+    Bloom {
+        intensity,
+        low_frequency_boost: 0.82,
+        low_frequency_boost_curvature: 0.92,
+        high_pass_frequency: 0.85,
+        prefilter: BloomPrefilter {
+            threshold: 0.0,
+            threshold_softness: 0.0,
         },
-        HudRect {
-            x: rect.x,
-            y: rect.y + rect.h - edge,
-            w: rect.w.max(1.0),
-            h: edge,
-        },
-        HudRect {
-            x: rect.x,
-            y: rect.y,
-            w: edge,
-            h: rect.h.max(1.0),
-        },
-        HudRect {
-            x: rect.x + rect.w - edge,
-            y: rect.y,
-            w: edge,
-            h: rect.h.max(1.0),
-        },
-    ]
-}
-
-fn inset_rect(rect: HudRect, inset: f32) -> HudRect {
-    let inset = inset.max(0.0);
-    let double = inset * 2.0;
-    HudRect {
-        x: rect.x + inset,
-        y: rect.y + inset,
-        w: (rect.w - double).max(1.0),
-        h: (rect.h - double).max(1.0),
+        composite_mode: BloomCompositeMode::Additive,
+        max_mip_dimension: 1024,
+        scale: Vec2::ONE,
     }
 }
 
@@ -329,103 +173,27 @@ fn build_bloom_specs(
             continue;
         }
 
-        let stroke = bloom_emission_color(row.focused);
-        let edge_color = peniko_to_color(stroke, if row.focused { 0.78 } else { 0.62 });
-        let body_color = peniko_to_color(stroke, if row.focused { 0.24 } else { 0.18 });
-        for (rect_kind, rect) in [
+        for (kind, rect) in [
             (
-                BloomRectKind::Main,
+                AgentListBloomSourceKind::Main,
                 agent_row_rect(row.rect, AgentListRowSection::Main),
             ),
             (
-                BloomRectKind::Marker,
+                AgentListBloomSourceKind::Marker,
                 agent_row_rect(row.rect, AgentListRowSection::Marker),
             ),
         ] {
-            for (segment_index, edge_rect) in edge_segments(rect, BLOOM_STROKE_THICKNESS)
-                .into_iter()
-                .enumerate()
-            {
-                specs.push(BloomSourceSpec {
-                    key: AgentListBloomSourceSprite {
-                        terminal_id: row.terminal_id,
-                        rect_kind,
-                        segment_index: segment_index as u8,
-                    },
-                    rect: edge_rect,
-                    color: edge_color,
-                });
-            }
-
             specs.push(BloomSourceSpec {
                 key: AgentListBloomSourceSprite {
                     terminal_id: row.terminal_id,
-                    rect_kind,
-                    segment_index: 4,
+                    kind,
                 },
-                rect: inset_rect(rect, BLOOM_STROKE_THICKNESS * 0.5),
-                color: body_color,
+                rect,
+                color: bloom_source_color(row.focused, row.hovered, kind),
             });
-
-            let band_seed_offset = match rect_kind {
-                BloomRectKind::Main => 0,
-                BloomRectKind::Marker => 7,
-            };
-            for (band_index, (band_rect, alpha)) in
-                agent_button_irregularities(rect, row.terminal_id.0 as u32 * 23 + band_seed_offset)
-                    .into_iter()
-                    .enumerate()
-            {
-                specs.push(BloomSourceSpec {
-                    key: AgentListBloomSourceSprite {
-                        terminal_id: row.terminal_id,
-                        rect_kind,
-                        segment_index: 5 + band_index as u8,
-                    },
-                    rect: band_rect,
-                    color: peniko_to_color(stroke, alpha * if row.focused { 0.82 } else { 0.66 }),
-                });
-            }
         }
     }
     specs
-}
-
-fn window_size(window: &Window) -> UVec2 {
-    UVec2::new(
-        window.width().round().max(1.0) as u32,
-        window.height().round().max(1.0) as u32,
-    )
-}
-
-fn rect_transform(window: &Window, rect: HudRect, z: f32) -> Transform {
-    Transform::from_xyz(
-        rect.x + rect.w * 0.5 - window.width() * 0.5,
-        window.height() * 0.5 - (rect.y + rect.h * 0.5),
-        z,
-    )
-}
-
-fn bloom_debug_preview_rect(index: usize, window: &Window) -> HudRect {
-    let total_width = BLOOM_DEBUG_PREVIEW_WIDTH * 3.0 + BLOOM_DEBUG_PREVIEW_GAP * 2.0;
-    let start_x = (window.width() - BLOOM_DEBUG_PREVIEW_MARGIN - total_width).max(0.0);
-    HudRect {
-        x: start_x + index as f32 * (BLOOM_DEBUG_PREVIEW_WIDTH + BLOOM_DEBUG_PREVIEW_GAP),
-        y: BLOOM_DEBUG_PREVIEW_MARGIN,
-        w: BLOOM_DEBUG_PREVIEW_WIDTH,
-        h: BLOOM_DEBUG_PREVIEW_HEIGHT,
-    }
-}
-
-fn bloom_debug_backdrop_rect(window: &Window) -> HudRect {
-    let first = bloom_debug_preview_rect(0, window);
-    let last = bloom_debug_preview_rect(2, window);
-    HudRect {
-        x: (first.x - BLOOM_DEBUG_PREVIEW_BACKDROP_PADDING).max(0.0),
-        y: (first.y - BLOOM_DEBUG_PREVIEW_BACKDROP_PADDING).max(0.0),
-        w: (last.x + last.w - first.x) + BLOOM_DEBUG_PREVIEW_BACKDROP_PADDING * 2.0,
-        h: first.h + BLOOM_DEBUG_PREVIEW_BACKDROP_PADDING * 2.0,
-    }
 }
 
 #[derive(SystemParam)]
@@ -433,257 +201,64 @@ pub(crate) struct HudWidgetBloomSetupContext<'w, 's> {
     commands: Commands<'w, 's>,
     primary_window: Single<'w, 's, &'static Window, With<PrimaryWindow>>,
     settings: Res<'w, HudBloomSettings>,
-    meshes: ResMut<'w, Assets<Mesh>>,
     images: ResMut<'w, Assets<Image>>,
-    blur_materials: ResMut<'w, Assets<HudBloomBlurMaterial>>,
-    composite_materials: ResMut<'w, Assets<HudBloomCompositeMaterial>>,
     bloom: ResMut<'w, HudWidgetBloom>,
 }
 
 pub(crate) fn setup_hud_widget_bloom(mut ctx: HudWidgetBloomSetupContext) {
     let size = window_size(&ctx.primary_window);
-    let source_image = ctx.images.add(render_target_image(size));
-    let blur_image = ctx.images.add(render_target_image(size));
-    let quad_mesh = ctx.meshes.add(Rectangle::default());
-    let blur_material = ctx.blur_materials.add(HudBloomBlurMaterial {
-        params: bloom_params(size, Vec2::new(BLOOM_TEXEL_RADIUS, 0.0), 1.0),
-        source_texture: source_image.clone(),
-    });
-    let composite_material = ctx.composite_materials.add(HudBloomCompositeMaterial {
-        params: bloom_params(
-            size,
-            Vec2::new(0.0, BLOOM_TEXEL_RADIUS),
-            ctx.settings.agent_list_intensity,
-        ),
-        source_texture: blur_image.clone(),
-    });
-
-    let source_camera = ctx
+    let image = ctx.images.add(bloom_target_image(size));
+    let camera = ctx
         .commands
         .spawn((
             Camera2d,
             Camera {
-                order: -110,
+                order: -100,
                 clear_color: ClearColorConfig::Custom(Color::NONE),
                 ..default()
             },
-            RenderTarget::Image(source_image.clone().into()),
+            RenderTarget::Image(image.clone().into()),
             RenderLayers::layer(BLOOM_SOURCE_LAYER),
-            AgentListBloomSourceCameraMarker,
+            bloom_component(ctx.settings.agent_list_intensity),
+            Tonemapping::TonyMcMapface,
+            DebandDither::Enabled,
+            AgentListBloomCameraMarker,
         ))
         .id();
-    let blur_camera = ctx
+    let composite_sprite = ctx
         .commands
         .spawn((
-            Camera2d,
-            Camera {
-                order: -109,
-                clear_color: ClearColorConfig::Custom(Color::NONE),
+            Sprite {
+                image: image.clone(),
+                color: Color::srgba(1.0, 1.0, 1.0, BLOOM_COMPOSITE_ALPHA),
+                custom_size: Some(Vec2::new(
+                    ctx.primary_window.width(),
+                    ctx.primary_window.height(),
+                )),
                 ..default()
             },
-            RenderTarget::Image(blur_image.clone().into()),
-            RenderLayers::layer(BLOOM_BLUR_LAYER),
-            AgentListBloomBlurCameraMarker,
-        ))
-        .id();
-    let blur_quad = ctx
-        .commands
-        .spawn((
-            Mesh2d(quad_mesh.clone()),
-            MeshMaterial2d(blur_material.clone()),
-            Transform::from_xyz(0.0, 0.0, 0.0).with_scale(Vec3::new(
-                ctx.primary_window.width(),
-                ctx.primary_window.height(),
-                1.0,
-            )),
-            RenderLayers::layer(BLOOM_BLUR_LAYER),
-            AgentListBloomBlurQuadMarker,
-        ))
-        .id();
-    let composite_quad = ctx
-        .commands
-        .spawn((
-            Mesh2d(quad_mesh.clone()),
-            MeshMaterial2d(composite_material.clone()),
-            Transform::from_xyz(0.0, 0.0, BLOOM_Z).with_scale(Vec3::new(
-                ctx.primary_window.width(),
-                ctx.primary_window.height(),
-                1.0,
-            )),
+            Transform::from_xyz(0.0, 0.0, BLOOM_COMPOSITE_Z),
+            RenderLayers::layer(0),
             Visibility::Hidden,
             AgentListBloomCompositeMarker,
         ))
         .id();
 
-    let (debug_backdrop, debug_source_preview, debug_blur_preview, debug_composite_preview) =
-        if ctx.settings.agent_list_debug_preview {
-            let backdrop = ctx
-                .commands
-                .spawn((
-                    Sprite {
-                        color: Color::srgba(0.0, 0.0, 0.0, 0.92),
-                        custom_size: Some(Vec2::new(1.0, 1.0)),
-                        ..default()
-                    },
-                    Transform::default(),
-                    Visibility::Hidden,
-                    AgentListBloomDebugBackdropMarker,
-                ))
-                .id();
-            let source_preview = ctx
-                .commands
-                .spawn((
-                    Sprite::from_image(source_image.clone()),
-                    Transform::default(),
-                    Visibility::Hidden,
-                    AgentListBloomDebugSourcePreviewMarker,
-                ))
-                .id();
-            let blur_preview = ctx
-                .commands
-                .spawn((
-                    Sprite::from_image(blur_image.clone()),
-                    Transform::default(),
-                    Visibility::Hidden,
-                    AgentListBloomDebugBlurPreviewMarker,
-                ))
-                .id();
-            let composite_preview = ctx
-                .commands
-                .spawn((
-                    Mesh2d(quad_mesh.clone()),
-                    MeshMaterial2d(composite_material.clone()),
-                    Transform::default(),
-                    Visibility::Hidden,
-                    AgentListBloomDebugCompositePreviewMarker,
-                ))
-                .id();
-            (
-                Some(backdrop),
-                Some(source_preview),
-                Some(blur_preview),
-                Some(composite_preview),
-            )
-        } else {
-            (None, None, None, None)
-        };
-
     ctx.bloom.agent_list = AgentListBloomPass {
-        source_image,
-        blur_image,
-        source_camera: Some(source_camera),
-        blur_camera: Some(blur_camera),
-        blur_quad: Some(blur_quad),
-        composite_quad: Some(composite_quad),
-        debug_backdrop,
-        debug_source_preview,
-        debug_blur_preview,
-        debug_composite_preview,
-        blur_material: Some(blur_material),
-        composite_material: Some(composite_material),
+        image,
+        camera: Some(camera),
+        composite_sprite: Some(composite_sprite),
     };
 }
 
-type BloomSourceTargetFilter = (
-    With<AgentListBloomSourceCameraMarker>,
-    Without<AgentListBloomBlurCameraMarker>,
-);
-type BloomBlurTargetFilter = (
-    With<AgentListBloomBlurCameraMarker>,
-    Without<AgentListBloomSourceCameraMarker>,
-);
-type BloomBlurQuadItem = (
-    &'static mut Transform,
-    &'static MeshMaterial2d<HudBloomBlurMaterial>,
-);
-type BloomBlurQuadFilter = (
-    With<AgentListBloomBlurQuadMarker>,
-    Without<AgentListBloomSourceSprite>,
-    Without<AgentListBloomCompositeMarker>,
-    Without<AgentListBloomDebugBackdropMarker>,
-    Without<AgentListBloomDebugSourcePreviewMarker>,
-    Without<AgentListBloomDebugBlurPreviewMarker>,
-    Without<AgentListBloomDebugCompositePreviewMarker>,
-);
-type BloomCompositeQuadItem = (
-    &'static mut Transform,
-    &'static mut Visibility,
-    &'static MeshMaterial2d<HudBloomCompositeMaterial>,
-);
-type BloomCompositeQuadFilter = (
+type BloomCameraFilter = With<AgentListBloomCameraMarker>;
+type BloomCompositeFilter = (
     With<AgentListBloomCompositeMarker>,
     Without<AgentListBloomSourceSprite>,
-    Without<AgentListBloomBlurQuadMarker>,
-    Without<AgentListBloomDebugBackdropMarker>,
-    Without<AgentListBloomDebugSourcePreviewMarker>,
-    Without<AgentListBloomDebugBlurPreviewMarker>,
-    Without<AgentListBloomDebugCompositePreviewMarker>,
-);
-type BloomSourceSpriteItem = (
-    Entity,
-    &'static AgentListBloomSourceSprite,
-    &'static mut Sprite,
-    &'static mut Transform,
-    &'static mut Visibility,
 );
 type BloomSourceSpriteFilter = (
-    Without<AgentListBloomBlurQuadMarker>,
+    With<AgentListBloomSourceSprite>,
     Without<AgentListBloomCompositeMarker>,
-    Without<AgentListBloomDebugBackdropMarker>,
-    Without<AgentListBloomDebugSourcePreviewMarker>,
-    Without<AgentListBloomDebugBlurPreviewMarker>,
-    Without<AgentListBloomDebugCompositePreviewMarker>,
-);
-type BloomDebugBackdropItem = (
-    &'static mut Sprite,
-    &'static mut Transform,
-    &'static mut Visibility,
-);
-type BloomDebugBackdropFilter = (
-    With<AgentListBloomDebugBackdropMarker>,
-    Without<AgentListBloomBlurQuadMarker>,
-    Without<AgentListBloomCompositeMarker>,
-    Without<AgentListBloomSourceSprite>,
-    Without<AgentListBloomDebugSourcePreviewMarker>,
-    Without<AgentListBloomDebugBlurPreviewMarker>,
-    Without<AgentListBloomDebugCompositePreviewMarker>,
-);
-type BloomDebugPreviewItem = (
-    &'static mut Sprite,
-    &'static mut Transform,
-    &'static mut Visibility,
-);
-type BloomDebugSourcePreviewFilter = (
-    With<AgentListBloomDebugSourcePreviewMarker>,
-    Without<AgentListBloomBlurQuadMarker>,
-    Without<AgentListBloomCompositeMarker>,
-    Without<AgentListBloomSourceSprite>,
-    Without<AgentListBloomDebugBackdropMarker>,
-    Without<AgentListBloomDebugBlurPreviewMarker>,
-    Without<AgentListBloomDebugCompositePreviewMarker>,
-);
-type BloomDebugBlurPreviewFilter = (
-    With<AgentListBloomDebugBlurPreviewMarker>,
-    Without<AgentListBloomBlurQuadMarker>,
-    Without<AgentListBloomCompositeMarker>,
-    Without<AgentListBloomSourceSprite>,
-    Without<AgentListBloomDebugBackdropMarker>,
-    Without<AgentListBloomDebugSourcePreviewMarker>,
-    Without<AgentListBloomDebugCompositePreviewMarker>,
-);
-type BloomDebugCompositePreviewItem = (
-    &'static mut Transform,
-    &'static mut Visibility,
-    &'static MeshMaterial2d<HudBloomCompositeMaterial>,
-);
-type BloomDebugCompositePreviewFilter = (
-    With<AgentListBloomDebugCompositePreviewMarker>,
-    Without<AgentListBloomBlurQuadMarker>,
-    Without<AgentListBloomCompositeMarker>,
-    Without<AgentListBloomSourceSprite>,
-    Without<AgentListBloomDebugBackdropMarker>,
-    Without<AgentListBloomDebugSourcePreviewMarker>,
-    Without<AgentListBloomDebugBlurPreviewMarker>,
 );
 
 #[derive(SystemParam)]
@@ -692,72 +267,47 @@ pub(crate) struct HudWidgetBloomContext<'w, 's> {
     hud_state: Res<'w, HudState>,
     terminal_manager: Res<'w, TerminalManager>,
     agent_directory: Res<'w, AgentDirectory>,
-    _compositor: Res<'w, HudOffscreenCompositor>,
     settings: Res<'w, HudBloomSettings>,
     commands: Commands<'w, 's>,
     bloom: ResMut<'w, HudWidgetBloom>,
     images: ResMut<'w, Assets<Image>>,
-    blur_materials: ResMut<'w, Assets<HudBloomBlurMaterial>>,
-    composite_materials: ResMut<'w, Assets<HudBloomCompositeMaterial>>,
-    source_targets: Query<'w, 's, &'static mut RenderTarget, BloomSourceTargetFilter>,
-    blur_targets: Query<'w, 's, &'static mut RenderTarget, BloomBlurTargetFilter>,
-    blur_quads: Query<'w, 's, BloomBlurQuadItem, BloomBlurQuadFilter>,
-    composite_quads: Query<'w, 's, BloomCompositeQuadItem, BloomCompositeQuadFilter>,
-    source_sprites: Query<'w, 's, BloomSourceSpriteItem, BloomSourceSpriteFilter>,
-    debug_backdrops: Query<'w, 's, BloomDebugBackdropItem, BloomDebugBackdropFilter>,
-    debug_source_previews: Query<'w, 's, BloomDebugPreviewItem, BloomDebugSourcePreviewFilter>,
-    debug_blur_previews: Query<'w, 's, BloomDebugPreviewItem, BloomDebugBlurPreviewFilter>,
-    debug_composite_previews:
-        Query<'w, 's, BloomDebugCompositePreviewItem, BloomDebugCompositePreviewFilter>,
+    cameras: Query<'w, 's, (&'static mut RenderTarget, &'static mut Bloom), BloomCameraFilter>,
+    composites: Query<
+        'w,
+        's,
+        (
+            &'static mut Sprite,
+            &'static mut Transform,
+            &'static mut Visibility,
+        ),
+        BloomCompositeFilter,
+    >,
+    source_sprites: Query<
+        'w,
+        's,
+        (
+            Entity,
+            &'static AgentListBloomSourceSprite,
+            &'static mut Sprite,
+            &'static mut Transform,
+            &'static mut Visibility,
+        ),
+        BloomSourceSpriteFilter,
+    >,
 }
 
 pub(crate) fn sync_hud_widget_bloom(mut ctx: HudWidgetBloomContext) {
     let size = window_size(&ctx.primary_window);
     let pass = &mut ctx.bloom.agent_list;
 
-    if !image_matches_size(&ctx.images, &pass.source_image, size) {
-        pass.source_image = ctx.images.add(render_target_image(size));
-    }
-    if !image_matches_size(&ctx.images, &pass.blur_image, size) {
-        pass.blur_image = ctx.images.add(render_target_image(size));
+    if !image_matches_size(&ctx.images, &pass.image, size) {
+        pass.image = ctx.images.add(bloom_target_image(size));
     }
 
-    if let Some(entity) = pass.source_camera {
-        if let Ok(mut target) = ctx.source_targets.get_mut(entity) {
-            *target = RenderTarget::Image(pass.source_image.clone().into());
-        }
-    }
-    if let Some(entity) = pass.blur_camera {
-        if let Ok(mut target) = ctx.blur_targets.get_mut(entity) {
-            *target = RenderTarget::Image(pass.blur_image.clone().into());
-        }
-    }
-    if let Some(handle) = pass.blur_material.clone() {
-        if let Some(material) = ctx.blur_materials.get_mut(&handle) {
-            material.source_texture = pass.source_image.clone();
-            material.params = bloom_params(size, Vec2::new(BLOOM_TEXEL_RADIUS, 0.0), 1.0);
-        }
-    }
-    if let Some(handle) = pass.composite_material.clone() {
-        if let Some(material) = ctx.composite_materials.get_mut(&handle) {
-            material.source_texture = pass.blur_image.clone();
-            material.params = bloom_params(
-                size,
-                Vec2::new(0.0, BLOOM_TEXEL_RADIUS),
-                ctx.settings.agent_list_intensity,
-            );
-        }
-    }
-    if let Some(entity) = pass.blur_quad {
-        if let Ok((mut transform, material)) = ctx.blur_quads.get_mut(entity) {
-            transform.translation = Vec3::ZERO;
-            transform.scale =
-                Vec3::new(ctx.primary_window.width(), ctx.primary_window.height(), 1.0);
-            if let Some(handle) = pass.blur_material.clone() {
-                if material.0 != handle {
-                    ctx.commands.entity(entity).insert(MeshMaterial2d(handle));
-                }
-            }
+    if let Some(camera) = pass.camera {
+        if let Ok((mut target, mut bloom)) = ctx.cameras.get_mut(camera) {
+            *target = RenderTarget::Image(pass.image.clone().into());
+            *bloom = bloom_component(ctx.settings.agent_list_intensity);
         }
     }
 
@@ -811,11 +361,8 @@ pub(crate) fn sync_hud_widget_bloom(mut ctx: HudWidgetBloomContext) {
             {
                 sprite.color = spec.color;
                 sprite.custom_size = Some(Vec2::new(spec.rect.w, spec.rect.h));
-                transform.translation = Vec3::new(
-                    spec.rect.x + spec.rect.w * 0.5 - ctx.primary_window.width() * 0.5,
-                    ctx.primary_window.height() * 0.5 - (spec.rect.y + spec.rect.h * 0.5),
-                    0.0,
-                );
+                transform.translation =
+                    rect_transform(&ctx.primary_window, spec.rect, 0.0).translation;
                 *visibility = Visibility::Visible;
             }
         } else {
@@ -825,110 +372,40 @@ pub(crate) fn sync_hud_widget_bloom(mut ctx: HudWidgetBloomContext) {
                     custom_size: Some(Vec2::new(spec.rect.w, spec.rect.h)),
                     ..default()
                 },
-                Transform::from_xyz(
-                    spec.rect.x + spec.rect.w * 0.5 - ctx.primary_window.width() * 0.5,
-                    ctx.primary_window.height() * 0.5 - (spec.rect.y + spec.rect.h * 0.5),
-                    0.0,
-                ),
+                rect_transform(&ctx.primary_window, spec.rect, 0.0),
                 RenderLayers::layer(BLOOM_SOURCE_LAYER),
+                Visibility::Visible,
                 spec.key,
             ));
         }
     }
 
-    if let Some(entity) = pass.composite_quad {
-        if let Ok((mut transform, mut visibility, material)) = ctx.composite_quads.get_mut(entity) {
-            transform.translation = Vec3::new(0.0, 0.0, BLOOM_Z);
-            transform.scale =
-                Vec3::new(ctx.primary_window.width(), ctx.primary_window.height(), 1.0);
+    if let Some(composite) = pass.composite_sprite {
+        if let Ok((mut sprite, mut transform, mut visibility)) = ctx.composites.get_mut(composite) {
+            sprite.image = pass.image.clone();
+            sprite.color = Color::srgba(1.0, 1.0, 1.0, BLOOM_COMPOSITE_ALPHA);
+            sprite.custom_size = Some(Vec2::new(
+                ctx.primary_window.width(),
+                ctx.primary_window.height(),
+            ));
+            transform.translation = Vec3::new(0.0, 0.0, BLOOM_COMPOSITE_Z);
+            transform.rotation = Quat::IDENTITY;
+            transform.scale = Vec3::ONE;
             *visibility = if specs.is_empty() {
                 Visibility::Hidden
             } else {
                 Visibility::Visible
             };
-            if let Some(handle) = pass.composite_material.clone() {
-                if material.0 != handle {
-                    ctx.commands.entity(entity).insert(MeshMaterial2d(handle));
-                }
-            }
-        }
-    }
-
-    let debug_visible = ctx.settings.agent_list_debug_preview;
-    if let Some(entity) = pass.debug_backdrop {
-        if let Ok((mut sprite, mut transform, mut visibility)) = ctx.debug_backdrops.get_mut(entity)
-        {
-            let rect = bloom_debug_backdrop_rect(&ctx.primary_window);
-            sprite.custom_size = Some(Vec2::new(rect.w, rect.h));
-            transform.translation =
-                rect_transform(&ctx.primary_window, rect, BLOOM_DEBUG_PREVIEW_Z).translation;
-            *visibility = if debug_visible {
-                Visibility::Visible
-            } else {
-                Visibility::Hidden
-            };
-        }
-    }
-    if let Some(entity) = pass.debug_source_preview {
-        if let Ok((mut sprite, mut transform, mut visibility)) =
-            ctx.debug_source_previews.get_mut(entity)
-        {
-            let rect = bloom_debug_preview_rect(0, &ctx.primary_window);
-            sprite.image = pass.source_image.clone();
-            sprite.custom_size = Some(Vec2::new(rect.w, rect.h));
-            transform.translation =
-                rect_transform(&ctx.primary_window, rect, BLOOM_DEBUG_PREVIEW_Z + 0.01).translation;
-            *visibility = if debug_visible {
-                Visibility::Visible
-            } else {
-                Visibility::Hidden
-            };
-        }
-    }
-    if let Some(entity) = pass.debug_blur_preview {
-        if let Ok((mut sprite, mut transform, mut visibility)) =
-            ctx.debug_blur_previews.get_mut(entity)
-        {
-            let rect = bloom_debug_preview_rect(1, &ctx.primary_window);
-            sprite.image = pass.blur_image.clone();
-            sprite.custom_size = Some(Vec2::new(rect.w, rect.h));
-            transform.translation =
-                rect_transform(&ctx.primary_window, rect, BLOOM_DEBUG_PREVIEW_Z + 0.01).translation;
-            *visibility = if debug_visible {
-                Visibility::Visible
-            } else {
-                Visibility::Hidden
-            };
-        }
-    }
-    if let Some(entity) = pass.debug_composite_preview {
-        if let Ok((mut transform, mut visibility, material)) =
-            ctx.debug_composite_previews.get_mut(entity)
-        {
-            let rect = bloom_debug_preview_rect(2, &ctx.primary_window);
-            let preview_transform =
-                rect_transform(&ctx.primary_window, rect, BLOOM_DEBUG_PREVIEW_Z + 0.02);
-            *transform = preview_transform.with_scale(Vec3::new(rect.w, rect.h, 1.0));
-            *visibility = if debug_visible {
-                Visibility::Visible
-            } else {
-                Visibility::Hidden
-            };
-            if let Some(handle) = pass.composite_material.clone() {
-                if material.0 != handle {
-                    ctx.commands.entity(entity).insert(MeshMaterial2d(handle));
-                }
-            }
         }
     }
 }
 
 #[cfg(test)]
-pub(crate) fn agent_list_bloom_layers() -> (usize, usize) {
-    (BLOOM_SOURCE_LAYER, BLOOM_BLUR_LAYER)
+pub(crate) fn agent_list_bloom_layer() -> usize {
+    BLOOM_SOURCE_LAYER
 }
 
 #[cfg(test)]
 pub(crate) fn agent_list_bloom_z() -> f32 {
-    BLOOM_Z
+    BLOOM_COMPOSITE_Z
 }

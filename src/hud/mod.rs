@@ -12,15 +12,12 @@ mod state;
 
 pub(crate) use animation::animate_hud_modules;
 pub(crate) use bloom::{
-    setup_hud_widget_bloom, sync_hud_widget_bloom, HudBloomBlurMaterial, HudBloomCompositeMaterial,
-    HudBloomSettings, HudWidgetBloom,
+    setup_hud_widget_bloom, sync_hud_widget_bloom, HudBloomSettings, HudWidgetBloom,
 };
 #[cfg(test)]
 pub(crate) use bloom::{
-    AgentListBloomBlurCameraMarker, AgentListBloomCompositeMarker,
-    AgentListBloomDebugBackdropMarker, AgentListBloomDebugBlurPreviewMarker,
-    AgentListBloomDebugCompositePreviewMarker, AgentListBloomDebugSourcePreviewMarker,
-    AgentListBloomSourceCameraMarker, AgentListBloomSourceSprite,
+    AgentListBloomCameraMarker, AgentListBloomCompositeMarker, AgentListBloomSourceKind,
+    AgentListBloomSourceSprite,
 };
 pub(crate) use compositor::{
     setup_hud_offscreen_compositor, sync_hud_offscreen_compositor, HudOffscreenCompositor,
@@ -126,8 +123,7 @@ pub(crate) fn hud_needs_redraw(hud_state: &HudState) -> bool {
 
 #[cfg(test)]
 pub(crate) use bloom::{
-    agent_list_bloom_layers, agent_list_bloom_z, resolve_agent_list_bloom_debug_preview,
-    resolve_agent_list_bloom_intensity,
+    agent_list_bloom_layer, agent_list_bloom_z, resolve_agent_list_bloom_intensity,
 };
 #[cfg(test)]
 pub(crate) use modules::{

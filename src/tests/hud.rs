@@ -1,19 +1,15 @@
 use super::{fake_runtime_spawner, pressed_text, temp_dir, test_bridge, FakeDaemonClient};
 use crate::hud::{
-    agent_button_irregularities, agent_list_bloom_layers, agent_list_bloom_z, agent_row_rect,
+    agent_button_irregularities, agent_list_bloom_layer, agent_list_bloom_z, agent_row_rect,
     agent_rows, apply_persisted_layout, debug_toolbar_buttons, dispatch_hud_pointer_click,
     dispatch_hud_scroll, handle_hud_module_shortcuts, handle_hud_pointer_input, hud_needs_redraw,
     kill_active_terminal, parse_persisted_hud_state, resolve_agent_label,
-    resolve_agent_list_bloom_debug_preview, resolve_agent_list_bloom_intensity,
-    resolve_hud_layout_path_with, save_hud_layout_if_dirty, serialize_persisted_hud_state,
-    AgentDirectory, AgentListBloomBlurCameraMarker, AgentListBloomCompositeMarker,
-    AgentListBloomDebugBackdropMarker, AgentListBloomDebugBlurPreviewMarker,
-    AgentListBloomDebugCompositePreviewMarker, AgentListBloomDebugSourcePreviewMarker,
-    AgentListBloomSourceCameraMarker, AgentListBloomSourceSprite, AgentListRowSection,
-    HudBloomBlurMaterial, HudBloomCompositeMaterial, HudBloomSettings, HudDragState, HudIntent,
-    HudModuleId, HudModuleModel, HudOffscreenCompositor, HudPersistenceState, HudRect, HudState,
-    HudWidgetBloom, PersistedHudModuleState, PersistedHudState, TerminalVisibilityPolicy,
-    TerminalVisibilityState,
+    resolve_agent_list_bloom_intensity, resolve_hud_layout_path_with, save_hud_layout_if_dirty,
+    serialize_persisted_hud_state, AgentDirectory, AgentListBloomCameraMarker,
+    AgentListBloomCompositeMarker, AgentListBloomSourceKind, AgentListBloomSourceSprite,
+    AgentListRowSection, HudBloomSettings, HudDragState, HudIntent, HudModuleId, HudModuleModel,
+    HudOffscreenCompositor, HudPersistenceState, HudRect, HudState, HudWidgetBloom,
+    PersistedHudModuleState, PersistedHudState, TerminalVisibilityPolicy, TerminalVisibilityState,
 };
 use crate::terminals::{
     TerminalManager, TerminalPanel, TerminalPanelFrame, TerminalPresentationStore,
@@ -23,8 +19,8 @@ use bevy::{
     camera::{visibility::RenderLayers, RenderTarget},
     ecs::system::RunSystemOnce,
     input::{keyboard::KeyboardInput, mouse::MouseWheel},
+    post_process::bloom::Bloom,
     prelude::*,
-    sprite_render::MeshMaterial2d,
     window::{PrimaryWindow, RequestRedraw, WindowResolution},
 };
 use bevy_vello::render::VelloCanvasMaterial;
@@ -77,14 +73,11 @@ fn setup_hud_requests_initial_redraw() {
 }
 
 #[test]
-fn setup_hud_widget_bloom_spawns_cameras_and_composite_quad() {
+fn setup_hud_widget_bloom_spawns_camera_and_composite_sprite() {
     let mut world = World::default();
     world.insert_resource(HudBloomSettings::default());
     world.insert_resource(HudWidgetBloom::default());
-    world.insert_resource(Assets::<Mesh>::default());
     world.insert_resource(Assets::<Image>::default());
-    world.insert_resource(Assets::<HudBloomBlurMaterial>::default());
-    world.insert_resource(Assets::<HudBloomCompositeMaterial>::default());
     world.spawn((
         Window {
             resolution: (1400, 900).into(),
@@ -99,27 +92,17 @@ fn setup_hud_widget_bloom_spawns_cameras_and_composite_quad() {
 
     assert_eq!(
         world
-            .query::<&AgentListBloomSourceCameraMarker>()
+            .query::<&AgentListBloomCameraMarker>()
             .iter(&world)
             .count(),
         1
     );
-    assert_eq!(
-        world
-            .query::<&AgentListBloomBlurCameraMarker>()
-            .iter(&world)
-            .count(),
-        1
-    );
-    let (source_layer, blur_layer) = agent_list_bloom_layers();
-    let mut source_query = world.query::<(&RenderLayers, &RenderTarget)>();
-    let layers = source_query.iter(&world).collect::<Vec<_>>();
-    assert!(layers
-        .iter()
-        .any(|(layers, _)| layers.intersects(&RenderLayers::layer(source_layer))));
-    assert!(layers
-        .iter()
-        .any(|(layers, _)| layers.intersects(&RenderLayers::layer(blur_layer))));
+
+    let layer = agent_list_bloom_layer();
+    let mut camera_query = world.query::<(&RenderLayers, &RenderTarget, &Bloom)>();
+    let (layers, _, bloom) = camera_query.single(&world).unwrap();
+    assert!(layers.intersects(&RenderLayers::layer(layer)));
+    assert!(bloom.intensity > 0.0);
 
     let mut composite_query =
         world.query::<(&Transform, &Visibility, &AgentListBloomCompositeMarker)>();
@@ -129,68 +112,11 @@ fn setup_hud_widget_bloom_spawns_cameras_and_composite_quad() {
 }
 
 #[test]
-fn setup_hud_widget_bloom_spawns_debug_previews_when_enabled() {
-    let mut world = World::default();
-    world.insert_resource(HudBloomSettings {
-        agent_list_intensity: 8.0,
-        agent_list_debug_preview: true,
-    });
-    world.insert_resource(HudWidgetBloom::default());
-    world.insert_resource(Assets::<Mesh>::default());
-    world.insert_resource(Assets::<Image>::default());
-    world.insert_resource(Assets::<HudBloomBlurMaterial>::default());
-    world.insert_resource(Assets::<HudBloomCompositeMaterial>::default());
-    world.spawn((
-        Window {
-            resolution: (1400, 900).into(),
-            ..default()
-        },
-        PrimaryWindow,
-    ));
-
-    world
-        .run_system_once(crate::hud::setup_hud_widget_bloom)
-        .unwrap();
-
-    assert_eq!(
-        world
-            .query::<&AgentListBloomDebugBackdropMarker>()
-            .iter(&world)
-            .count(),
-        1
-    );
-    assert_eq!(
-        world
-            .query::<&AgentListBloomDebugSourcePreviewMarker>()
-            .iter(&world)
-            .count(),
-        1
-    );
-    assert_eq!(
-        world
-            .query::<&AgentListBloomDebugBlurPreviewMarker>()
-            .iter(&world)
-            .count(),
-        1
-    );
-    assert_eq!(
-        world
-            .query::<&AgentListBloomDebugCompositePreviewMarker>()
-            .iter(&world)
-            .count(),
-        1
-    );
-}
-
-#[test]
 fn setup_hud_widget_bloom_uses_logical_window_size_for_targets() {
     let mut world = World::default();
     world.insert_resource(HudBloomSettings::default());
     world.insert_resource(HudWidgetBloom::default());
-    world.insert_resource(Assets::<Mesh>::default());
     world.insert_resource(Assets::<Image>::default());
-    world.insert_resource(Assets::<HudBloomBlurMaterial>::default());
-    world.insert_resource(Assets::<HudBloomCompositeMaterial>::default());
     world.spawn((
         Window {
             resolution: WindowResolution::new(1400, 900).with_scale_factor_override(2.0),
@@ -255,23 +181,12 @@ fn sync_structural_hud_layout_docks_agent_list_to_full_height_left_column() {
 
 #[test]
 fn parses_agent_bloom_intensity_override() {
-    assert_eq!(resolve_agent_list_bloom_intensity(None), 8.0);
-    assert_eq!(resolve_agent_list_bloom_intensity(Some("")), 8.0);
+    assert_eq!(resolve_agent_list_bloom_intensity(None), 0.35);
+    assert_eq!(resolve_agent_list_bloom_intensity(Some("")), 0.35);
     assert_eq!(resolve_agent_list_bloom_intensity(Some("2.0")), 2.0);
     assert_eq!(resolve_agent_list_bloom_intensity(Some(" 0.0 ")), 0.0);
-    assert_eq!(resolve_agent_list_bloom_intensity(Some("-1")), 8.0);
-    assert_eq!(resolve_agent_list_bloom_intensity(Some("abc")), 8.0);
-}
-
-#[test]
-fn parses_agent_bloom_debug_preview_override() {
-    assert!(!resolve_agent_list_bloom_debug_preview(None));
-    assert!(!resolve_agent_list_bloom_debug_preview(Some("")));
-    assert!(resolve_agent_list_bloom_debug_preview(Some("1")));
-    assert!(resolve_agent_list_bloom_debug_preview(Some("true")));
-    assert!(resolve_agent_list_bloom_debug_preview(Some("ON")));
-    assert!(!resolve_agent_list_bloom_debug_preview(Some("0")));
-    assert!(!resolve_agent_list_bloom_debug_preview(Some("false")));
+    assert_eq!(resolve_agent_list_bloom_intensity(Some("-1")), 0.35);
+    assert_eq!(resolve_agent_list_bloom_intensity(Some("abc")), 0.35);
 }
 
 #[test]
@@ -645,13 +560,9 @@ fn sync_hud_widget_bloom_spawns_agent_list_source_sprites() {
     world.insert_resource(manager);
     world.insert_resource(hud_state);
     world.insert_resource(AgentDirectory::default());
-    world.insert_resource(HudOffscreenCompositor::default());
     world.insert_resource(HudBloomSettings::default());
     world.insert_resource(HudWidgetBloom::default());
-    world.insert_resource(Assets::<Mesh>::default());
     world.insert_resource(Assets::<Image>::default());
-    world.insert_resource(Assets::<HudBloomBlurMaterial>::default());
-    world.insert_resource(Assets::<HudBloomCompositeMaterial>::default());
     world.spawn((
         Window {
             resolution: (1400, 900).into(),
@@ -670,21 +581,29 @@ fn sync_hud_widget_bloom_spawns_agent_list_source_sprites() {
         .run_system_once(crate::hud::sync_hud_widget_bloom)
         .unwrap();
 
-    assert!(
-        world
-            .query::<&AgentListBloomSourceSprite>()
-            .iter(&world)
-            .count()
-            > 0
-    );
+    let source_sprites = world
+        .query::<&AgentListBloomSourceSprite>()
+        .iter(&world)
+        .copied()
+        .collect::<Vec<_>>();
+    assert_eq!(source_sprites.len(), 2);
+    assert!(source_sprites
+        .iter()
+        .any(|sprite| sprite.kind == AgentListBloomSourceKind::Main));
+    assert!(source_sprites
+        .iter()
+        .any(|sprite| sprite.kind == AgentListBloomSourceKind::Marker));
+
     let mut composite_query = world.query::<(
         &Visibility,
         &Transform,
-        &MeshMaterial2d<HudBloomCompositeMaterial>,
+        &Sprite,
+        &AgentListBloomCompositeMarker,
     )>();
-    let (visibility, transform, _) = composite_query.single(&world).unwrap();
+    let (visibility, transform, sprite, _) = composite_query.single(&world).unwrap();
     assert_eq!(visibility, &Visibility::Visible);
     assert_eq!(transform.translation.z, agent_list_bloom_z());
+    assert_eq!(sprite.custom_size, Some(Vec2::new(1400.0, 900.0)));
 }
 
 #[test]

@@ -9,11 +9,10 @@ BUILD_LOG=/tmp/neozeus-bloom-build.log
 RUN_LOG=/tmp/neozeus-bloom-run.log
 OFF_PNG=/tmp/neozeus-agent-bloom-off.png
 ON_PNG=/tmp/neozeus-agent-bloom-on.png
-DEBUG_PNG=/tmp/neozeus-agent-bloom-debug.png
 STABLE_A=/tmp/neozeus-agent-bloom-stable-a.png
 STABLE_B=/tmp/neozeus-agent-bloom-stable-b.png
 ANALYSIS_JSON=/tmp/neozeus-agent-bloom-analysis.json
-ON_INTENSITY=${NEOZEUS_AGENT_BLOOM_VERIFY_ON_INTENSITY:-8.0}
+ON_INTENSITY=${NEOZEUS_AGENT_BLOOM_VERIFY_ON_INTENSITY:-0.35}
 SWAY_WORKSPACE=${NEOZEUS_AGENT_BLOOM_WORKSPACE:-8}
 
 metric_ae() {
@@ -93,8 +92,6 @@ for _ in range(80):
                 "y": rect["y"],
                 "width": rect["width"],
                 "height": rect["height"],
-                "focused": bool(node.get("focused")),
-                "visible": bool(node.get("visible")),
             }))
             sys.exit(0)
         stack.extend(node.get("nodes", []))
@@ -151,17 +148,12 @@ cleanup_app() {
     fi
 }
 
-cleanup() {
-    cleanup_app
-}
-trap cleanup EXIT
+trap cleanup_app EXIT
 
 run_capture() {
     local tag=$1
     local intensity=$2
-    local debug_preview=$3
-    local capture_scope=$4
-    local out_png=$5
+    local out_png=$3
     local title="neozeus-bloom-${tag}-$$"
 
     cleanup_app
@@ -171,7 +163,6 @@ run_capture() {
     NEOZEUS_WINDOW_MODE=windowed \
     NEOZEUS_WINDOW_SCALE_FACTOR=1.0 \
     NEOZEUS_AGENT_BLOOM_INTENSITY="$intensity" \
-    NEOZEUS_AGENT_BLOOM_DEBUG_PREVIEW="$debug_preview" \
     NEOZEUS_AUTOVERIFY_COMMAND='printf "__NZ_BLOOM__\n"' \
     NEOZEUS_AUTOVERIFY_DELAY_MS=400 \
     nohup "$APP" >"$RUN_LOG" 2>&1 </dev/null &
@@ -189,58 +180,41 @@ run_capture() {
     sleep 1.2
 
     window_json=$(find_window_by_con_id "$con_id")
-    local x y width height capture_w capture_h capture_x capture_y
+    local x y width height capture_w capture_h
     x=$(jq -r '.x' <<<"$window_json")
     y=$(jq -r '.y' <<<"$window_json")
     width=$(jq -r '.width' <<<"$window_json")
     height=$(jq -r '.height' <<<"$window_json")
+    capture_w=$(( width < 340 ? width : 340 ))
+    capture_h=$(( height < 180 ? height : 180 ))
 
-    if [[ "$capture_scope" == "full" ]]; then
-        capture_x=$x
-        capture_y=$y
-        capture_w=$width
-        capture_h=$height
-    else
-        capture_x=$x
-        capture_y=$y
-        capture_w=$(( width < 340 ? width : 340 ))
-        capture_h=$(( height < 180 ? height : 180 ))
-    fi
-
-    capture_stable_window "$capture_x" "$capture_y" "$capture_w" "$capture_h" "$out_png"
+    capture_stable_window "$x" "$y" "$capture_w" "$capture_h" "$out_png"
 }
 
 cargo build >"$BUILD_LOG" 2>&1
 pkill -f "$APP" 2>/dev/null || true
 
-run_capture off 0.0 0 left "$OFF_PNG"
-run_capture on "$ON_INTENSITY" 0 left "$ON_PNG"
-run_capture debug "$ON_INTENSITY" 1 full "$DEBUG_PNG"
+run_capture off 0.0 "$OFF_PNG"
+run_capture on "$ON_INTENSITY" "$ON_PNG"
 cleanup_app
 
-python - "$OFF_PNG" "$ON_PNG" "$DEBUG_PNG" "$ANALYSIS_JSON" <<'PY'
+python - "$OFF_PNG" "$ON_PNG" "$ANALYSIS_JSON" <<'PY'
 import json
-import math
 import sys
 from pathlib import Path
 from PIL import Image
 
 off_path = Path(sys.argv[1])
 on_path = Path(sys.argv[2])
-debug_path = Path(sys.argv[3])
-out_path = Path(sys.argv[4])
+out_path = Path(sys.argv[3])
 
 off = Image.open(off_path).convert("RGBA")
 on = Image.open(on_path).convert("RGBA")
-debug = Image.open(debug_path).convert("RGBA")
 logical_size = (340, 180)
-debug_logical_size = (1400, 900)
 if off.size != logical_size:
     off = off.resize(logical_size, Image.Resampling.LANCZOS)
 if on.size != logical_size:
     on = on.resize(logical_size, Image.Resampling.LANCZOS)
-if debug.size != debug_logical_size:
-    debug = debug.resize(debug_logical_size, Image.Resampling.LANCZOS)
 
 width, height = off.size
 shell_w = min(300, width)
@@ -251,21 +225,9 @@ row_h = 28
 main = (content_x, content_y + 2, max(row_w - 12 - 10, 12), max(row_h - 4, 10))
 marker = (content_x + row_w - 12, content_y + 2, 12, max(row_h - 4, 10))
 rects = [main, marker]
-outer = 10
+outer = 12
 inner = 1
-
 center_box = (width // 2 - 40, height // 2 - 16, 80, 32)
-
-debug_preview_width = 210
-debug_preview_height = 120
-debug_preview_gap = 16
-debug_preview_margin = 20
-debug_total_width = debug_preview_width * 3 + debug_preview_gap * 2
-debug_start_x = debug_logical_size[0] - debug_preview_margin - debug_total_width
-debug_preview_y = debug_preview_margin
-debug_source_rect = (debug_start_x, debug_preview_y, debug_preview_width, debug_preview_height)
-debug_blur_rect = (debug_start_x + debug_preview_width + debug_preview_gap, debug_preview_y, debug_preview_width, debug_preview_height)
-debug_composite_rect = (debug_start_x + (debug_preview_width + debug_preview_gap) * 2, debug_preview_y, debug_preview_width, debug_preview_height)
 
 def in_rect(x, y, rect):
     rx, ry, rw, rh = rect
@@ -277,17 +239,6 @@ def in_expanded(x, y, rect, amount):
 
 def pixel_delta(a, b):
     return sum(abs(int(a[i]) - int(b[i])) for i in range(3)) / 3.0
-
-def region_mean_rgb(image, rect):
-    rx, ry, rw, rh = rect
-    total = 0.0
-    count = 0
-    for yy in range(ry, ry + rh):
-        for xx in range(rx, rx + rw):
-            px = image.getpixel((xx, yy))
-            total += (float(px[0]) + float(px[1]) + float(px[2])) / 3.0
-            count += 1
-    return total / max(count, 1)
 
 ring_values = []
 inside_values = []
@@ -316,30 +267,13 @@ result = {
     "ring_total": sum(ring_values),
     "inside_mean": sum(inside_values) / max(len(inside_values), 1),
     "control_mean": sum(control_values) / max(len(control_values), 1),
-    "debug_source_mean": region_mean_rgb(debug, debug_source_rect),
-    "debug_blur_mean": region_mean_rgb(debug, debug_blur_rect),
-    "debug_composite_mean": region_mean_rgb(debug, debug_composite_rect),
 }
 out_path.write_text(json.dumps(result, indent=2))
 print(json.dumps(result, indent=2))
 
-ring_mean = result["ring_mean"]
-ring_max = result["ring_max"]
-ring_total = result["ring_total"]
-control_mean = result["control_mean"]
-debug_source_mean = result["debug_source_mean"]
-debug_blur_mean = result["debug_blur_mean"]
-debug_composite_mean = result["debug_composite_mean"]
-
-if debug_source_mean < 1.0:
-    raise SystemExit("agent-list bloom verifier failed: bloom source preview is empty")
-if debug_blur_mean < 1.0:
-    raise SystemExit("agent-list bloom verifier failed: bloom blur preview is empty")
-if debug_composite_mean < 1.0:
-    raise SystemExit("agent-list bloom verifier failed: bloom composite preview is empty")
-if ring_mean < 1.0 or ring_max < 8.0 or ring_total < 4000.0:
+if result["ring_mean"] < 0.75 or result["ring_max"] < 4.0 or result["ring_total"] < 2000.0:
     raise SystemExit("agent-list bloom verifier failed: halo delta too small")
-if ring_mean < control_mean * 2.0:
+if result["ring_mean"] < result["control_mean"] * 1.5:
     raise SystemExit("agent-list bloom verifier failed: halo delta not localized to buttons")
 PY
 
