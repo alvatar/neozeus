@@ -70,9 +70,13 @@ fn message_box_task_intent(
 fn task_dialog_intent(hud_state: &mut HudState, action: HudTaskDialogAction) -> Option<HudIntent> {
     match action {
         HudTaskDialogAction::ClearDone => {
-            let (updated, _) = clear_done_tasks(&hud_state.task_dialog.text);
+            let target_terminal = hud_state.task_dialog.target_terminal?;
+            let (updated, removed) = clear_done_tasks(&hud_state.task_dialog.text);
+            if removed == 0 {
+                return None;
+            }
             hud_state.task_dialog.load_text(&updated);
-            None
+            Some(HudIntent::SetTerminalTaskText(target_terminal, updated))
         }
     }
 }

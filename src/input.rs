@@ -4,8 +4,8 @@ use crate::{
     },
     terminals::{
         clear_done_tasks, mark_terminal_sessions_dirty, terminal_texture_screen_size,
-        TerminalCommand, TerminalDisplayMode, TerminalManager, TerminalNotesState, TerminalPanel,
-        TerminalPointerState, TerminalPresentation, TerminalPresentationStore,
+        TerminalCommand, TerminalDisplayMode, TerminalId, TerminalManager, TerminalNotesState,
+        TerminalPanel, TerminalPointerState, TerminalPresentation, TerminalPresentationStore,
         TerminalSessionPersistenceState, TerminalViewState,
     },
 };
@@ -379,6 +379,28 @@ fn message_box_task_intent(
     })
 }
 
+fn clear_done_task_text(text: &str) -> Option<String> {
+    let (updated, removed) = clear_done_tasks(text);
+    (removed > 0).then_some(updated)
+}
+
+fn clear_done_task_dialog_intent(hud_state: &mut HudState) -> Option<HudIntent> {
+    let target_terminal = hud_state.task_dialog.target_terminal?;
+    let updated = clear_done_task_text(&hud_state.task_dialog.text)?;
+    hud_state.task_dialog.load_text(&updated);
+    Some(HudIntent::SetTerminalTaskText(target_terminal, updated))
+}
+
+fn clear_done_active_terminal_tasks_intent(
+    terminal_manager: &TerminalManager,
+    notes_state: &TerminalNotesState,
+    terminal_id: TerminalId,
+) -> Option<HudIntent> {
+    let session_name = &terminal_manager.get(terminal_id)?.session_name;
+    let updated = clear_done_task_text(notes_state.note_text(session_name).unwrap_or_default())?;
+    Some(HudIntent::SetTerminalTaskText(terminal_id, updated))
+}
+
 fn close_task_dialog_intent(hud_state: &mut HudState) -> Option<HudIntent> {
     let target_terminal = hud_state.task_dialog.target_terminal?;
     let payload = hud_state.task_dialog.text.clone();
@@ -522,8 +544,9 @@ pub(crate) fn handle_terminal_message_box_keyboard(
             }
 
             if ctrl && !alt && !super_key && event.key_code == KeyCode::KeyT {
-                let (updated, _) = clear_done_tasks(&hud_state.task_dialog.text);
-                hud_state.task_dialog.load_text(&updated);
+                if let Some(intent) = clear_done_task_dialog_intent(&mut hud_state) {
+                    hud_commands.write(intent);
+                }
                 needs_redraw = true;
                 continue;
             }
@@ -550,7 +573,20 @@ pub(crate) fn handle_terminal_message_box_keyboard(
         return;
     };
     for event in messages.read() {
-        if event.state != ButtonState::Pressed || ctrl || alt || super_key {
+        if event.state != ButtonState::Pressed {
+            continue;
+        }
+
+        if ctrl && !alt && !super_key && event.key_code == KeyCode::KeyT {
+            if let Some(intent) =
+                clear_done_active_terminal_tasks_intent(&terminal_manager, &notes_state, active_id)
+            {
+                hud_commands.write(intent);
+            }
+            break;
+        }
+
+        if ctrl || alt || super_key {
             continue;
         }
 

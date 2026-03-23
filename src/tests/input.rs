@@ -578,13 +578,41 @@ fn message_box_supports_multiline_typing_and_ctrl_s_send() {
 }
 
 #[test]
-fn task_dialog_ctrl_t_clears_done_tasks() {
-    let (mut world, _) = world_with_active_terminal(Vec2::new(10.0, 10.0), false, Vec2::ZERO);
-    let mut hud_state = crate::hud::HudState::default();
-    hud_state.open_task_dialog(
-        crate::terminals::TerminalId(7),
-        "- [x] done\n  detail\n- [ ] keep",
+fn ctrl_t_clears_done_tasks_for_active_terminal_when_dialog_is_closed() {
+    let (mut world, terminal_id) =
+        world_with_active_terminal(Vec2::new(10.0, 10.0), false, Vec2::ZERO);
+    let session_name = world
+        .resource::<TerminalManager>()
+        .get(terminal_id)
+        .unwrap()
+        .session_name
+        .clone();
+    world
+        .resource_mut::<TerminalNotesState>()
+        .set_note_text(&session_name, "- [x] done\n  detail\n- [ ] keep");
+    world.init_resource::<Messages<KeyboardInput>>();
+    world.init_resource::<Messages<RequestRedraw>>();
+
+    let mut keys = ButtonInput::<KeyCode>::default();
+    keys.press(KeyCode::ControlLeft);
+    world.insert_resource(keys);
+    dispatch_message_box_key(&mut world, pressed_text(KeyCode::KeyT, Some("t")));
+
+    assert_eq!(
+        drain_hud_commands(&mut world),
+        vec![HudIntent::SetTerminalTaskText(
+            terminal_id,
+            "- [ ] keep".into()
+        )]
     );
+}
+
+#[test]
+fn task_dialog_ctrl_t_clears_done_tasks_and_persists_immediately() {
+    let (mut world, terminal_id) =
+        world_with_active_terminal(Vec2::new(10.0, 10.0), false, Vec2::ZERO);
+    let mut hud_state = crate::hud::HudState::default();
+    hud_state.open_task_dialog(terminal_id, "- [x] done\n  detail\n- [ ] keep");
     world.insert_resource(hud_state);
     init_hud_commands(&mut world);
     world.init_resource::<Messages<KeyboardInput>>();
@@ -595,7 +623,13 @@ fn task_dialog_ctrl_t_clears_done_tasks() {
     world.insert_resource(keys);
     dispatch_message_box_key(&mut world, pressed_text(KeyCode::KeyT, Some("t")));
 
-    assert!(drain_hud_commands(&mut world).is_empty());
+    assert_eq!(
+        drain_hud_commands(&mut world),
+        vec![HudIntent::SetTerminalTaskText(
+            terminal_id,
+            "- [ ] keep".into()
+        )]
+    );
     assert_eq!(
         world.resource::<crate::hud::HudState>().task_dialog.text,
         "- [ ] keep"

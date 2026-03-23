@@ -750,7 +750,7 @@ fn message_box_rect_is_top_aligned_and_shorter() {
 }
 
 #[test]
-fn clicking_task_dialog_clear_done_button_updates_editor_without_emitting_intent() {
+fn clicking_task_dialog_clear_done_button_persists_updated_text() {
     let mut world = World::default();
     let terminal_id = crate::terminals::TerminalId(7);
     let mut hud_state = HudState::default();
@@ -783,11 +783,48 @@ fn clicking_task_dialog_clear_done_button_updates_editor_without_emitting_intent
         .press(MouseButton::Left);
     world.run_system_once(handle_hud_pointer_input).unwrap();
 
-    assert!(drain_hud_commands(&mut world).is_empty());
+    assert_eq!(
+        drain_hud_commands(&mut world),
+        vec![HudIntent::SetTerminalTaskText(
+            terminal_id,
+            "- [ ] keep".into()
+        )]
+    );
     assert_eq!(world.resource::<Messages<RequestRedraw>>().len(), 1);
     let hud_state = world.resource::<HudState>();
     assert!(hud_state.task_dialog.visible);
     assert_eq!(hud_state.task_dialog.text, "- [ ] keep");
+}
+
+#[test]
+fn set_task_text_request_clears_persisted_task_presence_when_empty() {
+    let (bridge, _, _) = super::capturing_bridge();
+    let mut manager = TerminalManager::default();
+    let terminal_id = manager.create_terminal_with_session(bridge, "session-a".into());
+
+    let mut notes_state = TerminalNotesState::default();
+    assert!(notes_state.set_note_text("session-a", "- [x] done"));
+    assert!(notes_state.has_note_text("session-a"));
+
+    let mut world = World::default();
+    world.insert_resource(Time::<()>::default());
+    world.insert_resource(manager);
+    world.insert_resource(notes_state);
+    world.init_resource::<Messages<crate::hud::TerminalTaskRequest>>();
+    world.init_resource::<Messages<RequestRedraw>>();
+    world
+        .resource_mut::<Messages<crate::hud::TerminalTaskRequest>>()
+        .write(crate::hud::TerminalTaskRequest::SetText {
+            terminal_id,
+            text: String::new(),
+        });
+
+    world.run_system_once(apply_terminal_task_requests).unwrap();
+
+    let notes_state = world.resource::<TerminalNotesState>();
+    assert_eq!(notes_state.note_text("session-a"), None);
+    assert!(!notes_state.has_note_text("session-a"));
+    assert_eq!(world.resource::<Messages<RequestRedraw>>().len(), 1);
 }
 
 #[test]
