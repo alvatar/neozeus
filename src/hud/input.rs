@@ -296,8 +296,12 @@ pub(crate) fn handle_hud_module_shortcuts(
 
         if matches!(action, ShortcutAction::Toggle) {
             let navigation_target = match event.key_code {
-                KeyCode::KeyJ => adjacent_agent_terminal_id(&terminal_manager, 1),
-                KeyCode::KeyK => adjacent_agent_terminal_id(&terminal_manager, -1),
+                KeyCode::KeyJ | KeyCode::ArrowDown => {
+                    adjacent_agent_terminal_id(&terminal_manager, 1)
+                }
+                KeyCode::KeyK | KeyCode::ArrowUp => {
+                    adjacent_agent_terminal_id(&terminal_manager, -1)
+                }
                 _ => None,
             };
             if let Some(terminal_id) = navigation_target {

@@ -397,6 +397,35 @@ fn plain_j_navigates_to_next_agent_and_isolates_it() {
 }
 
 #[test]
+fn down_arrow_navigates_to_next_agent_and_isolates_it() {
+    let mut world = World::default();
+    let (bridge_one, _) = test_bridge();
+    let (bridge_two, _) = test_bridge();
+    let mut manager = TerminalManager::default();
+    let id_one = manager.create_terminal(bridge_one);
+    let id_two = manager.create_terminal(bridge_two);
+    manager.focus_terminal(id_one);
+    world.insert_resource(manager);
+    world.insert_resource(ButtonInput::<KeyCode>::default());
+    world.insert_resource(HudState::default());
+    init_hud_commands(&mut world);
+    world.init_resource::<Messages<KeyboardInput>>();
+    world
+        .resource_mut::<Messages<KeyboardInput>>()
+        .write(pressed_text(KeyCode::ArrowDown, None));
+
+    world.run_system_once(handle_hud_module_shortcuts).unwrap();
+
+    assert_eq!(
+        drain_hud_commands(&mut world),
+        vec![
+            HudIntent::FocusTerminal(id_two),
+            HudIntent::HideAllButTerminal(id_two)
+        ]
+    );
+}
+
+#[test]
 fn plain_k_navigates_to_previous_agent_and_isolates_it() {
     let mut world = World::default();
     let (bridge_one, _) = test_bridge();
@@ -413,6 +442,35 @@ fn plain_k_navigates_to_previous_agent_and_isolates_it() {
     world
         .resource_mut::<Messages<KeyboardInput>>()
         .write(pressed_text(KeyCode::KeyK, Some("k")));
+
+    world.run_system_once(handle_hud_module_shortcuts).unwrap();
+
+    assert_eq!(
+        drain_hud_commands(&mut world),
+        vec![
+            HudIntent::FocusTerminal(id_one),
+            HudIntent::HideAllButTerminal(id_one)
+        ]
+    );
+}
+
+#[test]
+fn up_arrow_navigates_to_previous_agent_and_isolates_it() {
+    let mut world = World::default();
+    let (bridge_one, _) = test_bridge();
+    let (bridge_two, _) = test_bridge();
+    let mut manager = TerminalManager::default();
+    let id_one = manager.create_terminal(bridge_one);
+    let id_two = manager.create_terminal(bridge_two);
+    manager.focus_terminal(id_two);
+    world.insert_resource(manager);
+    world.insert_resource(ButtonInput::<KeyCode>::default());
+    world.insert_resource(HudState::default());
+    init_hud_commands(&mut world);
+    world.init_resource::<Messages<KeyboardInput>>();
+    world
+        .resource_mut::<Messages<KeyboardInput>>()
+        .write(pressed_text(KeyCode::ArrowUp, None));
 
     world.run_system_once(handle_hud_module_shortcuts).unwrap();
 
