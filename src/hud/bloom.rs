@@ -5,13 +5,14 @@ use crate::hud::{
 use crate::terminals::{TerminalId, TerminalManager};
 use bevy::{
     asset::RenderAssetUsages,
-    camera::{visibility::RenderLayers, ClearColorConfig, RenderTarget},
+    camera::{visibility::RenderLayers, CameraOutputMode, ClearColorConfig, RenderTarget},
     ecs::system::SystemParam,
     image::ImageSampler,
     prelude::*,
     reflect::TypePath,
     render::render_resource::{
-        AsBindGroup, Extent3d, ShaderType, TextureDimension, TextureFormat, TextureUsages,
+        AsBindGroup, BlendComponent, BlendFactor, BlendOperation, BlendState, Extent3d, ShaderType,
+        TextureDimension, TextureFormat, TextureUsages,
     },
     shader::ShaderRef,
     sprite_render::{AlphaMode2d, Material2d, MeshMaterial2d},
@@ -26,6 +27,7 @@ const BLOOM_BLUR_SMALL_H_LAYER: usize = 30;
 const BLOOM_BLUR_SMALL_V_LAYER: usize = 31;
 const BLOOM_BLUR_WIDE_H_LAYER: usize = 32;
 const BLOOM_BLUR_WIDE_V_LAYER: usize = 33;
+const BLOOM_COMPOSITE_LAYER: usize = 34;
 const BLOOM_COMPOSITE_Z: f32 = HUD_COMPOSITE_FOREGROUND_Z + 0.1;
 const BLOOM_TARGET_FORMAT: TextureFormat = TextureFormat::Rgba16Float;
 const BLOOM_BLUR_SHADER_PATH: &str = "shaders/hud_agent_list_bloom_blur.wgsl";
@@ -67,6 +69,9 @@ pub(crate) struct AgentListBloomCompositeMarker;
 
 #[derive(Component)]
 struct AgentListBloomWideCompositeMarker;
+
+#[derive(Component)]
+struct AgentListBloomAdditiveCameraMarker;
 
 #[derive(Component)]
 struct AgentListBloomBlurSmallHorizontalCameraMarker;
@@ -226,6 +231,21 @@ fn bloom_source_color(focused: bool, hovered: bool, kind: AgentListBloomSourceKi
         (true, _, AgentListBloomSourceKind::Accent) => Color::linear_rgba(3.2, 0.0, 0.08, 1.0),
         (_, true, AgentListBloomSourceKind::Accent) => Color::linear_rgba(1.6, 0.0, 0.05, 0.55),
         (_, _, AgentListBloomSourceKind::Accent) => Color::linear_rgba(0.8, 0.0, 0.03, 0.25),
+    }
+}
+
+fn additive_blend_state() -> BlendState {
+    BlendState {
+        color: BlendComponent {
+            src_factor: BlendFactor::One,
+            dst_factor: BlendFactor::One,
+            operation: BlendOperation::Add,
+        },
+        alpha: BlendComponent {
+            src_factor: BlendFactor::Zero,
+            dst_factor: BlendFactor::One,
+            operation: BlendOperation::Add,
+        },
     }
 }
 
@@ -447,7 +467,7 @@ pub(crate) fn setup_hud_widget_bloom(mut ctx: HudWidgetBloomSetupContext) {
                 ..default()
             },
             Transform::from_xyz(0.0, 0.0, BLOOM_COMPOSITE_Z),
-            RenderLayers::layer(0),
+            RenderLayers::layer(BLOOM_COMPOSITE_LAYER),
             Visibility::Hidden,
             AgentListBloomCompositeMarker,
         ))
@@ -466,11 +486,25 @@ pub(crate) fn setup_hud_widget_bloom(mut ctx: HudWidgetBloomSetupContext) {
                 ..default()
             },
             Transform::from_xyz(0.0, 0.0, BLOOM_COMPOSITE_Z + 0.01),
-            RenderLayers::layer(0),
+            RenderLayers::layer(BLOOM_COMPOSITE_LAYER),
             Visibility::Hidden,
             AgentListBloomWideCompositeMarker,
         ))
         .id();
+
+    ctx.commands.spawn((
+        Camera2d,
+        Camera {
+            order: 100,
+            output_mode: CameraOutputMode::Write {
+                blend_state: Some(additive_blend_state()),
+                clear_color: ClearColorConfig::None,
+            },
+            ..default()
+        },
+        RenderLayers::layer(BLOOM_COMPOSITE_LAYER),
+        AgentListBloomAdditiveCameraMarker,
+    ));
 
     ctx.bloom.agent_list = AgentListBloomPass {
         source_image,
