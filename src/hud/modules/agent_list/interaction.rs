@@ -1,10 +1,10 @@
 use crate::{
-    hud::{AgentDirectory, HudIntent, HudModuleModel, HudRect, HUD_ROW_HEIGHT},
+    hud::{AgentDirectory, HudIntent, HudModuleModel, HudRect},
     terminals::TerminalManager,
 };
 use bevy::prelude::Vec2;
 
-use super::agent_rows;
+use super::{agent_list_content_height, agent_rows};
 
 pub(crate) fn handle_pointer_click(
     model: &HudModuleModel,
@@ -70,7 +70,7 @@ pub(crate) fn handle_scroll(
     let HudModuleModel::AgentList(state) = model else {
         return;
     };
-    let content_height = (row_count as f32 * HUD_ROW_HEIGHT).max(height);
+    let content_height = agent_list_content_height(row_count).max(height);
     let max_scroll = (content_height - height).max(0.0);
     state.scroll_offset = (state.scroll_offset - delta_y).clamp(0.0, max_scroll);
 }

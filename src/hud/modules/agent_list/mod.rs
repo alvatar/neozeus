@@ -10,6 +10,7 @@ pub(crate) const AGENT_LIST_HEADER_HEIGHT: f32 = 52.0;
 pub(crate) const AGENT_LIST_LEFT_RAIL_WIDTH: f32 = 20.0;
 pub(crate) const AGENT_LIST_ROW_MARKER_WIDTH: f32 = 12.0;
 pub(crate) const AGENT_LIST_ROW_MARKER_GAP: f32 = 10.0;
+pub(crate) const AGENT_LIST_ROW_GAP: f32 = 8.0;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum AgentListRowSection {
@@ -128,6 +129,17 @@ pub(crate) fn resolve_agent_label(
     format!("agent-{index}")
 }
 
+pub(crate) fn agent_row_stride() -> f32 {
+    HUD_ROW_HEIGHT + AGENT_LIST_ROW_GAP
+}
+
+pub(crate) fn agent_list_content_height(row_count: usize) -> f32 {
+    match row_count {
+        0 => 0.0,
+        _ => row_count as f32 * agent_row_stride() - AGENT_LIST_ROW_GAP,
+    }
+}
+
 pub(crate) fn agent_rows(
     shell_rect: HudRect,
     scroll_offset: f32,
@@ -139,6 +151,7 @@ pub(crate) fn agent_rows(
     let content_x = shell_rect.x + AGENT_LIST_LEFT_RAIL_WIDTH + 1.0;
     let content_y = shell_rect.y + HUD_MODULE_PADDING + AGENT_LIST_HEADER_HEIGHT;
     let content_w = (shell_rect.w - AGENT_LIST_LEFT_RAIL_WIDTH - 3.0).max(0.0);
+    let row_stride = agent_row_stride();
     terminal_ids
         .iter()
         .enumerate()
@@ -147,7 +160,7 @@ pub(crate) fn agent_rows(
             label: resolve_agent_label(terminal_ids, agent_directory, *terminal_id),
             rect: HudRect {
                 x: content_x,
-                y: content_y + index as f32 * HUD_ROW_HEIGHT - scroll_offset,
+                y: content_y + index as f32 * row_stride - scroll_offset,
                 w: content_w,
                 h: HUD_ROW_HEIGHT,
             },
