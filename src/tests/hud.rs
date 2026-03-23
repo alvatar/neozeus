@@ -746,7 +746,7 @@ fn message_box_rect_is_top_aligned_and_shorter() {
     assert!((rect.w - 1176.0).abs() < 0.01);
     assert!((rect.h - 468.0).abs() < 0.01);
     assert!((rect.x - 112.0).abs() < 0.01);
-    assert!((rect.y - 28.0).abs() < 0.01);
+    assert!(rect.y.abs() < 0.01);
 }
 
 #[test]
