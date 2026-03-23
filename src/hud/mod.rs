@@ -127,7 +127,7 @@ pub(crate) use bloom::{
 };
 #[cfg(test)]
 pub(crate) use modules::{
-    agent_button_irregularities, agent_row_rect, agent_rows, debug_toolbar_buttons,
+    agent_row_rect, agent_rows, debug_toolbar_buttons,
     handle_pointer_click as dispatch_hud_pointer_click, handle_scroll as dispatch_hud_scroll,
     resolve_agent_label, AgentListRowSection,
 };

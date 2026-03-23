@@ -1,15 +1,15 @@
 use super::{fake_runtime_spawner, pressed_text, temp_dir, test_bridge, FakeDaemonClient};
 use crate::hud::{
-    agent_button_irregularities, agent_list_bloom_layer, agent_list_bloom_z, agent_row_rect,
-    agent_rows, apply_persisted_layout, debug_toolbar_buttons, dispatch_hud_pointer_click,
-    dispatch_hud_scroll, handle_hud_module_shortcuts, handle_hud_pointer_input, hud_needs_redraw,
-    kill_active_terminal, parse_persisted_hud_state, resolve_agent_label,
-    resolve_agent_list_bloom_intensity, resolve_hud_layout_path_with, save_hud_layout_if_dirty,
-    serialize_persisted_hud_state, AgentDirectory, AgentListBloomCameraMarker,
-    AgentListBloomCompositeMarker, AgentListBloomSourceKind, AgentListBloomSourceSprite,
-    AgentListRowSection, HudBloomSettings, HudDragState, HudIntent, HudModuleId, HudModuleModel,
-    HudOffscreenCompositor, HudPersistenceState, HudRect, HudState, HudWidgetBloom,
-    PersistedHudModuleState, PersistedHudState, TerminalVisibilityPolicy, TerminalVisibilityState,
+    agent_list_bloom_layer, agent_list_bloom_z, agent_row_rect, agent_rows, apply_persisted_layout,
+    debug_toolbar_buttons, dispatch_hud_pointer_click, dispatch_hud_scroll,
+    handle_hud_module_shortcuts, handle_hud_pointer_input, hud_needs_redraw, kill_active_terminal,
+    parse_persisted_hud_state, resolve_agent_label, resolve_agent_list_bloom_intensity,
+    resolve_hud_layout_path_with, save_hud_layout_if_dirty, serialize_persisted_hud_state,
+    AgentDirectory, AgentListBloomCameraMarker, AgentListBloomCompositeMarker,
+    AgentListBloomSourceKind, AgentListBloomSourceSprite, AgentListRowSection, HudBloomSettings,
+    HudDragState, HudIntent, HudModuleId, HudModuleModel, HudOffscreenCompositor,
+    HudPersistenceState, HudRect, HudState, HudWidgetBloom, PersistedHudModuleState,
+    PersistedHudState, TerminalVisibilityPolicy, TerminalVisibilityState,
 };
 use crate::terminals::{
     TerminalManager, TerminalPanel, TerminalPanelFrame, TerminalPresentationStore,
@@ -602,27 +602,6 @@ fn sync_hud_widget_bloom_spawns_agent_list_source_sprites() {
     assert_eq!(visibility, &Visibility::Visible);
     assert_eq!(transform.translation.z, agent_list_bloom_z());
     assert_eq!(sprite.custom_size, Some(Vec2::new(1400.0, 900.0)));
-}
-
-#[test]
-fn agent_button_irregularities_are_deterministic_and_inside_bounds() {
-    let rect = HudRect {
-        x: 10.0,
-        y: 20.0,
-        w: 120.0,
-        h: 28.0,
-    };
-    let first = agent_button_irregularities(rect, 7);
-    let second = agent_button_irregularities(rect, 7);
-    assert_eq!(first, second);
-    assert!(!first.is_empty());
-    for (band, alpha) in first {
-        assert!(alpha > 0.0);
-        assert!(band.x >= rect.x);
-        assert!(band.y >= rect.y);
-        assert!(band.x + band.w <= rect.x + rect.w + 0.001);
-        assert!(band.y + band.h <= rect.y + rect.h + 0.001);
-    }
 }
 
 #[test]

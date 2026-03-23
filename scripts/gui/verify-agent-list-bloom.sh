@@ -192,9 +192,9 @@ out_path.write_text(json.dumps(result, indent=2))
 print(json.dumps(result, indent=2))
 
 if result["ring_mean"] < 0.75 or result["ring_max"] < 4.0 or result["ring_total"] < 2000.0:
-    raise SystemExit("agent-list bloom verifier failed: halo delta too small")
+    raise SystemExit("agent-list bloom verifier failed: bloom ring delta too small")
 if result["ring_mean"] < result["control_mean"] * 1.5:
-    raise SystemExit("agent-list bloom verifier failed: halo delta not localized to buttons")
+    raise SystemExit("agent-list bloom verifier failed: bloom delta not localized to buttons")
 PY
 
 echo "agent-list bloom verifier: PASS"

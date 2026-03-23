@@ -11,8 +11,6 @@ use crate::{
 use bevy::prelude::Vec2;
 
 #[cfg(test)]
-pub(crate) use agent_list::agent_button_irregularities;
-#[cfg(test)]
 pub(crate) use agent_list::resolve_agent_label;
 pub(crate) use agent_list::{agent_row_rect, agent_rows, AgentListRowSection};
 #[cfg(test)]
