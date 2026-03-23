@@ -4,13 +4,16 @@ use crate::hud::{
     agent_rows, apply_persisted_layout, debug_toolbar_buttons, dispatch_hud_pointer_click,
     dispatch_hud_scroll, handle_hud_module_shortcuts, handle_hud_pointer_input, hud_needs_redraw,
     kill_active_terminal, parse_persisted_hud_state, resolve_agent_label,
-    resolve_agent_list_bloom_intensity, resolve_hud_layout_path_with, save_hud_layout_if_dirty,
-    serialize_persisted_hud_state, AgentDirectory, AgentListBloomBlurCameraMarker,
-    AgentListBloomCompositeMarker, AgentListBloomSourceCameraMarker, AgentListBloomSourceSprite,
-    AgentListRowSection, HudBloomBlurMaterial, HudBloomCompositeMaterial, HudBloomSettings,
-    HudDragState, HudIntent, HudModuleId, HudModuleModel, HudOffscreenCompositor,
-    HudPersistenceState, HudRect, HudState, HudWidgetBloom, PersistedHudModuleState,
-    PersistedHudState, TerminalVisibilityPolicy, TerminalVisibilityState,
+    resolve_agent_list_bloom_debug_preview, resolve_agent_list_bloom_intensity,
+    resolve_hud_layout_path_with, save_hud_layout_if_dirty, serialize_persisted_hud_state,
+    AgentDirectory, AgentListBloomBlurCameraMarker, AgentListBloomCompositeMarker,
+    AgentListBloomDebugBackdropMarker, AgentListBloomDebugBlurPreviewMarker,
+    AgentListBloomDebugCompositePreviewMarker, AgentListBloomDebugSourcePreviewMarker,
+    AgentListBloomSourceCameraMarker, AgentListBloomSourceSprite, AgentListRowSection,
+    HudBloomBlurMaterial, HudBloomCompositeMaterial, HudBloomSettings, HudDragState, HudIntent,
+    HudModuleId, HudModuleModel, HudOffscreenCompositor, HudPersistenceState, HudRect, HudState,
+    HudWidgetBloom, PersistedHudModuleState, PersistedHudState, TerminalVisibilityPolicy,
+    TerminalVisibilityState,
 };
 use crate::terminals::{
     TerminalManager, TerminalPanel, TerminalPanelFrame, TerminalPresentationStore,
@@ -126,6 +129,60 @@ fn setup_hud_widget_bloom_spawns_cameras_and_composite_quad() {
 }
 
 #[test]
+fn setup_hud_widget_bloom_spawns_debug_previews_when_enabled() {
+    let mut world = World::default();
+    world.insert_resource(HudBloomSettings {
+        agent_list_intensity: 3.0,
+        agent_list_debug_preview: true,
+    });
+    world.insert_resource(HudWidgetBloom::default());
+    world.insert_resource(Assets::<Mesh>::default());
+    world.insert_resource(Assets::<Image>::default());
+    world.insert_resource(Assets::<HudBloomBlurMaterial>::default());
+    world.insert_resource(Assets::<HudBloomCompositeMaterial>::default());
+    world.spawn((
+        Window {
+            resolution: (1400, 900).into(),
+            ..default()
+        },
+        PrimaryWindow,
+    ));
+
+    world
+        .run_system_once(crate::hud::setup_hud_widget_bloom)
+        .unwrap();
+
+    assert_eq!(
+        world
+            .query::<&AgentListBloomDebugBackdropMarker>()
+            .iter(&world)
+            .count(),
+        1
+    );
+    assert_eq!(
+        world
+            .query::<&AgentListBloomDebugSourcePreviewMarker>()
+            .iter(&world)
+            .count(),
+        1
+    );
+    assert_eq!(
+        world
+            .query::<&AgentListBloomDebugBlurPreviewMarker>()
+            .iter(&world)
+            .count(),
+        1
+    );
+    assert_eq!(
+        world
+            .query::<&AgentListBloomDebugCompositePreviewMarker>()
+            .iter(&world)
+            .count(),
+        1
+    );
+}
+
+#[test]
 fn setup_hud_widget_bloom_uses_logical_window_size_for_targets() {
     let mut world = World::default();
     world.insert_resource(HudBloomSettings::default());
@@ -204,6 +261,17 @@ fn parses_agent_bloom_intensity_override() {
     assert_eq!(resolve_agent_list_bloom_intensity(Some(" 0.0 ")), 0.0);
     assert_eq!(resolve_agent_list_bloom_intensity(Some("-1")), 3.0);
     assert_eq!(resolve_agent_list_bloom_intensity(Some("abc")), 3.0);
+}
+
+#[test]
+fn parses_agent_bloom_debug_preview_override() {
+    assert!(!resolve_agent_list_bloom_debug_preview(None));
+    assert!(!resolve_agent_list_bloom_debug_preview(Some("")));
+    assert!(resolve_agent_list_bloom_debug_preview(Some("1")));
+    assert!(resolve_agent_list_bloom_debug_preview(Some("true")));
+    assert!(resolve_agent_list_bloom_debug_preview(Some("ON")));
+    assert!(!resolve_agent_list_bloom_debug_preview(Some("0")));
+    assert!(!resolve_agent_list_bloom_debug_preview(Some("false")));
 }
 
 #[test]
