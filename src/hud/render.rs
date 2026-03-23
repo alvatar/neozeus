@@ -35,7 +35,6 @@ impl HudColors {
     pub(crate) const BUTTON_BORDER: peniko::Color = peniko::Color::from_rgba8(57, 26, 6, 255);
     pub(crate) const ROW_HOVERED: peniko::Color = peniko::Color::from_rgba8(44, 32, 24, 255);
     pub(crate) const ROW_FOCUSED: peniko::Color = peniko::Color::from_rgba8(44, 32, 24, 255);
-    pub(crate) const OVERLAY: peniko::Color = peniko::Color::from_rgba8(7, 7, 7, 255);
     pub(crate) const MESSAGE_BOX: peniko::Color = peniko::Color::from_rgba8(7, 7, 7, 255);
 }
 
@@ -244,14 +243,6 @@ fn draw_message_box(
     if !message_box.visible {
         return;
     }
-
-    let backdrop = HudRect {
-        x: 0.0,
-        y: 0.0,
-        w: window.width(),
-        h: window.height(),
-    };
-    painter.fill_rect(backdrop, HudColors::OVERLAY, 0.0);
 
     let rect = message_box_rect(window);
     painter.fill_rect(rect, HudColors::MESSAGE_BOX, 12.0);
