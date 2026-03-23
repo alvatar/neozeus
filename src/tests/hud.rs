@@ -4,14 +4,14 @@ use crate::hud::{
     apply_terminal_focus_requests, apply_visibility_requests, debug_toolbar_buttons,
     dispatch_hud_pointer_click, dispatch_hud_scroll, handle_hud_module_shortcuts,
     handle_hud_pointer_input, hud_needs_redraw, kill_active_terminal, message_box_action_buttons,
-    parse_persisted_hud_state, resolve_agent_label, resolve_agent_list_bloom_intensity,
-    resolve_hud_layout_path_with, save_hud_layout_if_dirty, serialize_persisted_hud_state,
-    AgentDirectory, AgentListBloomCameraMarker, AgentListBloomCompositeMarker,
-    AgentListBloomSourceKind, AgentListBloomSourceSprite, AgentListRowSection, HudBloomSettings,
-    HudDragState, HudIntent, HudModuleId, HudModuleModel, HudOffscreenCompositor,
-    HudPersistenceState, HudRect, HudState, HudWidgetBloom, PersistedHudModuleState,
-    PersistedHudState, TerminalFocusRequest, TerminalVisibilityPolicy, TerminalVisibilityRequest,
-    TerminalVisibilityState,
+    message_box_rect, parse_persisted_hud_state, resolve_agent_label,
+    resolve_agent_list_bloom_intensity, resolve_hud_layout_path_with, save_hud_layout_if_dirty,
+    serialize_persisted_hud_state, AgentDirectory, AgentListBloomCameraMarker,
+    AgentListBloomCompositeMarker, AgentListBloomSourceKind, AgentListBloomSourceSprite,
+    AgentListRowSection, HudBloomSettings, HudDragState, HudIntent, HudModuleId, HudModuleModel,
+    HudOffscreenCompositor, HudPersistenceState, HudRect, HudState, HudWidgetBloom,
+    PersistedHudModuleState, PersistedHudState, TerminalFocusRequest, TerminalVisibilityPolicy,
+    TerminalVisibilityRequest, TerminalVisibilityState,
 };
 use crate::terminals::{
     TerminalManager, TerminalPanel, TerminalPanelFrame, TerminalPresentationStore,
@@ -733,6 +733,20 @@ fn agent_list_is_not_draggable() {
     let hud_state = world.resource::<HudState>();
     assert!(hud_state.drag.is_none());
     assert!(!hud_state.dirty_layout);
+}
+
+#[test]
+fn message_box_rect_is_top_aligned_and_shorter() {
+    let window = Window {
+        resolution: (1400, 900).into(),
+        ..Default::default()
+    };
+
+    let rect = message_box_rect(&window);
+    assert!((rect.w - 1176.0).abs() < 0.01);
+    assert!((rect.h - 468.0).abs() < 0.01);
+    assert!((rect.x - 112.0).abs() < 0.01);
+    assert!((rect.y - 28.0).abs() < 0.01);
 }
 
 #[test]
