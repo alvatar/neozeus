@@ -1,4 +1,3 @@
-mod analog;
 mod animation;
 mod bloom;
 mod compositor;
@@ -11,11 +10,6 @@ mod persistence;
 mod render;
 mod state;
 
-#[cfg(test)]
-pub(crate) use analog::{agent_list_analog_z, AgentListAnalogOverlayMarker};
-pub(crate) use analog::{
-    setup_agent_list_analog_overlay, sync_agent_list_analog_overlay, AgentListAnalogMaterial,
-};
 pub(crate) use animation::animate_hud_modules;
 pub(crate) use bloom::{
     setup_hud_widget_bloom, sync_hud_widget_bloom, HudBloomSettings, HudWidgetBloom,

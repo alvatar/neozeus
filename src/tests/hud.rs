@@ -1,18 +1,17 @@
 use super::{fake_runtime_spawner, pressed_text, temp_dir, test_bridge, FakeDaemonClient};
 use crate::hud::{
-    agent_list_analog_z, agent_list_bloom_layer, agent_list_bloom_z, agent_row_rect, agent_rows,
-    apply_persisted_layout, apply_terminal_focus_requests, apply_terminal_task_requests,
-    apply_visibility_requests, debug_toolbar_buttons, dispatch_hud_pointer_click,
-    dispatch_hud_scroll, handle_hud_module_shortcuts, handle_hud_pointer_input, hud_needs_redraw,
-    kill_active_terminal, message_box_action_buttons, message_box_rect, parse_persisted_hud_state,
-    resolve_agent_label, resolve_agent_list_bloom_intensity, resolve_hud_layout_path_with,
-    save_hud_layout_if_dirty, serialize_persisted_hud_state, task_dialog_action_buttons,
-    AgentDirectory, AgentListAnalogOverlayMarker, AgentListBloomCameraMarker,
-    AgentListBloomCompositeMarker, AgentListBloomSourceKind, AgentListBloomSourceSprite,
-    AgentListRowSection, HudBloomSettings, HudDragState, HudIntent, HudModuleId, HudModuleModel,
-    HudOffscreenCompositor, HudPersistenceState, HudRect, HudState, HudWidgetBloom,
-    PersistedHudModuleState, PersistedHudState, TerminalFocusRequest, TerminalVisibilityPolicy,
-    TerminalVisibilityRequest, TerminalVisibilityState,
+    agent_list_bloom_layer, agent_list_bloom_z, agent_row_rect, agent_rows, apply_persisted_layout,
+    apply_terminal_focus_requests, apply_terminal_task_requests, apply_visibility_requests,
+    debug_toolbar_buttons, dispatch_hud_pointer_click, dispatch_hud_scroll,
+    handle_hud_module_shortcuts, handle_hud_pointer_input, hud_needs_redraw, kill_active_terminal,
+    message_box_action_buttons, message_box_rect, parse_persisted_hud_state, resolve_agent_label,
+    resolve_agent_list_bloom_intensity, resolve_hud_layout_path_with, save_hud_layout_if_dirty,
+    serialize_persisted_hud_state, task_dialog_action_buttons, AgentDirectory,
+    AgentListBloomCameraMarker, AgentListBloomCompositeMarker, AgentListBloomSourceKind,
+    AgentListBloomSourceSprite, AgentListRowSection, HudBloomSettings, HudDragState, HudIntent,
+    HudModuleId, HudModuleModel, HudOffscreenCompositor, HudPersistenceState, HudRect, HudState,
+    HudWidgetBloom, PersistedHudModuleState, PersistedHudState, TerminalFocusRequest,
+    TerminalVisibilityPolicy, TerminalVisibilityRequest, TerminalVisibilityState,
 };
 use crate::terminals::{
     TerminalManager, TerminalNotesState, TerminalPanel, TerminalPanelFrame,
@@ -73,23 +72,6 @@ fn setup_hud_requests_initial_redraw() {
         .map(|camera| camera.order)
         .collect::<Vec<_>>();
     assert!(camera_orders.is_empty());
-}
-
-#[test]
-fn setup_agent_list_analog_overlay_spawns_hidden_overlay() {
-    let mut world = World::default();
-    world.insert_resource(Assets::<Mesh>::default());
-    world.insert_resource(Assets::<crate::hud::AgentListAnalogMaterial>::default());
-
-    world
-        .run_system_once(crate::hud::setup_agent_list_analog_overlay)
-        .unwrap();
-
-    let mut overlay_query =
-        world.query::<(&Transform, &Visibility, &AgentListAnalogOverlayMarker)>();
-    let (transform, visibility, _) = overlay_query.single(&world).unwrap();
-    assert_eq!(transform.translation.z, agent_list_analog_z());
-    assert_eq!(visibility, &Visibility::Hidden);
 }
 
 #[test]
