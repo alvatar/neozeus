@@ -28,6 +28,27 @@ impl TerminalNotesState {
             .is_some_and(|text| !text.trim().is_empty())
     }
 
+    pub(crate) fn set_note_text(&mut self, session_name: &str, text: &str) -> bool {
+        let trimmed = text.trim_end();
+        if trimmed.is_empty() {
+            return self.notes_by_session.remove(session_name).is_some();
+        }
+
+        match self.notes_by_session.get_mut(session_name) {
+            Some(existing) if existing == trimmed => false,
+            Some(existing) => {
+                existing.clear();
+                existing.push_str(trimmed);
+                true
+            }
+            None => {
+                self.notes_by_session
+                    .insert(session_name.to_owned(), trimmed.to_owned());
+                true
+            }
+        }
+    }
+
     pub(crate) fn append_task_from_text(&mut self, session_name: &str, text: &str) -> bool {
         let Some(task_entry) = task_entry_from_text(text) else {
             return false;
@@ -234,6 +255,123 @@ pub(crate) fn save_terminal_notes_if_dirty(
         append_debug_log(format!("terminal notes saved {}", path.display()));
     }
     notes_state.dirty_since_secs = None;
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct TaskHeader<'a> {
+    unchecked: bool,
+    suffix: &'a str,
+}
+
+fn parse_task_header(line: &str) -> Option<TaskHeader<'_>> {
+    let trimmed = line.trim_start();
+    let dash = trimmed.strip_prefix('-')?;
+    let after_dash = dash.trim_start();
+    let bracketed = after_dash.strip_prefix('[')?;
+    let bracket_end = bracketed.find(']')?;
+    let inner = &bracketed[..bracket_end];
+    let inner_trimmed = inner.trim();
+    let unchecked = if inner_trimmed.is_empty() {
+        true
+    } else if inner_trimmed.eq_ignore_ascii_case("x") {
+        false
+    } else {
+        return None;
+    };
+
+    Some(TaskHeader {
+        unchecked,
+        suffix: &bracketed[bracket_end + 1..],
+    })
+}
+
+pub(crate) fn clear_done_tasks(text: &str) -> (String, usize) {
+    let lines = text.lines().collect::<Vec<_>>();
+    if lines.is_empty() {
+        return (String::new(), 0);
+    }
+
+    let mut kept = Vec::new();
+    let mut removed = 0;
+    let mut index = 0;
+    while index < lines.len() {
+        let line = lines[index];
+        match parse_task_header(line) {
+            Some(header) if !header.unchecked => {
+                removed += 1;
+                index += 1;
+                while index < lines.len() && parse_task_header(lines[index]).is_none() {
+                    index += 1;
+                }
+            }
+            _ => {
+                kept.push(line);
+                index += 1;
+            }
+        }
+    }
+
+    (kept.join("\n").trim_end().to_owned(), removed)
+}
+
+pub(crate) fn extract_next_task(task_text: &str) -> Option<(String, String)> {
+    let mut lines = task_text.lines().map(str::to_owned).collect::<Vec<_>>();
+    if lines.is_empty() {
+        return None;
+    }
+
+    let pending_index = lines
+        .iter()
+        .position(|line| parse_task_header(line).is_some_and(|header| header.unchecked));
+
+    if let Some(pending_index) = pending_index {
+        let header = parse_task_header(&lines[pending_index])?;
+        let mut end = lines.len();
+        for (index, line) in lines.iter().enumerate().skip(pending_index + 1) {
+            if parse_task_header(line).is_some() {
+                end = index;
+                break;
+            }
+        }
+
+        let mut message_lines = Vec::new();
+        let first_content = header.suffix.trim_start();
+        if !first_content.is_empty() {
+            message_lines.push(first_content.to_owned());
+        }
+        message_lines.extend(
+            lines[pending_index + 1..end]
+                .iter()
+                .map(|line| line.trim_end().to_owned()),
+        );
+        let message = message_lines.join("\n").trim().to_owned();
+        if message.is_empty() {
+            return None;
+        }
+
+        if let Some(bracket_start) = lines[pending_index].find('[') {
+            if let Some(bracket_end) = lines[pending_index][bracket_start..].find(']') {
+                let bracket_end = bracket_start + bracket_end;
+                let prefix = &lines[pending_index][..bracket_start];
+                let suffix = &lines[pending_index][bracket_end + 1..];
+                lines[pending_index] = format!("{prefix}[x]{suffix}");
+            }
+        }
+
+        return Some((message, lines.join("\n").trim_end().to_owned()));
+    }
+
+    if lines.iter().any(|line| parse_task_header(line).is_some()) {
+        return None;
+    }
+
+    let first_non_empty = lines.iter().position(|line| !line.trim().is_empty())?;
+    let message = lines[first_non_empty].trim().to_owned();
+    if message.is_empty() {
+        return None;
+    }
+    lines.remove(first_non_empty);
+    Some((message, lines.join("\n").trim_end().to_owned()))
 }
 
 pub(crate) fn task_entry_from_text(text: &str) -> Option<String> {

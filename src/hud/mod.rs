@@ -37,8 +37,9 @@ pub(crate) use dispatcher::{
 };
 pub(crate) use input::{handle_hud_module_shortcuts, handle_hud_pointer_input};
 pub(crate) use message_box::{
-    message_box_action_at, message_box_action_buttons, message_box_rect, HudMessageBoxAction,
-    HudMessageBoxState,
+    message_box_action_at, message_box_action_buttons, message_box_rect, task_dialog_action_at,
+    task_dialog_action_buttons, task_dialog_rect, HudMessageBoxAction, HudMessageBoxState,
+    HudTaskDialogAction, HudTaskDialogState,
 };
 pub(crate) use messages::{
     HudIntent, HudModuleRequest, TerminalFocusRequest, TerminalLifecycleRequest,
@@ -87,6 +88,7 @@ pub(crate) fn setup_hud(
     hud_state.drag = None;
     hud_state.dirty_layout = false;
     hud_state.message_box = HudMessageBoxState::default();
+    hud_state.task_dialog = HudTaskDialogState::default();
     hud_state.direct_input_terminal = None;
     for definition in HUD_MODULE_DEFINITIONS.iter() {
         let mut module = default_hud_module_instance(definition);

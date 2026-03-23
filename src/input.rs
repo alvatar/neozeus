@@ -1,12 +1,13 @@
 use crate::{
     hud::{
-        HudIntent, HudMessageBoxAction, HudState, TerminalVisibilityPolicy, TerminalVisibilityState,
+        HudIntent, HudMessageBoxAction, HudState, HudTaskDialogAction, TerminalVisibilityPolicy,
+        TerminalVisibilityState,
     },
     terminals::{
-        mark_terminal_sessions_dirty, terminal_texture_screen_size, TerminalCommand,
-        TerminalDisplayMode, TerminalManager, TerminalPanel, TerminalPointerState,
-        TerminalPresentation, TerminalPresentationStore, TerminalSessionPersistenceState,
-        TerminalViewState,
+        clear_done_tasks, mark_terminal_sessions_dirty, terminal_texture_screen_size,
+        TerminalCommand, TerminalDisplayMode, TerminalManager, TerminalNotesState, TerminalPanel,
+        TerminalPointerState, TerminalPresentation, TerminalPresentationStore,
+        TerminalSessionPersistenceState, TerminalViewState,
     },
 };
 use bevy::{
@@ -142,6 +143,7 @@ pub(crate) fn focus_terminal_on_panel_click(
     mut hud_commands: MessageWriter<HudIntent>,
 ) {
     if hud_state.message_box.visible
+        || hud_state.task_dialog.visible
         || !mouse_buttons.just_pressed(MouseButton::Left)
         || !primary_window.focused
     {
@@ -176,6 +178,7 @@ pub(crate) fn hide_terminal_on_background_click(
     mut view_state: ResMut<TerminalViewState>,
 ) {
     if hud_state.message_box.visible
+        || hud_state.task_dialog.visible
         || !mouse_buttons.just_pressed(MouseButton::Left)
         || !primary_window.focused
     {
@@ -298,7 +301,7 @@ pub(crate) fn handle_terminal_direct_input_keyboard(
     mut hud_state: ResMut<HudState>,
     mut redraws: MessageWriter<RequestRedraw>,
 ) {
-    if !primary_window.focused || hud_state.message_box.visible {
+    if !primary_window.focused || hud_state.message_box.visible || hud_state.task_dialog.visible {
         return;
     }
 
@@ -377,11 +380,86 @@ fn message_box_task_intent(
     })
 }
 
+fn task_dialog_intent(hud_state: &mut HudState, action: HudTaskDialogAction) -> Option<HudIntent> {
+    match action {
+        HudTaskDialogAction::ClearDone => {
+            let (updated, _) = clear_done_tasks(&hud_state.task_dialog.text);
+            hud_state.task_dialog.load_text(&updated);
+            None
+        }
+        HudTaskDialogAction::Save => {
+            let target_terminal = hud_state.task_dialog.target_terminal?;
+            let payload = hud_state.task_dialog.text.clone();
+            hud_state.close_task_dialog_and_discard_draft();
+            Some(HudIntent::SetTerminalTaskText(target_terminal, payload))
+        }
+    }
+}
+
+fn handle_text_editor_event(
+    editor: &mut crate::hud::HudMessageBoxState,
+    event: &KeyboardInput,
+    ctrl: bool,
+    alt: bool,
+    super_key: bool,
+) -> bool {
+    if ctrl && !alt && !super_key {
+        match event.key_code {
+            KeyCode::Space => editor.set_mark(),
+            KeyCode::KeyA => editor.move_line_start(),
+            KeyCode::KeyB => editor.move_left(),
+            KeyCode::KeyD => editor.delete_forward_char(),
+            KeyCode::KeyE => editor.move_line_end(),
+            KeyCode::KeyF => editor.move_right(),
+            KeyCode::KeyH => editor.delete_backward_char(),
+            KeyCode::KeyJ => editor.newline_and_indent(),
+            KeyCode::KeyK => editor.kill_to_end_of_line(),
+            KeyCode::KeyN => editor.move_down(),
+            KeyCode::KeyO => editor.open_line(),
+            KeyCode::KeyP => editor.move_up(),
+            KeyCode::KeyW => editor.kill_region(),
+            KeyCode::KeyY => editor.yank(),
+            _ => false,
+        }
+    } else if alt && !ctrl && !super_key {
+        match event.key_code {
+            KeyCode::Backspace => editor.kill_word_backward(),
+            KeyCode::KeyB => editor.move_word_backward(),
+            KeyCode::KeyD => editor.kill_word_forward(),
+            KeyCode::KeyF => editor.move_word_forward(),
+            KeyCode::KeyW => editor.copy_region(),
+            KeyCode::KeyY => editor.yank_pop(),
+            _ => false,
+        }
+    } else if !(ctrl || alt || super_key) {
+        match event.key_code {
+            KeyCode::Enter => editor.insert_newline(),
+            KeyCode::Backspace => editor.delete_backward_char(),
+            KeyCode::Delete => editor.delete_forward_char(),
+            KeyCode::ArrowLeft => editor.move_left(),
+            KeyCode::ArrowRight => editor.move_right(),
+            KeyCode::ArrowUp => editor.move_up(),
+            KeyCode::ArrowDown => editor.move_down(),
+            KeyCode::Home => editor.move_line_start(),
+            KeyCode::End => editor.move_line_end(),
+            KeyCode::Tab => editor.insert_text("\t"),
+            _ => message_box_event_text(event).is_some_and(|text| editor.insert_text(&text)),
+        }
+    } else {
+        false
+    }
+}
+
+#[allow(
+    clippy::too_many_arguments,
+    reason = "dialog keyboard handling needs input, focus, notes, terminal state, HUD state, commands, and redraws together"
+)]
 pub(crate) fn handle_terminal_message_box_keyboard(
     mut messages: MessageReader<KeyboardInput>,
     keys: Res<ButtonInput<KeyCode>>,
     primary_window: Single<&Window, With<PrimaryWindow>>,
     terminal_manager: Res<TerminalManager>,
+    notes_state: Res<TerminalNotesState>,
     mut hud_state: ResMut<HudState>,
     mut hud_commands: MessageWriter<HudIntent>,
     mut redraws: MessageWriter<RequestRedraw>,
@@ -436,54 +514,40 @@ pub(crate) fn handle_terminal_message_box_keyboard(
                 break;
             }
 
-            let handled = if ctrl && !alt && !super_key {
-                match event.key_code {
-                    KeyCode::Space => hud_state.message_box.set_mark(),
-                    KeyCode::KeyA => hud_state.message_box.move_line_start(),
-                    KeyCode::KeyB => hud_state.message_box.move_left(),
-                    KeyCode::KeyD => hud_state.message_box.delete_forward_char(),
-                    KeyCode::KeyE => hud_state.message_box.move_line_end(),
-                    KeyCode::KeyF => hud_state.message_box.move_right(),
-                    KeyCode::KeyH => hud_state.message_box.delete_backward_char(),
-                    KeyCode::KeyJ => hud_state.message_box.newline_and_indent(),
-                    KeyCode::KeyK => hud_state.message_box.kill_to_end_of_line(),
-                    KeyCode::KeyN => hud_state.message_box.move_down(),
-                    KeyCode::KeyO => hud_state.message_box.open_line(),
-                    KeyCode::KeyP => hud_state.message_box.move_up(),
-                    KeyCode::KeyW => hud_state.message_box.kill_region(),
-                    KeyCode::KeyY => hud_state.message_box.yank(),
-                    _ => false,
-                }
-            } else if alt && !ctrl && !super_key {
-                match event.key_code {
-                    KeyCode::Backspace => hud_state.message_box.kill_word_backward(),
-                    KeyCode::KeyB => hud_state.message_box.move_word_backward(),
-                    KeyCode::KeyD => hud_state.message_box.kill_word_forward(),
-                    KeyCode::KeyF => hud_state.message_box.move_word_forward(),
-                    KeyCode::KeyW => hud_state.message_box.copy_region(),
-                    KeyCode::KeyY => hud_state.message_box.yank_pop(),
-                    _ => false,
-                }
-            } else if !(ctrl || alt || super_key) {
-                match event.key_code {
-                    KeyCode::Enter => hud_state.message_box.insert_newline(),
-                    KeyCode::Backspace => hud_state.message_box.delete_backward_char(),
-                    KeyCode::Delete => hud_state.message_box.delete_forward_char(),
-                    KeyCode::ArrowLeft => hud_state.message_box.move_left(),
-                    KeyCode::ArrowRight => hud_state.message_box.move_right(),
-                    KeyCode::ArrowUp => hud_state.message_box.move_up(),
-                    KeyCode::ArrowDown => hud_state.message_box.move_down(),
-                    KeyCode::Home => hud_state.message_box.move_line_start(),
-                    KeyCode::End => hud_state.message_box.move_line_end(),
-                    KeyCode::Tab => hud_state.message_box.insert_text("\t"),
-                    _ => message_box_event_text(event)
-                        .is_some_and(|text| hud_state.message_box.insert_text(&text)),
-                }
-            } else {
-                false
-            };
+            needs_redraw |=
+                handle_text_editor_event(&mut hud_state.message_box, event, ctrl, alt, super_key);
+        }
 
-            needs_redraw |= handled;
+        if needs_redraw {
+            redraws.write(RequestRedraw);
+        }
+        return;
+    }
+
+    if hud_state.task_dialog.visible {
+        let mut needs_redraw = false;
+        for event in messages.read() {
+            if event.state != ButtonState::Pressed {
+                continue;
+            }
+
+            if ctrl && !alt && !super_key && event.key_code == KeyCode::KeyS {
+                if let Some(intent) = task_dialog_intent(&mut hud_state, HudTaskDialogAction::Save)
+                {
+                    hud_commands.write(intent);
+                }
+                needs_redraw = true;
+                break;
+            }
+
+            if event.key_code == KeyCode::Escape {
+                hud_state.close_task_dialog();
+                needs_redraw = true;
+                break;
+            }
+
+            needs_redraw |=
+                handle_text_editor_event(&mut hud_state.task_dialog, event, ctrl, alt, super_key);
         }
 
         if needs_redraw {
@@ -496,15 +560,32 @@ pub(crate) fn handle_terminal_message_box_keyboard(
         return;
     };
     for event in messages.read() {
-        if event.state != ButtonState::Pressed || event.key_code != KeyCode::Enter {
+        if event.state != ButtonState::Pressed || ctrl || alt || super_key {
             continue;
         }
-        if ctrl || alt || super_key {
-            continue;
+
+        match event.key_code {
+            KeyCode::Enter => {
+                hud_state.open_message_box(active_id);
+                redraws.write(RequestRedraw);
+                break;
+            }
+            KeyCode::KeyT => {
+                let note_text = terminal_manager
+                    .get(active_id)
+                    .and_then(|terminal| notes_state.note_text(&terminal.session_name))
+                    .unwrap_or_default()
+                    .to_owned();
+                hud_state.open_task_dialog(active_id, &note_text);
+                redraws.write(RequestRedraw);
+                break;
+            }
+            KeyCode::KeyN => {
+                hud_commands.write(HudIntent::ConsumeNextTerminalTask(active_id));
+                break;
+            }
+            _ => {}
         }
-        hud_state.open_message_box(active_id);
-        redraws.write(RequestRedraw);
-        break;
     }
 }
 
