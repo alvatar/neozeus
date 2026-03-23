@@ -8,8 +8,8 @@ use crate::{
 
 pub(crate) const AGENT_LIST_HEADER_HEIGHT: f32 = 52.0;
 pub(crate) const AGENT_LIST_LEFT_RAIL_WIDTH: f32 = 28.0;
-pub(crate) const AGENT_LIST_ROW_MARKER_WIDTH: f32 = 20.0;
-pub(crate) const AGENT_LIST_ROW_MARKER_GAP: f32 = 4.0;
+pub(crate) const AGENT_LIST_ROW_MARKER_WIDTH: f32 = 12.0;
+pub(crate) const AGENT_LIST_ROW_MARKER_GAP: f32 = 10.0;
 
 pub(crate) use interaction::{clear_hover, handle_hover, handle_pointer_click, handle_scroll};
 pub(crate) use render::render_content;
