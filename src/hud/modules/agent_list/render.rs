@@ -63,14 +63,28 @@ fn draw_label(
     painter.label_scaled(position, text, size, color, anchor, scale_x, scale_y);
 }
 
+const AGENT_BUTTON_BORDER_WIDTH: f32 = 3.0;
+
+fn inset_rect(rect: HudRect, inset: f32) -> Option<HudRect> {
+    let inner = HudRect {
+        x: rect.x + inset,
+        y: rect.y + inset,
+        w: rect.w - inset * 2.0,
+        h: rect.h - inset * 2.0,
+    };
+    (inner.w > 0.0 && inner.h > 0.0).then_some(inner)
+}
+
 fn draw_button_rect(
     painter: &mut HudPainter,
     rect: HudRect,
     stroke: peniko::Color,
     fill: peniko::Color,
 ) {
-    painter.fill_rect(rect, fill, 0.0);
-    painter.stroke_rect_width(rect, stroke, 2.5);
+    painter.fill_rect(rect, stroke, 0.0);
+    if let Some(inner) = inset_rect(rect, AGENT_BUTTON_BORDER_WIDTH) {
+        painter.fill_rect(inner, fill, 0.0);
+    }
 }
 
 fn marker_fill(has_notes: bool) -> peniko::Color {
