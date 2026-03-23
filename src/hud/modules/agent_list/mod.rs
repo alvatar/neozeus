@@ -21,11 +21,13 @@ pub(crate) enum AgentListRowSection {
 pub(crate) use interaction::{clear_hover, handle_hover, handle_pointer_click, handle_scroll};
 pub(crate) use render::render_content;
 
+#[cfg(test)]
 fn hash01(seed: u32) -> f32 {
     let mixed = seed.wrapping_mul(1_597_334_677).rotate_left(13) ^ 0x68bc_21ebu32;
     (mixed & 1023) as f32 / 1023.0
 }
 
+#[cfg(test)]
 pub(crate) fn agent_button_irregularities(rect: HudRect, seed: u32) -> Vec<(HudRect, f32)> {
     let inset = 1.5;
     let bounds = HudRect {

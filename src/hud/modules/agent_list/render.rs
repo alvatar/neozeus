@@ -6,31 +6,22 @@ use bevy::prelude::Vec2;
 use bevy_vello::{prelude::VelloTextAnchor, vello::peniko};
 
 use super::{
-    agent_button_irregularities, agent_row_rect, agent_rows, AgentListRowSection,
-    AGENT_LIST_HEADER_HEIGHT, AGENT_LIST_LEFT_RAIL_WIDTH,
+    agent_row_rect, agent_rows, AgentListRowSection, AGENT_LIST_HEADER_HEIGHT,
+    AGENT_LIST_LEFT_RAIL_WIDTH,
 };
 
 const EVA_ORANGE: peniko::Color = peniko::Color::from_rgba8(181, 66, 11, 255);
 const EVA_ORANGE_BRIGHT: peniko::Color = peniko::Color::from_rgba8(181, 66, 11, 255);
-const EVA_ORANGE_DIM: peniko::Color = peniko::Color::from_rgba8(132, 48, 12, 255);
-const EVA_SELECTED: peniko::Color = peniko::Color::from_rgba8(255, 160, 52, 255);
+const EVA_ORANGE_DIM: peniko::Color = peniko::Color::from_rgba8(181, 66, 11, 255);
+const EVA_SELECTED: peniko::Color = peniko::Color::from_rgba8(181, 66, 11, 255);
 const EVA_CYAN: peniko::Color = peniko::Color::from_rgba8(96, 238, 255, 255);
 const EVA_BLACK: peniko::Color = peniko::Color::from_rgba8(0, 0, 0, 255);
 
-fn inflate_rect(rect: HudRect, amount: f32) -> HudRect {
-    HudRect {
-        x: rect.x - amount,
-        y: rect.y - amount,
-        w: rect.w + amount * 2.0,
-        h: rect.h + amount * 2.0,
-    }
-}
-
 #[allow(
     clippy::too_many_arguments,
-    reason = "agent-list text glow helper needs position/color/anchor plus non-uniform scaling"
+    reason = "agent-list text helper needs position/color/anchor plus non-uniform scaling"
 )]
-fn glow_label(
+fn draw_label(
     painter: &mut HudPainter,
     position: Vec2,
     text: &str,
@@ -40,45 +31,17 @@ fn glow_label(
     scale_x: f32,
     scale_y: f32,
 ) {
-    for (offset, alpha) in [
-        (Vec2::new(0.0, 0.0), 0.18),
-        (Vec2::new(0.7, 0.0), 0.12),
-        (Vec2::new(-0.7, 0.0), 0.12),
-        (Vec2::new(0.0, 0.7), 0.08),
-    ] {
-        painter.label_scaled(
-            position + offset,
-            text,
-            size,
-            apply_alpha(color, alpha),
-            anchor,
-            scale_x,
-            scale_y,
-        );
-    }
     painter.label_scaled(position, text, size, color, anchor, scale_x, scale_y);
 }
 
-fn glow_rect(
+fn draw_button_rect(
     painter: &mut HudPainter,
     rect: HudRect,
     stroke: peniko::Color,
     fill: peniko::Color,
-    seed: u32,
 ) {
-    painter.fill_rect(inflate_rect(rect, 4.0), apply_alpha(stroke, 0.05), 0.0);
-    painter.fill_rect(inflate_rect(rect, 2.5), apply_alpha(stroke, 0.10), 0.0);
-    painter.fill_rect(inflate_rect(rect, 1.5), apply_alpha(stroke, 0.12), 0.0);
-    painter.stroke_rect(inflate_rect(rect, 3.0), apply_alpha(stroke, 0.18), 0.0);
-    painter.stroke_rect(inflate_rect(rect, 2.0), apply_alpha(stroke, 0.32), 0.0);
-    painter.stroke_rect(inflate_rect(rect, 1.0), apply_alpha(stroke, 0.52), 0.0);
     painter.fill_rect(rect, fill, 0.0);
-
-    for (band_rect, alpha) in agent_button_irregularities(rect, seed) {
-        painter.fill_rect(band_rect, apply_alpha(stroke, alpha * 1.6), 0.0);
-    }
-
-    painter.stroke_rect(rect, apply_alpha(stroke, 0.96), 0.0);
+    painter.stroke_rect(rect, stroke, 0.0);
 }
 
 fn draw_left_rail(painter: &mut HudPainter, content_rect: HudRect) {
@@ -131,7 +94,7 @@ pub(crate) fn render_content(
 
     draw_left_rail(painter, content_rect);
 
-    glow_label(
+    draw_label(
         painter,
         Vec2::new(
             content_rect.x + AGENT_LIST_LEFT_RAIL_WIDTH + HUD_MODULE_PADDING,
@@ -144,7 +107,7 @@ pub(crate) fn render_content(
         0.82,
         1.08,
     );
-    glow_label(
+    draw_label(
         painter,
         Vec2::new(
             content_rect.x + content_rect.w - 14.0,
@@ -168,16 +131,13 @@ pub(crate) fn render_content(
         0.0,
     );
 
-    for (index, row) in agent_rows(
+    for row in agent_rows(
         content_rect,
         state.scroll_offset,
         state.hovered_terminal,
         inputs.terminal_manager,
         inputs.agent_directory,
-    )
-    .into_iter()
-    .enumerate()
-    {
+    ) {
         if row.rect.y + row.rect.h < content_rect.y || row.rect.y > content_rect.y + content_rect.h
         {
             continue;
@@ -200,26 +160,15 @@ pub(crate) fn render_content(
             apply_alpha(EVA_BLACK, 0.90)
         };
 
-        glow_rect(
-            painter,
-            main_rect,
-            stroke,
-            fill,
-            row.terminal_id.0 as u32 * 13 + 1,
-        );
-        glow_rect(
+        draw_button_rect(painter, main_rect, stroke, fill);
+        draw_button_rect(
             painter,
             marker_rect,
             stroke,
-            if row.focused {
-                apply_alpha(EVA_SELECTED, 0.96)
-            } else {
-                apply_alpha(EVA_ORANGE, 0.82)
-            },
-            row.terminal_id.0 as u32 * 13 + 7,
+            if row.focused { EVA_SELECTED } else { EVA_ORANGE },
         );
 
-        glow_label(
+        draw_label(
             painter,
             Vec2::new(main_rect.x + 5.0, main_rect.y + 2.0),
             &row.label.to_uppercase(),
@@ -233,6 +182,5 @@ pub(crate) fn render_content(
             0.76,
             1.14,
         );
-        let _ = index;
     }
 }
