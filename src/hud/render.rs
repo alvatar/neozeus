@@ -91,8 +91,12 @@ impl<'scene, 'res> HudPainter<'scene, 'res> {
     }
 
     pub(crate) fn stroke_rect(&mut self, rect: HudRect, color: peniko::Color, _radius: f64) {
+        self.stroke_rect_width(rect, color, 1.5);
+    }
+
+    pub(crate) fn stroke_rect_width(&mut self, rect: HudRect, color: peniko::Color, width: f64) {
         self.scene.stroke(
-            &Stroke::new(1.5),
+            &Stroke::new(width),
             Affine::IDENTITY,
             apply_alpha(color, self.alpha),
             None,

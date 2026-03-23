@@ -12,8 +12,9 @@ use crate::hud::{
     AgentListRowSection, HudBloomSettings, HudDragState, HudIntent, HudModuleId, HudModuleModel,
     HudOffscreenCompositor, HudPersistenceState, HudRect, HudState, HudWidgetBloom,
     PersistedHudModuleState, PersistedHudState, TerminalFocusRequest, TerminalVisibilityPolicy,
-    TerminalVisibilityRequest, TerminalVisibilityState, AGENT_LIST_ACCENT_RED_B,
-    AGENT_LIST_ACCENT_RED_G, AGENT_LIST_ACCENT_RED_R,
+    TerminalVisibilityRequest, TerminalVisibilityState, AGENT_LIST_BLOOM_RED_B,
+    AGENT_LIST_BLOOM_RED_G, AGENT_LIST_BLOOM_RED_R, AGENT_LIST_BORDER_ORANGE_B,
+    AGENT_LIST_BORDER_ORANGE_G, AGENT_LIST_BORDER_ORANGE_R,
 };
 use crate::terminals::{
     TerminalManager, TerminalNotesState, TerminalPanel, TerminalPanelFrame,
@@ -221,14 +222,22 @@ fn sync_structural_hud_layout_docks_agent_list_to_full_height_left_column() {
 }
 
 #[test]
-fn agent_list_reference_red_matches_sample() {
+fn agent_list_reference_colors_match_requested_values() {
     assert_eq!(
         (
-            AGENT_LIST_ACCENT_RED_R,
-            AGENT_LIST_ACCENT_RED_G,
-            AGENT_LIST_ACCENT_RED_B
+            AGENT_LIST_BORDER_ORANGE_R,
+            AGENT_LIST_BORDER_ORANGE_G,
+            AGENT_LIST_BORDER_ORANGE_B
         ),
-        (253, 0, 1)
+        (225, 129, 10)
+    );
+    assert_eq!(
+        (
+            AGENT_LIST_BLOOM_RED_R,
+            AGENT_LIST_BLOOM_RED_G,
+            AGENT_LIST_BLOOM_RED_B
+        ),
+        (143, 37, 15)
     );
 }
 
@@ -768,12 +777,15 @@ fn sync_hud_widget_bloom_spawns_agent_list_source_sprites() {
         .iter(&world)
         .map(|(marker, sprite)| (*marker, sprite.clone()))
         .collect::<Vec<_>>();
-    assert_eq!(source_sprites.len(), 1);
+    assert_eq!(source_sprites.len(), 2);
     assert!(source_sprites
         .iter()
-        .all(|(sprite, _)| sprite.kind == AgentListBloomSourceKind::Accent));
+        .any(|(sprite, _)| sprite.kind == AgentListBloomSourceKind::Main));
+    assert!(source_sprites
+        .iter()
+        .any(|(sprite, _)| sprite.kind == AgentListBloomSourceKind::Marker));
 
-    let expected_source_size = {
+    let expected_sizes = {
         let manager = world.resource::<TerminalManager>();
         let hud_state = world.resource::<HudState>();
         let directory = world.resource::<AgentDirectory>();
@@ -791,7 +803,8 @@ fn sync_hud_widget_bloom_spawns_agent_list_source_sprites() {
         .into_iter()
         .next()
         .expect("agent row exists");
-        let accent = agent_row_rect(row.rect, AgentListRowSection::Accent);
+        let main = agent_row_rect(row.rect, AgentListRowSection::Main);
+        let marker = agent_row_rect(row.rect, AgentListRowSection::Marker);
         let target_size = {
             let mut camera_query =
                 world.query_filtered::<&RenderTarget, With<AgentListBloomCameraMarker>>();
@@ -807,9 +820,18 @@ fn sync_hud_widget_bloom_spawns_agent_list_source_sprites() {
         };
         let scale_x = target_size.width as f32 / 1400.0;
         let scale_y = target_size.height as f32 / 900.0;
-        Vec2::new(accent.w * scale_x, accent.h * scale_y)
+        [
+            Vec2::new(main.w * scale_x, main.h * scale_y),
+            Vec2::new(marker.w * scale_x, marker.h * scale_y),
+        ]
     };
-    assert_eq!(source_sprites[0].1.custom_size, Some(expected_source_size));
+    let actual_sizes = source_sprites
+        .iter()
+        .map(|(_, sprite)| sprite.custom_size.expect("source size exists"))
+        .collect::<Vec<_>>();
+    assert!(actual_sizes
+        .iter()
+        .all(|size| expected_sizes.contains(size)));
 
     let mut composite_query = world.query::<(
         &Visibility,
@@ -869,9 +891,13 @@ fn sync_hud_widget_bloom_only_uses_active_agent_source() {
         .iter(&world)
         .copied()
         .collect::<Vec<_>>();
-    assert_eq!(source_sprites.len(), 1);
-    assert_eq!(source_sprites[0].terminal_id, id_two);
-    assert_ne!(source_sprites[0].terminal_id, id_one);
+    assert_eq!(source_sprites.len(), 2);
+    assert!(source_sprites
+        .iter()
+        .all(|sprite| sprite.terminal_id == id_two));
+    assert!(source_sprites
+        .iter()
+        .all(|sprite| sprite.terminal_id != id_one));
 }
 
 #[test]
