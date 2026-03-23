@@ -203,6 +203,10 @@ impl HudState {
         self.message_box.close();
     }
 
+    pub(crate) fn close_message_box_and_discard_draft(&mut self) {
+        self.message_box.close_and_discard_current();
+    }
+
     pub(crate) fn open_direct_terminal_input(&mut self, target_terminal: TerminalId) {
         self.close_message_box();
         self.direct_input_terminal = Some(target_terminal);

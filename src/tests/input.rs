@@ -446,6 +446,45 @@ fn direct_input_mode_sends_keys_to_terminal_without_opening_message_box() {
 }
 
 #[test]
+fn closing_message_box_preserves_draft_for_reopen() {
+    let terminal_id = crate::terminals::TerminalId(7);
+    let mut hud_state = crate::hud::HudState::default();
+
+    hud_state.open_message_box(terminal_id);
+    hud_state.message_box.insert_text("draft payload");
+    hud_state.close_message_box();
+
+    assert!(!hud_state.message_box.visible);
+    assert_eq!(hud_state.message_box.target_terminal, None);
+
+    hud_state.open_message_box(terminal_id);
+    assert!(hud_state.message_box.visible);
+    assert_eq!(hud_state.message_box.target_terminal, Some(terminal_id));
+    assert_eq!(hud_state.message_box.text, "draft payload");
+}
+
+#[test]
+fn message_box_keeps_separate_drafts_per_terminal() {
+    let terminal_one = crate::terminals::TerminalId(7);
+    let terminal_two = crate::terminals::TerminalId(9);
+    let mut hud_state = crate::hud::HudState::default();
+
+    hud_state.open_message_box(terminal_one);
+    hud_state.message_box.insert_text("first draft");
+    hud_state.close_message_box();
+
+    hud_state.open_message_box(terminal_two);
+    hud_state.message_box.insert_text("second draft");
+    hud_state.close_message_box();
+
+    hud_state.open_message_box(terminal_one);
+    assert_eq!(hud_state.message_box.text, "first draft");
+
+    hud_state.open_message_box(terminal_two);
+    assert_eq!(hud_state.message_box.text, "second draft");
+}
+
+#[test]
 fn message_box_supports_multiline_typing_and_ctrl_s_send() {
     let (mut world, terminal_id) =
         world_with_active_terminal(Vec2::new(10.0, 10.0), false, Vec2::ZERO);
@@ -474,8 +513,16 @@ fn message_box_supports_multiline_typing_and_ctrl_s_send() {
         drain_hud_commands(&mut world),
         vec![HudIntent::SendTerminalCommand(terminal_id, "a\nb".into())]
     );
+    {
+        let hud_state = world.resource::<crate::hud::HudState>();
+        assert!(!hud_state.message_box.visible);
+        assert!(hud_state.message_box.text.is_empty());
+    }
+
+    world.insert_resource(ButtonInput::<KeyCode>::default());
+    dispatch_message_box_key(&mut world, pressed_text(KeyCode::Enter, None));
     let hud_state = world.resource::<crate::hud::HudState>();
-    assert!(!hud_state.message_box.visible);
+    assert!(hud_state.message_box.visible);
     assert!(hud_state.message_box.text.is_empty());
 }
 
