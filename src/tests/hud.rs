@@ -24,7 +24,7 @@ use bevy::{
     input::{keyboard::KeyboardInput, mouse::MouseWheel},
     prelude::*,
     render::render_resource::TextureFormat,
-    sprite_render::MeshMaterial2d,
+    sprite_render::{AlphaMode2d, Material2d, MeshMaterial2d},
     window::{PrimaryWindow, RequestRedraw, WindowResolution},
 };
 use bevy_vello::render::VelloCanvasMaterial;
@@ -182,8 +182,8 @@ fn setup_hud_widget_bloom_uses_logical_window_size_for_targets() {
         .iter()
         .map(|image| image.texture_descriptor.size)
         .collect::<Vec<_>>();
-    assert!(target_sizes.iter().all(|size| size.width == 175));
-    assert!(target_sizes.iter().all(|size| size.height == 112));
+    assert!(target_sizes.iter().all(|size| size.width == 350));
+    assert!(target_sizes.iter().all(|size| size.height == 225));
     assert!(target_images
         .iter()
         .all(|image| image.texture_descriptor.format == TextureFormat::Rgba16Float));
@@ -238,6 +238,17 @@ fn parses_agent_bloom_debug_previews_override() {
     assert!(resolve_agent_list_bloom_debug_previews(Some("on")));
     assert!(!resolve_agent_list_bloom_debug_previews(Some("0")));
     assert!(!resolve_agent_list_bloom_debug_previews(Some("false")));
+}
+
+#[test]
+fn bloom_blur_material_writes_offscreen_passes_opaquely() {
+    let material = crate::hud::AgentListBloomBlurMaterial {
+        image: default(),
+        uniform: crate::hud::AgentListBloomBlurUniform {
+            texel_step_gain: Vec4::ZERO,
+        },
+    };
+    assert_eq!(Material2d::alpha_mode(&material), AlphaMode2d::Opaque);
 }
 
 #[test]
@@ -740,14 +751,55 @@ fn sync_hud_widget_bloom_spawns_agent_list_source_sprites() {
         .unwrap();
 
     let source_sprites = world
-        .query::<&AgentListBloomSourceSprite>()
+        .query::<(&AgentListBloomSourceSprite, &Sprite)>()
         .iter(&world)
-        .copied()
+        .map(|(marker, sprite)| (*marker, sprite.clone()))
         .collect::<Vec<_>>();
     assert_eq!(source_sprites.len(), 1);
     assert!(source_sprites
         .iter()
-        .all(|sprite| sprite.kind == AgentListBloomSourceKind::Accent));
+        .all(|(sprite, _)| sprite.kind == AgentListBloomSourceKind::Accent));
+
+    let expected_source_size = {
+        let manager = world.resource::<TerminalManager>();
+        let hud_state = world.resource::<HudState>();
+        let directory = world.resource::<AgentDirectory>();
+        let module = hud_state.get(HudModuleId::AgentList).unwrap();
+        let crate::hud::HudModuleModel::AgentList(state) = &module.model else {
+            panic!("agent list module model missing")
+        };
+        let row = agent_rows(
+            module.shell.current_rect,
+            state.scroll_offset,
+            state.hovered_terminal,
+            manager,
+            directory,
+        )
+        .into_iter()
+        .next()
+        .expect("agent row exists");
+        let accent = crate::hud::bloom_source_rect(
+            AgentListBloomSourceKind::Accent,
+            agent_row_rect(row.rect, AgentListRowSection::Accent),
+        );
+        let target_size = {
+            let mut camera_query =
+                world.query_filtered::<&RenderTarget, With<AgentListBloomCameraMarker>>();
+            let RenderTarget::Image(handle) = camera_query.single(&world).unwrap() else {
+                panic!("bloom target missing")
+            };
+            let images = world.resource::<Assets<Image>>();
+            images
+                .get(handle.handle.id())
+                .expect("bloom target image exists")
+                .texture_descriptor
+                .size
+        };
+        let scale_x = target_size.width as f32 / 1400.0;
+        let scale_y = target_size.height as f32 / 900.0;
+        Vec2::new(accent.w * scale_x, accent.h * scale_y)
+    };
+    assert_eq!(source_sprites[0].1.custom_size, Some(expected_source_size));
 
     let mut composite_query = world.query::<(
         &Visibility,

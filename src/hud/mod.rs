@@ -11,14 +11,14 @@ mod render;
 mod state;
 
 pub(crate) use animation::animate_hud_modules;
+#[cfg(test)]
+pub(crate) use bloom::{
+    bloom_source_rect, AgentListBloomBlurUniform, AgentListBloomCameraMarker,
+    AgentListBloomCompositeMarker, AgentListBloomSourceKind, AgentListBloomSourceSprite,
+};
 pub(crate) use bloom::{
     setup_hud_widget_bloom, sync_hud_widget_bloom, AgentListBloomBlurMaterial, HudBloomSettings,
     HudWidgetBloom,
-};
-#[cfg(test)]
-pub(crate) use bloom::{
-    AgentListBloomCameraMarker, AgentListBloomCompositeMarker, AgentListBloomSourceKind,
-    AgentListBloomSourceSprite,
 };
 pub(crate) use compositor::{
     setup_hud_offscreen_compositor, sync_hud_offscreen_compositor, HudOffscreenCompositor,

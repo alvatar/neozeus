@@ -31,12 +31,12 @@ const BLOOM_COMPOSITE_LAYER: usize = 34;
 const BLOOM_COMPOSITE_Z: f32 = HUD_COMPOSITE_FOREGROUND_Z + 0.1;
 const BLOOM_TARGET_FORMAT: TextureFormat = TextureFormat::Rgba16Float;
 const BLOOM_BLUR_SHADER_PATH: &str = "shaders/hud_agent_list_bloom_blur.wgsl";
-const BLOOM_SCALE_DIVISOR: u32 = 4;
+const BLOOM_SCALE_DIVISOR: u32 = 2;
 const DEFAULT_BLOOM_INTENSITY: f32 = 1.35;
-const SMALL_BLUR_GAIN: f32 = 0.85;
-const WIDE_BLUR_GAIN: f32 = 0.60;
-const SMALL_BLUR_STEP_SCALE: f32 = 1.75;
-const WIDE_BLUR_STEP_SCALE: f32 = 5.5;
+const SMALL_BLUR_GAIN: f32 = 1.0;
+const WIDE_BLUR_GAIN: f32 = 0.8;
+const SMALL_BLUR_STEP_SCALE: f32 = 2.25;
+const WIDE_BLUR_STEP_SCALE: f32 = 7.0;
 const BLOOM_DEBUG_PREVIEW_Z: f32 = HUD_COMPOSITE_FOREGROUND_Z + 2.0;
 const BLOOM_DEBUG_PREVIEW_WIDTH: f32 = 160.0;
 const BLOOM_DEBUG_PREVIEW_HEIGHT: f32 = 120.0;
@@ -155,7 +155,7 @@ impl Material2d for AgentListBloomBlurMaterial {
     }
 
     fn alpha_mode(&self) -> AlphaMode2d {
-        AlphaMode2d::Blend
+        AlphaMode2d::Opaque
     }
 }
 
@@ -246,16 +246,27 @@ fn bloom_target_size(window: &Window) -> UVec2 {
     )
 }
 
-fn rect_transform(window: &Window, rect: HudRect, z: f32) -> Transform {
+fn rect_transform_for_frame(frame_size: Vec2, rect: HudRect, z: f32) -> Transform {
     Transform::from_xyz(
-        rect.x + rect.w * 0.5 - window.width() * 0.5,
-        window.height() * 0.5 - (rect.y + rect.h * 0.5),
+        rect.x + rect.w * 0.5 - frame_size.x * 0.5,
+        frame_size.y * 0.5 - (rect.y + rect.h * 0.5),
         z,
     )
 }
 
-fn fullscreen_transform(window: &Window, z: f32) -> Transform {
-    Transform::from_xyz(0.0, 0.0, z).with_scale(Vec3::new(window.width(), window.height(), 1.0))
+fn fullscreen_transform_for_frame(frame_size: Vec2, z: f32) -> Transform {
+    Transform::from_xyz(0.0, 0.0, z).with_scale(Vec3::new(frame_size.x, frame_size.y, 1.0))
+}
+
+fn scale_rect_into_target(window: &Window, target_size: UVec2, rect: HudRect) -> HudRect {
+    let scale_x = target_size.x.max(1) as f32 / window.width().max(1.0);
+    let scale_y = target_size.y.max(1) as f32 / window.height().max(1.0);
+    HudRect {
+        x: rect.x * scale_x,
+        y: rect.y * scale_y,
+        w: rect.w * scale_x,
+        h: rect.h * scale_y,
+    }
 }
 
 fn bloom_debug_preview_transform(
@@ -294,9 +305,9 @@ fn blur_uniform(texel_step: Vec2, gain: f32) -> AgentListBloomBlurUniform {
 
 fn bloom_source_color(focused: bool, hovered: bool, kind: AgentListBloomSourceKind) -> Color {
     match (focused, hovered, kind) {
-        (true, _, AgentListBloomSourceKind::Accent) => Color::linear_rgba(3.2, 0.0, 0.08, 1.0),
-        (_, true, AgentListBloomSourceKind::Accent) => Color::linear_rgba(1.6, 0.0, 0.05, 0.55),
-        (_, _, AgentListBloomSourceKind::Accent) => Color::linear_rgba(0.8, 0.0, 0.03, 0.25),
+        (true, _, AgentListBloomSourceKind::Accent) => Color::linear_rgba(5.0, 0.0, 0.10, 1.0),
+        (_, true, AgentListBloomSourceKind::Accent) => Color::linear_rgba(2.4, 0.0, 0.07, 0.7),
+        (_, _, AgentListBloomSourceKind::Accent) => Color::linear_rgba(1.0, 0.0, 0.04, 0.3),
     }
 }
 
@@ -311,6 +322,17 @@ fn additive_blend_state() -> BlendState {
             src_factor: BlendFactor::Zero,
             dst_factor: BlendFactor::One,
             operation: BlendOperation::Add,
+        },
+    }
+}
+
+pub(crate) fn bloom_source_rect(kind: AgentListBloomSourceKind, rect: HudRect) -> HudRect {
+    match kind {
+        AgentListBloomSourceKind::Accent => HudRect {
+            x: (rect.x - 5.0).max(0.0),
+            y: (rect.y - 4.0).max(0.0),
+            w: rect.w + 14.0,
+            h: rect.h + 8.0,
         },
     }
 }
@@ -342,7 +364,7 @@ fn build_bloom_specs(
         }
 
         let kind = AgentListBloomSourceKind::Accent;
-        let rect = agent_row_rect(row.rect, AgentListRowSection::Accent);
+        let rect = bloom_source_rect(kind, agent_row_rect(row.rect, AgentListRowSection::Accent));
         specs.push(BloomSourceSpec {
             key: AgentListBloomSourceSprite {
                 terminal_id: row.terminal_id,
@@ -401,7 +423,7 @@ pub(crate) fn setup_hud_widget_bloom(mut ctx: HudWidgetBloomSetupContext) {
         .spawn((
             Mesh2d(ctx.meshes.add(Rectangle::default())),
             MeshMaterial2d(small_h_material),
-            fullscreen_transform(&ctx.primary_window, 0.0),
+            fullscreen_transform_for_frame(target_size.as_vec2(), 0.0),
             RenderLayers::layer(BLOOM_BLUR_SMALL_H_LAYER),
             Visibility::Hidden,
             AgentListBloomBlurSmallHorizontalQuadMarker,
@@ -434,7 +456,7 @@ pub(crate) fn setup_hud_widget_bloom(mut ctx: HudWidgetBloomSetupContext) {
         .spawn((
             Mesh2d(ctx.meshes.add(Rectangle::default())),
             MeshMaterial2d(small_v_material),
-            fullscreen_transform(&ctx.primary_window, 0.0),
+            fullscreen_transform_for_frame(target_size.as_vec2(), 0.0),
             RenderLayers::layer(BLOOM_BLUR_SMALL_V_LAYER),
             Visibility::Hidden,
             AgentListBloomBlurSmallVerticalQuadMarker,
@@ -467,7 +489,7 @@ pub(crate) fn setup_hud_widget_bloom(mut ctx: HudWidgetBloomSetupContext) {
         .spawn((
             Mesh2d(ctx.meshes.add(Rectangle::default())),
             MeshMaterial2d(wide_h_material),
-            fullscreen_transform(&ctx.primary_window, 0.0),
+            fullscreen_transform_for_frame(target_size.as_vec2(), 0.0),
             RenderLayers::layer(BLOOM_BLUR_WIDE_H_LAYER),
             Visibility::Hidden,
             AgentListBloomBlurWideHorizontalQuadMarker,
@@ -500,7 +522,7 @@ pub(crate) fn setup_hud_widget_bloom(mut ctx: HudWidgetBloomSetupContext) {
         .spawn((
             Mesh2d(ctx.meshes.add(Rectangle::default())),
             MeshMaterial2d(wide_v_material),
-            fullscreen_transform(&ctx.primary_window, 0.0),
+            fullscreen_transform_for_frame(target_size.as_vec2(), 0.0),
             RenderLayers::layer(BLOOM_BLUR_WIDE_V_LAYER),
             Visibility::Hidden,
             AgentListBloomBlurWideVerticalQuadMarker,
@@ -975,8 +997,7 @@ pub(crate) fn sync_hud_widget_bloom(mut ctx: HudWidgetBloomContext) {
         {
             transform.translation = Vec3::ZERO;
             transform.rotation = Quat::IDENTITY;
-            transform.scale =
-                Vec3::new(ctx.primary_window.width(), ctx.primary_window.height(), 1.0);
+            transform.scale = Vec3::new(target_size.x as f32, target_size.y as f32, 1.0);
             *visibility = Visibility::Hidden;
             if let Some(material) = ctx.blur_materials.get_mut(material_handle.id()) {
                 material.image = pass.source_image.clone();
@@ -993,8 +1014,7 @@ pub(crate) fn sync_hud_widget_bloom(mut ctx: HudWidgetBloomContext) {
         {
             transform.translation = Vec3::ZERO;
             transform.rotation = Quat::IDENTITY;
-            transform.scale =
-                Vec3::new(ctx.primary_window.width(), ctx.primary_window.height(), 1.0);
+            transform.scale = Vec3::new(target_size.x as f32, target_size.y as f32, 1.0);
             *visibility = Visibility::Hidden;
             if let Some(material) = ctx.blur_materials.get_mut(material_handle.id()) {
                 material.image = pass.blur_small_h_image.clone();
@@ -1011,8 +1031,7 @@ pub(crate) fn sync_hud_widget_bloom(mut ctx: HudWidgetBloomContext) {
         {
             transform.translation = Vec3::ZERO;
             transform.rotation = Quat::IDENTITY;
-            transform.scale =
-                Vec3::new(ctx.primary_window.width(), ctx.primary_window.height(), 1.0);
+            transform.scale = Vec3::new(target_size.x as f32, target_size.y as f32, 1.0);
             *visibility = Visibility::Hidden;
             if let Some(material) = ctx.blur_materials.get_mut(material_handle.id()) {
                 material.image = pass.blur_small_v_image.clone();
@@ -1029,8 +1048,7 @@ pub(crate) fn sync_hud_widget_bloom(mut ctx: HudWidgetBloomContext) {
         {
             transform.translation = Vec3::ZERO;
             transform.rotation = Quat::IDENTITY;
-            transform.scale =
-                Vec3::new(ctx.primary_window.width(), ctx.primary_window.height(), 1.0);
+            transform.scale = Vec3::new(target_size.x as f32, target_size.y as f32, 1.0);
             *visibility = Visibility::Hidden;
             if let Some(material) = ctx.blur_materials.get_mut(material_handle.id()) {
                 material.image = pass.blur_wide_h_image.clone();
@@ -1086,24 +1104,25 @@ pub(crate) fn sync_hud_widget_bloom(mut ctx: HudWidgetBloomContext) {
     }
 
     for spec in &specs {
+        let target_rect = scale_rect_into_target(&ctx.primary_window, target_size, spec.rect);
         if let Some((entity, _, _, _)) = existing.get(&spec.key) {
             if let Ok((_, _, mut sprite, mut transform, mut visibility)) =
                 ctx.source_sprites.get_mut(*entity)
             {
                 sprite.color = spec.color;
-                sprite.custom_size = Some(Vec2::new(spec.rect.w, spec.rect.h));
+                sprite.custom_size = Some(Vec2::new(target_rect.w, target_rect.h));
                 transform.translation =
-                    rect_transform(&ctx.primary_window, spec.rect, 0.0).translation;
+                    rect_transform_for_frame(target_size.as_vec2(), target_rect, 0.0).translation;
                 *visibility = Visibility::Visible;
             }
         } else {
             ctx.commands.spawn((
                 Sprite {
                     color: spec.color,
-                    custom_size: Some(Vec2::new(spec.rect.w, spec.rect.h)),
+                    custom_size: Some(Vec2::new(target_rect.w, target_rect.h)),
                     ..default()
                 },
-                rect_transform(&ctx.primary_window, spec.rect, 0.0),
+                rect_transform_for_frame(target_size.as_vec2(), target_rect, 0.0),
                 RenderLayers::layer(BLOOM_SOURCE_LAYER),
                 Visibility::Visible,
                 spec.key,
