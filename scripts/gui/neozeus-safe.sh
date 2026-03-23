@@ -86,6 +86,37 @@ neozeus_gui_place_window() {
     swaymsg "[con_id=${con_id}] move position ${x} px ${y} px" >/dev/null
 }
 
+neozeus_gui_workspace_output() {
+    local workspace=${1:-8}
+    swaymsg -t get_workspaces | jq -r --argjson workspace "$workspace" '
+        .[] | select(.num == $workspace) | .output
+    ' | head -n 1
+}
+
+neozeus_gui_output_scale() {
+    local output_name=${1:-}
+    if [[ -z "$output_name" ]]; then
+        echo 1.0
+        return 0
+    fi
+    local scale
+    scale=$(swaymsg -t get_outputs | jq -r --arg output "$output_name" '
+        .[] | select(.name == $output) | .scale
+    ' | head -n 1)
+    if [[ -z "$scale" || "$scale" == "null" ]]; then
+        echo 1.0
+        return 0
+    fi
+    echo "$scale"
+}
+
+neozeus_gui_workspace_output_scale() {
+    local workspace=${1:-8}
+    local output_name
+    output_name=$(neozeus_gui_workspace_output "$workspace")
+    neozeus_gui_output_scale "$output_name"
+}
+
 neozeus_gui_prepare_isolated_app_env() {
     local prefix=${1:-neozeus-gui}
     NEOZEUS_GUI_ISO_ROOT=$(mktemp -d "/tmp/${prefix}-XXXXXX")

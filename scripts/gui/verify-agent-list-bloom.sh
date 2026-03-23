@@ -41,12 +41,13 @@ capture_stable_window() {
     local width=$3
     local height=$4
     local out=$5
+    local capture_scale=$6
     local geom="${x},${y} ${width}x${height}"
 
     for _ in $(seq 1 20); do
-        grim -g "$geom" "$STABLE_A"
+        grim -s "$capture_scale" -g "$geom" "$STABLE_A"
         sleep 0.5
-        grim -g "$geom" "$STABLE_B"
+        grim -s "$capture_scale" -g "$geom" "$STABLE_B"
         local diff_raw
         diff_raw=$(metric_ae "$STABLE_A" "$STABLE_B")
         local diff
@@ -79,6 +80,8 @@ run_capture() {
     local tag=$1
     local intensity=$2
     local out_png=$3
+    local window_scale=$4
+    local capture_scale=$5
     local title="neozeus-bloom-${tag}-$$"
 
     cleanup_app
@@ -90,7 +93,7 @@ run_capture() {
         "$RUN_LOG" \
         NEOZEUS_WINDOW_TITLE="$title" \
         NEOZEUS_WINDOW_MODE=windowed \
-        NEOZEUS_WINDOW_SCALE_FACTOR=1.0 \
+        NEOZEUS_WINDOW_SCALE_FACTOR="$window_scale" \
         NEOZEUS_AGENT_BLOOM_INTENSITY="$intensity" \
         NEOZEUS_AUTOVERIFY_COMMAND='printf "__NZ_BLOOM__\n"' \
         NEOZEUS_AUTOVERIFY_DELAY_MS=400)
@@ -112,13 +115,16 @@ run_capture() {
     capture_w=$(( width < 340 ? width : 340 ))
     capture_h=$(( height < 180 ? height : 180 ))
 
-    capture_stable_window "$x" "$y" "$capture_w" "$capture_h" "$out_png"
+    capture_stable_window "$x" "$y" "$capture_w" "$capture_h" "$out_png" "$capture_scale"
 }
 
 cargo build >"$BUILD_LOG" 2>&1
 
-run_capture off 0.0 "$OFF_PNG"
-run_capture on "$ON_INTENSITY" "$ON_PNG"
+WINDOW_SCALE=$(neozeus_gui_workspace_output_scale "$SWAY_WORKSPACE")
+CAPTURE_SCALE="$WINDOW_SCALE"
+
+run_capture off 0.0 "$OFF_PNG" "$WINDOW_SCALE" "$CAPTURE_SCALE"
+run_capture on "$ON_INTENSITY" "$ON_PNG" "$WINDOW_SCALE" "$CAPTURE_SCALE"
 cleanup_app
 
 python - "$OFF_PNG" "$ON_PNG" "$ANALYSIS_JSON" <<'PY'

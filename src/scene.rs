@@ -4,14 +4,15 @@ use crate::{
         animate_hud_modules, apply_hud_module_requests, apply_terminal_focus_requests,
         apply_terminal_lifecycle_requests, apply_terminal_send_requests,
         apply_terminal_task_requests, apply_terminal_view_requests, apply_visibility_requests,
-        dispatch_hud_intents, handle_hud_module_shortcuts, handle_hud_pointer_input,
-        hud_needs_redraw, render_hud_scene, save_hud_layout_if_dirty, setup_hud,
-        setup_hud_widget_bloom, sync_hud_offscreen_compositor, sync_hud_widget_bloom,
-        sync_structural_hud_layout, AgentDirectory, AgentListBloomBlurMaterial, HudBloomSettings,
-        HudIntent, HudModuleRequest, HudOffscreenCompositor, HudPersistenceState, HudState,
+        dispatch_hud_intents, finalize_window_capture, handle_hud_module_shortcuts,
+        handle_hud_pointer_input, hud_needs_redraw, render_hud_scene, request_hud_texture_capture,
+        request_window_capture, save_hud_layout_if_dirty, setup_hud, setup_hud_widget_bloom,
+        sync_hud_offscreen_compositor, sync_hud_widget_bloom, sync_structural_hud_layout,
+        AgentDirectory, AgentListBloomBlurMaterial, HudBloomSettings, HudIntent, HudModuleRequest,
+        HudOffscreenCompositor, HudPersistenceState, HudState, HudTextureCaptureConfig,
         HudWidgetBloom, TerminalFocusRequest, TerminalLifecycleRequest, TerminalSendRequest,
         TerminalTaskRequest, TerminalViewRequest, TerminalVisibilityPolicy,
-        TerminalVisibilityRequest, TerminalVisibilityState,
+        TerminalVisibilityRequest, TerminalVisibilityState, WindowCaptureConfig,
     },
     input::{
         drag_terminal_view, focus_terminal_on_panel_click, handle_global_terminal_spawn_shortcut,
@@ -121,6 +122,9 @@ fn primary_window_config() -> Window {
 }
 
 fn configure_app(app: &mut App) -> Result<(), String> {
+    let hud_capture = HudTextureCaptureConfig::from_env();
+    let window_capture = WindowCaptureConfig::from_env();
+
     app.add_plugins(
         DefaultPlugins
             .set(RenderPlugin {
@@ -139,7 +143,6 @@ fn configure_app(app: &mut App) -> Result<(), String> {
     .add_plugins((
         VelloPlugin::default(),
         Material2dPlugin::<AgentListBloomBlurMaterial>::default(),
-        Material2dPlugin::<crate::hud::HudCompositeMaterial>::default(),
     ));
 
     let event_loop_proxy = {
@@ -147,6 +150,13 @@ fn configure_app(app: &mut App) -> Result<(), String> {
         (**proxy).clone()
     };
     let daemon_client = TerminalDaemonClientResource::system()?;
+
+    if let Some(hud_capture) = hud_capture {
+        app.insert_resource(hud_capture);
+    }
+    if let Some(window_capture) = window_capture {
+        app.insert_resource(window_capture);
+    }
 
     app.insert_resource(ClearColor(Color::srgb(0.02, 0.02, 0.02)))
         .insert_resource(WinitSettings::desktop_app())
@@ -300,6 +310,8 @@ fn configure_app(app: &mut App) -> Result<(), String> {
             (
                 render_hud_scene,
                 sync_hud_offscreen_compositor,
+                request_hud_texture_capture,
+                request_window_capture,
                 sync_hud_widget_bloom,
             )
                 .chain()
@@ -307,7 +319,8 @@ fn configure_app(app: &mut App) -> Result<(), String> {
         )
         .add_systems(
             Update,
-            request_redraw_while_visuals_active.in_set(NeoZeusSet::Redraw),
+            (request_redraw_while_visuals_active, finalize_window_capture)
+                .in_set(NeoZeusSet::Redraw),
         );
 
     if let Some(config) = AutoVerifyConfig::from_env() {

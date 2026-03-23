@@ -34,14 +34,15 @@ capture_stable_window() {
     local width=$3
     local height=$4
     local out=$5
+    local capture_scale=$6
     local geom="${x},${y} ${width}x${height}"
     local a=/tmp/neozeus-bloom-stages-a.png
     local b=/tmp/neozeus-bloom-stages-b.png
 
     for _ in $(seq 1 20); do
-        grim -g "$geom" "$a"
+        grim -s "$capture_scale" -g "$geom" "$a"
         sleep 0.5
-        grim -g "$geom" "$b"
+        grim -s "$capture_scale" -g "$geom" "$b"
         local diff_raw
         diff_raw=$(compare -metric AE "$a" "$b" null: 2>&1 >/dev/null || true)
         local diff
@@ -70,6 +71,9 @@ PY
 
 cargo build >"$BUILD_LOG" 2>&1
 
+WINDOW_SCALE=$(neozeus_gui_workspace_output_scale "$SWAY_WORKSPACE")
+CAPTURE_SCALE="$WINDOW_SCALE"
+
 cleanup_app
 rm -f "$RUN_LOG" "$SCREENSHOT" "$SOURCE_PNG" "$SMALL_PNG" "$WIDE_PNG" "$FINAL_PNG" "$ANALYSIS_JSON"
 neozeus_gui_prepare_isolated_app_env "neozeus-bloom-stages"
@@ -78,7 +82,7 @@ APP_PID=$(neozeus_gui_launch_isolated \
     "$RUN_LOG" \
     NEOZEUS_WINDOW_TITLE="neozeus-bloom-stages-$$" \
     NEOZEUS_WINDOW_MODE=windowed \
-    NEOZEUS_WINDOW_SCALE_FACTOR=1.0 \
+    NEOZEUS_WINDOW_SCALE_FACTOR="$WINDOW_SCALE" \
     NEOZEUS_AGENT_BLOOM_INTENSITY="$INTENSITY" \
     NEOZEUS_AGENT_BLOOM_DEBUG_PREVIEWS=1 \
     NEOZEUS_AUTOVERIFY_COMMAND='printf "__NZ_BLOOM_STAGES__\n"' \
@@ -94,7 +98,7 @@ y=$(jq -r '.y' <<<"$window_json")
 width=$(jq -r '.width' <<<"$window_json")
 height=$(jq -r '.height' <<<"$window_json")
 
-capture_stable_window "$x" "$y" "$width" "$height" "$SCREENSHOT"
+capture_stable_window "$x" "$y" "$width" "$height" "$SCREENSHOT" "$CAPTURE_SCALE"
 cleanup_app
 
 python - "$SCREENSHOT" "$SOURCE_PNG" "$SMALL_PNG" "$WIDE_PNG" "$FINAL_PNG" "$ANALYSIS_JSON" <<'PY'

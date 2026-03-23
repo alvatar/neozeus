@@ -1,5 +1,6 @@
 mod animation;
 mod bloom;
+mod capture;
 mod compositor;
 mod dispatcher;
 mod input;
@@ -20,14 +21,17 @@ pub(crate) use bloom::{
     AgentListBloomBlurUniform, AgentListBloomCameraMarker, AgentListBloomCompositeMarker,
     AgentListBloomSourceKind, AgentListBloomSourceSprite,
 };
+pub(crate) use capture::{
+    finalize_window_capture, request_hud_texture_capture, request_window_capture,
+    HudTextureCaptureConfig, WindowCaptureConfig,
+};
 pub(crate) use compositor::{
-    setup_hud_offscreen_compositor, sync_hud_offscreen_compositor, HudCompositeMaterial,
-    HudOffscreenCompositor,
+    setup_hud_offscreen_compositor, sync_hud_offscreen_compositor, HudOffscreenCompositor,
 };
 #[cfg(test)]
 pub(crate) use compositor::{
     HudCompositeCameraMarker, HudCompositeLayerId, HudCompositeLayerMarker,
-    HUD_COMPOSITE_FOREGROUND_Z, HUD_COMPOSITE_RENDER_LAYER,
+    HUD_COMPOSITE_RENDER_LAYER,
 };
 #[cfg(test)]
 pub(crate) use dispatcher::kill_active_terminal;
@@ -77,7 +81,7 @@ pub(crate) fn setup_hud(
     mut persistence_state: ResMut<HudPersistenceState>,
     mut compositor: ResMut<HudOffscreenCompositor>,
     mut meshes: ResMut<Assets<Mesh>>,
-    mut composite_materials: ResMut<Assets<HudCompositeMaterial>>,
+    mut composite_materials: ResMut<Assets<bevy_vello::render::VelloCanvasMaterial>>,
     mut redraws: MessageWriter<RequestRedraw>,
 ) {
     persistence_state.path = persistence::resolve_hud_layout_path();
