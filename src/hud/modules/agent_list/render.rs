@@ -10,9 +10,9 @@ use super::{
     AGENT_LIST_ROW_MARKER_WIDTH,
 };
 
-const EVA_ORANGE: peniko::Color = peniko::Color::from_rgba8(240, 141, 47, 255);
-const EVA_ORANGE_BRIGHT: peniko::Color = peniko::Color::from_rgba8(240, 141, 47, 255);
-const EVA_ORANGE_DIM: peniko::Color = peniko::Color::from_rgba8(176, 104, 34, 255);
+const EVA_ORANGE: peniko::Color = peniko::Color::from_rgba8(181, 66, 11, 255);
+const EVA_ORANGE_BRIGHT: peniko::Color = peniko::Color::from_rgba8(181, 66, 11, 255);
+const EVA_ORANGE_DIM: peniko::Color = peniko::Color::from_rgba8(132, 48, 12, 255);
 const EVA_SELECTED: peniko::Color = peniko::Color::from_rgba8(175, 201, 181, 255);
 const EVA_CYAN: peniko::Color = peniko::Color::from_rgba8(96, 238, 255, 255);
 const EVA_BLACK: peniko::Color = peniko::Color::from_rgba8(0, 0, 0, 255);
