@@ -15,22 +15,23 @@ use crate::{
         provision_terminal_target, rasterize_terminal_glyph, read_client_message,
         read_server_message, reconcile_terminal_sessions, resolve_alacritty_color,
         resolve_daemon_socket_path_with, resolve_terminal_font_report,
-        resolve_terminal_sessions_path_with, save_terminal_sessions_if_dirty,
-        send_bytes_tmux_commands, send_command_payload_bytes,
-        serialize_persisted_terminal_sessions, snap_to_pixel_grid, sync_active_terminal_dimensions,
+        resolve_terminal_notes_path_with, resolve_terminal_sessions_path_with,
+        save_terminal_notes_if_dirty, save_terminal_sessions_if_dirty, send_bytes_tmux_commands,
+        send_command_payload_bytes, serialize_persisted_terminal_sessions,
+        serialize_terminal_notes, snap_to_pixel_grid, sync_active_terminal_dimensions,
         sync_terminal_panel_frames, sync_terminal_presentations, sync_terminal_texture,
-        terminal_texture_screen_size, write_client_message, write_server_message,
-        xterm_indexed_rgb, ClientMessage, DaemonEvent, DaemonRequest, DaemonServerHandle,
-        KittyFontConfig, PersistedTerminalSessions, PresentedTerminal, ServerMessage,
-        SocketTerminalDaemonClient, TerminalAttachTarget, TerminalCommand, TerminalDaemonClient,
-        TerminalDamage, TerminalDisplayMode, TerminalFontRole, TerminalFontState,
-        TerminalFrameUpdate, TerminalGlyphCacheKey, TerminalLifecycle, TerminalManager,
-        TerminalPanel, TerminalPanelFrame, TerminalPresentation, TerminalPresentationStore,
-        TerminalProvisionTarget, TerminalRuntimeState, TerminalSessionClient,
-        TerminalSessionPersistenceState, TerminalSessionRecord, TerminalSurface,
-        TerminalTextRenderer, TerminalTextureState, TerminalUpdate, TerminalViewState,
-        TmuxPaneClient, DAEMON_PROTOCOL_VERSION, PERSISTENT_SESSION_PREFIX,
-        PERSISTENT_TMUX_SESSION_PREFIX,
+        task_entry_from_text, terminal_texture_screen_size, write_client_message,
+        write_server_message, xterm_indexed_rgb, ClientMessage, DaemonEvent, DaemonRequest,
+        DaemonServerHandle, KittyFontConfig, PersistedTerminalSessions, PresentedTerminal,
+        ServerMessage, SocketTerminalDaemonClient, TerminalAttachTarget, TerminalCommand,
+        TerminalDaemonClient, TerminalDamage, TerminalDisplayMode, TerminalFontRole,
+        TerminalFontState, TerminalFrameUpdate, TerminalGlyphCacheKey, TerminalLifecycle,
+        TerminalManager, TerminalNotesState, TerminalPanel, TerminalPanelFrame,
+        TerminalPresentation, TerminalPresentationStore, TerminalProvisionTarget,
+        TerminalRuntimeState, TerminalSessionClient, TerminalSessionPersistenceState,
+        TerminalSessionRecord, TerminalSurface, TerminalTextRenderer, TerminalTextureState,
+        TerminalUpdate, TerminalViewState, TmuxPaneClient, DAEMON_PROTOCOL_VERSION,
+        PERSISTENT_SESSION_PREFIX, PERSISTENT_TMUX_SESSION_PREFIX,
     },
 };
 use alacritty_terminal::vte::ansi::{Color as AnsiColor, NamedColor};
@@ -847,6 +848,94 @@ fn standalone_text_renderer_rasterizes_ascii_glyph() {
         &font_state,
     );
     assert_glyph_has_visible_pixels(&glyph);
+}
+
+#[test]
+fn task_entry_from_text_matches_zeus_checkbox_format() {
+    assert_eq!(
+        task_entry_from_text("first line\n  detail line\nsecond detail"),
+        Some("- [ ] first line\n  detail line\nsecond detail".to_owned())
+    );
+    assert_eq!(task_entry_from_text("  \n \t"), None);
+}
+
+#[test]
+fn terminal_notes_path_prefers_state_home_then_home_state_then_config() {
+    assert_eq!(
+        resolve_terminal_notes_path_with(
+            Some("/tmp/state"),
+            Some("/tmp/home"),
+            Some("/tmp/config")
+        ),
+        Some(std::path::PathBuf::from("/tmp/state/neozeus/notes.v1"))
+    );
+    assert_eq!(
+        resolve_terminal_notes_path_with(None, Some("/tmp/home"), Some("/tmp/config")),
+        Some(std::path::PathBuf::from(
+            "/tmp/home/.local/state/neozeus/notes.v1"
+        ))
+    );
+    assert_eq!(
+        resolve_terminal_notes_path_with(None, None, Some("/tmp/config")),
+        Some(std::path::PathBuf::from("/tmp/config/neozeus/notes.v1"))
+    );
+}
+
+#[test]
+fn terminal_notes_parse_and_serialize_roundtrip() {
+    let mut notes = std::collections::HashMap::new();
+    notes.insert("session-a".to_owned(), "- [ ] first\n  detail".to_owned());
+    notes.insert("session-b".to_owned(), ".starts with dot".to_owned());
+
+    let serialized = serialize_terminal_notes(&notes);
+    let reparsed = crate::terminals::parse_terminal_notes(&serialized);
+
+    assert_eq!(reparsed, notes);
+}
+
+#[test]
+fn terminal_notes_append_and_prepend_tasks_follow_zeus_ordering() {
+    let mut notes_state = TerminalNotesState::default();
+    assert!(notes_state.append_task_from_text("session-a", "second task"));
+    assert!(notes_state.prepend_task_from_text("session-a", "first task\n  detail"));
+    assert_eq!(
+        notes_state.note_text("session-a"),
+        Some("- [ ] first task\n  detail\n- [ ] second task")
+    );
+    assert!(notes_state.has_note_text("session-a"));
+}
+
+#[test]
+fn terminal_notes_save_waits_for_debounce_window() {
+    let dir = temp_dir("neozeus-terminal-notes-save-debounce");
+    let path = dir.join("notes.v1");
+    let mut notes_state = TerminalNotesState::default();
+    notes_state.path = Some(path.clone());
+    notes_state.dirty_since_secs = Some(0.0);
+    assert!(notes_state.append_task_from_text("session-a", "first line"));
+
+    let mut world = World::default();
+    let mut time = Time::<()>::default();
+    time.advance_by(Duration::from_millis(100));
+    world.insert_resource(time);
+    world.insert_resource(notes_state);
+
+    world.run_system_once(save_terminal_notes_if_dirty).unwrap();
+
+    assert!(!path.exists(), "debounced save should not run yet");
+
+    world
+        .resource_mut::<Time>()
+        .advance_by(Duration::from_millis(300));
+    world.run_system_once(save_terminal_notes_if_dirty).unwrap();
+
+    assert!(path.exists(), "save should run after debounce window");
+    let saved = std::fs::read_to_string(&path).expect("failed to read notes file");
+    let reparsed = crate::terminals::parse_terminal_notes(&saved);
+    assert_eq!(
+        reparsed.get("session-a").map(String::as_str),
+        Some("- [ ] first line")
+    );
 }
 
 #[test]

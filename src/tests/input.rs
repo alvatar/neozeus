@@ -480,6 +480,63 @@ fn message_box_supports_multiline_typing_and_ctrl_s_send() {
 }
 
 #[test]
+fn message_box_ctrl_t_appends_task_and_closes() {
+    let (mut world, terminal_id) =
+        world_with_active_terminal(Vec2::new(10.0, 10.0), false, Vec2::ZERO);
+    let mut hud_state = crate::hud::HudState::default();
+    hud_state.open_message_box(terminal_id);
+    hud_state.message_box.insert_text("follow up\n  details");
+    world.insert_resource(hud_state);
+    init_hud_commands(&mut world);
+    world.init_resource::<Messages<KeyboardInput>>();
+    world.init_resource::<Messages<RequestRedraw>>();
+
+    let mut keys = ButtonInput::<KeyCode>::default();
+    keys.press(KeyCode::ControlLeft);
+    world.insert_resource(keys);
+    dispatch_message_box_key(&mut world, pressed_text(KeyCode::KeyT, Some("t")));
+
+    assert_eq!(
+        drain_hud_commands(&mut world),
+        vec![HudIntent::AppendTerminalTask(
+            terminal_id,
+            "follow up\n  details".into()
+        )]
+    );
+    let hud_state = world.resource::<crate::hud::HudState>();
+    assert!(!hud_state.message_box.visible);
+}
+
+#[test]
+fn message_box_ctrl_shift_t_prepends_task_and_closes() {
+    let (mut world, terminal_id) =
+        world_with_active_terminal(Vec2::new(10.0, 10.0), false, Vec2::ZERO);
+    let mut hud_state = crate::hud::HudState::default();
+    hud_state.open_message_box(terminal_id);
+    hud_state.message_box.insert_text("urgent first");
+    world.insert_resource(hud_state);
+    init_hud_commands(&mut world);
+    world.init_resource::<Messages<KeyboardInput>>();
+    world.init_resource::<Messages<RequestRedraw>>();
+
+    let mut keys = ButtonInput::<KeyCode>::default();
+    keys.press(KeyCode::ControlLeft);
+    keys.press(KeyCode::ShiftLeft);
+    world.insert_resource(keys);
+    dispatch_message_box_key(&mut world, pressed_text(KeyCode::KeyT, Some("T")));
+
+    assert_eq!(
+        drain_hud_commands(&mut world),
+        vec![HudIntent::PrependTerminalTask(
+            terminal_id,
+            "urgent first".into()
+        )]
+    );
+    let hud_state = world.resource::<crate::hud::HudState>();
+    assert!(!hud_state.message_box.visible);
+}
+
+#[test]
 fn message_box_ctrl_bindings_edit_multiline_text() {
     let (mut world, terminal_id) =
         world_with_active_terminal(Vec2::new(10.0, 10.0), false, Vec2::ZERO);

@@ -44,6 +44,14 @@ fn draw_button_rect(
     painter.stroke_rect(rect, stroke, 0.0);
 }
 
+fn marker_fill(has_notes: bool) -> peniko::Color {
+    if has_notes {
+        EVA_ORANGE
+    } else {
+        EVA_BLACK
+    }
+}
+
 fn draw_left_rail(painter: &mut HudPainter, content_rect: HudRect) {
     let tick_x = content_rect.x + 5.0;
     let top = content_rect.y + HUD_MODULE_PADDING + 4.0;
@@ -159,9 +167,13 @@ pub(crate) fn render_content(
         } else {
             apply_alpha(EVA_BLACK, 0.90)
         };
+        let has_notes = inputs
+            .terminal_manager
+            .get(row.terminal_id)
+            .is_some_and(|terminal| inputs.notes_state.has_note_text(&terminal.session_name));
 
         draw_button_rect(painter, main_rect, stroke, fill);
-        draw_button_rect(painter, marker_rect, stroke, EVA_ORANGE);
+        draw_button_rect(painter, marker_rect, stroke, marker_fill(has_notes));
 
         draw_label(
             painter,

@@ -1,6 +1,7 @@
 use crate::{
     hud::{
-        modules, AgentDirectory, HudIntent, HudModuleId, HudRect, HudState, HUD_TITLEBAR_HEIGHT,
+        message_box_action_at, modules, AgentDirectory, HudIntent, HudMessageBoxAction,
+        HudModuleId, HudRect, HudState, HUD_TITLEBAR_HEIGHT,
     },
     terminals::{TerminalId, TerminalManager, TerminalPresentationStore, TerminalViewState},
 };
@@ -12,7 +13,7 @@ use bevy::{
         ButtonState,
     },
     prelude::*,
-    window::PrimaryWindow,
+    window::{PrimaryWindow, RequestRedraw},
 };
 
 fn cursor_hud_position(window: &Window) -> Option<Vec2> {
@@ -42,10 +43,44 @@ pub(crate) struct HudPointerContext<'w, 's> {
     view_state: Res<'w, TerminalViewState>,
     agent_directory: Res<'w, AgentDirectory>,
     hud_commands: MessageWriter<'w, HudIntent>,
+    redraws: MessageWriter<'w, RequestRedraw>,
+}
+
+fn message_box_task_intent(
+    hud_state: &mut HudState,
+    action: HudMessageBoxAction,
+) -> Option<HudIntent> {
+    let target_terminal = hud_state.message_box.target_terminal?;
+    let payload = hud_state.message_box.text.trim().to_owned();
+    if payload.is_empty() {
+        return None;
+    }
+    hud_state.close_message_box();
+    Some(match action {
+        HudMessageBoxAction::AppendTask => HudIntent::AppendTerminalTask(target_terminal, payload),
+        HudMessageBoxAction::PrependTask => {
+            HudIntent::PrependTerminalTask(target_terminal, payload)
+        }
+    })
 }
 
 pub(crate) fn handle_hud_pointer_input(mut ctx: HudPointerContext) {
-    if ctx.hud_state.keyboard_capture_active() {
+    if ctx.hud_state.message_box.visible {
+        ctx.hud_state.drag = None;
+        let Some(cursor) = cursor_hud_position(&ctx.primary_window) else {
+            return;
+        };
+        if ctx.mouse_buttons.just_pressed(MouseButton::Left) {
+            if let Some(action) = message_box_action_at(&ctx.primary_window, cursor) {
+                if let Some(intent) = message_box_task_intent(&mut ctx.hud_state, action) {
+                    ctx.hud_commands.write(intent);
+                    ctx.redraws.write(RequestRedraw);
+                }
+            }
+        }
+        return;
+    }
+    if ctx.hud_state.direct_input_terminal.is_some() {
         ctx.hud_state.drag = None;
         return;
     }

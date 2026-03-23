@@ -3,12 +3,13 @@ use crate::{
     hud::{
         animate_hud_modules, apply_hud_module_requests, apply_terminal_focus_requests,
         apply_terminal_lifecycle_requests, apply_terminal_send_requests,
-        apply_terminal_view_requests, apply_visibility_requests, dispatch_hud_intents,
-        handle_hud_module_shortcuts, handle_hud_pointer_input, hud_needs_redraw, render_hud_scene,
-        save_hud_layout_if_dirty, setup_hud, setup_hud_widget_bloom, sync_hud_offscreen_compositor,
-        sync_hud_widget_bloom, sync_structural_hud_layout, AgentDirectory, HudBloomSettings,
-        HudIntent, HudModuleRequest, HudOffscreenCompositor, HudPersistenceState, HudState,
-        HudWidgetBloom, TerminalFocusRequest, TerminalLifecycleRequest, TerminalSendRequest,
+        apply_terminal_task_requests, apply_terminal_view_requests, apply_visibility_requests,
+        dispatch_hud_intents, handle_hud_module_shortcuts, handle_hud_pointer_input,
+        hud_needs_redraw, render_hud_scene, save_hud_layout_if_dirty, setup_hud,
+        setup_hud_widget_bloom, sync_hud_offscreen_compositor, sync_hud_widget_bloom,
+        sync_structural_hud_layout, AgentDirectory, HudBloomSettings, HudIntent, HudModuleRequest,
+        HudOffscreenCompositor, HudPersistenceState, HudState, HudWidgetBloom,
+        TerminalFocusRequest, TerminalLifecycleRequest, TerminalSendRequest, TerminalTaskRequest,
         TerminalViewRequest, TerminalVisibilityPolicy, TerminalVisibilityRequest,
         TerminalVisibilityState,
     },
@@ -20,7 +21,8 @@ use crate::{
     },
     terminals::{
         append_debug_log, configure_terminal_fonts, load_persisted_terminal_sessions_from,
-        mark_terminal_sessions_dirty, reconcile_terminal_sessions, resolve_terminal_sessions_path,
+        mark_terminal_sessions_dirty, reconcile_terminal_sessions, resolve_terminal_notes_path,
+        resolve_terminal_sessions_path, save_terminal_notes_if_dirty,
         save_terminal_sessions_if_dirty, spawn_attached_terminal_with_presentation,
         sync_active_terminal_dimensions, sync_terminal_hud_surface, sync_terminal_panel_frames,
         sync_terminal_presentations, sync_terminal_texture, TerminalCameraMarker,
@@ -148,6 +150,7 @@ fn configure_app(app: &mut App) -> Result<(), String> {
         .insert_resource(daemon_client.clone())
         .insert_resource(TerminalRuntimeSpawner::new(event_loop_proxy, daemon_client))
         .insert_resource(TerminalSessionPersistenceState::default())
+        .insert_resource(crate::terminals::TerminalNotesState::default())
         .insert_resource(TerminalFontState::default())
         .insert_resource(TerminalViewState::default())
         .insert_resource(TerminalPointerState::default())
@@ -167,6 +170,7 @@ fn configure_app(app: &mut App) -> Result<(), String> {
         .add_message::<TerminalViewRequest>()
         .add_message::<TerminalSendRequest>()
         .add_message::<TerminalLifecycleRequest>()
+        .add_message::<TerminalTaskRequest>()
         .configure_sets(
             Update,
             NeoZeusSet::PollTerminal.before(NeoZeusSet::RasterTerminal),
@@ -262,6 +266,7 @@ fn configure_app(app: &mut App) -> Result<(), String> {
                 apply_hud_module_requests,
                 apply_terminal_view_requests,
                 apply_terminal_send_requests,
+                apply_terminal_task_requests,
                 apply_terminal_lifecycle_requests,
             )
                 .in_set(NeoZeusSet::HudCommands),
@@ -280,6 +285,7 @@ fn configure_app(app: &mut App) -> Result<(), String> {
             (
                 animate_hud_modules,
                 save_hud_layout_if_dirty,
+                save_terminal_notes_if_dirty,
                 save_terminal_sessions_if_dirty,
             )
                 .in_set(NeoZeusSet::HudAnimation),
@@ -347,6 +353,7 @@ struct SceneSetupContext<'w, 's> {
     agent_directory: ResMut<'w, AgentDirectory>,
     runtime_spawner: Res<'w, TerminalRuntimeSpawner>,
     session_persistence: ResMut<'w, TerminalSessionPersistenceState>,
+    notes_state: ResMut<'w, crate::terminals::TerminalNotesState>,
     visibility_state: ResMut<'w, TerminalVisibilityState>,
 }
 
@@ -429,6 +436,11 @@ fn setup_scene(mut ctx: SceneSetupContext, auto_verify: Option<Res<AutoVerifyCon
     ));
 
     ctx.session_persistence.path = resolve_terminal_sessions_path();
+    ctx.notes_state.path = resolve_terminal_notes_path();
+    if let Some(path) = ctx.notes_state.path.as_ref() {
+        let notes = crate::terminals::load_terminal_notes_from(path);
+        ctx.notes_state.load(notes);
+    }
 
     if let Some(config) = auto_verify {
         setup_verifier_terminal(&mut ctx, config.clone());
