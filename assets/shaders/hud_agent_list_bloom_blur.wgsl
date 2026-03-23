@@ -19,5 +19,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     color += textureSample(input_texture, input_sampler, in.uv + step_uv * 3.230769) * 0.070270;
     color += textureSample(input_texture, input_sampler, in.uv - step_uv * 3.230769) * 0.070270;
 
-    return vec4<f32>(color.rgb * gain, color.a);
+    let glow = color.rgb * gain;
+    let alpha = clamp(max(max(glow.r, glow.g), glow.b), 0.0, 1.0);
+    return vec4<f32>(glow, alpha);
 }

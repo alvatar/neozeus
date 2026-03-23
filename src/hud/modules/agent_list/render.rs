@@ -16,7 +16,7 @@ const EVA_ORANGE_DIM: peniko::Color = peniko::Color::from_rgba8(181, 66, 11, 255
 const EVA_SELECTED: peniko::Color = peniko::Color::from_rgba8(181, 66, 11, 255);
 const EVA_CYAN: peniko::Color = peniko::Color::from_rgba8(96, 238, 255, 255);
 const EVA_BLACK: peniko::Color = peniko::Color::from_rgba8(0, 0, 0, 255);
-const EVA_EMISSIVE_RED: peniko::Color = peniko::Color::from_rgba8(236, 44, 44, 255);
+const EVA_EMISSIVE_RED: peniko::Color = peniko::Color::from_rgba8(170, 0, 24, 255);
 const TASK_RED: peniko::Color = peniko::Color::from_rgba8(255, 24, 24, 255);
 
 #[allow(
