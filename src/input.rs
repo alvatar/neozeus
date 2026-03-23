@@ -1,11 +1,10 @@
 use crate::{
     hud::{
-        HudIntent, HudMessageBoxAction, HudState, TerminalVisibilityPolicy,
-        TerminalVisibilityState,
+        HudIntent, HudMessageBoxAction, HudState, TerminalVisibilityPolicy, TerminalVisibilityState,
     },
     terminals::{
-        mark_terminal_sessions_dirty, terminal_texture_screen_size, TerminalCommand,
-        TerminalDisplayMode, TerminalManager, TerminalNotesState, TerminalPanel,
+        clear_done_tasks, mark_terminal_sessions_dirty, terminal_texture_screen_size,
+        TerminalCommand, TerminalDisplayMode, TerminalManager, TerminalNotesState, TerminalPanel,
         TerminalPointerState, TerminalPresentation, TerminalPresentationStore,
         TerminalSessionPersistenceState, TerminalViewState,
     },
@@ -519,6 +518,13 @@ pub(crate) fn handle_terminal_message_box_keyboard(
         let mut needs_redraw = false;
         for event in messages.read() {
             if event.state != ButtonState::Pressed {
+                continue;
+            }
+
+            if ctrl && !alt && !super_key && event.key_code == KeyCode::KeyT {
+                let (updated, _) = clear_done_tasks(&hud_state.task_dialog.text);
+                hud_state.task_dialog.load_text(&updated);
+                needs_redraw = true;
                 continue;
             }
 
