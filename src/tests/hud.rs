@@ -23,6 +23,7 @@ use bevy::{
     input::{keyboard::KeyboardInput, mouse::MouseWheel},
     post_process::bloom::Bloom,
     prelude::*,
+    render::render_resource::TextureFormat,
     window::{PrimaryWindow, RequestRedraw, WindowResolution},
 };
 use bevy_vello::render::VelloCanvasMaterial;
@@ -102,9 +103,16 @@ fn setup_hud_widget_bloom_spawns_camera_and_composite_sprite() {
 
     let layer = agent_list_bloom_layer();
     let mut camera_query = world.query::<(&RenderLayers, &RenderTarget, &Bloom)>();
-    let (layers, _, bloom) = camera_query.single(&world).unwrap();
+    let (layers, target, bloom) = camera_query.single(&world).unwrap();
     assert!(layers.intersects(&RenderLayers::layer(layer)));
     assert!(bloom.intensity > 0.0);
+
+    let RenderTarget::Image(handle) = target else {
+        panic!("bloom camera must render to image target");
+    };
+    let images = world.resource::<Assets<Image>>();
+    let image = images.get(handle.handle.id()).expect("bloom image exists");
+    assert_eq!(image.texture_descriptor.format, TextureFormat::Rgba16Float);
 
     let mut composite_query =
         world.query::<(&Transform, &Visibility, &AgentListBloomCompositeMarker)>();
@@ -142,13 +150,19 @@ fn setup_hud_widget_bloom_uses_logical_window_size_for_targets() {
             .collect::<Vec<_>>()
     };
     let images = world.resource::<Assets<Image>>();
-    let target_sizes = target_handles
+    let target_images = target_handles
         .iter()
         .filter_map(|handle| images.get(handle.id()))
+        .collect::<Vec<_>>();
+    let target_sizes = target_images
+        .iter()
         .map(|image| image.texture_descriptor.size)
         .collect::<Vec<_>>();
     assert!(target_sizes.iter().all(|size| size.width == 700));
     assert!(target_sizes.iter().all(|size| size.height == 450));
+    assert!(target_images
+        .iter()
+        .all(|image| image.texture_descriptor.format == TextureFormat::Rgba16Float));
 }
 
 #[test]

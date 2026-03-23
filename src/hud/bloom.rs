@@ -20,6 +20,7 @@ use super::compositor::HUD_COMPOSITE_FOREGROUND_Z;
 
 const BLOOM_SOURCE_LAYER: usize = 29;
 const BLOOM_COMPOSITE_Z: f32 = HUD_COMPOSITE_FOREGROUND_Z + 0.1;
+const BLOOM_TARGET_FORMAT: TextureFormat = TextureFormat::Rgba16Float;
 const DEFAULT_BLOOM_INTENSITY: f32 = 1.35;
 const BLOOM_COMPOSITE_ALPHA: f32 = 1.0;
 
@@ -90,8 +91,8 @@ fn bloom_target_image(size: UVec2) -> Image {
             depth_or_array_layers: 1,
         },
         TextureDimension::D2,
-        &[0, 0, 0, 0],
-        TextureFormat::Bgra8UnormSrgb,
+        &[0, 0, 0, 0, 0, 0, 0, 0],
+        BLOOM_TARGET_FORMAT,
         RenderAssetUsages::default(),
     );
     image.texture_descriptor.usage =
@@ -106,6 +107,7 @@ fn image_matches_size(images: &Assets<Image>, handle: &Handle<Image>, size: UVec
         .map(|image| {
             image.texture_descriptor.size.width == size.x.max(1)
                 && image.texture_descriptor.size.height == size.y.max(1)
+                && image.texture_descriptor.format == BLOOM_TARGET_FORMAT
         })
         .unwrap_or(false)
 }
@@ -127,9 +129,9 @@ fn rect_transform(window: &Window, rect: HudRect, z: f32) -> Transform {
 
 fn bloom_source_color(focused: bool, hovered: bool, kind: AgentListBloomSourceKind) -> Color {
     match (focused, hovered, kind) {
-        (true, _, AgentListBloomSourceKind::Accent) => Color::srgba(10.0, 0.42, 0.36, 0.92),
-        (_, true, AgentListBloomSourceKind::Accent) => Color::srgba(5.5, 0.24, 0.20, 0.32),
-        (_, _, AgentListBloomSourceKind::Accent) => Color::srgba(2.5, 0.16, 0.14, 0.10),
+        (true, _, AgentListBloomSourceKind::Accent) => Color::linear_rgba(10.0, 0.42, 0.36, 0.92),
+        (_, true, AgentListBloomSourceKind::Accent) => Color::linear_rgba(5.5, 0.24, 0.20, 0.32),
+        (_, _, AgentListBloomSourceKind::Accent) => Color::linear_rgba(2.5, 0.16, 0.14, 0.10),
     }
 }
 
@@ -223,7 +225,7 @@ pub(crate) fn setup_hud_widget_bloom(mut ctx: HudWidgetBloomSetupContext) {
         .spawn((
             Sprite {
                 image: image.clone(),
-                color: Color::srgba(1.0, 1.0, 1.0, BLOOM_COMPOSITE_ALPHA),
+                color: Color::linear_rgba(1.0, 1.0, 1.0, BLOOM_COMPOSITE_ALPHA),
                 custom_size: Some(Vec2::new(
                     ctx.primary_window.width(),
                     ctx.primary_window.height(),
@@ -376,7 +378,7 @@ pub(crate) fn sync_hud_widget_bloom(mut ctx: HudWidgetBloomContext) {
     if let Some(composite) = pass.composite_sprite {
         if let Ok((mut sprite, mut transform, mut visibility)) = ctx.composites.get_mut(composite) {
             sprite.image = pass.image.clone();
-            sprite.color = Color::srgba(1.0, 1.0, 1.0, BLOOM_COMPOSITE_ALPHA);
+            sprite.color = Color::linear_rgba(1.0, 1.0, 1.0, BLOOM_COMPOSITE_ALPHA);
             sprite.custom_size = Some(Vec2::new(
                 ctx.primary_window.width(),
                 ctx.primary_window.height(),
