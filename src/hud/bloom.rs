@@ -22,14 +22,38 @@ use bevy::{
 };
 
 use super::{compositor::HUD_COMPOSITE_FOREGROUND_Z, modules::agent_button_irregularities};
+use std::env;
 
 const BLOOM_SOURCE_LAYER: usize = 29;
 const BLOOM_BLUR_LAYER: usize = 30;
 const BLOOM_SHADER_PATH: &str = "shaders/hud_agent_list_bloom.wgsl";
 const BLOOM_Z: f32 = HUD_COMPOSITE_FOREGROUND_Z - 0.1;
-const BLOOM_INTENSITY: f32 = 1.45;
+const DEFAULT_BLOOM_INTENSITY: f32 = 3.0;
 const BLOOM_TEXEL_RADIUS: f32 = 1.0;
 const BLOOM_STROKE_THICKNESS: f32 = 1.6;
+
+#[derive(Resource, Clone, Copy, Debug)]
+pub(crate) struct HudBloomSettings {
+    pub(crate) agent_list_intensity: f32,
+}
+
+impl Default for HudBloomSettings {
+    fn default() -> Self {
+        Self {
+            agent_list_intensity: resolve_agent_list_bloom_intensity(
+                env::var("NEOZEUS_AGENT_BLOOM_INTENSITY").ok().as_deref(),
+            ),
+        }
+    }
+}
+
+pub(crate) fn resolve_agent_list_bloom_intensity(raw: Option<&str>) -> f32 {
+    raw.map(str::trim)
+        .filter(|value| !value.is_empty())
+        .and_then(|value| value.parse::<f32>().ok())
+        .filter(|value| value.is_finite() && *value >= 0.0)
+        .unwrap_or(DEFAULT_BLOOM_INTENSITY)
+}
 
 #[derive(Component)]
 pub(crate) struct AgentListBloomSourceCameraMarker;
@@ -311,29 +335,38 @@ fn window_size(window: &Window) -> UVec2 {
     )
 }
 
-pub(crate) fn setup_hud_widget_bloom(
-    mut commands: Commands,
-    primary_window: Single<&Window, With<PrimaryWindow>>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut images: ResMut<Assets<Image>>,
-    mut blur_materials: ResMut<Assets<HudBloomBlurMaterial>>,
-    mut composite_materials: ResMut<Assets<HudBloomCompositeMaterial>>,
-    mut bloom: ResMut<HudWidgetBloom>,
-) {
-    let size = window_size(&primary_window);
-    let source_image = images.add(render_target_image(size));
-    let blur_image = images.add(render_target_image(size));
-    let quad_mesh = meshes.add(Rectangle::default());
-    let blur_material = blur_materials.add(HudBloomBlurMaterial {
+#[derive(SystemParam)]
+pub(crate) struct HudWidgetBloomSetupContext<'w, 's> {
+    commands: Commands<'w, 's>,
+    primary_window: Single<'w, 's, &'static Window, With<PrimaryWindow>>,
+    settings: Res<'w, HudBloomSettings>,
+    meshes: ResMut<'w, Assets<Mesh>>,
+    images: ResMut<'w, Assets<Image>>,
+    blur_materials: ResMut<'w, Assets<HudBloomBlurMaterial>>,
+    composite_materials: ResMut<'w, Assets<HudBloomCompositeMaterial>>,
+    bloom: ResMut<'w, HudWidgetBloom>,
+}
+
+pub(crate) fn setup_hud_widget_bloom(mut ctx: HudWidgetBloomSetupContext) {
+    let size = window_size(&ctx.primary_window);
+    let source_image = ctx.images.add(render_target_image(size));
+    let blur_image = ctx.images.add(render_target_image(size));
+    let quad_mesh = ctx.meshes.add(Rectangle::default());
+    let blur_material = ctx.blur_materials.add(HudBloomBlurMaterial {
         params: bloom_params(size, Vec2::new(BLOOM_TEXEL_RADIUS, 0.0), 1.0),
         source_texture: source_image.clone(),
     });
-    let composite_material = composite_materials.add(HudBloomCompositeMaterial {
-        params: bloom_params(size, Vec2::new(0.0, BLOOM_TEXEL_RADIUS), BLOOM_INTENSITY),
+    let composite_material = ctx.composite_materials.add(HudBloomCompositeMaterial {
+        params: bloom_params(
+            size,
+            Vec2::new(0.0, BLOOM_TEXEL_RADIUS),
+            ctx.settings.agent_list_intensity,
+        ),
         source_texture: blur_image.clone(),
     });
 
-    let source_camera = commands
+    let source_camera = ctx
+        .commands
         .spawn((
             Camera2d,
             Camera {
@@ -346,7 +379,8 @@ pub(crate) fn setup_hud_widget_bloom(
             AgentListBloomSourceCameraMarker,
         ))
         .id();
-    let blur_camera = commands
+    let blur_camera = ctx
+        .commands
         .spawn((
             Camera2d,
             Camera {
@@ -359,26 +393,28 @@ pub(crate) fn setup_hud_widget_bloom(
             AgentListBloomBlurCameraMarker,
         ))
         .id();
-    let blur_quad = commands
+    let blur_quad = ctx
+        .commands
         .spawn((
             Mesh2d(quad_mesh.clone()),
             MeshMaterial2d(blur_material.clone()),
             Transform::from_xyz(0.0, 0.0, 0.0).with_scale(Vec3::new(
-                primary_window.width(),
-                primary_window.height(),
+                ctx.primary_window.width(),
+                ctx.primary_window.height(),
                 1.0,
             )),
             RenderLayers::layer(BLOOM_BLUR_LAYER),
             AgentListBloomBlurQuadMarker,
         ))
         .id();
-    let composite_quad = commands
+    let composite_quad = ctx
+        .commands
         .spawn((
             Mesh2d(quad_mesh.clone()),
             MeshMaterial2d(composite_material.clone()),
             Transform::from_xyz(0.0, 0.0, BLOOM_Z).with_scale(Vec3::new(
-                primary_window.width(),
-                primary_window.height(),
+                ctx.primary_window.width(),
+                ctx.primary_window.height(),
                 1.0,
             )),
             Visibility::Hidden,
@@ -386,7 +422,7 @@ pub(crate) fn setup_hud_widget_bloom(
         ))
         .id();
 
-    bloom.agent_list = AgentListBloomPass {
+    ctx.bloom.agent_list = AgentListBloomPass {
         source_image,
         blur_image,
         source_camera: Some(source_camera),
@@ -444,6 +480,7 @@ pub(crate) struct HudWidgetBloomContext<'w, 's> {
     terminal_manager: Res<'w, TerminalManager>,
     agent_directory: Res<'w, AgentDirectory>,
     _compositor: Res<'w, HudOffscreenCompositor>,
+    settings: Res<'w, HudBloomSettings>,
     commands: Commands<'w, 's>,
     bloom: ResMut<'w, HudWidgetBloom>,
     images: ResMut<'w, Assets<Image>>,
@@ -486,8 +523,11 @@ pub(crate) fn sync_hud_widget_bloom(mut ctx: HudWidgetBloomContext) {
     if let Some(handle) = pass.composite_material.clone() {
         if let Some(material) = ctx.composite_materials.get_mut(&handle) {
             material.source_texture = pass.blur_image.clone();
-            material.params =
-                bloom_params(size, Vec2::new(0.0, BLOOM_TEXEL_RADIUS), BLOOM_INTENSITY);
+            material.params = bloom_params(
+                size,
+                Vec2::new(0.0, BLOOM_TEXEL_RADIUS),
+                ctx.settings.agent_list_intensity,
+            );
         }
     }
     if let Some(entity) = pass.blur_quad {

@@ -9,6 +9,11 @@ Window manager identity defaults to `neozeus` and can be overridden with:
 - `NEOZEUS_APP_ID` — native window/app id (Wayland app_id / WM-visible name)
 - `NEOZEUS_WINDOW_TITLE` — human-facing window title
 - `NEOZEUS_WINDOW_MODE` — `windowed` to disable the default borderless fullscreen startup mode
+- `NEOZEUS_WINDOW_SCALE_FACTOR` — optional scale-factor override for deterministic window sizing in GUI verification
+
+Agent-list bloom verification / tuning can also override:
+
+- `NEOZEUS_AGENT_BLOOM_INTENSITY` — non-negative bloom intensity override
 
 ## Verification
 
@@ -23,8 +28,10 @@ Window-opening GUI verifiers are opt-in and grouped under `scripts/gui/`:
 - full GUI suite: `./scripts/gui/run-suite.sh`
 - visible-output verifier only: `./scripts/gui/verify-visible-terminal.sh`
 - color verifier only: `./scripts/gui/verify-terminal-colors.sh`
+- agent-list bloom verifier only: `./scripts/gui/verify-agent-list-bloom.sh`
 
 Compatibility wrappers remain at the old paths:
 
 - `./scripts/verify-visible-terminal.sh`
 - `./scripts/verify-terminal-colors.sh`
+- `./scripts/verify-agent-list-bloom.sh`

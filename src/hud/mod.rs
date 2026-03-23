@@ -13,7 +13,7 @@ mod state;
 pub(crate) use animation::animate_hud_modules;
 pub(crate) use bloom::{
     setup_hud_widget_bloom, sync_hud_widget_bloom, HudBloomBlurMaterial, HudBloomCompositeMaterial,
-    HudWidgetBloom,
+    HudBloomSettings, HudWidgetBloom,
 };
 #[cfg(test)]
 pub(crate) use bloom::{
@@ -123,7 +123,9 @@ pub(crate) fn hud_needs_redraw(hud_state: &HudState) -> bool {
 }
 
 #[cfg(test)]
-pub(crate) use bloom::{agent_list_bloom_layers, agent_list_bloom_z};
+pub(crate) use bloom::{
+    agent_list_bloom_layers, agent_list_bloom_z, resolve_agent_list_bloom_intensity,
+};
 #[cfg(test)]
 pub(crate) use modules::{
     agent_button_irregularities, agent_row_rect, agent_rows, debug_toolbar_buttons,
