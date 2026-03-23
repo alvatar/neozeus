@@ -20,8 +20,8 @@ use super::compositor::HUD_COMPOSITE_FOREGROUND_Z;
 
 const BLOOM_SOURCE_LAYER: usize = 29;
 const BLOOM_COMPOSITE_Z: f32 = HUD_COMPOSITE_FOREGROUND_Z + 0.1;
-const DEFAULT_BLOOM_INTENSITY: f32 = 0.82;
-const BLOOM_COMPOSITE_ALPHA: f32 = 0.92;
+const DEFAULT_BLOOM_INTENSITY: f32 = 0.68;
+const BLOOM_COMPOSITE_ALPHA: f32 = 0.74;
 
 #[derive(Resource, Clone, Copy, Debug)]
 pub(crate) struct HudBloomSettings {
@@ -127,9 +127,9 @@ fn rect_transform(window: &Window, rect: HudRect, z: f32) -> Transform {
 
 fn bloom_source_color(focused: bool, hovered: bool, kind: AgentListBloomSourceKind) -> Color {
     match (focused, hovered, kind) {
-        (true, _, AgentListBloomSourceKind::Marker) => Color::srgba(6.4, 2.33, 0.39, 0.72),
-        (_, true, AgentListBloomSourceKind::Marker) => Color::srgba(4.95, 1.81, 0.30, 0.50),
-        (_, _, AgentListBloomSourceKind::Marker) => Color::srgba(3.68, 1.35, 0.22, 0.32),
+        (true, _, AgentListBloomSourceKind::Marker) => Color::srgba(3.9, 1.42, 0.24, 0.42),
+        (_, true, AgentListBloomSourceKind::Marker) => Color::srgba(2.83, 1.03, 0.17, 0.30),
+        (_, _, AgentListBloomSourceKind::Marker) => Color::srgba(2.13, 0.77, 0.13, 0.22),
     }
 }
 
@@ -207,7 +207,7 @@ pub(crate) fn setup_hud_widget_bloom(mut ctx: HudWidgetBloomSetupContext) {
             RenderTarget::Image(image.clone().into()),
             RenderLayers::layer(BLOOM_SOURCE_LAYER),
             bloom_component(ctx.settings.agent_list_intensity),
-            Tonemapping::TonyMcMapface,
+            Tonemapping::AgX,
             DebandDither::Enabled,
             AgentListBloomCameraMarker,
         ))

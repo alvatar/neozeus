@@ -161,12 +161,7 @@ pub(crate) fn render_content(
         };
 
         draw_button_rect(painter, main_rect, stroke, fill);
-        draw_button_rect(
-            painter,
-            marker_rect,
-            stroke,
-            if row.focused { EVA_SELECTED } else { EVA_ORANGE },
-        );
+        draw_button_rect(painter, marker_rect, stroke, EVA_ORANGE);
 
         draw_label(
             painter,
