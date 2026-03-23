@@ -7,7 +7,7 @@ use crate::{
 };
 
 pub(crate) const AGENT_LIST_HEADER_HEIGHT: f32 = 52.0;
-pub(crate) const AGENT_LIST_LEFT_RAIL_WIDTH: f32 = 34.0;
+pub(crate) const AGENT_LIST_LEFT_RAIL_WIDTH: f32 = 28.0;
 pub(crate) const AGENT_LIST_ROW_MARKER_WIDTH: f32 = 20.0;
 pub(crate) const AGENT_LIST_ROW_MARKER_GAP: f32 = 4.0;
 
@@ -47,9 +47,9 @@ pub(crate) fn agent_rows(
     agent_directory: &AgentDirectory,
 ) -> Vec<AgentRow> {
     let terminal_ids = terminal_manager.terminal_ids();
-    let content_x = shell_rect.x + AGENT_LIST_LEFT_RAIL_WIDTH + 2.0;
+    let content_x = shell_rect.x + AGENT_LIST_LEFT_RAIL_WIDTH + 1.0;
     let content_y = shell_rect.y + HUD_MODULE_PADDING + AGENT_LIST_HEADER_HEIGHT;
-    let content_w = (shell_rect.w - AGENT_LIST_LEFT_RAIL_WIDTH - 6.0).max(0.0);
+    let content_w = (shell_rect.w - AGENT_LIST_LEFT_RAIL_WIDTH - 3.0).max(0.0);
     terminal_ids
         .iter()
         .enumerate()
