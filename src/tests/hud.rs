@@ -132,7 +132,7 @@ fn setup_hud_widget_bloom_spawns_cameras_and_composite_quad() {
 fn setup_hud_widget_bloom_spawns_debug_previews_when_enabled() {
     let mut world = World::default();
     world.insert_resource(HudBloomSettings {
-        agent_list_intensity: 3.0,
+        agent_list_intensity: 8.0,
         agent_list_debug_preview: true,
     });
     world.insert_resource(HudWidgetBloom::default());
@@ -255,12 +255,12 @@ fn sync_structural_hud_layout_docks_agent_list_to_full_height_left_column() {
 
 #[test]
 fn parses_agent_bloom_intensity_override() {
-    assert_eq!(resolve_agent_list_bloom_intensity(None), 3.0);
-    assert_eq!(resolve_agent_list_bloom_intensity(Some("")), 3.0);
+    assert_eq!(resolve_agent_list_bloom_intensity(None), 8.0);
+    assert_eq!(resolve_agent_list_bloom_intensity(Some("")), 8.0);
     assert_eq!(resolve_agent_list_bloom_intensity(Some("2.0")), 2.0);
     assert_eq!(resolve_agent_list_bloom_intensity(Some(" 0.0 ")), 0.0);
-    assert_eq!(resolve_agent_list_bloom_intensity(Some("-1")), 3.0);
-    assert_eq!(resolve_agent_list_bloom_intensity(Some("abc")), 3.0);
+    assert_eq!(resolve_agent_list_bloom_intensity(Some("-1")), 8.0);
+    assert_eq!(resolve_agent_list_bloom_intensity(Some("abc")), 8.0);
 }
 
 #[test]
