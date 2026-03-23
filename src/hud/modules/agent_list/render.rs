@@ -10,13 +10,14 @@ use super::{
     AGENT_LIST_LEFT_RAIL_WIDTH,
 };
 
-const EVA_RED: peniko::Color = peniko::Color::from_rgba8(124, 18, 18, 255);
-const EVA_RED_BRIGHT: peniko::Color = peniko::Color::from_rgba8(236, 44, 44, 255);
-const EVA_RED_DIM: peniko::Color = peniko::Color::from_rgba8(72, 12, 12, 255);
-const EVA_RED_SOFT: peniko::Color = peniko::Color::from_rgba8(154, 34, 34, 255);
+const EVA_ORANGE: peniko::Color = peniko::Color::from_rgba8(181, 66, 11, 255);
+const EVA_ORANGE_BRIGHT: peniko::Color = peniko::Color::from_rgba8(181, 66, 11, 255);
+const EVA_ORANGE_DIM: peniko::Color = peniko::Color::from_rgba8(181, 66, 11, 255);
+const EVA_SELECTED: peniko::Color = peniko::Color::from_rgba8(181, 66, 11, 255);
+const EVA_CYAN: peniko::Color = peniko::Color::from_rgba8(96, 238, 255, 255);
 const EVA_BLACK: peniko::Color = peniko::Color::from_rgba8(0, 0, 0, 255);
-const EVA_BLACK_SOFT: peniko::Color = peniko::Color::from_rgba8(6, 6, 6, 255);
-const EVA_TEXT: peniko::Color = peniko::Color::from_rgba8(235, 228, 228, 255);
+const EVA_WHITE: peniko::Color = peniko::Color::from_rgba8(255, 255, 255, 255);
+const EVA_EMISSIVE_RED: peniko::Color = peniko::Color::from_rgba8(236, 44, 44, 255);
 const TASK_RED: peniko::Color = peniko::Color::from_rgba8(255, 24, 24, 255);
 
 #[allow(
@@ -70,7 +71,7 @@ fn draw_left_rail(painter: &mut HudPainter, content_rect: HudRect) {
                 w: 8.0,
                 h: 2.0,
             },
-            apply_alpha(EVA_RED_DIM, 0.52),
+            apply_alpha(EVA_CYAN, 0.82),
             0.0,
         );
 
@@ -83,7 +84,7 @@ fn draw_left_rail(painter: &mut HudPainter, content_rect: HudRect) {
                     w: 4.0,
                     h: 2.0,
                 },
-                apply_alpha(EVA_RED_DIM, 0.38),
+                apply_alpha(EVA_CYAN, 0.72),
                 0.0,
             );
         }
@@ -102,6 +103,7 @@ pub(crate) fn render_content(
         return;
     };
 
+    painter.fill_rect(content_rect, apply_alpha(EVA_BLACK, 0.98), 0.0);
     draw_left_rail(painter, content_rect);
 
     draw_label(
@@ -112,7 +114,7 @@ pub(crate) fn render_content(
         ),
         "AGENT SUPPORT SYSTEM",
         18.0,
-        EVA_RED_BRIGHT,
+        EVA_ORANGE_BRIGHT,
         VelloTextAnchor::TopLeft,
         0.82,
         1.08,
@@ -125,7 +127,7 @@ pub(crate) fn render_content(
         ),
         "SEG.A",
         13.0,
-        EVA_RED_DIM,
+        EVA_ORANGE_DIM,
         VelloTextAnchor::TopRight,
         0.88,
         1.04,
@@ -137,7 +139,7 @@ pub(crate) fn render_content(
             w: (content_rect.w - AGENT_LIST_LEFT_RAIL_WIDTH - HUD_MODULE_PADDING * 2.0).max(0.0),
             h: 2.0,
         },
-        apply_alpha(EVA_RED_SOFT, 0.58),
+        apply_alpha(EVA_CYAN, 0.8),
         0.0,
     );
 
@@ -157,18 +159,18 @@ pub(crate) fn render_content(
         let marker_rect = agent_row_rect(row.rect, AgentListRowSection::Marker);
         let accent_rect = agent_row_rect(row.rect, AgentListRowSection::Accent);
         let stroke = if row.focused {
-            EVA_RED_BRIGHT
+            EVA_SELECTED
         } else if row.hovered {
-            EVA_RED_SOFT
+            EVA_ORANGE_BRIGHT
         } else {
-            EVA_RED
+            EVA_ORANGE
         };
         let fill = if row.focused {
-            apply_alpha(EVA_BLACK_SOFT, 0.985)
+            EVA_WHITE
         } else if row.hovered {
-            apply_alpha(EVA_BLACK_SOFT, 0.955)
+            apply_alpha(EVA_BLACK, 0.92)
         } else {
-            apply_alpha(EVA_BLACK, 0.94)
+            apply_alpha(EVA_BLACK, 0.90)
         };
         let has_notes = inputs
             .terminal_manager
@@ -178,9 +180,7 @@ pub(crate) fn render_content(
         draw_button_rect(painter, main_rect, stroke, fill);
         draw_button_rect(painter, marker_rect, stroke, marker_fill(has_notes));
         if row.focused {
-            painter.fill_rect(accent_rect, EVA_RED_BRIGHT, 0.0);
-        } else if row.hovered {
-            painter.fill_rect(accent_rect, apply_alpha(EVA_RED_SOFT, 0.42), 0.0);
+            painter.fill_rect(accent_rect, EVA_EMISSIVE_RED, 0.0);
         }
 
         draw_label(
@@ -188,7 +188,7 @@ pub(crate) fn render_content(
             Vec2::new(main_rect.x + 12.0, main_rect.y + 2.0),
             &row.label.to_uppercase(),
             16.0,
-            EVA_TEXT,
+            if row.focused { EVA_BLACK } else { EVA_ORANGE },
             VelloTextAnchor::TopLeft,
             0.76,
             1.14,

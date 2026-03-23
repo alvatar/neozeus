@@ -88,15 +88,10 @@ pub(crate) fn sync_agent_list_analog_overlay(
     let Some(module) = hud_state.get(HudModuleId::AgentList) else {
         return;
     };
-    let enabled = module.shell.enabled && module.shell.current_alpha > 0.01;
 
     for (material_handle, mut transform, mut visibility) in &mut overlays {
         *transform = overlay_transform(&primary_window, module.shell.current_rect);
-        *visibility = if enabled {
-            Visibility::Visible
-        } else {
-            Visibility::Hidden
-        };
+        *visibility = Visibility::Hidden;
 
         if let Some(material) = materials.get_mut(material_handle.id()) {
             material.uniform.settings = Vec4::new(0.018, 0.014, 0.010, 0.020);
