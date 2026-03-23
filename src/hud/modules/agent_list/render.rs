@@ -16,6 +16,7 @@ const EVA_ORANGE_DIM: peniko::Color = peniko::Color::from_rgba8(181, 66, 11, 255
 const EVA_SELECTED: peniko::Color = peniko::Color::from_rgba8(181, 66, 11, 255);
 const EVA_CYAN: peniko::Color = peniko::Color::from_rgba8(96, 238, 255, 255);
 const EVA_BLACK: peniko::Color = peniko::Color::from_rgba8(0, 0, 0, 255);
+const TASK_RED: peniko::Color = peniko::Color::from_rgba8(255, 24, 24, 255);
 
 #[allow(
     clippy::too_many_arguments,
@@ -46,7 +47,7 @@ fn draw_button_rect(
 
 fn marker_fill(has_notes: bool) -> peniko::Color {
     if has_notes {
-        EVA_ORANGE
+        TASK_RED
     } else {
         EVA_BLACK
     }
