@@ -1,4 +1,7 @@
-use crate::{hud::message_box::HudMessageBoxState, terminals::TerminalId};
+use crate::{
+    hud::message_box::{HudMessageBoxState, HudTaskDialogState},
+    terminals::TerminalId,
+};
 use bevy::prelude::*;
 use std::collections::BTreeMap;
 
@@ -119,6 +122,7 @@ pub(crate) struct HudState {
     pub(crate) drag: Option<HudDragState>,
     pub(crate) dirty_layout: bool,
     pub(crate) message_box: HudMessageBoxState,
+    pub(crate) task_dialog: HudTaskDialogState,
     pub(crate) direct_input_terminal: Option<TerminalId>,
 }
 
@@ -191,10 +195,11 @@ impl HudState {
     }
 
     pub(crate) fn keyboard_capture_active(&self) -> bool {
-        self.message_box.visible || self.direct_input_terminal.is_some()
+        self.message_box.visible || self.task_dialog.visible || self.direct_input_terminal.is_some()
     }
 
     pub(crate) fn open_message_box(&mut self, target_terminal: TerminalId) {
+        self.task_dialog.close();
         self.direct_input_terminal = None;
         self.message_box.reset_for_target(target_terminal);
     }
@@ -207,8 +212,24 @@ impl HudState {
         self.message_box.close_and_discard_current();
     }
 
+    pub(crate) fn open_task_dialog(&mut self, target_terminal: TerminalId, text: &str) {
+        self.close_message_box();
+        self.direct_input_terminal = None;
+        self.task_dialog
+            .reset_for_target_with_text(target_terminal, text);
+    }
+
+    pub(crate) fn close_task_dialog(&mut self) {
+        self.task_dialog.close();
+    }
+
+    pub(crate) fn close_task_dialog_and_discard_draft(&mut self) {
+        self.task_dialog.close_and_discard_current();
+    }
+
     pub(crate) fn open_direct_terminal_input(&mut self, target_terminal: TerminalId) {
         self.close_message_box();
+        self.close_task_dialog();
         self.direct_input_terminal = Some(target_terminal);
     }
 

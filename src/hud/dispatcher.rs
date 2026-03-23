@@ -93,6 +93,12 @@ pub(crate) fn dispatch_hud_intents(
                     command: command.clone(),
                 });
             }
+            HudIntent::SetTerminalTaskText(terminal_id, text) => {
+                task_requests.write(TerminalTaskRequest::SetText {
+                    terminal_id: *terminal_id,
+                    text: text.clone(),
+                });
+            }
             HudIntent::AppendTerminalTask(terminal_id, text) => {
                 task_requests.write(TerminalTaskRequest::Append {
                     terminal_id: *terminal_id,
@@ -103,6 +109,11 @@ pub(crate) fn dispatch_hud_intents(
                 task_requests.write(TerminalTaskRequest::Prepend {
                     terminal_id: *terminal_id,
                     text: text.clone(),
+                });
+            }
+            HudIntent::ConsumeNextTerminalTask(terminal_id) => {
+                task_requests.write(TerminalTaskRequest::ConsumeNext {
+                    terminal_id: *terminal_id,
                 });
             }
             HudIntent::KillActiveTerminal => {
@@ -236,6 +247,9 @@ pub(crate) fn apply_terminal_task_requests(
 ) {
     for request in requests.read() {
         let changed = match request {
+            TerminalTaskRequest::SetText { terminal_id, text } => terminal_manager
+                .get(*terminal_id)
+                .is_some_and(|terminal| notes_state.set_note_text(&terminal.session_name, text)),
             TerminalTaskRequest::Append { terminal_id, text } => {
                 terminal_manager.get(*terminal_id).is_some_and(|terminal| {
                     notes_state.append_task_from_text(&terminal.session_name, text)
@@ -244,6 +258,25 @@ pub(crate) fn apply_terminal_task_requests(
             TerminalTaskRequest::Prepend { terminal_id, text } => {
                 terminal_manager.get(*terminal_id).is_some_and(|terminal| {
                     notes_state.prepend_task_from_text(&terminal.session_name, text)
+                })
+            }
+            TerminalTaskRequest::ConsumeNext { terminal_id } => {
+                terminal_manager.get(*terminal_id).is_some_and(|terminal| {
+                    let Some(task_text) = notes_state.note_text(&terminal.session_name) else {
+                        return false;
+                    };
+                    let Some((message, updated_task_text)) =
+                        crate::terminals::extract_next_task(task_text)
+                    else {
+                        return false;
+                    };
+                    if message.trim().is_empty() {
+                        return false;
+                    }
+                    terminal
+                        .bridge
+                        .send(crate::terminals::TerminalCommand::SendCommand(message));
+                    notes_state.set_note_text(&terminal.session_name, &updated_task_text)
                 })
             }
         };

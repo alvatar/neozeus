@@ -1,21 +1,21 @@
 use super::{fake_runtime_spawner, pressed_text, temp_dir, test_bridge, FakeDaemonClient};
 use crate::hud::{
     agent_list_bloom_layer, agent_list_bloom_z, agent_row_rect, agent_rows, apply_persisted_layout,
-    apply_terminal_focus_requests, apply_visibility_requests, debug_toolbar_buttons,
-    dispatch_hud_pointer_click, dispatch_hud_scroll, handle_hud_module_shortcuts,
-    handle_hud_pointer_input, hud_needs_redraw, kill_active_terminal, message_box_action_buttons,
-    message_box_rect, parse_persisted_hud_state, resolve_agent_label,
+    apply_terminal_focus_requests, apply_terminal_task_requests, apply_visibility_requests,
+    debug_toolbar_buttons, dispatch_hud_pointer_click, dispatch_hud_scroll,
+    handle_hud_module_shortcuts, handle_hud_pointer_input, hud_needs_redraw, kill_active_terminal,
+    message_box_action_buttons, message_box_rect, parse_persisted_hud_state, resolve_agent_label,
     resolve_agent_list_bloom_intensity, resolve_hud_layout_path_with, save_hud_layout_if_dirty,
-    serialize_persisted_hud_state, AgentDirectory, AgentListBloomCameraMarker,
-    AgentListBloomCompositeMarker, AgentListBloomSourceKind, AgentListBloomSourceSprite,
-    AgentListRowSection, HudBloomSettings, HudDragState, HudIntent, HudModuleId, HudModuleModel,
-    HudOffscreenCompositor, HudPersistenceState, HudRect, HudState, HudWidgetBloom,
-    PersistedHudModuleState, PersistedHudState, TerminalFocusRequest, TerminalVisibilityPolicy,
-    TerminalVisibilityRequest, TerminalVisibilityState,
+    serialize_persisted_hud_state, task_dialog_action_buttons, AgentDirectory,
+    AgentListBloomCameraMarker, AgentListBloomCompositeMarker, AgentListBloomSourceKind,
+    AgentListBloomSourceSprite, AgentListRowSection, HudBloomSettings, HudDragState, HudIntent,
+    HudModuleId, HudModuleModel, HudOffscreenCompositor, HudPersistenceState, HudRect, HudState,
+    HudWidgetBloom, PersistedHudModuleState, PersistedHudState, TerminalFocusRequest,
+    TerminalVisibilityPolicy, TerminalVisibilityRequest, TerminalVisibilityState,
 };
 use crate::terminals::{
-    TerminalManager, TerminalPanel, TerminalPanelFrame, TerminalPresentationStore,
-    TerminalSessionPersistenceState, TerminalViewState,
+    TerminalManager, TerminalNotesState, TerminalPanel, TerminalPanelFrame,
+    TerminalPresentationStore, TerminalSessionPersistenceState, TerminalViewState,
 };
 use bevy::{
     camera::{visibility::RenderLayers, RenderTarget},
@@ -747,6 +747,86 @@ fn message_box_rect_is_top_aligned_and_shorter() {
     assert!((rect.h - 468.0).abs() < 0.01);
     assert!((rect.x - 112.0).abs() < 0.01);
     assert!((rect.y - 8.0).abs() < 0.01);
+}
+
+#[test]
+fn clicking_task_dialog_save_button_emits_set_task_text_intent() {
+    let mut world = World::default();
+    let terminal_id = crate::terminals::TerminalId(7);
+    let mut hud_state = HudState::default();
+    hud_state.open_task_dialog(terminal_id, "- [ ] first");
+    hud_state.task_dialog.insert_text("\n- [ ] second");
+
+    let mut window = Window {
+        focused: true,
+        resolution: (1400, 900).into(),
+        ..Default::default()
+    };
+    let save_button = task_dialog_action_buttons(&window)[1];
+    window.set_cursor_position(Some(Vec2::new(
+        save_button.rect.x + 4.0,
+        save_button.rect.y + 4.0,
+    )));
+
+    world.insert_resource(ButtonInput::<MouseButton>::default());
+    world.insert_resource(Messages::<MouseWheel>::default());
+    world.insert_resource(Messages::<RequestRedraw>::default());
+    world.insert_resource(hud_state);
+    world.insert_resource(TerminalManager::default());
+    world.insert_resource(TerminalPresentationStore::default());
+    world.insert_resource(TerminalViewState::default());
+    world.insert_resource(AgentDirectory::default());
+    init_hud_commands(&mut world);
+    world.spawn((window, PrimaryWindow));
+
+    world
+        .resource_mut::<ButtonInput<MouseButton>>()
+        .press(MouseButton::Left);
+    world.run_system_once(handle_hud_pointer_input).unwrap();
+
+    assert_eq!(
+        drain_hud_commands(&mut world),
+        vec![HudIntent::SetTerminalTaskText(
+            terminal_id,
+            "- [ ] first\n- [ ] second".into()
+        )]
+    );
+    assert_eq!(world.resource::<Messages<RequestRedraw>>().len(), 1);
+    assert!(!world.resource::<HudState>().task_dialog.visible);
+}
+
+#[test]
+fn consume_next_task_request_sends_message_and_marks_task_done() {
+    let (bridge, input_rx, _) = super::capturing_bridge();
+    let mut manager = TerminalManager::default();
+    let terminal_id = manager.create_terminal_with_session(bridge, "session-a".into());
+
+    let mut notes_state = TerminalNotesState::default();
+    assert!(notes_state.set_note_text("session-a", "- [ ] first\n  detail\n- [ ] second"));
+
+    let mut world = World::default();
+    world.insert_resource(Time::<()>::default());
+    world.insert_resource(manager);
+    world.insert_resource(notes_state);
+    world.init_resource::<Messages<crate::hud::TerminalTaskRequest>>();
+    world.init_resource::<Messages<RequestRedraw>>();
+    world
+        .resource_mut::<Messages<crate::hud::TerminalTaskRequest>>()
+        .write(crate::hud::TerminalTaskRequest::ConsumeNext { terminal_id });
+
+    world.run_system_once(apply_terminal_task_requests).unwrap();
+
+    assert_eq!(
+        input_rx.try_recv().unwrap(),
+        crate::terminals::TerminalCommand::SendCommand("first\n  detail".into())
+    );
+    assert_eq!(
+        world
+            .resource::<TerminalNotesState>()
+            .note_text("session-a"),
+        Some("- [x] first\n  detail\n- [ ] second")
+    );
+    assert_eq!(world.resource::<Messages<RequestRedraw>>().len(), 1);
 }
 
 #[test]

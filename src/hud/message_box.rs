@@ -15,9 +15,22 @@ pub(crate) enum HudMessageBoxAction {
     PrependTask,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum HudTaskDialogAction {
+    ClearDone,
+    Save,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct HudMessageBoxActionButton {
     pub(crate) action: HudMessageBoxAction,
+    pub(crate) rect: HudRect,
+    pub(crate) label: &'static str,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct HudTaskDialogActionButton {
+    pub(crate) action: HudTaskDialogAction,
     pub(crate) rect: HudRect,
     pub(crate) label: &'static str,
 }
@@ -99,6 +112,46 @@ pub(crate) fn message_box_action_at(window: &Window, point: Vec2) -> Option<HudM
         .map(|button| button.action)
 }
 
+pub(crate) type HudTaskDialogState = HudMessageBoxState;
+
+pub(crate) fn task_dialog_rect(window: &Window) -> HudRect {
+    message_box_rect(window)
+}
+
+pub(crate) fn task_dialog_action_buttons(window: &Window) -> [HudTaskDialogActionButton; 2] {
+    let rect = task_dialog_rect(window);
+    let base_y = rect.y + rect.h - 36.0;
+    [
+        HudTaskDialogActionButton {
+            action: HudTaskDialogAction::ClearDone,
+            rect: HudRect {
+                x: rect.x + 24.0,
+                y: base_y,
+                w: HUD_MESSAGE_BOX_ACTION_BUTTON_W,
+                h: HUD_MESSAGE_BOX_ACTION_BUTTON_H,
+            },
+            label: "Clear done [x]",
+        },
+        HudTaskDialogActionButton {
+            action: HudTaskDialogAction::Save,
+            rect: HudRect {
+                x: rect.x + rect.w - 24.0 - HUD_MESSAGE_BOX_ACTION_BUTTON_W,
+                y: base_y,
+                w: HUD_MESSAGE_BOX_ACTION_BUTTON_W,
+                h: HUD_MESSAGE_BOX_ACTION_BUTTON_H,
+            },
+            label: "Save",
+        },
+    ]
+}
+
+pub(crate) fn task_dialog_action_at(window: &Window, point: Vec2) -> Option<HudTaskDialogAction> {
+    task_dialog_action_buttons(window)
+        .into_iter()
+        .find(|button| button.rect.contains(point))
+        .map(|button| button.action)
+}
+
 impl HudMessageBoxState {
     fn clear_editor(&mut self) {
         self.text.clear();
@@ -123,24 +176,36 @@ impl HudMessageBoxState {
         );
     }
 
-    fn restore_draft(&mut self, target_terminal: TerminalId) {
+    fn restore_draft(&mut self, target_terminal: TerminalId) -> bool {
         if let Some(draft) = self.drafts.get(&target_terminal).cloned() {
             self.text = draft.text;
             self.cursor = draft.cursor.min(self.text.len());
             self.mark = draft.mark.map(|mark| mark.min(self.text.len()));
             self.preferred_column = draft.preferred_column;
             self.yank_state = None;
-            return;
+            return true;
         }
 
-        self.clear_editor();
+        false
     }
 
-    pub(crate) fn reset_for_target(&mut self, target_terminal: TerminalId) {
+    pub(crate) fn load_text(&mut self, text: &str) {
+        self.clear_editor();
+        self.text = normalize_message_box_text(text);
+        self.cursor = self.text.len();
+    }
+
+    pub(crate) fn reset_for_target_with_text(&mut self, target_terminal: TerminalId, text: &str) {
         self.save_current_draft();
         self.visible = true;
         self.target_terminal = Some(target_terminal);
-        self.restore_draft(target_terminal);
+        if !self.restore_draft(target_terminal) {
+            self.load_text(text);
+        }
+    }
+
+    pub(crate) fn reset_for_target(&mut self, target_terminal: TerminalId) {
+        self.reset_for_target_with_text(target_terminal, "");
     }
 
     pub(crate) fn close(&mut self) {
@@ -153,12 +218,16 @@ impl HudMessageBoxState {
     }
 
     pub(crate) fn close_and_discard_current(&mut self) {
-        if let Some(target_terminal) = self.target_terminal {
-            self.drafts.remove(&target_terminal);
-        }
+        self.clear_current_draft();
         self.visible = false;
         self.target_terminal = None;
         self.clear_editor();
+    }
+
+    pub(crate) fn clear_current_draft(&mut self) {
+        if let Some(target_terminal) = self.target_terminal {
+            self.drafts.remove(&target_terminal);
+        }
     }
 
     pub(crate) fn region_bounds(&self) -> Option<(usize, usize)> {

@@ -7,26 +7,26 @@ use crate::{
     hud::{AgentDirectory, HudModuleId, HudState},
     terminals::{
         active_terminal_cell_size, active_terminal_dimensions, active_terminal_viewport,
-        blend_rgba_in_place, build_attach_command_argv, compute_terminal_damage,
-        create_detached_session_tmux_commands, create_terminal_image, find_kitty_config_path_with,
-        generate_unique_session_name, initialize_terminal_text_renderer_with_locale, is_emoji_like,
-        is_private_use_like, parse_kitty_config_file, parse_persisted_terminal_sessions,
-        pixel_perfect_cell_size, pixel_perfect_terminal_logical_size, poll_terminal_snapshots,
-        provision_terminal_target, rasterize_terminal_glyph, read_client_message,
-        read_server_message, reconcile_terminal_sessions, resolve_alacritty_color,
-        resolve_daemon_socket_path_with, resolve_terminal_font_report_for_family,
-        resolve_terminal_notes_path_with, resolve_terminal_sessions_path_with,
-        save_terminal_notes_if_dirty, save_terminal_sessions_if_dirty, send_bytes_tmux_commands,
-        send_command_payload_bytes, serialize_persisted_terminal_sessions,
-        serialize_terminal_notes, snap_to_pixel_grid, sync_active_terminal_dimensions,
-        sync_terminal_panel_frames, sync_terminal_presentations, sync_terminal_texture,
-        task_entry_from_text, terminal_texture_screen_size, write_client_message,
-        write_server_message, xterm_indexed_rgb, ClientMessage, DaemonEvent, DaemonRequest,
-        DaemonServerHandle, KittyFontConfig, PersistedTerminalSessions, PresentedTerminal,
-        ServerMessage, SocketTerminalDaemonClient, TerminalAttachTarget, TerminalCommand,
-        TerminalDaemonClient, TerminalDamage, TerminalDisplayMode, TerminalFontRole,
-        TerminalFontState, TerminalFrameUpdate, TerminalGlyphCacheKey, TerminalLifecycle,
-        TerminalManager, TerminalNotesState, TerminalPanel, TerminalPanelFrame,
+        blend_rgba_in_place, build_attach_command_argv, clear_done_tasks, compute_terminal_damage,
+        create_detached_session_tmux_commands, create_terminal_image, extract_next_task,
+        find_kitty_config_path_with, generate_unique_session_name,
+        initialize_terminal_text_renderer_with_locale, is_emoji_like, is_private_use_like,
+        parse_kitty_config_file, parse_persisted_terminal_sessions, pixel_perfect_cell_size,
+        pixel_perfect_terminal_logical_size, poll_terminal_snapshots, provision_terminal_target,
+        rasterize_terminal_glyph, read_client_message, read_server_message,
+        reconcile_terminal_sessions, resolve_alacritty_color, resolve_daemon_socket_path_with,
+        resolve_terminal_font_report_for_family, resolve_terminal_notes_path_with,
+        resolve_terminal_sessions_path_with, save_terminal_notes_if_dirty,
+        save_terminal_sessions_if_dirty, send_bytes_tmux_commands, send_command_payload_bytes,
+        serialize_persisted_terminal_sessions, serialize_terminal_notes, snap_to_pixel_grid,
+        sync_active_terminal_dimensions, sync_terminal_panel_frames, sync_terminal_presentations,
+        sync_terminal_texture, task_entry_from_text, terminal_texture_screen_size,
+        write_client_message, write_server_message, xterm_indexed_rgb, ClientMessage, DaemonEvent,
+        DaemonRequest, DaemonServerHandle, KittyFontConfig, PersistedTerminalSessions,
+        PresentedTerminal, ServerMessage, SocketTerminalDaemonClient, TerminalAttachTarget,
+        TerminalCommand, TerminalDaemonClient, TerminalDamage, TerminalDisplayMode,
+        TerminalFontRole, TerminalFontState, TerminalFrameUpdate, TerminalGlyphCacheKey,
+        TerminalLifecycle, TerminalManager, TerminalNotesState, TerminalPanel, TerminalPanelFrame,
         TerminalPresentation, TerminalPresentationStore, TerminalProvisionTarget,
         TerminalRuntimeState, TerminalSessionClient, TerminalSessionPersistenceState,
         TerminalSessionRecord, TerminalSurface, TerminalTextRenderer, TerminalTextureState,
@@ -913,6 +913,33 @@ fn terminal_notes_append_and_prepend_tasks_follow_zeus_ordering() {
         Some("- [ ] first task\n  detail\n- [ ] second task")
     );
     assert!(notes_state.has_note_text("session-a"));
+}
+
+#[test]
+fn clear_done_tasks_removes_done_task_blocks() {
+    let (updated, removed) =
+        clear_done_tasks("- [x] done one\n  detail\n- [ ] keep\n- [X] done two\n  more\ntrailing");
+    assert_eq!(removed, 2);
+    assert_eq!(updated, "- [ ] keep");
+}
+
+#[test]
+fn extract_next_task_marks_first_pending_block_done() {
+    let extracted = extract_next_task("- [ ] first\n  detail\n- [x] done\n- [ ] second")
+        .expect("pending task should be extracted");
+    assert_eq!(extracted.0, "first\n  detail");
+    assert_eq!(
+        extracted.1,
+        "- [x] first\n  detail\n- [x] done\n- [ ] second"
+    );
+}
+
+#[test]
+fn extract_next_task_falls_back_to_first_non_empty_line_without_headers() {
+    let extracted =
+        extract_next_task("\nfirst line\nsecond line").expect("fallback task should be extracted");
+    assert_eq!(extracted.0, "first line");
+    assert_eq!(extracted.1, "\nsecond line");
 }
 
 #[test]

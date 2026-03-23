@@ -1,9 +1,12 @@
 use crate::{
     hud::{
-        message_box_action_at, modules, AgentDirectory, HudIntent, HudMessageBoxAction,
-        HudModuleId, HudRect, HudState, HUD_TITLEBAR_HEIGHT,
+        message_box_action_at, modules, task_dialog_action_at, AgentDirectory, HudIntent,
+        HudMessageBoxAction, HudModuleId, HudRect, HudState, HudTaskDialogAction,
+        HUD_TITLEBAR_HEIGHT,
     },
-    terminals::{TerminalId, TerminalManager, TerminalPresentationStore, TerminalViewState},
+    terminals::{
+        clear_done_tasks, TerminalId, TerminalManager, TerminalPresentationStore, TerminalViewState,
+    },
 };
 use bevy::{
     ecs::system::SystemParam,
@@ -64,6 +67,22 @@ fn message_box_task_intent(
     })
 }
 
+fn task_dialog_intent(hud_state: &mut HudState, action: HudTaskDialogAction) -> Option<HudIntent> {
+    match action {
+        HudTaskDialogAction::ClearDone => {
+            let (updated, _) = clear_done_tasks(&hud_state.task_dialog.text);
+            hud_state.task_dialog.load_text(&updated);
+            None
+        }
+        HudTaskDialogAction::Save => {
+            let target_terminal = hud_state.task_dialog.target_terminal?;
+            let payload = hud_state.task_dialog.text.clone();
+            hud_state.close_task_dialog_and_discard_draft();
+            Some(HudIntent::SetTerminalTaskText(target_terminal, payload))
+        }
+    }
+}
+
 pub(crate) fn handle_hud_pointer_input(mut ctx: HudPointerContext) {
     if ctx.hud_state.message_box.visible {
         ctx.hud_state.drag = None;
@@ -74,8 +93,23 @@ pub(crate) fn handle_hud_pointer_input(mut ctx: HudPointerContext) {
             if let Some(action) = message_box_action_at(&ctx.primary_window, cursor) {
                 if let Some(intent) = message_box_task_intent(&mut ctx.hud_state, action) {
                     ctx.hud_commands.write(intent);
-                    ctx.redraws.write(RequestRedraw);
                 }
+                ctx.redraws.write(RequestRedraw);
+            }
+        }
+        return;
+    }
+    if ctx.hud_state.task_dialog.visible {
+        ctx.hud_state.drag = None;
+        let Some(cursor) = cursor_hud_position(&ctx.primary_window) else {
+            return;
+        };
+        if ctx.mouse_buttons.just_pressed(MouseButton::Left) {
+            if let Some(action) = task_dialog_action_at(&ctx.primary_window, cursor) {
+                if let Some(intent) = task_dialog_intent(&mut ctx.hud_state, action) {
+                    ctx.hud_commands.write(intent);
+                }
+                ctx.redraws.write(RequestRedraw);
             }
         }
         return;

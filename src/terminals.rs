@@ -70,8 +70,8 @@ pub(crate) use lifecycle::{
 };
 pub(crate) use mailbox::TerminalUpdateMailbox;
 pub(crate) use notes::{
-    load_terminal_notes_from, mark_terminal_notes_dirty, resolve_terminal_notes_path,
-    save_terminal_notes_if_dirty, TerminalNotesState,
+    clear_done_tasks, extract_next_task, load_terminal_notes_from, mark_terminal_notes_dirty,
+    resolve_terminal_notes_path, save_terminal_notes_if_dirty, TerminalNotesState,
 };
 #[cfg(test)]
 pub(crate) use notes::{

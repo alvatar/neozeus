@@ -9,7 +9,7 @@ use crate::{
         should_spawn_terminal_globally,
     },
     terminals::{
-        TerminalCommand, TerminalManager, TerminalPanel, TerminalPresentation,
+        TerminalCommand, TerminalManager, TerminalNotesState, TerminalPanel, TerminalPresentation,
         TerminalSessionPersistenceState,
     },
 };
@@ -89,6 +89,7 @@ fn world_with_active_terminal_and_receiver(
     world.insert_resource(Time::<()>::default());
     world.insert_resource(manager);
     world.insert_resource(crate::hud::HudState::default());
+    world.insert_resource(TerminalNotesState::default());
     world.insert_resource(TerminalSessionPersistenceState::default());
     world.insert_resource(TerminalVisibilityState::default());
     world.insert_resource(crate::terminals::TerminalViewState::default());
@@ -398,6 +399,56 @@ fn enter_opens_message_box_for_active_terminal() {
 }
 
 #[test]
+fn plain_t_opens_task_dialog_for_active_terminal_with_saved_text() {
+    let (mut world, terminal_id) =
+        world_with_active_terminal(Vec2::new(10.0, 10.0), false, Vec2::ZERO);
+    let session_name = world
+        .resource::<TerminalManager>()
+        .get(terminal_id)
+        .unwrap()
+        .session_name
+        .clone();
+    world
+        .resource_mut::<TerminalNotesState>()
+        .set_note_text(&session_name, "- [ ] first task\n  detail");
+    world.init_resource::<Messages<KeyboardInput>>();
+    world.init_resource::<Messages<RequestRedraw>>();
+    world
+        .resource_mut::<Messages<KeyboardInput>>()
+        .write(pressed_text(KeyCode::KeyT, Some("t")));
+
+    world
+        .run_system_once(handle_terminal_message_box_keyboard)
+        .unwrap();
+
+    let hud_state = world.resource::<crate::hud::HudState>();
+    assert!(hud_state.task_dialog.visible);
+    assert_eq!(hud_state.task_dialog.target_terminal, Some(terminal_id));
+    assert_eq!(hud_state.task_dialog.text, "- [ ] first task\n  detail");
+    assert_eq!(world.resource::<Messages<RequestRedraw>>().len(), 1);
+}
+
+#[test]
+fn plain_n_enqueues_consume_next_task_for_active_terminal() {
+    let (mut world, terminal_id) =
+        world_with_active_terminal(Vec2::new(10.0, 10.0), false, Vec2::ZERO);
+    world.init_resource::<Messages<KeyboardInput>>();
+    world.init_resource::<Messages<RequestRedraw>>();
+    world
+        .resource_mut::<Messages<KeyboardInput>>()
+        .write(pressed_text(KeyCode::KeyN, Some("n")));
+
+    world
+        .run_system_once(handle_terminal_message_box_keyboard)
+        .unwrap();
+
+    assert_eq!(
+        drain_hud_commands(&mut world),
+        vec![HudIntent::ConsumeNextTerminalTask(terminal_id)]
+    );
+}
+
+#[test]
 fn ctrl_enter_toggles_direct_input_mode_for_active_terminal() {
     let (mut world, terminal_id) =
         world_with_active_terminal(Vec2::new(10.0, 10.0), false, Vec2::ZERO);
@@ -524,6 +575,47 @@ fn message_box_supports_multiline_typing_and_ctrl_s_send() {
     let hud_state = world.resource::<crate::hud::HudState>();
     assert!(hud_state.message_box.visible);
     assert!(hud_state.message_box.text.is_empty());
+}
+
+#[test]
+fn task_dialog_ctrl_s_saves_tasks_and_closes() {
+    let (mut world, terminal_id) =
+        world_with_active_terminal(Vec2::new(10.0, 10.0), false, Vec2::ZERO);
+    let mut hud_state = crate::hud::HudState::default();
+    hud_state.open_task_dialog(terminal_id, "- [ ] old");
+    hud_state.task_dialog.insert_text("\n- [ ] new");
+    world.insert_resource(hud_state);
+    init_hud_commands(&mut world);
+    world.init_resource::<Messages<KeyboardInput>>();
+    world.init_resource::<Messages<RequestRedraw>>();
+
+    let mut keys = ButtonInput::<KeyCode>::default();
+    keys.press(KeyCode::ControlLeft);
+    world.insert_resource(keys);
+    dispatch_message_box_key(&mut world, pressed_text(KeyCode::KeyS, Some("s")));
+
+    assert_eq!(
+        drain_hud_commands(&mut world),
+        vec![HudIntent::SetTerminalTaskText(
+            terminal_id,
+            "- [ ] old\n- [ ] new".into()
+        )]
+    );
+    let hud_state = world.resource::<crate::hud::HudState>();
+    assert!(!hud_state.task_dialog.visible);
+}
+
+#[test]
+fn task_dialog_escape_preserves_draft_for_reopen() {
+    let terminal_id = crate::terminals::TerminalId(7);
+    let mut hud_state = crate::hud::HudState::default();
+    hud_state.open_task_dialog(terminal_id, "- [ ] first");
+    hud_state.task_dialog.insert_text("\n- [ ] second");
+    hud_state.close_task_dialog();
+
+    hud_state.open_task_dialog(terminal_id, "ignored");
+    assert!(hud_state.task_dialog.visible);
+    assert_eq!(hud_state.task_dialog.text, "- [ ] first\n- [ ] second");
 }
 
 #[test]

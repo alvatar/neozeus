@@ -1,7 +1,8 @@
 use crate::{
     hud::{
-        message_box_action_buttons, message_box_rect, modules, AgentDirectory, HudMessageBoxState,
-        HudModuleId, HudRect, HudState, HUD_TITLEBAR_HEIGHT,
+        message_box_action_buttons, message_box_rect, modules, task_dialog_action_buttons,
+        task_dialog_rect, AgentDirectory, HudMessageBoxState, HudModuleId, HudRect, HudState,
+        HudTaskDialogState, HUD_TITLEBAR_HEIGHT,
     },
     terminals::{
         TerminalFontState, TerminalManager, TerminalNotesState, TerminalPresentationStore,
@@ -234,52 +235,20 @@ fn message_box_lines(text: &str) -> Vec<(usize, usize, &str)> {
         .collect()
 }
 
-fn draw_message_box(
+fn editor_selection_status(editor: &HudMessageBoxState) -> String {
+    editor
+        .region_bounds()
+        .map(|(start, end)| format!("Region {} chars", editor.text[start..end].chars().count()))
+        .or_else(|| editor.mark.map(|_| "Mark set".to_owned()))
+        .unwrap_or_else(|| "No mark".to_owned())
+}
+
+fn draw_text_editor_body(
     painter: &mut HudPainter,
     window: &Window,
-    message_box: &HudMessageBoxState,
-    agent_directory: &AgentDirectory,
+    editor: &HudMessageBoxState,
+    body_rect: HudRect,
 ) {
-    if !message_box.visible {
-        return;
-    }
-
-    let rect = message_box_rect(window);
-    painter.fill_rect(rect, HudColors::MESSAGE_BOX, 12.0);
-    painter.stroke_rect(rect, HudColors::BORDER, 12.0);
-
-    let title_rect = HudRect {
-        x: rect.x,
-        y: rect.y,
-        w: rect.w,
-        h: 44.0,
-    };
-    painter.fill_rect(title_rect, HudColors::MESSAGE_BOX, 12.0);
-
-    let target_label = message_box
-        .target_terminal
-        .and_then(|terminal_id| agent_directory.labels.get(&terminal_id).cloned())
-        .unwrap_or_else(|| {
-            message_box
-                .target_terminal
-                .map(|terminal_id| format!("terminal {}", terminal_id.0))
-                .unwrap_or_else(|| "no target".to_owned())
-        });
-    painter.label(
-        Vec2::new(rect.x + 24.0, rect.y + 12.0),
-        &format!("Message {}", target_label),
-        18.0,
-        HudColors::TEXT,
-        VelloTextAnchor::TopLeft,
-    );
-    let button_row_y = message_box_action_buttons(window)[0].rect.y;
-    let info_row_y = button_row_y - 26.0;
-    let body_rect = HudRect {
-        x: rect.x + 22.0,
-        y: rect.y + 64.0,
-        w: rect.w - 44.0,
-        h: (info_row_y - 12.0 - (rect.y + 64.0)).max(96.0),
-    };
     painter.fill_rect(body_rect, HudColors::MESSAGE_BOX, 6.0);
     painter.stroke_rect(body_rect, HudColors::TEXT_MUTED, 4.0);
 
@@ -289,9 +258,9 @@ fn draw_message_box(
     let content_y = body_rect.y + 16.0;
     let max_visible_lines = ((body_rect.h - 24.0) / line_height).floor().max(1.0) as usize;
     let max_visible_cols = ((body_rect.w - 36.0) / 10.0).floor().max(8.0) as usize;
-    let lines = message_box_lines(&message_box.text);
-    let (cursor_line, cursor_col) = message_box.cursor_line_and_column();
-    let selection = message_box.region_bounds();
+    let lines = message_box_lines(&editor.text);
+    let (cursor_line, cursor_col) = editor.cursor_line_and_column();
+    let selection = editor.region_bounds();
     let start_line = cursor_line.saturating_sub(max_visible_lines.saturating_sub(1));
     let end_line = (start_line + max_visible_lines).min(lines.len());
 
@@ -328,10 +297,10 @@ fn draw_message_box(
             let line_selection_start = selection_start.max(line_start_byte);
             let line_selection_end = selection_end.min(line_end_byte);
             if line_selection_start < line_selection_end {
-                let selection_start_col = message_box.text[line_start_byte..line_selection_start]
+                let selection_start_col = editor.text[line_start_byte..line_selection_start]
                     .chars()
                     .count();
-                let selection_end_col = message_box.text[line_start_byte..line_selection_end]
+                let selection_end_col = editor.text[line_start_byte..line_selection_end]
                     .chars()
                     .count();
                 let visible_selection_start = selection_start_col.max(start_col) - start_col;
@@ -386,37 +355,152 @@ fn draw_message_box(
     }
 
     painter.scene.pop_layer();
+}
 
-    let (line_number, column_number) = message_box.cursor_line_and_column();
-    let selection_status = message_box
-        .region_bounds()
-        .map(|(start, end)| {
-            format!(
-                "Region {} chars",
-                message_box.text[start..end].chars().count()
-            )
-        })
-        .or_else(|| message_box.mark.map(|_| "Mark set".to_owned()))
-        .unwrap_or_else(|| "No mark".to_owned());
-    for button in message_box_action_buttons(window) {
-        painter.fill_rect(button.rect, HudColors::BUTTON, 0.0);
-        painter.stroke_rect(button.rect, HudColors::BUTTON_BORDER, 0.0);
+fn draw_dialog_button_row(
+    painter: &mut HudPainter,
+    buttons: impl IntoIterator<Item = (HudRect, &'static str)>,
+) {
+    for (rect, label) in buttons {
+        painter.fill_rect(rect, HudColors::BUTTON, 0.0);
+        painter.stroke_rect(rect, HudColors::BUTTON_BORDER, 0.0);
         painter.label(
-            Vec2::new(button.rect.x + 10.0, button.rect.y + 6.0),
-            button.label,
+            Vec2::new(rect.x + 10.0, rect.y + 6.0),
+            label,
             14.0,
             HudColors::TEXT,
             VelloTextAnchor::TopLeft,
         );
     }
+}
 
+fn target_label(editor: &HudMessageBoxState, agent_directory: &AgentDirectory) -> String {
+    editor
+        .target_terminal
+        .and_then(|terminal_id| agent_directory.labels.get(&terminal_id).cloned())
+        .unwrap_or_else(|| {
+            editor
+                .target_terminal
+                .map(|terminal_id| format!("terminal {}", terminal_id.0))
+                .unwrap_or_else(|| "no target".to_owned())
+        })
+}
+
+fn draw_message_box(
+    painter: &mut HudPainter,
+    window: &Window,
+    message_box: &HudMessageBoxState,
+    agent_directory: &AgentDirectory,
+) {
+    if !message_box.visible {
+        return;
+    }
+
+    let rect = message_box_rect(window);
+    painter.fill_rect(rect, HudColors::MESSAGE_BOX, 12.0);
+    painter.stroke_rect(rect, HudColors::BORDER, 12.0);
+
+    let title_rect = HudRect {
+        x: rect.x,
+        y: rect.y,
+        w: rect.w,
+        h: 44.0,
+    };
+    painter.fill_rect(title_rect, HudColors::MESSAGE_BOX, 12.0);
+    painter.label(
+        Vec2::new(rect.x + 24.0, rect.y + 12.0),
+        &format!("Message {}", target_label(message_box, agent_directory)),
+        18.0,
+        HudColors::TEXT,
+        VelloTextAnchor::TopLeft,
+    );
+
+    let buttons = message_box_action_buttons(window);
+    let button_row_y = buttons[0].rect.y;
+    let info_row_y = button_row_y - 26.0;
+    let body_rect = HudRect {
+        x: rect.x + 22.0,
+        y: rect.y + 64.0,
+        w: rect.w - 44.0,
+        h: (info_row_y - 12.0 - (rect.y + 64.0)).max(96.0),
+    };
+    draw_text_editor_body(painter, window, message_box, body_rect);
+    draw_dialog_button_row(
+        painter,
+        buttons
+            .into_iter()
+            .map(|button| (button.rect, button.label)),
+    );
+
+    let (line_number, column_number) = message_box.cursor_line_and_column();
     painter.label(
         Vec2::new(rect.x + 24.0, info_row_y),
         &format!(
             "Ln {} · Col {} · {} · Enter newline · Ctrl-S send · Esc cancel · C-Space mark · C-w cut · M-w copy · C-y yank · M-y ring · Ctrl-T append · Ctrl-Shift-T prepend",
             line_number + 1,
             column_number + 1,
-            selection_status
+            editor_selection_status(message_box)
+        ),
+        15.0,
+        HudColors::TEXT_MUTED,
+        VelloTextAnchor::TopLeft,
+    );
+}
+
+fn draw_task_dialog(
+    painter: &mut HudPainter,
+    window: &Window,
+    task_dialog: &HudTaskDialogState,
+    agent_directory: &AgentDirectory,
+) {
+    if !task_dialog.visible {
+        return;
+    }
+
+    let rect = task_dialog_rect(window);
+    painter.fill_rect(rect, HudColors::MESSAGE_BOX, 12.0);
+    painter.stroke_rect(rect, HudColors::BORDER, 12.0);
+
+    let title_rect = HudRect {
+        x: rect.x,
+        y: rect.y,
+        w: rect.w,
+        h: 44.0,
+    };
+    painter.fill_rect(title_rect, HudColors::MESSAGE_BOX, 12.0);
+    painter.label(
+        Vec2::new(rect.x + 24.0, rect.y + 12.0),
+        &format!("Tasks {}", target_label(task_dialog, agent_directory)),
+        18.0,
+        HudColors::TEXT,
+        VelloTextAnchor::TopLeft,
+    );
+
+    let buttons = task_dialog_action_buttons(window);
+    let button_row_y = buttons[0].rect.y;
+    let info_row_y = button_row_y - 26.0;
+    let body_rect = HudRect {
+        x: rect.x + 22.0,
+        y: rect.y + 64.0,
+        w: rect.w - 44.0,
+        h: (info_row_y - 12.0 - (rect.y + 64.0)).max(96.0),
+    };
+    draw_text_editor_body(painter, window, task_dialog, body_rect);
+    draw_dialog_button_row(
+        painter,
+        buttons
+            .into_iter()
+            .map(|button| (button.rect, button.label)),
+    );
+
+    let (line_number, column_number) = task_dialog.cursor_line_and_column();
+    painter.label(
+        Vec2::new(rect.x + 24.0, info_row_y),
+        &format!(
+            "Ln {} · Col {} · {} · Format: - [] task or - [ ] task · Ctrl-S save · Esc cancel",
+            line_number + 1,
+            column_number + 1,
+            editor_selection_status(task_dialog)
         ),
         15.0,
         HudColors::TEXT_MUTED,
@@ -523,6 +607,12 @@ pub(crate) fn render_hud_scene(
         &mut painter,
         &primary_window,
         &hud_state.message_box,
+        &agent_directory,
+    );
+    draw_task_dialog(
+        &mut painter,
+        &primary_window,
+        &hud_state.task_dialog,
         &agent_directory,
     );
 

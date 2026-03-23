@@ -15,8 +15,10 @@ pub(crate) enum HudIntent {
     ResetTerminalView,
     SendActiveTerminalCommand(String),
     SendTerminalCommand(TerminalId, String),
+    SetTerminalTaskText(TerminalId, String),
     AppendTerminalTask(TerminalId, String),
     PrependTerminalTask(TerminalId, String),
+    ConsumeNextTerminalTask(TerminalId),
     KillActiveTerminal,
 }
 
@@ -60,6 +62,10 @@ pub(crate) enum TerminalLifecycleRequest {
 
 #[derive(Clone, Debug, Message, PartialEq)]
 pub(crate) enum TerminalTaskRequest {
+    SetText {
+        terminal_id: TerminalId,
+        text: String,
+    },
     Append {
         terminal_id: TerminalId,
         text: String,
@@ -67,5 +73,8 @@ pub(crate) enum TerminalTaskRequest {
     Prepend {
         terminal_id: TerminalId,
         text: String,
+    },
+    ConsumeNext {
+        terminal_id: TerminalId,
     },
 }
