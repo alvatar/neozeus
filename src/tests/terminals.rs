@@ -8,7 +8,7 @@ use crate::{
     terminals::{
         active_terminal_cell_size, active_terminal_dimensions, active_terminal_viewport,
         blend_rgba_in_place, build_attach_command_argv, compute_terminal_damage,
-        create_detached_session_tmux_commands, find_kitty_config_path_with,
+        create_detached_session_tmux_commands, create_terminal_image, find_kitty_config_path_with,
         generate_unique_session_name, initialize_terminal_text_renderer, is_emoji_like,
         is_private_use_like, parse_kitty_config_file, parse_persisted_terminal_sessions,
         pixel_perfect_cell_size, pixel_perfect_terminal_logical_size, poll_terminal_snapshots,
@@ -18,18 +18,19 @@ use crate::{
         resolve_terminal_sessions_path_with, save_terminal_sessions_if_dirty,
         send_bytes_tmux_commands, send_command_payload_bytes,
         serialize_persisted_terminal_sessions, snap_to_pixel_grid, sync_active_terminal_dimensions,
-        sync_terminal_panel_frames, sync_terminal_presentations, terminal_texture_screen_size,
-        write_client_message, write_server_message, xterm_indexed_rgb, ClientMessage, DaemonEvent,
-        DaemonRequest, DaemonServerHandle, KittyFontConfig, PersistedTerminalSessions,
-        PresentedTerminal, ServerMessage, SocketTerminalDaemonClient, TerminalAttachTarget,
-        TerminalCommand, TerminalDaemonClient, TerminalDamage, TerminalDisplayMode,
-        TerminalFontRole, TerminalFontState, TerminalFrameUpdate, TerminalGlyphCacheKey,
-        TerminalLifecycle, TerminalManager, TerminalPanel, TerminalPanelFrame,
-        TerminalPresentation, TerminalPresentationStore, TerminalProvisionTarget,
-        TerminalRuntimeState, TerminalSessionClient, TerminalSessionPersistenceState,
-        TerminalSessionRecord, TerminalSurface, TerminalTextRenderer, TerminalTextureState,
-        TerminalUpdate, TerminalViewState, TmuxPaneClient, DAEMON_PROTOCOL_VERSION,
-        PERSISTENT_SESSION_PREFIX, PERSISTENT_TMUX_SESSION_PREFIX,
+        sync_terminal_panel_frames, sync_terminal_presentations, sync_terminal_texture,
+        terminal_texture_screen_size, write_client_message, write_server_message,
+        xterm_indexed_rgb, ClientMessage, DaemonEvent, DaemonRequest, DaemonServerHandle,
+        KittyFontConfig, PersistedTerminalSessions, PresentedTerminal, ServerMessage,
+        SocketTerminalDaemonClient, TerminalAttachTarget, TerminalCommand, TerminalDaemonClient,
+        TerminalDamage, TerminalDisplayMode, TerminalFontRole, TerminalFontState,
+        TerminalFrameUpdate, TerminalGlyphCacheKey, TerminalLifecycle, TerminalManager,
+        TerminalPanel, TerminalPanelFrame, TerminalPresentation, TerminalPresentationStore,
+        TerminalProvisionTarget, TerminalRuntimeState, TerminalSessionClient,
+        TerminalSessionPersistenceState, TerminalSessionRecord, TerminalSurface,
+        TerminalTextRenderer, TerminalTextureState, TerminalUpdate, TerminalViewState,
+        TmuxPaneClient, DAEMON_PROTOCOL_VERSION, PERSISTENT_SESSION_PREFIX,
+        PERSISTENT_TMUX_SESSION_PREFIX,
     },
 };
 use alacritty_terminal::vte::ansi::{Color as AnsiColor, NamedColor};
@@ -201,6 +202,7 @@ fn active_terminal_presentation_uses_texture_logical_size_and_centers_in_viewpor
         PresentedTerminal {
             image: Default::default(),
             texture_state: texture_state.clone(),
+            desired_texture_state: texture_state.clone(),
             display_mode: TerminalDisplayMode::Smooth,
             uploaded_revision: 0,
             panel_entity: Entity::PLACEHOLDER,
@@ -312,7 +314,8 @@ fn switching_active_terminal_snaps_immediately_without_animation() {
         id_one,
         PresentedTerminal {
             image: Default::default(),
-            texture_state: active_texture_state,
+            texture_state: active_texture_state.clone(),
+            desired_texture_state: active_texture_state,
             display_mode: TerminalDisplayMode::Smooth,
             uploaded_revision: 0,
             panel_entity: Entity::PLACEHOLDER,
@@ -323,7 +326,8 @@ fn switching_active_terminal_snaps_immediately_without_animation() {
         id_two,
         PresentedTerminal {
             image: Default::default(),
-            texture_state: stale_background_texture_state,
+            texture_state: stale_background_texture_state.clone(),
+            desired_texture_state: stale_background_texture_state,
             display_mode: TerminalDisplayMode::Smooth,
             uploaded_revision: 0,
             panel_entity: Entity::PLACEHOLDER,
@@ -407,6 +411,204 @@ fn switching_active_terminal_snaps_immediately_without_animation() {
     assert_eq!(second.1.current_size, expected_size);
     assert_eq!(second.1.current_alpha, 1.0);
     assert_eq!(second.1.current_z, 0.3);
+}
+
+#[test]
+fn sync_terminal_texture_keeps_cached_switch_frame_until_resized_surface_arrives() {
+    let report = resolve_terminal_font_report().expect("failed to resolve terminal fonts");
+    let mut renderer = TerminalTextRenderer::default();
+    initialize_terminal_text_renderer(&report, &mut renderer)
+        .expect("failed to initialize terminal text renderer");
+    let font_state = TerminalFontState {
+        report: Some(Ok(report)),
+    };
+
+    let (bridge_one, _) = test_bridge();
+    let (bridge_two, _) = test_bridge();
+    let mut manager = TerminalManager::default();
+    let id_one = manager.create_terminal(bridge_one);
+    let id_two = manager.create_terminal(bridge_two);
+
+    let window = Window {
+        resolution: (1400, 900).into(),
+        ..Default::default()
+    };
+    let mut hud_state = HudState::default();
+    hud_state.insert(
+        HudModuleId::AgentList,
+        crate::hud::default_hud_module_instance(&crate::hud::HUD_MODULE_DEFINITIONS[1]),
+    );
+    let rect = crate::hud::docked_agent_list_rect(&window);
+    let agent_list = hud_state.get_mut(HudModuleId::AgentList).unwrap();
+    agent_list.shell.enabled = true;
+    agent_list.shell.current_rect = rect;
+    agent_list.shell.target_rect = rect;
+
+    let view_state = TerminalViewState::default();
+    let active_dimensions = active_terminal_dimensions(&window, &hud_state, &view_state);
+    let active_cell_size = active_terminal_cell_size(&window, &view_state);
+    let active_texture_state = TerminalTextureState {
+        texture_size: UVec2::new(
+            active_dimensions.cols as u32 * active_cell_size.x,
+            active_dimensions.rows as u32 * active_cell_size.y,
+        ),
+        cell_size: active_cell_size,
+    };
+    let cached_background_state = TerminalTextureState {
+        texture_size: UVec2::new(80 * DEFAULT_CELL_WIDTH_PX, 24 * DEFAULT_CELL_HEIGHT_PX),
+        cell_size: UVec2::new(DEFAULT_CELL_WIDTH_PX, DEFAULT_CELL_HEIGHT_PX),
+    };
+
+    manager.focus_terminal(id_two);
+    let first = manager.get_mut(id_one).unwrap();
+    first.snapshot.surface = Some(TerminalSurface::new(
+        active_dimensions.cols,
+        active_dimensions.rows,
+    ));
+    first.surface_revision = 1;
+    let second = manager.get_mut(id_two).unwrap();
+    second.snapshot.surface = Some(TerminalSurface::new(80, 24));
+    second.surface_revision = 1;
+
+    let mut presentation_store = TerminalPresentationStore::default();
+    presentation_store.register(
+        id_one,
+        PresentedTerminal {
+            image: Default::default(),
+            texture_state: active_texture_state.clone(),
+            desired_texture_state: active_texture_state.clone(),
+            display_mode: TerminalDisplayMode::Smooth,
+            uploaded_revision: 1,
+            panel_entity: Entity::PLACEHOLDER,
+            frame_entity: Entity::PLACEHOLDER,
+        },
+    );
+    presentation_store.register(
+        id_two,
+        PresentedTerminal {
+            image: Default::default(),
+            texture_state: cached_background_state.clone(),
+            desired_texture_state: cached_background_state.clone(),
+            display_mode: TerminalDisplayMode::Smooth,
+            uploaded_revision: 1,
+            panel_entity: Entity::PLACEHOLDER,
+            frame_entity: Entity::PLACEHOLDER,
+        },
+    );
+
+    let mut world = World::default();
+    world.insert_resource(manager);
+    world.insert_resource(presentation_store);
+    world.insert_resource(font_state);
+    world.insert_resource(view_state);
+    world.insert_resource(hud_state);
+    world.insert_resource(crate::terminals::TerminalGlyphCache::default());
+    world.insert_resource(renderer);
+    world.insert_resource(Assets::<Image>::default());
+    world.spawn((window, PrimaryWindow));
+
+    world.run_system_once(sync_terminal_texture).unwrap();
+
+    let store = world.resource::<TerminalPresentationStore>();
+    let inactive = store.get(id_one).expect("missing inactive terminal");
+    assert_eq!(inactive.texture_state, active_texture_state);
+    assert_eq!(inactive.desired_texture_state, active_texture_state);
+
+    let active = store.get(id_two).expect("missing active terminal");
+    assert_eq!(active.texture_state, cached_background_state);
+    assert_eq!(active.desired_texture_state, active_texture_state);
+}
+
+#[test]
+fn sync_terminal_texture_promotes_active_terminal_once_resized_surface_arrives() {
+    let report = resolve_terminal_font_report().expect("failed to resolve terminal fonts");
+    let mut renderer = TerminalTextRenderer::default();
+    initialize_terminal_text_renderer(&report, &mut renderer)
+        .expect("failed to initialize terminal text renderer");
+    let font_state = TerminalFontState {
+        report: Some(Ok(report)),
+    };
+
+    let (bridge, _) = test_bridge();
+    let mut manager = TerminalManager::default();
+    let id = manager.create_terminal(bridge);
+
+    let window = Window {
+        resolution: (1400, 900).into(),
+        ..Default::default()
+    };
+    let mut hud_state = HudState::default();
+    hud_state.insert(
+        HudModuleId::AgentList,
+        crate::hud::default_hud_module_instance(&crate::hud::HUD_MODULE_DEFINITIONS[1]),
+    );
+    let rect = crate::hud::docked_agent_list_rect(&window);
+    let agent_list = hud_state.get_mut(HudModuleId::AgentList).unwrap();
+    agent_list.shell.enabled = true;
+    agent_list.shell.current_rect = rect;
+    agent_list.shell.target_rect = rect;
+
+    let view_state = TerminalViewState::default();
+    let active_dimensions = active_terminal_dimensions(&window, &hud_state, &view_state);
+    let active_cell_size = active_terminal_cell_size(&window, &view_state);
+    let active_texture_state = TerminalTextureState {
+        texture_size: UVec2::new(
+            active_dimensions.cols as u32 * active_cell_size.x,
+            active_dimensions.rows as u32 * active_cell_size.y,
+        ),
+        cell_size: active_cell_size,
+    };
+    let cached_background_state = TerminalTextureState {
+        texture_size: UVec2::new(
+            active_dimensions.cols as u32 * DEFAULT_CELL_WIDTH_PX,
+            active_dimensions.rows as u32 * DEFAULT_CELL_HEIGHT_PX,
+        ),
+        cell_size: UVec2::new(DEFAULT_CELL_WIDTH_PX, DEFAULT_CELL_HEIGHT_PX),
+    };
+
+    let terminal = manager.get_mut(id).unwrap();
+    terminal.snapshot.surface = Some(TerminalSurface::new(
+        active_dimensions.cols,
+        active_dimensions.rows,
+    ));
+    terminal.surface_revision = 2;
+    terminal.pending_damage = Some(TerminalDamage::Full);
+
+    let mut images = Assets::<Image>::default();
+    let image = images.add(create_terminal_image(UVec2::ONE));
+
+    let mut presentation_store = TerminalPresentationStore::default();
+    presentation_store.register(
+        id,
+        PresentedTerminal {
+            image,
+            texture_state: cached_background_state.clone(),
+            desired_texture_state: cached_background_state,
+            display_mode: TerminalDisplayMode::Smooth,
+            uploaded_revision: 1,
+            panel_entity: Entity::PLACEHOLDER,
+            frame_entity: Entity::PLACEHOLDER,
+        },
+    );
+
+    let mut world = World::default();
+    world.insert_resource(manager);
+    world.insert_resource(presentation_store);
+    world.insert_resource(font_state);
+    world.insert_resource(view_state);
+    world.insert_resource(hud_state);
+    world.insert_resource(crate::terminals::TerminalGlyphCache::default());
+    world.insert_resource(renderer);
+    world.insert_resource(images);
+    world.spawn((window, PrimaryWindow));
+
+    world.run_system_once(sync_terminal_texture).unwrap();
+
+    let store = world.resource::<TerminalPresentationStore>();
+    let presented = store.get(id).expect("missing presented terminal");
+    assert_eq!(presented.texture_state, active_texture_state);
+    assert_eq!(presented.desired_texture_state, active_texture_state);
+    assert_eq!(presented.uploaded_revision, 2);
 }
 
 #[test]
@@ -1045,6 +1247,10 @@ fn show_all_presentations_remain_visible_when_no_terminal_is_active() {
                 texture_size: UVec2::new(100, 100),
                 cell_size: UVec2::new(10, 20),
             },
+            desired_texture_state: TerminalTextureState {
+                texture_size: UVec2::new(100, 100),
+                cell_size: UVec2::new(10, 20),
+            },
             display_mode: TerminalDisplayMode::Smooth,
             uploaded_revision: 0,
             panel_entity: Entity::PLACEHOLDER,
@@ -1157,6 +1363,7 @@ fn direct_input_mode_shows_orange_terminal_frame() {
         PresentedTerminal {
             image: Default::default(),
             texture_state: Default::default(),
+            desired_texture_state: Default::default(),
             display_mode: Default::default(),
             uploaded_revision: 0,
             panel_entity,
@@ -1190,6 +1397,10 @@ fn message_box_keeps_terminal_presentations_visible() {
         PresentedTerminal {
             image: Default::default(),
             texture_state: TerminalTextureState {
+                texture_size: UVec2::new(100, 100),
+                cell_size: UVec2::new(10, 20),
+            },
+            desired_texture_state: TerminalTextureState {
                 texture_size: UVec2::new(100, 100),
                 cell_size: UVec2::new(10, 20),
             },
@@ -1259,6 +1470,10 @@ fn isolate_visibility_policy_with_missing_terminal_degrades_to_show_all() {
         PresentedTerminal {
             image: Default::default(),
             texture_state: TerminalTextureState {
+                texture_size: UVec2::new(100, 100),
+                cell_size: UVec2::new(10, 20),
+            },
+            desired_texture_state: TerminalTextureState {
                 texture_size: UVec2::new(100, 100),
                 cell_size: UVec2::new(10, 20),
             },
@@ -1332,6 +1547,10 @@ fn terminal_visibility_policy_hides_only_presentation_and_show_all_restores_it()
             PresentedTerminal {
                 image: Default::default(),
                 texture_state: TerminalTextureState {
+                    texture_size: UVec2::new(100, 100),
+                    cell_size: UVec2::new(10, 20),
+                },
+                desired_texture_state: TerminalTextureState {
                     texture_size: UVec2::new(100, 100),
                     cell_size: UVec2::new(10, 20),
                 },

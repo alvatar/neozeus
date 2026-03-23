@@ -84,6 +84,10 @@ pub(crate) fn spawn_terminal_presentation(
                 texture_size: UVec2::ONE,
                 cell_size: UVec2::new(DEFAULT_CELL_WIDTH_PX, DEFAULT_CELL_HEIGHT_PX),
             },
+            desired_texture_state: TerminalTextureState {
+                texture_size: UVec2::ONE,
+                cell_size: UVec2::new(DEFAULT_CELL_WIDTH_PX, DEFAULT_CELL_HEIGHT_PX),
+            },
             display_mode: TerminalDisplayMode::Smooth,
             uploaded_revision: 0,
             panel_entity,

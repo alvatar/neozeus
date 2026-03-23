@@ -11,7 +11,7 @@ use crate::{
         PERSISTENT_SESSION_PREFIX,
     },
 };
-use bevy::prelude::*;
+use bevy::{prelude::*, window::RequestRedraw};
 
 #[cfg(test)]
 #[allow(
@@ -109,12 +109,14 @@ pub(crate) fn apply_terminal_focus_requests(
     mut hud_state: ResMut<HudState>,
     mut session_persistence: ResMut<TerminalSessionPersistenceState>,
     mut view_state: ResMut<TerminalViewState>,
+    mut redraws: MessageWriter<RequestRedraw>,
 ) {
     for request in requests.read() {
         terminal_manager.focus_terminal(request.terminal_id);
         hud_state.reconcile_direct_terminal_input(terminal_manager.active_id());
         view_state.focus_terminal(terminal_manager.active_id());
         mark_terminal_sessions_dirty(&mut session_persistence, Some(&time));
+        redraws.write(RequestRedraw);
     }
 }
 
@@ -122,6 +124,7 @@ pub(crate) fn apply_visibility_requests(
     mut requests: MessageReader<TerminalVisibilityRequest>,
     terminal_manager: Res<TerminalManager>,
     mut visibility_state: ResMut<TerminalVisibilityState>,
+    mut redraws: MessageWriter<RequestRedraw>,
 ) {
     for request in requests.read() {
         match request {
@@ -138,6 +141,7 @@ pub(crate) fn apply_visibility_requests(
                 append_debug_log("hud visibility show-all");
             }
         }
+        redraws.write(RequestRedraw);
     }
 }
 
@@ -161,6 +165,7 @@ pub(crate) fn apply_terminal_view_requests(
     terminal_manager: Res<TerminalManager>,
     mut presentation_store: ResMut<TerminalPresentationStore>,
     mut view_state: ResMut<TerminalViewState>,
+    mut redraws: MessageWriter<RequestRedraw>,
 ) {
     for request in requests.read() {
         match request {
@@ -172,6 +177,7 @@ pub(crate) fn apply_terminal_view_requests(
                 view_state.reset_active_offset(terminal_manager.active_id());
             }
         }
+        redraws.write(RequestRedraw);
     }
 }
 
@@ -221,8 +227,10 @@ pub(crate) fn apply_terminal_lifecycle_requests(
     mut session_persistence: ResMut<TerminalSessionPersistenceState>,
     mut visibility_state: ResMut<TerminalVisibilityState>,
     mut view_state: ResMut<TerminalViewState>,
+    mut redraws: MessageWriter<RequestRedraw>,
 ) {
     for request in requests.read() {
+        let mut state_changed = false;
         match request {
             TerminalLifecycleRequest::Spawn => {
                 let session_name = match runtime_spawner.create_session(PERSISTENT_SESSION_PREFIX) {
@@ -264,6 +272,7 @@ pub(crate) fn apply_terminal_lifecycle_requests(
                     "spawned terminal {} session={}",
                     terminal_id.0, session_name
                 ));
+                state_changed = true;
             }
             TerminalLifecycleRequest::KillActive => {
                 match kill_active_terminal_session_and_remove(
@@ -282,6 +291,7 @@ pub(crate) fn apply_terminal_lifecycle_requests(
                             "killed terminal {} session={}",
                             terminal_id.0, session_name
                         ));
+                        state_changed = true;
                     }
                     Ok(None) => {}
                     Err(error) => {
@@ -301,6 +311,9 @@ pub(crate) fn apply_terminal_lifecycle_requests(
                 }
                 hud_state.reconcile_direct_terminal_input(terminal_manager.active_id());
             }
+        }
+        if state_changed {
+            redraws.write(RequestRedraw);
         }
     }
 }

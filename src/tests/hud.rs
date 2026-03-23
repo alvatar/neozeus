@@ -1,15 +1,16 @@
 use super::{fake_runtime_spawner, pressed_text, temp_dir, test_bridge, FakeDaemonClient};
 use crate::hud::{
     agent_list_bloom_layer, agent_list_bloom_z, agent_row_rect, agent_rows, apply_persisted_layout,
-    debug_toolbar_buttons, dispatch_hud_pointer_click, dispatch_hud_scroll,
-    handle_hud_module_shortcuts, handle_hud_pointer_input, hud_needs_redraw, kill_active_terminal,
-    parse_persisted_hud_state, resolve_agent_label, resolve_agent_list_bloom_intensity,
-    resolve_hud_layout_path_with, save_hud_layout_if_dirty, serialize_persisted_hud_state,
-    AgentDirectory, AgentListBloomCameraMarker, AgentListBloomCompositeMarker,
-    AgentListBloomSourceKind, AgentListBloomSourceSprite, AgentListRowSection, HudBloomSettings,
-    HudDragState, HudIntent, HudModuleId, HudModuleModel, HudOffscreenCompositor,
-    HudPersistenceState, HudRect, HudState, HudWidgetBloom, PersistedHudModuleState,
-    PersistedHudState, TerminalVisibilityPolicy, TerminalVisibilityState,
+    apply_terminal_focus_requests, apply_visibility_requests, debug_toolbar_buttons,
+    dispatch_hud_pointer_click, dispatch_hud_scroll, handle_hud_module_shortcuts,
+    handle_hud_pointer_input, hud_needs_redraw, kill_active_terminal, parse_persisted_hud_state,
+    resolve_agent_label, resolve_agent_list_bloom_intensity, resolve_hud_layout_path_with,
+    save_hud_layout_if_dirty, serialize_persisted_hud_state, AgentDirectory,
+    AgentListBloomCameraMarker, AgentListBloomCompositeMarker, AgentListBloomSourceKind,
+    AgentListBloomSourceSprite, AgentListRowSection, HudBloomSettings, HudDragState, HudIntent,
+    HudModuleId, HudModuleModel, HudOffscreenCompositor, HudPersistenceState, HudRect, HudState,
+    HudWidgetBloom, PersistedHudModuleState, PersistedHudState, TerminalFocusRequest,
+    TerminalVisibilityPolicy, TerminalVisibilityRequest, TerminalVisibilityState,
 };
 use crate::terminals::{
     TerminalManager, TerminalPanel, TerminalPanelFrame, TerminalPresentationStore,
@@ -421,6 +422,47 @@ fn plain_k_navigates_to_previous_agent_and_isolates_it() {
             HudIntent::HideAllButTerminal(id_one)
         ]
     );
+}
+
+#[test]
+fn focus_and_visibility_requests_request_redraw_immediately() {
+    let mut world = World::default();
+    let (bridge, _) = test_bridge();
+    let mut manager = TerminalManager::default();
+    let id = manager.create_terminal_without_focus(bridge);
+
+    let mut time = Time::<()>::default();
+    time.advance_by(Duration::from_secs(1));
+    world.insert_resource(time);
+    world.insert_resource(manager);
+    world.insert_resource(HudState::default());
+    world.insert_resource(TerminalSessionPersistenceState::default());
+    world.insert_resource(TerminalViewState::default());
+    world.insert_resource(TerminalVisibilityState::default());
+    world.init_resource::<Messages<TerminalFocusRequest>>();
+    world.init_resource::<Messages<TerminalVisibilityRequest>>();
+    world.init_resource::<Messages<RequestRedraw>>();
+
+    world
+        .resource_mut::<Messages<TerminalFocusRequest>>()
+        .write(TerminalFocusRequest { terminal_id: id });
+    world
+        .run_system_once(apply_terminal_focus_requests)
+        .unwrap();
+
+    assert_eq!(world.resource::<TerminalManager>().active_id(), Some(id));
+    assert_eq!(world.resource::<Messages<RequestRedraw>>().len(), 1);
+
+    world
+        .resource_mut::<Messages<TerminalVisibilityRequest>>()
+        .write(TerminalVisibilityRequest::Isolate(id));
+    world.run_system_once(apply_visibility_requests).unwrap();
+
+    assert_eq!(
+        world.resource::<TerminalVisibilityState>().policy,
+        TerminalVisibilityPolicy::Isolate(id)
+    );
+    assert_eq!(world.resource::<Messages<RequestRedraw>>().len(), 2);
 }
 
 #[test]
@@ -1067,6 +1109,7 @@ fn killing_active_terminal_removes_runtime_presentation_and_labels() {
         crate::terminals::PresentedTerminal {
             image: Default::default(),
             texture_state: Default::default(),
+            desired_texture_state: Default::default(),
             display_mode: Default::default(),
             uploaded_revision: 0,
             panel_entity: Entity::PLACEHOLDER,
@@ -1170,6 +1213,7 @@ fn killing_active_terminal_preserves_local_state_when_tmux_kill_fails() {
         crate::terminals::PresentedTerminal {
             image: Default::default(),
             texture_state: Default::default(),
+            desired_texture_state: Default::default(),
             display_mode: Default::default(),
             uploaded_revision: 0,
             panel_entity: Entity::PLACEHOLDER,
