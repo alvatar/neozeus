@@ -2,7 +2,8 @@ use crate::{
     hud::TerminalVisibilityPolicy,
     scene::{
         choose_startup_focus_session_name, format_startup_panic, resolve_window_mode,
-        should_request_visual_redraw, startup_visibility_policy_for_focus,
+        resolve_window_scale_factor, should_request_visual_redraw,
+        startup_visibility_policy_for_focus,
     },
     terminals::TerminalId,
 };
@@ -68,6 +69,18 @@ fn allows_explicit_windowed_override() {
         resolve_window_mode(Some(" WINDOWED ")),
         WindowMode::Windowed
     );
+}
+
+#[test]
+fn parses_optional_window_scale_factor_override() {
+    assert_eq!(resolve_window_scale_factor(None), None);
+    assert_eq!(resolve_window_scale_factor(Some("")), None);
+    assert_eq!(resolve_window_scale_factor(Some("  ")), None);
+    assert_eq!(resolve_window_scale_factor(Some("1.0")), Some(1.0));
+    assert_eq!(resolve_window_scale_factor(Some(" 2.5 ")), Some(2.5));
+    assert_eq!(resolve_window_scale_factor(Some("0")), None);
+    assert_eq!(resolve_window_scale_factor(Some("-1")), None);
+    assert_eq!(resolve_window_scale_factor(Some("abc")), None);
 }
 
 #[test]

@@ -4,12 +4,13 @@ use crate::hud::{
     agent_rows, apply_persisted_layout, debug_toolbar_buttons, dispatch_hud_pointer_click,
     dispatch_hud_scroll, handle_hud_module_shortcuts, handle_hud_pointer_input, hud_needs_redraw,
     kill_active_terminal, parse_persisted_hud_state, resolve_agent_label,
-    resolve_hud_layout_path_with, save_hud_layout_if_dirty, serialize_persisted_hud_state,
-    AgentDirectory, AgentListBloomBlurCameraMarker, AgentListBloomCompositeMarker,
-    AgentListBloomSourceCameraMarker, AgentListBloomSourceSprite, AgentListRowSection,
-    HudBloomBlurMaterial, HudBloomCompositeMaterial, HudDragState, HudIntent, HudModuleId,
-    HudModuleModel, HudOffscreenCompositor, HudPersistenceState, HudRect, HudState, HudWidgetBloom,
-    PersistedHudModuleState, PersistedHudState, TerminalVisibilityPolicy, TerminalVisibilityState,
+    resolve_agent_list_bloom_intensity, resolve_hud_layout_path_with, save_hud_layout_if_dirty,
+    serialize_persisted_hud_state, AgentDirectory, AgentListBloomBlurCameraMarker,
+    AgentListBloomCompositeMarker, AgentListBloomSourceCameraMarker, AgentListBloomSourceSprite,
+    AgentListRowSection, HudBloomBlurMaterial, HudBloomCompositeMaterial, HudBloomSettings,
+    HudDragState, HudIntent, HudModuleId, HudModuleModel, HudOffscreenCompositor,
+    HudPersistenceState, HudRect, HudState, HudWidgetBloom, PersistedHudModuleState,
+    PersistedHudState, TerminalVisibilityPolicy, TerminalVisibilityState,
 };
 use crate::terminals::{
     TerminalManager, TerminalPanel, TerminalPanelFrame, TerminalPresentationStore,
@@ -75,6 +76,7 @@ fn setup_hud_requests_initial_redraw() {
 #[test]
 fn setup_hud_widget_bloom_spawns_cameras_and_composite_quad() {
     let mut world = World::default();
+    world.insert_resource(HudBloomSettings::default());
     world.insert_resource(HudWidgetBloom::default());
     world.insert_resource(Assets::<Mesh>::default());
     world.insert_resource(Assets::<Image>::default());
@@ -126,6 +128,7 @@ fn setup_hud_widget_bloom_spawns_cameras_and_composite_quad() {
 #[test]
 fn setup_hud_widget_bloom_uses_logical_window_size_for_targets() {
     let mut world = World::default();
+    world.insert_resource(HudBloomSettings::default());
     world.insert_resource(HudWidgetBloom::default());
     world.insert_resource(Assets::<Mesh>::default());
     world.insert_resource(Assets::<Image>::default());
@@ -191,6 +194,16 @@ fn sync_structural_hud_layout_docks_agent_list_to_full_height_left_column() {
     let hud_state = world.resource::<HudState>();
     let module = hud_state.get(HudModuleId::AgentList).unwrap();
     assert_eq!(module.shell.current_rect, expected_rect);
+}
+
+#[test]
+fn parses_agent_bloom_intensity_override() {
+    assert_eq!(resolve_agent_list_bloom_intensity(None), 3.0);
+    assert_eq!(resolve_agent_list_bloom_intensity(Some("")), 3.0);
+    assert_eq!(resolve_agent_list_bloom_intensity(Some("2.0")), 2.0);
+    assert_eq!(resolve_agent_list_bloom_intensity(Some(" 0.0 ")), 0.0);
+    assert_eq!(resolve_agent_list_bloom_intensity(Some("-1")), 3.0);
+    assert_eq!(resolve_agent_list_bloom_intensity(Some("abc")), 3.0);
 }
 
 #[test]
@@ -565,6 +578,7 @@ fn sync_hud_widget_bloom_spawns_agent_list_source_sprites() {
     world.insert_resource(hud_state);
     world.insert_resource(AgentDirectory::default());
     world.insert_resource(HudOffscreenCompositor::default());
+    world.insert_resource(HudBloomSettings::default());
     world.insert_resource(HudWidgetBloom::default());
     world.insert_resource(Assets::<Mesh>::default());
     world.insert_resource(Assets::<Image>::default());

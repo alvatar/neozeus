@@ -7,9 +7,9 @@ use crate::{
         handle_hud_module_shortcuts, handle_hud_pointer_input, hud_needs_redraw, render_hud_scene,
         save_hud_layout_if_dirty, setup_hud, setup_hud_widget_bloom, sync_hud_offscreen_compositor,
         sync_hud_widget_bloom, sync_structural_hud_layout, AgentDirectory, HudBloomBlurMaterial,
-        HudBloomCompositeMaterial, HudIntent, HudModuleRequest, HudOffscreenCompositor,
-        HudPersistenceState, HudState, HudWidgetBloom, TerminalFocusRequest,
-        TerminalLifecycleRequest, TerminalSendRequest, TerminalViewRequest,
+        HudBloomCompositeMaterial, HudBloomSettings, HudIntent, HudModuleRequest,
+        HudOffscreenCompositor, HudPersistenceState, HudState, HudWidgetBloom,
+        TerminalFocusRequest, TerminalLifecycleRequest, TerminalSendRequest, TerminalViewRequest,
         TerminalVisibilityPolicy, TerminalVisibilityRequest, TerminalVisibilityState,
     },
     input::{
@@ -94,12 +94,26 @@ pub(crate) fn resolve_window_mode(raw: Option<&str>) -> WindowMode {
     }
 }
 
+pub(crate) fn resolve_window_scale_factor(raw: Option<&str>) -> Option<f32> {
+    raw.map(str::trim)
+        .filter(|value| !value.is_empty())
+        .and_then(|value| value.parse::<f32>().ok())
+        .filter(|value| value.is_finite() && *value > 0.0)
+}
+
 fn primary_window_config() -> Window {
+    let resolution = if let Some(scale_factor) =
+        resolve_window_scale_factor(env::var("NEOZEUS_WINDOW_SCALE_FACTOR").ok().as_deref())
+    {
+        bevy::window::WindowResolution::new(1400, 900).with_scale_factor_override(scale_factor)
+    } else {
+        (1400, 900).into()
+    };
     Window {
         title: env::var("NEOZEUS_WINDOW_TITLE").unwrap_or_else(|_| "neozeus".to_owned()),
         name: Some(env::var("NEOZEUS_APP_ID").unwrap_or_else(|_| "neozeus".to_owned())),
         mode: resolve_window_mode(env::var("NEOZEUS_WINDOW_MODE").ok().as_deref()),
-        resolution: (1400, 900).into(),
+        resolution,
         ..default()
     }
 }
@@ -147,6 +161,7 @@ fn configure_app(app: &mut App) -> Result<(), String> {
         .insert_resource(HudState::default())
         .insert_resource(HudPersistenceState::default())
         .insert_resource(HudOffscreenCompositor::default())
+        .insert_resource(HudBloomSettings::default())
         .insert_resource(HudWidgetBloom::default())
         .insert_resource(AgentDirectory::default())
         .insert_resource(TerminalVisibilityState::default())
