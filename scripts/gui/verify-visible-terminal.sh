@@ -61,6 +61,7 @@ cleanup() {
         neozeus_gui_cleanup_pid "$APP_PID"
         APP_PID=
     fi
+    neozeus_gui_cleanup_isolated_app_env
 }
 trap cleanup EXIT
 
@@ -69,15 +70,17 @@ rm -f "$RUN_LOG" "$DEBUG_LOG" "$BEFORE1" "$BEFORE2" "$AFTER" "$DIFF"
 
 WINDOW_TITLE="neozeus-autoverify-$$"
 AUTOVERIFY_COMMAND='clear; for i in $(seq 1 24); do echo "__NZ_AUTOVERIFY__$i"; done'
-__NV_PRIME_RENDER_OFFLOAD=1 \
-__VK_LAYER_NV_optimus=NVIDIA_only \
-VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/nvidia_icd.json \
-WGPU_ADAPTER_NAME=nvidia \
-NEOZEUS_WINDOW_TITLE="$WINDOW_TITLE" \
-NEOZEUS_AUTOVERIFY_COMMAND="$AUTOVERIFY_COMMAND" \
-NEOZEUS_AUTOVERIFY_DELAY_MS=5000 \
-nohup "$APP" >"$RUN_LOG" 2>&1 </dev/null &
-APP_PID=$!
+neozeus_gui_prepare_isolated_app_env "neozeus-visible"
+APP_PID=$(neozeus_gui_launch_isolated \
+    "$APP" \
+    "$RUN_LOG" \
+    __NV_PRIME_RENDER_OFFLOAD=1 \
+    __VK_LAYER_NV_optimus=NVIDIA_only \
+    VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/nvidia_icd.json \
+    WGPU_ADAPTER_NAME=nvidia \
+    NEOZEUS_WINDOW_TITLE="$WINDOW_TITLE" \
+    NEOZEUS_AUTOVERIFY_COMMAND="$AUTOVERIFY_COMMAND" \
+    NEOZEUS_AUTOVERIFY_DELAY_MS=5000)
 
 GUI_WORKSPACE=${NEOZEUS_GUI_WORKSPACE:-8}
 

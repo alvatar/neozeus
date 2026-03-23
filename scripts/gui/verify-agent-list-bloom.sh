@@ -70,6 +70,7 @@ cleanup_app() {
         neozeus_gui_cleanup_pid "$APP_PID"
         APP_PID=
     fi
+    neozeus_gui_cleanup_isolated_app_env
 }
 
 trap cleanup_app EXIT
@@ -83,14 +84,16 @@ run_capture() {
     cleanup_app
     rm -f "$RUN_LOG" "$STABLE_A" "$STABLE_B" "$out_png"
 
-    NEOZEUS_WINDOW_TITLE="$title" \
-    NEOZEUS_WINDOW_MODE=windowed \
-    NEOZEUS_WINDOW_SCALE_FACTOR=1.0 \
-    NEOZEUS_AGENT_BLOOM_INTENSITY="$intensity" \
-    NEOZEUS_AUTOVERIFY_COMMAND='printf "__NZ_BLOOM__\n"' \
-    NEOZEUS_AUTOVERIFY_DELAY_MS=400 \
-    nohup "$APP" >"$RUN_LOG" 2>&1 </dev/null &
-    APP_PID=$!
+    neozeus_gui_prepare_isolated_app_env "neozeus-bloom-${tag}"
+    APP_PID=$(neozeus_gui_launch_isolated \
+        "$APP" \
+        "$RUN_LOG" \
+        NEOZEUS_WINDOW_TITLE="$title" \
+        NEOZEUS_WINDOW_MODE=windowed \
+        NEOZEUS_WINDOW_SCALE_FACTOR=1.0 \
+        NEOZEUS_AGENT_BLOOM_INTENSITY="$intensity" \
+        NEOZEUS_AUTOVERIFY_COMMAND='printf "__NZ_BLOOM__\n"' \
+        NEOZEUS_AUTOVERIFY_DELAY_MS=400)
 
     local window_json
     window_json=$(neozeus_gui_find_window_by_pid_and_title "$APP_PID" "$title")

@@ -74,6 +74,15 @@ pub(crate) fn initialize_terminal_text_renderer(
     report: &TerminalFontReport,
     text_renderer: &mut TerminalTextRenderer,
 ) -> Result<(), String> {
+    let locale = env::var("LANG").unwrap_or_else(|_| "en-US".to_owned());
+    initialize_terminal_text_renderer_with_locale(report, text_renderer, &locale)
+}
+
+pub(crate) fn initialize_terminal_text_renderer_with_locale(
+    report: &TerminalFontReport,
+    text_renderer: &mut TerminalTextRenderer,
+    locale: &str,
+) -> Result<(), String> {
     let mut db = fontdb::Database::new();
     db.load_system_fonts();
     db.set_monospace_family(report.primary.family.clone());
@@ -93,8 +102,7 @@ pub(crate) fn initialize_terminal_text_renderer(
         })?;
     }
 
-    let locale = env::var("LANG").unwrap_or_else(|_| "en-US".to_owned());
-    text_renderer.font_system = Some(CtFontSystem::new_with_locale_and_db(locale, db));
+    text_renderer.font_system = Some(CtFontSystem::new_with_locale_and_db(locale.to_owned(), db));
     text_renderer.swash_cache = CtSwashCache::new();
     Ok(())
 }
@@ -102,6 +110,13 @@ pub(crate) fn initialize_terminal_text_renderer(
 pub(crate) fn resolve_terminal_font_report() -> Result<TerminalFontReport, String> {
     let requested_family = load_kitty_font_family()?.unwrap_or_else(|| "monospace".to_owned());
     resolve_terminal_font_stack_for_family(&requested_family)
+}
+
+#[cfg(test)]
+pub(crate) fn resolve_terminal_font_report_for_family(
+    requested_family: &str,
+) -> Result<TerminalFontReport, String> {
+    resolve_terminal_font_stack_for_family(requested_family)
 }
 
 fn resolve_terminal_font_stack_for_family(

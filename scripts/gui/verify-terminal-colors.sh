@@ -43,6 +43,7 @@ cleanup() {
         neozeus_gui_cleanup_pid "$APP_PID"
         APP_PID=
     fi
+    neozeus_gui_cleanup_isolated_app_env
 }
 trap cleanup EXIT
 
@@ -137,16 +138,18 @@ chmod +x "$FIXTURE"
 
 WINDOW_TITLE="neozeus-color-verify-$$"
 AUTOVERIFY_COMMAND="bash $FIXTURE"
-__NV_PRIME_RENDER_OFFLOAD=1 \
-__VK_LAYER_NV_optimus=NVIDIA_only \
-VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/nvidia_icd.json \
-WGPU_ADAPTER_NAME=nvidia \
-NEOZEUS_WINDOW_TITLE="$WINDOW_TITLE" \
-NEOZEUS_DUMP_TEXTURE=1 \
-NEOZEUS_AUTOVERIFY_COMMAND="$AUTOVERIFY_COMMAND" \
-NEOZEUS_AUTOVERIFY_DELAY_MS=1500 \
-nohup "$APP" >"$RUN_LOG" 2>&1 </dev/null &
-APP_PID=$!
+neozeus_gui_prepare_isolated_app_env "neozeus-colors"
+APP_PID=$(neozeus_gui_launch_isolated \
+    "$APP" \
+    "$RUN_LOG" \
+    __NV_PRIME_RENDER_OFFLOAD=1 \
+    __VK_LAYER_NV_optimus=NVIDIA_only \
+    VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/nvidia_icd.json \
+    WGPU_ADAPTER_NAME=nvidia \
+    NEOZEUS_WINDOW_TITLE="$WINDOW_TITLE" \
+    NEOZEUS_DUMP_TEXTURE=1 \
+    NEOZEUS_AUTOVERIFY_COMMAND="$AUTOVERIFY_COMMAND" \
+    NEOZEUS_AUTOVERIFY_DELAY_MS=1500)
 
 GUI_WORKSPACE=${NEOZEUS_GUI_WORKSPACE:-8}
 
