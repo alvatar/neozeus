@@ -5,7 +5,6 @@ const HUD_MESSAGE_BOX_KILL_RING_LIMIT: usize = 32;
 const HUD_MESSAGE_BOX_ACTION_BUTTON_W: f32 = 170.0;
 const HUD_MESSAGE_BOX_ACTION_BUTTON_H: f32 = 28.0;
 const HUD_MESSAGE_BOX_ACTION_BUTTON_GAP: f32 = 12.0;
-const HUD_MESSAGE_BOX_TOP_MARGIN: f32 = 28.0;
 const HUD_MESSAGE_BOX_HEIGHT_RATIO: f32 = 0.52;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -47,7 +46,7 @@ pub(crate) fn message_box_rect(window: &Window) -> HudRect {
     );
     HudRect {
         x: window.width() * 0.5 - size.x * 0.5,
-        y: HUD_MESSAGE_BOX_TOP_MARGIN,
+        y: 0.0,
         w: size.x,
         h: size.y,
     }
