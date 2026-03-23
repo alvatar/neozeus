@@ -14,9 +14,6 @@ const EVA_ORANGE: peniko::Color = peniko::Color::from_rgba8(255, 116, 16, 255);
 const EVA_ORANGE_BRIGHT: peniko::Color = peniko::Color::from_rgba8(255, 160, 64, 255);
 const EVA_ORANGE_DIM: peniko::Color = peniko::Color::from_rgba8(176, 82, 18, 255);
 const EVA_CYAN: peniko::Color = peniko::Color::from_rgba8(96, 238, 255, 255);
-const EVA_PANEL: peniko::Color = peniko::Color::from_rgba8(4, 4, 4, 210);
-const EVA_NOISE: peniko::Color = peniko::Color::from_rgba8(255, 132, 36, 18);
-const EVA_SCAN: peniko::Color = peniko::Color::from_rgba8(255, 140, 42, 12);
 
 fn inflate_rect(rect: HudRect, amount: f32) -> HudRect {
     HudRect {
@@ -79,49 +76,6 @@ fn glow_rect(painter: &mut HudPainter, rect: HudRect, stroke: peniko::Color, fil
     painter.stroke_rect(rect, stroke, 0.0);
 }
 
-fn hash01(seed: u32) -> f32 {
-    let mixed = seed.wrapping_mul(1_597_334_677).rotate_left(13) ^ 0x68bc_21ebu32;
-    (mixed & 1023) as f32 / 1023.0
-}
-
-fn draw_noise_overlay(painter: &mut HudPainter, rect: HudRect) {
-    let mut y = rect.y + 2.0;
-    let end_y = rect.y + rect.h - 2.0;
-    while y < end_y {
-        painter.fill_rect(
-            HudRect {
-                x: rect.x,
-                y,
-                w: rect.w,
-                h: 1.0,
-            },
-            EVA_SCAN,
-            0.0,
-        );
-        y += 4.0;
-    }
-
-    for idx in 0..48u32 {
-        let px = rect.x + hash01(idx * 17 + 3) * rect.w;
-        let py = rect.y + hash01(idx * 29 + 11) * rect.h;
-        let w = 4.0 + hash01(idx * 31 + 19) * 20.0;
-        painter.fill_rect(
-            HudRect {
-                x: px,
-                y: py,
-                w: w.min((rect.x + rect.w - px).max(1.0)),
-                h: 1.0,
-            },
-            if idx % 5 == 0 {
-                apply_alpha(EVA_CYAN, 0.22)
-            } else {
-                EVA_NOISE
-            },
-            0.0,
-        );
-    }
-}
-
 fn draw_left_rail(painter: &mut HudPainter, content_rect: HudRect) {
     let rail_x = content_rect.x + 12.0;
     let top = content_rect.y + HUD_MODULE_PADDING;
@@ -137,8 +91,9 @@ fn draw_left_rail(painter: &mut HudPainter, content_rect: HudRect) {
         0.0,
     );
 
-    for idx in 0..7 {
-        let y = top + 24.0 + idx as f32 * 48.0;
+    let mut idx = 0usize;
+    let mut y = top + 24.0;
+    while y <= bottom - 2.0 {
         painter.fill_rect(
             HudRect {
                 x: rail_x - 6.0,
@@ -159,6 +114,8 @@ fn draw_left_rail(painter: &mut HudPainter, content_rect: HudRect) {
                 VelloTextAnchor::TopLeft,
             );
         }
+        idx += 1;
+        y += 48.0;
     }
 }
 
@@ -172,14 +129,6 @@ pub(crate) fn render_content(
         return;
     };
 
-    let panel_rect = HudRect {
-        x: content_rect.x + 2.0,
-        y: content_rect.y + 2.0,
-        w: (content_rect.w - 4.0).max(0.0),
-        h: (content_rect.h - 4.0).max(0.0),
-    };
-    painter.fill_rect(panel_rect, EVA_PANEL, 0.0);
-    draw_noise_overlay(painter, panel_rect);
     draw_left_rail(painter, content_rect);
 
     glow_label(
