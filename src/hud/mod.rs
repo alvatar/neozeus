@@ -21,11 +21,13 @@ pub(crate) use bloom::{
     AgentListBloomSourceKind, AgentListBloomSourceSprite,
 };
 pub(crate) use compositor::{
-    setup_hud_offscreen_compositor, sync_hud_offscreen_compositor, HudOffscreenCompositor,
+    setup_hud_offscreen_compositor, sync_hud_offscreen_compositor, HudCompositeMaterial,
+    HudOffscreenCompositor,
 };
 #[cfg(test)]
 pub(crate) use compositor::{
-    HudCompositeLayerId, HudCompositeLayerMarker, HUD_COMPOSITE_FOREGROUND_Z,
+    HudCompositeCameraMarker, HudCompositeLayerId, HudCompositeLayerMarker,
+    HUD_COMPOSITE_FOREGROUND_Z, HUD_COMPOSITE_RENDER_LAYER,
 };
 #[cfg(test)]
 pub(crate) use dispatcher::kill_active_terminal;
@@ -74,6 +76,8 @@ pub(crate) fn setup_hud(
     mut hud_state: ResMut<HudState>,
     mut persistence_state: ResMut<HudPersistenceState>,
     mut compositor: ResMut<HudOffscreenCompositor>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut composite_materials: ResMut<Assets<HudCompositeMaterial>>,
     mut redraws: MessageWriter<RequestRedraw>,
 ) {
     persistence_state.path = persistence::resolve_hud_layout_path();
@@ -107,7 +111,12 @@ pub(crate) fn setup_hud(
         NoFrustumCulling,
         HudVectorSceneMarker,
     ));
-    setup_hud_offscreen_compositor(&mut commands, &mut compositor);
+    setup_hud_offscreen_compositor(
+        &mut commands,
+        &mut compositor,
+        &mut meshes,
+        &mut composite_materials,
+    );
     redraws.write(RequestRedraw);
 }
 
