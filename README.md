@@ -29,9 +29,11 @@ Window-opening GUI verifiers are opt-in and grouped under `scripts/gui/`:
 - visible-output verifier only: `./scripts/gui/verify-visible-terminal.sh`
 - color verifier only: `./scripts/gui/verify-terminal-colors.sh`
 - agent-list bloom verifier only: `./scripts/gui/verify-agent-list-bloom.sh`
+- agent-list bloom stage inspector: `./scripts/gui/inspect-agent-list-bloom-stages.sh`
 
 Compatibility wrappers remain at the old paths:
 
 - `./scripts/verify-visible-terminal.sh`
 - `./scripts/verify-terminal-colors.sh`
 - `./scripts/verify-agent-list-bloom.sh`
+- `./scripts/inspect-agent-list-bloom-stages.sh`

@@ -37,10 +37,17 @@ const SMALL_BLUR_GAIN: f32 = 0.85;
 const WIDE_BLUR_GAIN: f32 = 0.60;
 const SMALL_BLUR_STEP_SCALE: f32 = 1.75;
 const WIDE_BLUR_STEP_SCALE: f32 = 5.5;
+const BLOOM_DEBUG_PREVIEW_Z: f32 = HUD_COMPOSITE_FOREGROUND_Z + 2.0;
+const BLOOM_DEBUG_PREVIEW_WIDTH: f32 = 160.0;
+const BLOOM_DEBUG_PREVIEW_HEIGHT: f32 = 120.0;
+const BLOOM_DEBUG_PREVIEW_MARGIN: f32 = 16.0;
+const BLOOM_DEBUG_PREVIEW_GAP: f32 = 12.0;
+const BLOOM_DEBUG_PREVIEW_BACKDROP_PADDING: f32 = 10.0;
 
 #[derive(Resource, Clone, Copy, Debug)]
 pub(crate) struct HudBloomSettings {
     pub(crate) agent_list_intensity: f32,
+    pub(crate) debug_previews: bool,
 }
 
 impl Default for HudBloomSettings {
@@ -48,6 +55,11 @@ impl Default for HudBloomSettings {
         Self {
             agent_list_intensity: resolve_agent_list_bloom_intensity(
                 env::var("NEOZEUS_AGENT_BLOOM_INTENSITY").ok().as_deref(),
+            ),
+            debug_previews: resolve_agent_list_bloom_debug_previews(
+                env::var("NEOZEUS_AGENT_BLOOM_DEBUG_PREVIEWS")
+                    .ok()
+                    .as_deref(),
             ),
         }
     }
@@ -59,6 +71,17 @@ pub(crate) fn resolve_agent_list_bloom_intensity(raw: Option<&str>) -> f32 {
         .and_then(|value| value.parse::<f32>().ok())
         .filter(|value| value.is_finite() && *value >= 0.0)
         .unwrap_or(DEFAULT_BLOOM_INTENSITY)
+}
+
+pub(crate) fn resolve_agent_list_bloom_debug_previews(raw: Option<&str>) -> bool {
+    matches!(
+        raw.map(str::trim).filter(|value| !value.is_empty()),
+        Some(value)
+            if value.eq_ignore_ascii_case("1")
+                || value.eq_ignore_ascii_case("true")
+                || value.eq_ignore_ascii_case("yes")
+                || value.eq_ignore_ascii_case("on")
+    )
 }
 
 #[derive(Component)]
@@ -96,6 +119,21 @@ struct AgentListBloomBlurWideHorizontalQuadMarker;
 
 #[derive(Component)]
 struct AgentListBloomBlurWideVerticalQuadMarker;
+
+#[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
+enum AgentListBloomDebugPreviewStage {
+    Source,
+    SmallBlur,
+    WideBlur,
+}
+
+#[derive(Component)]
+struct AgentListBloomDebugPreviewMarker {
+    stage: AgentListBloomDebugPreviewStage,
+}
+
+#[derive(Component)]
+struct AgentListBloomDebugBackdropMarker;
 
 #[derive(Clone, Copy, Debug, ShaderType)]
 pub(crate) struct AgentListBloomBlurUniform {
@@ -220,6 +258,34 @@ fn fullscreen_transform(window: &Window, z: f32) -> Transform {
     Transform::from_xyz(0.0, 0.0, z).with_scale(Vec3::new(window.width(), window.height(), 1.0))
 }
 
+fn bloom_debug_preview_transform(
+    window: &Window,
+    stage: AgentListBloomDebugPreviewStage,
+    z: f32,
+) -> Transform {
+    let index = match stage {
+        AgentListBloomDebugPreviewStage::Source => 0.0,
+        AgentListBloomDebugPreviewStage::SmallBlur => 1.0,
+        AgentListBloomDebugPreviewStage::WideBlur => 2.0,
+    };
+    let total_width = BLOOM_DEBUG_PREVIEW_WIDTH * 3.0 + BLOOM_DEBUG_PREVIEW_GAP * 2.0;
+    let left = window.width() * 0.5 - BLOOM_DEBUG_PREVIEW_MARGIN - total_width;
+    let x = left
+        + index * (BLOOM_DEBUG_PREVIEW_WIDTH + BLOOM_DEBUG_PREVIEW_GAP)
+        + BLOOM_DEBUG_PREVIEW_WIDTH * 0.5;
+    let y = window.height() * 0.5 - BLOOM_DEBUG_PREVIEW_MARGIN - BLOOM_DEBUG_PREVIEW_HEIGHT * 0.5;
+    Transform::from_xyz(x, y, z)
+}
+
+fn bloom_debug_backdrop_transform(window: &Window, z: f32) -> Transform {
+    let total_width = BLOOM_DEBUG_PREVIEW_WIDTH * 3.0 + BLOOM_DEBUG_PREVIEW_GAP * 2.0;
+    let panel_width = total_width + BLOOM_DEBUG_PREVIEW_BACKDROP_PADDING * 2.0;
+    let panel_height = BLOOM_DEBUG_PREVIEW_HEIGHT + BLOOM_DEBUG_PREVIEW_BACKDROP_PADDING * 2.0;
+    let x = window.width() * 0.5 - BLOOM_DEBUG_PREVIEW_MARGIN - panel_width * 0.5;
+    let y = window.height() * 0.5 - BLOOM_DEBUG_PREVIEW_MARGIN - panel_height * 0.5;
+    Transform::from_xyz(x, y, z).with_scale(Vec3::new(panel_width, panel_height, 1.0))
+}
+
 fn blur_uniform(texel_step: Vec2, gain: f32) -> AgentListBloomBlurUniform {
     AgentListBloomBlurUniform {
         texel_step_gain: Vec4::new(texel_step.x, texel_step.y, gain, 0.0),
@@ -293,6 +359,7 @@ fn build_bloom_specs(
 pub(crate) struct HudWidgetBloomSetupContext<'w, 's> {
     commands: Commands<'w, 's>,
     primary_window: Single<'w, 's, &'static Window, With<PrimaryWindow>>,
+    settings: Res<'w, HudBloomSettings>,
     images: ResMut<'w, Assets<Image>>,
     meshes: ResMut<'w, Assets<Mesh>>,
     blur_materials: ResMut<'w, Assets<AgentListBloomBlurMaterial>>,
@@ -506,6 +573,108 @@ pub(crate) fn setup_hud_widget_bloom(mut ctx: HudWidgetBloomSetupContext) {
         AgentListBloomAdditiveCameraMarker,
     ));
 
+    let debug_backdrop = ctx
+        .commands
+        .spawn((
+            Sprite {
+                color: Color::srgba(0.0, 0.0, 0.0, 0.92),
+                custom_size: Some(Vec2::new(1.0, 1.0)),
+                ..default()
+            },
+            bloom_debug_backdrop_transform(&ctx.primary_window, BLOOM_DEBUG_PREVIEW_Z),
+            RenderLayers::layer(0),
+            Visibility::Hidden,
+            AgentListBloomDebugBackdropMarker,
+        ))
+        .id();
+    let debug_source_preview = ctx
+        .commands
+        .spawn((
+            Sprite {
+                image: source_image.clone(),
+                color: Color::WHITE,
+                custom_size: Some(Vec2::new(
+                    BLOOM_DEBUG_PREVIEW_WIDTH,
+                    BLOOM_DEBUG_PREVIEW_HEIGHT,
+                )),
+                ..default()
+            },
+            bloom_debug_preview_transform(
+                &ctx.primary_window,
+                AgentListBloomDebugPreviewStage::Source,
+                BLOOM_DEBUG_PREVIEW_Z + 0.01,
+            ),
+            RenderLayers::layer(0),
+            Visibility::Hidden,
+            AgentListBloomDebugPreviewMarker {
+                stage: AgentListBloomDebugPreviewStage::Source,
+            },
+        ))
+        .id();
+    let debug_small_preview = ctx
+        .commands
+        .spawn((
+            Sprite {
+                image: blur_small_v_image.clone(),
+                color: Color::WHITE,
+                custom_size: Some(Vec2::new(
+                    BLOOM_DEBUG_PREVIEW_WIDTH,
+                    BLOOM_DEBUG_PREVIEW_HEIGHT,
+                )),
+                ..default()
+            },
+            bloom_debug_preview_transform(
+                &ctx.primary_window,
+                AgentListBloomDebugPreviewStage::SmallBlur,
+                BLOOM_DEBUG_PREVIEW_Z + 0.01,
+            ),
+            RenderLayers::layer(0),
+            Visibility::Hidden,
+            AgentListBloomDebugPreviewMarker {
+                stage: AgentListBloomDebugPreviewStage::SmallBlur,
+            },
+        ))
+        .id();
+    let debug_wide_preview = ctx
+        .commands
+        .spawn((
+            Sprite {
+                image: blur_wide_v_image.clone(),
+                color: Color::WHITE,
+                custom_size: Some(Vec2::new(
+                    BLOOM_DEBUG_PREVIEW_WIDTH,
+                    BLOOM_DEBUG_PREVIEW_HEIGHT,
+                )),
+                ..default()
+            },
+            bloom_debug_preview_transform(
+                &ctx.primary_window,
+                AgentListBloomDebugPreviewStage::WideBlur,
+                BLOOM_DEBUG_PREVIEW_Z + 0.01,
+            ),
+            RenderLayers::layer(0),
+            Visibility::Hidden,
+            AgentListBloomDebugPreviewMarker {
+                stage: AgentListBloomDebugPreviewStage::WideBlur,
+            },
+        ))
+        .id();
+
+    if ctx.settings.debug_previews {
+        ctx.commands
+            .entity(debug_backdrop)
+            .insert(Visibility::Visible);
+        ctx.commands
+            .entity(debug_source_preview)
+            .insert(Visibility::Visible);
+        ctx.commands
+            .entity(debug_small_preview)
+            .insert(Visibility::Visible);
+        ctx.commands
+            .entity(debug_wide_preview)
+            .insert(Visibility::Visible);
+    }
+
     ctx.bloom.agent_list = AgentListBloomPass {
         source_image,
         blur_small_h_image,
@@ -624,6 +793,28 @@ type BloomBlurWideVerticalQuadFilter = (
     Without<AgentListBloomWideCompositeMarker>,
     Without<AgentListBloomSourceSprite>,
 );
+type BloomDebugBackdropFilter = (
+    With<AgentListBloomDebugBackdropMarker>,
+    Without<AgentListBloomDebugPreviewMarker>,
+    Without<AgentListBloomCompositeMarker>,
+    Without<AgentListBloomWideCompositeMarker>,
+    Without<AgentListBloomSourceSprite>,
+    Without<AgentListBloomBlurSmallHorizontalQuadMarker>,
+    Without<AgentListBloomBlurSmallVerticalQuadMarker>,
+    Without<AgentListBloomBlurWideHorizontalQuadMarker>,
+    Without<AgentListBloomBlurWideVerticalQuadMarker>,
+);
+type BloomDebugPreviewFilter = (
+    With<AgentListBloomDebugPreviewMarker>,
+    Without<AgentListBloomDebugBackdropMarker>,
+    Without<AgentListBloomCompositeMarker>,
+    Without<AgentListBloomWideCompositeMarker>,
+    Without<AgentListBloomSourceSprite>,
+    Without<AgentListBloomBlurSmallHorizontalQuadMarker>,
+    Without<AgentListBloomBlurSmallVerticalQuadMarker>,
+    Without<AgentListBloomBlurWideHorizontalQuadMarker>,
+    Without<AgentListBloomBlurWideVerticalQuadMarker>,
+);
 
 #[derive(SystemParam)]
 pub(crate) struct HudWidgetBloomContext<'w, 's> {
@@ -664,6 +855,19 @@ pub(crate) struct HudWidgetBloomContext<'w, 's> {
             &'static mut Visibility,
         ),
         BloomWideCompositeFilter,
+    >,
+    debug_backdrops:
+        Query<'w, 's, (&'static mut Transform, &'static mut Visibility), BloomDebugBackdropFilter>,
+    debug_previews: Query<
+        'w,
+        's,
+        (
+            &'static AgentListBloomDebugPreviewMarker,
+            &'static mut Sprite,
+            &'static mut Transform,
+            &'static mut Visibility,
+        ),
+        BloomDebugPreviewFilter,
     >,
     blur_small_h_quads: Query<
         'w,
@@ -991,6 +1195,37 @@ pub(crate) fn sync_hud_widget_bloom(mut ctx: HudWidgetBloomContext) {
                 Visibility::Hidden
             };
         }
+    }
+
+    let previews_visible = ctx.settings.debug_previews;
+    for (mut transform, mut visibility) in &mut ctx.debug_backdrops {
+        *transform = bloom_debug_backdrop_transform(&ctx.primary_window, BLOOM_DEBUG_PREVIEW_Z);
+        *visibility = if previews_visible {
+            Visibility::Visible
+        } else {
+            Visibility::Hidden
+        };
+    }
+    for (marker, mut sprite, mut transform, mut visibility) in &mut ctx.debug_previews {
+        sprite.image = match marker.stage {
+            AgentListBloomDebugPreviewStage::Source => pass.source_image.clone(),
+            AgentListBloomDebugPreviewStage::SmallBlur => pass.blur_small_v_image.clone(),
+            AgentListBloomDebugPreviewStage::WideBlur => pass.blur_wide_v_image.clone(),
+        };
+        sprite.custom_size = Some(Vec2::new(
+            BLOOM_DEBUG_PREVIEW_WIDTH,
+            BLOOM_DEBUG_PREVIEW_HEIGHT,
+        ));
+        *transform = bloom_debug_preview_transform(
+            &ctx.primary_window,
+            marker.stage,
+            BLOOM_DEBUG_PREVIEW_Z + 0.01,
+        );
+        *visibility = if previews_visible {
+            Visibility::Visible
+        } else {
+            Visibility::Hidden
+        };
     }
 }
 

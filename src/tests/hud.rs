@@ -5,13 +5,14 @@ use crate::hud::{
     debug_toolbar_buttons, dispatch_hud_pointer_click, dispatch_hud_scroll,
     handle_hud_module_shortcuts, handle_hud_pointer_input, hud_needs_redraw, kill_active_terminal,
     message_box_action_buttons, message_box_rect, parse_persisted_hud_state, resolve_agent_label,
-    resolve_agent_list_bloom_intensity, resolve_hud_layout_path_with, save_hud_layout_if_dirty,
-    serialize_persisted_hud_state, task_dialog_action_buttons, AgentDirectory,
-    AgentListBloomCameraMarker, AgentListBloomCompositeMarker, AgentListBloomSourceKind,
-    AgentListBloomSourceSprite, AgentListRowSection, HudBloomSettings, HudDragState, HudIntent,
-    HudModuleId, HudModuleModel, HudOffscreenCompositor, HudPersistenceState, HudRect, HudState,
-    HudWidgetBloom, PersistedHudModuleState, PersistedHudState, TerminalFocusRequest,
-    TerminalVisibilityPolicy, TerminalVisibilityRequest, TerminalVisibilityState,
+    resolve_agent_list_bloom_debug_previews, resolve_agent_list_bloom_intensity,
+    resolve_hud_layout_path_with, save_hud_layout_if_dirty, serialize_persisted_hud_state,
+    task_dialog_action_buttons, AgentDirectory, AgentListBloomCameraMarker,
+    AgentListBloomCompositeMarker, AgentListBloomSourceKind, AgentListBloomSourceSprite,
+    AgentListRowSection, HudBloomSettings, HudDragState, HudIntent, HudModuleId, HudModuleModel,
+    HudOffscreenCompositor, HudPersistenceState, HudRect, HudState, HudWidgetBloom,
+    PersistedHudModuleState, PersistedHudState, TerminalFocusRequest, TerminalVisibilityPolicy,
+    TerminalVisibilityRequest, TerminalVisibilityState,
 };
 use crate::terminals::{
     TerminalManager, TerminalNotesState, TerminalPanel, TerminalPanelFrame,
@@ -226,6 +227,17 @@ fn parses_agent_bloom_intensity_override() {
     assert_eq!(resolve_agent_list_bloom_intensity(Some(" 0.0 ")), 0.0);
     assert_eq!(resolve_agent_list_bloom_intensity(Some("-1")), 1.35);
     assert_eq!(resolve_agent_list_bloom_intensity(Some("abc")), 1.35);
+}
+
+#[test]
+fn parses_agent_bloom_debug_previews_override() {
+    assert!(!resolve_agent_list_bloom_debug_previews(None));
+    assert!(!resolve_agent_list_bloom_debug_previews(Some("")));
+    assert!(resolve_agent_list_bloom_debug_previews(Some("1")));
+    assert!(resolve_agent_list_bloom_debug_previews(Some(" true ")));
+    assert!(resolve_agent_list_bloom_debug_previews(Some("on")));
+    assert!(!resolve_agent_list_bloom_debug_previews(Some("0")));
+    assert!(!resolve_agent_list_bloom_debug_previews(Some("false")));
 }
 
 #[test]
