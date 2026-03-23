@@ -1,0 +1,286 @@
+use std::borrow::Cow;
+
+use bevy::{prelude::*, reflect::TypePath, render::render_asset::RenderAsset};
+use parley::{
+    FontSettings, FontStyle, FontVariation, Layout, PositionedLayoutItem, RangedBuilder,
+    StyleProperty,
+};
+use vello::{
+    Scene,
+    kurbo::Affine,
+    peniko::{Brush, Fill},
+};
+
+use super::{VelloFontAxes, VelloTextAnchor, context::LOCAL_FONT_CONTEXT};
+use crate::{
+    integrations::text::context::{LOCAL_LAYOUT_CONTEXT, get_global_font_context},
+    prelude::{VelloTextAlign, VelloTextStyle},
+};
+
+#[derive(Asset, TypePath, Debug, Clone)]
+pub struct VelloFont {
+    /// Defaults to Bevy's bevy_text default font family name.
+    ///
+    /// https://github.com/bevyengine/bevy/tree/v0.15.3/crates/bevy_text/src/FiraMono-subset.ttf
+    pub(crate) family_name: String,
+    pub bytes: Vec<u8>,
+}
+
+impl RenderAsset for VelloFont {
+    type SourceAsset = VelloFont;
+
+    type Param = ();
+
+    fn prepare_asset(
+        source_asset: Self::SourceAsset,
+        _asset_id: AssetId<Self::SourceAsset>,
+        _param: &mut bevy::ecs::system::SystemParamItem<Self::Param>,
+        _previous_asset: Option<&Self>,
+    ) -> Result<Self, bevy::render::render_asset::PrepareAssetError<Self::SourceAsset>> {
+        Ok(source_asset)
+    }
+}
+
+impl VelloFont {
+    pub fn new(font_data: Vec<u8>) -> Self {
+        Self {
+            bytes: font_data,
+            family_name: "Fira Mono".to_string(),
+        }
+    }
+
+    pub fn layout(
+        &self,
+        value: &str,
+        style: &VelloTextStyle,
+        text_align: VelloTextAlign,
+        max_advance: Option<f32>,
+    ) -> Layout<Brush> {
+        LOCAL_FONT_CONTEXT.with_borrow_mut(|font_context| {
+            if font_context.is_none() {
+                *font_context = Some(get_global_font_context().clone());
+            }
+
+            let font_context = font_context.as_mut().unwrap();
+
+            LOCAL_LAYOUT_CONTEXT.with_borrow_mut(|layout_context| {
+                let mut builder = layout_context.ranged_builder(font_context, value, 1.0, true);
+
+                apply_font_styles(&mut builder, style);
+                apply_variable_axes(&mut builder, &style.font_axes);
+
+                builder.push_default(StyleProperty::FontStack(parley::FontStack::Single(
+                    parley::FontFamily::Named(Cow::Owned(self.family_name.clone())),
+                )));
+
+                let mut layout = builder.build(value);
+                layout.break_all_lines(max_advance);
+                layout.align(
+                    max_advance,
+                    text_align.into(),
+                    parley::AlignmentOptions::default(),
+                );
+
+                layout
+            })
+        })
+    }
+
+    #[expect(clippy::too_many_arguments, reason = "Common lint in bevy")]
+    pub(crate) fn render(
+        &self,
+        scene: &mut Scene,
+        mut transform: Affine,
+        value: &str,
+        style: &VelloTextStyle,
+        text_align: VelloTextAlign,
+        max_advance: Option<f32>,
+        text_anchor: VelloTextAnchor,
+    ) {
+        let layout = self.layout(value, style, text_align, max_advance);
+
+        let width = layout.width() as f64;
+        let height = layout.height() as f64;
+
+        let (dx, dy) = match text_anchor {
+            VelloTextAnchor::TopLeft => (0.0, 0.0),
+            VelloTextAnchor::Left => (0.0, -height / 2.0),
+            VelloTextAnchor::BottomLeft => (0.0, -height),
+            VelloTextAnchor::Top => (-width / 2.0, 0.0),
+            VelloTextAnchor::Center => (-width / 2.0, -height / 2.0),
+            VelloTextAnchor::Bottom => (-width / 2.0, -height),
+            VelloTextAnchor::TopRight => (-width, 0.0),
+            VelloTextAnchor::Right => (-width, -height / 2.0),
+            VelloTextAnchor::BottomRight => (-width, -height),
+        };
+        transform *= vello::kurbo::Affine::translate((dx, dy));
+
+        for line in layout.lines() {
+            for item in line.items() {
+                let PositionedLayoutItem::GlyphRun(glyph_run) = item else {
+                    continue;
+                };
+
+                let mut x = glyph_run.offset();
+                let y = glyph_run.baseline();
+                let run = glyph_run.run();
+                let font = run.font();
+                let font_size = run.font_size();
+                let synthesis = run.synthesis();
+                let glyph_xform = synthesis
+                    .skew()
+                    .map(|angle| Affine::skew(angle.to_radians().tan() as f64, 0.0));
+
+                scene
+                    .draw_glyphs(font)
+                    .brush(&style.brush)
+                    .hint(true)
+                    .transform(transform)
+                    .glyph_transform(glyph_xform)
+                    .font_size(font_size)
+                    .normalized_coords(run.normalized_coords())
+                    .draw(
+                        Fill::NonZero,
+                        glyph_run.glyphs().map(|glyph| {
+                            let gx = x + glyph.x;
+                            let gy = y - glyph.y;
+                            x += glyph.advance;
+                            vello::Glyph {
+                                id: glyph.id as _,
+                                x: gx,
+                                y: gy,
+                            }
+                        }),
+                    );
+            }
+        }
+    }
+}
+
+/// Applies the font styles to the text
+///
+/// font_size - font size
+/// line_height - line height
+/// word_spacing - extra spacing between words
+/// letter_spacing - extra spacing between letters
+fn apply_font_styles(builder: &mut RangedBuilder<'_, Brush>, style: &VelloTextStyle) {
+    builder.push_default(StyleProperty::FontSize(style.font_size));
+    builder.push_default(StyleProperty::LineHeight(
+        parley::LineHeight::MetricsRelative(style.line_height),
+    ));
+    builder.push_default(StyleProperty::WordSpacing(style.word_spacing));
+    builder.push_default(StyleProperty::LetterSpacing(style.letter_spacing));
+}
+
+/// Applies the variable axes to the text
+///
+/// wght - font weight
+/// wdth - font width
+/// opsz - optical size
+/// ital - italic
+/// slnt - slant
+/// GRAD - grade
+/// XOPQ - thick stroke
+/// YOPQ - thin stroke
+/// YTUC - uppercase height
+/// YTLC - lowercase height
+/// YTAS - ascender height
+/// YTDE - descender depth
+/// YTFI - figure height
+fn apply_variable_axes(builder: &mut RangedBuilder<'_, Brush>, axes: &VelloFontAxes) {
+    let mut variable_axes: Vec<FontVariation> = vec![];
+
+    if let Some(weight) = axes.weight {
+        variable_axes.push(parley::swash::Setting {
+            tag: parley::swash::tag_from_str_lossy("wght"),
+            value: weight,
+        });
+    }
+
+    if let Some(width) = axes.width {
+        variable_axes.push(parley::swash::Setting {
+            tag: parley::swash::tag_from_str_lossy("wdth"),
+            value: width,
+        });
+    }
+
+    if let Some(optical_size) = axes.optical_size {
+        variable_axes.push(parley::swash::Setting {
+            tag: parley::swash::tag_from_str_lossy("opsz"),
+            value: optical_size,
+        });
+    }
+
+    if let Some(grade) = axes.grade {
+        variable_axes.push(parley::swash::Setting {
+            tag: parley::swash::tag_from_str_lossy("GRAD"),
+            value: grade,
+        });
+    }
+
+    if let Some(thick_stroke) = axes.thick_stroke {
+        variable_axes.push(parley::swash::Setting {
+            tag: parley::swash::tag_from_str_lossy("XOPQ"),
+            value: thick_stroke,
+        });
+    }
+
+    if let Some(thin_stroke) = axes.thin_stroke {
+        variable_axes.push(parley::swash::Setting {
+            tag: parley::swash::tag_from_str_lossy("YOPQ"),
+            value: thin_stroke,
+        });
+    }
+
+    if let Some(counter_width) = axes.counter_width {
+        variable_axes.push(parley::swash::Setting {
+            tag: parley::swash::tag_from_str_lossy("XTRA"),
+            value: counter_width,
+        });
+    }
+
+    if let Some(uppercase_height) = axes.uppercase_height {
+        variable_axes.push(parley::swash::Setting {
+            tag: parley::swash::tag_from_str_lossy("YTUC"),
+            value: uppercase_height,
+        });
+    }
+
+    if let Some(lowercase_height) = axes.lowercase_height {
+        variable_axes.push(parley::swash::Setting {
+            tag: parley::swash::tag_from_str_lossy("YTLC"),
+            value: lowercase_height,
+        });
+    }
+
+    if let Some(ascender_height) = axes.ascender_height {
+        variable_axes.push(parley::swash::Setting {
+            tag: parley::swash::tag_from_str_lossy("YTAS"),
+            value: ascender_height,
+        });
+    }
+
+    if let Some(descender_depth) = axes.descender_depth {
+        variable_axes.push(parley::swash::Setting {
+            tag: parley::swash::tag_from_str_lossy("YTDE"),
+            value: descender_depth,
+        });
+    }
+
+    if let Some(figure_height) = axes.figure_height {
+        variable_axes.push(parley::swash::Setting {
+            tag: parley::swash::tag_from_str_lossy("YTFI"),
+            value: figure_height,
+        });
+    }
+
+    if axes.italic {
+        builder.push_default(StyleProperty::FontStyle(FontStyle::Italic));
+    } else if axes.slant.is_some() {
+        builder.push_default(StyleProperty::FontStyle(FontStyle::Oblique(axes.slant)));
+    }
+
+    builder.push_default(StyleProperty::FontVariations(FontSettings::List(
+        variable_axes.into(),
+    )));
+}
