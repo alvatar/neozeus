@@ -16,6 +16,7 @@ pub(crate) const AGENT_LIST_ROW_GAP: f32 = 14.0;
 pub(crate) enum AgentListRowSection {
     Main,
     Marker,
+    Accent,
 }
 
 pub(crate) use interaction::{clear_hover, handle_hover, handle_pointer_click, handle_scroll};
@@ -43,6 +44,12 @@ pub(crate) fn agent_row_rect(rect: HudRect, section: AgentListRowSection) -> Hud
             y: rect.y + 2.0,
             w: AGENT_LIST_ROW_MARKER_WIDTH,
             h: (rect.h - 4.0).max(10.0),
+        },
+        AgentListRowSection::Accent => HudRect {
+            x: rect.x + 4.0,
+            y: rect.y + 4.0,
+            w: 3.0,
+            h: (rect.h - 8.0).max(8.0),
         },
     }
 }

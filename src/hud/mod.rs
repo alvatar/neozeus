@@ -1,8 +1,5 @@
+mod analog;
 mod animation;
-#[allow(
-    dead_code,
-    reason = "HUD bloom retained for future reuse but deactivated at scene boundary"
-)]
 mod bloom;
 mod compositor;
 mod dispatcher;
@@ -14,13 +11,20 @@ mod persistence;
 mod render;
 mod state;
 
+#[cfg(test)]
+pub(crate) use analog::{agent_list_analog_z, AgentListAnalogOverlayMarker};
+pub(crate) use analog::{
+    setup_agent_list_analog_overlay, sync_agent_list_analog_overlay, AgentListAnalogMaterial,
+};
 pub(crate) use animation::animate_hud_modules;
+pub(crate) use bloom::{
+    setup_hud_widget_bloom, sync_hud_widget_bloom, HudBloomSettings, HudWidgetBloom,
+};
 #[cfg(test)]
 pub(crate) use bloom::{
-    setup_hud_widget_bloom, sync_hud_widget_bloom, AgentListBloomCameraMarker,
-    AgentListBloomCompositeMarker, AgentListBloomSourceKind, AgentListBloomSourceSprite,
+    AgentListBloomCameraMarker, AgentListBloomCompositeMarker, AgentListBloomSourceKind,
+    AgentListBloomSourceSprite,
 };
-pub(crate) use bloom::{HudBloomSettings, HudWidgetBloom};
 pub(crate) use compositor::{
     setup_hud_offscreen_compositor, sync_hud_offscreen_compositor, HudOffscreenCompositor,
 };

@@ -20,8 +20,8 @@ use super::compositor::HUD_COMPOSITE_FOREGROUND_Z;
 
 const BLOOM_SOURCE_LAYER: usize = 29;
 const BLOOM_COMPOSITE_Z: f32 = HUD_COMPOSITE_FOREGROUND_Z + 0.1;
-const DEFAULT_BLOOM_INTENSITY: f32 = 0.68;
-const BLOOM_COMPOSITE_ALPHA: f32 = 0.74;
+const DEFAULT_BLOOM_INTENSITY: f32 = 0.92;
+const BLOOM_COMPOSITE_ALPHA: f32 = 0.88;
 
 #[derive(Resource, Clone, Copy, Debug)]
 pub(crate) struct HudBloomSettings {
@@ -54,7 +54,7 @@ pub(crate) struct AgentListBloomCompositeMarker;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum AgentListBloomSourceKind {
-    Marker,
+    Accent,
 }
 
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -127,18 +127,18 @@ fn rect_transform(window: &Window, rect: HudRect, z: f32) -> Transform {
 
 fn bloom_source_color(focused: bool, hovered: bool, kind: AgentListBloomSourceKind) -> Color {
     match (focused, hovered, kind) {
-        (true, _, AgentListBloomSourceKind::Marker) => Color::srgba(3.9, 1.42, 0.24, 0.42),
-        (_, true, AgentListBloomSourceKind::Marker) => Color::srgba(2.83, 1.03, 0.17, 0.30),
-        (_, _, AgentListBloomSourceKind::Marker) => Color::srgba(2.13, 0.77, 0.13, 0.22),
+        (true, _, AgentListBloomSourceKind::Accent) => Color::srgba(5.4, 0.30, 0.24, 0.52),
+        (_, true, AgentListBloomSourceKind::Accent) => Color::srgba(3.8, 0.24, 0.18, 0.34),
+        (_, _, AgentListBloomSourceKind::Accent) => Color::srgba(2.8, 0.18, 0.14, 0.22),
     }
 }
 
 fn bloom_component(intensity: f32) -> Bloom {
     Bloom {
         intensity,
-        low_frequency_boost: 0.58,
-        low_frequency_boost_curvature: 0.80,
-        high_pass_frequency: 0.94,
+        low_frequency_boost: 0.64,
+        low_frequency_boost_curvature: 0.72,
+        high_pass_frequency: 0.86,
         prefilter: BloomPrefilter {
             threshold: 0.0,
             threshold_softness: 0.0,
@@ -175,8 +175,8 @@ fn build_bloom_specs(
             continue;
         }
 
-        let kind = AgentListBloomSourceKind::Marker;
-        let rect = agent_row_rect(row.rect, AgentListRowSection::Marker);
+        let kind = AgentListBloomSourceKind::Accent;
+        let rect = agent_row_rect(row.rect, AgentListRowSection::Accent);
         specs.push(BloomSourceSpec {
             key: AgentListBloomSourceSprite {
                 terminal_id: row.terminal_id,
