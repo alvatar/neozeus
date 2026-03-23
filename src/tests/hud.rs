@@ -12,7 +12,8 @@ use crate::hud::{
     AgentListRowSection, HudBloomSettings, HudDragState, HudIntent, HudModuleId, HudModuleModel,
     HudOffscreenCompositor, HudPersistenceState, HudRect, HudState, HudWidgetBloom,
     PersistedHudModuleState, PersistedHudState, TerminalFocusRequest, TerminalVisibilityPolicy,
-    TerminalVisibilityRequest, TerminalVisibilityState,
+    TerminalVisibilityRequest, TerminalVisibilityState, AGENT_LIST_ACCENT_RED_B,
+    AGENT_LIST_ACCENT_RED_G, AGENT_LIST_ACCENT_RED_R,
 };
 use crate::terminals::{
     TerminalManager, TerminalNotesState, TerminalPanel, TerminalPanelFrame,
@@ -217,6 +218,18 @@ fn sync_structural_hud_layout_docks_agent_list_to_full_height_left_column() {
     let hud_state = world.resource::<HudState>();
     let module = hud_state.get(HudModuleId::AgentList).unwrap();
     assert_eq!(module.shell.current_rect, expected_rect);
+}
+
+#[test]
+fn agent_list_reference_red_matches_sample() {
+    assert_eq!(
+        (
+            AGENT_LIST_ACCENT_RED_R,
+            AGENT_LIST_ACCENT_RED_G,
+            AGENT_LIST_ACCENT_RED_B
+        ),
+        (253, 0, 1)
+    );
 }
 
 #[test]
