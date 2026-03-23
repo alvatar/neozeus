@@ -5,10 +5,11 @@ use crate::{
         TerminalVisibilityPolicy, TerminalVisibilityRequest, TerminalVisibilityState,
     },
     terminals::{
-        append_debug_log, kill_active_terminal_session_and_remove, mark_terminal_notes_dirty,
-        mark_terminal_sessions_dirty, spawn_attached_terminal_with_presentation, TerminalManager,
-        TerminalNotesState, TerminalPresentationStore, TerminalRuntimeSpawner,
-        TerminalSessionPersistenceState, TerminalViewState, PERSISTENT_SESSION_PREFIX,
+        append_debug_log, clear_done_tasks, kill_active_terminal_session_and_remove,
+        mark_terminal_notes_dirty, mark_terminal_sessions_dirty,
+        spawn_attached_terminal_with_presentation, TerminalManager, TerminalNotesState,
+        TerminalPresentationStore, TerminalRuntimeSpawner, TerminalSessionPersistenceState,
+        TerminalViewState, PERSISTENT_SESSION_PREFIX,
     },
 };
 use bevy::{prelude::*, window::RequestRedraw};
@@ -97,6 +98,11 @@ pub(crate) fn dispatch_hud_intents(
                 task_requests.write(TerminalTaskRequest::SetText {
                     terminal_id: *terminal_id,
                     text: text.clone(),
+                });
+            }
+            HudIntent::ClearDoneTerminalTasks(terminal_id) => {
+                task_requests.write(TerminalTaskRequest::ClearDone {
+                    terminal_id: *terminal_id,
                 });
             }
             HudIntent::AppendTerminalTask(terminal_id, text) => {
@@ -243,21 +249,54 @@ pub(crate) fn apply_terminal_task_requests(
     time: Res<Time>,
     terminal_manager: Res<TerminalManager>,
     mut notes_state: ResMut<TerminalNotesState>,
+    mut hud_state: ResMut<HudState>,
     mut redraws: MessageWriter<RequestRedraw>,
 ) {
     for request in requests.read() {
+        let mut changed_terminal = None;
         let changed = match request {
-            TerminalTaskRequest::SetText { terminal_id, text } => terminal_manager
-                .get(*terminal_id)
-                .is_some_and(|terminal| notes_state.set_note_text(&terminal.session_name, text)),
+            TerminalTaskRequest::SetText { terminal_id, text } => {
+                terminal_manager.get(*terminal_id).is_some_and(|terminal| {
+                    let changed = notes_state.set_note_text(&terminal.session_name, text);
+                    if changed {
+                        changed_terminal = Some(*terminal_id);
+                    }
+                    changed
+                })
+            }
+            TerminalTaskRequest::ClearDone { terminal_id } => {
+                terminal_manager.get(*terminal_id).is_some_and(|terminal| {
+                    let (updated, removed) = clear_done_tasks(
+                        notes_state
+                            .note_text(&terminal.session_name)
+                            .unwrap_or_default(),
+                    );
+                    if removed == 0 {
+                        return false;
+                    }
+                    let changed = notes_state.set_note_text(&terminal.session_name, &updated);
+                    if changed {
+                        changed_terminal = Some(*terminal_id);
+                    }
+                    changed
+                })
+            }
             TerminalTaskRequest::Append { terminal_id, text } => {
                 terminal_manager.get(*terminal_id).is_some_and(|terminal| {
-                    notes_state.append_task_from_text(&terminal.session_name, text)
+                    let changed = notes_state.append_task_from_text(&terminal.session_name, text);
+                    if changed {
+                        changed_terminal = Some(*terminal_id);
+                    }
+                    changed
                 })
             }
             TerminalTaskRequest::Prepend { terminal_id, text } => {
                 terminal_manager.get(*terminal_id).is_some_and(|terminal| {
-                    notes_state.prepend_task_from_text(&terminal.session_name, text)
+                    let changed = notes_state.prepend_task_from_text(&terminal.session_name, text);
+                    if changed {
+                        changed_terminal = Some(*terminal_id);
+                    }
+                    changed
                 })
             }
             TerminalTaskRequest::ConsumeNext { terminal_id } => {
@@ -276,10 +315,27 @@ pub(crate) fn apply_terminal_task_requests(
                     terminal
                         .bridge
                         .send(crate::terminals::TerminalCommand::SendCommand(message));
-                    notes_state.set_note_text(&terminal.session_name, &updated_task_text)
+                    let changed =
+                        notes_state.set_note_text(&terminal.session_name, &updated_task_text);
+                    if changed {
+                        changed_terminal = Some(*terminal_id);
+                    }
+                    changed
                 })
             }
         };
+        if let Some(terminal_id) = changed_terminal {
+            if hud_state.task_dialog.visible
+                && hud_state.task_dialog.target_terminal == Some(terminal_id)
+            {
+                let task_text = terminal_manager
+                    .get(terminal_id)
+                    .and_then(|terminal| notes_state.note_text(&terminal.session_name))
+                    .unwrap_or_default()
+                    .to_owned();
+                hud_state.task_dialog.load_text(&task_text);
+            }
+        }
         if changed {
             mark_terminal_notes_dirty(&mut notes_state, Some(&time));
             redraws.write(RequestRedraw);

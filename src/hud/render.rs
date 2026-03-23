@@ -436,7 +436,7 @@ fn draw_message_box(
     painter.label(
         Vec2::new(rect.x + 24.0, info_row_y),
         &format!(
-            "Ln {} · Col {} · {} · Enter newline · Ctrl-S send · Esc cancel · C-Space mark · C-w cut · M-w copy · C-y yank · M-y ring · Ctrl-T append · Ctrl-Shift-T prepend",
+            "Ln {} · Col {} · {} · Enter newline · Ctrl-S send · Esc cancel · C-Space mark · C-w cut · M-w copy · C-y yank · M-y ring",
             line_number + 1,
             column_number + 1,
             editor_selection_status(message_box)

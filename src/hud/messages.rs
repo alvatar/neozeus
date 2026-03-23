@@ -16,6 +16,7 @@ pub(crate) enum HudIntent {
     SendActiveTerminalCommand(String),
     SendTerminalCommand(TerminalId, String),
     SetTerminalTaskText(TerminalId, String),
+    ClearDoneTerminalTasks(TerminalId),
     AppendTerminalTask(TerminalId, String),
     PrependTerminalTask(TerminalId, String),
     ConsumeNextTerminalTask(TerminalId),
@@ -65,6 +66,9 @@ pub(crate) enum TerminalTaskRequest {
     SetText {
         terminal_id: TerminalId,
         text: String,
+    },
+    ClearDone {
+        terminal_id: TerminalId,
     },
     Append {
         terminal_id: TerminalId,

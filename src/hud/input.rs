@@ -4,9 +4,7 @@ use crate::{
         HudMessageBoxAction, HudModuleId, HudRect, HudState, HudTaskDialogAction,
         HUD_TITLEBAR_HEIGHT,
     },
-    terminals::{
-        clear_done_tasks, TerminalId, TerminalManager, TerminalPresentationStore, TerminalViewState,
-    },
+    terminals::{TerminalId, TerminalManager, TerminalPresentationStore, TerminalViewState},
 };
 use bevy::{
     ecs::system::SystemParam,
@@ -69,15 +67,10 @@ fn message_box_task_intent(
 
 fn task_dialog_intent(hud_state: &mut HudState, action: HudTaskDialogAction) -> Option<HudIntent> {
     match action {
-        HudTaskDialogAction::ClearDone => {
-            let target_terminal = hud_state.task_dialog.target_terminal?;
-            let (updated, removed) = clear_done_tasks(&hud_state.task_dialog.text);
-            if removed == 0 {
-                return None;
-            }
-            hud_state.task_dialog.load_text(&updated);
-            Some(HudIntent::SetTerminalTaskText(target_terminal, updated))
-        }
+        HudTaskDialogAction::ClearDone => hud_state
+            .task_dialog
+            .target_terminal
+            .map(HudIntent::ClearDoneTerminalTasks),
     }
 }
 
