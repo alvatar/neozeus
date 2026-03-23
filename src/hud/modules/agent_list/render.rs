@@ -103,6 +103,8 @@ fn draw_left_rail(painter: &mut HudPainter, content_rect: HudRect) {
     let tick_x = content_rect.x + 5.0;
     let top = content_rect.y + HUD_MODULE_PADDING + 4.0;
     let bottom = content_rect.y + content_rect.h - HUD_MODULE_PADDING;
+    let major_step = 34.0;
+    let minor_offset = major_step * 0.5;
 
     let mut y = top + 18.0;
     while y <= bottom - 2.0 {
@@ -116,7 +118,22 @@ fn draw_left_rail(painter: &mut HudPainter, content_rect: HudRect) {
             apply_alpha(EVA_CYAN, 0.82),
             0.0,
         );
-        y += 34.0;
+
+        let minor_y = y + minor_offset;
+        if minor_y <= bottom - 2.0 {
+            painter.fill_rect(
+                HudRect {
+                    x: tick_x,
+                    y: minor_y,
+                    w: 4.0,
+                    h: 2.0,
+                },
+                apply_alpha(EVA_CYAN, 0.72),
+                0.0,
+            );
+        }
+
+        y += major_step;
     }
 }
 
