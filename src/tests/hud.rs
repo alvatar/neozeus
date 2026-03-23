@@ -509,7 +509,7 @@ fn agent_rows_follow_terminal_order_and_focus() {
     assert!(rows[0].rect.x > shell_rect.x + 20.0);
     assert_eq!(rows[1].terminal_id, id_two);
     assert!(rows[1].focused);
-    assert_eq!(rows[1].rect.y - rows[0].rect.y, 36.0);
+    assert_eq!(rows[1].rect.y - rows[0].rect.y, 42.0);
 }
 
 #[test]
@@ -939,7 +939,7 @@ fn agent_list_scroll_clamps_to_content_height() {
     let HudModuleModel::AgentList(state) = model else {
         panic!("expected agent list model");
     };
-    assert_eq!(state.scroll_offset, 60.0);
+    assert_eq!(state.scroll_offset, 84.0);
 }
 
 #[test]
