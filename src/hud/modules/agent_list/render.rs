@@ -16,6 +16,7 @@ const EVA_ORANGE_DIM: peniko::Color = peniko::Color::from_rgba8(181, 66, 11, 255
 const EVA_SELECTED: peniko::Color = peniko::Color::from_rgba8(181, 66, 11, 255);
 const EVA_CYAN: peniko::Color = peniko::Color::from_rgba8(96, 238, 255, 255);
 const EVA_BLACK: peniko::Color = peniko::Color::from_rgba8(0, 0, 0, 255);
+const EVA_WHITE: peniko::Color = peniko::Color::from_rgba8(255, 255, 255, 255);
 const TASK_RED: peniko::Color = peniko::Color::from_rgba8(255, 24, 24, 255);
 
 #[allow(
@@ -162,7 +163,7 @@ pub(crate) fn render_content(
             EVA_ORANGE
         };
         let fill = if row.focused {
-            apply_alpha(EVA_BLACK, 0.94)
+            EVA_WHITE
         } else if row.hovered {
             apply_alpha(EVA_BLACK, 0.92)
         } else {
@@ -181,11 +182,7 @@ pub(crate) fn render_content(
             Vec2::new(main_rect.x + 5.0, main_rect.y + 2.0),
             &row.label.to_uppercase(),
             16.0,
-            if row.focused {
-                EVA_SELECTED
-            } else {
-                EVA_ORANGE
-            },
+            if row.focused { EVA_BLACK } else { EVA_ORANGE },
             VelloTextAnchor::TopLeft,
             0.76,
             1.14,
