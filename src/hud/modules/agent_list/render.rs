@@ -10,10 +10,11 @@ use super::{
     AGENT_LIST_ROW_MARKER_WIDTH,
 };
 
-const EVA_ORANGE: peniko::Color = peniko::Color::from_rgba8(255, 116, 16, 255);
-const EVA_ORANGE_BRIGHT: peniko::Color = peniko::Color::from_rgba8(255, 160, 64, 255);
-const EVA_ORANGE_DIM: peniko::Color = peniko::Color::from_rgba8(176, 82, 18, 255);
+const EVA_ORANGE: peniko::Color = peniko::Color::from_rgba8(255, 120, 12, 255);
+const EVA_ORANGE_BRIGHT: peniko::Color = peniko::Color::from_rgba8(255, 146, 26, 255);
+const EVA_ORANGE_DIM: peniko::Color = peniko::Color::from_rgba8(222, 92, 14, 255);
 const EVA_CYAN: peniko::Color = peniko::Color::from_rgba8(96, 238, 255, 255);
+const EVA_BLACK: peniko::Color = peniko::Color::from_rgba8(0, 0, 0, 255);
 
 fn inflate_rect(rect: HudRect, amount: f32) -> HudRect {
     HudRect {
@@ -68,10 +69,9 @@ fn glow_label(
 }
 
 fn glow_rect(painter: &mut HudPainter, rect: HudRect, stroke: peniko::Color, fill: peniko::Color) {
-    painter.fill_rect(inflate_rect(rect, 3.0), apply_alpha(fill, 0.08), 0.0);
-    painter.fill_rect(inflate_rect(rect, 1.5), apply_alpha(fill, 0.12), 0.0);
-    painter.stroke_rect(inflate_rect(rect, 2.5), apply_alpha(stroke, 0.24), 0.0);
-    painter.stroke_rect(inflate_rect(rect, 1.0), apply_alpha(stroke, 0.40), 0.0);
+    painter.fill_rect(inflate_rect(rect, 2.0), apply_alpha(stroke, 0.08), 0.0);
+    painter.stroke_rect(inflate_rect(rect, 2.0), apply_alpha(stroke, 0.20), 0.0);
+    painter.stroke_rect(inflate_rect(rect, 1.0), apply_alpha(stroke, 0.36), 0.0);
     painter.fill_rect(rect, fill, 0.0);
     painter.stroke_rect(rect, stroke, 0.0);
 }
@@ -189,11 +189,11 @@ pub(crate) fn render_content(
             EVA_ORANGE_DIM
         };
         let fill = if row.focused {
-            apply_alpha(EVA_ORANGE, 0.18)
+            apply_alpha(EVA_BLACK, 0.94)
         } else if row.hovered {
-            apply_alpha(EVA_ORANGE, 0.11)
+            apply_alpha(EVA_BLACK, 0.92)
         } else {
-            apply_alpha(EVA_ORANGE_DIM, 0.05)
+            apply_alpha(EVA_BLACK, 0.90)
         };
 
         glow_rect(painter, main_rect, stroke, fill);
@@ -202,17 +202,17 @@ pub(crate) fn render_content(
             marker_rect,
             stroke,
             if row.focused {
-                apply_alpha(EVA_ORANGE_BRIGHT, 0.88)
+                apply_alpha(EVA_ORANGE_BRIGHT, 0.96)
             } else {
-                apply_alpha(EVA_ORANGE, 0.5)
+                apply_alpha(EVA_ORANGE, 0.78)
             },
         );
 
         glow_label(
             painter,
-            Vec2::new(main_rect.x + 10.0, main_rect.y + 4.0),
+            Vec2::new(main_rect.x + 5.0, main_rect.y + 2.0),
             &row.label.to_uppercase(),
-            15.0,
+            16.0,
             if row.focused {
                 EVA_ORANGE_BRIGHT
             } else {
@@ -222,9 +222,9 @@ pub(crate) fn render_content(
         );
         glow_label(
             painter,
-            Vec2::new(marker_rect.x + marker_rect.w * 0.5, marker_rect.y + 4.0),
+            Vec2::new(marker_rect.x + marker_rect.w * 0.5, marker_rect.y + 3.0),
             &format!("{:02}", index + 1),
-            12.0,
+            11.0,
             HudColors::TEXT_ON_ACCENT,
             VelloTextAnchor::Top,
         );
