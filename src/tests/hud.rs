@@ -181,8 +181,8 @@ fn setup_hud_widget_bloom_uses_logical_window_size_for_targets() {
         .iter()
         .map(|image| image.texture_descriptor.size)
         .collect::<Vec<_>>();
-    assert!(target_sizes.iter().all(|size| size.width == 700));
-    assert!(target_sizes.iter().all(|size| size.height == 450));
+    assert!(target_sizes.iter().all(|size| size.width == 175));
+    assert!(target_sizes.iter().all(|size| size.height == 112));
     assert!(target_images
         .iter()
         .all(|image| image.texture_descriptor.format == TextureFormat::Rgba16Float));
