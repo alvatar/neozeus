@@ -12,7 +12,8 @@ mod state;
 
 pub(crate) use animation::animate_hud_modules;
 pub(crate) use bloom::{
-    setup_hud_widget_bloom, sync_hud_widget_bloom, HudBloomSettings, HudWidgetBloom,
+    setup_hud_widget_bloom, sync_hud_widget_bloom, AgentListBloomCompositeMaterial,
+    HudBloomSettings, HudWidgetBloom,
 };
 #[cfg(test)]
 pub(crate) use bloom::{

@@ -24,6 +24,7 @@ use bevy::{
     post_process::bloom::Bloom,
     prelude::*,
     render::render_resource::TextureFormat,
+    sprite_render::MeshMaterial2d,
     window::{PrimaryWindow, RequestRedraw, WindowResolution},
 };
 use bevy_vello::render::VelloCanvasMaterial;
@@ -81,6 +82,8 @@ fn setup_hud_widget_bloom_spawns_camera_and_composite_sprite() {
     world.insert_resource(HudBloomSettings::default());
     world.insert_resource(HudWidgetBloom::default());
     world.insert_resource(Assets::<Image>::default());
+    world.insert_resource(Assets::<Mesh>::default());
+    world.insert_resource(Assets::<crate::hud::AgentListBloomCompositeMaterial>::default());
     world.spawn((
         Window {
             resolution: (1400, 900).into(),
@@ -110,15 +113,31 @@ fn setup_hud_widget_bloom_spawns_camera_and_composite_sprite() {
     let RenderTarget::Image(handle) = target else {
         panic!("bloom camera must render to image target");
     };
-    let images = world.resource::<Assets<Image>>();
-    let image = images.get(handle.handle.id()).expect("bloom image exists");
-    assert_eq!(image.texture_descriptor.format, TextureFormat::Rgba16Float);
+    let bloom_image_handle = handle.handle.clone();
+    let image_format = {
+        let images = world.resource::<Assets<Image>>();
+        images
+            .get(bloom_image_handle.id())
+            .expect("bloom image exists")
+            .texture_descriptor
+            .format
+    };
+    assert_eq!(image_format, TextureFormat::Rgba16Float);
 
-    let mut composite_query =
-        world.query::<(&Transform, &Visibility, &AgentListBloomCompositeMarker)>();
-    let (transform, visibility, _) = composite_query.single(&world).unwrap();
+    let mut composite_query = world.query::<(
+        &Transform,
+        &Visibility,
+        &AgentListBloomCompositeMarker,
+        &MeshMaterial2d<crate::hud::AgentListBloomCompositeMaterial>,
+    )>();
+    let (transform, visibility, _, material_handle) = composite_query.single(&world).unwrap();
     assert_eq!(transform.translation.z, agent_list_bloom_z());
     assert_eq!(visibility, &Visibility::Hidden);
+    let materials = world.resource::<Assets<crate::hud::AgentListBloomCompositeMaterial>>();
+    let material = materials
+        .get(material_handle.id())
+        .expect("bloom composite material exists");
+    assert_eq!(material.image, bloom_image_handle);
 }
 
 #[test]
@@ -127,6 +146,8 @@ fn setup_hud_widget_bloom_uses_logical_window_size_for_targets() {
     world.insert_resource(HudBloomSettings::default());
     world.insert_resource(HudWidgetBloom::default());
     world.insert_resource(Assets::<Image>::default());
+    world.insert_resource(Assets::<Mesh>::default());
+    world.insert_resource(Assets::<crate::hud::AgentListBloomCompositeMaterial>::default());
     world.spawn((
         Window {
             resolution: WindowResolution::new(1400, 900).with_scale_factor_override(2.0),
@@ -684,6 +705,8 @@ fn sync_hud_widget_bloom_spawns_agent_list_source_sprites() {
     world.insert_resource(HudBloomSettings::default());
     world.insert_resource(HudWidgetBloom::default());
     world.insert_resource(Assets::<Image>::default());
+    world.insert_resource(Assets::<Mesh>::default());
+    world.insert_resource(Assets::<crate::hud::AgentListBloomCompositeMaterial>::default());
     world.spawn((
         Window {
             resolution: (1400, 900).into(),
@@ -715,13 +738,15 @@ fn sync_hud_widget_bloom_spawns_agent_list_source_sprites() {
     let mut composite_query = world.query::<(
         &Visibility,
         &Transform,
-        &Sprite,
         &AgentListBloomCompositeMarker,
+        &MeshMaterial2d<crate::hud::AgentListBloomCompositeMaterial>,
     )>();
-    let (visibility, transform, sprite, _) = composite_query.single(&world).unwrap();
+    let (visibility, transform, _, material_handle) = composite_query.single(&world).unwrap();
     assert_eq!(visibility, &Visibility::Visible);
     assert_eq!(transform.translation.z, agent_list_bloom_z());
-    assert_eq!(sprite.custom_size, Some(Vec2::new(1400.0, 900.0)));
+    assert_eq!(transform.scale, Vec3::new(1400.0, 900.0, 1.0));
+    let materials = world.resource::<Assets<crate::hud::AgentListBloomCompositeMaterial>>();
+    assert!(materials.get(material_handle.id()).is_some());
 }
 
 #[test]
@@ -745,6 +770,8 @@ fn sync_hud_widget_bloom_only_uses_active_agent_source() {
     world.insert_resource(HudBloomSettings::default());
     world.insert_resource(HudWidgetBloom::default());
     world.insert_resource(Assets::<Image>::default());
+    world.insert_resource(Assets::<Mesh>::default());
+    world.insert_resource(Assets::<crate::hud::AgentListBloomCompositeMaterial>::default());
     world.spawn((
         Window {
             resolution: (1400, 900).into(),

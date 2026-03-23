@@ -11,7 +11,12 @@ use bevy::{
     image::ImageSampler,
     post_process::bloom::{Bloom, BloomCompositeMode, BloomPrefilter},
     prelude::*,
-    render::render_resource::{Extent3d, TextureDimension, TextureFormat, TextureUsages},
+    reflect::TypePath,
+    render::render_resource::{
+        AsBindGroup, Extent3d, ShaderType, TextureDimension, TextureFormat, TextureUsages,
+    },
+    shader::ShaderRef,
+    sprite_render::{AlphaMode2d, Material2d, MeshMaterial2d},
     window::PrimaryWindow,
 };
 use std::env;
@@ -21,8 +26,11 @@ use super::compositor::HUD_COMPOSITE_FOREGROUND_Z;
 const BLOOM_SOURCE_LAYER: usize = 29;
 const BLOOM_COMPOSITE_Z: f32 = HUD_COMPOSITE_FOREGROUND_Z + 0.1;
 const BLOOM_TARGET_FORMAT: TextureFormat = TextureFormat::Rgba16Float;
+const BLOOM_COMPOSITE_SHADER_PATH: &str = "shaders/hud_agent_list_bloom_composite.wgsl";
 const DEFAULT_BLOOM_INTENSITY: f32 = 1.35;
 const BLOOM_COMPOSITE_ALPHA: f32 = 1.0;
+const BLOOM_CORE_MASK_INSET_PX: f32 = 1.0;
+const BLOOM_CORE_MASK_FEATHER_PX: f32 = 10.0;
 
 #[derive(Resource, Clone, Copy, Debug)]
 pub(crate) struct HudBloomSettings {
@@ -53,6 +61,31 @@ pub(crate) struct AgentListBloomCameraMarker;
 #[derive(Component)]
 pub(crate) struct AgentListBloomCompositeMarker;
 
+#[derive(Clone, Copy, Debug, ShaderType)]
+pub(crate) struct AgentListBloomCompositeUniform {
+    pub(crate) core_center_size: Vec4,
+    pub(crate) settings: Vec4,
+}
+
+#[derive(Asset, TypePath, AsBindGroup, Debug, Clone)]
+pub(crate) struct AgentListBloomCompositeMaterial {
+    #[texture(0)]
+    #[sampler(1)]
+    pub(crate) image: Handle<Image>,
+    #[uniform(2)]
+    pub(crate) uniform: AgentListBloomCompositeUniform,
+}
+
+impl Material2d for AgentListBloomCompositeMaterial {
+    fn fragment_shader() -> ShaderRef {
+        BLOOM_COMPOSITE_SHADER_PATH.into()
+    }
+
+    fn alpha_mode(&self) -> AlphaMode2d {
+        AlphaMode2d::Blend
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum AgentListBloomSourceKind {
     Accent,
@@ -71,11 +104,15 @@ struct BloomSourceSpec {
     color: Color,
 }
 
+fn active_accent_rect(specs: &[BloomSourceSpec]) -> Option<HudRect> {
+    specs.first().map(|spec| spec.rect)
+}
+
 #[derive(Clone, Debug, Default)]
 struct AgentListBloomPass {
     image: Handle<Image>,
     camera: Option<Entity>,
-    composite_sprite: Option<Entity>,
+    composite_entity: Option<Entity>,
 }
 
 #[derive(Resource, Clone, Debug, Default)]
@@ -125,6 +162,29 @@ fn rect_transform(window: &Window, rect: HudRect, z: f32) -> Transform {
         window.height() * 0.5 - (rect.y + rect.h * 0.5),
         z,
     )
+}
+
+fn bloom_composite_uniform(
+    window: &Window,
+    rect: Option<HudRect>,
+) -> AgentListBloomCompositeUniform {
+    let Some(rect) = rect else {
+        return AgentListBloomCompositeUniform {
+            core_center_size: Vec4::ZERO,
+            settings: Vec4::new(BLOOM_COMPOSITE_ALPHA, BLOOM_CORE_MASK_INSET_PX, 0.0, 0.0),
+        };
+    };
+
+    let transform = rect_transform(window, rect, 0.0);
+    AgentListBloomCompositeUniform {
+        core_center_size: Vec4::new(
+            transform.translation.x,
+            transform.translation.y,
+            (rect.w - BLOOM_CORE_MASK_INSET_PX * 2.0).max(0.0),
+            (rect.h - BLOOM_CORE_MASK_INSET_PX * 2.0).max(0.0),
+        ),
+        settings: Vec4::new(BLOOM_COMPOSITE_ALPHA, BLOOM_CORE_MASK_FEATHER_PX, 0.0, 0.0),
+    }
 }
 
 fn bloom_source_color(focused: bool, hovered: bool, kind: AgentListBloomSourceKind) -> Color {
@@ -197,6 +257,8 @@ pub(crate) struct HudWidgetBloomSetupContext<'w, 's> {
     primary_window: Single<'w, 's, &'static Window, With<PrimaryWindow>>,
     settings: Res<'w, HudBloomSettings>,
     images: ResMut<'w, Assets<Image>>,
+    meshes: ResMut<'w, Assets<Mesh>>,
+    composite_materials: ResMut<'w, Assets<AgentListBloomCompositeMaterial>>,
     bloom: ResMut<'w, HudWidgetBloom>,
 }
 
@@ -220,19 +282,22 @@ pub(crate) fn setup_hud_widget_bloom(mut ctx: HudWidgetBloomSetupContext) {
             AgentListBloomCameraMarker,
         ))
         .id();
-    let composite_sprite = ctx
+    let composite_material = ctx
+        .composite_materials
+        .add(AgentListBloomCompositeMaterial {
+            image: image.clone(),
+            uniform: bloom_composite_uniform(&ctx.primary_window, None),
+        });
+    let composite_entity = ctx
         .commands
         .spawn((
-            Sprite {
-                image: image.clone(),
-                color: Color::linear_rgba(1.0, 1.0, 1.0, BLOOM_COMPOSITE_ALPHA),
-                custom_size: Some(Vec2::new(
-                    ctx.primary_window.width(),
-                    ctx.primary_window.height(),
-                )),
-                ..default()
-            },
-            Transform::from_xyz(0.0, 0.0, BLOOM_COMPOSITE_Z),
+            Mesh2d(ctx.meshes.add(Rectangle::default())),
+            MeshMaterial2d(composite_material.clone()),
+            Transform::from_xyz(0.0, 0.0, BLOOM_COMPOSITE_Z).with_scale(Vec3::new(
+                ctx.primary_window.width(),
+                ctx.primary_window.height(),
+                1.0,
+            )),
             RenderLayers::layer(0),
             Visibility::Hidden,
             AgentListBloomCompositeMarker,
@@ -242,7 +307,7 @@ pub(crate) fn setup_hud_widget_bloom(mut ctx: HudWidgetBloomSetupContext) {
     ctx.bloom.agent_list = AgentListBloomPass {
         image,
         camera: Some(camera),
-        composite_sprite: Some(composite_sprite),
+        composite_entity: Some(composite_entity),
     };
 }
 
@@ -250,6 +315,7 @@ type BloomCameraFilter = With<AgentListBloomCameraMarker>;
 type BloomCompositeFilter = (
     With<AgentListBloomCompositeMarker>,
     Without<AgentListBloomSourceSprite>,
+    Without<AgentListBloomCameraMarker>,
 );
 type BloomSourceSpriteFilter = (
     With<AgentListBloomSourceSprite>,
@@ -267,11 +333,12 @@ pub(crate) struct HudWidgetBloomContext<'w, 's> {
     bloom: ResMut<'w, HudWidgetBloom>,
     images: ResMut<'w, Assets<Image>>,
     cameras: Query<'w, 's, (&'static mut RenderTarget, &'static mut Bloom), BloomCameraFilter>,
+    composite_materials: ResMut<'w, Assets<AgentListBloomCompositeMaterial>>,
     composites: Query<
         'w,
         's,
         (
-            &'static mut Sprite,
+            &'static MeshMaterial2d<AgentListBloomCompositeMaterial>,
             &'static mut Transform,
             &'static mut Visibility,
         ),
@@ -375,22 +442,25 @@ pub(crate) fn sync_hud_widget_bloom(mut ctx: HudWidgetBloomContext) {
         }
     }
 
-    if let Some(composite) = pass.composite_sprite {
-        if let Ok((mut sprite, mut transform, mut visibility)) = ctx.composites.get_mut(composite) {
-            sprite.image = pass.image.clone();
-            sprite.color = Color::linear_rgba(1.0, 1.0, 1.0, BLOOM_COMPOSITE_ALPHA);
-            sprite.custom_size = Some(Vec2::new(
-                ctx.primary_window.width(),
-                ctx.primary_window.height(),
-            ));
+    if let Some(composite) = pass.composite_entity {
+        if let Ok((material_handle, mut transform, mut visibility)) =
+            ctx.composites.get_mut(composite)
+        {
             transform.translation = Vec3::new(0.0, 0.0, BLOOM_COMPOSITE_Z);
             transform.rotation = Quat::IDENTITY;
-            transform.scale = Vec3::ONE;
+            transform.scale =
+                Vec3::new(ctx.primary_window.width(), ctx.primary_window.height(), 1.0);
             *visibility = if specs.is_empty() {
                 Visibility::Hidden
             } else {
                 Visibility::Visible
             };
+
+            if let Some(material) = ctx.composite_materials.get_mut(material_handle.id()) {
+                material.image = pass.image.clone();
+                material.uniform =
+                    bloom_composite_uniform(&ctx.primary_window, active_accent_rect(&specs));
+            }
         }
     }
 }
