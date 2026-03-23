@@ -13,7 +13,7 @@ DEBUG_PNG=/tmp/neozeus-agent-bloom-debug.png
 STABLE_A=/tmp/neozeus-agent-bloom-stable-a.png
 STABLE_B=/tmp/neozeus-agent-bloom-stable-b.png
 ANALYSIS_JSON=/tmp/neozeus-agent-bloom-analysis.json
-ON_INTENSITY=${NEOZEUS_AGENT_BLOOM_VERIFY_ON_INTENSITY:-3.0}
+ON_INTENSITY=${NEOZEUS_AGENT_BLOOM_VERIFY_ON_INTENSITY:-8.0}
 SWAY_WORKSPACE=${NEOZEUS_AGENT_BLOOM_WORKSPACE:-8}
 
 metric_ae() {

@@ -28,9 +28,9 @@ const BLOOM_SOURCE_LAYER: usize = 29;
 const BLOOM_BLUR_LAYER: usize = 30;
 const BLOOM_SHADER_PATH: &str = "shaders/hud_agent_list_bloom.wgsl";
 const BLOOM_Z: f32 = HUD_COMPOSITE_FOREGROUND_Z - 0.1;
-const DEFAULT_BLOOM_INTENSITY: f32 = 3.0;
-const BLOOM_TEXEL_RADIUS: f32 = 1.0;
-const BLOOM_STROKE_THICKNESS: f32 = 1.6;
+const DEFAULT_BLOOM_INTENSITY: f32 = 8.0;
+const BLOOM_TEXEL_RADIUS: f32 = 3.0;
+const BLOOM_STROKE_THICKNESS: f32 = 3.2;
 const BLOOM_DEBUG_PREVIEW_Z: f32 = HUD_COMPOSITE_FOREGROUND_Z + 0.5;
 const BLOOM_DEBUG_PREVIEW_MARGIN: f32 = 20.0;
 const BLOOM_DEBUG_PREVIEW_GAP: f32 = 16.0;
@@ -223,11 +223,11 @@ fn peniko_to_color(color: bevy_vello::vello::peniko::Color, alpha: f32) -> Color
     Color::srgba_u8(rgba.r, rgba.g, rgba.b, scaled_alpha)
 }
 
-fn agent_stroke_color(focused: bool) -> bevy_vello::vello::peniko::Color {
+fn bloom_emission_color(focused: bool) -> bevy_vello::vello::peniko::Color {
     if focused {
-        bevy_vello::vello::peniko::Color::from_rgba8(175, 201, 181, 255)
+        bevy_vello::vello::peniko::Color::from_rgba8(255, 150, 40, 255)
     } else {
-        bevy_vello::vello::peniko::Color::from_rgba8(181, 66, 11, 255)
+        bevy_vello::vello::peniko::Color::from_rgba8(255, 108, 24, 255)
     }
 }
 
@@ -298,6 +298,17 @@ fn edge_segments(rect: HudRect, thickness: f32) -> [HudRect; 4] {
     ]
 }
 
+fn inset_rect(rect: HudRect, inset: f32) -> HudRect {
+    let inset = inset.max(0.0);
+    let double = inset * 2.0;
+    HudRect {
+        x: rect.x + inset,
+        y: rect.y + inset,
+        w: (rect.w - double).max(1.0),
+        h: (rect.h - double).max(1.0),
+    }
+}
+
 fn build_bloom_specs(
     content_rect: HudRect,
     scroll_offset: f32,
@@ -318,8 +329,9 @@ fn build_bloom_specs(
             continue;
         }
 
-        let stroke = agent_stroke_color(row.focused);
-        let edge_color = peniko_to_color(stroke, if row.focused { 0.40 } else { 0.32 });
+        let stroke = bloom_emission_color(row.focused);
+        let edge_color = peniko_to_color(stroke, if row.focused { 0.78 } else { 0.62 });
+        let body_color = peniko_to_color(stroke, if row.focused { 0.24 } else { 0.18 });
         for (rect_kind, rect) in [
             (
                 BloomRectKind::Main,
@@ -345,6 +357,16 @@ fn build_bloom_specs(
                 });
             }
 
+            specs.push(BloomSourceSpec {
+                key: AgentListBloomSourceSprite {
+                    terminal_id: row.terminal_id,
+                    rect_kind,
+                    segment_index: 4,
+                },
+                rect: inset_rect(rect, BLOOM_STROKE_THICKNESS * 0.5),
+                color: body_color,
+            });
+
             let band_seed_offset = match rect_kind {
                 BloomRectKind::Main => 0,
                 BloomRectKind::Marker => 7,
@@ -358,10 +380,10 @@ fn build_bloom_specs(
                     key: AgentListBloomSourceSprite {
                         terminal_id: row.terminal_id,
                         rect_kind,
-                        segment_index: 4 + band_index as u8,
+                        segment_index: 5 + band_index as u8,
                     },
                     rect: band_rect,
-                    color: peniko_to_color(stroke, alpha * if row.focused { 0.46 } else { 0.38 }),
+                    color: peniko_to_color(stroke, alpha * if row.focused { 0.82 } else { 0.66 }),
                 });
             }
         }
