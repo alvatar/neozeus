@@ -32,9 +32,7 @@ use crate::{
 };
 use bevy::{
     camera::visibility::RenderLayers,
-    core_pipeline::tonemapping::{DebandDither, Tonemapping},
     ecs::system::SystemParam,
-    post_process::bloom::{Bloom, BloomCompositeMode},
     prelude::*,
     render::{settings::WgpuSettings, RenderPlugin},
     window::{MonitorSelection, RequestRedraw, WindowMode},
@@ -393,20 +391,6 @@ fn setup_scene(mut ctx: SceneSetupContext, auto_verify: Option<Res<AutoVerifyCon
         VelloView,
         RenderLayers::layer(0),
         TerminalCameraMarker,
-        Tonemapping::TonyMcMapface,
-        DebandDither::Enabled,
-        Bloom {
-            intensity: 0.08,
-            low_frequency_boost: 0.7,
-            low_frequency_boost_curvature: 0.95,
-            high_pass_frequency: 1.0,
-            prefilter: bevy::post_process::bloom::BloomPrefilter {
-                threshold: 0.35,
-                threshold_softness: 0.15,
-            },
-            composite_mode: BloomCompositeMode::Additive,
-            ..Bloom::OLD_SCHOOL
-        },
     ));
 
     ctx.commands.spawn((
