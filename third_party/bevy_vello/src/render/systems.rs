@@ -55,6 +55,7 @@ pub fn setup_image(images: &mut Assets<Image>, width: u32, height: u32) -> Handl
             sample_count: 1,
             usage: TextureUsages::TEXTURE_BINDING
                 | TextureUsages::COPY_DST
+                | TextureUsages::COPY_SRC
                 | TextureUsages::STORAGE_BINDING,
             view_formats: &[],
         },

@@ -1,49 +1,15 @@
 use bevy::{
+    asset::RenderAssetUsages,
     camera::{visibility::RenderLayers, ClearColorConfig},
+    mesh::Indices,
     prelude::*,
-    reflect::TypePath,
-    render::render_resource::{
-        AsBindGroup, RenderPipelineDescriptor, SpecializedMeshPipelineError,
-    },
-    shader::ShaderRef,
-    sprite_render::{AlphaMode2d, Material2d, Material2dKey, MeshMaterial2d},
-    window::PrimaryWindow,
+    render::render_resource::PrimitiveTopology,
+    sprite_render::MeshMaterial2d,
 };
 use bevy_vello::render::VelloCanvasMaterial;
 
-const HUD_COMPOSITE_SHADER_PATH: &str = "shaders/hud_composite.wgsl";
 pub(crate) const HUD_COMPOSITE_RENDER_LAYER: usize = 28;
 const HUD_COMPOSITE_CAMERA_ORDER: isize = 50;
-
-#[derive(Asset, TypePath, AsBindGroup, Debug, Clone)]
-pub(crate) struct HudCompositeMaterial {
-    #[texture(0)]
-    #[sampler(1)]
-    pub(crate) texture: Handle<Image>,
-}
-
-impl Material2d for HudCompositeMaterial {
-    fn fragment_shader() -> ShaderRef {
-        HUD_COMPOSITE_SHADER_PATH.into()
-    }
-
-    fn alpha_mode(&self) -> AlphaMode2d {
-        AlphaMode2d::Opaque
-    }
-
-    fn specialize(
-        descriptor: &mut RenderPipelineDescriptor,
-        _layout: &bevy::mesh::MeshVertexBufferLayoutRef,
-        _key: Material2dKey<Self>,
-    ) -> Result<(), SpecializedMeshPipelineError> {
-        if let Some(target) = descriptor.fragment.as_mut() {
-            if let Some(Some(target)) = target.targets.get_mut(0) {
-                target.blend = Some(bevy::render::render_resource::BlendState::ALPHA_BLENDING);
-            }
-        }
-        Ok(())
-    }
-}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum HudCompositeLayerId {
@@ -69,7 +35,6 @@ pub(crate) const HUD_COMPOSITE_FOREGROUND_Z: f32 = 10.0;
 struct HudCompositeLayer {
     id: HudCompositeLayerId,
     source: HudCompositeSource,
-    z: f32,
     composite_entity: Option<Entity>,
     texture: Option<Handle<Image>>,
 }
@@ -86,7 +51,6 @@ impl Default for HudOffscreenCompositor {
             layers: vec![HudCompositeLayer {
                 id: HudCompositeLayerId::MainHud,
                 source: HudCompositeSource::VelloCanvas,
-                z: HUD_COMPOSITE_FOREGROUND_Z,
                 composite_entity: None,
                 texture: None,
             }],
@@ -101,11 +65,33 @@ impl HudOffscreenCompositor {
     }
 }
 
+fn fullscreen_clip_mesh() -> Mesh {
+    let mut mesh = Mesh::new(
+        PrimitiveTopology::TriangleList,
+        RenderAssetUsages::default(),
+    );
+    mesh.insert_attribute(
+        Mesh::ATTRIBUTE_POSITION,
+        vec![
+            [-1.0, -1.0, HUD_COMPOSITE_FOREGROUND_Z],
+            [1.0, -1.0, HUD_COMPOSITE_FOREGROUND_Z],
+            [1.0, 1.0, HUD_COMPOSITE_FOREGROUND_Z],
+            [-1.0, 1.0, HUD_COMPOSITE_FOREGROUND_Z],
+        ],
+    );
+    mesh.insert_attribute(
+        Mesh::ATTRIBUTE_UV_0,
+        vec![[-1.0, -1.0], [1.0, -1.0], [1.0, 1.0], [1.0, 1.0]],
+    );
+    mesh.insert_indices(Indices::U32(vec![0, 1, 2, 0, 2, 3]));
+    mesh
+}
+
 pub(crate) fn setup_hud_offscreen_compositor(
     commands: &mut Commands,
     compositor: &mut HudOffscreenCompositor,
     meshes: &mut Assets<Mesh>,
-    materials: &mut Assets<HudCompositeMaterial>,
+    materials: &mut Assets<VelloCanvasMaterial>,
 ) {
     if compositor.camera_entity.is_none() {
         compositor.camera_entity = Some(
@@ -124,6 +110,7 @@ pub(crate) fn setup_hud_offscreen_compositor(
         );
     }
 
+    let mesh_handle = meshes.add(fullscreen_clip_mesh());
     for layer in &mut compositor.layers {
         if layer.composite_entity.is_some() {
             continue;
@@ -131,11 +118,11 @@ pub(crate) fn setup_hud_offscreen_compositor(
 
         let entity = commands
             .spawn((
-                Mesh2d(meshes.add(Rectangle::default())),
-                MeshMaterial2d(materials.add(HudCompositeMaterial {
+                Mesh2d(mesh_handle.clone()),
+                MeshMaterial2d(materials.add(VelloCanvasMaterial {
                     texture: Handle::default(),
                 })),
-                Transform::from_xyz(0.0, 0.0, layer.z),
+                Transform::IDENTITY,
                 RenderLayers::layer(HUD_COMPOSITE_RENDER_LAYER),
                 Visibility::Hidden,
                 HudCompositeLayerMarker { id: layer.id },
@@ -154,16 +141,13 @@ type VelloCanvasQueryItem<'a> = (
 type HudCompositeQuadQueryItem<'a> = (
     Entity,
     &'a HudCompositeLayerMarker,
-    &'a MeshMaterial2d<HudCompositeMaterial>,
-    &'a mut Transform,
+    &'a MeshMaterial2d<VelloCanvasMaterial>,
     &'a mut Visibility,
 );
 
 pub(crate) fn sync_hud_offscreen_compositor(
-    primary_window: Single<&Window, With<PrimaryWindow>>,
     mut compositor: ResMut<HudOffscreenCompositor>,
-    vello_materials: Res<Assets<VelloCanvasMaterial>>,
-    mut composite_materials: ResMut<Assets<HudCompositeMaterial>>,
+    mut vello_materials: ResMut<Assets<VelloCanvasMaterial>>,
     mut commands: Commands,
     mut vello_canvases: Query<VelloCanvasQueryItem<'_>, Without<HudCompositeLayerMarker>>,
     mut quads: Query<HudCompositeQuadQueryItem<'_>>,
@@ -188,8 +172,7 @@ pub(crate) fn sync_hud_offscreen_compositor(
         };
     }
 
-    let quad_size = Vec2::new(primary_window.width(), primary_window.height());
-    for (entity, marker, material_handle, mut transform, mut visibility) in &mut quads {
+    for (entity, marker, material_handle, mut visibility) in &mut quads {
         let Some(layer) = compositor.layer(marker.id) else {
             *visibility = Visibility::Hidden;
             continue;
@@ -199,12 +182,8 @@ pub(crate) fn sync_hud_offscreen_compositor(
             continue;
         }
 
-        transform.translation = Vec3::new(0.0, 0.0, layer.z);
-        transform.rotation = Quat::IDENTITY;
-        transform.scale = Vec3::new(quad_size.x, quad_size.y, 1.0);
-
         if let Some(texture) = layer.texture.clone() {
-            if let Some(material) = composite_materials.get_mut(material_handle.id()) {
+            if let Some(material) = vello_materials.get_mut(material_handle.id()) {
                 material.texture = texture;
             }
             *visibility = Visibility::Visible;

@@ -51,7 +51,7 @@ fn setup_hud_requests_initial_redraw() {
     world.insert_resource(HudPersistenceState::default());
     world.insert_resource(HudOffscreenCompositor::default());
     world.insert_resource(Assets::<Mesh>::default());
-    world.insert_resource(Assets::<crate::hud::HudCompositeMaterial>::default());
+    world.insert_resource(Assets::<VelloCanvasMaterial>::default());
     world.init_resource::<Messages<RequestRedraw>>();
 
     world.run_system_once(crate::hud::setup_hud).unwrap();
@@ -301,7 +301,6 @@ fn sync_hud_offscreen_compositor_hides_vello_canvas_and_binds_texture() {
     let mut world = World::default();
     world.insert_resource(HudOffscreenCompositor::default());
     world.insert_resource(Assets::<VelloCanvasMaterial>::default());
-    world.insert_resource(Assets::<crate::hud::HudCompositeMaterial>::default());
     world.insert_resource(Assets::<Mesh>::default());
     let texture = Handle::<Image>::default();
     let material = world
@@ -327,7 +326,7 @@ fn sync_hud_offscreen_compositor_hides_vello_canvas_and_binds_texture() {
             |mut commands: Commands,
              mut compositor: ResMut<HudOffscreenCompositor>,
              mut meshes: ResMut<Assets<Mesh>>,
-             mut composite_materials: ResMut<Assets<crate::hud::HudCompositeMaterial>>| {
+             mut composite_materials: ResMut<Assets<VelloCanvasMaterial>>| {
                 crate::hud::setup_hud_offscreen_compositor(
                     &mut commands,
                     &mut compositor,
@@ -355,7 +354,7 @@ fn sync_hud_offscreen_compositor_hides_vello_canvas_and_binds_texture() {
 
     let mut quad_query = world.query::<(
         &crate::hud::HudCompositeLayerMarker,
-        &MeshMaterial2d<crate::hud::HudCompositeMaterial>,
+        &MeshMaterial2d<VelloCanvasMaterial>,
         &Transform,
         &Visibility,
         &RenderLayers,
@@ -364,7 +363,7 @@ fn sync_hud_offscreen_compositor_hides_vello_canvas_and_binds_texture() {
         quad_query.single(&world).unwrap();
     assert_eq!(marker.id, crate::hud::HudCompositeLayerId::MainHud);
     let composite_texture = {
-        let materials = world.resource::<Assets<crate::hud::HudCompositeMaterial>>();
+        let materials = world.resource::<Assets<VelloCanvasMaterial>>();
         materials
             .get(composite_material.id())
             .expect("composite material exists")
@@ -372,11 +371,8 @@ fn sync_hud_offscreen_compositor_hides_vello_canvas_and_binds_texture() {
             .clone()
     };
     assert_eq!(composite_texture, texture);
-    assert_eq!(transform.scale, Vec3::new(1400.0, 900.0, 1.0));
-    assert_eq!(
-        transform.translation.z,
-        crate::hud::HUD_COMPOSITE_FOREGROUND_Z
-    );
+    assert_eq!(transform.scale, Vec3::ONE);
+    assert_eq!(transform.translation, Vec3::ZERO);
     assert_eq!(visibility, &Visibility::Visible);
     assert!(quad_layers.intersects(&RenderLayers::layer(crate::hud::HUD_COMPOSITE_RENDER_LAYER,)));
 }

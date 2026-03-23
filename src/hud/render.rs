@@ -18,6 +18,7 @@ use bevy_vello::{
         vello, VelloFont, VelloScene2d, VelloTextAlign, VelloTextAnchor, VelloTextStyle,
     },
 };
+use std::env;
 
 #[derive(Component)]
 pub(crate) struct HudVectorSceneMarker;
@@ -222,6 +223,27 @@ pub(crate) struct HudRenderInputs<'a> {
     pub(crate) notes_state: &'a TerminalNotesState,
     pub(crate) hud_state: &'a HudState,
     pub(crate) font_state: &'a TerminalFontState,
+}
+
+fn log_hud_draw_colors_if_requested(scene: &vello::Scene) {
+    let enabled = env::var("NEOZEUS_LOG_HUD_DRAW_COLORS")
+        .ok()
+        .is_some_and(|value| value == "1");
+    if !enabled {
+        return;
+    }
+
+    let encoding = scene.encoding();
+    let requested_orange = u32::from_le_bytes([225, 129, 10, 255]);
+    let observed_yellow = u32::from_le_bytes([255, 177, 18, 255]);
+    let requested_present = encoding.draw_data.contains(&requested_orange);
+    let observed_present = encoding.draw_data.contains(&observed_yellow);
+    crate::terminals::append_debug_log(format!(
+        "hud draw data words={} requested_orange_present={} observed_yellow_present={} requested_orange=0x{requested_orange:08x} observed_yellow=0x{observed_yellow:08x}",
+        encoding.draw_data.len(),
+        requested_present,
+        observed_present,
+    ));
 }
 
 fn slice_chars(text: &str, start_chars: usize, max_chars: usize) -> String {
@@ -620,5 +642,6 @@ pub(crate) fn render_hud_scene(
         &agent_directory,
     );
 
+    log_hud_draw_colors_if_requested(&built);
     **scene = VelloScene2d::from(built);
 }

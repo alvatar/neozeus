@@ -152,6 +152,7 @@ APP_PID=$(neozeus_gui_launch_isolated \
     NEOZEUS_AUTOVERIFY_DELAY_MS=1500)
 
 GUI_WORKSPACE=${NEOZEUS_GUI_WORKSPACE:-8}
+CAPTURE_SCALE=$(neozeus_gui_workspace_output_scale "$GUI_WORKSPACE")
 
 WINDOW_JSON=$(neozeus_gui_find_window_by_pid_and_title "$APP_PID" "$WINDOW_TITLE")
 
@@ -171,7 +172,7 @@ X=$(jq -r '.x' <<<"$WINDOW_JSON")
 Y=$(jq -r '.y' <<<"$WINDOW_JSON")
 WIDTH=$(jq -r '.width' <<<"$WINDOW_JSON")
 HEIGHT=$(jq -r '.height' <<<"$WINDOW_JSON")
-grim -g "${X},${Y} ${WIDTH}x${HEIGHT}" "$WINDOW_PNG"
+grim -s "$CAPTURE_SCALE" -g "${X},${Y} ${WIDTH}x${HEIGHT}" "$WINDOW_PNG"
 
 grep -q 'auto-verify command dispatched: bash /tmp/neozeus-color-smoke.sh' "$DEBUG_LOG"
 grep -q 'pty write command `bash /tmp/neozeus-color-smoke.sh`' "$DEBUG_LOG"
