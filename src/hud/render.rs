@@ -272,19 +272,13 @@ fn draw_message_box(
         HudColors::TEXT,
         VelloTextAnchor::TopLeft,
     );
-    painter.label(
-        Vec2::new(rect.x + rect.w - 24.0, rect.y + 12.0),
-        "Enter newline · Ctrl-S send · Ctrl-T append · Ctrl-Shift-T prepend · Esc cancel",
-        16.0,
-        HudColors::TEXT_MUTED,
-        VelloTextAnchor::TopRight,
-    );
-
+    let button_row_y = message_box_action_buttons(window)[0].rect.y;
+    let info_row_y = button_row_y - 26.0;
     let body_rect = HudRect {
         x: rect.x + 22.0,
         y: rect.y + 64.0,
         w: rect.w - 44.0,
-        h: rect.h - 140.0,
+        h: (info_row_y - 12.0 - (rect.y + 64.0)).max(96.0),
     };
     painter.fill_rect(body_rect, HudColors::TITLE, 6.0);
     painter.stroke_rect(body_rect, HudColors::TEXT_MUTED, 4.0);
@@ -417,20 +411,13 @@ fn draw_message_box(
     }
 
     painter.label(
-        Vec2::new(rect.x + 24.0, rect.y + rect.h - 52.0),
+        Vec2::new(rect.x + 24.0, info_row_y),
         &format!(
-            "Ln {} Col {} · {}",
+            "Ln {} · Col {} · {} · Enter newline · Ctrl-S send · Esc cancel · C-Space mark · C-w cut · M-w copy · C-y yank · M-y ring · Ctrl-T append · Ctrl-Shift-T prepend",
             line_number + 1,
             column_number + 1,
             selection_status
         ),
-        15.0,
-        HudColors::TEXT_MUTED,
-        VelloTextAnchor::TopLeft,
-    );
-    painter.label(
-        Vec2::new(rect.x + 24.0, rect.y + rect.h - 30.0),
-        "C-Space mark · C-w cut · M-w copy · C-y yank · M-y ring · C-T append · C-S-T prepend",
         15.0,
         HudColors::TEXT_MUTED,
         VelloTextAnchor::TopLeft,

@@ -55,7 +55,7 @@ pub(crate) fn message_box_rect(window: &Window) -> HudRect {
 
 pub(crate) fn message_box_action_buttons(window: &Window) -> [HudMessageBoxActionButton; 2] {
     let rect = message_box_rect(window);
-    let base_y = rect.y + rect.h - 44.0;
+    let base_y = rect.y + rect.h - 36.0;
     let prepend_x = rect.x + rect.w - 24.0 - HUD_MESSAGE_BOX_ACTION_BUTTON_W;
     let append_x = prepend_x - HUD_MESSAGE_BOX_ACTION_BUTTON_GAP - HUD_MESSAGE_BOX_ACTION_BUTTON_W;
     [
