@@ -21,7 +21,7 @@ use super::compositor::HUD_COMPOSITE_FOREGROUND_Z;
 const BLOOM_SOURCE_LAYER: usize = 29;
 const BLOOM_COMPOSITE_Z: f32 = HUD_COMPOSITE_FOREGROUND_Z + 0.1;
 const DEFAULT_BLOOM_INTENSITY: f32 = 0.35;
-const BLOOM_COMPOSITE_ALPHA: f32 = 0.95;
+const BLOOM_COMPOSITE_ALPHA: f32 = 0.68;
 
 #[derive(Resource, Clone, Copy, Debug)]
 pub(crate) struct HudBloomSettings {
@@ -128,21 +128,21 @@ fn rect_transform(window: &Window, rect: HudRect, z: f32) -> Transform {
 
 fn bloom_source_color(focused: bool, hovered: bool, kind: AgentListBloomSourceKind) -> Color {
     match (focused, hovered, kind) {
-        (true, _, AgentListBloomSourceKind::Main) => Color::srgba(5.2, 2.0, 0.45, 0.36),
-        (true, _, AgentListBloomSourceKind::Marker) => Color::srgba(7.0, 2.6, 0.6, 0.56),
-        (_, true, AgentListBloomSourceKind::Main) => Color::srgba(4.2, 1.55, 0.32, 0.28),
-        (_, true, AgentListBloomSourceKind::Marker) => Color::srgba(5.8, 2.05, 0.42, 0.40),
-        (_, _, AgentListBloomSourceKind::Main) => Color::srgba(3.2, 1.15, 0.22, 0.22),
-        (_, _, AgentListBloomSourceKind::Marker) => Color::srgba(4.3, 1.5, 0.3, 0.30),
+        (true, _, AgentListBloomSourceKind::Main) => Color::srgba(1.35, 0.40, 0.07, 0.10),
+        (true, _, AgentListBloomSourceKind::Marker) => Color::srgba(5.8, 1.90, 0.34, 0.44),
+        (_, true, AgentListBloomSourceKind::Main) => Color::srgba(1.00, 0.31, 0.05, 0.07),
+        (_, true, AgentListBloomSourceKind::Marker) => Color::srgba(4.4, 1.40, 0.24, 0.31),
+        (_, _, AgentListBloomSourceKind::Main) => Color::srgba(0.62, 0.19, 0.03, 0.04),
+        (_, _, AgentListBloomSourceKind::Marker) => Color::srgba(3.1, 0.98, 0.16, 0.20),
     }
 }
 
 fn bloom_component(intensity: f32) -> Bloom {
     Bloom {
         intensity,
-        low_frequency_boost: 0.82,
-        low_frequency_boost_curvature: 0.92,
-        high_pass_frequency: 0.85,
+        low_frequency_boost: 0.58,
+        low_frequency_boost_curvature: 0.80,
+        high_pass_frequency: 0.94,
         prefilter: BloomPrefilter {
             threshold: 0.0,
             threshold_softness: 0.0,
