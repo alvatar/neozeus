@@ -6,8 +6,8 @@ use bevy::prelude::Vec2;
 use bevy_vello::{prelude::VelloTextAnchor, vello::peniko};
 
 use super::{
-    agent_rows, AGENT_LIST_HEADER_HEIGHT, AGENT_LIST_LEFT_RAIL_WIDTH, AGENT_LIST_ROW_MARKER_GAP,
-    AGENT_LIST_ROW_MARKER_WIDTH,
+    agent_button_irregularities, agent_rows, AGENT_LIST_HEADER_HEIGHT, AGENT_LIST_LEFT_RAIL_WIDTH,
+    AGENT_LIST_ROW_MARKER_GAP, AGENT_LIST_ROW_MARKER_WIDTH,
 };
 
 const EVA_ORANGE: peniko::Color = peniko::Color::from_rgba8(181, 66, 11, 255);
@@ -77,11 +77,23 @@ fn glow_label(
     painter.label_scaled(position, text, size, color, anchor, scale_x, scale_y);
 }
 
-fn glow_rect(painter: &mut HudPainter, rect: HudRect, stroke: peniko::Color, fill: peniko::Color) {
-    painter.fill_rect(inflate_rect(rect, 2.0), apply_alpha(stroke, 0.08), 0.0);
-    painter.stroke_rect(inflate_rect(rect, 2.0), apply_alpha(stroke, 0.20), 0.0);
-    painter.stroke_rect(inflate_rect(rect, 1.0), apply_alpha(stroke, 0.36), 0.0);
+fn glow_rect(
+    painter: &mut HudPainter,
+    rect: HudRect,
+    stroke: peniko::Color,
+    fill: peniko::Color,
+    seed: u32,
+) {
+    painter.fill_rect(inflate_rect(rect, 2.0), apply_alpha(stroke, 0.07), 0.0);
+    painter.fill_rect(inflate_rect(rect, 1.0), apply_alpha(stroke, 0.05), 0.0);
+    painter.stroke_rect(inflate_rect(rect, 2.0), apply_alpha(stroke, 0.22), 0.0);
+    painter.stroke_rect(inflate_rect(rect, 1.0), apply_alpha(stroke, 0.40), 0.0);
     painter.fill_rect(rect, fill, 0.0);
+
+    for (band_rect, alpha) in agent_button_irregularities(rect, seed) {
+        painter.fill_rect(band_rect, apply_alpha(stroke, alpha), 0.0);
+    }
+
     painter.stroke_rect(rect, stroke, 0.0);
 }
 
@@ -211,7 +223,13 @@ pub(crate) fn render_content(
             apply_alpha(EVA_BLACK, 0.90)
         };
 
-        glow_rect(painter, main_rect, stroke, fill);
+        glow_rect(
+            painter,
+            main_rect,
+            stroke,
+            fill,
+            row.terminal_id.0 as u32 * 13 + 1,
+        );
         glow_rect(
             painter,
             marker_rect,
@@ -221,6 +239,7 @@ pub(crate) fn render_content(
             } else {
                 apply_alpha(EVA_ORANGE, 0.82)
             },
+            row.terminal_id.0 as u32 * 13 + 7,
         );
 
         glow_label(
