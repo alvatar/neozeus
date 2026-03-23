@@ -1,6 +1,23 @@
-use crate::terminals::TerminalId;
+use crate::{hud::HudRect, terminals::TerminalId};
+use bevy::{prelude::Vec2, window::Window};
 
 const HUD_MESSAGE_BOX_KILL_RING_LIMIT: usize = 32;
+const HUD_MESSAGE_BOX_ACTION_BUTTON_W: f32 = 170.0;
+const HUD_MESSAGE_BOX_ACTION_BUTTON_H: f32 = 28.0;
+const HUD_MESSAGE_BOX_ACTION_BUTTON_GAP: f32 = 12.0;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum HudMessageBoxAction {
+    AppendTask,
+    PrependTask,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct HudMessageBoxActionButton {
+    pub(crate) action: HudMessageBoxAction,
+    pub(crate) rect: HudRect,
+    pub(crate) label: &'static str,
+}
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub(crate) struct HudMessageBoxYankState {
@@ -19,6 +36,55 @@ pub(crate) struct HudMessageBoxState {
     pub(crate) preferred_column: Option<usize>,
     pub(crate) kill_ring: Vec<String>,
     pub(crate) yank_state: Option<HudMessageBoxYankState>,
+}
+
+pub(crate) fn message_box_rect(window: &Window) -> HudRect {
+    let size = Vec2::new(
+        (window.width() * 0.84).clamp(520.0, 1680.0),
+        (window.height() * 0.72).clamp(260.0, 980.0),
+    );
+    HudRect {
+        x: window.width() * 0.5 - size.x * 0.5,
+        y: window.height() * 0.5 - size.y * 0.5,
+        w: size.x,
+        h: size.y,
+    }
+}
+
+pub(crate) fn message_box_action_buttons(window: &Window) -> [HudMessageBoxActionButton; 2] {
+    let rect = message_box_rect(window);
+    let base_y = rect.y + rect.h - 44.0;
+    let prepend_x = rect.x + rect.w - 24.0 - HUD_MESSAGE_BOX_ACTION_BUTTON_W;
+    let append_x = prepend_x - HUD_MESSAGE_BOX_ACTION_BUTTON_GAP - HUD_MESSAGE_BOX_ACTION_BUTTON_W;
+    [
+        HudMessageBoxActionButton {
+            action: HudMessageBoxAction::AppendTask,
+            rect: HudRect {
+                x: append_x,
+                y: base_y,
+                w: HUD_MESSAGE_BOX_ACTION_BUTTON_W,
+                h: HUD_MESSAGE_BOX_ACTION_BUTTON_H,
+            },
+            label: "Append Task",
+        },
+        HudMessageBoxActionButton {
+            action: HudMessageBoxAction::PrependTask,
+            rect: HudRect {
+                x: prepend_x,
+                y: base_y,
+                w: HUD_MESSAGE_BOX_ACTION_BUTTON_W,
+                h: HUD_MESSAGE_BOX_ACTION_BUTTON_H,
+            },
+            label: "Prepend Task",
+        },
+    ]
+}
+
+pub(crate) fn message_box_action_at(window: &Window, point: Vec2) -> Option<HudMessageBoxAction> {
+    message_box_action_buttons(window)
+        .into_iter()
+        .find(|button| button.rect.contains(point))
+        .map(|button| button.action)
 }
 
 impl HudMessageBoxState {

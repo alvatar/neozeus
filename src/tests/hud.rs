@@ -3,14 +3,15 @@ use crate::hud::{
     agent_list_bloom_layer, agent_list_bloom_z, agent_row_rect, agent_rows, apply_persisted_layout,
     apply_terminal_focus_requests, apply_visibility_requests, debug_toolbar_buttons,
     dispatch_hud_pointer_click, dispatch_hud_scroll, handle_hud_module_shortcuts,
-    handle_hud_pointer_input, hud_needs_redraw, kill_active_terminal, parse_persisted_hud_state,
-    resolve_agent_label, resolve_agent_list_bloom_intensity, resolve_hud_layout_path_with,
-    save_hud_layout_if_dirty, serialize_persisted_hud_state, AgentDirectory,
-    AgentListBloomCameraMarker, AgentListBloomCompositeMarker, AgentListBloomSourceKind,
-    AgentListBloomSourceSprite, AgentListRowSection, HudBloomSettings, HudDragState, HudIntent,
-    HudModuleId, HudModuleModel, HudOffscreenCompositor, HudPersistenceState, HudRect, HudState,
-    HudWidgetBloom, PersistedHudModuleState, PersistedHudState, TerminalFocusRequest,
-    TerminalVisibilityPolicy, TerminalVisibilityRequest, TerminalVisibilityState,
+    handle_hud_pointer_input, hud_needs_redraw, kill_active_terminal, message_box_action_buttons,
+    parse_persisted_hud_state, resolve_agent_label, resolve_agent_list_bloom_intensity,
+    resolve_hud_layout_path_with, save_hud_layout_if_dirty, serialize_persisted_hud_state,
+    AgentDirectory, AgentListBloomCameraMarker, AgentListBloomCompositeMarker,
+    AgentListBloomSourceKind, AgentListBloomSourceSprite, AgentListRowSection, HudBloomSettings,
+    HudDragState, HudIntent, HudModuleId, HudModuleModel, HudOffscreenCompositor,
+    HudPersistenceState, HudRect, HudState, HudWidgetBloom, PersistedHudModuleState,
+    PersistedHudState, TerminalFocusRequest, TerminalVisibilityPolicy, TerminalVisibilityRequest,
+    TerminalVisibilityState,
 };
 use crate::terminals::{
     TerminalManager, TerminalPanel, TerminalPanelFrame, TerminalPresentationStore,
@@ -663,6 +664,7 @@ fn agent_list_is_not_draggable() {
 
     world.insert_resource(ButtonInput::<MouseButton>::default());
     world.insert_resource(Messages::<MouseWheel>::default());
+    world.insert_resource(Messages::<RequestRedraw>::default());
     world.insert_resource(hud_state);
     world.insert_resource(TerminalManager::default());
     world.insert_resource(TerminalPresentationStore::default());
@@ -682,6 +684,52 @@ fn agent_list_is_not_draggable() {
     let hud_state = world.resource::<HudState>();
     assert!(hud_state.drag.is_none());
     assert!(!hud_state.dirty_layout);
+}
+
+#[test]
+fn clicking_message_box_task_button_emits_append_task_intent() {
+    let mut world = World::default();
+    let terminal_id = crate::terminals::TerminalId(7);
+    let mut hud_state = HudState::default();
+    hud_state.open_message_box(terminal_id);
+    hud_state.message_box.insert_text("follow up");
+
+    let mut window = Window {
+        focused: true,
+        resolution: (1400, 900).into(),
+        ..Default::default()
+    };
+    let append_button = message_box_action_buttons(&window)[0];
+    window.set_cursor_position(Some(Vec2::new(
+        append_button.rect.x + 4.0,
+        append_button.rect.y + 4.0,
+    )));
+
+    world.insert_resource(ButtonInput::<MouseButton>::default());
+    world.insert_resource(Messages::<MouseWheel>::default());
+    world.insert_resource(Messages::<RequestRedraw>::default());
+    world.insert_resource(hud_state);
+    world.insert_resource(TerminalManager::default());
+    world.insert_resource(TerminalPresentationStore::default());
+    world.insert_resource(TerminalViewState::default());
+    world.insert_resource(AgentDirectory::default());
+    init_hud_commands(&mut world);
+    world.spawn((window, PrimaryWindow));
+
+    world
+        .resource_mut::<ButtonInput<MouseButton>>()
+        .press(MouseButton::Left);
+    world.run_system_once(handle_hud_pointer_input).unwrap();
+
+    assert_eq!(
+        drain_hud_commands(&mut world),
+        vec![HudIntent::AppendTerminalTask(
+            terminal_id,
+            "follow up".into()
+        )]
+    );
+    assert_eq!(world.resource::<Messages<RequestRedraw>>().len(), 1);
+    assert!(!world.resource::<HudState>().message_box.visible);
 }
 
 #[test]

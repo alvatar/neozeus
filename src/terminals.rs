@@ -11,6 +11,7 @@ mod debug;
 mod fonts;
 mod lifecycle;
 mod mailbox;
+mod notes;
 mod presentation;
 mod presentation_state;
 #[allow(
@@ -68,6 +69,15 @@ pub(crate) use lifecycle::{
     kill_active_terminal_session_and_remove, spawn_attached_terminal_with_presentation,
 };
 pub(crate) use mailbox::TerminalUpdateMailbox;
+pub(crate) use notes::{
+    load_terminal_notes_from, mark_terminal_notes_dirty, resolve_terminal_notes_path,
+    save_terminal_notes_if_dirty, TerminalNotesState,
+};
+#[cfg(test)]
+pub(crate) use notes::{
+    parse_terminal_notes, resolve_terminal_notes_path_with, serialize_terminal_notes,
+    task_entry_from_text,
+};
 #[cfg(test)]
 pub(crate) use presentation::{
     active_terminal_cell_size, active_terminal_dimensions, active_terminal_viewport,

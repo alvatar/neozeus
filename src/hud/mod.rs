@@ -30,14 +30,17 @@ pub(crate) use compositor::{
 pub(crate) use dispatcher::kill_active_terminal;
 pub(crate) use dispatcher::{
     apply_hud_module_requests, apply_terminal_focus_requests, apply_terminal_lifecycle_requests,
-    apply_terminal_send_requests, apply_terminal_view_requests, apply_visibility_requests,
-    dispatch_hud_intents,
+    apply_terminal_send_requests, apply_terminal_task_requests, apply_terminal_view_requests,
+    apply_visibility_requests, dispatch_hud_intents,
 };
 pub(crate) use input::{handle_hud_module_shortcuts, handle_hud_pointer_input};
-pub(crate) use message_box::HudMessageBoxState;
+pub(crate) use message_box::{
+    message_box_action_at, message_box_action_buttons, message_box_rect, HudMessageBoxAction,
+    HudMessageBoxState,
+};
 pub(crate) use messages::{
     HudIntent, HudModuleRequest, TerminalFocusRequest, TerminalLifecycleRequest,
-    TerminalSendRequest, TerminalViewRequest, TerminalVisibilityRequest,
+    TerminalSendRequest, TerminalTaskRequest, TerminalViewRequest, TerminalVisibilityRequest,
 };
 #[cfg(test)]
 pub(crate) use persistence::{

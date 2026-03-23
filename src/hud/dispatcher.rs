@@ -1,14 +1,14 @@
 use crate::{
     hud::{
         AgentDirectory, HudIntent, HudModuleId, HudModuleRequest, HudState, TerminalFocusRequest,
-        TerminalLifecycleRequest, TerminalSendRequest, TerminalViewRequest,
+        TerminalLifecycleRequest, TerminalSendRequest, TerminalTaskRequest, TerminalViewRequest,
         TerminalVisibilityPolicy, TerminalVisibilityRequest, TerminalVisibilityState,
     },
     terminals::{
-        append_debug_log, kill_active_terminal_session_and_remove, mark_terminal_sessions_dirty,
-        spawn_attached_terminal_with_presentation, TerminalManager, TerminalPresentationStore,
-        TerminalRuntimeSpawner, TerminalSessionPersistenceState, TerminalViewState,
-        PERSISTENT_SESSION_PREFIX,
+        append_debug_log, kill_active_terminal_session_and_remove, mark_terminal_notes_dirty,
+        mark_terminal_sessions_dirty, spawn_attached_terminal_with_presentation, TerminalManager,
+        TerminalNotesState, TerminalPresentationStore, TerminalRuntimeSpawner,
+        TerminalSessionPersistenceState, TerminalViewState, PERSISTENT_SESSION_PREFIX,
     },
 };
 use bevy::{prelude::*, window::RequestRedraw};
@@ -42,6 +42,10 @@ pub(crate) fn kill_active_terminal(
     )
 }
 
+#[allow(
+    clippy::too_many_arguments,
+    reason = "intent fanout is intentionally explicit across narrow request channels"
+)]
 pub(crate) fn dispatch_hud_intents(
     mut intents: MessageReader<HudIntent>,
     mut focus_requests: MessageWriter<TerminalFocusRequest>,
@@ -50,6 +54,7 @@ pub(crate) fn dispatch_hud_intents(
     mut view_requests: MessageWriter<TerminalViewRequest>,
     mut send_requests: MessageWriter<TerminalSendRequest>,
     mut lifecycle_requests: MessageWriter<TerminalLifecycleRequest>,
+    mut task_requests: MessageWriter<TerminalTaskRequest>,
 ) {
     for intent in intents.read() {
         match intent {
@@ -86,6 +91,18 @@ pub(crate) fn dispatch_hud_intents(
                 send_requests.write(TerminalSendRequest::Target {
                     terminal_id: *terminal_id,
                     command: command.clone(),
+                });
+            }
+            HudIntent::AppendTerminalTask(terminal_id, text) => {
+                task_requests.write(TerminalTaskRequest::Append {
+                    terminal_id: *terminal_id,
+                    text: text.clone(),
+                });
+            }
+            HudIntent::PrependTerminalTask(terminal_id, text) => {
+                task_requests.write(TerminalTaskRequest::Prepend {
+                    terminal_id: *terminal_id,
+                    text: text.clone(),
                 });
             }
             HudIntent::KillActiveTerminal => {
@@ -206,6 +223,33 @@ pub(crate) fn apply_terminal_send_requests(
                         ));
                 }
             }
+        }
+    }
+}
+
+pub(crate) fn apply_terminal_task_requests(
+    mut requests: MessageReader<TerminalTaskRequest>,
+    time: Res<Time>,
+    terminal_manager: Res<TerminalManager>,
+    mut notes_state: ResMut<TerminalNotesState>,
+    mut redraws: MessageWriter<RequestRedraw>,
+) {
+    for request in requests.read() {
+        let changed = match request {
+            TerminalTaskRequest::Append { terminal_id, text } => {
+                terminal_manager.get(*terminal_id).is_some_and(|terminal| {
+                    notes_state.append_task_from_text(&terminal.session_name, text)
+                })
+            }
+            TerminalTaskRequest::Prepend { terminal_id, text } => {
+                terminal_manager.get(*terminal_id).is_some_and(|terminal| {
+                    notes_state.prepend_task_from_text(&terminal.session_name, text)
+                })
+            }
+        };
+        if changed {
+            mark_terminal_notes_dirty(&mut notes_state, Some(&time));
+            redraws.write(RequestRedraw);
         }
     }
 }

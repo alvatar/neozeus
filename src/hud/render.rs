@@ -1,9 +1,12 @@
 use crate::{
     hud::{
-        modules, AgentDirectory, HudMessageBoxState, HudModuleId, HudRect, HudState,
-        HUD_TITLEBAR_HEIGHT,
+        message_box_action_buttons, message_box_rect, modules, AgentDirectory, HudMessageBoxState,
+        HudModuleId, HudRect, HudState, HUD_TITLEBAR_HEIGHT,
     },
-    terminals::{TerminalFontState, TerminalManager, TerminalPresentationStore, TerminalViewState},
+    terminals::{
+        TerminalFontState, TerminalManager, TerminalNotesState, TerminalPresentationStore,
+        TerminalViewState,
+    },
 };
 use bevy::{prelude::*, window::PrimaryWindow};
 use bevy_vello::{
@@ -212,21 +215,9 @@ pub(crate) struct HudRenderInputs<'a> {
     pub(crate) presentation_store: &'a TerminalPresentationStore,
     pub(crate) view_state: &'a TerminalViewState,
     pub(crate) agent_directory: &'a AgentDirectory,
+    pub(crate) notes_state: &'a TerminalNotesState,
     pub(crate) hud_state: &'a HudState,
     pub(crate) font_state: &'a TerminalFontState,
-}
-
-fn message_box_rect(window: &Window) -> HudRect {
-    let size = Vec2::new(
-        (window.width() * 0.84).clamp(520.0, 1680.0),
-        (window.height() * 0.72).clamp(260.0, 980.0),
-    );
-    HudRect {
-        x: window.width() * 0.5 - size.x * 0.5,
-        y: window.height() * 0.5 - size.y * 0.5,
-        w: size.x,
-        h: size.y,
-    }
 }
 
 fn slice_chars(text: &str, start_chars: usize, max_chars: usize) -> String {
@@ -292,7 +283,7 @@ fn draw_message_box(
     );
     painter.label(
         Vec2::new(rect.x + rect.w - 24.0, rect.y + 12.0),
-        "Enter newline · Ctrl-S send · Esc cancel",
+        "Enter newline · Ctrl-S send · Ctrl-T append · Ctrl-Shift-T prepend · Esc cancel",
         16.0,
         HudColors::TEXT_MUTED,
         VelloTextAnchor::TopRight,
@@ -422,6 +413,18 @@ fn draw_message_box(
         })
         .or_else(|| message_box.mark.map(|_| "Mark set".to_owned()))
         .unwrap_or_else(|| "No mark".to_owned());
+    for button in message_box_action_buttons(window) {
+        painter.fill_rect(button.rect, HudColors::BUTTON, 0.0);
+        painter.stroke_rect(button.rect, HudColors::BUTTON_BORDER, 0.0);
+        painter.label(
+            Vec2::new(button.rect.x + 10.0, button.rect.y + 6.0),
+            button.label,
+            14.0,
+            HudColors::TEXT,
+            VelloTextAnchor::TopLeft,
+        );
+    }
+
     painter.label(
         Vec2::new(rect.x + 24.0, rect.y + rect.h - 52.0),
         &format!(
@@ -436,7 +439,7 @@ fn draw_message_box(
     );
     painter.label(
         Vec2::new(rect.x + 24.0, rect.y + rect.h - 30.0),
-        "C-Space mark · C-w cut · M-w copy · C-y yank · M-y ring · M-d/M-Bksp word · C-o open · C-j newline",
+        "C-Space mark · C-w cut · M-w copy · C-y yank · M-y ring · C-T append · C-S-T prepend",
         15.0,
         HudColors::TEXT_MUTED,
         VelloTextAnchor::TopLeft,
@@ -491,6 +494,7 @@ pub(crate) fn render_hud_scene(
     presentation_store: Res<TerminalPresentationStore>,
     view_state: Res<TerminalViewState>,
     agent_directory: Res<AgentDirectory>,
+    notes_state: Res<TerminalNotesState>,
     font_state: Res<TerminalFontState>,
     fonts: Res<Assets<VelloFont>>,
     mut scene: Single<&mut VelloScene2d, With<HudVectorSceneMarker>>,
@@ -501,6 +505,7 @@ pub(crate) fn render_hud_scene(
         presentation_store: &presentation_store,
         view_state: &view_state,
         agent_directory: &agent_directory,
+        notes_state: &notes_state,
         hud_state: &hud_state,
         font_state: &font_state,
     };
