@@ -3,6 +3,8 @@ set -euo pipefail
 
 ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 cd "$ROOT_DIR"
+# shellcheck source=./neozeus-safe.sh
+source "$ROOT_DIR/scripts/gui/neozeus-safe.sh"
 
 APP="$ROOT_DIR/target/debug/neozeus"
 BUILD_LOG=/tmp/neozeus-bloom-build.log
@@ -30,74 +32,6 @@ match = re.search(r"[0-9]+(?:\.[0-9]+)?(?:e[+-]?[0-9]+)?", value, re.IGNORECASE)
 if not match:
     raise SystemExit(f"failed to parse metric: {value!r}")
 print(match.group(0))
-PY
-}
-
-find_window_by_pid_and_title() {
-    local pid=$1
-    local title=$2
-    python - "$pid" "$title" <<'PY'
-import json
-import subprocess
-import sys
-import time
-
-pid = int(sys.argv[1])
-title = sys.argv[2]
-for _ in range(120):
-    tree = json.loads(subprocess.check_output(["swaymsg", "-t", "get_tree"]))
-    stack = [tree]
-    while stack:
-        node = stack.pop()
-        if not isinstance(node, dict):
-            continue
-        if node.get("pid") == pid and node.get("name") == title:
-            rect = node["rect"]
-            print(json.dumps({
-                "id": node["id"],
-                "x": rect["x"],
-                "y": rect["y"],
-                "width": rect["width"],
-                "height": rect["height"],
-            }))
-            sys.exit(0)
-        stack.extend(node.get("nodes", []))
-        stack.extend(node.get("floating_nodes", []))
-    time.sleep(0.25)
-raise SystemExit(1)
-PY
-}
-
-find_window_by_con_id() {
-    local con_id=$1
-    python - "$con_id" <<'PY'
-import json
-import subprocess
-import sys
-import time
-
-con_id = int(sys.argv[1])
-for _ in range(80):
-    tree = json.loads(subprocess.check_output(["swaymsg", "-t", "get_tree"]))
-    stack = [tree]
-    while stack:
-        node = stack.pop()
-        if not isinstance(node, dict):
-            continue
-        if node.get("id") == con_id:
-            rect = node["rect"]
-            print(json.dumps({
-                "id": node["id"],
-                "x": rect["x"],
-                "y": rect["y"],
-                "width": rect["width"],
-                "height": rect["height"],
-            }))
-            sys.exit(0)
-        stack.extend(node.get("nodes", []))
-        stack.extend(node.get("floating_nodes", []))
-    time.sleep(0.1)
-raise SystemExit(1)
 PY
 }
 
@@ -133,17 +67,7 @@ PY
 
 cleanup_app() {
     if [[ -n "${APP_PID:-}" ]]; then
-        kill "$APP_PID" 2>/dev/null || true
-        for _ in $(seq 1 20); do
-            if ! kill -0 "$APP_PID" 2>/dev/null; then
-                break
-            fi
-            sleep 0.2
-        done
-        if kill -0 "$APP_PID" 2>/dev/null; then
-            kill -9 "$APP_PID" 2>/dev/null || true
-        fi
-        wait "$APP_PID" 2>/dev/null || true
+        neozeus_gui_cleanup_pid "$APP_PID"
         APP_PID=
     fi
 }
@@ -169,17 +93,14 @@ run_capture() {
     APP_PID=$!
 
     local window_json
-    window_json=$(find_window_by_pid_and_title "$APP_PID" "$title")
+    window_json=$(neozeus_gui_find_window_by_pid_and_title "$APP_PID" "$title")
     local con_id
     con_id=$(jq -r '.id' <<<"$window_json")
 
-    swaymsg "[con_id=${con_id}] move container to workspace number ${SWAY_WORKSPACE}" >/dev/null
-    swaymsg "[con_id=${con_id}] floating enable" >/dev/null
-    swaymsg "[con_id=${con_id}] resize set width 1400 px height 900 px" >/dev/null
-    swaymsg "[con_id=${con_id}] move position 40 px 40 px" >/dev/null
+    neozeus_gui_place_window "$con_id" "$SWAY_WORKSPACE" 1400 900 40 40
     sleep 1.2
 
-    window_json=$(find_window_by_con_id "$con_id")
+    window_json=$(neozeus_gui_find_window_by_con_id "$con_id")
     local x y width height capture_w capture_h
     x=$(jq -r '.x' <<<"$window_json")
     y=$(jq -r '.y' <<<"$window_json")
@@ -192,7 +113,6 @@ run_capture() {
 }
 
 cargo build >"$BUILD_LOG" 2>&1
-pkill -f "$APP" 2>/dev/null || true
 
 run_capture off 0.0 "$OFF_PNG"
 run_capture on "$ON_INTENSITY" "$ON_PNG"

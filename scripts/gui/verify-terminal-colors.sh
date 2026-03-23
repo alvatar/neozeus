@@ -3,6 +3,8 @@ set -euo pipefail
 
 ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 cd "$ROOT_DIR"
+# shellcheck source=./neozeus-safe.sh
+source "$ROOT_DIR/scripts/gui/neozeus-safe.sh"
 
 APP="$ROOT_DIR/target/debug/neozeus"
 BUILD_LOG=/tmp/neozeus-color-build.log
@@ -38,14 +40,13 @@ wait_for_log_quiet() {
 
 cleanup() {
     if [[ -n "${APP_PID:-}" ]]; then
-        kill "$APP_PID" 2>/dev/null || true
-        wait "$APP_PID" 2>/dev/null || true
+        neozeus_gui_cleanup_pid "$APP_PID"
+        APP_PID=
     fi
 }
 trap cleanup EXIT
 
 cargo build >"$BUILD_LOG" 2>&1
-pkill -f "$APP" 2>/dev/null || true
 rm -f "$RUN_LOG" "$DEBUG_LOG" "$TEXTURE_DUMP" "$TEXTURE_PNG" "$WINDOW_PNG"
 
 cat >"$FIXTURE" <<'EOF'
@@ -147,72 +148,15 @@ NEOZEUS_AUTOVERIFY_DELAY_MS=1500 \
 nohup "$APP" >"$RUN_LOG" 2>&1 </dev/null &
 APP_PID=$!
 
-WINDOW_JSON=$(python - "$APP_PID" "$WINDOW_TITLE" <<'PY'
-import json
-import subprocess
-import sys
-import time
+GUI_WORKSPACE=${NEOZEUS_GUI_WORKSPACE:-8}
 
-pid = int(sys.argv[1])
-window_title = sys.argv[2]
-for _ in range(80):
-    tree = json.loads(subprocess.check_output(["swaymsg", "-t", "get_tree"]))
-    stack = [tree]
-    while stack:
-        node = stack.pop()
-        if isinstance(node, dict):
-            if node.get("pid") == pid and node.get("name") == window_title:
-                rect = node["rect"]
-                print(json.dumps({
-                    "id": node["id"],
-                    "x": rect["x"],
-                    "y": rect["y"],
-                    "width": rect["width"],
-                    "height": rect["height"],
-                }))
-                sys.exit(0)
-            stack.extend(node.get("nodes", []))
-            stack.extend(node.get("floating_nodes", []))
-    time.sleep(0.25)
-
-sys.exit(1)
-PY
-)
+WINDOW_JSON=$(neozeus_gui_find_window_by_pid_and_title "$APP_PID" "$WINDOW_TITLE")
 
 CON_ID=$(jq -r '.id' <<<"$WINDOW_JSON")
-swaymsg "[con_id=${CON_ID}] move container to workspace current" >/dev/null
+neozeus_gui_place_window "$CON_ID" "$GUI_WORKSPACE" 1400 900 40 40
 sleep 1.0
 
-WINDOW_JSON=$(python - "$CON_ID" <<'PY'
-import json
-import subprocess
-import sys
-import time
-
-con_id = int(sys.argv[1])
-for _ in range(40):
-    tree = json.loads(subprocess.check_output(["swaymsg", "-t", "get_tree"]))
-    stack = [tree]
-    while stack:
-        node = stack.pop()
-        if isinstance(node, dict):
-            if node.get("id") == con_id:
-                rect = node["rect"]
-                print(json.dumps({
-                    "id": node["id"],
-                    "x": rect["x"],
-                    "y": rect["y"],
-                    "width": rect["width"],
-                    "height": rect["height"],
-                }))
-                sys.exit(0)
-            stack.extend(node.get("nodes", []))
-            stack.extend(node.get("floating_nodes", []))
-    time.sleep(0.25)
-
-sys.exit(1)
-PY
-)
+WINDOW_JSON=$(neozeus_gui_find_window_by_con_id "$CON_ID")
 
 for _ in $(seq 1 40); do
     grep -q 'auto-verify command dispatched' "$DEBUG_LOG" 2>/dev/null && break
