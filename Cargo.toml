@@ -12,7 +12,3 @@ bevy_vello = { version = "0.13.1", features = ["text", "default_font"] }
 cosmic-text = "0.16.0"
 portable-pty = "0.9.0"
 
-[patch.crates-io]
-bevy_vello = { path = "third_party/bevy_vello" }
-vello = { path = "third_party/vello" }
-vello_shaders = { path = "third_party/vello_shaders" }

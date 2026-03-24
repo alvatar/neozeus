@@ -1689,6 +1689,8 @@ dependencies = [
 [[package]]
 name = "bevy_vello"
 version = "0.13.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1c2ee247616c922c3d19895aa8f93c556721ceff447f7af84865bac7a678c09d"
 dependencies = [
  "bevy",
  "parley",
@@ -5640,6 +5642,8 @@ checksum = "f1bddf1187be692e79c5ffeab891132dfb0f236ed36a43c7ed39f1165ee20191"
 [[package]]
 name = "vello"
 version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "72fef40773530322d5c2ffe3c1107e9874bd8239ac137d1c2b6c1edad695146e"
 dependencies = [
  "bytemuck",
  "futures-intrusive",
@@ -5670,6 +5674,8 @@ dependencies = [
 [[package]]
 name = "vello_shaders"
 version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7a765d44d4bd354146e44f9a860f4e92effd91a97302549be9e47f0a18d8128c"
 dependencies = [
  "bytemuck",
  "log",
