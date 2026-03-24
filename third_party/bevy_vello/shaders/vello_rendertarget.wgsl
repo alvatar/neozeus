@@ -55,7 +55,9 @@ fn fragment(
     #import bevy_sprite::mesh2d_vertex_output
 ) -> @location(0) vec4<f32> {
     let uvs = coords_to_viewport_uv(position.xy, view.viewport);
-    let color = textureSample(texture, texture_sampler, uvs);
+    let dims = vec2<f32>(textureDimensions(texture));
+    let texel = vec2<i32>(clamp(floor(uvs * dims), vec2<f32>(0.0), dims - vec2<f32>(1.0)));
+    let color = textureLoad(texture, texel, 0);
     let color_converted = linear_from_srgba(color);
     return color_converted;
 }
