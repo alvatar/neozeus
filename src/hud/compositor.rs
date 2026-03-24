@@ -1,6 +1,9 @@
 use bevy::{
     asset::RenderAssetUsages,
-    camera::{visibility::RenderLayers, ClearColorConfig},
+    camera::{
+        visibility::{NoFrustumCulling, RenderLayers},
+        ClearColorConfig,
+    },
     mesh::Indices,
     prelude::*,
     render::render_resource::PrimitiveTopology,
@@ -29,7 +32,7 @@ pub(crate) struct HudCompositeLayerMarker {
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct HudCompositeCameraMarker;
 
-pub(crate) const HUD_COMPOSITE_FOREGROUND_Z: f32 = 10.0;
+pub(crate) const HUD_COMPOSITE_FOREGROUND_Z: f32 = 0.0;
 
 #[derive(Clone, Debug)]
 struct HudCompositeLayer {
@@ -123,6 +126,7 @@ pub(crate) fn setup_hud_offscreen_compositor(
                     texture: Handle::default(),
                 })),
                 Transform::IDENTITY,
+                NoFrustumCulling,
                 RenderLayers::layer(HUD_COMPOSITE_RENDER_LAYER),
                 Visibility::Hidden,
                 HudCompositeLayerMarker { id: layer.id },

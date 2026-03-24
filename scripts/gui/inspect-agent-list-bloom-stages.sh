@@ -40,9 +40,9 @@ capture_stable_window() {
     local b=/tmp/neozeus-bloom-stages-b.png
 
     for _ in $(seq 1 20); do
-        grim -s "$capture_scale" -g "$geom" "$a"
+        neozeus_gui_grim_capture "$capture_scale" "$geom" "$a"
         sleep 0.5
-        grim -s "$capture_scale" -g "$geom" "$b"
+        neozeus_gui_grim_capture "$capture_scale" "$geom" "$b"
         local diff_raw
         diff_raw=$(compare -metric AE "$a" "$b" null: 2>&1 >/dev/null || true)
         local diff
@@ -91,8 +91,9 @@ APP_PID=$(neozeus_gui_launch_isolated \
 window_json=$(neozeus_gui_find_window_by_pid_and_title "$APP_PID" "neozeus-bloom-stages-$$")
 con_id=$(jq -r '.id' <<<"$window_json")
 neozeus_gui_place_window "$con_id" "$SWAY_WORKSPACE" 1400 900 40 40
+neozeus_gui_focus_workspace "$SWAY_WORKSPACE"
 sleep 1.5
-window_json=$(neozeus_gui_find_window_by_con_id "$con_id")
+window_json=$(neozeus_gui_wait_for_visible_con_id "$con_id")
 x=$(jq -r '.x' <<<"$window_json")
 y=$(jq -r '.y' <<<"$window_json")
 width=$(jq -r '.width' <<<"$window_json")

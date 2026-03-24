@@ -45,9 +45,9 @@ capture_stable_window() {
     local geom="${x},${y} ${width}x${height}"
 
     for _ in $(seq 1 20); do
-        grim -s "$capture_scale" -g "$geom" "$STABLE_A"
+        neozeus_gui_grim_capture "$capture_scale" "$geom" "$STABLE_A"
         sleep 0.5
-        grim -s "$capture_scale" -g "$geom" "$STABLE_B"
+        neozeus_gui_grim_capture "$capture_scale" "$geom" "$STABLE_B"
         local diff_raw
         diff_raw=$(metric_ae "$STABLE_A" "$STABLE_B")
         local diff
@@ -104,9 +104,10 @@ run_capture() {
     con_id=$(jq -r '.id' <<<"$window_json")
 
     neozeus_gui_place_window "$con_id" "$SWAY_WORKSPACE" 1400 900 40 40
+    neozeus_gui_focus_workspace "$SWAY_WORKSPACE"
     sleep 1.2
 
-    window_json=$(neozeus_gui_find_window_by_con_id "$con_id")
+    window_json=$(neozeus_gui_wait_for_visible_con_id "$con_id")
     local x y width height capture_w capture_h
     x=$(jq -r '.x' <<<"$window_json")
     y=$(jq -r '.y' <<<"$window_json")

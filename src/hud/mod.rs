@@ -22,8 +22,9 @@ pub(crate) use bloom::{
     AgentListBloomSourceKind, AgentListBloomSourceSprite,
 };
 pub(crate) use capture::{
-    finalize_window_capture, request_hud_texture_capture, request_window_capture,
-    HudTextureCaptureConfig, WindowCaptureConfig,
+    finalize_window_capture, request_hud_composite_capture, request_hud_texture_capture,
+    request_window_capture, HudCompositeCaptureConfig, HudTextureCaptureConfig,
+    WindowCaptureConfig,
 };
 pub(crate) use compositor::{
     setup_hud_offscreen_compositor, sync_hud_offscreen_compositor, HudOffscreenCompositor,
