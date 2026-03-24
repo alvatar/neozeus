@@ -32,7 +32,7 @@ pub(crate) use compositor::{
 #[cfg(test)]
 pub(crate) use compositor::{
     HudCompositeCameraMarker, HudCompositeLayerId, HudCompositeLayerMarker,
-    HUD_COMPOSITE_RENDER_LAYER,
+    HUD_COMPOSITE_FOREGROUND_Z, HUD_COMPOSITE_RENDER_LAYER,
 };
 #[cfg(test)]
 pub(crate) use dispatcher::kill_active_terminal;

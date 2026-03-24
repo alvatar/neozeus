@@ -27,6 +27,7 @@ use bevy::{
     },
     ecs::system::RunSystemOnce,
     input::{keyboard::KeyboardInput, mouse::MouseWheel},
+    mesh::VertexAttributeValues,
     prelude::*,
     render::render_resource::TextureFormat,
     sprite_render::{AlphaMode2d, Material2d, MeshMaterial2d},
@@ -379,6 +380,107 @@ fn sync_hud_offscreen_compositor_hides_vello_canvas_and_binds_texture() {
     assert_eq!(transform.translation, Vec3::ZERO);
     assert_eq!(visibility, &Visibility::Visible);
     assert!(quad_layers.intersects(&RenderLayers::layer(crate::hud::HUD_COMPOSITE_RENDER_LAYER,)));
+}
+
+#[test]
+fn hud_composite_quad_matches_upstream_vello_canvas_contract() {
+    assert_eq!(crate::hud::HUD_COMPOSITE_FOREGROUND_Z, 0.0);
+
+    let mut world = World::default();
+    world.insert_resource(HudOffscreenCompositor::default());
+    world.insert_resource(Assets::<VelloCanvasMaterial>::default());
+    world.insert_resource(Assets::<Mesh>::default());
+    world.spawn((
+        Window {
+            resolution: (1400, 900).into(),
+            ..default()
+        },
+        PrimaryWindow,
+    ));
+
+    world
+        .run_system_once(
+            |mut commands: Commands,
+             mut compositor: ResMut<HudOffscreenCompositor>,
+             mut meshes: ResMut<Assets<Mesh>>,
+             mut composite_materials: ResMut<Assets<VelloCanvasMaterial>>| {
+                crate::hud::setup_hud_offscreen_compositor(
+                    &mut commands,
+                    &mut compositor,
+                    &mut meshes,
+                    &mut composite_materials,
+                );
+            },
+        )
+        .unwrap();
+
+    let mesh_handle = world
+        .query::<&Mesh2d>()
+        .single(&world)
+        .expect("composite mesh exists")
+        .0
+        .clone();
+    let meshes = world.resource::<Assets<Mesh>>();
+    let mesh = meshes.get(&mesh_handle).expect("mesh asset exists");
+    let positions = mesh
+        .attribute(Mesh::ATTRIBUTE_POSITION)
+        .expect("positions present")
+        .as_float3()
+        .expect("positions are float3");
+    let uvs = match mesh.attribute(Mesh::ATTRIBUTE_UV_0).expect("uvs present") {
+        VertexAttributeValues::Float32x2(values) => values.as_slice(),
+        other => panic!("unexpected uv attribute format: {other:?}"),
+    };
+    assert_eq!(
+        positions,
+        &[
+            [-1.0, -1.0, 0.0],
+            [1.0, -1.0, 0.0],
+            [1.0, 1.0, 0.0],
+            [-1.0, 1.0, 0.0],
+        ]
+    );
+    assert_eq!(uvs, &[[-1.0, -1.0], [1.0, -1.0], [1.0, 1.0], [1.0, 1.0]]);
+}
+
+#[test]
+fn upstream_vello_present_contract_preserves_target_orange_bytes() {
+    fn srgb_to_linear_channel(value: u8) -> f32 {
+        let srgb = value as f32 / 255.0;
+        if srgb <= 0.04045 {
+            srgb / 12.92
+        } else {
+            ((srgb + 0.055) / 1.055).powf(2.4)
+        }
+    }
+
+    fn linear_to_srgb_channel(value: f32) -> u8 {
+        let srgb = if value <= 0.0031308 {
+            value * 12.92
+        } else {
+            1.055 * value.powf(1.0 / 2.4) - 0.055
+        };
+        (srgb.clamp(0.0, 1.0) * 255.0).round() as u8
+    }
+
+    let target = (225u8, 129u8, 10u8);
+    let visible = (
+        linear_to_srgb_channel(srgb_to_linear_channel(target.0)),
+        linear_to_srgb_channel(srgb_to_linear_channel(target.1)),
+        linear_to_srgb_channel(srgb_to_linear_channel(target.2)),
+    );
+    let wrong = (255u8, 177u8, 18u8);
+
+    assert_eq!(visible, target);
+    let target_dist = ((visible.0 as f32 - target.0 as f32).powi(2)
+        + (visible.1 as f32 - target.1 as f32).powi(2)
+        + (visible.2 as f32 - target.2 as f32).powi(2))
+    .sqrt();
+    let wrong_dist = ((visible.0 as f32 - wrong.0 as f32).powi(2)
+        + (visible.1 as f32 - wrong.1 as f32).powi(2)
+        + (visible.2 as f32 - wrong.2 as f32).powi(2))
+    .sqrt();
+    assert!(target_dist < wrong_dist);
 }
 
 #[test]
