@@ -6,10 +6,10 @@ use crate::{
     app_config::{DEFAULT_CELL_HEIGHT_PX, DEFAULT_CELL_WIDTH_PX},
     hud::{AgentDirectory, HudModuleId, HudState},
     terminals::{
-        active_terminal_cell_size, active_terminal_dimensions, active_terminal_viewport,
-        blend_rgba_in_place, build_attach_command_argv, clear_done_tasks, compute_terminal_damage,
-        create_detached_session_tmux_commands, create_terminal_image, extract_next_task,
-        find_kitty_config_path_with, generate_unique_session_name,
+        active_terminal_cell_size, active_terminal_dimensions, active_terminal_layout,
+        active_terminal_viewport, blend_rgba_in_place, build_attach_command_argv, clear_done_tasks,
+        compute_terminal_damage, create_detached_session_tmux_commands, create_terminal_image,
+        extract_next_task, find_kitty_config_path_with, generate_unique_session_name,
         initialize_terminal_text_renderer_with_locale, is_emoji_like, is_private_use_like,
         parse_kitty_config_file, parse_persisted_terminal_sessions, pixel_perfect_cell_size,
         pixel_perfect_terminal_logical_size, poll_terminal_snapshots, provision_terminal_target,
@@ -1509,13 +1509,20 @@ fn direct_input_mode_shows_orange_terminal_frame() {
 }
 
 #[test]
-fn message_box_keeps_terminal_presentations_visible() {
+fn active_terminal_presentation_stays_hidden_until_active_layout_upload_is_ready() {
     let (bridge, _) = test_bridge();
     let mut manager = TerminalManager::default();
     let id = manager.create_terminal(bridge);
-    for (_, terminal) in manager.iter_mut() {
-        terminal.snapshot.surface = Some(TerminalSurface::new(2, 2));
-    }
+    manager.get_mut(id).unwrap().snapshot.surface = Some(TerminalSurface::new(80, 24));
+    manager.get_mut(id).unwrap().surface_revision = 1;
+
+    let window = Window {
+        resolution: (1400, 900).into(),
+        ..Default::default()
+    };
+    let hud_state = crate::hud::HudState::default();
+    let view_state = TerminalViewState::default();
+    let active_layout = active_terminal_layout(&window, &hud_state, &view_state);
 
     let mut presentation_store = TerminalPresentationStore::default();
     presentation_store.register(
@@ -1523,15 +1530,15 @@ fn message_box_keeps_terminal_presentations_visible() {
         PresentedTerminal {
             image: Default::default(),
             texture_state: TerminalTextureState {
-                texture_size: UVec2::new(100, 100),
-                cell_size: UVec2::new(10, 20),
+                texture_size: UVec2::new(80 * DEFAULT_CELL_WIDTH_PX, 24 * DEFAULT_CELL_HEIGHT_PX),
+                cell_size: UVec2::new(DEFAULT_CELL_WIDTH_PX, DEFAULT_CELL_HEIGHT_PX),
             },
             desired_texture_state: TerminalTextureState {
-                texture_size: UVec2::new(100, 100),
-                cell_size: UVec2::new(10, 20),
+                texture_size: active_layout.texture_size,
+                cell_size: active_layout.cell_size,
             },
             display_mode: TerminalDisplayMode::Smooth,
-            uploaded_revision: 0,
+            uploaded_revision: 1,
             panel_entity: Entity::PLACEHOLDER,
             frame_entity: Entity::PLACEHOLDER,
         },
@@ -1540,21 +1547,167 @@ fn message_box_keeps_terminal_presentations_visible() {
     let mut world = World::default();
     let mut time = Time::<()>::default();
     time.advance_by(Duration::from_millis(16));
-    let mut hud_state = crate::hud::HudState::default();
-    hud_state.open_message_box(id);
     world.insert_resource(time);
     world.insert_resource(manager);
     world.insert_resource(presentation_store);
     world.insert_resource(crate::hud::TerminalVisibilityState::default());
-    world.insert_resource(TerminalViewState::default());
+    world.insert_resource(view_state);
     world.insert_resource(hud_state);
+    world.spawn((window, PrimaryWindow));
     world.spawn((
-        Window {
-            resolution: (1400, 900).into(),
-            ..Default::default()
+        TerminalPanel { id },
+        TerminalPresentation {
+            home_position: Vec2::ZERO,
+            current_position: Vec2::ZERO,
+            target_position: Vec2::ZERO,
+            current_size: Vec2::ONE,
+            target_size: Vec2::ONE,
+            current_alpha: 1.0,
+            target_alpha: 1.0,
+            current_z: 0.0,
+            target_z: 0.0,
         },
-        PrimaryWindow,
+        Transform::default(),
+        Sprite::default(),
+        Visibility::Visible,
     ));
+
+    world.run_system_once(sync_terminal_presentations).unwrap();
+
+    let mut query = world.query::<(&TerminalPanel, &Visibility)>();
+    let vis = query.iter(&world).collect::<Vec<_>>();
+    assert_eq!(vis.len(), 1);
+    assert_eq!(*vis[0].1, Visibility::Hidden);
+}
+
+#[test]
+fn active_terminal_presentation_becomes_visible_once_active_layout_upload_is_ready() {
+    let (bridge, _) = test_bridge();
+    let mut manager = TerminalManager::default();
+    let id = manager.create_terminal(bridge);
+
+    let window = Window {
+        resolution: (1400, 900).into(),
+        ..Default::default()
+    };
+    let hud_state = crate::hud::HudState::default();
+    let view_state = TerminalViewState::default();
+    let active_layout = active_terminal_layout(&window, &hud_state, &view_state);
+
+    manager.get_mut(id).unwrap().snapshot.surface = Some(TerminalSurface::new(
+        active_layout.dimensions.cols,
+        active_layout.dimensions.rows,
+    ));
+    manager.get_mut(id).unwrap().surface_revision = 1;
+
+    let mut presentation_store = TerminalPresentationStore::default();
+    presentation_store.register(
+        id,
+        PresentedTerminal {
+            image: Default::default(),
+            texture_state: TerminalTextureState {
+                texture_size: active_layout.texture_size,
+                cell_size: active_layout.cell_size,
+            },
+            desired_texture_state: TerminalTextureState {
+                texture_size: active_layout.texture_size,
+                cell_size: active_layout.cell_size,
+            },
+            display_mode: TerminalDisplayMode::Smooth,
+            uploaded_revision: 1,
+            panel_entity: Entity::PLACEHOLDER,
+            frame_entity: Entity::PLACEHOLDER,
+        },
+    );
+
+    let mut world = World::default();
+    let mut time = Time::<()>::default();
+    time.advance_by(Duration::from_millis(16));
+    world.insert_resource(time);
+    world.insert_resource(manager);
+    world.insert_resource(presentation_store);
+    world.insert_resource(crate::hud::TerminalVisibilityState::default());
+    world.insert_resource(view_state);
+    world.insert_resource(hud_state);
+    world.spawn((window, PrimaryWindow));
+    world.spawn((
+        TerminalPanel { id },
+        TerminalPresentation {
+            home_position: Vec2::ZERO,
+            current_position: Vec2::ZERO,
+            target_position: Vec2::ZERO,
+            current_size: Vec2::ONE,
+            target_size: Vec2::ONE,
+            current_alpha: 1.0,
+            target_alpha: 1.0,
+            current_z: 0.0,
+            target_z: 0.0,
+        },
+        Transform::default(),
+        Sprite::default(),
+        Visibility::Hidden,
+    ));
+
+    world.run_system_once(sync_terminal_presentations).unwrap();
+
+    let mut query = world.query::<(&TerminalPanel, &Visibility)>();
+    let vis = query.iter(&world).collect::<Vec<_>>();
+    assert_eq!(vis.len(), 1);
+    assert_eq!(*vis[0].1, Visibility::Visible);
+}
+
+#[test]
+fn message_box_keeps_terminal_presentations_visible() {
+    let (bridge, _) = test_bridge();
+    let mut manager = TerminalManager::default();
+    let id = manager.create_terminal(bridge);
+
+    let window = Window {
+        resolution: (1400, 900).into(),
+        ..Default::default()
+    };
+    let mut hud_state = crate::hud::HudState::default();
+    let view_state = TerminalViewState::default();
+    let active_layout = active_terminal_layout(&window, &hud_state, &view_state);
+    hud_state.open_message_box(id);
+
+    let terminal = manager.get_mut(id).unwrap();
+    terminal.snapshot.surface = Some(TerminalSurface::new(
+        active_layout.dimensions.cols,
+        active_layout.dimensions.rows,
+    ));
+    terminal.surface_revision = 1;
+
+    let mut presentation_store = TerminalPresentationStore::default();
+    presentation_store.register(
+        id,
+        PresentedTerminal {
+            image: Default::default(),
+            texture_state: TerminalTextureState {
+                texture_size: active_layout.texture_size,
+                cell_size: active_layout.cell_size,
+            },
+            desired_texture_state: TerminalTextureState {
+                texture_size: active_layout.texture_size,
+                cell_size: active_layout.cell_size,
+            },
+            display_mode: TerminalDisplayMode::Smooth,
+            uploaded_revision: 1,
+            panel_entity: Entity::PLACEHOLDER,
+            frame_entity: Entity::PLACEHOLDER,
+        },
+    );
+
+    let mut world = World::default();
+    let mut time = Time::<()>::default();
+    time.advance_by(Duration::from_millis(16));
+    world.insert_resource(time);
+    world.insert_resource(manager);
+    world.insert_resource(presentation_store);
+    world.insert_resource(crate::hud::TerminalVisibilityState::default());
+    world.insert_resource(view_state);
+    world.insert_resource(hud_state);
+    world.spawn((window, PrimaryWindow));
     world.spawn((
         TerminalPanel { id },
         TerminalPresentation {
@@ -1662,31 +1815,60 @@ fn terminal_visibility_policy_hides_only_presentation_and_show_all_restores_it()
     let id_one = manager.create_terminal(bridge_one);
     let id_two = manager.create_terminal(bridge_two);
     manager.focus_terminal(id_one);
-    for (_, terminal) in manager.iter_mut() {
-        terminal.snapshot.surface = Some(TerminalSurface::new(2, 2));
-    }
+
+    let window = Window {
+        resolution: (1400, 900).into(),
+        ..Default::default()
+    };
+    let hud_state = crate::hud::HudState::default();
+    let view_state = TerminalViewState::default();
+    let active_layout = active_terminal_layout(&window, &hud_state, &view_state);
+
+    manager.get_mut(id_one).unwrap().snapshot.surface = Some(TerminalSurface::new(
+        active_layout.dimensions.cols,
+        active_layout.dimensions.rows,
+    ));
+    manager.get_mut(id_one).unwrap().surface_revision = 1;
+    manager.get_mut(id_two).unwrap().snapshot.surface = Some(TerminalSurface::new(2, 2));
+    manager.get_mut(id_two).unwrap().surface_revision = 1;
 
     let mut presentation_store = TerminalPresentationStore::default();
-    for id in [id_one, id_two] {
-        presentation_store.register(
-            id,
-            PresentedTerminal {
-                image: Default::default(),
-                texture_state: TerminalTextureState {
-                    texture_size: UVec2::new(100, 100),
-                    cell_size: UVec2::new(10, 20),
-                },
-                desired_texture_state: TerminalTextureState {
-                    texture_size: UVec2::new(100, 100),
-                    cell_size: UVec2::new(10, 20),
-                },
-                display_mode: TerminalDisplayMode::Smooth,
-                uploaded_revision: 0,
-                panel_entity: Entity::PLACEHOLDER,
-                frame_entity: Entity::PLACEHOLDER,
+    presentation_store.register(
+        id_one,
+        PresentedTerminal {
+            image: Default::default(),
+            texture_state: TerminalTextureState {
+                texture_size: active_layout.texture_size,
+                cell_size: active_layout.cell_size,
             },
-        );
-    }
+            desired_texture_state: TerminalTextureState {
+                texture_size: active_layout.texture_size,
+                cell_size: active_layout.cell_size,
+            },
+            display_mode: TerminalDisplayMode::Smooth,
+            uploaded_revision: 1,
+            panel_entity: Entity::PLACEHOLDER,
+            frame_entity: Entity::PLACEHOLDER,
+        },
+    );
+    presentation_store.register(
+        id_two,
+        PresentedTerminal {
+            image: Default::default(),
+            texture_state: TerminalTextureState {
+                texture_size: UVec2::new(100, 100),
+                cell_size: UVec2::new(10, 20),
+            },
+            desired_texture_state: TerminalTextureState {
+                texture_size: UVec2::new(100, 100),
+                cell_size: UVec2::new(10, 20),
+            },
+            display_mode: TerminalDisplayMode::Smooth,
+            uploaded_revision: 1,
+            panel_entity: Entity::PLACEHOLDER,
+            frame_entity: Entity::PLACEHOLDER,
+        },
+    );
 
     let mut world = World::default();
     let mut time = Time::<()>::default();
@@ -1697,15 +1879,9 @@ fn terminal_visibility_policy_hides_only_presentation_and_show_all_restores_it()
     world.insert_resource(crate::hud::TerminalVisibilityState {
         policy: crate::hud::TerminalVisibilityPolicy::Isolate(id_one),
     });
-    world.insert_resource(TerminalViewState::default());
-    world.insert_resource(crate::hud::HudState::default());
-    world.spawn((
-        Window {
-            resolution: (1400, 900).into(),
-            ..Default::default()
-        },
-        PrimaryWindow,
-    ));
+    world.insert_resource(view_state);
+    world.insert_resource(hud_state);
+    world.spawn((window, PrimaryWindow));
     world.spawn((
         TerminalPanel { id: id_one },
         TerminalPresentation {

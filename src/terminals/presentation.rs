@@ -176,6 +176,27 @@ pub(crate) fn active_terminal_layout(
     }
 }
 
+fn active_layout_texture_state(layout: ActiveTerminalLayout) -> TerminalTextureState {
+    TerminalTextureState {
+        texture_size: layout.texture_size,
+        cell_size: layout.cell_size,
+    }
+}
+
+fn active_terminal_ready_for_presentation(
+    terminal: &crate::terminals::registry::ManagedTerminal,
+    presented_terminal: &crate::terminals::PresentedTerminal,
+    layout: ActiveTerminalLayout,
+) -> bool {
+    let Some(surface) = terminal.snapshot.surface.as_ref() else {
+        return false;
+    };
+    surface.cols == layout.dimensions.cols
+        && surface.rows == layout.dimensions.rows
+        && presented_terminal.texture_state == active_layout_texture_state(layout)
+        && presented_terminal.uploaded_revision == terminal.surface_revision
+}
+
 pub(crate) fn sync_active_terminal_dimensions(
     mut terminal_manager: ResMut<TerminalManager>,
     runtime_spawner: Res<TerminalRuntimeSpawner>,
@@ -356,10 +377,11 @@ pub(crate) fn sync_terminal_presentations(
         *last_active_id != active_id || *last_visibility_policy != Some(visibility_policy);
     let background_ids = ordered_background_ids(&terminal_manager, active_id);
     let active_layout = active_terminal_layout(&primary_window, &hud_state, &view_state);
+    let active_texture_state = active_layout_texture_state(active_layout);
     let active_size = physical_to_logical_size(
         Vec2::new(
-            active_layout.texture_size.x.max(1) as f32,
-            active_layout.texture_size.y.max(1) as f32,
+            active_texture_state.texture_size.x.max(1) as f32,
+            active_texture_state.texture_size.y.max(1) as f32,
         ),
         &primary_window,
     );
@@ -379,6 +401,12 @@ pub(crate) fn sync_terminal_presentations(
             continue;
         }
         if matches!(visibility_policy, TerminalVisibilityPolicy::Isolate(id) if id != panel.id) {
+            *visibility = Visibility::Hidden;
+            continue;
+        }
+        if Some(panel.id) == active_id
+            && !active_terminal_ready_for_presentation(terminal, presented_terminal, active_layout)
+        {
             *visibility = Visibility::Hidden;
             continue;
         }
