@@ -5,13 +5,14 @@ use crate::{
         apply_terminal_lifecycle_requests, apply_terminal_send_requests,
         apply_terminal_task_requests, apply_terminal_view_requests, apply_visibility_requests,
         dispatch_hud_intents, finalize_window_capture, handle_hud_module_shortcuts,
-        handle_hud_pointer_input, hud_needs_redraw, render_hud_scene, request_hud_texture_capture,
-        request_window_capture, save_hud_layout_if_dirty, setup_hud, setup_hud_widget_bloom,
-        sync_hud_offscreen_compositor, sync_hud_widget_bloom, sync_structural_hud_layout,
-        AgentDirectory, AgentListBloomBlurMaterial, HudBloomSettings, HudIntent, HudModuleRequest,
-        HudOffscreenCompositor, HudPersistenceState, HudState, HudTextureCaptureConfig,
-        HudWidgetBloom, TerminalFocusRequest, TerminalLifecycleRequest, TerminalSendRequest,
-        TerminalTaskRequest, TerminalViewRequest, TerminalVisibilityPolicy,
+        handle_hud_pointer_input, hud_needs_redraw, render_hud_scene,
+        request_hud_composite_capture, request_hud_texture_capture, request_window_capture,
+        save_hud_layout_if_dirty, setup_hud, setup_hud_widget_bloom, sync_hud_offscreen_compositor,
+        sync_hud_widget_bloom, sync_structural_hud_layout, AgentDirectory,
+        AgentListBloomBlurMaterial, HudBloomSettings, HudCompositeCaptureConfig, HudIntent,
+        HudModuleRequest, HudOffscreenCompositor, HudPersistenceState, HudState,
+        HudTextureCaptureConfig, HudWidgetBloom, TerminalFocusRequest, TerminalLifecycleRequest,
+        TerminalSendRequest, TerminalTaskRequest, TerminalViewRequest, TerminalVisibilityPolicy,
         TerminalVisibilityRequest, TerminalVisibilityState, WindowCaptureConfig,
     },
     input::{
@@ -123,7 +124,18 @@ fn primary_window_config() -> Window {
 
 fn configure_app(app: &mut App) -> Result<(), String> {
     let hud_capture = HudTextureCaptureConfig::from_env();
+    let hud_composite_capture = HudCompositeCaptureConfig::from_env();
     let window_capture = WindowCaptureConfig::from_env();
+    let auto_verify = AutoVerifyConfig::from_env();
+    let winit_settings = if hud_capture.is_some()
+        || hud_composite_capture.is_some()
+        || window_capture.is_some()
+        || auto_verify.is_some()
+    {
+        WinitSettings::game()
+    } else {
+        WinitSettings::desktop_app()
+    };
 
     app.add_plugins(
         DefaultPlugins
@@ -154,12 +166,15 @@ fn configure_app(app: &mut App) -> Result<(), String> {
     if let Some(hud_capture) = hud_capture {
         app.insert_resource(hud_capture);
     }
+    if let Some(hud_composite_capture) = hud_composite_capture {
+        app.insert_resource(hud_composite_capture);
+    }
     if let Some(window_capture) = window_capture {
         app.insert_resource(window_capture);
     }
 
     app.insert_resource(ClearColor(Color::srgb(0.02, 0.02, 0.02)))
-        .insert_resource(WinitSettings::desktop_app())
+        .insert_resource(winit_settings)
         .insert_resource(TerminalManager::default())
         .insert_resource(TerminalPresentationStore::default())
         .insert_resource(daemon_client.clone())
@@ -311,6 +326,7 @@ fn configure_app(app: &mut App) -> Result<(), String> {
                 render_hud_scene,
                 sync_hud_offscreen_compositor,
                 request_hud_texture_capture,
+                request_hud_composite_capture,
                 request_window_capture,
                 sync_hud_widget_bloom,
             )
@@ -323,7 +339,7 @@ fn configure_app(app: &mut App) -> Result<(), String> {
                 .in_set(NeoZeusSet::Redraw),
         );
 
-    if let Some(config) = AutoVerifyConfig::from_env() {
+    if let Some(config) = auto_verify {
         app.insert_resource(config);
     }
 

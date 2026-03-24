@@ -90,8 +90,9 @@ WINDOW_JSON=$(neozeus_gui_find_window_by_pid_and_title "$APP_PID" "$WINDOW_TITLE
 CON_ID=$(jq -r '.id' <<<"$WINDOW_JSON")
 
 neozeus_gui_place_window "$CON_ID" "$GUI_WORKSPACE" 1400 900 40 40
+neozeus_gui_focus_workspace "$GUI_WORKSPACE"
 sleep 1.0
-WINDOW_JSON=$(neozeus_gui_find_window_by_con_id "$CON_ID")
+WINDOW_JSON=$(neozeus_gui_wait_for_visible_con_id "$CON_ID")
 
 X=$(jq -r '.x' <<<"$WINDOW_JSON")
 Y=$(jq -r '.y' <<<"$WINDOW_JSON")
@@ -106,9 +107,9 @@ GEOM="${X},${CROP_Y} ${WIDTH}x${CROP_H}"
 BASELINE_RAW=
 for _ in $(seq 1 5); do
     wait_for_log_quiet "$DEBUG_LOG"
-    grim -s "$CAPTURE_SCALE" -g "$GEOM" "$BEFORE1"
+    neozeus_gui_grim_capture "$CAPTURE_SCALE" "$GEOM" "$BEFORE1"
     sleep 0.7
-    grim -s "$CAPTURE_SCALE" -g "$GEOM" "$BEFORE2"
+    neozeus_gui_grim_capture "$CAPTURE_SCALE" "$GEOM" "$BEFORE2"
     BASELINE_RAW=$(metric_ae "$BEFORE1" "$BEFORE2")
     BASELINE=$(parse_metric "$BASELINE_RAW")
     if python - "$BASELINE" <<'PY'
@@ -142,7 +143,7 @@ for _ in $(seq 1 40); do
     sleep 0.25
 done
 wait_for_log_quiet "$DEBUG_LOG"
-grim -s "$CAPTURE_SCALE" -g "$GEOM" "$AFTER"
+neozeus_gui_grim_capture "$CAPTURE_SCALE" "$GEOM" "$AFTER"
 
 POST_RAW=$(metric_ae "$BEFORE2" "$AFTER")
 compare "$BEFORE2" "$AFTER" "$DIFF" >/dev/null 2>&1 || true

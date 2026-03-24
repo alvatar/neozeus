@@ -2,16 +2,21 @@ use std::{env, fs, path::PathBuf};
 
 use bevy::{
     app::AppExit,
+    asset::RenderAssetUsages,
+    camera::RenderTarget,
+    image::ImageSampler,
     prelude::*,
     render::{
         gpu_readback::{Readback, ReadbackComplete},
-        render_resource::TextureFormat,
+        render_resource::{Extent3d, TextureDimension, TextureFormat, TextureUsages},
         view::screenshot::{save_to_disk, Capturing, Screenshot},
     },
     sprite_render::MeshMaterial2d,
-    window::RequestRedraw,
+    window::{PrimaryWindow, RequestRedraw},
 };
 use bevy_vello::render::VelloCanvasMaterial;
+
+use crate::hud::compositor::{HudCompositeCameraMarker, HudCompositeLayerMarker};
 
 #[derive(Resource, Clone, Debug)]
 pub(crate) struct HudTextureCaptureConfig {
@@ -61,6 +66,34 @@ impl WindowCaptureConfig {
     }
 }
 
+#[derive(Resource, Clone, Debug)]
+pub(crate) struct HudCompositeCaptureConfig {
+    path: PathBuf,
+    frames_until_capture: u32,
+    armed: bool,
+    requested: bool,
+    completed: bool,
+    target_image: Option<Handle<Image>>,
+}
+
+impl HudCompositeCaptureConfig {
+    pub(crate) fn from_env() -> Option<Self> {
+        let path = env::var("NEOZEUS_CAPTURE_HUD_COMPOSITE_PATH").ok()?;
+        let frames_until_capture = env::var("NEOZEUS_CAPTURE_HUD_COMPOSITE_DELAY_FRAMES")
+            .ok()
+            .and_then(|value| value.parse::<u32>().ok())
+            .unwrap_or(2);
+        Some(Self {
+            path: PathBuf::from(path),
+            frames_until_capture,
+            armed: false,
+            requested: false,
+            completed: false,
+            target_image: None,
+        })
+    }
+}
+
 #[derive(Component, Clone, Debug)]
 struct HudTextureReadbackMeta {
     path: PathBuf,
@@ -80,12 +113,119 @@ impl HudTextureReadbackMeta {
     }
 }
 
+fn composite_capture_target_image(size: UVec2) -> Image {
+    let mut image = Image::new_fill(
+        Extent3d {
+            width: size.x.max(1),
+            height: size.y.max(1),
+            depth_or_array_layers: 1,
+        },
+        TextureDimension::D2,
+        &[0, 0, 0, 0],
+        TextureFormat::Rgba8Unorm,
+        RenderAssetUsages::default(),
+    );
+    image.texture_descriptor.usage = TextureUsages::TEXTURE_BINDING
+        | TextureUsages::COPY_DST
+        | TextureUsages::COPY_SRC
+        | TextureUsages::RENDER_ATTACHMENT;
+    image.sampler = ImageSampler::linear();
+    image
+}
+
+pub(crate) fn request_hud_composite_capture(
+    mut commands: Commands,
+    config: Option<ResMut<HudCompositeCaptureConfig>>,
+    primary_window: Single<&Window, With<PrimaryWindow>>,
+    mut images: ResMut<Assets<Image>>,
+    composite_cameras: Query<Entity, With<HudCompositeCameraMarker>>,
+    composite_layers: Query<&Visibility, With<HudCompositeLayerMarker>>,
+    mut redraws: MessageWriter<RequestRedraw>,
+) {
+    let Some(mut config) = config else {
+        return;
+    };
+    if config.completed {
+        return;
+    }
+    redraws.write(RequestRedraw);
+
+    let physical_size = primary_window.physical_size();
+    if config.target_image.is_none() {
+        let Some(camera_entity) = composite_cameras.iter().next() else {
+            crate::terminals::append_debug_log(
+                "hud composite capture waiting for composite camera",
+            );
+            return;
+        };
+        let image_handle = images.add(composite_capture_target_image(physical_size));
+        commands
+            .entity(camera_entity)
+            .insert(RenderTarget::Image(image_handle.clone().into()));
+        config.target_image = Some(image_handle);
+        crate::terminals::append_debug_log(format!(
+            "hud composite capture target initialized path={} size={}x{} camera={}",
+            config.path.display(),
+            physical_size.x,
+            physical_size.y,
+            camera_entity.index(),
+        ));
+        return;
+    }
+
+    if composite_cameras.is_empty() {
+        return;
+    }
+    let composite_visible = composite_layers
+        .iter()
+        .any(|visibility| *visibility == Visibility::Visible);
+    if !composite_visible {
+        crate::terminals::append_debug_log(
+            "hud composite capture waiting for visible composite layer",
+        );
+        return;
+    }
+    if config.requested {
+        return;
+    }
+    if !config.armed {
+        if config.frames_until_capture > 0 {
+            config.frames_until_capture -= 1;
+            return;
+        }
+        config.armed = true;
+        crate::terminals::append_debug_log("hud composite capture armed");
+        return;
+    }
+
+    let Some(target_image) = config.target_image.clone() else {
+        return;
+    };
+    let Some(image) = images.get(target_image.id()) else {
+        return;
+    };
+    crate::terminals::append_debug_log(format!(
+        "hud composite capture requested path={} size={}x{} format={:?}",
+        config.path.display(),
+        image.texture_descriptor.size.width,
+        image.texture_descriptor.size.height,
+        image.texture_descriptor.format,
+    ));
+    commands
+        .spawn((
+            Readback::texture(target_image),
+            HudTextureReadbackMeta::from_image(config.path.clone(), image),
+        ))
+        .observe(handle_hud_composite_capture_complete);
+    config.requested = true;
+}
+
 pub(crate) fn request_hud_texture_capture(
     mut commands: Commands,
     config: Option<ResMut<HudTextureCaptureConfig>>,
     images: Res<Assets<Image>>,
     vello_materials: Res<Assets<VelloCanvasMaterial>>,
-    vello_canvases: Query<&MeshMaterial2d<VelloCanvasMaterial>>,
+    vello_canvases: Query<&MeshMaterial2d<VelloCanvasMaterial>, Without<HudCompositeLayerMarker>>,
     mut redraws: MessageWriter<RequestRedraw>,
 ) {
     let Some(mut config) = config else {
@@ -103,6 +243,7 @@ pub(crate) fn request_hud_texture_capture(
         return;
     }
 
+    let mut requested = false;
     for material_handle in &vello_canvases {
         let Some(material) = vello_materials.get(material_handle.id()) else {
             continue;
@@ -125,7 +266,11 @@ pub(crate) fn request_hud_texture_capture(
             ))
             .observe(handle_hud_texture_capture_complete);
         config.requested = true;
+        requested = true;
         break;
+    }
+    if !requested {
+        crate::terminals::append_debug_log("hud capture waiting for source canvas");
     }
 }
 
@@ -194,6 +339,32 @@ fn handle_hud_texture_capture_complete(
         ));
     } else {
         crate::terminals::append_debug_log(format!("hud capture wrote {}", meta.path.display()));
+    }
+    if let Some(mut config) = config {
+        config.completed = true;
+    }
+    exits.write(AppExit::Success);
+}
+
+fn handle_hud_composite_capture_complete(
+    event: On<ReadbackComplete>,
+    metas: Query<&HudTextureReadbackMeta>,
+    mut exits: MessageWriter<AppExit>,
+    config: Option<ResMut<HudCompositeCaptureConfig>>,
+) {
+    let Ok(meta) = metas.get(event.entity) else {
+        return;
+    };
+    if let Err(error) = write_texture_dump(meta, &event.data) {
+        crate::terminals::append_debug_log(format!(
+            "hud composite capture write failed path={} error={error}",
+            meta.path.display()
+        ));
+    } else {
+        crate::terminals::append_debug_log(format!(
+            "hud composite capture wrote {}",
+            meta.path.display()
+        ));
     }
     if let Some(mut config) = config {
         config.completed = true;

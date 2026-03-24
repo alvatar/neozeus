@@ -158,9 +158,10 @@ WINDOW_JSON=$(neozeus_gui_find_window_by_pid_and_title "$APP_PID" "$WINDOW_TITLE
 
 CON_ID=$(jq -r '.id' <<<"$WINDOW_JSON")
 neozeus_gui_place_window "$CON_ID" "$GUI_WORKSPACE" 1400 900 40 40
+neozeus_gui_focus_workspace "$GUI_WORKSPACE"
 sleep 1.0
 
-WINDOW_JSON=$(neozeus_gui_find_window_by_con_id "$CON_ID")
+WINDOW_JSON=$(neozeus_gui_wait_for_visible_con_id "$CON_ID")
 
 for _ in $(seq 1 40); do
     grep -q 'auto-verify command dispatched' "$DEBUG_LOG" 2>/dev/null && break
@@ -172,7 +173,7 @@ X=$(jq -r '.x' <<<"$WINDOW_JSON")
 Y=$(jq -r '.y' <<<"$WINDOW_JSON")
 WIDTH=$(jq -r '.width' <<<"$WINDOW_JSON")
 HEIGHT=$(jq -r '.height' <<<"$WINDOW_JSON")
-grim -s "$CAPTURE_SCALE" -g "${X},${Y} ${WIDTH}x${HEIGHT}" "$WINDOW_PNG"
+neozeus_gui_grim_capture "$CAPTURE_SCALE" "${X},${Y} ${WIDTH}x${HEIGHT}" "$WINDOW_PNG"
 
 grep -q 'auto-verify command dispatched: bash /tmp/neozeus-color-smoke.sh' "$DEBUG_LOG"
 grep -q 'pty write command `bash /tmp/neozeus-color-smoke.sh`' "$DEBUG_LOG"

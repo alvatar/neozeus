@@ -21,7 +21,10 @@ use crate::terminals::{
     TerminalPresentationStore, TerminalSessionPersistenceState, TerminalViewState,
 };
 use bevy::{
-    camera::{visibility::RenderLayers, RenderTarget},
+    camera::{
+        visibility::{NoFrustumCulling, RenderLayers},
+        RenderTarget,
+    },
     ecs::system::RunSystemOnce,
     input::{keyboard::KeyboardInput, mouse::MouseWheel},
     prelude::*,
@@ -358,8 +361,9 @@ fn sync_hud_offscreen_compositor_hides_vello_canvas_and_binds_texture() {
         &Transform,
         &Visibility,
         &RenderLayers,
+        &NoFrustumCulling,
     )>();
-    let (marker, composite_material, transform, visibility, quad_layers) =
+    let (marker, composite_material, transform, visibility, quad_layers, _) =
         quad_query.single(&world).unwrap();
     assert_eq!(marker.id, crate::hud::HudCompositeLayerId::MainHud);
     let composite_texture = {

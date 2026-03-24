@@ -73,6 +73,20 @@ raise SystemExit(1)
 PY
 }
 
+neozeus_gui_wait_for_visible_con_id() {
+    local con_id=$1
+    local window_json
+    for _ in $(seq 1 80); do
+        window_json=$(neozeus_gui_find_window_by_con_id "$con_id") || true
+        if [[ -n "$window_json" ]] && jq -e '.visible == true' >/dev/null <<<"$window_json"; then
+            printf '%s\n' "$window_json"
+            return 0
+        fi
+        sleep 0.1
+    done
+    return 1
+}
+
 neozeus_gui_place_window() {
     local con_id=$1
     local workspace=${2:-8}
@@ -84,6 +98,11 @@ neozeus_gui_place_window() {
     swaymsg "[con_id=${con_id}] floating enable" >/dev/null
     swaymsg "[con_id=${con_id}] resize set width ${width} px height ${height} px" >/dev/null
     swaymsg "[con_id=${con_id}] move position ${x} px ${y} px" >/dev/null
+}
+
+neozeus_gui_focus_workspace() {
+    local workspace=${1:-8}
+    swaymsg "workspace number ${workspace}" >/dev/null
 }
 
 neozeus_gui_workspace_output() {
@@ -117,6 +136,32 @@ neozeus_gui_workspace_output_scale() {
     neozeus_gui_output_scale "$output_name"
 }
 
+neozeus_gui_grim_capture() {
+    local scale=$1
+    local geom=$2
+    local out=$3
+    local physical_geom
+    physical_geom=$(python - "$scale" "$geom" <<'PY'
+import math
+import re
+import sys
+
+scale = float(sys.argv[1])
+geom = sys.argv[2]
+match = re.fullmatch(r"\s*(\d+)\s*,\s*(\d+)\s+(\d+)x(\d+)\s*", geom)
+if not match:
+    raise SystemExit(f"invalid grim geometry: {geom!r}")
+x, y, w, h = (int(value) for value in match.groups())
+px = int(round(x * scale))
+py = int(round(y * scale))
+pw = int(round(w * scale))
+ph = int(round(h * scale))
+print(f"{px},{py} {pw}x{ph}")
+PY
+)
+    timeout 10s grim -g "$physical_geom" "$out"
+}
+
 neozeus_gui_prepare_isolated_app_env() {
     local prefix=${1:-neozeus-gui}
     NEOZEUS_GUI_ISO_ROOT=$(mktemp -d "/tmp/${prefix}-XXXXXX")
@@ -142,6 +187,7 @@ neozeus_gui_prepare_isolated_app_env() {
 
 neozeus_gui_cleanup_isolated_app_env() {
     if [[ -n "${NEOZEUS_GUI_ISO_ROOT:-}" ]]; then
+        neozeus_gui_cleanup_daemon_for_socket "${NEOZEUS_GUI_ISO_DAEMON_SOCKET:-}"
         rm -rf "$NEOZEUS_GUI_ISO_ROOT"
         unset \
             NEOZEUS_GUI_ISO_ROOT \
@@ -179,9 +225,45 @@ neozeus_gui_launch_isolated() {
     echo $!
 }
 
+neozeus_gui_cleanup_daemon_for_socket() {
+    local socket_path=${1:-}
+    if [[ -z "$socket_path" ]]; then
+        return 0
+    fi
+    python - "$socket_path" <<'PY' | while read -r daemon_pid; do
+import subprocess
+import sys
+
+socket_path = sys.argv[1]
+for line in subprocess.check_output(["ps", "-eo", "pid=,args="]).decode().splitlines():
+    parts = line.strip().split(None, 1)
+    if len(parts) != 2:
+        continue
+    pid, args = parts
+    if " neozeus daemon --socket " not in f" {args} ":
+        continue
+    if f"--socket {socket_path}" not in args:
+        continue
+    print(pid)
+PY
+        kill "$daemon_pid" 2>/dev/null || true
+        for _ in $(seq 1 20); do
+            if ! kill -0 "$daemon_pid" 2>/dev/null; then
+                break
+            fi
+            sleep 0.2
+        done
+        if kill -0 "$daemon_pid" 2>/dev/null; then
+            kill -9 "$daemon_pid" 2>/dev/null || true
+        fi
+        wait "$daemon_pid" 2>/dev/null || true
+    done
+}
+
 neozeus_gui_cleanup_pid() {
     local pid=${1:-}
     if [[ -z "$pid" ]]; then
+        neozeus_gui_cleanup_daemon_for_socket "${NEOZEUS_GUI_ISO_DAEMON_SOCKET:-}"
         return 0
     fi
     kill "$pid" 2>/dev/null || true
@@ -195,4 +277,5 @@ neozeus_gui_cleanup_pid() {
         kill -9 "$pid" 2>/dev/null || true
     fi
     wait "$pid" 2>/dev/null || true
+    neozeus_gui_cleanup_daemon_for_socket "${NEOZEUS_GUI_ISO_DAEMON_SOCKET:-}"
 }
