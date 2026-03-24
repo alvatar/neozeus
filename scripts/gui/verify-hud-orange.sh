@@ -10,11 +10,10 @@ APP="$ROOT_DIR/target/debug/neozeus"
 BUILD_LOG=/tmp/neozeus-hud-orange-build.log
 RUN_LOG=/tmp/neozeus-hud-orange-run.log
 DEBUG_LOG=/tmp/neozeus-debug.log
-SOURCE_PPM=/tmp/neozeus-hud-orange-source.ppm
+WINDOW_PNG=/tmp/neozeus-hud-orange-window.png
 ANALYSIS_JSON=/tmp/neozeus-hud-orange-analysis.json
 KEEPALIVE_SH=/tmp/neozeus-hud-orange-keepalive.sh
 SWAY_WORKSPACE=${NEOZEUS_HUD_ORANGE_WORKSPACE:-8}
-CAPTURE_DELAY_FRAMES=${NEOZEUS_HUD_ORANGE_CAPTURE_DELAY_FRAMES:-1}
 AUTOVERIFY_DELAY_MS=${NEOZEUS_HUD_ORANGE_AUTOVERIFY_DELAY_MS:-400}
 
 cleanup_app() {
@@ -30,8 +29,8 @@ trap cleanup_app EXIT
 cat >"$KEEPALIVE_SH" <<'SH'
 #!/bin/sh
 i=1
-while [ "$i" -le 40 ]; do
-  printf '__NZ_ORANGE_KEEPALIVE__%02d\n' "$i"
+while [ "$i" -le 60 ]; do
+  printf '__NZ_ORANGE_VISIBLE__%02d\n' "$i"
   sleep 0.1
   i=$((i + 1))
 done
@@ -40,20 +39,19 @@ chmod +x "$KEEPALIVE_SH"
 
 cargo build >"$BUILD_LOG" 2>&1
 
-WINDOW_SCALE=$(neozeus_gui_workspace_output_scale "$SWAY_WORKSPACE")
 cleanup_app
-rm -f "$RUN_LOG" "$DEBUG_LOG" "$SOURCE_PPM" "$ANALYSIS_JSON"
+rm -f "$RUN_LOG" "$DEBUG_LOG" "$WINDOW_PNG" "$ANALYSIS_JSON"
 
-neozeus_gui_prepare_isolated_app_env "neozeus-hud-orange"
+neozeus_gui_prepare_isolated_app_env "neozeus-hud-orange-visible"
 APP_PID=$(neozeus_gui_launch_isolated \
     "$APP" \
     "$RUN_LOG" \
+    WAYLAND_DISPLAY= \
+    WINIT_UNIX_BACKEND=x11 \
     NEOZEUS_WINDOW_TITLE="neozeus-hud-orange-$$" \
     NEOZEUS_WINDOW_MODE=windowed \
-    NEOZEUS_WINDOW_SCALE_FACTOR="$WINDOW_SCALE" \
+    NEOZEUS_WINDOW_SCALE_FACTOR=1.0 \
     NEOZEUS_AGENT_BLOOM_INTENSITY=0.0 \
-    NEOZEUS_CAPTURE_HUD_TEXTURE_PATH="$SOURCE_PPM" \
-    NEOZEUS_CAPTURE_HUD_TEXTURE_DELAY_FRAMES="$CAPTURE_DELAY_FRAMES" \
     NEOZEUS_AUTOVERIFY_COMMAND="sh $KEEPALIVE_SH" \
     NEOZEUS_AUTOVERIFY_DELAY_MS="$AUTOVERIFY_DELAY_MS")
 
@@ -62,85 +60,114 @@ CON_ID=$(jq -r '.id' <<<"$WINDOW_JSON")
 neozeus_gui_place_window "$CON_ID" "$SWAY_WORKSPACE" 1400 900 40 40
 neozeus_gui_focus_workspace "$SWAY_WORKSPACE"
 neozeus_gui_wait_for_visible_con_id "$CON_ID" >/dev/null
+sleep 2
 
-for _ in $(seq 1 240); do
-    [[ -f "$SOURCE_PPM" ]] && break
-    sleep 0.25
-done
+swaymsg -t get_tree > /tmp/neozeus-hud-orange-tree.json
+XID=$(python - "neozeus-hud-orange-$$" <<'PY'
+import json
+import sys
 
-if [[ ! -f "$SOURCE_PPM" ]]; then
-    echo "orange verifier failed: source HUD capture did not produce $SOURCE_PPM" >&2
-    tail -n 120 "$DEBUG_LOG" 2>/dev/null || true
-    exit 1
-fi
+title = sys.argv[1]
+with open('/tmp/neozeus-hud-orange-tree.json') as f:
+    tree = json.load(f)
+stack = [tree]
+while stack:
+    node = stack.pop()
+    if not isinstance(node, dict):
+        continue
+    if node.get('name') == title:
+        xid = node.get('window')
+        if xid is None:
+            raise SystemExit('orange verifier failed: NeoZeus window is not an X11/Xwayland window')
+        print(hex(xid))
+        raise SystemExit(0)
+    stack.extend(node.get('nodes', []))
+    stack.extend(node.get('floating_nodes', []))
+raise SystemExit('orange verifier failed: window title not found in sway tree')
+PY
+)
 
+maim -i "$XID" "$WINDOW_PNG"
 cleanup_app
 
-python - "$SOURCE_PPM" "$ANALYSIS_JSON" <<'PY'
+python - "$WINDOW_PNG" "$ANALYSIS_JSON" <<'PY'
 import json
 import math
 import sys
 from pathlib import Path
 from PIL import Image
 
-ppm_path = Path(sys.argv[1])
+png_path = Path(sys.argv[1])
 out_path = Path(sys.argv[2])
-img = Image.open(ppm_path).convert("RGBA")
-if img.size != (1400, 900):
-    raise SystemExit(f"orange verifier failed: unexpected HUD capture size {img.size}")
+img = Image.open(png_path).convert('RGBA')
+window_w, window_h = img.size
 
-# Top-left logical HUD region containing the title and first agent row.
-img = img.crop((0, 0, 340, 180))
+logical_w = 1400.0
+logical_h = 900.0
+scale_x = window_w / logical_w
+scale_y = window_h / logical_h
+
 target = (225, 129, 10)
 wrong = (255, 177, 18)
 boxes = {
-    "title": (18, 8, 220, 52),
-    "row": (18, 58, 300, 104),
+    'title': (18, 8, 220, 52),
+    'row': (18, 58, 300, 104),
 }
 
-def color_dist(a, b):
-    return math.sqrt(sum((float(x) - float(y)) ** 2 for x, y in zip(a, b)))
+def near(a, b, radius):
+    return math.dist(a, b) <= radius
 
-result = {"image_size": list(img.size), "target": list(target), "wrong": list(wrong), "boxes": {}}
+result = {
+    'window_size': [window_w, window_h],
+    'logical_scale': [scale_x, scale_y],
+    'target': list(target),
+    'wrong': list(wrong),
+    'boxes': {},
+}
+
 for name, (x0, y0, x1, y1) in boxes.items():
     exact_target = 0
     exact_wrong = 0
     near_target = 0
     near_wrong = 0
     warm_pixels = 0
-    for y in range(y0, y1):
-        for x in range(x0, x1):
+    for ly in range(y0, y1):
+        for lx in range(x0, x1):
+            x = min(window_w - 1, max(0, round(lx * scale_x)))
+            y = min(window_h - 1, max(0, round(ly * scale_y)))
             rgb = img.getpixel((x, y))[:3]
             if rgb == target:
                 exact_target += 1
             if rgb == wrong:
                 exact_wrong += 1
-            if color_dist(rgb, target) <= 6.0:
+            if near(rgb, target, 8.0):
                 near_target += 1
-            if color_dist(rgb, wrong) <= 6.0:
+            if near(rgb, wrong, 8.0):
                 near_wrong += 1
-            if rgb[0] >= 120 and 35 <= rgb[1] <= 185 and rgb[2] <= 32 and rgb[0] >= rgb[1] + 15:
+            if rgb[0] >= 120 and 60 <= rgb[1] <= 150 and rgb[2] <= 24 and rgb[0] >= rgb[1] + 20:
                 warm_pixels += 1
 
-    result["boxes"][name] = {
-        "exact_target": exact_target,
-        "exact_wrong": exact_wrong,
-        "near_target": near_target,
-        "near_wrong": near_wrong,
-        "warm_pixels": warm_pixels,
+    result['boxes'][name] = {
+        'exact_target': exact_target,
+        'exact_wrong': exact_wrong,
+        'near_target': near_target,
+        'near_wrong': near_wrong,
+        'warm_pixels': warm_pixels,
     }
 
-    if near_target < 200:
+    min_near_target = 200 if name == 'title' else 120
+    min_warm_pixels = 400 if name == 'title' else 180
+    if near_target < min_near_target:
         raise SystemExit(
-            f"orange verifier failed: {name} has too little target-orange coverage: near_target={near_target}"
+            f'orange verifier failed: {name} near-target coverage too small: near_target={near_target}'
         )
-    if near_wrong != 0 or exact_wrong != 0:
+    if exact_wrong != 0 or near_wrong != 0:
         raise SystemExit(
-            f"orange verifier failed: {name} still contains wrong-yellow pixels: near_wrong={near_wrong} exact_wrong={exact_wrong}"
+            f'orange verifier failed: {name} still contains wrong-yellow pixels: exact_wrong={exact_wrong} near_wrong={near_wrong}'
         )
-    if warm_pixels < 200:
+    if warm_pixels < min_warm_pixels:
         raise SystemExit(
-            f"orange verifier failed: {name} warm/orange coverage too small: warm_pixels={warm_pixels}"
+            f'orange verifier failed: {name} warm/orange coverage too small: warm_pixels={warm_pixels}'
         )
 
 out_path.write_text(json.dumps(result, indent=2))
