@@ -54,7 +54,8 @@ pub(crate) use daemon::{
     VERIFIER_SESSION_PREFIX,
 };
 pub(crate) use debug::{
-    append_debug_log, note_key_event, note_terminal_error, with_debug_stats, TerminalDebugStats,
+    append_debug_log, note_key_event, note_terminal_error, should_trace_startup, with_debug_stats,
+    TerminalDebugStats,
 };
 pub(crate) use fonts::{
     configure_terminal_fonts, is_emoji_like, is_private_use_like, TerminalFontState,
