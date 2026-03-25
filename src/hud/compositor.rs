@@ -160,11 +160,9 @@ pub(crate) fn sync_hud_offscreen_compositor(
     mut vello_materials: ResMut<Assets<VelloCanvasMaterial>>,
     primary_window: Single<&Window, With<PrimaryWindow>>,
     mut commands: Commands,
-    mut startup_trace_frames: Local<u8>,
     mut vello_canvases: Query<VelloCanvasQueryItem<'_>, Without<HudCompositeLayerMarker>>,
     mut quads: Query<HudCompositeQuadQueryItem<'_>>,
 ) {
-    let trace_startup = crate::terminals::should_trace_startup(&mut startup_trace_frames, 8);
     let expected_size = UVec2::new(
         primary_window.physical_width().max(1),
         primary_window.physical_height().max(1),
@@ -197,7 +195,6 @@ pub(crate) fn sync_hud_offscreen_compositor(
         };
     }
 
-    let mut visible_quads = 0usize;
     for (entity, marker, material_handle, mut visibility) in &mut quads {
         let Some(layer) = compositor.layer(marker.id) else {
             *visibility = Visibility::Hidden;
@@ -218,24 +215,8 @@ pub(crate) fn sync_hud_offscreen_compositor(
             } else {
                 Visibility::Hidden
             };
-            if ready {
-                visible_quads += 1;
-            }
         } else {
             *visibility = Visibility::Hidden;
         }
-    }
-
-    if trace_startup {
-        crate::terminals::append_debug_log(format!(
-            "startup-trace hud-compositor win={}x{} tex={} visible_quads={} layers={}",
-            expected_size.x,
-            expected_size.y,
-            vello_texture_size
-                .map(|size| format!("{}x{}", size.x, size.y))
-                .unwrap_or_else(|| "none".to_owned()),
-            visible_quads,
-            compositor.layers.len(),
-        ));
     }
 }

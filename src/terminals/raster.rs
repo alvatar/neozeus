@@ -5,17 +5,15 @@ use crate::{
     hud::HudState,
     terminals::{
         active_terminal_layout, append_debug_log, is_emoji_like, is_private_use_like,
-        should_trace_startup, TerminalDamage, TerminalDimensions, TerminalFontState,
-        TerminalManager, TerminalPresentationStore, TerminalSurface, TerminalTextRenderer,
-        TerminalTextureState, TerminalViewState,
+        TerminalDamage, TerminalDimensions, TerminalFontState, TerminalManager,
+        TerminalPresentationStore, TerminalSurface, TerminalTextRenderer, TerminalTextureState,
+        TerminalViewState,
     },
 };
 use bevy::{
     asset::RenderAssetUsages,
     image::ImageSampler,
-    prelude::{
-        Assets, DetectChanges, Image, Local, Res, ResMut, Resource, Single, UVec2, Window, With,
-    },
+    prelude::{Assets, DetectChanges, Image, Res, ResMut, Resource, Single, UVec2, Window, With},
     render::render_resource::{Extent3d, TextureDimension, TextureFormat},
     window::PrimaryWindow,
 };
@@ -133,7 +131,6 @@ pub(crate) fn sync_terminal_texture(
     mut glyph_cache: ResMut<TerminalGlyphCache>,
     mut images: ResMut<Assets<Image>>,
     mut text_renderer: ResMut<TerminalTextRenderer>,
-    mut startup_trace_frames: Local<u8>,
 ) {
     if text_renderer.font_system.is_none() {
         append_debug_log("texture sync: no font system");
@@ -146,7 +143,6 @@ pub(crate) fn sync_terminal_texture(
     }
 
     let active_id = terminal_manager.active_id();
-    let trace_startup = should_trace_startup(&mut startup_trace_frames, 8);
     let active_layout =
         active_id.map(|_| active_terminal_layout(&primary_window, &hud_state, &view_state));
     for (terminal_id, terminal) in terminal_manager.iter_mut() {
@@ -177,32 +173,6 @@ pub(crate) fn sync_terminal_texture(
         };
 
         let has_pending_surface = terminal.surface_revision != presented_terminal.uploaded_revision;
-        if trace_startup && Some(terminal_id) == active_id {
-            append_debug_log(format!(
-                "startup-trace raster id={} win={}x{} scale={:.3} layout={}x{} cell={}x{} layout_tex={}x{} surface={}x{} present_tex={}x{} desired_tex={}x{} upload_tex={}x{} uploaded_rev={} surface_rev={} pending_surface={}",
-                terminal_id.0,
-                primary_window.physical_width(),
-                primary_window.physical_height(),
-                primary_window.scale_factor(),
-                active_layout.expect("active layout missing").dimensions.cols,
-                active_layout.expect("active layout missing").dimensions.rows,
-                active_layout.expect("active layout missing").cell_size.x,
-                active_layout.expect("active layout missing").cell_size.y,
-                active_layout.expect("active layout missing").texture_size.x,
-                active_layout.expect("active layout missing").texture_size.y,
-                surface.cols,
-                surface.rows,
-                presented_terminal.texture_state.texture_size.x,
-                presented_terminal.texture_state.texture_size.y,
-                presented_terminal.desired_texture_state.texture_size.x,
-                presented_terminal.desired_texture_state.texture_size.y,
-                upload_state.texture_size.x,
-                upload_state.texture_size.y,
-                presented_terminal.uploaded_revision,
-                terminal.surface_revision,
-                has_pending_surface,
-            ));
-        }
         let mut full_redraw =
             font_state.is_changed() || presented_terminal.texture_state != upload_state;
         let mut dirty_rows = if full_redraw {
