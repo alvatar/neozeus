@@ -143,6 +143,7 @@ fn configure_app(app: &mut App) -> Result<(), String> {
     app.insert_resource(ClearColor(Color::srgb(0.02, 0.02, 0.02)))
         .insert_resource(winit_settings)
         .insert_resource(TerminalManager::default())
+        .insert_resource(crate::terminals::TerminalFocusState::default())
         .insert_resource(TerminalPresentationStore::default())
         .insert_resource(daemon_client.clone())
         .insert_resource(TerminalRuntimeSpawner::new(event_loop_proxy, daemon_client))

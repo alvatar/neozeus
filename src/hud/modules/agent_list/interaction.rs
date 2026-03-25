@@ -1,6 +1,6 @@
 use crate::{
     hud::{AgentDirectory, HudIntent, HudModuleModel, HudRect},
-    terminals::TerminalManager,
+    terminals::{TerminalFocusState, TerminalManager},
 };
 use bevy::prelude::Vec2;
 
@@ -11,6 +11,7 @@ pub(crate) fn handle_pointer_click(
     shell_rect: HudRect,
     point: Vec2,
     terminal_manager: &TerminalManager,
+    focus_state: &TerminalFocusState,
     agent_directory: &AgentDirectory,
     emitted_commands: &mut Vec<HudIntent>,
 ) {
@@ -22,6 +23,7 @@ pub(crate) fn handle_pointer_click(
         state.scroll_offset,
         state.hovered_terminal,
         terminal_manager,
+        focus_state,
         agent_directory,
     ) {
         if row.rect.contains(point) {
@@ -37,6 +39,7 @@ pub(crate) fn handle_hover(
     shell_rect: HudRect,
     point: Option<Vec2>,
     terminal_manager: &TerminalManager,
+    focus_state: &TerminalFocusState,
     agent_directory: &AgentDirectory,
 ) -> bool {
     let HudModuleModel::AgentList(state) = model else {
@@ -48,6 +51,7 @@ pub(crate) fn handle_hover(
             state.scroll_offset,
             None,
             terminal_manager,
+            focus_state,
             agent_directory,
         )
         .into_iter()

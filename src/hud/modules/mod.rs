@@ -6,7 +6,9 @@ use crate::{
         render::{HudPainter, HudRenderInputs},
         AgentDirectory, HudIntent, HudLayoutState, HudModuleId, HudModuleModel, HudRect,
     },
-    terminals::{TerminalManager, TerminalPresentationStore, TerminalViewState},
+    terminals::{
+        TerminalFocusState, TerminalManager, TerminalPresentationStore, TerminalViewState,
+    },
 };
 use bevy::prelude::Vec2;
 
@@ -33,6 +35,7 @@ pub(crate) fn handle_pointer_click(
     shell_rect: HudRect,
     point: Vec2,
     terminal_manager: &TerminalManager,
+    focus_state: &TerminalFocusState,
     presentation_store: &TerminalPresentationStore,
     view_state: &TerminalViewState,
     agent_directory: &AgentDirectory,
@@ -45,6 +48,7 @@ pub(crate) fn handle_pointer_click(
             shell_rect,
             point,
             terminal_manager,
+            focus_state,
             presentation_store,
             view_state,
             layout_state,
@@ -55,6 +59,7 @@ pub(crate) fn handle_pointer_click(
             shell_rect,
             point,
             terminal_manager,
+            focus_state,
             agent_directory,
             emitted_commands,
         ),
@@ -67,13 +72,19 @@ pub(crate) fn handle_hover(
     shell_rect: HudRect,
     point: Option<Vec2>,
     terminal_manager: &TerminalManager,
+    focus_state: &TerminalFocusState,
     agent_directory: &AgentDirectory,
 ) -> bool {
     match module_id {
         HudModuleId::DebugToolbar => false,
-        HudModuleId::AgentList => {
-            agent_list::handle_hover(model, shell_rect, point, terminal_manager, agent_directory)
-        }
+        HudModuleId::AgentList => agent_list::handle_hover(
+            model,
+            shell_rect,
+            point,
+            terminal_manager,
+            focus_state,
+            agent_directory,
+        ),
     }
 }
 

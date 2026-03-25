@@ -3,8 +3,8 @@ use crate::{
     hud::{HudLayoutState, HudModuleId, TerminalVisibilityPolicy, TerminalVisibilityState},
     terminals::{
         append_debug_log, create_terminal_image, TerminalDimensions, TerminalDisplayMode,
-        TerminalHudSurfaceMarker, TerminalId, TerminalManager, TerminalPanel, TerminalPanelFrame,
-        TerminalPanelSprite, TerminalPresentation, TerminalPresentationStore,
+        TerminalFocusState, TerminalHudSurfaceMarker, TerminalId, TerminalManager, TerminalPanel,
+        TerminalPanelFrame, TerminalPanelSprite, TerminalPresentation, TerminalPresentationStore,
         TerminalRuntimeSpawner, TerminalTextureState, TerminalViewState,
     },
 };
@@ -202,12 +202,13 @@ fn active_terminal_ready_for_presentation(
 
 pub(crate) fn sync_active_terminal_dimensions(
     mut terminal_manager: ResMut<TerminalManager>,
+    focus_state: Res<TerminalFocusState>,
     runtime_spawner: Res<TerminalRuntimeSpawner>,
     view_state: Res<TerminalViewState>,
     layout_state: Res<HudLayoutState>,
     primary_window: Single<&Window, With<PrimaryWindow>>,
 ) {
-    let Some(active_id) = terminal_manager.active_id() else {
+    let Some(active_id) = focus_state.active_id() else {
         return;
     };
     let desired_layout = active_terminal_layout(&primary_window, &layout_state, &view_state);
@@ -324,10 +325,11 @@ pub(crate) fn terminal_texture_screen_size(
 
 fn ordered_background_ids(
     terminal_manager: &TerminalManager,
+    focus_state: &TerminalFocusState,
     active_id: Option<TerminalId>,
 ) -> Vec<TerminalId> {
     let mut ordered = Vec::new();
-    for id in terminal_manager.focus_order().iter().copied().rev() {
+    for id in focus_state.focus_order().iter().copied().rev() {
         if Some(id) != active_id && !ordered.contains(&id) {
             ordered.push(id);
         }
@@ -359,6 +361,7 @@ fn effective_visibility_policy(
 pub(crate) fn sync_terminal_presentations(
     time: Res<Time>,
     terminal_manager: Res<TerminalManager>,
+    focus_state: Res<TerminalFocusState>,
     presentation_store: Res<TerminalPresentationStore>,
     visibility_state: Res<TerminalVisibilityState>,
     view_state: Res<TerminalViewState>,
@@ -376,9 +379,9 @@ pub(crate) fn sync_terminal_presentations(
         &mut Visibility,
     )>,
 ) {
-    let active_id = terminal_manager.active_id();
+    let active_id = focus_state.active_id();
     let visibility_policy = effective_visibility_policy(&terminal_manager, &visibility_state);
-    let background_ids = ordered_background_ids(&terminal_manager, active_id);
+    let background_ids = ordered_background_ids(&terminal_manager, &focus_state, active_id);
     let active_layout = active_terminal_layout(&primary_window, &layout_state, &view_state);
     let active_texture_state = active_layout_texture_state(active_layout);
     let active_ready = active_id
@@ -556,6 +559,7 @@ pub(crate) fn sync_terminal_panel_frames(
 
 pub(crate) fn sync_terminal_hud_surface(
     terminal_manager: Res<TerminalManager>,
+    focus_state: Res<TerminalFocusState>,
     presentation_store: Res<TerminalPresentationStore>,
     visibility_state: Res<TerminalVisibilityState>,
     panels: Query<&TerminalPresentation, With<TerminalPanel>>,
@@ -566,7 +570,7 @@ pub(crate) fn sync_terminal_hud_surface(
 ) {
     let (transform, sprite, visibility) = &mut *hud_surface;
     let visibility_policy = effective_visibility_policy(&terminal_manager, &visibility_state);
-    let Some(active_id) = terminal_manager.active_id() else {
+    let Some(active_id) = focus_state.active_id() else {
         **visibility = Visibility::Hidden;
         return;
     };

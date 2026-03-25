@@ -4,7 +4,10 @@ use crate::{
         HudInputCaptureState, HudIntent, HudLayoutState, HudMessageBoxAction, HudModalState,
         HudModuleId, HudRect, HudTaskDialogAction, HUD_TITLEBAR_HEIGHT,
     },
-    terminals::{TerminalId, TerminalManager, TerminalPresentationStore, TerminalViewState},
+    terminals::{
+        TerminalFocusState, TerminalId, TerminalManager, TerminalPresentationStore,
+        TerminalViewState,
+    },
 };
 use bevy::{
     ecs::system::SystemParam,
@@ -42,6 +45,7 @@ pub(crate) struct HudPointerContext<'w, 's> {
     modal_state: ResMut<'w, HudModalState>,
     input_capture: Res<'w, HudInputCaptureState>,
     terminal_manager: Res<'w, TerminalManager>,
+    focus_state: Res<'w, TerminalFocusState>,
     presentation_store: Res<'w, TerminalPresentationStore>,
     view_state: Res<'w, TerminalViewState>,
     agent_directory: Res<'w, AgentDirectory>,
@@ -145,6 +149,7 @@ pub(crate) fn handle_hud_pointer_input(mut ctx: HudPointerContext) {
                         content_rect,
                         cursor,
                         &ctx.terminal_manager,
+                        &ctx.focus_state,
                         &ctx.presentation_store,
                         &ctx.view_state,
                         &ctx.agent_directory,
@@ -220,6 +225,7 @@ pub(crate) fn handle_hud_pointer_input(mut ctx: HudPointerContext) {
                 content_rect,
                 point,
                 &ctx.terminal_manager,
+                &ctx.focus_state,
                 &ctx.agent_directory,
             )
         } else {
@@ -234,6 +240,7 @@ pub(crate) fn handle_hud_pointer_input(mut ctx: HudPointerContext) {
 
 fn adjacent_agent_terminal_id(
     terminal_manager: &TerminalManager,
+    focus_state: &TerminalFocusState,
     step: isize,
 ) -> Option<TerminalId> {
     let terminal_ids = terminal_manager.terminal_ids();
@@ -241,7 +248,7 @@ fn adjacent_agent_terminal_id(
         return None;
     }
 
-    let current_index = match terminal_manager.active_id() {
+    let current_index = match focus_state.active_id() {
         Some(active_id) => terminal_ids.iter().position(|id| *id == active_id)?,
         None => {
             return Some(if step < 0 {
@@ -268,6 +275,7 @@ pub(crate) fn handle_hud_module_shortcuts(
     modal_state: Res<HudModalState>,
     input_capture: Res<HudInputCaptureState>,
     terminal_manager: Res<TerminalManager>,
+    focus_state: Res<TerminalFocusState>,
     mut hud_commands: MessageWriter<HudIntent>,
 ) {
     if modal_state.keyboard_capture_active(&input_capture) {
@@ -303,10 +311,10 @@ pub(crate) fn handle_hud_module_shortcuts(
         if matches!(action, ShortcutAction::Toggle) {
             let navigation_target = match event.key_code {
                 KeyCode::KeyJ | KeyCode::ArrowDown => {
-                    adjacent_agent_terminal_id(&terminal_manager, 1)
+                    adjacent_agent_terminal_id(&terminal_manager, &focus_state, 1)
                 }
                 KeyCode::KeyK | KeyCode::ArrowUp => {
-                    adjacent_agent_terminal_id(&terminal_manager, -1)
+                    adjacent_agent_terminal_id(&terminal_manager, &focus_state, -1)
                 }
                 _ => None,
             };

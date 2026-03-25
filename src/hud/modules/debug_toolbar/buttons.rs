@@ -4,7 +4,8 @@ use crate::{
         HUD_BUTTON_MIN_WIDTH, HUD_MODULE_PADDING,
     },
     terminals::{
-        TerminalDisplayMode, TerminalManager, TerminalPresentationStore, TerminalViewState,
+        TerminalDisplayMode, TerminalFocusState, TerminalManager, TerminalPresentationStore,
+        TerminalViewState,
     },
 };
 
@@ -12,13 +13,14 @@ use super::{DebugToolbarAction, DebugToolbarButton};
 
 pub(crate) fn debug_toolbar_buttons(
     shell_rect: HudRect,
-    terminal_manager: &TerminalManager,
+    _terminal_manager: &TerminalManager,
+    focus_state: &TerminalFocusState,
     presentation_store: &TerminalPresentationStore,
     _view_state: &TerminalViewState,
     layout_state: &HudLayoutState,
 ) -> Vec<DebugToolbarButton> {
     let active_display_mode = presentation_store
-        .active_display_mode(terminal_manager.active_id())
+        .active_display_mode(focus_state.active_id())
         .unwrap_or(TerminalDisplayMode::Smooth);
     let toolbar_enabled = layout_state
         .get(HudModuleId::DebugToolbar)

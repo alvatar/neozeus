@@ -1,6 +1,7 @@
 use super::{
-    fake_runtime_spawner, insert_default_hud_resources, insert_test_hud_state, pressed_text,
-    snapshot_test_hud_state, temp_dir, test_bridge, FakeDaemonClient,
+    fake_runtime_spawner, insert_default_hud_resources, insert_terminal_manager_resources,
+    insert_test_hud_state, pressed_text, snapshot_test_hud_state, temp_dir, test_bridge,
+    FakeDaemonClient,
 };
 use crate::hud::{
     agent_list_bloom_layer, agent_list_bloom_z, agent_row_rect, agent_rows, apply_persisted_layout,
@@ -609,7 +610,7 @@ fn plain_j_navigates_to_next_agent_and_isolates_it() {
     let id_one = manager.create_terminal(bridge_one);
     let id_two = manager.create_terminal(bridge_two);
     manager.focus_terminal(id_one);
-    world.insert_resource(manager);
+    insert_terminal_manager_resources(&mut world, manager);
     world.insert_resource(ButtonInput::<KeyCode>::default());
     insert_default_hud_resources(&mut world);
     init_hud_commands(&mut world);
@@ -638,7 +639,7 @@ fn down_arrow_navigates_to_next_agent_and_isolates_it() {
     let id_one = manager.create_terminal(bridge_one);
     let id_two = manager.create_terminal(bridge_two);
     manager.focus_terminal(id_one);
-    world.insert_resource(manager);
+    insert_terminal_manager_resources(&mut world, manager);
     world.insert_resource(ButtonInput::<KeyCode>::default());
     insert_default_hud_resources(&mut world);
     init_hud_commands(&mut world);
@@ -667,7 +668,7 @@ fn plain_k_navigates_to_previous_agent_and_isolates_it() {
     let id_one = manager.create_terminal(bridge_one);
     let id_two = manager.create_terminal(bridge_two);
     manager.focus_terminal(id_two);
-    world.insert_resource(manager);
+    insert_terminal_manager_resources(&mut world, manager);
     world.insert_resource(ButtonInput::<KeyCode>::default());
     insert_default_hud_resources(&mut world);
     init_hud_commands(&mut world);
@@ -696,7 +697,7 @@ fn up_arrow_navigates_to_previous_agent_and_isolates_it() {
     let id_one = manager.create_terminal(bridge_one);
     let id_two = manager.create_terminal(bridge_two);
     manager.focus_terminal(id_two);
-    world.insert_resource(manager);
+    insert_terminal_manager_resources(&mut world, manager);
     world.insert_resource(ButtonInput::<KeyCode>::default());
     insert_default_hud_resources(&mut world);
     init_hud_commands(&mut world);
@@ -726,7 +727,7 @@ fn focus_and_visibility_requests_request_redraw_immediately() {
     let mut time = Time::<()>::default();
     time.advance_by(Duration::from_secs(1));
     world.insert_resource(time);
-    world.insert_resource(manager);
+    insert_terminal_manager_resources(&mut world, manager);
     insert_default_hud_resources(&mut world);
     world.insert_resource(TerminalSessionPersistenceState::default());
     world.insert_resource(TerminalViewState::default());
@@ -742,7 +743,12 @@ fn focus_and_visibility_requests_request_redraw_immediately() {
         .run_system_once(apply_terminal_focus_requests)
         .unwrap();
 
-    assert_eq!(world.resource::<TerminalManager>().active_id(), Some(id));
+    assert_eq!(
+        world
+            .resource::<crate::terminals::TerminalFocusState>()
+            .active_id(),
+        Some(id)
+    );
     assert_eq!(world.resource::<Messages<RequestRedraw>>().len(), 1);
 
     world
@@ -835,7 +841,14 @@ fn agent_rows_follow_terminal_order_and_focus() {
         w: 300.0,
         h: 420.0,
     };
-    let rows = agent_rows(shell_rect, 0.0, None, &manager, &AgentDirectory::default());
+    let rows = agent_rows(
+        shell_rect,
+        0.0,
+        None,
+        &manager,
+        &manager.clone_focus_state(),
+        &AgentDirectory::default(),
+    );
     assert_eq!(rows.len(), 2);
     assert_eq!(rows[0].terminal_id, id_one);
     assert_eq!(rows[0].label, "agent-1");
@@ -864,6 +877,7 @@ fn agent_rows_mark_hovered_terminal() {
         0.0,
         Some(id_one),
         &manager,
+        &manager.clone_focus_state(),
         &AgentDirectory::default(),
     );
     assert!(
@@ -892,7 +906,7 @@ fn sync_hud_widget_bloom_spawns_agent_list_source_sprites() {
         HudModuleId::AgentList,
         crate::hud::default_hud_module_instance(&crate::hud::HUD_MODULE_DEFINITIONS[1]),
     );
-    world.insert_resource(manager);
+    insert_terminal_manager_resources(&mut world, manager);
     insert_test_hud_state(&mut world, hud_state);
     world.insert_resource(AgentDirectory::default());
     world.insert_resource(HudBloomSettings::default());
@@ -944,6 +958,7 @@ fn sync_hud_widget_bloom_spawns_agent_list_source_sprites() {
             state.scroll_offset,
             state.hovered_terminal,
             manager,
+            &manager.clone_focus_state(),
             directory,
         )
         .into_iter()
@@ -1006,7 +1021,7 @@ fn sync_hud_widget_bloom_only_uses_active_agent_source() {
         HudModuleId::AgentList,
         crate::hud::default_hud_module_instance(&crate::hud::HUD_MODULE_DEFINITIONS[1]),
     );
-    world.insert_resource(manager);
+    insert_terminal_manager_resources(&mut world, manager);
     insert_test_hud_state(&mut world, hud_state);
     world.insert_resource(AgentDirectory::default());
     world.insert_resource(HudBloomSettings::default());
@@ -1157,7 +1172,7 @@ fn clear_done_task_request_updates_open_dialog_from_persisted_state() {
 
     let mut world = World::default();
     world.insert_resource(Time::<()>::default());
-    world.insert_resource(manager);
+    insert_terminal_manager_resources(&mut world, manager);
     world.insert_resource(notes_state);
     insert_test_hud_state(&mut world, hud_state);
     world.init_resource::<Messages<crate::hud::TerminalTaskRequest>>();
@@ -1190,7 +1205,7 @@ fn set_task_text_request_clears_persisted_task_presence_when_empty() {
 
     let mut world = World::default();
     world.insert_resource(Time::<()>::default());
-    world.insert_resource(manager);
+    insert_terminal_manager_resources(&mut world, manager);
     world.insert_resource(notes_state);
     insert_default_hud_resources(&mut world);
     world.init_resource::<Messages<crate::hud::TerminalTaskRequest>>();
@@ -1221,7 +1236,7 @@ fn consume_next_task_request_sends_message_and_marks_task_done() {
 
     let mut world = World::default();
     world.insert_resource(Time::<()>::default());
-    world.insert_resource(manager);
+    insert_terminal_manager_resources(&mut world, manager);
     world.insert_resource(notes_state);
     insert_default_hud_resources(&mut world);
     world.init_resource::<Messages<crate::hud::TerminalTaskRequest>>();
@@ -1377,6 +1392,7 @@ fn clicking_debug_toolbar_button_emits_spawn_terminal_command() {
             h: 36.0,
         },
         &manager,
+        &manager.clone_focus_state(),
         &Default::default(),
         &TerminalViewState::default(),
         &hud_state.layout_state(),
@@ -1404,6 +1420,7 @@ fn clicking_debug_toolbar_button_emits_spawn_terminal_command() {
         },
         click_point,
         &manager,
+        &manager.clone_focus_state(),
         &Default::default(),
         &TerminalViewState::default(),
         &AgentDirectory::default(),
@@ -1437,6 +1454,7 @@ fn clicking_debug_toolbar_command_button_emits_terminal_command() {
             h: 36.0,
         },
         &manager,
+        &manager.clone_focus_state(),
         &Default::default(),
         &TerminalViewState::default(),
         &hud_state.layout_state(),
@@ -1461,6 +1479,7 @@ fn clicking_debug_toolbar_command_button_emits_terminal_command() {
         },
         click_point,
         &manager,
+        &manager.clone_focus_state(),
         &Default::default(),
         &TerminalViewState::default(),
         &AgentDirectory::default(),
@@ -1499,6 +1518,7 @@ fn clicking_agent_list_row_emits_focus_and_isolate_commands() {
         0.0,
         None,
         &manager,
+        &manager.clone_focus_state(),
         &AgentDirectory::default(),
     );
     let target_row = rows
@@ -1524,6 +1544,7 @@ fn clicking_agent_list_row_emits_focus_and_isolate_commands() {
         },
         click_point,
         &manager,
+        &manager.clone_focus_state(),
         &Default::default(),
         &TerminalViewState::default(),
         &AgentDirectory::default(),
@@ -1592,6 +1613,7 @@ fn debug_toolbar_buttons_include_module_toggle_entries() {
             h: 64.0,
         },
         &manager,
+        &manager.clone_focus_state(),
         &Default::default(),
         &TerminalViewState::default(),
         &hud_state.layout_state(),
@@ -1624,6 +1646,7 @@ fn debug_toolbar_module_toggle_buttons_reflect_enabled_state() {
             h: 64.0,
         },
         &manager,
+        &manager.clone_focus_state(),
         &Default::default(),
         &TerminalViewState::default(),
         &hud_state.layout_state(),
@@ -1731,7 +1754,7 @@ fn killing_active_terminal_removes_runtime_presentation_and_labels() {
     let mut time = Time::<()>::default();
     time.advance_by(Duration::from_secs(1));
     world.insert_resource(time);
-    world.insert_resource(manager);
+    insert_terminal_manager_resources(&mut world, manager);
     world.insert_resource(store);
     world.insert_resource(directory);
     world.insert_resource(fake_runtime_spawner(client.clone()));
@@ -1754,6 +1777,7 @@ fn killing_active_terminal_removes_runtime_presentation_and_labels() {
             |mut commands: Commands,
              time: Res<Time>,
              mut terminal_manager: ResMut<TerminalManager>,
+             mut focus_state: ResMut<crate::terminals::TerminalFocusState>,
              mut presentation_store: ResMut<TerminalPresentationStore>,
              runtime_spawner: Res<crate::terminals::TerminalRuntimeSpawner>,
              mut agent_directory: ResMut<AgentDirectory>,
@@ -1764,6 +1788,7 @@ fn killing_active_terminal_removes_runtime_presentation_and_labels() {
                     &mut commands,
                     &time,
                     &mut terminal_manager,
+                    &mut focus_state,
                     &mut presentation_store,
                     &runtime_spawner,
                     &mut agent_directory,
@@ -1835,7 +1860,7 @@ fn killing_active_terminal_preserves_local_state_when_tmux_kill_fails() {
     let mut time = Time::<()>::default();
     time.advance_by(Duration::from_secs(1));
     world.insert_resource(time);
-    world.insert_resource(manager);
+    insert_terminal_manager_resources(&mut world, manager);
     world.insert_resource(store);
     world.insert_resource(directory);
     world.insert_resource(fake_runtime_spawner(client.clone()));
@@ -1858,6 +1883,7 @@ fn killing_active_terminal_preserves_local_state_when_tmux_kill_fails() {
             |mut commands: Commands,
              time: Res<Time>,
              mut terminal_manager: ResMut<TerminalManager>,
+             mut focus_state: ResMut<crate::terminals::TerminalFocusState>,
              mut presentation_store: ResMut<TerminalPresentationStore>,
              runtime_spawner: Res<crate::terminals::TerminalRuntimeSpawner>,
              mut agent_directory: ResMut<AgentDirectory>,
@@ -1868,6 +1894,7 @@ fn killing_active_terminal_preserves_local_state_when_tmux_kill_fails() {
                     &mut commands,
                     &time,
                     &mut terminal_manager,
+                    &mut focus_state,
                     &mut presentation_store,
                     &runtime_spawner,
                     &mut agent_directory,

@@ -5,7 +5,7 @@ use crate::{
     hud::HudLayoutState,
     terminals::{
         active_terminal_layout, append_debug_log, is_emoji_like, is_private_use_like,
-        TerminalDamage, TerminalDimensions, TerminalFontState, TerminalManager,
+        TerminalDamage, TerminalDimensions, TerminalFocusState, TerminalFontState, TerminalManager,
         TerminalPresentationStore, TerminalSurface, TerminalTextRenderer, TerminalTextureState,
         TerminalViewState,
     },
@@ -123,6 +123,7 @@ fn cached_or_default_texture_state(
 )]
 pub(crate) fn sync_terminal_texture(
     mut terminal_manager: ResMut<TerminalManager>,
+    focus_state: Res<TerminalFocusState>,
     mut presentation_store: ResMut<TerminalPresentationStore>,
     font_state: Res<TerminalFontState>,
     view_state: Res<TerminalViewState>,
@@ -142,7 +143,7 @@ pub(crate) fn sync_terminal_texture(
         glyph_cache.glyphs.clear();
     }
 
-    let active_id = terminal_manager.active_id();
+    let active_id = focus_state.active_id();
     let active_layout =
         active_id.map(|_| active_terminal_layout(&primary_window, &layout_state, &view_state));
     for (terminal_id, terminal) in terminal_manager.iter_mut() {

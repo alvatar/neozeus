@@ -19,21 +19,24 @@ pub(crate) fn render_content(
     let buttons = debug_toolbar_buttons(
         content_rect,
         inputs.terminal_manager,
+        inputs.focus_state,
         inputs.presentation_store,
         inputs.view_state,
         inputs.layout_state,
     );
     let active_status = inputs
-        .terminal_manager
-        .active_snapshot()
+        .focus_state
+        .active_snapshot(inputs.terminal_manager)
         .map(|snapshot| snapshot.runtime.status.as_str())
         .unwrap_or("no active terminal");
     let active_id = inputs
-        .terminal_manager
+        .focus_state
         .active_id()
         .map(|id| id.0)
         .unwrap_or_default();
-    let debug_stats = inputs.terminal_manager.active_debug_stats();
+    let debug_stats = inputs
+        .focus_state
+        .active_debug_stats(inputs.terminal_manager);
     let font_summary = match inputs.font_state.report.as_ref() {
         Some(Ok(report)) => format!("font {}", report.primary.family),
         Some(Err(error)) => format!("font error {error}"),

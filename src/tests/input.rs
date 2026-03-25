@@ -1,6 +1,6 @@
 use super::{
-    capturing_bridge, insert_default_hud_resources, insert_test_hud_state, pressed_text,
-    snapshot_test_hud_state, test_bridge,
+    capturing_bridge, insert_default_hud_resources, insert_terminal_manager_resources,
+    insert_test_hud_state, pressed_text, snapshot_test_hud_state, test_bridge,
 };
 use crate::{
     hud::{HudIntent, TerminalVisibilityState},
@@ -90,7 +90,7 @@ fn world_with_active_terminal_and_receiver(
     world.insert_resource(ButtonInput::<MouseButton>::default());
     world.insert_resource(ButtonInput::<KeyCode>::default());
     world.insert_resource(Time::<()>::default());
-    world.insert_resource(manager);
+    insert_terminal_manager_resources(&mut world, manager);
     insert_default_hud_resources(&mut world);
     world.insert_resource(TerminalNotesState::default());
     world.insert_resource(TerminalSessionPersistenceState::default());
@@ -172,7 +172,7 @@ fn global_spawn_shortcut_enqueues_spawn_even_with_active_terminal() {
         ..Default::default()
     };
     world.insert_resource(ButtonInput::<KeyCode>::default());
-    world.insert_resource(manager);
+    insert_terminal_manager_resources(&mut world, manager);
     insert_default_hud_resources(&mut world);
     init_hud_commands(&mut world);
     world.init_resource::<Messages<KeyboardInput>>();
@@ -256,8 +256,13 @@ fn background_click_hides_active_terminal() {
         .run_system_once(hide_terminal_on_background_click)
         .unwrap();
 
+    assert_eq!(
+        world
+            .resource::<crate::terminals::TerminalFocusState>()
+            .active_id(),
+        None
+    );
     let manager = world.resource::<TerminalManager>();
-    assert_eq!(manager.active_id(), None);
     assert_eq!(
         world.resource::<TerminalVisibilityState>().policy,
         crate::hud::TerminalVisibilityPolicy::ShowAll
@@ -287,8 +292,12 @@ fn clicking_visible_terminal_does_not_hide_it() {
         .run_system_once(hide_terminal_on_background_click)
         .unwrap();
 
-    let manager = world.resource::<TerminalManager>();
-    assert_eq!(manager.active_id(), Some(terminal_id));
+    assert_eq!(
+        world
+            .resource::<crate::terminals::TerminalFocusState>()
+            .active_id(),
+        Some(terminal_id)
+    );
     assert!(world
         .resource::<TerminalSessionPersistenceState>()
         .dirty_since_secs
@@ -308,8 +317,12 @@ fn clicking_shifted_visible_terminal_does_not_hide_it() {
         .run_system_once(hide_terminal_on_background_click)
         .unwrap();
 
-    let manager = world.resource::<TerminalManager>();
-    assert_eq!(manager.active_id(), Some(terminal_id));
+    assert_eq!(
+        world
+            .resource::<crate::terminals::TerminalFocusState>()
+            .active_id(),
+        Some(terminal_id)
+    );
     assert!(world
         .resource::<TerminalSessionPersistenceState>()
         .dirty_since_secs
@@ -1044,6 +1057,10 @@ fn clicking_hud_does_not_hide_active_terminal() {
         .run_system_once(hide_terminal_on_background_click)
         .unwrap();
 
-    let manager = world.resource::<TerminalManager>();
-    assert_eq!(manager.active_id(), Some(terminal_id));
+    assert_eq!(
+        world
+            .resource::<crate::terminals::TerminalFocusState>()
+            .active_id(),
+        Some(terminal_id)
+    );
 }

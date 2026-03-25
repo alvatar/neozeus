@@ -3,7 +3,7 @@ mod render;
 
 use crate::{
     hud::{AgentDirectory, HudRect, HUD_MODULE_PADDING, HUD_ROW_HEIGHT},
-    terminals::{TerminalId, TerminalManager},
+    terminals::{TerminalFocusState, TerminalId, TerminalManager},
 };
 
 pub(crate) const AGENT_LIST_HEADER_HEIGHT: f32 = 52.0;
@@ -92,6 +92,7 @@ pub(crate) fn agent_rows(
     scroll_offset: f32,
     hovered_terminal: Option<TerminalId>,
     terminal_manager: &TerminalManager,
+    focus_state: &TerminalFocusState,
     agent_directory: &AgentDirectory,
 ) -> Vec<AgentRow> {
     let terminal_ids = terminal_manager.terminal_ids();
@@ -111,7 +112,7 @@ pub(crate) fn agent_rows(
                 w: content_w,
                 h: HUD_ROW_HEIGHT,
             },
-            focused: terminal_manager.active_id() == Some(*terminal_id),
+            focused: focus_state.active_id() == Some(*terminal_id),
             hovered: hovered_terminal == Some(*terminal_id),
         })
         .collect()
