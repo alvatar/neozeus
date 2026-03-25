@@ -36,8 +36,7 @@ pub(crate) use daemon::{
 };
 pub(crate) use daemon::{
     resolve_daemon_socket_path, run_daemon_server, AttachedDaemonSession,
-    TerminalDaemonClientResource, DAEMON_PROTOCOL_VERSION, PERSISTENT_SESSION_PREFIX,
-    VERIFIER_SESSION_PREFIX,
+    TerminalDaemonClientResource, PERSISTENT_SESSION_PREFIX, VERIFIER_SESSION_PREFIX,
 };
 pub(crate) use debug::{
     append_debug_log, note_key_event, note_terminal_error, with_debug_stats, TerminalDebugStats,

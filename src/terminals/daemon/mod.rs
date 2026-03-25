@@ -10,7 +10,6 @@ pub(crate) use client::{
 pub(crate) use client::{
     resolve_daemon_socket_path_with, SocketTerminalDaemonClient, TerminalDaemonClient,
 };
-pub(crate) use protocol::DAEMON_PROTOCOL_VERSION;
 #[cfg(test)]
 pub(crate) use protocol::{
     read_client_message, read_server_message, write_client_message, write_server_message,

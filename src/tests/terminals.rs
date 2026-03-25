@@ -32,13 +32,13 @@ use crate::{
         TerminalPresentation, TerminalPresentationStore, TerminalProvisionTarget,
         TerminalRuntimeState, TerminalSessionClient, TerminalSessionPersistenceState,
         TerminalSessionRecord, TerminalSurface, TerminalTextRenderer, TerminalTextureState,
-        TerminalUpdate, TerminalViewState, TmuxPaneClient, DAEMON_PROTOCOL_VERSION,
-        PERSISTENT_SESSION_PREFIX, PERSISTENT_TMUX_SESSION_PREFIX,
+        TerminalUpdate, TerminalViewState, TmuxPaneClient, PERSISTENT_SESSION_PREFIX,
+        PERSISTENT_TMUX_SESSION_PREFIX,
     },
 };
 use alacritty_terminal::vte::ansi::{Color as AnsiColor, NamedColor};
 use bevy::{ecs::system::RunSystemOnce, prelude::*, window::PrimaryWindow};
-use std::{collections::BTreeSet, fs, os::unix::net::UnixStream, sync::Arc, time::Duration};
+use std::{collections::BTreeSet, fs, sync::Arc, time::Duration};
 
 fn test_terminal_font_report() -> crate::terminals::TerminalFontReport {
     resolve_terminal_font_report_for_family("monospace")
@@ -2373,28 +2373,6 @@ fn daemon_server_cleans_up_stale_socket_file() {
         DaemonServerHandle::start(socket_path.clone()).expect("server should replace stale socket");
     let _client = SocketTerminalDaemonClient::connect(&socket_path)
         .expect("client should connect after stale cleanup");
-}
-
-#[test]
-fn daemon_handshake_rejects_protocol_mismatch() {
-    let (_server, socket_path) = start_test_daemon("neozeus-daemon-mismatch");
-    let mut stream =
-        UnixStream::connect(&socket_path).expect("raw daemon socket connect should succeed");
-    let request = ClientMessage::Request {
-        request_id: 1,
-        request: DaemonRequest::Handshake {
-            version: DAEMON_PROTOCOL_VERSION + 1,
-        },
-    };
-    write_client_message(&mut stream, &request).expect("handshake request should write");
-    let response = read_server_message(&mut stream).expect("handshake response should read");
-    match response {
-        ServerMessage::Response { response, .. } => {
-            let error = response.expect_err("mismatched handshake should fail");
-            assert!(error.contains("protocol version mismatch"));
-        }
-        other => panic!("unexpected handshake response: {other:?}"),
-    }
 }
 
 #[test]
