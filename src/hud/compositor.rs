@@ -8,6 +8,7 @@ use bevy::{
     prelude::*,
     render::render_resource::PrimitiveTopology,
     sprite_render::MeshMaterial2d,
+    window::PrimaryWindow,
 };
 use bevy_vello::render::VelloCanvasMaterial;
 
@@ -149,16 +150,27 @@ type HudCompositeQuadQueryItem<'a> = (
     &'a mut Visibility,
 );
 
+#[allow(
+    clippy::too_many_arguments,
+    reason = "compositor sync needs window, image assets, materials, and visibility queries together"
+)]
 pub(crate) fn sync_hud_offscreen_compositor(
     mut compositor: ResMut<HudOffscreenCompositor>,
+    images: Res<Assets<Image>>,
     mut vello_materials: ResMut<Assets<VelloCanvasMaterial>>,
+    primary_window: Single<&Window, With<PrimaryWindow>>,
     mut commands: Commands,
     mut startup_trace_frames: Local<u8>,
     mut vello_canvases: Query<VelloCanvasQueryItem<'_>, Without<HudCompositeLayerMarker>>,
     mut quads: Query<HudCompositeQuadQueryItem<'_>>,
 ) {
     let trace_startup = crate::terminals::should_trace_startup(&mut startup_trace_frames, 8);
+    let expected_size = UVec2::new(
+        primary_window.physical_width().max(1),
+        primary_window.physical_height().max(1),
+    );
     let mut vello_texture = None;
+    let mut vello_texture_size = None;
     for (entity, material_handle, maybe_visibility) in &mut vello_canvases {
         if let Some(mut visibility) = maybe_visibility {
             *visibility = Visibility::Hidden;
@@ -166,9 +178,16 @@ pub(crate) fn sync_hud_offscreen_compositor(
             commands.entity(entity).insert(Visibility::Hidden);
         }
         if vello_texture.is_none() {
-            vello_texture = vello_materials
-                .get(material_handle.id())
-                .map(|material| material.texture.clone());
+            if let Some(material) = vello_materials.get(material_handle.id()) {
+                let texture = material.texture.clone();
+                vello_texture_size = images.get(texture.id()).map(|image| {
+                    UVec2::new(
+                        image.texture_descriptor.size.width,
+                        image.texture_descriptor.size.height,
+                    )
+                });
+                vello_texture = Some(texture);
+            }
         }
     }
 
@@ -193,8 +212,15 @@ pub(crate) fn sync_hud_offscreen_compositor(
             if let Some(material) = vello_materials.get_mut(material_handle.id()) {
                 material.texture = texture;
             }
-            *visibility = Visibility::Visible;
-            visible_quads += 1;
+            let ready = vello_texture_size == Some(expected_size);
+            *visibility = if ready {
+                Visibility::Visible
+            } else {
+                Visibility::Hidden
+            };
+            if ready {
+                visible_quads += 1;
+            }
         } else {
             *visibility = Visibility::Hidden;
         }
@@ -202,8 +228,12 @@ pub(crate) fn sync_hud_offscreen_compositor(
 
     if trace_startup {
         crate::terminals::append_debug_log(format!(
-            "startup-trace hud-compositor vello_texture={} visible_quads={} layers={}",
-            vello_texture.is_some(),
+            "startup-trace hud-compositor win={}x{} tex={} visible_quads={} layers={}",
+            expected_size.x,
+            expected_size.y,
+            vello_texture_size
+                .map(|size| format!("{}x{}", size.x, size.y))
+                .unwrap_or_else(|| "none".to_owned()),
             visible_quads,
             compositor.layers.len(),
         ));

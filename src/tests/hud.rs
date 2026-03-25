@@ -304,9 +304,19 @@ fn agent_row_rect_splits_main_and_marker_geometry() {
 fn sync_hud_offscreen_compositor_hides_vello_canvas_and_binds_texture() {
     let mut world = World::default();
     world.insert_resource(HudOffscreenCompositor::default());
+    world.insert_resource(Assets::<Image>::default());
     world.insert_resource(Assets::<VelloCanvasMaterial>::default());
     world.insert_resource(Assets::<Mesh>::default());
-    let texture = Handle::<Image>::default();
+    let texture = world.resource_mut::<Assets<Image>>().add(Image::default());
+    {
+        let mut images = world.resource_mut::<Assets<Image>>();
+        let image = images.get_mut(&texture).unwrap();
+        image.resize(bevy::render::render_resource::Extent3d {
+            width: 1400,
+            height: 900,
+            depth_or_array_layers: 1,
+        });
+    }
     let material = world
         .resource_mut::<Assets<VelloCanvasMaterial>>()
         .add(VelloCanvasMaterial {
