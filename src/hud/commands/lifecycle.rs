@@ -1,5 +1,7 @@
 use crate::{
-    hud::{AgentDirectory, HudState, TerminalVisibilityPolicy, TerminalVisibilityState},
+    hud::{
+        AgentDirectory, HudInputCaptureState, TerminalVisibilityPolicy, TerminalVisibilityState,
+    },
     terminals::{
         append_debug_log, kill_active_terminal_session_and_remove, mark_terminal_sessions_dirty,
         spawn_attached_terminal_with_presentation, TerminalManager, TerminalPresentationStore,
@@ -21,7 +23,7 @@ pub(crate) fn apply_terminal_lifecycle_requests(
     mut terminal_manager: ResMut<TerminalManager>,
     mut presentation_store: ResMut<TerminalPresentationStore>,
     runtime_spawner: Res<TerminalRuntimeSpawner>,
-    mut hud_state: ResMut<HudState>,
+    mut input_capture: ResMut<HudInputCaptureState>,
     mut agent_directory: ResMut<AgentDirectory>,
     mut session_persistence: ResMut<TerminalSessionPersistenceState>,
     mut visibility_state: ResMut<TerminalVisibilityState>,
@@ -58,7 +60,7 @@ pub(crate) fn apply_terminal_lifecycle_requests(
                         continue;
                     }
                 };
-                hud_state.reconcile_direct_terminal_input(terminal_manager.active_id());
+                input_capture.reconcile_direct_terminal_input(terminal_manager.active_id());
                 if matches!(
                     visibility_state.policy,
                     TerminalVisibilityPolicy::Isolate(_)
@@ -108,7 +110,7 @@ pub(crate) fn apply_terminal_lifecycle_requests(
                         }
                     }
                 }
-                hud_state.reconcile_direct_terminal_input(terminal_manager.active_id());
+                input_capture.reconcile_direct_terminal_input(terminal_manager.active_id());
             }
         }
         if state_changed {

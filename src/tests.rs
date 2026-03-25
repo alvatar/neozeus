@@ -3,11 +3,15 @@ mod input;
 mod scene;
 mod terminals;
 
-use crate::terminals::{
-    AttachedDaemonSession, CachedTerminalGlyph, DaemonSessionInfo, TerminalBridge, TerminalCommand,
-    TerminalDaemonClient, TerminalDaemonClientResource, TerminalDebugStats, TerminalRuntimeSpawner,
-    TerminalRuntimeState, TerminalSessionClient, TerminalSnapshot, TerminalSurface, TerminalUpdate,
-    TerminalUpdateMailbox, TmuxPaneClient, TmuxPaneDescriptor, TmuxPaneState,
+use crate::{
+    hud::{HudInputCaptureState, HudLayoutState, HudModalState},
+    terminals::{
+        AttachedDaemonSession, CachedTerminalGlyph, DaemonSessionInfo, TerminalBridge,
+        TerminalCommand, TerminalDaemonClient, TerminalDaemonClientResource, TerminalDebugStats,
+        TerminalRuntimeSpawner, TerminalRuntimeState, TerminalSessionClient, TerminalSnapshot,
+        TerminalSurface, TerminalUpdate, TerminalUpdateMailbox, TmuxPaneClient, TmuxPaneDescriptor,
+        TmuxPaneState,
+    },
 };
 use bevy::{
     input::{
@@ -63,6 +67,43 @@ pub(super) fn capturing_bridge() -> (
 pub(super) fn test_bridge() -> (TerminalBridge, Arc<TerminalUpdateMailbox>) {
     let (bridge, _input_rx, mailbox) = capturing_bridge();
     (bridge, mailbox)
+}
+
+pub(super) fn insert_default_hud_resources(world: &mut World) {
+    world.insert_resource(HudLayoutState::default());
+    world.insert_resource(HudModalState::default());
+    world.insert_resource(HudInputCaptureState::default());
+}
+
+pub(super) fn insert_hud_resources(
+    world: &mut World,
+    layout_state: HudLayoutState,
+    modal_state: HudModalState,
+    input_capture: HudInputCaptureState,
+) {
+    world.insert_resource(layout_state);
+    world.insert_resource(modal_state);
+    world.insert_resource(input_capture);
+}
+
+#[cfg(test)]
+pub(super) fn insert_test_hud_state(world: &mut World, hud_state: crate::hud::HudState) {
+    let (layout_state, modal_state, input_capture) = hud_state.into_resources();
+    insert_hud_resources(world, layout_state, modal_state, input_capture);
+}
+
+#[cfg(test)]
+pub(super) fn snapshot_test_hud_state(world: &World) -> crate::hud::HudState {
+    crate::hud::HudState::from_resources(
+        world.resource::<HudLayoutState>(),
+        world.resource::<HudModalState>(),
+        world.resource::<HudInputCaptureState>(),
+    )
+}
+
+#[cfg(test)]
+pub(super) fn insert_test_hud_state_into_app(app: &mut App, hud_state: crate::hud::HudState) {
+    insert_test_hud_state(app.world_mut(), hud_state);
 }
 
 #[derive(Default)]

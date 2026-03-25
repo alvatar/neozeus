@@ -2,7 +2,7 @@ use crate::{
     app_config::{
         DEBUG_TEXTURE_DUMP_PATH, DEFAULT_BG, DEFAULT_CELL_HEIGHT_PX, DEFAULT_CELL_WIDTH_PX,
     },
-    hud::HudState,
+    hud::HudLayoutState,
     terminals::{
         active_terminal_layout, append_debug_log, is_emoji_like, is_private_use_like,
         TerminalDamage, TerminalDimensions, TerminalFontState, TerminalManager,
@@ -126,7 +126,7 @@ pub(crate) fn sync_terminal_texture(
     mut presentation_store: ResMut<TerminalPresentationStore>,
     font_state: Res<TerminalFontState>,
     view_state: Res<TerminalViewState>,
-    hud_state: Res<HudState>,
+    layout_state: Res<HudLayoutState>,
     primary_window: Single<&Window, With<PrimaryWindow>>,
     mut glyph_cache: ResMut<TerminalGlyphCache>,
     mut images: ResMut<Assets<Image>>,
@@ -144,7 +144,7 @@ pub(crate) fn sync_terminal_texture(
 
     let active_id = terminal_manager.active_id();
     let active_layout =
-        active_id.map(|_| active_terminal_layout(&primary_window, &hud_state, &view_state));
+        active_id.map(|_| active_terminal_layout(&primary_window, &layout_state, &view_state));
     for (terminal_id, terminal) in terminal_manager.iter_mut() {
         let Some(surface) = &terminal.snapshot.surface else {
             terminal.pending_damage = None;

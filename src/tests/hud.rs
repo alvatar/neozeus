@@ -1,4 +1,7 @@
-use super::{fake_runtime_spawner, pressed_text, temp_dir, test_bridge, FakeDaemonClient};
+use super::{
+    fake_runtime_spawner, insert_default_hud_resources, insert_test_hud_state, pressed_text,
+    snapshot_test_hud_state, temp_dir, test_bridge, FakeDaemonClient,
+};
 use crate::hud::{
     agent_list_bloom_layer, agent_list_bloom_z, agent_row_rect, agent_rows, apply_persisted_layout,
     apply_terminal_focus_requests, apply_terminal_task_requests, apply_visibility_requests,
@@ -51,7 +54,7 @@ fn drain_hud_commands(world: &mut World) -> Vec<HudIntent> {
 #[test]
 fn setup_hud_requests_initial_redraw() {
     let mut world = World::default();
-    world.insert_resource(HudState::default());
+    insert_default_hud_resources(&mut world);
     world.insert_resource(HudPersistenceState::default());
     world.insert_resource(HudOffscreenCompositor::default());
     world.insert_resource(Assets::<Mesh>::default());
@@ -204,7 +207,7 @@ fn sync_structural_hud_layout_docks_agent_list_to_full_height_left_column() {
         HudModuleId::AgentList,
         crate::hud::default_hud_module_instance(&crate::hud::HUD_MODULE_DEFINITIONS[1]),
     );
-    world.insert_resource(hud_state);
+    insert_test_hud_state(&mut world, hud_state);
     world.spawn((
         Window {
             resolution: (1400, 900).into(),
@@ -221,7 +224,7 @@ fn sync_structural_hud_layout_docks_agent_list_to_full_height_left_column() {
         let mut query = world.query_filtered::<&Window, With<PrimaryWindow>>();
         crate::hud::docked_agent_list_rect(query.single(&world).unwrap())
     };
-    let hud_state = world.resource::<HudState>();
+    let hud_state = snapshot_test_hud_state(&world);
     let module = hud_state.get(HudModuleId::AgentList).unwrap();
     assert_eq!(module.shell.current_rect, expected_rect);
 }
@@ -582,7 +585,7 @@ fn plain_digit_module_shortcut_toggles_module() {
     let mut world = World::default();
     world.insert_resource(ButtonInput::<KeyCode>::default());
     world.insert_resource(TerminalManager::default());
-    world.insert_resource(HudState::default());
+    insert_default_hud_resources(&mut world);
     init_hud_commands(&mut world);
     world.init_resource::<Messages<KeyboardInput>>();
     world
@@ -608,7 +611,7 @@ fn plain_j_navigates_to_next_agent_and_isolates_it() {
     manager.focus_terminal(id_one);
     world.insert_resource(manager);
     world.insert_resource(ButtonInput::<KeyCode>::default());
-    world.insert_resource(HudState::default());
+    insert_default_hud_resources(&mut world);
     init_hud_commands(&mut world);
     world.init_resource::<Messages<KeyboardInput>>();
     world
@@ -637,7 +640,7 @@ fn down_arrow_navigates_to_next_agent_and_isolates_it() {
     manager.focus_terminal(id_one);
     world.insert_resource(manager);
     world.insert_resource(ButtonInput::<KeyCode>::default());
-    world.insert_resource(HudState::default());
+    insert_default_hud_resources(&mut world);
     init_hud_commands(&mut world);
     world.init_resource::<Messages<KeyboardInput>>();
     world
@@ -666,7 +669,7 @@ fn plain_k_navigates_to_previous_agent_and_isolates_it() {
     manager.focus_terminal(id_two);
     world.insert_resource(manager);
     world.insert_resource(ButtonInput::<KeyCode>::default());
-    world.insert_resource(HudState::default());
+    insert_default_hud_resources(&mut world);
     init_hud_commands(&mut world);
     world.init_resource::<Messages<KeyboardInput>>();
     world
@@ -695,7 +698,7 @@ fn up_arrow_navigates_to_previous_agent_and_isolates_it() {
     manager.focus_terminal(id_two);
     world.insert_resource(manager);
     world.insert_resource(ButtonInput::<KeyCode>::default());
-    world.insert_resource(HudState::default());
+    insert_default_hud_resources(&mut world);
     init_hud_commands(&mut world);
     world.init_resource::<Messages<KeyboardInput>>();
     world
@@ -724,7 +727,7 @@ fn focus_and_visibility_requests_request_redraw_immediately() {
     time.advance_by(Duration::from_secs(1));
     world.insert_resource(time);
     world.insert_resource(manager);
-    world.insert_resource(HudState::default());
+    insert_default_hud_resources(&mut world);
     world.insert_resource(TerminalSessionPersistenceState::default());
     world.insert_resource(TerminalViewState::default());
     world.insert_resource(TerminalVisibilityState::default());
@@ -762,7 +765,7 @@ fn alt_shift_module_shortcut_still_resets_module() {
     keys.press(KeyCode::ShiftLeft);
     world.insert_resource(keys);
     world.insert_resource(TerminalManager::default());
-    world.insert_resource(HudState::default());
+    insert_default_hud_resources(&mut world);
     init_hud_commands(&mut world);
     world.init_resource::<Messages<KeyboardInput>>();
     world
@@ -782,7 +785,7 @@ fn module_shortcuts_are_suppressed_while_direct_input_is_open() {
     let mut world = World::default();
     let mut hud_state = HudState::default();
     hud_state.open_direct_terminal_input(crate::terminals::TerminalId(1));
-    world.insert_resource(hud_state);
+    insert_test_hud_state(&mut world, hud_state);
     world.insert_resource(TerminalManager::default());
     world.insert_resource(ButtonInput::<KeyCode>::default());
     init_hud_commands(&mut world);
@@ -890,7 +893,7 @@ fn sync_hud_widget_bloom_spawns_agent_list_source_sprites() {
         crate::hud::default_hud_module_instance(&crate::hud::HUD_MODULE_DEFINITIONS[1]),
     );
     world.insert_resource(manager);
-    world.insert_resource(hud_state);
+    insert_test_hud_state(&mut world, hud_state);
     world.insert_resource(AgentDirectory::default());
     world.insert_resource(HudBloomSettings::default());
     world.insert_resource(HudWidgetBloom::default());
@@ -930,7 +933,7 @@ fn sync_hud_widget_bloom_spawns_agent_list_source_sprites() {
 
     let expected_sizes = {
         let manager = world.resource::<TerminalManager>();
-        let hud_state = world.resource::<HudState>();
+        let hud_state = snapshot_test_hud_state(&world);
         let directory = world.resource::<AgentDirectory>();
         let module = hud_state.get(HudModuleId::AgentList).unwrap();
         let crate::hud::HudModuleModel::AgentList(state) = &module.model else {
@@ -1004,7 +1007,7 @@ fn sync_hud_widget_bloom_only_uses_active_agent_source() {
         crate::hud::default_hud_module_instance(&crate::hud::HUD_MODULE_DEFINITIONS[1]),
     );
     world.insert_resource(manager);
-    world.insert_resource(hud_state);
+    insert_test_hud_state(&mut world, hud_state);
     world.insert_resource(AgentDirectory::default());
     world.insert_resource(HudBloomSettings::default());
     world.insert_resource(HudWidgetBloom::default());
@@ -1061,7 +1064,7 @@ fn agent_list_is_not_draggable() {
     world.insert_resource(ButtonInput::<MouseButton>::default());
     world.insert_resource(Messages::<MouseWheel>::default());
     world.insert_resource(Messages::<RequestRedraw>::default());
-    world.insert_resource(hud_state);
+    insert_test_hud_state(&mut world, hud_state);
     world.insert_resource(TerminalManager::default());
     world.insert_resource(TerminalPresentationStore::default());
     world.insert_resource(TerminalViewState::default());
@@ -1077,7 +1080,7 @@ fn agent_list_is_not_draggable() {
         .press(MouseButton::Left);
     world.run_system_once(handle_hud_pointer_input).unwrap();
 
-    let hud_state = world.resource::<HudState>();
+    let hud_state = snapshot_test_hud_state(&world);
     assert!(hud_state.drag.is_none());
     assert!(!hud_state.dirty_layout);
 }
@@ -1117,7 +1120,7 @@ fn clicking_task_dialog_clear_done_button_persists_updated_text() {
     world.insert_resource(ButtonInput::<MouseButton>::default());
     world.insert_resource(Messages::<MouseWheel>::default());
     world.insert_resource(Messages::<RequestRedraw>::default());
-    world.insert_resource(hud_state);
+    insert_test_hud_state(&mut world, hud_state);
     world.insert_resource(TerminalManager::default());
     world.insert_resource(TerminalPresentationStore::default());
     world.insert_resource(TerminalViewState::default());
@@ -1135,7 +1138,7 @@ fn clicking_task_dialog_clear_done_button_persists_updated_text() {
         vec![HudIntent::ClearDoneTerminalTasks(terminal_id)]
     );
     assert_eq!(world.resource::<Messages<RequestRedraw>>().len(), 1);
-    let hud_state = world.resource::<HudState>();
+    let hud_state = snapshot_test_hud_state(&world);
     assert!(hud_state.task_dialog.visible);
     assert_eq!(hud_state.task_dialog.text, "- [x] done\n- [ ] keep");
 }
@@ -1156,7 +1159,7 @@ fn clear_done_task_request_updates_open_dialog_from_persisted_state() {
     world.insert_resource(Time::<()>::default());
     world.insert_resource(manager);
     world.insert_resource(notes_state);
-    world.insert_resource(hud_state);
+    insert_test_hud_state(&mut world, hud_state);
     world.init_resource::<Messages<crate::hud::TerminalTaskRequest>>();
     world.init_resource::<Messages<RequestRedraw>>();
     world
@@ -1169,7 +1172,7 @@ fn clear_done_task_request_updates_open_dialog_from_persisted_state() {
         let notes_state = world.resource::<TerminalNotesState>();
         assert_eq!(notes_state.note_text("session-a"), Some("- [ ] keep"));
     }
-    let hud_state = world.resource::<HudState>();
+    let hud_state = snapshot_test_hud_state(&world);
     assert_eq!(hud_state.task_dialog.text, "- [ ] keep");
     assert!(hud_state.task_dialog.visible);
     assert_eq!(world.resource::<Messages<RequestRedraw>>().len(), 1);
@@ -1189,7 +1192,7 @@ fn set_task_text_request_clears_persisted_task_presence_when_empty() {
     world.insert_resource(Time::<()>::default());
     world.insert_resource(manager);
     world.insert_resource(notes_state);
-    world.insert_resource(HudState::default());
+    insert_default_hud_resources(&mut world);
     world.init_resource::<Messages<crate::hud::TerminalTaskRequest>>();
     world.init_resource::<Messages<RequestRedraw>>();
     world
@@ -1220,7 +1223,7 @@ fn consume_next_task_request_sends_message_and_marks_task_done() {
     world.insert_resource(Time::<()>::default());
     world.insert_resource(manager);
     world.insert_resource(notes_state);
-    world.insert_resource(HudState::default());
+    insert_default_hud_resources(&mut world);
     world.init_resource::<Messages<crate::hud::TerminalTaskRequest>>();
     world.init_resource::<Messages<RequestRedraw>>();
     world
@@ -1264,7 +1267,7 @@ fn clicking_message_box_task_button_emits_append_task_intent() {
     world.insert_resource(ButtonInput::<MouseButton>::default());
     world.insert_resource(Messages::<MouseWheel>::default());
     world.insert_resource(Messages::<RequestRedraw>::default());
-    world.insert_resource(hud_state);
+    insert_test_hud_state(&mut world, hud_state);
     world.insert_resource(TerminalManager::default());
     world.insert_resource(TerminalPresentationStore::default());
     world.insert_resource(TerminalViewState::default());
@@ -1285,7 +1288,7 @@ fn clicking_message_box_task_button_emits_append_task_intent() {
         )]
     );
     assert_eq!(world.resource::<Messages<RequestRedraw>>().len(), 1);
-    assert!(!world.resource::<HudState>().message_box.visible);
+    assert!(!snapshot_test_hud_state(&world).message_box.visible);
 }
 
 #[test]
@@ -1302,13 +1305,13 @@ fn animate_hud_modules_moves_current_rect_and_alpha_toward_target() {
     let mut time = Time::<()>::default();
     time.advance_by(Duration::from_millis(16));
     world.insert_resource(time);
-    world.insert_resource(hud_state);
+    insert_test_hud_state(&mut world, hud_state);
 
     world
         .run_system_once(crate::hud::animate_hud_modules)
         .unwrap();
 
-    let hud_state = world.resource::<HudState>();
+    let hud_state = snapshot_test_hud_state(&world);
     let module = hud_state.get(HudModuleId::AgentList).unwrap();
     assert!(module.shell.current_rect.x > 24.0);
     assert!(module.shell.current_rect.x < 124.0);
@@ -1335,7 +1338,7 @@ fn saving_hud_layout_persists_target_rect() {
     let mut time = Time::<()>::default();
     time.advance_by(Duration::from_secs(1));
     world.insert_resource(time);
-    world.insert_resource(hud_state);
+    insert_test_hud_state(&mut world, hud_state);
     world.insert_resource(HudPersistenceState {
         path: Some(path.clone()),
         dirty_since_secs: None,
@@ -1376,7 +1379,7 @@ fn clicking_debug_toolbar_button_emits_spawn_terminal_command() {
         &manager,
         &Default::default(),
         &TerminalViewState::default(),
-        &hud_state,
+        &hud_state.layout_state(),
     );
     let new_terminal = buttons
         .iter()
@@ -1404,7 +1407,7 @@ fn clicking_debug_toolbar_button_emits_spawn_terminal_command() {
         &Default::default(),
         &TerminalViewState::default(),
         &AgentDirectory::default(),
-        &hud_state,
+        &hud_state.layout_state(),
         &mut emitted_commands,
     );
 
@@ -1436,7 +1439,7 @@ fn clicking_debug_toolbar_command_button_emits_terminal_command() {
         &manager,
         &Default::default(),
         &TerminalViewState::default(),
-        &hud_state,
+        &hud_state.layout_state(),
     );
     let pwd = buttons
         .iter()
@@ -1461,7 +1464,7 @@ fn clicking_debug_toolbar_command_button_emits_terminal_command() {
         &Default::default(),
         &TerminalViewState::default(),
         &AgentDirectory::default(),
-        &hud_state,
+        &hud_state.layout_state(),
         &mut emitted_commands,
     );
 
@@ -1524,7 +1527,7 @@ fn clicking_agent_list_row_emits_focus_and_isolate_commands() {
         &Default::default(),
         &TerminalViewState::default(),
         &AgentDirectory::default(),
-        &hud_state,
+        &hud_state.layout_state(),
         &mut emitted_commands,
     );
 
@@ -1591,7 +1594,7 @@ fn debug_toolbar_buttons_include_module_toggle_entries() {
         &manager,
         &Default::default(),
         &TerminalViewState::default(),
-        &hud_state,
+        &hud_state.layout_state(),
     );
     assert!(buttons.iter().any(|button| button.label == "0 toolbar"));
     assert!(buttons.iter().any(|button| button.label == "1 agents"));
@@ -1623,7 +1626,7 @@ fn debug_toolbar_module_toggle_buttons_reflect_enabled_state() {
         &manager,
         &Default::default(),
         &TerminalViewState::default(),
-        &hud_state,
+        &hud_state.layout_state(),
     );
 
     let toolbar = buttons
@@ -1664,17 +1667,17 @@ fn hud_needs_redraw_when_drag_or_animation_is_active() {
         HudModuleId::AgentList,
         crate::hud::default_hud_module_instance(&crate::hud::HUD_MODULE_DEFINITIONS[1]),
     );
-    assert!(!hud_needs_redraw(&state));
+    assert!(!hud_needs_redraw(&state.layout_state()));
     state.drag = Some(HudDragState {
         module_id: HudModuleId::AgentList,
         grab_offset: Vec2::ZERO,
     });
-    assert!(hud_needs_redraw(&state));
+    assert!(hud_needs_redraw(&state.layout_state()));
     state.drag = None;
     let module = state.get_mut(HudModuleId::AgentList).unwrap();
     module.shell.current_rect.x = 0.0;
     module.shell.target_rect.x = 10.0;
-    assert!(hud_needs_redraw(&state));
+    assert!(hud_needs_redraw(&state.layout_state()));
 }
 
 #[test]
@@ -1690,7 +1693,7 @@ fn disabled_hud_module_still_requests_redraw_while_fading_out() {
     let module = state.get(HudModuleId::AgentList).unwrap();
     assert!(!module.shell.enabled);
     assert!(module.shell.is_animating());
-    assert!(hud_needs_redraw(&state));
+    assert!(hud_needs_redraw(&state.layout_state()));
 }
 
 #[test]

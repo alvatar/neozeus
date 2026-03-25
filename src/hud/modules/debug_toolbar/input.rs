@@ -1,5 +1,5 @@
 use crate::{
-    hud::{HudIntent, HudModuleModel, HudRect, HudState},
+    hud::{HudIntent, HudLayoutState, HudModuleModel, HudRect},
     terminals::{TerminalManager, TerminalPresentationStore, TerminalViewState},
 };
 use bevy::prelude::Vec2;
@@ -17,7 +17,7 @@ pub(crate) fn handle_pointer_click(
     terminal_manager: &TerminalManager,
     presentation_store: &TerminalPresentationStore,
     view_state: &TerminalViewState,
-    hud_state: &HudState,
+    layout_state: &HudLayoutState,
     emitted_commands: &mut Vec<HudIntent>,
 ) {
     if !matches!(model, HudModuleModel::DebugToolbar(_)) {
@@ -28,7 +28,7 @@ pub(crate) fn handle_pointer_click(
         terminal_manager,
         presentation_store,
         view_state,
-        hud_state,
+        layout_state,
     ) {
         if !button.rect.contains(point) {
             continue;
