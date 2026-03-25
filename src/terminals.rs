@@ -100,7 +100,9 @@ pub(crate) use raster::{
     TerminalGlyphCacheKey,
 };
 pub(crate) use raster::{create_terminal_image, sync_terminal_texture, TerminalGlyphCache};
-pub(crate) use registry::{poll_terminal_snapshots, TerminalId, TerminalManager};
+pub(crate) use registry::{
+    poll_terminal_snapshots, TerminalFocusState, TerminalId, TerminalManager,
+};
 pub(crate) use runtime::{RuntimeNotifier, TerminalRuntimeSpawner};
 pub(crate) use session_persistence::{
     load_persisted_terminal_sessions_from, mark_terminal_sessions_dirty,

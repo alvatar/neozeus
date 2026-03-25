@@ -5,8 +5,8 @@ use crate::{
     },
     terminals::{
         mark_terminal_sessions_dirty, terminal_texture_screen_size, TerminalCommand,
-        TerminalDisplayMode, TerminalManager, TerminalNotesState, TerminalPanel,
-        TerminalPointerState, TerminalPresentation, TerminalPresentationStore,
+        TerminalDisplayMode, TerminalFocusState, TerminalManager, TerminalNotesState,
+        TerminalPanel, TerminalPointerState, TerminalPresentation, TerminalPresentationStore,
         TerminalSessionPersistenceState, TerminalViewState,
     },
 };
@@ -177,7 +177,8 @@ pub(crate) fn hide_terminal_on_background_click(
     modal_state: Res<HudModalState>,
     mut input_capture: ResMut<HudInputCaptureState>,
     panels: Query<(&TerminalPanel, &TerminalPresentation, &Visibility)>,
-    mut terminal_manager: ResMut<TerminalManager>,
+    mut _terminal_manager: ResMut<TerminalManager>,
+    mut focus_state: ResMut<TerminalFocusState>,
     mut session_persistence: ResMut<TerminalSessionPersistenceState>,
     mut visibility_state: ResMut<TerminalVisibilityState>,
     mut view_state: ResMut<TerminalViewState>,
@@ -189,7 +190,7 @@ pub(crate) fn hide_terminal_on_background_click(
     {
         return;
     }
-    let Some(_) = terminal_manager.active_id() else {
+    let Some(_) = focus_state.active_id() else {
         return;
     };
     let Some(cursor) = primary_window.cursor_position() else {
@@ -201,10 +202,12 @@ pub(crate) fn hide_terminal_on_background_click(
     if topmost_terminal_panel_at_cursor(&primary_window, &panels, cursor).is_some() {
         return;
     }
-    if terminal_manager.clear_active_terminal().is_some() {
+    if focus_state.clear_active_terminal().is_some() {
+        #[cfg(test)]
+        _terminal_manager.replace_test_focus_state(&focus_state);
         visibility_state.policy = TerminalVisibilityPolicy::ShowAll;
         view_state.focus_terminal(None);
-        input_capture.reconcile_direct_terminal_input(terminal_manager.active_id());
+        input_capture.reconcile_direct_terminal_input(focus_state.active_id());
         mark_terminal_sessions_dirty(&mut session_persistence, Some(&time));
     }
 }
@@ -219,6 +222,7 @@ pub(crate) fn drag_terminal_view(
     mut mouse_motion: MessageReader<MouseMotion>,
     primary_window: Single<&Window, With<PrimaryWindow>>,
     terminal_manager: Res<TerminalManager>,
+    focus_state: Res<TerminalFocusState>,
     presentation_store: Res<TerminalPresentationStore>,
     layout_state: Res<HudLayoutState>,
     mut view_state: ResMut<TerminalViewState>,
@@ -237,16 +241,16 @@ pub(crate) fn drag_terminal_view(
 
     if shift {
         pointer_state.scroll_drag_remainder_px = 0.0;
-        view_state.apply_offset_delta(terminal_manager.active_id(), Vec2::new(delta.x, -delta.y));
+        view_state.apply_offset_delta(focus_state.active_id(), Vec2::new(delta.x, -delta.y));
         return;
     }
 
-    let Some(texture_state) = presentation_store.active_texture_state(terminal_manager.active_id())
+    let Some(texture_state) = presentation_store.active_texture_state(focus_state.active_id())
     else {
         pointer_state.scroll_drag_remainder_px = 0.0;
         return;
     };
-    let pixel_perfect = presentation_store.active_display_mode(terminal_manager.active_id())
+    let pixel_perfect = presentation_store.active_display_mode(focus_state.active_id())
         == Some(TerminalDisplayMode::PixelPerfect);
     let screen_size = terminal_texture_screen_size(
         texture_state,
@@ -267,7 +271,7 @@ pub(crate) fn drag_terminal_view(
     let lines = (-pointer_state.scroll_drag_remainder_px / screen_cell_height).trunc() as i32;
     if lines != 0 {
         pointer_state.scroll_drag_remainder_px += lines as f32 * screen_cell_height;
-        if let Some(bridge) = terminal_manager.active_bridge() {
+        if let Some(bridge) = focus_state.active_bridge(&terminal_manager) {
             bridge.send(TerminalCommand::ScrollDisplay(lines));
         }
     }
@@ -298,11 +302,16 @@ pub(crate) fn zoom_terminal_view(
     view_state.distance = (view_state.distance - zoom_delta * 0.8).clamp(2.0, 40.0);
 }
 
+#[allow(
+    clippy::too_many_arguments,
+    reason = "direct terminal input needs keyboard, focus, modal capture, terminal state, and redraws together"
+)]
 pub(crate) fn handle_terminal_direct_input_keyboard(
     mut messages: MessageReader<KeyboardInput>,
     keys: Res<ButtonInput<KeyCode>>,
     primary_window: Single<&Window, With<PrimaryWindow>>,
     terminal_manager: Res<TerminalManager>,
+    focus_state: Res<TerminalFocusState>,
     mut modal_state: ResMut<HudModalState>,
     mut input_capture: ResMut<HudInputCaptureState>,
     mut redraws: MessageWriter<RequestRedraw>,
@@ -314,7 +323,7 @@ pub(crate) fn handle_terminal_direct_input_keyboard(
 
     let (ctrl, alt, super_key) = has_plain_modifiers(&keys);
     let had_direct_input = input_capture.direct_input_terminal.is_some();
-    input_capture.reconcile_direct_terminal_input(terminal_manager.active_id());
+    input_capture.reconcile_direct_terminal_input(focus_state.active_id());
     if had_direct_input && input_capture.direct_input_terminal.is_none() {
         redraws.write(RequestRedraw);
     }
@@ -344,7 +353,7 @@ pub(crate) fn handle_terminal_direct_input_keyboard(
         return;
     }
 
-    let Some(active_id) = terminal_manager.active_id() else {
+    let Some(active_id) = focus_state.active_id() else {
         return;
     };
     for event in messages.read() {
@@ -440,6 +449,7 @@ pub(crate) fn handle_terminal_message_box_keyboard(
     keys: Res<ButtonInput<KeyCode>>,
     primary_window: Single<&Window, With<PrimaryWindow>>,
     terminal_manager: Res<TerminalManager>,
+    focus_state: Res<TerminalFocusState>,
     notes_state: Res<TerminalNotesState>,
     mut modal_state: ResMut<HudModalState>,
     mut input_capture: ResMut<HudInputCaptureState>,
@@ -525,7 +535,7 @@ pub(crate) fn handle_terminal_message_box_keyboard(
         return;
     }
 
-    let Some(active_id) = terminal_manager.active_id() else {
+    let Some(active_id) = focus_state.active_id() else {
         return;
     };
     for event in messages.read() {

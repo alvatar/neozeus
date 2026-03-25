@@ -182,36 +182,36 @@ Note:
 ## Phase 4 — split terminal domain state by concern
 
 ### 4.1 Reduce `TerminalManager` scope
-- [ ] decide target split:
+- [x] decide target split:
   - [ ] `TerminalRegistry` for terminal map + creation order
-  - [ ] `TerminalFocusState` for active terminal + focus order
+  - [x] `TerminalFocusState` for active terminal + focus order
   - [ ] optional `TerminalResizeState` for requested dimensions
-- [ ] keep `ManagedTerminal` focused on per-terminal runtime/domain data only
+- [x] keep `ManagedTerminal` focused on per-terminal runtime/domain data only
 
 ### 4.2 Remove unnecessary contention on a single resource
-- [ ] input/focus systems should not need mutable access to the entire registry unless they actually mutate terminal records
-- [ ] presentation systems should not need broad mutable access to registry state when only reading focus/order
-- [ ] persistence should read registry/focus state without coupling to resize internals
+- [x] input/focus systems should not need mutable access to the entire registry unless they actually mutate terminal records
+- [x] presentation systems should not need broad mutable access to registry state when only reading focus/order
+- [x] persistence should read registry/focus state without coupling to resize internals
 
 ### 4.3 Preserve current invariants
-- [ ] creation order remains stable across focus changes
-- [ ] focus order remains an explicit separate concern
-- [ ] active terminal clearing/focusing still works identically
-- [ ] terminal removal still updates all relevant indices/orders
+- [x] creation order remains stable across focus changes
+- [x] focus order remains an explicit separate concern
+- [x] active terminal clearing/focusing still works identically
+- [x] terminal removal still updates all relevant indices/orders
 
 ### 4.4 Revisit APIs after the split
-- [ ] replace broad `TerminalManager` helper APIs with narrower equivalents where appropriate
-- [ ] keep high-value ergonomic helpers where they still reflect real authority boundaries
+- [x] replace broad `TerminalManager` helper APIs with narrower equivalents where appropriate
+- [x] keep high-value ergonomic helpers where they still reflect real authority boundaries
 
 ### 4.5 Validation
-- [ ] startup restore/import still reconstructs terminal order and focus correctly
-- [ ] focus/visibility logic unchanged
-- [ ] removal/kill cleanup unchanged
+- [x] startup restore/import still reconstructs terminal order and focus correctly
+- [x] focus/visibility logic unchanged
+- [x] removal/kill cleanup unchanged
 
 ### Phase 4 gate
-- [ ] `cargo test`
-- [ ] `cargo clippy --all-targets -- -D warnings`
-- [ ] `cargo fmt --check`
+- [x] `cargo test`
+- [x] `cargo clippy --all-targets -- -D warnings`
+- [x] `cargo fmt --check`
 
 ---
 

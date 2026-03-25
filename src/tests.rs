@@ -73,6 +73,27 @@ pub(super) fn insert_default_hud_resources(world: &mut World) {
     world.insert_resource(HudLayoutState::default());
     world.insert_resource(HudModalState::default());
     world.insert_resource(HudInputCaptureState::default());
+    if !world.contains_resource::<crate::terminals::TerminalFocusState>() {
+        world.insert_resource(crate::terminals::TerminalFocusState::default());
+    }
+}
+
+pub(super) fn insert_terminal_manager_resources(
+    world: &mut World,
+    terminal_manager: crate::terminals::TerminalManager,
+) {
+    #[cfg(test)]
+    {
+        world.insert_resource(terminal_manager.clone_focus_state());
+    }
+    world.insert_resource(terminal_manager);
+}
+
+pub(super) fn insert_terminal_manager_resources_into_app(
+    app: &mut App,
+    terminal_manager: crate::terminals::TerminalManager,
+) {
+    insert_terminal_manager_resources(app.world_mut(), terminal_manager);
 }
 
 pub(super) fn insert_hud_resources(
@@ -90,6 +111,9 @@ pub(super) fn insert_hud_resources(
 pub(super) fn insert_test_hud_state(world: &mut World, hud_state: crate::hud::HudState) {
     let (layout_state, modal_state, input_capture) = hud_state.into_resources();
     insert_hud_resources(world, layout_state, modal_state, input_capture);
+    if !world.contains_resource::<crate::terminals::TerminalFocusState>() {
+        world.insert_resource(crate::terminals::TerminalFocusState::default());
+    }
 }
 
 #[cfg(test)]

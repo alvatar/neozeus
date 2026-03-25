@@ -197,6 +197,7 @@ pub(crate) fn mark_terminal_sessions_dirty(
 
 pub(crate) fn build_persisted_terminal_sessions(
     terminal_manager: &TerminalManager,
+    focus_state: &crate::terminals::TerminalFocusState,
     agent_directory: &AgentDirectory,
 ) -> PersistedTerminalSessions {
     let sessions = terminal_manager
@@ -209,7 +210,7 @@ pub(crate) fn build_persisted_terminal_sessions(
                 session_name: terminal.session_name.clone(),
                 label: agent_directory.labels.get(id).cloned(),
                 creation_index: index as u64,
-                last_focused: terminal_manager.active_id() == Some(*id),
+                last_focused: focus_state.active_id() == Some(*id),
             })
         })
         .collect();
@@ -219,6 +220,7 @@ pub(crate) fn build_persisted_terminal_sessions(
 pub(crate) fn save_terminal_sessions_if_dirty(
     time: Res<Time>,
     terminal_manager: Res<TerminalManager>,
+    focus_state: Res<crate::terminals::TerminalFocusState>,
     agent_directory: Res<AgentDirectory>,
     mut persistence_state: ResMut<TerminalSessionPersistenceState>,
 ) {
@@ -233,7 +235,8 @@ pub(crate) fn save_terminal_sessions_if_dirty(
         return;
     };
 
-    let persisted = build_persisted_terminal_sessions(&terminal_manager, &agent_directory);
+    let persisted =
+        build_persisted_terminal_sessions(&terminal_manager, &focus_state, &agent_directory);
     if let Some(parent) = path.parent() {
         if let Err(error) = fs::create_dir_all(parent) {
             append_debug_log(format!(

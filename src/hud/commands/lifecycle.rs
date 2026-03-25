@@ -4,9 +4,9 @@ use crate::{
     },
     terminals::{
         append_debug_log, kill_active_terminal_session_and_remove, mark_terminal_sessions_dirty,
-        spawn_attached_terminal_with_presentation, TerminalManager, TerminalPresentationStore,
-        TerminalRuntimeSpawner, TerminalSessionPersistenceState, TerminalViewState,
-        PERSISTENT_SESSION_PREFIX,
+        spawn_attached_terminal_with_presentation, TerminalFocusState, TerminalManager,
+        TerminalPresentationStore, TerminalRuntimeSpawner, TerminalSessionPersistenceState,
+        TerminalViewState, PERSISTENT_SESSION_PREFIX,
     },
 };
 use bevy::{prelude::*, window::RequestRedraw};
@@ -21,6 +21,7 @@ pub(crate) fn apply_terminal_lifecycle_requests(
     mut images: ResMut<Assets<Image>>,
     time: Res<Time>,
     mut terminal_manager: ResMut<TerminalManager>,
+    mut focus_state: ResMut<TerminalFocusState>,
     mut presentation_store: ResMut<TerminalPresentationStore>,
     runtime_spawner: Res<TerminalRuntimeSpawner>,
     mut input_capture: ResMut<HudInputCaptureState>,
@@ -45,6 +46,7 @@ pub(crate) fn apply_terminal_lifecycle_requests(
                     &mut commands,
                     &mut images,
                     &mut terminal_manager,
+                    &mut focus_state,
                     &mut presentation_store,
                     &runtime_spawner,
                     session_name.clone(),
@@ -60,7 +62,7 @@ pub(crate) fn apply_terminal_lifecycle_requests(
                         continue;
                     }
                 };
-                input_capture.reconcile_direct_terminal_input(terminal_manager.active_id());
+                input_capture.reconcile_direct_terminal_input(focus_state.active_id());
                 if matches!(
                     visibility_state.policy,
                     TerminalVisibilityPolicy::Isolate(_)
@@ -80,6 +82,7 @@ pub(crate) fn apply_terminal_lifecycle_requests(
                     &mut commands,
                     &time,
                     &mut terminal_manager,
+                    &mut focus_state,
                     &mut presentation_store,
                     &runtime_spawner,
                     &mut agent_directory,
@@ -96,7 +99,7 @@ pub(crate) fn apply_terminal_lifecycle_requests(
                     }
                     Ok(None) => {}
                     Err(error) => {
-                        if let Some(active_id) = terminal_manager.active_id() {
+                        if let Some(active_id) = focus_state.active_id() {
                             let session_name = terminal_manager
                                 .get(active_id)
                                 .map(|terminal| terminal.session_name.as_str())
@@ -110,7 +113,7 @@ pub(crate) fn apply_terminal_lifecycle_requests(
                         }
                     }
                 }
-                input_capture.reconcile_direct_terminal_input(terminal_manager.active_id());
+                input_capture.reconcile_direct_terminal_input(focus_state.active_id());
             }
         }
         if state_changed {

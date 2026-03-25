@@ -336,9 +336,10 @@ fn build_bloom_specs(
     scroll_offset: f32,
     hovered_terminal: Option<TerminalId>,
     terminal_manager: &TerminalManager,
+    focus_state: &crate::terminals::TerminalFocusState,
     agent_directory: &AgentDirectory,
 ) -> Vec<BloomSourceSpec> {
-    let Some(active_id) = terminal_manager.active_id() else {
+    let Some(active_id) = focus_state.active_id() else {
         return Vec::new();
     };
 
@@ -348,6 +349,7 @@ fn build_bloom_specs(
         scroll_offset,
         hovered_terminal,
         terminal_manager,
+        focus_state,
         agent_directory,
     ) {
         if row.terminal_id != active_id
@@ -718,6 +720,7 @@ pub(crate) struct HudWidgetBloomContext<'w, 's> {
     primary_window: Single<'w, 's, &'static Window, With<PrimaryWindow>>,
     layout_state: Res<'w, HudLayoutState>,
     terminal_manager: Res<'w, TerminalManager>,
+    focus_state: Res<'w, crate::terminals::TerminalFocusState>,
     agent_directory: Res<'w, AgentDirectory>,
     settings: Res<'w, HudBloomSettings>,
     commands: Commands<'w, 's>,
@@ -876,6 +879,7 @@ pub(crate) fn sync_hud_widget_bloom(mut ctx: HudWidgetBloomContext) {
             state.scroll_offset,
             state.hovered_terminal,
             &ctx.terminal_manager,
+            &ctx.focus_state,
             &ctx.agent_directory,
         )
     } else {

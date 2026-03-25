@@ -1,5 +1,6 @@
 use super::{
     assert_glyph_has_visible_pixels, fake_runtime_spawner, insert_default_hud_resources,
+    insert_terminal_manager_resources, insert_terminal_manager_resources_into_app,
     insert_test_hud_state, insert_test_hud_state_into_app, surface_with_text, temp_dir,
     test_bridge, FakeDaemonClient, FakeTmuxClient,
 };
@@ -234,7 +235,7 @@ fn active_terminal_presentation_uses_texture_logical_size_and_centers_in_viewpor
     let mut time = Time::<()>::default();
     time.advance_by(Duration::from_secs(1));
     world.insert_resource(time);
-    world.insert_resource(manager);
+    insert_terminal_manager_resources(&mut world, manager);
     world.insert_resource(presentation_store);
     world.insert_resource(crate::hud::TerminalVisibilityState::default());
     world.insert_resource(view_state);
@@ -326,7 +327,7 @@ fn active_terminal_snaps_immediately_when_active_layout_changes() {
     let mut time = Time::<()>::default();
     time.advance_by(Duration::from_millis(16));
     app.insert_resource(time);
-    app.insert_resource(manager);
+    insert_terminal_manager_resources_into_app(&mut app, manager);
     app.insert_resource(presentation_store);
     app.insert_resource(crate::hud::TerminalVisibilityState::default());
     app.insert_resource(view_state);
@@ -481,7 +482,7 @@ fn switching_active_terminal_snaps_immediately_without_animation() {
     let mut time = Time::<()>::default();
     time.advance_by(Duration::from_secs(1));
     app.insert_resource(time);
-    app.insert_resource(manager);
+    insert_terminal_manager_resources_into_app(&mut app, manager);
     app.insert_resource(presentation_store);
     app.insert_resource(crate::hud::TerminalVisibilityState {
         policy: crate::hud::TerminalVisibilityPolicy::ShowAll,
@@ -528,8 +529,12 @@ fn switching_active_terminal_snaps_immediately_without_animation() {
     app.update();
 
     {
-        let mut manager = app.world_mut().resource_mut::<TerminalManager>();
-        manager.focus_terminal(id_two);
+        let focus_state = {
+            let mut manager = app.world_mut().resource_mut::<TerminalManager>();
+            manager.focus_terminal(id_two);
+            manager.clone_focus_state()
+        };
+        app.world_mut().insert_resource(focus_state);
     }
     app.world_mut()
         .resource_mut::<crate::hud::TerminalVisibilityState>()
@@ -639,7 +644,7 @@ fn sync_terminal_texture_keeps_cached_switch_frame_until_resized_surface_arrives
     );
 
     let mut world = World::default();
-    world.insert_resource(manager);
+    insert_terminal_manager_resources(&mut world, manager);
     world.insert_resource(presentation_store);
     world.insert_resource(font_state);
     world.insert_resource(view_state);
@@ -734,7 +739,7 @@ fn sync_terminal_texture_promotes_active_terminal_once_resized_surface_arrives()
     );
 
     let mut world = World::default();
-    world.insert_resource(manager);
+    insert_terminal_manager_resources(&mut world, manager);
     world.insert_resource(presentation_store);
     world.insert_resource(font_state);
     world.insert_resource(view_state);
@@ -788,7 +793,7 @@ fn active_terminal_resize_requests_follow_zoom_distance() {
     let expected = active_terminal_dimensions(&window, &hud_state.layout_state(), &view_state);
 
     let mut world = World::default();
-    world.insert_resource(manager);
+    insert_terminal_manager_resources(&mut world, manager);
     world.insert_resource(runtime_spawner);
     world.insert_resource(view_state);
     insert_test_hud_state(&mut world, hud_state);
@@ -879,7 +884,7 @@ fn poll_terminal_snapshots_keeps_latest_status_over_latest_frame_runtime() {
     });
 
     let mut world = World::default();
-    world.insert_resource(manager);
+    insert_terminal_manager_resources(&mut world, manager);
     world.run_system_once(poll_terminal_snapshots).unwrap();
     let manager = world.resource::<TerminalManager>();
     let terminal = manager.get(terminal_id).unwrap();
@@ -1215,7 +1220,7 @@ fn saving_terminal_sessions_persists_focus_order_and_labels() {
     let mut time = Time::<()>::default();
     time.advance_by(Duration::from_secs(1));
     world.insert_resource(time);
-    world.insert_resource(manager);
+    insert_terminal_manager_resources(&mut world, manager);
     world.insert_resource(directory);
     world.insert_resource(TerminalSessionPersistenceState {
         path: Some(path.clone()),
@@ -1247,7 +1252,7 @@ fn terminal_sessions_save_waits_for_debounce_window() {
     let mut time = Time::<()>::default();
     time.advance_by(Duration::from_millis(100));
     world.insert_resource(time);
-    world.insert_resource(manager);
+    insert_terminal_manager_resources(&mut world, manager);
     world.insert_resource(AgentDirectory::default());
     world.insert_resource(TerminalSessionPersistenceState {
         path: Some(path.clone()),
@@ -1518,7 +1523,7 @@ fn show_all_presentations_remain_visible_when_no_terminal_is_active() {
     let mut time = Time::<()>::default();
     time.advance_by(Duration::from_millis(16));
     world.insert_resource(time);
-    world.insert_resource(manager);
+    insert_terminal_manager_resources(&mut world, manager);
     world.insert_resource(presentation_store);
     world.insert_resource(crate::hud::TerminalVisibilityState::default());
     world.insert_resource(TerminalViewState::default());
@@ -1678,7 +1683,7 @@ fn active_terminal_presentation_stays_hidden_until_active_layout_upload_is_ready
     let mut time = Time::<()>::default();
     time.advance_by(Duration::from_millis(16));
     world.insert_resource(time);
-    world.insert_resource(manager);
+    insert_terminal_manager_resources(&mut world, manager);
     world.insert_resource(presentation_store);
     world.insert_resource(crate::hud::TerminalVisibilityState::default());
     world.insert_resource(view_state);
@@ -1761,7 +1766,7 @@ fn active_terminal_reappears_snapped_after_becoming_ready_for_new_layout() {
     let mut time = Time::<()>::default();
     time.advance_by(Duration::from_millis(16));
     app.insert_resource(time);
-    app.insert_resource(manager);
+    insert_terminal_manager_resources_into_app(&mut app, manager);
     app.insert_resource(presentation_store);
     app.insert_resource(crate::hud::TerminalVisibilityState::default());
     app.insert_resource(view_state);
@@ -1880,7 +1885,7 @@ fn active_terminal_presentation_becomes_visible_once_active_layout_upload_is_rea
     let mut time = Time::<()>::default();
     time.advance_by(Duration::from_millis(16));
     world.insert_resource(time);
-    world.insert_resource(manager);
+    insert_terminal_manager_resources(&mut world, manager);
     world.insert_resource(presentation_store);
     world.insert_resource(crate::hud::TerminalVisibilityState::default());
     world.insert_resource(view_state);
@@ -1958,7 +1963,7 @@ fn message_box_keeps_terminal_presentations_visible() {
     let mut time = Time::<()>::default();
     time.advance_by(Duration::from_millis(16));
     world.insert_resource(time);
-    world.insert_resource(manager);
+    insert_terminal_manager_resources(&mut world, manager);
     world.insert_resource(presentation_store);
     world.insert_resource(crate::hud::TerminalVisibilityState::default());
     world.insert_resource(view_state);
@@ -2023,7 +2028,7 @@ fn isolate_visibility_policy_with_missing_terminal_degrades_to_show_all() {
     let mut time = Time::<()>::default();
     time.advance_by(Duration::from_millis(16));
     world.insert_resource(time);
-    world.insert_resource(manager);
+    insert_terminal_manager_resources(&mut world, manager);
     world.insert_resource(presentation_store);
     world.insert_resource(crate::hud::TerminalVisibilityState {
         policy: crate::hud::TerminalVisibilityPolicy::Isolate(crate::terminals::TerminalId(999)),
@@ -2130,7 +2135,7 @@ fn terminal_visibility_policy_hides_only_presentation_and_show_all_restores_it()
     let mut time = Time::<()>::default();
     time.advance_by(Duration::from_millis(16));
     world.insert_resource(time);
-    world.insert_resource(manager);
+    insert_terminal_manager_resources(&mut world, manager);
     world.insert_resource(presentation_store);
     world.insert_resource(crate::hud::TerminalVisibilityState {
         policy: crate::hud::TerminalVisibilityPolicy::Isolate(id_one),

@@ -5,8 +5,8 @@ use crate::{
         HudModuleId, HudRect, HudTaskDialogState, HUD_TITLEBAR_HEIGHT,
     },
     terminals::{
-        TerminalFontState, TerminalManager, TerminalNotesState, TerminalPresentationStore,
-        TerminalViewState,
+        TerminalFocusState, TerminalFontState, TerminalManager, TerminalNotesState,
+        TerminalPresentationStore, TerminalViewState,
     },
 };
 use bevy::{prelude::*, window::PrimaryWindow};
@@ -217,6 +217,7 @@ impl<'scene, 'res> HudPainter<'scene, 'res> {
 
 pub(crate) struct HudRenderInputs<'a> {
     pub(crate) terminal_manager: &'a TerminalManager,
+    pub(crate) focus_state: &'a TerminalFocusState,
     pub(crate) presentation_store: &'a TerminalPresentationStore,
     pub(crate) view_state: &'a TerminalViewState,
     pub(crate) agent_directory: &'a AgentDirectory,
@@ -580,6 +581,7 @@ pub(crate) fn render_hud_scene(
     layout_state: Res<HudLayoutState>,
     modal_state: Res<HudModalState>,
     terminal_manager: Res<TerminalManager>,
+    focus_state: Res<TerminalFocusState>,
     presentation_store: Res<TerminalPresentationStore>,
     view_state: Res<TerminalViewState>,
     agent_directory: Res<AgentDirectory>,
@@ -591,6 +593,7 @@ pub(crate) fn render_hud_scene(
     let mut built = vello::Scene::new();
     let inputs = HudRenderInputs {
         terminal_manager: &terminal_manager,
+        focus_state: &focus_state,
         presentation_store: &presentation_store,
         view_state: &view_state,
         agent_directory: &agent_directory,

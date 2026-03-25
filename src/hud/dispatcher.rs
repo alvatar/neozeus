@@ -8,8 +8,9 @@ pub(crate) use crate::hud::commands::{
 use crate::{
     hud::{AgentDirectory, TerminalVisibilityState},
     terminals::{
-        kill_active_terminal_session_and_remove, TerminalManager, TerminalPresentationStore,
-        TerminalRuntimeSpawner, TerminalSessionPersistenceState, TerminalViewState,
+        kill_active_terminal_session_and_remove, TerminalFocusState, TerminalManager,
+        TerminalPresentationStore, TerminalRuntimeSpawner, TerminalSessionPersistenceState,
+        TerminalViewState,
     },
 };
 #[cfg(test)]
@@ -24,6 +25,7 @@ pub(crate) fn kill_active_terminal(
     commands: &mut Commands,
     time: &Time,
     terminal_manager: &mut TerminalManager,
+    focus_state: &mut TerminalFocusState,
     presentation_store: &mut TerminalPresentationStore,
     runtime_spawner: &TerminalRuntimeSpawner,
     agent_directory: &mut AgentDirectory,
@@ -35,6 +37,7 @@ pub(crate) fn kill_active_terminal(
         commands,
         time,
         terminal_manager,
+        focus_state,
         presentation_store,
         runtime_spawner,
         agent_directory,

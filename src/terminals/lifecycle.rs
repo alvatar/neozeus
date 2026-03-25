@@ -1,9 +1,9 @@
 use crate::{
     hud::{AgentDirectory, TerminalVisibilityPolicy, TerminalVisibilityState},
     terminals::{
-        mark_terminal_sessions_dirty, spawn_terminal_presentation, TerminalBridge, TerminalId,
-        TerminalManager, TerminalPresentationStore, TerminalRuntimeSpawner,
-        TerminalSessionPersistenceState, TerminalViewState,
+        mark_terminal_sessions_dirty, spawn_terminal_presentation, TerminalBridge,
+        TerminalFocusState, TerminalId, TerminalManager, TerminalPresentationStore,
+        TerminalRuntimeSpawner, TerminalSessionPersistenceState, TerminalViewState,
     },
 };
 use bevy::prelude::*;
@@ -16,18 +16,20 @@ pub(crate) fn spawn_attached_terminal_with_presentation(
     commands: &mut Commands,
     images: &mut Assets<Image>,
     terminal_manager: &mut TerminalManager,
+    focus_state: &mut TerminalFocusState,
     presentation_store: &mut TerminalPresentationStore,
     runtime_spawner: &TerminalRuntimeSpawner,
     session_name: String,
     focus: bool,
 ) -> Result<(TerminalId, TerminalBridge), String> {
     let bridge = runtime_spawner.spawn_attached(&session_name)?;
-    let (terminal_id, slot) = if focus {
-        terminal_manager.create_terminal_with_slot_and_session(bridge.clone(), session_name)
-    } else {
-        terminal_manager
-            .create_terminal_without_focus_with_slot_and_session(bridge.clone(), session_name)
-    };
+    let (terminal_id, slot) = terminal_manager
+        .create_terminal_without_focus_with_slot_and_session(bridge.clone(), session_name);
+    if focus {
+        focus_state.focus_terminal(terminal_manager, terminal_id);
+    }
+    #[cfg(test)]
+    terminal_manager.replace_test_focus_state(focus_state);
     spawn_terminal_presentation(commands, images, presentation_store, terminal_id, slot);
     Ok((terminal_id, bridge))
 }
@@ -35,11 +37,15 @@ pub(crate) fn spawn_attached_terminal_with_presentation(
 pub(crate) fn remove_terminal_with_projection(
     commands: &mut Commands,
     terminal_manager: &mut TerminalManager,
+    focus_state: &mut TerminalFocusState,
     presentation_store: &mut TerminalPresentationStore,
     terminal_id: TerminalId,
 ) {
     let presented_terminal = presentation_store.remove(terminal_id);
     let _ = terminal_manager.remove_terminal(terminal_id);
+    focus_state.forget_terminal(terminal_id);
+    #[cfg(test)]
+    terminal_manager.replace_test_focus_state(focus_state);
     if let Some(presented_terminal) = presented_terminal {
         commands.entity(presented_terminal.panel_entity).despawn();
         commands.entity(presented_terminal.frame_entity).despawn();
@@ -54,6 +60,7 @@ pub(crate) fn kill_active_terminal_session_and_remove(
     commands: &mut Commands,
     time: &Time,
     terminal_manager: &mut TerminalManager,
+    focus_state: &mut TerminalFocusState,
     presentation_store: &mut TerminalPresentationStore,
     runtime_spawner: &TerminalRuntimeSpawner,
     agent_directory: &mut AgentDirectory,
@@ -61,7 +68,7 @@ pub(crate) fn kill_active_terminal_session_and_remove(
     visibility_state: &mut TerminalVisibilityState,
     view_state: &mut TerminalViewState,
 ) -> Result<Option<(TerminalId, String)>, String> {
-    let Some(active_id) = terminal_manager.active_id() else {
+    let Some(active_id) = focus_state.active_id() else {
         return Ok(None);
     };
     let Some(session_name) = terminal_manager
@@ -72,7 +79,13 @@ pub(crate) fn kill_active_terminal_session_and_remove(
     };
     runtime_spawner.kill_session(&session_name)?;
 
-    remove_terminal_with_projection(commands, terminal_manager, presentation_store, active_id);
+    remove_terminal_with_projection(
+        commands,
+        terminal_manager,
+        focus_state,
+        presentation_store,
+        active_id,
+    );
     agent_directory.labels.remove(&active_id);
     visibility_state.policy = TerminalVisibilityPolicy::ShowAll;
     view_state.forget_terminal(active_id);

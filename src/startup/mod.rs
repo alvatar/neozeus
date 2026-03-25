@@ -6,9 +6,10 @@ use crate::{
     terminals::{
         append_debug_log, load_persisted_terminal_sessions_from, mark_terminal_sessions_dirty,
         reconcile_terminal_sessions, resolve_terminal_notes_path, resolve_terminal_sessions_path,
-        spawn_attached_terminal_with_presentation, TerminalCameraMarker, TerminalHudSurfaceMarker,
-        TerminalManager, TerminalPanel, TerminalPresentation, TerminalPresentationStore,
-        TerminalRuntimeSpawner, TerminalSessionPersistenceState, VERIFIER_SESSION_PREFIX,
+        spawn_attached_terminal_with_presentation, TerminalCameraMarker, TerminalFocusState,
+        TerminalHudSurfaceMarker, TerminalManager, TerminalPanel, TerminalPresentation,
+        TerminalPresentationStore, TerminalRuntimeSpawner, TerminalSessionPersistenceState,
+        VERIFIER_SESSION_PREFIX,
     },
     verification::{start_auto_verify_dispatcher, AutoVerifyConfig},
 };
@@ -26,6 +27,7 @@ pub(crate) struct SceneSetupContext<'w, 's> {
     commands: Commands<'w, 's>,
     images: ResMut<'w, Assets<Image>>,
     terminal_manager: ResMut<'w, TerminalManager>,
+    focus_state: ResMut<'w, TerminalFocusState>,
     presentation_store: ResMut<'w, TerminalPresentationStore>,
     agent_directory: ResMut<'w, AgentDirectory>,
     runtime_spawner: Res<'w, TerminalRuntimeSpawner>,
@@ -139,6 +141,7 @@ fn setup_verifier_terminal(ctx: &mut SceneSetupContext, config: AutoVerifyConfig
         &mut ctx.commands,
         &mut ctx.images,
         &mut ctx.terminal_manager,
+        &mut ctx.focus_state,
         &mut ctx.presentation_store,
         &ctx.runtime_spawner,
         session_name.clone(),
@@ -197,6 +200,7 @@ fn restore_startup_terminals(ctx: &mut SceneSetupContext) {
             &mut ctx.commands,
             &mut ctx.images,
             &mut ctx.terminal_manager,
+            &mut ctx.focus_state,
             &mut ctx.presentation_store,
             &ctx.runtime_spawner,
             record.session_name.clone(),
@@ -249,7 +253,11 @@ fn restore_startup_terminals(ctx: &mut SceneSetupContext) {
             .find(|(_, terminal)| terminal.session_name == session_name)
             .map(|(terminal_id, _)| terminal_id);
         if let Some(terminal_id) = focused_id {
-            ctx.terminal_manager.focus_terminal(terminal_id);
+            ctx.focus_state
+                .focus_terminal(&ctx.terminal_manager, terminal_id);
+            #[cfg(test)]
+            ctx.terminal_manager
+                .replace_test_focus_state(&ctx.focus_state);
             ctx.visibility_state.policy = startup_visibility_policy_for_focus(Some(terminal_id));
             append_debug_log(format!(
                 "restored startup focus terminal {} session={}",

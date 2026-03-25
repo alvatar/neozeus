@@ -1,6 +1,8 @@
 use crate::{
     hud::{HudIntent, HudLayoutState, HudModuleModel, HudRect},
-    terminals::{TerminalManager, TerminalPresentationStore, TerminalViewState},
+    terminals::{
+        TerminalFocusState, TerminalManager, TerminalPresentationStore, TerminalViewState,
+    },
 };
 use bevy::prelude::Vec2;
 
@@ -15,6 +17,7 @@ pub(crate) fn handle_pointer_click(
     shell_rect: HudRect,
     point: Vec2,
     terminal_manager: &TerminalManager,
+    focus_state: &TerminalFocusState,
     presentation_store: &TerminalPresentationStore,
     view_state: &TerminalViewState,
     layout_state: &HudLayoutState,
@@ -26,6 +29,7 @@ pub(crate) fn handle_pointer_click(
     for button in debug_toolbar_buttons(
         shell_rect,
         terminal_manager,
+        focus_state,
         presentation_store,
         view_state,
         layout_state,
