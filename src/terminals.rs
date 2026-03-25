@@ -1,8 +1,4 @@
 mod ansi_surface;
-#[allow(
-    dead_code,
-    reason = "legacy local runtime backend retained while daemon is primary"
-)]
 mod backend;
 mod bridge;
 mod daemon;
@@ -14,11 +10,6 @@ mod mailbox;
 mod notes;
 mod presentation;
 mod presentation_state;
-#[allow(
-    dead_code,
-    reason = "legacy local PTY worker retained while daemon is primary"
-)]
-mod pty_backend;
 mod pty_spawn;
 mod raster;
 mod registry;
@@ -26,14 +17,9 @@ mod runtime;
 mod session_persistence;
 #[allow(
     dead_code,
-    reason = "legacy tmux compatibility path retained outside default daemon flow"
+    reason = "tmux compatibility helpers remain available for tests and non-default attach paths"
 )]
 mod tmux;
-#[allow(
-    dead_code,
-    reason = "legacy tmux viewer retained outside default daemon flow"
-)]
-mod tmux_viewer_backend;
 mod types;
 
 pub(crate) use backend::{build_surface, compute_terminal_damage, send_command_payload_bytes};
@@ -114,9 +100,11 @@ pub(crate) use session_persistence::{
     parse_persisted_terminal_sessions, resolve_terminal_sessions_path_with,
     serialize_persisted_terminal_sessions, PersistedTerminalSessions, TerminalSessionRecord,
 };
+pub(crate) use tmux::build_attach_command_argv;
 #[cfg(test)]
 pub(crate) use tmux::create_detached_session_tmux_commands;
-pub(crate) use tmux::{build_attach_command_argv, resolve_tmux_active_pane_target, TmuxPaneClient};
+#[cfg(test)]
+pub(crate) use tmux::TmuxPaneClient;
 #[cfg(test)]
 pub(crate) use tmux::{
     generate_unique_session_name, provision_terminal_target, TerminalSessionClient,

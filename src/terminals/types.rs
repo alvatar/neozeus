@@ -240,14 +240,9 @@ pub(crate) enum TerminalAttachTarget {
     RawShell,
     #[allow(
         dead_code,
-        reason = "legacy direct tmux client path kept while viewer backend lands"
+        reason = "direct tmux attach remains part of the supported abstraction surface"
     )]
     TmuxAttach { session_name: String },
-    #[allow(
-        dead_code,
-        reason = "legacy tmux viewer attach target retained outside default daemon flow"
-    )]
-    TmuxViewer { session_name: String },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

@@ -30,6 +30,9 @@ pub(crate) fn build_app() -> Result<App, String> {
     let previous_hook = Arc::new(std::panic::take_hook());
     let forwarding_hook = previous_hook.clone();
 
+    // Bevy/WGPU still reports missing-adapter startup failure through a panic path in practice.
+    // We intercept only that specific startup panic so the user gets a clear error message while
+    // leaving all other panics untouched.
     std::panic::set_hook(Box::new(move |info| {
         if panic_payload_message(info.payload()).is_some_and(is_missing_gpu_panic) {
             return;
@@ -69,6 +72,15 @@ pub(crate) fn resolve_window_scale_factor(raw: Option<&str>) -> Option<f32> {
         .filter(|value| value.is_finite() && *value > 0.0)
 }
 
+pub(crate) fn resolve_force_fallback_adapter(raw: Option<&str>) -> bool {
+    raw.map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| {
+            matches!(value.to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on")
+        })
+        .unwrap_or(true)
+}
+
 fn primary_window_config() -> Window {
     let resolution = if let Some(scale_factor) =
         resolve_window_scale_factor(env::var("NEOZEUS_WINDOW_SCALE_FACTOR").ok().as_deref())
@@ -105,7 +117,9 @@ fn configure_app(app: &mut App) -> Result<(), String> {
         DefaultPlugins
             .set(RenderPlugin {
                 render_creation: WgpuSettings {
-                    force_fallback_adapter: true,
+                    force_fallback_adapter: resolve_force_fallback_adapter(
+                        env::var("NEOZEUS_FORCE_FALLBACK_ADAPTER").ok().as_deref(),
+                    ),
                     ..default()
                 }
                 .into(),

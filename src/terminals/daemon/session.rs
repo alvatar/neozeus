@@ -40,6 +40,7 @@ pub(crate) struct AttachedSubscriber {
 
 pub(crate) struct DaemonSession {
     session_id: String,
+    created_order: u64,
     state: Arc<Mutex<DaemonSessionState>>,
     command_tx: mpsc::Sender<DaemonSessionCommand>,
 }
@@ -57,7 +58,7 @@ enum DaemonSessionCommand {
 }
 
 impl DaemonSession {
-    pub(crate) fn start(session_id: String) -> Result<Arc<Self>, String> {
+    pub(crate) fn start(session_id: String, created_order: u64) -> Result<Arc<Self>, String> {
         let crate::terminals::PtySession {
             master,
             writer,
@@ -77,6 +78,7 @@ impl DaemonSession {
         let (command_tx, command_rx) = mpsc::channel();
         let session = Arc::new(Self {
             session_id: session_id.clone(),
+            created_order,
             state: state.clone(),
             command_tx,
         });
@@ -99,6 +101,7 @@ impl DaemonSession {
             session_id: self.session_id.clone(),
             runtime: state.snapshot.runtime.clone(),
             revision: state.revision,
+            created_order: self.created_order,
         }
     }
 
@@ -144,14 +147,8 @@ impl DaemonSession {
     }
 
     pub(crate) fn kill(&self) -> Result<(), String> {
-        self.command_tx
-            .send(DaemonSessionCommand::Kill)
-            .map_err(|_| {
-                format!(
-                    "daemon session `{}` kill channel disconnected",
-                    self.session_id
-                )
-            })
+        let _ = self.command_tx.send(DaemonSessionCommand::Kill);
+        Ok(())
     }
 }
 

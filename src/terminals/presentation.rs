@@ -329,13 +329,14 @@ fn ordered_background_ids(
     active_id: Option<TerminalId>,
 ) -> Vec<TerminalId> {
     let mut ordered = Vec::new();
+    let mut seen = std::collections::BTreeSet::new();
     for id in focus_state.focus_order().iter().copied().rev() {
-        if Some(id) != active_id && !ordered.contains(&id) {
+        if Some(id) != active_id && seen.insert(id) {
             ordered.push(id);
         }
     }
     for id in terminal_manager.terminal_ids().iter().copied() {
-        if Some(id) != active_id && !ordered.contains(&id) {
+        if Some(id) != active_id && seen.insert(id) {
             ordered.push(id);
         }
     }
@@ -395,6 +396,9 @@ pub(crate) fn sync_terminal_presentations(
             ))
         })
         .unwrap_or(false);
+    // These locals are explicit transition gates rather than hidden domain state: when the
+    // active terminal, visibility policy, or active texture contract changes we snap immediately
+    // instead of animating through an invalid intermediate presentation.
     let snap_switch = *last_active_id != active_id
         || *last_visibility_policy != Some(visibility_policy)
         || *last_active_texture_state != active_id.map(|_| active_texture_state.clone())

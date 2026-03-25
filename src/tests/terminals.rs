@@ -1156,6 +1156,31 @@ fn terminal_sessions_parse_and_serialize_roundtrip() {
 }
 
 #[test]
+fn terminal_sessions_v2_quoted_labels_roundtrip() {
+    let persisted = PersistedTerminalSessions {
+        sessions: vec![TerminalSessionRecord {
+            session_name: "neozeus-session-a".into(),
+            label: Some("agent = \"alpha\"\\beta\nnext".into()),
+            creation_index: 0,
+            last_focused: true,
+        }],
+    };
+
+    let serialized = serialize_persisted_terminal_sessions(&persisted);
+    assert!(serialized.contains("version 2"));
+    assert_eq!(parse_persisted_terminal_sessions(&serialized), persisted);
+}
+
+#[test]
+fn terminal_sessions_v1_parser_remains_backward_compatible() {
+    let persisted = parse_persisted_terminal_sessions(
+        "version 1\nsession name=neozeus-session-a label=agent\\s1 creation_index=0 focused=1\n",
+    );
+    assert_eq!(persisted.sessions.len(), 1);
+    assert_eq!(persisted.sessions[0].label.as_deref(), Some("agent 1"));
+}
+
+#[test]
 fn malformed_terminal_sessions_version_falls_back_to_default() {
     assert_eq!(
         parse_persisted_terminal_sessions(
@@ -2252,6 +2277,28 @@ fn wait_for_surface_containing(
     }
 }
 
+fn wait_for_lifecycle(
+    updates: &std::sync::mpsc::Receiver<TerminalUpdate>,
+    predicate: impl Fn(&TerminalLifecycle) -> bool,
+) -> TerminalRuntimeState {
+    let deadline = std::time::Instant::now() + Duration::from_secs(3);
+    loop {
+        let remaining = deadline
+            .checked_duration_since(std::time::Instant::now())
+            .expect("timed out waiting for daemon lifecycle update");
+        let update = updates
+            .recv_timeout(remaining)
+            .expect("timed out waiting for daemon lifecycle update");
+        let runtime = match update {
+            TerminalUpdate::Frame(frame) => frame.runtime,
+            TerminalUpdate::Status { runtime, .. } => runtime,
+        };
+        if predicate(&runtime.lifecycle) {
+            return runtime;
+        }
+    }
+}
+
 #[test]
 fn daemon_socket_path_prefers_override_then_xdg_runtime_then_tmp_user() {
     let override_path = resolve_daemon_socket_path_with(
@@ -2424,6 +2471,74 @@ fn daemon_sessions_survive_client_reconnect() {
         .surface
         .expect("reattach snapshot should include surface");
     assert!(surface_to_text(&snapshot).contains("persist-across-ui"));
+}
+
+#[test]
+fn daemon_exited_sessions_remain_listed_until_explicit_kill() {
+    let (_server, socket_path) = start_test_daemon("neozeus-daemon-exited-listed");
+    let client =
+        SocketTerminalDaemonClient::connect(&socket_path).expect("daemon client should connect");
+    let session_id = client
+        .create_session(PERSISTENT_SESSION_PREFIX)
+        .expect("daemon session should be created");
+    let attached = client
+        .attach_session(&session_id)
+        .expect("daemon session should attach");
+
+    client
+        .send_command(&session_id, TerminalCommand::SendCommand("exit".into()))
+        .expect("exit command should send");
+    let runtime = wait_for_lifecycle(&attached.updates, |lifecycle| {
+        matches!(lifecycle, TerminalLifecycle::Exited { .. })
+    });
+    assert!(matches!(
+        runtime.lifecycle,
+        TerminalLifecycle::Exited { .. }
+    ));
+
+    let sessions = client.list_sessions().expect("daemon sessions should list");
+    let session = sessions
+        .iter()
+        .find(|session| session.session_id == session_id)
+        .expect("exited session should remain listed");
+    assert!(matches!(
+        session.runtime.lifecycle,
+        TerminalLifecycle::Exited { .. }
+    ));
+
+    client
+        .kill_session(&session_id)
+        .expect("explicit kill should remove exited session");
+    let sessions = client
+        .list_sessions()
+        .expect("daemon sessions should relist");
+    assert!(!sessions
+        .iter()
+        .any(|session| session.session_id == session_id));
+}
+
+#[test]
+fn daemon_session_listing_preserves_creation_order_not_lexical_order() {
+    let (_server, socket_path) = start_test_daemon("neozeus-daemon-list-order");
+    let client =
+        SocketTerminalDaemonClient::connect(&socket_path).expect("daemon client should connect");
+
+    let mut created = Vec::new();
+    for _ in 0..12 {
+        created.push(
+            client
+                .create_session(PERSISTENT_SESSION_PREFIX)
+                .expect("daemon session should be created"),
+        );
+    }
+
+    let listed = client
+        .list_sessions()
+        .expect("daemon sessions should list")
+        .into_iter()
+        .map(|session| session.session_id)
+        .collect::<Vec<_>>();
+    assert_eq!(listed, created);
 }
 
 #[test]

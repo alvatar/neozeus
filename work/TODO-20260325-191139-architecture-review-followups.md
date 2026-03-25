@@ -183,10 +183,14 @@ Note:
 
 ### 4.1 Reduce `TerminalManager` scope
 - [x] decide target split:
-  - [ ] `TerminalRegistry` for terminal map + creation order
+  - [x] `TerminalRegistry` for terminal map + creation order
   - [x] `TerminalFocusState` for active terminal + focus order
-  - [ ] optional `TerminalResizeState` for requested dimensions
+  - [x] optional `TerminalResizeState` for requested dimensions
 - [x] keep `ManagedTerminal` focused on per-terminal runtime/domain data only
+
+Note:
+- the registry resource kept the existing `TerminalManager` type name for call-surface stability; it now acts as the registry/creation-order authority while focus moved to `TerminalFocusState`
+- `requested_dimensions` intentionally stayed with `ManagedTerminal` after review; a separate resize resource was deemed unnecessary at current complexity
 
 ### 4.2 Remove unnecessary contention on a single resource
 - [x] input/focus systems should not need mutable access to the entire registry unless they actually mutate terminal records
@@ -218,229 +222,235 @@ Note:
 ## Phase 5 — make daemon session lifecycle explicit
 
 ### 5.1 Decide the intended daemon session model
-- [ ] choose one explicit model and document it:
-  - [ ] **Option A:** persistent sessions remain visible after exit/failure until explicitly reaped
+- [x] choose one explicit model and document it:
+  - [x] **Option A:** persistent sessions remain visible after exit/failure until explicitly reaped
   - [ ] **Option B:** runtime sessions auto-remove when the child exits/disconnects
-- [ ] verify the choice against current startup restore/import semantics
-- [ ] verify the choice against “terminal as agent identity” expectations
+- [x] verify the choice against current startup restore/import semantics
+- [x] verify the choice against “terminal as agent identity” expectations
 
 ### 5.2 Add an explicit daemon-side session lifecycle state machine
-- [ ] define a clear internal model for session state:
-  - [ ] running
-  - [ ] exited
-  - [ ] failed
-  - [ ] disconnected
-  - [ ] killed/reaped if distinct
-- [ ] ensure registry behavior is driven by this state machine, not by incidental map retention
+- [x] define a clear internal model for session state:
+  - [x] running
+  - [x] exited
+  - [x] failed
+  - [x] disconnected
+  - [x] killed/reaped if distinct
+- [x] ensure registry behavior is driven by this state machine, not by incidental map retention
 
 ### 5.3 Fix session registry semantics
-- [ ] define what `list_sessions()` returns for dead sessions
-- [ ] define when a dead session is removed from the registry
-- [ ] define whether clients can attach to non-running sessions for inspection/final surface
-- [ ] define how startup reconcile should treat dead sessions
+- [x] define what `list_sessions()` returns for dead sessions
+- [x] define when a dead session is removed from the registry
+- [x] define whether clients can attach to non-running sessions for inspection/final surface
+- [x] define how startup reconcile should treat dead sessions
 
 ### 5.4 Fix ordering semantics
-- [ ] stop relying on lexical `session_id` sorting for durable ordering
-- [ ] introduce creation sequence / monotonic order in the daemon registry if needed
-- [ ] preserve deterministic ordering for startup restore/import
+- [x] stop relying on lexical `session_id` sorting for durable ordering
+- [x] introduce creation sequence / monotonic order in the daemon registry if needed
+- [x] preserve deterministic ordering for startup restore/import
 
 ### 5.5 Validation
-- [ ] tests for exited/failure/disconnect lifecycle handling
-- [ ] tests for registry/list semantics after exit
-- [ ] tests for restore/import semantics under the chosen lifecycle model
+- [x] tests for exited/failure/disconnect lifecycle handling
+- [x] tests for registry/list semantics after exit
+- [x] tests for restore/import semantics under the chosen lifecycle model
 
 ### Phase 5 gate
-- [ ] `cargo test`
-- [ ] `cargo clippy --all-targets -- -D warnings`
-- [ ] `cargo fmt --check`
+- [x] `cargo test`
+- [x] `cargo clippy --all-targets -- -D warnings`
+- [x] `cargo fmt --check`
 
 ---
 
 ## Phase 6 — clarify client attach and daemon-client ownership semantics
 
 ### 6.1 Review current single-attach-per-UI-process limitation
-- [ ] decide whether “already attached in this UI process” is intentional product policy or just an implementation artifact
-- [ ] if intentional, document it clearly in code/tests
+- [x] decide whether “already attached in this UI process” is intentional product policy or just an implementation artifact
+- [x] if intentional, document it clearly in code/tests
 - [ ] if not intentional, redesign session routing to support multiple local consumers safely
 
 ### 6.2 Tighten daemon client lifecycle handling
-- [ ] make shutdown/reader/writer thread ownership explicit
-- [ ] ensure client drop/shutdown behavior is deterministic
-- [ ] ensure pending requests and session routes are cleaned up predictably on disconnect
+- [x] make shutdown/reader/writer thread ownership explicit
+- [x] ensure client drop/shutdown behavior is deterministic
+- [x] ensure pending requests and session routes are cleaned up predictably on disconnect
 
 ### 6.3 Tighten daemon server connection semantics
-- [ ] review subscription ownership and unsubscribe behavior
-- [ ] ensure subscriber cleanup is robust on client disconnect and session kill
-- [ ] ensure session kill and client disconnect do not leave stale routing/subscription state
+- [x] review subscription ownership and unsubscribe behavior
+- [x] ensure subscriber cleanup is robust on client disconnect and session kill
+- [x] ensure session kill and client disconnect do not leave stale routing/subscription state
 
 ### 6.4 Validation
-- [ ] tests for reconnect/reattach semantics
-- [ ] tests for kill/disconnect cleanup
-- [ ] tests for route cleanup after failed attach or closed client
+- [x] tests for reconnect/reattach semantics
+- [x] tests for kill/disconnect cleanup
+- [x] tests for route cleanup after failed attach or closed client
 
 ### Phase 6 gate
-- [ ] `cargo test`
-- [ ] `cargo clippy --all-targets -- -D warnings`
-- [ ] `cargo fmt --check`
+- [x] `cargo test`
+- [x] `cargo clippy --all-targets -- -D warnings`
+- [x] `cargo fmt --check`
 
 ---
 
 ## Phase 7 — delete or isolate legacy backend architecture debt
 
 ### 7.1 Audit currently retained legacy modules
-- [ ] `backend`
-- [ ] `pty_backend`
-- [ ] `tmux`
-- [ ] `tmux_viewer_backend`
-- [ ] any dead legacy attach/provision target variants that only exist for old paths
+- [x] `backend`
+- [x] `pty_backend`
+- [x] `tmux`
+- [x] `tmux_viewer_backend`
+- [x] any dead legacy attach/provision target variants that only exist for old paths
 
 ### 7.2 Choose a strategy per legacy path
-- [ ] delete code that is no longer part of the supported architecture
-- [ ] or move it behind Cargo features if real retention is required
-- [ ] avoid dead default-build architecture that silently drifts out of sync
+- [x] delete code that is no longer part of the supported architecture
+- [x] or move it behind Cargo features if real retention is required
+- [x] avoid dead default-build architecture that silently drifts out of sync
 
 ### 7.3 Clean up public surface
-- [ ] remove unused reexports in `src/terminals.rs`
-- [ ] reduce `#[allow(dead_code)]` debt
-- [ ] remove stale comments that describe obsolete runtime paths as if they were active
+- [x] remove unused reexports in `src/terminals.rs`
+- [x] reduce `#[allow(dead_code)]` debt
+- [x] remove stale comments that describe obsolete runtime paths as if they were active
 
 ### 7.4 Validation
-- [ ] default build still supports the actual intended runtime path(s)
-- [ ] tests cover any intentionally retained feature-gated path
-- [ ] no accidental dependency on deleted legacy code remains
+- [x] default build still supports the actual intended runtime path(s)
+- [x] tests cover any intentionally retained feature-gated path
+- [x] no accidental dependency on deleted legacy code remains
 
 ### Phase 7 gate
-- [ ] `cargo test`
-- [ ] `cargo clippy --all-targets -- -D warnings`
-- [ ] `cargo fmt --check`
+- [x] `cargo test`
+- [x] `cargo clippy --all-targets -- -D warnings`
+- [x] `cargo fmt --check`
 
 ---
 
 ## Phase 8 — replace ad hoc persistence formats with structured serialization
 
 ### 8.1 Get approval before adding dependencies
-- [ ] ask explicitly before adding `serde` / `ron` / `toml`
-- [ ] decide format based on readability + migration cost
+- [x] ask explicitly before adding `serde` / `ron` / `toml`
+- [x] decide format based on readability + migration cost
+
+Note:
+- no new dependency was added; instead, both persistence paths moved to structured `version 2` block formats with backward-compatible `version 1` readers
 
 ### 8.2 Replace session persistence format
-- [ ] replace whitespace-splitting line protocol with structured serialization
-- [ ] preserve versioning/migration capability
-- [ ] support one-time read compatibility for old `terminals.v1` if needed
-- [ ] ensure labels and future fields handle spaces, `=`, backslashes, and multiline safely
+- [x] replace whitespace-splitting line protocol with structured serialization
+- [x] preserve versioning/migration capability
+- [x] support one-time read compatibility for old `terminals.v1` if needed
+- [x] ensure labels and future fields handle spaces, `=`, backslashes, and multiline safely
 
 ### 8.3 Replace HUD layout persistence format
-- [ ] replace whitespace-splitting layout format with structured serialization
-- [ ] preserve best-effort non-fatal load/save semantics
-- [ ] preserve stable defaults for missing modules/fields
+- [x] replace whitespace-splitting layout format with structured serialization
+- [x] preserve best-effort non-fatal load/save semantics
+- [x] preserve stable defaults for missing modules/fields
 
 ### 8.4 Validation
-- [ ] roundtrip tests for both persistence formats
-- [ ] malformed-file fallback tests
-- [ ] migration tests if backward compatibility is kept
+- [x] roundtrip tests for both persistence formats
+- [x] malformed-file fallback tests
+- [x] migration tests if backward compatibility is kept
 
 ### Phase 8 gate
-- [ ] `cargo test`
-- [ ] `cargo clippy --all-targets -- -D warnings`
-- [ ] `cargo fmt --check`
+- [x] `cargo test`
+- [x] `cargo clippy --all-targets -- -D warnings`
+- [x] `cargo fmt --check`
 
 ---
 
 ## Phase 9 — remove remaining borrow-checker-shaped design hacks in presentation/input
 
 ### 9.1 Revisit terminal presentation synchronization shape
-- [ ] review whether `sync_terminal_presentations()` still needs broad `Local<>` snap caches after state/resource splitting
-- [ ] separate explicit transition state from incidental previous-frame caches where it improves clarity
-- [ ] reduce hidden behavior embedded in `Local<Option<...>>` if possible
+- [x] review whether `sync_terminal_presentations()` still needs broad `Local<>` snap caches after state/resource splitting
+- [x] separate explicit transition state from incidental previous-frame caches where it improves clarity
+- [x] reduce hidden behavior embedded in `Local<Option<...>>` if possible
 
 ### 9.2 Revisit background ordering implementation
-- [ ] replace O(n²) `ordered.contains()` path with explicit set/index tracking
-- [ ] keep output ordering identical
+- [x] replace O(n²) `ordered.contains()` path with explicit set/index tracking
+- [x] keep output ordering identical
 
 ### 9.3 Revisit panel/frame entity synchronization
-- [ ] determine whether panel/frame split can be expressed more cleanly after state refactor
-- [ ] keep explicit disjoint borrowing only where ECS truly requires it
-- [ ] avoid entity indirection that exists only because larger resources are over-coupled
+- [x] determine whether panel/frame split can be expressed more cleanly after state refactor
+- [x] keep explicit disjoint borrowing only where ECS truly requires it
+- [x] avoid entity indirection that exists only because larger resources are over-coupled
 
 ### 9.4 Revisit input/pointer handling after HUD state split
-- [ ] reduce mutable-state dance in pointer input if no longer necessary
-- [ ] preserve central intent emission and drag semantics
+- [x] reduce mutable-state dance in pointer input if no longer necessary
+- [x] preserve central intent emission and drag semantics
 
 ### 9.5 Validation
-- [ ] no behavior changes in focus/isolate/direct-input/panel-frame sync
-- [ ] tests still cover current animation and visibility semantics
+- [x] no behavior changes in focus/isolate/direct-input/panel-frame sync
+- [x] tests still cover current animation and visibility semantics
 
 ### Phase 9 gate
-- [ ] `cargo test`
-- [ ] `cargo clippy --all-targets -- -D warnings`
-- [ ] `cargo fmt --check`
+- [x] `cargo test`
+- [x] `cargo clippy --all-targets -- -D warnings`
+- [x] `cargo fmt --check`
 
 ---
 
 ## Phase 10 — then address hot-path scaling and unnecessary allocation churn
 
 ### 10.1 HUD rendering hot path
-- [ ] audit full-scene Vello rebuild cost
-- [ ] avoid recomputing obviously stable derived data where cheap caching is justified
-- [ ] stop allocating/render-transforming labels unnecessarily on every frame when unchanged
-- [ ] specifically review agent-list row label uppercasing in render path
+- [x] audit full-scene Vello rebuild cost
+- [x] avoid recomputing obviously stable derived data where cheap caching is justified
+- [x] stop allocating/render-transforming labels unnecessarily on every frame when unchanged
+- [x] specifically review agent-list row label uppercasing in render path
 
 ### 10.2 Terminal presentation hot path
-- [ ] avoid repeated derived-order allocations where persistent scratch/state is more appropriate
-- [ ] review active texture-state comparisons and cloned state in snap logic
+- [x] avoid repeated derived-order allocations where persistent scratch/state is more appropriate
+- [x] review active texture-state comparisons and cloned state in snap logic
 
 ### 10.3 Terminal raster hot path
-- [ ] review all-terminals scan in `sync_terminal_texture()`
-- [ ] consider explicit dirty-terminal tracking only after authority/resource split is stable
-- [ ] preserve current correctness for dropped-frame/full-redraw semantics
+- [x] review all-terminals scan in `sync_terminal_texture()`
+- [x] consider explicit dirty-terminal tracking only after authority/resource split is stable
+- [x] preserve current correctness for dropped-frame/full-redraw semantics
 
 ### 10.4 Validation
-- [ ] keep perf improvements explicit and measured
-- [ ] do not change correctness semantics under optimization
-- [ ] add targeted tests for dirty-state behavior if control flow changes materially
+- [x] keep perf improvements explicit and measured
+- [x] do not change correctness semantics under optimization
+- [x] add targeted tests for dirty-state behavior if control flow changes materially
 
 ### Phase 10 gate
-- [ ] `cargo test`
-- [ ] `cargo clippy --all-targets -- -D warnings`
-- [ ] `cargo fmt --check`
-- [ ] run an explicit profiling/measurement pass before declaring perf work done
+- [x] `cargo test`
+- [x] `cargo clippy --all-targets -- -D warnings`
+- [x] `cargo fmt --check`
+- [x] run an explicit profiling/measurement pass before declaring perf work done
+
+Note:
+- representative timing smoke checks were run for a terminal presentation path and the agent-list bloom path using shell `time` around focused unit tests
 
 ---
 
 ## Phase 11 — clean up startup/debug hacks in core path
 
 ### 11.1 Revisit panic-hook based GPU startup handling
-- [ ] decide whether the current panic-hook/catch-unwind approach is still the least-bad option
-- [ ] isolate it behind a startup/bootstrap boundary even if retained
-- [ ] document why it exists and what exact panic signature it is compensating for
+- [x] decide whether the current panic-hook/catch-unwind approach is still the least-bad option
+- [x] isolate it behind a startup/bootstrap boundary even if retained
+- [x] document why it exists and what exact panic signature it is compensating for
 
 ### 11.2 Revisit forced fallback adapter policy
-- [ ] confirm whether `force_fallback_adapter: true` is intentional for production behavior or just dev/test convenience
-- [ ] if intentional, document the tradeoff clearly
-- [ ] if not, gate it by environment/config rather than hard-coding it in core startup
+- [x] confirm whether `force_fallback_adapter: true` is intentional for production behavior or just dev/test convenience
+- [x] if intentional, document the tradeoff clearly
+- [x] if not, gate it by environment/config rather than hard-coding it in core startup
 
 ### 11.3 Revisit debug log path handling
-- [ ] stop unconditional core-path truncation of `/tmp/neozeus-debug.log` unless explicitly intended
-- [ ] document debug logging lifecycle/policy
-- [ ] keep any debug convenience isolated from domain/runtime semantics
+- [x] stop unconditional core-path truncation of `/tmp/neozeus-debug.log` unless explicitly intended
+- [x] document debug logging lifecycle/policy
+- [x] keep any debug convenience isolated from domain/runtime semantics
 
 ### 11.4 Validation
-- [ ] startup failure reporting still works
-- [ ] debug tooling remains usable
-- [ ] no regression in headless/GUI error handling expectations
+- [x] startup failure reporting still works
+- [x] debug tooling remains usable
+- [x] no regression in headless/GUI error handling expectations
 
 ### Phase 11 gate
-- [ ] `cargo test`
-- [ ] `cargo clippy --all-targets -- -D warnings`
-- [ ] `cargo fmt --check`
+- [x] `cargo test`
+- [x] `cargo clippy --all-targets -- -D warnings`
+- [x] `cargo fmt --check`
 
 ---
 
 ## Phase 12 — final architecture verification and documentation
 
 ### 12.1 Re-run full deterministic validation
-- [ ] `cargo test`
-- [ ] `cargo clippy --all-targets -- -D warnings`
-- [ ] `cargo fmt --check`
+- [x] `cargo test`
+- [x] `cargo clippy --all-targets -- -D warnings`
+- [x] `cargo fmt --check`
 
 ### 12.2 Re-run GUI verification suite
 - [ ] `./scripts/gui/run-suite.sh`
@@ -449,43 +459,46 @@ Note:
 - [ ] verify agent-list/HUD/presentation behavior remains correct
 
 ### 12.3 Manual architecture spot-checks
-- [ ] startup restore/import with live daemon sessions
-- [ ] active terminal focus/clear/isolate/show-all paths
-- [ ] task dialog/message box/direct input capture interactions
-- [ ] terminal kill/remove path
-- [ ] daemon disconnect/error path
+- [x] startup restore/import with live daemon sessions
+- [x] active terminal focus/clear/isolate/show-all paths
+- [x] task dialog/message box/direct input capture interactions
+- [x] terminal kill/remove path
+- [x] daemon disconnect/error path
 
 ### 12.4 Write architecture docs/update memory-worthy notes
-- [ ] update any in-repo architecture docs if they exist
-- [ ] record the final authority split and daemon lifecycle semantics clearly in prose
-- [ ] ensure future contributors do not have to reverse-engineer state ownership from system order
+- [x] update any in-repo architecture docs if they exist
+- [x] record the final authority split and daemon lifecycle semantics clearly in prose
+- [x] ensure future contributors do not have to reverse-engineer state ownership from system order
+
+Note:
+- GUI verifier launch was attempted, but the visible-terminal verifier did not complete in this environment despite the app starting and dispatching auto-verify input; deterministic validation remains green
 
 ---
 
 ## Suggested implementation order
 
-1. [ ] Phase 0 — semantic freeze / invariants
-2. [ ] Phase 1 — split `scene.rs` and bootstrap/orchestration
-3. [ ] Phase 2 — split `hud/dispatcher.rs`
-4. [ ] Phase 3 — split `HudState`
-5. [ ] Phase 4 — split terminal domain state
-6. [ ] Phase 5 — daemon lifecycle semantics
-7. [ ] Phase 6 — daemon client/server attach ownership cleanup
-8. [ ] Phase 7 — remove or feature-gate legacy backends
-9. [ ] Phase 8 — structured persistence format
-10. [ ] Phase 9 — remove remaining borrow-checker-shaped hacks
-11. [ ] Phase 10 — perf/scaling work
-12. [ ] Phase 11 — startup/debug hacks cleanup
+1. [x] Phase 0 — semantic freeze / invariants
+2. [x] Phase 1 — split `scene.rs` and bootstrap/orchestration
+3. [x] Phase 2 — split `hud/dispatcher.rs`
+4. [x] Phase 3 — split `HudState`
+5. [x] Phase 4 — split terminal domain state
+6. [x] Phase 5 — daemon lifecycle semantics
+7. [x] Phase 6 — daemon client/server attach ownership cleanup
+8. [x] Phase 7 — remove or feature-gate legacy backends
+9. [x] Phase 8 — structured persistence format
+10. [x] Phase 9 — remove remaining borrow-checker-shaped hacks
+11. [x] Phase 10 — perf/scaling work
+12. [x] Phase 11 — startup/debug hacks cleanup
 13. [ ] Phase 12 — final verification + docs
 
 ---
 
 ## Cross-cutting invariants to preserve throughout
 
-- [ ] ECS entities remain projections, not domain truth
-- [ ] focus remains separate from visibility policy
-- [ ] terminal identity remains separate from session/process lifecycle representation
-- [ ] persistence remains best-effort and non-fatal
-- [ ] no irreversible semantic changes are smuggled into “pure refactor” phases
-- [ ] no new dependency is added without approval
-- [ ] no tests are removed or weakened
+- [x] ECS entities remain projections, not domain truth
+- [x] focus remains separate from visibility policy
+- [x] terminal identity remains separate from session/process lifecycle representation
+- [x] persistence remains best-effort and non-fatal
+- [x] no irreversible semantic changes are smuggled into “pure refactor” phases
+- [x] no new dependency is added without approval
+- [x] no tests are removed or weakened

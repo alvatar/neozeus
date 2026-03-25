@@ -75,6 +75,7 @@ pub(crate) struct DaemonSessionInfo {
     pub(crate) session_id: String,
     pub(crate) runtime: TerminalRuntimeState,
     pub(crate) revision: u64,
+    pub(crate) created_order: u64,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -318,6 +319,7 @@ fn encode_session_info(buffer: &mut Vec<u8>, info: &DaemonSessionInfo) {
     push_string(buffer, &info.session_id);
     encode_runtime_state(buffer, &info.runtime);
     push_u64(buffer, info.revision);
+    push_u64(buffer, info.created_order);
 }
 
 fn decode_session_info(decoder: &mut Decoder<'_>) -> Result<DaemonSessionInfo, String> {
@@ -325,6 +327,7 @@ fn decode_session_info(decoder: &mut Decoder<'_>) -> Result<DaemonSessionInfo, S
         session_id: decoder.read_string()?,
         runtime: decode_runtime_state(decoder)?,
         revision: decoder.read_u64()?,
+        created_order: decoder.read_u64()?,
     })
 }
 

@@ -32,6 +32,7 @@ pub(crate) use render::render_content;
 pub(crate) struct AgentRow {
     pub(crate) terminal_id: TerminalId,
     pub(crate) label: String,
+    pub(crate) display_label: String,
     pub(crate) rect: HudRect,
     pub(crate) focused: bool,
     pub(crate) hovered: bool,
@@ -103,17 +104,21 @@ pub(crate) fn agent_rows(
     terminal_ids
         .iter()
         .enumerate()
-        .map(|(index, terminal_id)| AgentRow {
-            terminal_id: *terminal_id,
-            label: resolve_agent_label(terminal_ids, agent_directory, *terminal_id),
-            rect: HudRect {
-                x: content_x,
-                y: content_y + index as f32 * row_stride - scroll_offset,
-                w: content_w,
-                h: HUD_ROW_HEIGHT,
-            },
-            focused: focus_state.active_id() == Some(*terminal_id),
-            hovered: hovered_terminal == Some(*terminal_id),
+        .map(|(index, terminal_id)| {
+            let label = resolve_agent_label(terminal_ids, agent_directory, *terminal_id);
+            AgentRow {
+                terminal_id: *terminal_id,
+                display_label: label.to_uppercase(),
+                label,
+                rect: HudRect {
+                    x: content_x,
+                    y: content_y + index as f32 * row_stride - scroll_offset,
+                    w: content_w,
+                    h: HUD_ROW_HEIGHT,
+                },
+                focused: focus_state.active_id() == Some(*terminal_id),
+                hovered: hovered_terminal == Some(*terminal_id),
+            }
         })
         .collect()
 }

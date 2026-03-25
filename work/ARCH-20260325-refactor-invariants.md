@@ -50,3 +50,32 @@ Recorded before the large follow-up refactor.
 - app bootstrap, schedule wiring, and startup restore logic were split out of `scene.rs`
 - HUD intent fanout and command handlers were split out of the monolithic dispatcher file by concern
 - behavior and public call surface were preserved
+
+## Authority split after refactor
+- `TerminalManager`
+  - terminal registry membership
+  - terminal creation order
+  - per-terminal runtime/domain data (`ManagedTerminal`)
+- `TerminalFocusState`
+  - active terminal id
+  - focus order
+  - active-terminal derived helpers over the registry
+- `TerminalPresentationStore`
+  - presentation/image/display mode/entity linkage
+- `HudLayoutState`
+  - retained module shells/models/z-order/drag/layout dirtiness
+- `HudModalState`
+  - message box + task dialog editor state
+- `HudInputCaptureState`
+  - direct terminal input capture target
+
+## Daemon session lifecycle semantics
+- chosen model: **persistent sessions remain listed after exit/failure/disconnect until explicit kill/reap**
+- `list_sessions()` now reports sessions in daemon creation order, not lexical session-id order
+- exited sessions remain inspectable through their final runtime state until explicit kill
+- explicit kill is idempotent for already-dead sessions and reaps them from the daemon registry
+
+## Persistence format status
+- no new dependency was added
+- both HUD layout and terminal session persistence now write structured `version 2` block formats
+- both parsers retain backward compatibility with `version 1` files

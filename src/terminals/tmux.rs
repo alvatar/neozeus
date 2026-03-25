@@ -385,8 +385,7 @@ pub(crate) fn build_attach_command_argv(
 ) -> (OsString, Vec<OsString>) {
     match target {
         TerminalAttachTarget::RawShell => (raw_shell_program(), Vec::new()),
-        TerminalAttachTarget::TmuxAttach { session_name }
-        | TerminalAttachTarget::TmuxViewer { session_name } => (
+        TerminalAttachTarget::TmuxAttach { session_name } => (
             OsString::from("tmux"),
             vec![
                 OsString::from("attach-session"),
