@@ -2,9 +2,9 @@ use crate::{
     app_config::{DEFAULT_CELL_HEIGHT_PX, DEFAULT_CELL_WIDTH_PX},
     hud::{HudModuleId, HudState, TerminalVisibilityPolicy, TerminalVisibilityState},
     terminals::{
-        append_debug_log, create_terminal_image, TerminalDimensions, TerminalDisplayMode,
-        TerminalHudSurfaceMarker, TerminalId, TerminalManager, TerminalPanel, TerminalPanelFrame,
-        TerminalPanelSprite, TerminalPresentation, TerminalPresentationStore,
+        append_debug_log, create_terminal_image, should_trace_startup, TerminalDimensions,
+        TerminalDisplayMode, TerminalHudSurfaceMarker, TerminalId, TerminalManager, TerminalPanel,
+        TerminalPanelFrame, TerminalPanelSprite, TerminalPresentation, TerminalPresentationStore,
         TerminalRuntimeSpawner, TerminalTextureState, TerminalViewState,
     },
 };
@@ -363,6 +363,7 @@ pub(crate) fn sync_terminal_presentations(
     primary_window: Single<&Window, With<PrimaryWindow>>,
     mut last_active_id: Local<Option<TerminalId>>,
     mut last_visibility_policy: Local<Option<TerminalVisibilityPolicy>>,
+    mut startup_trace_frames: Local<u8>,
     mut panels: Query<(
         &TerminalPanel,
         &mut TerminalPresentation,
@@ -378,6 +379,7 @@ pub(crate) fn sync_terminal_presentations(
     let background_ids = ordered_background_ids(&terminal_manager, active_id);
     let active_layout = active_terminal_layout(&primary_window, &hud_state, &view_state);
     let active_texture_state = active_layout_texture_state(active_layout);
+    let trace_startup = should_trace_startup(&mut startup_trace_frames, 8);
     let active_size = physical_to_logical_size(
         Vec2::new(
             active_texture_state.texture_size.x.max(1) as f32,
@@ -404,9 +406,43 @@ pub(crate) fn sync_terminal_presentations(
             *visibility = Visibility::Hidden;
             continue;
         }
-        if Some(panel.id) == active_id
-            && !active_terminal_ready_for_presentation(terminal, presented_terminal, active_layout)
-        {
+        let active_ready = Some(panel.id) != active_id
+            || active_terminal_ready_for_presentation(terminal, presented_terminal, active_layout);
+        if trace_startup && Some(panel.id) == active_id {
+            let surface = terminal
+                .snapshot
+                .surface
+                .as_ref()
+                .expect("surface checked above");
+            append_debug_log(format!(
+                "startup-trace present id={} win={}x{} scale={:.3} layout={}x{} cell={}x{} layout_tex={}x{} surface={}x{} present_tex={}x{} desired_tex={}x{} uploaded_rev={} surface_rev={} ready={} vis={:?} current_size={:.1}x{:.1} target_size={:.1}x{:.1}",
+                panel.id.0,
+                primary_window.physical_width(),
+                primary_window.physical_height(),
+                primary_window.scale_factor(),
+                active_layout.dimensions.cols,
+                active_layout.dimensions.rows,
+                active_layout.cell_size.x,
+                active_layout.cell_size.y,
+                active_texture_state.texture_size.x,
+                active_texture_state.texture_size.y,
+                surface.cols,
+                surface.rows,
+                presented_terminal.texture_state.texture_size.x,
+                presented_terminal.texture_state.texture_size.y,
+                presented_terminal.desired_texture_state.texture_size.x,
+                presented_terminal.desired_texture_state.texture_size.y,
+                presented_terminal.uploaded_revision,
+                terminal.surface_revision,
+                active_ready,
+                *visibility,
+                presentation.current_size.x,
+                presentation.current_size.y,
+                presentation.target_size.x,
+                presentation.target_size.y,
+            ));
+        }
+        if !active_ready {
             *visibility = Visibility::Hidden;
             continue;
         }

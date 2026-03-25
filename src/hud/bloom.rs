@@ -794,7 +794,11 @@ pub(crate) struct HudWidgetBloomContext<'w, 's> {
     >,
 }
 
-pub(crate) fn sync_hud_widget_bloom(mut ctx: HudWidgetBloomContext) {
+pub(crate) fn sync_hud_widget_bloom(
+    mut ctx: HudWidgetBloomContext,
+    mut startup_trace_frames: Local<u8>,
+) {
+    let trace_startup = crate::terminals::should_trace_startup(&mut startup_trace_frames, 8);
     let target_size = bloom_target_size(&ctx.primary_window);
     let pass = &mut ctx.bloom.agent_list;
 
@@ -926,6 +930,18 @@ pub(crate) fn sync_hud_widget_bloom(mut ctx: HudWidgetBloomContext) {
                 spec.key,
             ));
         }
+    }
+
+    if trace_startup {
+        crate::terminals::append_debug_log(format!(
+            "startup-trace hud-bloom win={}x{} target={}x{} enabled={} specs={}",
+            ctx.primary_window.physical_width(),
+            ctx.primary_window.physical_height(),
+            target_size.x,
+            target_size.y,
+            enabled,
+            specs.len(),
+        ));
     }
 
     let active = !specs.is_empty();
