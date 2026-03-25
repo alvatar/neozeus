@@ -932,15 +932,19 @@ pub(crate) fn sync_hud_widget_bloom(
         }
     }
 
+    let bloom_ready = image_matches_size(&ctx.images, &pass.source_image, target_size)
+        && image_matches_size(&ctx.images, &pass.blur_small_image, target_size)
+        && image_matches_size(&ctx.images, &pass.blur_wide_image, target_size);
     if trace_startup {
         crate::terminals::append_debug_log(format!(
-            "startup-trace hud-bloom win={}x{} target={}x{} enabled={} specs={}",
+            "startup-trace hud-bloom win={}x{} target={}x{} enabled={} specs={} ready={}",
             ctx.primary_window.physical_width(),
             ctx.primary_window.physical_height(),
             target_size.x,
             target_size.y,
             enabled,
             specs.len(),
+            bloom_ready,
         ));
     }
 
@@ -980,7 +984,7 @@ pub(crate) fn sync_hud_widget_bloom(
             transform.translation = Vec3::new(0.0, 0.0, BLOOM_COMPOSITE_Z);
             transform.rotation = Quat::IDENTITY;
             transform.scale = Vec3::ONE;
-            *visibility = if active {
+            *visibility = if active && bloom_ready {
                 Visibility::Visible
             } else {
                 Visibility::Hidden
@@ -1006,7 +1010,7 @@ pub(crate) fn sync_hud_widget_bloom(
             transform.translation = Vec3::new(0.0, 0.0, BLOOM_COMPOSITE_Z + 0.01);
             transform.rotation = Quat::IDENTITY;
             transform.scale = Vec3::ONE;
-            *visibility = if active {
+            *visibility = if active && bloom_ready {
                 Visibility::Visible
             } else {
                 Visibility::Hidden
