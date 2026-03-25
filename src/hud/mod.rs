@@ -1,6 +1,7 @@
 mod animation;
 mod bloom;
 mod capture;
+mod commands;
 mod compositor;
 mod dispatcher;
 mod input;

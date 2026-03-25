@@ -1,7 +1,9 @@
+mod app;
 mod app_config;
 mod hud;
 mod input;
 mod scene;
+mod startup;
 mod terminals;
 mod verification;
 
