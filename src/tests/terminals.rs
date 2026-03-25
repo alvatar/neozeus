@@ -1701,6 +1701,130 @@ fn active_terminal_presentation_stays_hidden_until_active_layout_upload_is_ready
 }
 
 #[test]
+fn active_terminal_reappears_snapped_after_becoming_ready_for_new_layout() {
+    let (bridge, _) = test_bridge();
+    let mut manager = TerminalManager::default();
+    let id = manager.create_terminal(bridge);
+
+    let initial_window = Window {
+        resolution: (800, 600).into(),
+        ..Default::default()
+    };
+    let final_window = Window {
+        resolution: bevy::window::WindowResolution::new(2880, 1800).with_scale_factor_override(1.5),
+        ..Default::default()
+    };
+    let hud_state = HudState::default();
+    let view_state = TerminalViewState::default();
+    let initial_layout = active_terminal_layout(&initial_window, &hud_state, &view_state);
+    let final_layout = active_terminal_layout(&final_window, &hud_state, &view_state);
+
+    manager.get_mut(id).unwrap().snapshot.surface = Some(TerminalSurface::new(
+        initial_layout.dimensions.cols,
+        initial_layout.dimensions.rows,
+    ));
+    manager.get_mut(id).unwrap().surface_revision = 1;
+
+    let mut presentation_store = TerminalPresentationStore::default();
+    presentation_store.register(
+        id,
+        PresentedTerminal {
+            image: Default::default(),
+            texture_state: TerminalTextureState {
+                texture_size: initial_layout.texture_size,
+                cell_size: initial_layout.cell_size,
+            },
+            desired_texture_state: TerminalTextureState {
+                texture_size: initial_layout.texture_size,
+                cell_size: initial_layout.cell_size,
+            },
+            display_mode: TerminalDisplayMode::Smooth,
+            uploaded_revision: 1,
+            panel_entity: Entity::PLACEHOLDER,
+            frame_entity: Entity::PLACEHOLDER,
+        },
+    );
+
+    let mut app = App::new();
+    let mut time = Time::<()>::default();
+    time.advance_by(Duration::from_millis(16));
+    app.insert_resource(time);
+    app.insert_resource(manager);
+    app.insert_resource(presentation_store);
+    app.insert_resource(crate::hud::TerminalVisibilityState::default());
+    app.insert_resource(view_state);
+    app.insert_resource(hud_state);
+    app.add_systems(Update, sync_terminal_presentations);
+    let window_entity = app.world_mut().spawn((initial_window, PrimaryWindow)).id();
+    app.world_mut().spawn((
+        TerminalPanel { id },
+        TerminalPresentation {
+            home_position: Vec2::ZERO,
+            current_position: Vec2::ZERO,
+            target_position: Vec2::ZERO,
+            current_size: Vec2::ONE,
+            target_size: Vec2::ONE,
+            current_alpha: 1.0,
+            target_alpha: 1.0,
+            current_z: 0.0,
+            target_z: 0.0,
+        },
+        Transform::default(),
+        Sprite::default(),
+        Visibility::Visible,
+    ));
+
+    app.update();
+
+    {
+        let world = app.world_mut();
+        let mut window = world.get_mut::<Window>(window_entity).unwrap();
+        *window = final_window.clone();
+    }
+    app.update();
+
+    {
+        let world = app.world_mut();
+        let mut manager = world.resource_mut::<TerminalManager>();
+        manager.get_mut(id).unwrap().snapshot.surface = Some(TerminalSurface::new(
+            final_layout.dimensions.cols,
+            final_layout.dimensions.rows,
+        ));
+        manager.get_mut(id).unwrap().surface_revision = 2;
+    }
+    {
+        let world = app.world_mut();
+        let mut store = world.resource_mut::<TerminalPresentationStore>();
+        let presented = store.get_mut(id).unwrap();
+        presented.texture_state = TerminalTextureState {
+            texture_size: final_layout.texture_size,
+            cell_size: final_layout.cell_size,
+        };
+        presented.desired_texture_state = presented.texture_state.clone();
+        presented.uploaded_revision = 2;
+    }
+
+    app.update();
+
+    let expected_size = terminal_texture_screen_size(
+        &TerminalTextureState {
+            texture_size: final_layout.texture_size,
+            cell_size: final_layout.cell_size,
+        },
+        &TerminalViewState::default(),
+        &final_window,
+        &HudState::default(),
+        false,
+    );
+    let world = app.world_mut();
+    let mut query = world.query::<(&TerminalPresentation, &Visibility)>();
+    let (presentation, visibility) = query.single(world).unwrap();
+    assert_eq!(*visibility, Visibility::Visible);
+    assert_eq!(presentation.current_size, expected_size);
+    assert_eq!(presentation.target_size, expected_size);
+}
+
+#[test]
 fn active_terminal_presentation_becomes_visible_once_active_layout_upload_is_ready() {
     let (bridge, _) = test_bridge();
     let mut manager = TerminalManager::default();
