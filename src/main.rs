@@ -19,7 +19,12 @@ use std::{env, fs, path::PathBuf};
 
 fn main() {
     if env::var("NEOZEUS_CLEAR_DEBUG_LOG")
-        .map(|value| !matches!(value.trim().to_ascii_lowercase().as_str(), "0" | "false" | "no" | "off"))
+        .map(|value| {
+            !matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "0" | "false" | "no" | "off"
+            )
+        })
         .unwrap_or(true)
     {
         let _ = fs::write(DEBUG_LOG_PATH, "");

@@ -76,7 +76,10 @@ pub(crate) fn resolve_force_fallback_adapter(raw: Option<&str>) -> bool {
     raw.map(str::trim)
         .filter(|value| !value.is_empty())
         .map(|value| {
-            matches!(value.to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on")
+            matches!(
+                value.to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
         })
         .unwrap_or(true)
 }
