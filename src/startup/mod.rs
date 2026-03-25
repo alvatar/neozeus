@@ -1,6 +1,6 @@
 use crate::{
     hud::{
-        hud_needs_redraw, AgentDirectory, HudState, TerminalVisibilityPolicy,
+        hud_needs_redraw, AgentDirectory, HudLayoutState, TerminalVisibilityPolicy,
         TerminalVisibilityState,
     },
     terminals::{
@@ -63,7 +63,7 @@ pub(crate) fn startup_visibility_policy_for_focus(
 pub(crate) fn request_redraw_while_visuals_active(
     terminal_manager: Res<TerminalManager>,
     presentation_store: Res<TerminalPresentationStore>,
-    hud_state: Res<HudState>,
+    layout_state: Res<HudLayoutState>,
     panels: Query<&TerminalPresentation, With<TerminalPanel>>,
     mut redraws: MessageWriter<RequestRedraw>,
 ) {
@@ -87,7 +87,7 @@ pub(crate) fn request_redraw_while_visuals_active(
     if should_request_visual_redraw(
         terminal_work_pending,
         presentation_animating,
-        hud_needs_redraw(&hud_state),
+        hud_needs_redraw(&layout_state),
     ) {
         redraws.write(RequestRedraw);
     }

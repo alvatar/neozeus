@@ -1,7 +1,7 @@
 use crate::{
     hud::{
-        HudModuleId, HudRect, HudState, HUD_BUTTON_GAP, HUD_BUTTON_HEIGHT, HUD_BUTTON_MIN_WIDTH,
-        HUD_MODULE_PADDING,
+        HudLayoutState, HudModuleId, HudRect, HUD_BUTTON_GAP, HUD_BUTTON_HEIGHT,
+        HUD_BUTTON_MIN_WIDTH, HUD_MODULE_PADDING,
     },
     terminals::{
         TerminalDisplayMode, TerminalManager, TerminalPresentationStore, TerminalViewState,
@@ -15,16 +15,16 @@ pub(crate) fn debug_toolbar_buttons(
     terminal_manager: &TerminalManager,
     presentation_store: &TerminalPresentationStore,
     _view_state: &TerminalViewState,
-    hud_state: &HudState,
+    layout_state: &HudLayoutState,
 ) -> Vec<DebugToolbarButton> {
     let active_display_mode = presentation_store
         .active_display_mode(terminal_manager.active_id())
         .unwrap_or(TerminalDisplayMode::Smooth);
-    let toolbar_enabled = hud_state
+    let toolbar_enabled = layout_state
         .get(HudModuleId::DebugToolbar)
         .map(|module| module.shell.enabled)
         .unwrap_or(true);
-    let agent_list_enabled = hud_state
+    let agent_list_enabled = layout_state
         .get(HudModuleId::AgentList)
         .map(|module| module.shell.enabled)
         .unwrap_or(false);

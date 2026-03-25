@@ -3,7 +3,7 @@ use crate::hud::{
         agent_row_rect, agent_rows, AgentListRowSection, AGENT_LIST_BLOOM_RED_B,
         AGENT_LIST_BLOOM_RED_G, AGENT_LIST_BLOOM_RED_R,
     },
-    AgentDirectory, HudModuleId, HudRect, HudState,
+    AgentDirectory, HudLayoutState, HudModuleId, HudRect,
 };
 use crate::terminals::{TerminalId, TerminalManager};
 use bevy::{
@@ -716,7 +716,7 @@ type BloomDebugPreviewFilter = (
 #[derive(SystemParam)]
 pub(crate) struct HudWidgetBloomContext<'w, 's> {
     primary_window: Single<'w, 's, &'static Window, With<PrimaryWindow>>,
-    hud_state: Res<'w, HudState>,
+    layout_state: Res<'w, HudLayoutState>,
     terminal_manager: Res<'w, TerminalManager>,
     agent_directory: Res<'w, AgentDirectory>,
     settings: Res<'w, HudBloomSettings>,
@@ -859,13 +859,13 @@ pub(crate) fn sync_hud_widget_bloom(mut ctx: HudWidgetBloomContext) {
     }
 
     let enabled = ctx
-        .hud_state
+        .layout_state
         .get(HudModuleId::AgentList)
         .map(|module| module.shell.enabled && module.shell.current_alpha > 0.01)
         .unwrap_or(false);
     let specs = if enabled {
         let module = ctx
-            .hud_state
+            .layout_state
             .get(HudModuleId::AgentList)
             .expect("agent list exists when enabled");
         let crate::hud::HudModuleModel::AgentList(state) = &module.model else {

@@ -2,7 +2,7 @@
 use crate::hud::default_hud_module_instance;
 #[cfg(test)]
 use crate::hud::state::HudModuleDefinition;
-use crate::hud::{append_hud_log, HudModuleId, HudRect, HudState, HUD_MODULE_DEFINITIONS};
+use crate::hud::{append_hud_log, HudLayoutState, HudModuleId, HudRect, HUD_MODULE_DEFINITIONS};
 use bevy::prelude::*;
 use std::{collections::BTreeMap, env, fs, path::PathBuf};
 
@@ -147,17 +147,17 @@ pub(crate) fn load_persisted_hud_state_from(path: &PathBuf) -> PersistedHudState
 
 pub(crate) fn save_hud_layout_if_dirty(
     time: Res<Time>,
-    mut hud_state: ResMut<HudState>,
+    mut layout_state: ResMut<HudLayoutState>,
     mut persistence_state: ResMut<HudPersistenceState>,
 ) {
-    if hud_state.drag.is_some() {
-        if hud_state.dirty_layout && persistence_state.dirty_since_secs.is_none() {
+    if layout_state.drag.is_some() {
+        if layout_state.dirty_layout && persistence_state.dirty_since_secs.is_none() {
             persistence_state.dirty_since_secs = Some(time.elapsed_secs());
         }
         return;
     }
 
-    if hud_state.dirty_layout && persistence_state.dirty_since_secs.is_none() {
+    if layout_state.dirty_layout && persistence_state.dirty_since_secs.is_none() {
         persistence_state.dirty_since_secs = Some(time.elapsed_secs());
         return;
     }
@@ -169,14 +169,14 @@ pub(crate) fn save_hud_layout_if_dirty(
         return;
     }
     let Some(path) = persistence_state.path.as_ref() else {
-        hud_state.dirty_layout = false;
+        layout_state.dirty_layout = false;
         persistence_state.dirty_since_secs = None;
         return;
     };
 
     let mut persisted = PersistedHudState::default();
     for definition in HUD_MODULE_DEFINITIONS {
-        let Some(module) = hud_state.get(definition.id) else {
+        let Some(module) = layout_state.get(definition.id) else {
             continue;
         };
         persisted.modules.insert(
@@ -194,7 +194,7 @@ pub(crate) fn save_hud_layout_if_dirty(
                 "hud layout mkdir failed {}: {error}",
                 parent.display()
             ));
-            hud_state.dirty_layout = false;
+            layout_state.dirty_layout = false;
             persistence_state.dirty_since_secs = None;
             return;
         }
@@ -209,7 +209,7 @@ pub(crate) fn save_hud_layout_if_dirty(
     } else {
         append_hud_log(format!("hud layout saved {}", path.display()));
     }
-    hud_state.dirty_layout = false;
+    layout_state.dirty_layout = false;
     persistence_state.dirty_since_secs = None;
 }
 
@@ -217,8 +217,8 @@ pub(crate) fn save_hud_layout_if_dirty(
 pub(crate) fn apply_persisted_layout(
     definitions: &[HudModuleDefinition],
     persisted: &PersistedHudState,
-) -> HudState {
-    let mut hud_state = HudState::default();
+) -> HudLayoutState {
+    let mut hud_state = HudLayoutState::default();
     for definition in definitions {
         let mut module = default_hud_module_instance(definition);
         if let Some(saved) = persisted.modules.get(&definition.id) {

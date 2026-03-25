@@ -1,6 +1,6 @@
 use crate::{
     app_config::{DEFAULT_CELL_HEIGHT_PX, DEFAULT_CELL_WIDTH_PX},
-    hud::{HudModuleId, HudState, TerminalVisibilityPolicy, TerminalVisibilityState},
+    hud::{HudLayoutState, HudModuleId, TerminalVisibilityPolicy, TerminalVisibilityState},
     terminals::{
         append_debug_log, create_terminal_image, TerminalDimensions, TerminalDisplayMode,
         TerminalHudSurfaceMarker, TerminalId, TerminalManager, TerminalPanel, TerminalPanelFrame,
@@ -108,8 +108,11 @@ fn physical_to_logical_size(size: Vec2, window: &Window) -> Vec2 {
     size / window_scale_factor(window)
 }
 
-pub(crate) fn active_terminal_viewport(window: &Window, hud_state: &HudState) -> (Vec2, Vec2) {
-    let reserved_left = hud_state
+pub(crate) fn active_terminal_viewport(
+    window: &Window,
+    layout_state: &HudLayoutState,
+) -> (Vec2, Vec2) {
+    let reserved_left = layout_state
         .get(HudModuleId::AgentList)
         .filter(|module| module.shell.enabled)
         .map(|module| module.shell.current_rect.w)
@@ -120,8 +123,8 @@ pub(crate) fn active_terminal_viewport(window: &Window, hud_state: &HudState) ->
     (usable_size, center)
 }
 
-fn active_terminal_fit_area(window: &Window, hud_state: &HudState) -> (Vec2, Vec2) {
-    let (viewport_size, viewport_center) = active_terminal_viewport(window, hud_state);
+fn active_terminal_fit_area(window: &Window, layout_state: &HudLayoutState) -> (Vec2, Vec2) {
+    let (viewport_size, viewport_center) = active_terminal_viewport(window, layout_state);
     let fit_size = Vec2::new(
         (viewport_size.x - ACTIVE_TERMINAL_MARGIN.x * 2.0).max(64.0),
         (viewport_size.y - ACTIVE_TERMINAL_MARGIN.y * 2.0).max(64.0),
@@ -148,19 +151,19 @@ pub(crate) fn active_terminal_cell_size(window: &Window, view_state: &TerminalVi
 #[cfg(test)]
 pub(crate) fn active_terminal_dimensions(
     window: &Window,
-    hud_state: &HudState,
+    layout_state: &HudLayoutState,
     view_state: &TerminalViewState,
 ) -> TerminalDimensions {
-    active_terminal_layout(window, hud_state, view_state).dimensions
+    active_terminal_layout(window, layout_state, view_state).dimensions
 }
 
 pub(crate) fn active_terminal_layout(
     window: &Window,
-    hud_state: &HudState,
+    layout_state: &HudLayoutState,
     view_state: &TerminalViewState,
 ) -> ActiveTerminalLayout {
     let cell_size = active_terminal_cell_size(window, view_state);
-    let (fit_size_logical, _) = active_terminal_fit_area(window, hud_state);
+    let (fit_size_logical, _) = active_terminal_fit_area(window, layout_state);
     let fit_size_physical = logical_to_physical_size(fit_size_logical, window);
     let dimensions = TerminalDimensions {
         cols: ((fit_size_physical.x / cell_size.x.max(1) as f32).floor() as usize).max(1),
@@ -201,13 +204,13 @@ pub(crate) fn sync_active_terminal_dimensions(
     mut terminal_manager: ResMut<TerminalManager>,
     runtime_spawner: Res<TerminalRuntimeSpawner>,
     view_state: Res<TerminalViewState>,
-    hud_state: Res<HudState>,
+    layout_state: Res<HudLayoutState>,
     primary_window: Single<&Window, With<PrimaryWindow>>,
 ) {
     let Some(active_id) = terminal_manager.active_id() else {
         return;
     };
-    let desired_layout = active_terminal_layout(&primary_window, &hud_state, &view_state);
+    let desired_layout = active_terminal_layout(&primary_window, &layout_state, &view_state);
     let Some(terminal) = terminal_manager.get_mut(active_id) else {
         return;
     };
@@ -243,11 +246,11 @@ pub(crate) fn pixel_perfect_cell_size(
     cols: usize,
     rows: usize,
     window: &Window,
-    hud_state: &HudState,
+    layout_state: &HudLayoutState,
 ) -> UVec2 {
     let base_texture_width = (cols as u32).max(1) as f32 * DEFAULT_CELL_WIDTH_PX as f32;
     let base_texture_height = (rows as u32).max(1) as f32 * DEFAULT_CELL_HEIGHT_PX as f32;
-    let (fit_size_logical, _) = active_terminal_fit_area(window, hud_state);
+    let (fit_size_logical, _) = active_terminal_fit_area(window, layout_state);
     let fit_size_physical = logical_to_physical_size(fit_size_logical, window);
     let raster_scale = (fit_size_physical.x / base_texture_width)
         .min(fit_size_physical.y / base_texture_height)
@@ -282,18 +285,18 @@ fn smooth_terminal_screen_size(
     texture_state: &TerminalTextureState,
     view_state: &TerminalViewState,
     window: &Window,
-    hud_state: &HudState,
+    layout_state: &HudLayoutState,
 ) -> Vec2 {
     let texture_width = texture_state.texture_size.x.max(1) as f32;
     let texture_height = texture_state.texture_size.y.max(1) as f32;
-    let (fit_size, _) = active_terminal_fit_area(window, hud_state);
+    let (fit_size, _) = active_terminal_fit_area(window, layout_state);
     let fit_scale = (fit_size.x / texture_width).min(fit_size.y / texture_height);
     let zoom_scale = 10.0 / view_state.distance.max(0.1);
     Vec2::new(texture_width, texture_height) * fit_scale * zoom_scale
 }
 
-fn hud_terminal_target_position(window: &Window, hud_state: &HudState) -> Vec2 {
-    let (_, center) = active_terminal_viewport(window, hud_state);
+fn hud_terminal_target_position(window: &Window, layout_state: &HudLayoutState) -> Vec2 {
+    let (_, center) = active_terminal_viewport(window, layout_state);
     snap_to_pixel_grid(center, window)
 }
 
@@ -313,7 +316,7 @@ pub(crate) fn terminal_texture_screen_size(
     texture_state: &TerminalTextureState,
     _view_state: &TerminalViewState,
     window: &Window,
-    _hud_state: &HudState,
+    _layout_state: &HudLayoutState,
     _pixel_perfect: bool,
 ) -> Vec2 {
     terminal_logical_size(texture_state, window)
@@ -359,7 +362,7 @@ pub(crate) fn sync_terminal_presentations(
     presentation_store: Res<TerminalPresentationStore>,
     visibility_state: Res<TerminalVisibilityState>,
     view_state: Res<TerminalViewState>,
-    hud_state: Res<HudState>,
+    layout_state: Res<HudLayoutState>,
     primary_window: Single<&Window, With<PrimaryWindow>>,
     mut last_active_id: Local<Option<TerminalId>>,
     mut last_visibility_policy: Local<Option<TerminalVisibilityPolicy>>,
@@ -376,7 +379,7 @@ pub(crate) fn sync_terminal_presentations(
     let active_id = terminal_manager.active_id();
     let visibility_policy = effective_visibility_policy(&terminal_manager, &visibility_state);
     let background_ids = ordered_background_ids(&terminal_manager, active_id);
-    let active_layout = active_terminal_layout(&primary_window, &hud_state, &view_state);
+    let active_layout = active_terminal_layout(&primary_window, &layout_state, &view_state);
     let active_texture_state = active_layout_texture_state(active_layout);
     let active_ready = active_id
         .and_then(|id| {
@@ -430,9 +433,9 @@ pub(crate) fn sync_terminal_presentations(
             &presented_terminal.texture_state,
             &view_state,
             &primary_window,
-            &hud_state,
+            &layout_state,
         );
-        let (_, viewport_center) = active_terminal_viewport(&primary_window, &hud_state);
+        let (_, viewport_center) = active_terminal_viewport(&primary_window, &layout_state);
         let pixel_perfect = Some(panel.id) == active_id
             && presented_terminal.display_mode == TerminalDisplayMode::PixelPerfect;
         let background_rank = background_ids
@@ -444,7 +447,7 @@ pub(crate) fn sync_terminal_presentations(
             Some(id) if id == panel.id => {
                 presentation.target_alpha = 1.0;
                 presentation.target_position =
-                    hud_terminal_target_position(&primary_window, &hud_state);
+                    hud_terminal_target_position(&primary_window, &layout_state);
                 presentation.target_size = active_size;
                 presentation.target_z = if pixel_perfect { 3.0 } else { 0.3 };
             }
@@ -506,7 +509,7 @@ pub(crate) fn sync_terminal_presentations(
     reason = "frame sync needs disjoint panel/frame queries with explicit visibility borrowing"
 )]
 pub(crate) fn sync_terminal_panel_frames(
-    hud_state: Res<crate::hud::HudState>,
+    input_capture: Res<crate::hud::HudInputCaptureState>,
     presentation_store: Res<TerminalPresentationStore>,
     panels: Query<
         (&TerminalPresentation, &Visibility),
@@ -521,7 +524,7 @@ pub(crate) fn sync_terminal_panel_frames(
         *frame_visibility = Visibility::Hidden;
     }
 
-    let Some(target_terminal) = hud_state.direct_input_terminal else {
+    let Some(target_terminal) = input_capture.direct_input_terminal else {
         return;
     };
     let Some(presented_terminal) = presentation_store.get(target_terminal) else {

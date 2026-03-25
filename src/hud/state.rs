@@ -116,17 +116,14 @@ pub(crate) struct HudDragState {
 }
 
 #[derive(Resource, Default)]
-pub(crate) struct HudState {
+pub(crate) struct HudLayoutState {
     pub(crate) modules: BTreeMap<HudModuleId, HudModuleInstance>,
     pub(crate) z_order: Vec<HudModuleId>,
     pub(crate) drag: Option<HudDragState>,
     pub(crate) dirty_layout: bool,
-    pub(crate) message_box: HudMessageBoxState,
-    pub(crate) task_dialog: HudTaskDialogState,
-    pub(crate) direct_input_terminal: Option<TerminalId>,
 }
 
-impl HudState {
+impl HudLayoutState {
     pub(crate) fn get(&self, id: HudModuleId) -> Option<&HudModuleInstance> {
         self.modules.get(&id)
     }
@@ -193,6 +190,140 @@ impl HudState {
             .values()
             .any(|module| module.shell.is_animating())
     }
+}
+
+#[derive(Resource, Default)]
+pub(crate) struct HudModalState {
+    pub(crate) message_box: HudMessageBoxState,
+    pub(crate) task_dialog: HudTaskDialogState,
+}
+
+impl HudModalState {
+    pub(crate) fn keyboard_capture_active(&self, input_capture: &HudInputCaptureState) -> bool {
+        self.message_box.visible
+            || self.task_dialog.visible
+            || input_capture.direct_input_terminal.is_some()
+    }
+
+    pub(crate) fn open_message_box(
+        &mut self,
+        input_capture: &mut HudInputCaptureState,
+        target_terminal: TerminalId,
+    ) {
+        self.task_dialog.close();
+        input_capture.direct_input_terminal = None;
+        self.message_box.reset_for_target(target_terminal);
+    }
+
+    pub(crate) fn close_message_box(&mut self) {
+        self.message_box.close();
+    }
+
+    pub(crate) fn close_message_box_and_discard_draft(&mut self) {
+        self.message_box.close_and_discard_current();
+    }
+
+    pub(crate) fn open_task_dialog(
+        &mut self,
+        input_capture: &mut HudInputCaptureState,
+        target_terminal: TerminalId,
+        text: &str,
+    ) {
+        self.close_message_box();
+        input_capture.direct_input_terminal = None;
+        self.task_dialog.open_with_text(target_terminal, text);
+    }
+
+    pub(crate) fn close_task_dialog(&mut self) {
+        self.task_dialog.close();
+    }
+}
+
+#[derive(Resource, Default)]
+pub(crate) struct HudInputCaptureState {
+    pub(crate) direct_input_terminal: Option<TerminalId>,
+}
+
+#[cfg(test)]
+#[derive(Clone, Debug, Default, PartialEq)]
+pub(crate) struct HudState {
+    pub(crate) modules: BTreeMap<HudModuleId, HudModuleInstance>,
+    pub(crate) z_order: Vec<HudModuleId>,
+    pub(crate) drag: Option<HudDragState>,
+    pub(crate) dirty_layout: bool,
+    pub(crate) message_box: HudMessageBoxState,
+    pub(crate) task_dialog: HudTaskDialogState,
+    pub(crate) direct_input_terminal: Option<TerminalId>,
+}
+
+#[cfg(test)]
+#[allow(
+    dead_code,
+    reason = "test compatibility aggregate preserves pre-split HUD helper ergonomics"
+)]
+impl HudState {
+    pub(crate) fn get(&self, id: HudModuleId) -> Option<&HudModuleInstance> {
+        self.modules.get(&id)
+    }
+
+    pub(crate) fn get_mut(&mut self, id: HudModuleId) -> Option<&mut HudModuleInstance> {
+        self.modules.get_mut(&id)
+    }
+
+    pub(crate) fn iter_z_order(&self) -> impl Iterator<Item = HudModuleId> + '_ {
+        self.z_order.iter().copied()
+    }
+
+    pub(crate) fn insert(&mut self, id: HudModuleId, module: HudModuleInstance) {
+        self.modules.insert(id, module);
+        if !self.z_order.contains(&id) {
+            self.z_order.push(id);
+        }
+    }
+
+    pub(crate) fn raise_to_front(&mut self, id: HudModuleId) {
+        self.z_order.retain(|existing| *existing != id);
+        self.z_order.push(id);
+    }
+
+    pub(crate) fn set_module_enabled(&mut self, id: HudModuleId, enabled: bool) {
+        let Some(module) = self.modules.get_mut(&id) else {
+            return;
+        };
+        if module.shell.enabled == enabled {
+            return;
+        }
+        module.shell.enabled = enabled;
+        module.shell.target_alpha = if enabled { 1.0 } else { 0.0 };
+        self.dirty_layout = true;
+    }
+
+    pub(crate) fn reset_module(&mut self, id: HudModuleId) {
+        let Some(definition) = HUD_MODULE_DEFINITIONS
+            .iter()
+            .find(|definition| definition.id == id)
+        else {
+            return;
+        };
+        self.modules
+            .insert(id, default_hud_module_instance(definition));
+        self.raise_to_front(id);
+        self.dirty_layout = true;
+    }
+
+    pub(crate) fn topmost_enabled_at(&self, point: Vec2) -> Option<HudModuleId> {
+        self.z_order.iter().rev().copied().find(|id| {
+            self.modules.get(id).is_some_and(|module| {
+                module.shell.enabled && module.shell.current_rect.contains(point)
+            })
+        })
+    }
+
+    pub(crate) fn is_animating(&self) -> bool {
+        self.modules
+            .values()
+            .any(|module| module.shell.is_animating())
+    }
 
     pub(crate) fn keyboard_capture_active(&self) -> bool {
         self.message_box.visible || self.task_dialog.visible || self.direct_input_terminal.is_some()
@@ -238,6 +369,100 @@ impl HudState {
             return false;
         }
         self.open_direct_terminal_input(target_terminal);
+        true
+    }
+
+    pub(crate) fn reconcile_direct_terminal_input(&mut self, active_id: Option<TerminalId>) {
+        if self
+            .direct_input_terminal
+            .is_some_and(|terminal_id| Some(terminal_id) != active_id)
+        {
+            self.close_direct_terminal_input();
+        }
+    }
+
+    pub(crate) fn layout_state(&self) -> HudLayoutState {
+        HudLayoutState {
+            modules: self.modules.clone(),
+            z_order: self.z_order.clone(),
+            drag: self.drag,
+            dirty_layout: self.dirty_layout,
+        }
+    }
+
+    pub(crate) fn modal_state(&self) -> HudModalState {
+        HudModalState {
+            message_box: self.message_box.clone(),
+            task_dialog: self.task_dialog.clone(),
+        }
+    }
+
+    pub(crate) fn input_capture_state(&self) -> HudInputCaptureState {
+        HudInputCaptureState {
+            direct_input_terminal: self.direct_input_terminal,
+        }
+    }
+
+    pub(crate) fn into_resources(self) -> (HudLayoutState, HudModalState, HudInputCaptureState) {
+        (
+            HudLayoutState {
+                modules: self.modules,
+                z_order: self.z_order,
+                drag: self.drag,
+                dirty_layout: self.dirty_layout,
+            },
+            HudModalState {
+                message_box: self.message_box,
+                task_dialog: self.task_dialog,
+            },
+            HudInputCaptureState {
+                direct_input_terminal: self.direct_input_terminal,
+            },
+        )
+    }
+
+    pub(crate) fn from_resources(
+        layout_state: &HudLayoutState,
+        modal_state: &HudModalState,
+        input_capture: &HudInputCaptureState,
+    ) -> Self {
+        Self {
+            modules: layout_state.modules.clone(),
+            z_order: layout_state.z_order.clone(),
+            drag: layout_state.drag,
+            dirty_layout: layout_state.dirty_layout,
+            message_box: modal_state.message_box.clone(),
+            task_dialog: modal_state.task_dialog.clone(),
+            direct_input_terminal: input_capture.direct_input_terminal,
+        }
+    }
+}
+
+impl HudInputCaptureState {
+    pub(crate) fn open_direct_terminal_input(
+        &mut self,
+        modals: &mut HudModalState,
+        target_terminal: TerminalId,
+    ) {
+        modals.close_message_box();
+        modals.close_task_dialog();
+        self.direct_input_terminal = Some(target_terminal);
+    }
+
+    pub(crate) fn close_direct_terminal_input(&mut self) {
+        self.direct_input_terminal = None;
+    }
+
+    pub(crate) fn toggle_direct_terminal_input(
+        &mut self,
+        modals: &mut HudModalState,
+        target_terminal: TerminalId,
+    ) -> bool {
+        if self.direct_input_terminal == Some(target_terminal) {
+            self.close_direct_terminal_input();
+            return false;
+        }
+        self.open_direct_terminal_input(modals, target_terminal);
         true
     }
 

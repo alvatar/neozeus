@@ -21,7 +21,7 @@ pub(crate) fn render_content(
         inputs.terminal_manager,
         inputs.presentation_store,
         inputs.view_state,
-        inputs.hud_state,
+        inputs.layout_state,
     );
     let active_status = inputs
         .terminal_manager

@@ -59,11 +59,14 @@ pub(crate) use persistence::{
 };
 pub(crate) use persistence::{save_hud_layout_if_dirty, HudPersistenceState};
 pub(crate) use render::{render_hud_scene, HudVectorSceneMarker};
+#[cfg(test)]
+pub(crate) use state::HudState;
 pub(crate) use state::{
-    default_hud_module_instance, docked_agent_list_rect, AgentDirectory, HudDragState, HudModuleId,
-    HudModuleModel, HudRect, HudState, TerminalVisibilityPolicy, TerminalVisibilityState,
-    HUD_BUTTON_GAP, HUD_BUTTON_HEIGHT, HUD_BUTTON_MIN_WIDTH, HUD_MODULE_DEFINITIONS,
-    HUD_MODULE_PADDING, HUD_ROW_HEIGHT, HUD_TITLEBAR_HEIGHT,
+    default_hud_module_instance, docked_agent_list_rect, AgentDirectory, HudDragState,
+    HudInputCaptureState, HudLayoutState, HudModalState, HudModuleId, HudModuleModel, HudRect,
+    TerminalVisibilityPolicy, TerminalVisibilityState, HUD_BUTTON_GAP, HUD_BUTTON_HEIGHT,
+    HUD_BUTTON_MIN_WIDTH, HUD_MODULE_DEFINITIONS, HUD_MODULE_PADDING, HUD_ROW_HEIGHT,
+    HUD_TITLEBAR_HEIGHT,
 };
 
 use bevy::{
@@ -77,9 +80,15 @@ pub(crate) fn append_hud_log(message: impl AsRef<str>) {
     crate::terminals::append_debug_log(format!("hud: {}", message.as_ref()));
 }
 
+#[allow(
+    clippy::too_many_arguments,
+    reason = "HUD setup initializes retained state, persistence, compositor, and scene resources together"
+)]
 pub(crate) fn setup_hud(
     mut commands: Commands,
-    mut hud_state: ResMut<HudState>,
+    mut layout_state: ResMut<HudLayoutState>,
+    mut modal_state: ResMut<HudModalState>,
+    mut input_capture: ResMut<HudInputCaptureState>,
     mut persistence_state: ResMut<HudPersistenceState>,
     mut compositor: ResMut<HudOffscreenCompositor>,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -92,13 +101,13 @@ pub(crate) fn setup_hud(
         .as_ref()
         .map(persistence::load_persisted_hud_state_from)
         .unwrap_or_default();
-    hud_state.modules.clear();
-    hud_state.z_order.clear();
-    hud_state.drag = None;
-    hud_state.dirty_layout = false;
-    hud_state.message_box = HudMessageBoxState::default();
-    hud_state.task_dialog = HudTaskDialogState::default();
-    hud_state.direct_input_terminal = None;
+    layout_state.modules.clear();
+    layout_state.z_order.clear();
+    layout_state.drag = None;
+    layout_state.dirty_layout = false;
+    modal_state.message_box = HudMessageBoxState::default();
+    modal_state.task_dialog = HudTaskDialogState::default();
+    input_capture.direct_input_terminal = None;
     for definition in HUD_MODULE_DEFINITIONS.iter() {
         let mut module = default_hud_module_instance(definition);
         if let Some(saved) = persisted.modules.get(&definition.id) {
@@ -108,7 +117,7 @@ pub(crate) fn setup_hud(
             module.shell.target_alpha = if saved.enabled { 1.0 } else { 0.0 };
             module.shell.current_alpha = module.shell.target_alpha;
         }
-        hud_state.insert(definition.id, module);
+        layout_state.insert(definition.id, module);
     }
 
     commands.spawn((
@@ -128,18 +137,18 @@ pub(crate) fn setup_hud(
 
 pub(crate) fn sync_structural_hud_layout(
     primary_window: Single<&Window, With<PrimaryWindow>>,
-    mut hud_state: ResMut<HudState>,
+    mut layout_state: ResMut<HudLayoutState>,
 ) {
     let rect = docked_agent_list_rect(&primary_window);
-    let Some(agent_list) = hud_state.get_mut(HudModuleId::AgentList) else {
+    let Some(agent_list) = layout_state.get_mut(HudModuleId::AgentList) else {
         return;
     };
     agent_list.shell.target_rect = rect;
     agent_list.shell.current_rect = rect;
 }
 
-pub(crate) fn hud_needs_redraw(hud_state: &HudState) -> bool {
-    hud_state.drag.is_some() || hud_state.is_animating()
+pub(crate) fn hud_needs_redraw(layout_state: &HudLayoutState) -> bool {
+    layout_state.drag.is_some() || layout_state.is_animating()
 }
 
 #[cfg(test)]

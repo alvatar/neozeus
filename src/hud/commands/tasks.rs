@@ -1,5 +1,5 @@
 use crate::{
-    hud::HudState,
+    hud::HudModalState,
     terminals::{clear_done_tasks, mark_terminal_notes_dirty, TerminalManager, TerminalNotesState},
 };
 use bevy::{prelude::*, window::RequestRedraw};
@@ -9,7 +9,7 @@ pub(crate) fn apply_terminal_task_requests(
     time: Res<Time>,
     terminal_manager: Res<TerminalManager>,
     mut notes_state: ResMut<TerminalNotesState>,
-    mut hud_state: ResMut<HudState>,
+    mut modal_state: ResMut<HudModalState>,
     mut redraws: MessageWriter<RequestRedraw>,
 ) {
     for request in requests.read() {
@@ -85,15 +85,15 @@ pub(crate) fn apply_terminal_task_requests(
             }
         };
         if let Some(terminal_id) = changed_terminal {
-            if hud_state.task_dialog.visible
-                && hud_state.task_dialog.target_terminal == Some(terminal_id)
+            if modal_state.task_dialog.visible
+                && modal_state.task_dialog.target_terminal == Some(terminal_id)
             {
                 let task_text = terminal_manager
                     .get(terminal_id)
                     .and_then(|terminal| notes_state.note_text(&terminal.session_name))
                     .unwrap_or_default()
                     .to_owned();
-                hud_state.task_dialog.load_text(&task_text);
+                modal_state.task_dialog.load_text(&task_text);
             }
         }
         if changed {

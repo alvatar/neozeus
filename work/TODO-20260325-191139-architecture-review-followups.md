@@ -139,43 +139,43 @@ Note:
 ## Phase 3 — split `HudState` into smaller authority resources
 
 ### 3.1 Separate retained HUD layout state from modal/editor state
-- [ ] extract `HudLayoutState`
-  - [ ] modules
-  - [ ] z-order
-  - [ ] drag state
-  - [ ] dirty-layout flag
-- [ ] extract `HudModalState`
-  - [ ] message box state
-  - [ ] task dialog state
-- [ ] extract `HudInputCaptureState`
-  - [ ] direct terminal input capture target
+- [x] extract `HudLayoutState`
+  - [x] modules
+  - [x] z-order
+  - [x] drag state
+  - [x] dirty-layout flag
+- [x] extract `HudModalState`
+  - [x] message box state
+  - [x] task dialog state
+- [x] extract `HudInputCaptureState`
+  - [x] direct terminal input capture target
 
 ### 3.2 Update systems to borrow only what they actually mutate
-- [ ] pointer/drag systems use layout state only
-- [ ] modal keyboard systems use modal state + input capture state only
-- [ ] rendering reads all relevant HUD resources immutably
-- [ ] persistence reads only layout state
+- [x] pointer/drag systems use layout state only
+- [x] modal keyboard systems use modal state + input capture state only
+- [x] rendering reads all relevant HUD resources immutably
+- [x] persistence reads only layout state
 
 ### 3.3 Remove borrow-checker workaround patterns caused by monolithic HUD state
-- [ ] revisit staged `Vec<HudIntent>` emission in pointer handling
-- [ ] revisit snapshotting `module_ids` just to reborrow mutable state later
-- [ ] only keep staging where it reflects actual event semantics, not borrow pressure
+- [x] revisit staged `Vec<HudIntent>` emission in pointer handling
+- [x] revisit snapshotting `module_ids` just to reborrow mutable state later
+- [x] only keep staging where it reflects actual event semantics, not borrow pressure
 
 ### 3.4 Preserve current retained-HUD invariants
-- [ ] module shells remain retained state
-- [ ] Vello scene remains projection only
-- [ ] direct input capture still mutually excludes modal dialogs
+- [x] module shells remain retained state
+- [x] Vello scene remains projection only
+- [x] direct input capture still mutually excludes modal dialogs
 
 ### 3.5 Validation
-- [ ] drag behavior unchanged
-- [ ] modal/editor behavior unchanged
-- [ ] direct terminal input behavior unchanged
-- [ ] HUD persistence behavior unchanged
+- [x] drag behavior unchanged
+- [x] modal/editor behavior unchanged
+- [x] direct terminal input behavior unchanged
+- [x] HUD persistence behavior unchanged
 
 ### Phase 3 gate
-- [ ] `cargo test`
-- [ ] `cargo clippy --all-targets -- -D warnings`
-- [ ] `cargo fmt --check`
+- [x] `cargo test`
+- [x] `cargo clippy --all-targets -- -D warnings`
+- [x] `cargo fmt --check`
 
 ---
 

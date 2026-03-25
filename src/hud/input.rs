@@ -1,8 +1,8 @@
 use crate::{
     hud::{
-        message_box_action_at, modules, task_dialog_action_at, AgentDirectory, HudIntent,
-        HudMessageBoxAction, HudModuleId, HudRect, HudState, HudTaskDialogAction,
-        HUD_TITLEBAR_HEIGHT,
+        message_box_action_at, modules, task_dialog_action_at, AgentDirectory,
+        HudInputCaptureState, HudIntent, HudLayoutState, HudMessageBoxAction, HudModalState,
+        HudModuleId, HudRect, HudTaskDialogAction, HUD_TITLEBAR_HEIGHT,
     },
     terminals::{TerminalId, TerminalManager, TerminalPresentationStore, TerminalViewState},
 };
@@ -38,7 +38,9 @@ pub(crate) struct HudPointerContext<'w, 's> {
     primary_window: Single<'w, 's, &'static Window, With<PrimaryWindow>>,
     mouse_buttons: Res<'w, ButtonInput<MouseButton>>,
     mouse_wheel: MessageReader<'w, 's, MouseWheel>,
-    hud_state: ResMut<'w, HudState>,
+    layout_state: ResMut<'w, HudLayoutState>,
+    modal_state: ResMut<'w, HudModalState>,
+    input_capture: Res<'w, HudInputCaptureState>,
     terminal_manager: Res<'w, TerminalManager>,
     presentation_store: Res<'w, TerminalPresentationStore>,
     view_state: Res<'w, TerminalViewState>,
@@ -48,15 +50,15 @@ pub(crate) struct HudPointerContext<'w, 's> {
 }
 
 fn message_box_task_intent(
-    hud_state: &mut HudState,
+    modal_state: &mut HudModalState,
     action: HudMessageBoxAction,
 ) -> Option<HudIntent> {
-    let target_terminal = hud_state.message_box.target_terminal?;
-    let payload = hud_state.message_box.text.trim().to_owned();
+    let target_terminal = modal_state.message_box.target_terminal?;
+    let payload = modal_state.message_box.text.trim().to_owned();
     if payload.is_empty() {
         return None;
     }
-    hud_state.close_message_box_and_discard_draft();
+    modal_state.close_message_box_and_discard_draft();
     Some(match action {
         HudMessageBoxAction::AppendTask => HudIntent::AppendTerminalTask(target_terminal, payload),
         HudMessageBoxAction::PrependTask => {
@@ -65,9 +67,12 @@ fn message_box_task_intent(
     })
 }
 
-fn task_dialog_intent(hud_state: &mut HudState, action: HudTaskDialogAction) -> Option<HudIntent> {
+fn task_dialog_intent(
+    modal_state: &mut HudModalState,
+    action: HudTaskDialogAction,
+) -> Option<HudIntent> {
     match action {
-        HudTaskDialogAction::ClearDone => hud_state
+        HudTaskDialogAction::ClearDone => modal_state
             .task_dialog
             .target_terminal
             .map(HudIntent::ClearDoneTerminalTasks),
@@ -75,14 +80,14 @@ fn task_dialog_intent(hud_state: &mut HudState, action: HudTaskDialogAction) -> 
 }
 
 pub(crate) fn handle_hud_pointer_input(mut ctx: HudPointerContext) {
-    if ctx.hud_state.message_box.visible {
-        ctx.hud_state.drag = None;
+    if ctx.modal_state.message_box.visible {
+        ctx.layout_state.drag = None;
         let Some(cursor) = cursor_hud_position(&ctx.primary_window) else {
             return;
         };
         if ctx.mouse_buttons.just_pressed(MouseButton::Left) {
             if let Some(action) = message_box_action_at(&ctx.primary_window, cursor) {
-                if let Some(intent) = message_box_task_intent(&mut ctx.hud_state, action) {
+                if let Some(intent) = message_box_task_intent(&mut ctx.modal_state, action) {
                     ctx.hud_commands.write(intent);
                 }
                 ctx.redraws.write(RequestRedraw);
@@ -90,14 +95,14 @@ pub(crate) fn handle_hud_pointer_input(mut ctx: HudPointerContext) {
         }
         return;
     }
-    if ctx.hud_state.task_dialog.visible {
-        ctx.hud_state.drag = None;
+    if ctx.modal_state.task_dialog.visible {
+        ctx.layout_state.drag = None;
         let Some(cursor) = cursor_hud_position(&ctx.primary_window) else {
             return;
         };
         if ctx.mouse_buttons.just_pressed(MouseButton::Left) {
             if let Some(action) = task_dialog_action_at(&ctx.primary_window, cursor) {
-                if let Some(intent) = task_dialog_intent(&mut ctx.hud_state, action) {
+                if let Some(intent) = task_dialog_intent(&mut ctx.modal_state, action) {
                     ctx.hud_commands.write(intent);
                 }
                 ctx.redraws.write(RequestRedraw);
@@ -105,13 +110,13 @@ pub(crate) fn handle_hud_pointer_input(mut ctx: HudPointerContext) {
         }
         return;
     }
-    if ctx.hud_state.direct_input_terminal.is_some() {
-        ctx.hud_state.drag = None;
+    if ctx.input_capture.direct_input_terminal.is_some() {
+        ctx.layout_state.drag = None;
         return;
     }
     let Some(cursor) = cursor_hud_position(&ctx.primary_window) else {
         if ctx.mouse_buttons.just_released(MouseButton::Left) {
-            ctx.hud_state.drag = None;
+            ctx.layout_state.drag = None;
         }
         return;
     };
@@ -119,19 +124,19 @@ pub(crate) fn handle_hud_pointer_input(mut ctx: HudPointerContext) {
     let mut emitted_commands = Vec::new();
 
     if ctx.mouse_buttons.just_pressed(MouseButton::Left) {
-        if let Some(module_id) = ctx.hud_state.topmost_enabled_at(cursor) {
-            ctx.hud_state.raise_to_front(module_id);
+        if let Some(module_id) = ctx.layout_state.topmost_enabled_at(cursor) {
+            ctx.layout_state.raise_to_front(module_id);
             let titlebar_rect = ctx
-                .hud_state
+                .layout_state
                 .get(module_id)
                 .map(|module| module.shell.titlebar_rect())
                 .unwrap_or_default();
             if titlebar_rect.contains(cursor) && module_id != HudModuleId::AgentList {
-                ctx.hud_state.drag = Some(crate::hud::HudDragState {
+                ctx.layout_state.drag = Some(crate::hud::HudDragState {
                     module_id,
                     grab_offset: Vec2::new(cursor.x - titlebar_rect.x, cursor.y - titlebar_rect.y),
                 });
-            } else if let Some(module) = ctx.hud_state.get(module_id) {
+            } else if let Some(module) = ctx.layout_state.get(module_id) {
                 let content_rect = content_hit_rect(module_id, module.shell.current_rect);
                 if content_rect.contains(cursor) {
                     modules::handle_pointer_click(
@@ -143,7 +148,7 @@ pub(crate) fn handle_hud_pointer_input(mut ctx: HudPointerContext) {
                         &ctx.presentation_store,
                         &ctx.view_state,
                         &ctx.agent_directory,
-                        &ctx.hud_state,
+                        &ctx.layout_state,
                         &mut emitted_commands,
                     );
                 }
@@ -152,17 +157,17 @@ pub(crate) fn handle_hud_pointer_input(mut ctx: HudPointerContext) {
     }
 
     if ctx.mouse_buttons.pressed(MouseButton::Left) {
-        if let Some(drag) = ctx.hud_state.drag {
-            if let Some(module) = ctx.hud_state.get_mut(drag.module_id) {
+        if let Some(drag) = ctx.layout_state.drag {
+            if let Some(module) = ctx.layout_state.get_mut(drag.module_id) {
                 module.shell.target_rect.x = cursor.x - drag.grab_offset.x;
                 module.shell.target_rect.y = cursor.y - drag.grab_offset.y;
-                ctx.hud_state.dirty_layout = true;
+                ctx.layout_state.dirty_layout = true;
             }
         }
     }
 
     if ctx.mouse_buttons.just_released(MouseButton::Left) {
-        ctx.hud_state.drag = None;
+        ctx.layout_state.drag = None;
     }
 
     let scroll_delta = ctx.mouse_wheel.read().fold(0.0, |acc, event| {
@@ -172,8 +177,8 @@ pub(crate) fn handle_hud_pointer_input(mut ctx: HudPointerContext) {
         }
     });
     if scroll_delta != 0.0 {
-        if let Some(module_id) = ctx.hud_state.topmost_enabled_at(cursor) {
-            if let Some(module) = ctx.hud_state.get_mut(module_id) {
+        if let Some(module_id) = ctx.layout_state.topmost_enabled_at(cursor) {
+            if let Some(module) = ctx.layout_state.get_mut(module_id) {
                 let content_rect = content_hit_rect(module_id, module.shell.current_rect);
                 if content_rect.contains(cursor) {
                     modules::handle_scroll(
@@ -189,17 +194,17 @@ pub(crate) fn handle_hud_pointer_input(mut ctx: HudPointerContext) {
     }
 
     let hovered_module_id = ctx
-        .hud_state
+        .layout_state
         .topmost_enabled_at(cursor)
         .and_then(|module_id| {
-            ctx.hud_state.get(module_id).and_then(|module| {
+            ctx.layout_state.get(module_id).and_then(|module| {
                 let content_rect = content_hit_rect(module_id, module.shell.current_rect);
                 content_rect.contains(cursor).then_some(module_id)
             })
         });
-    let module_ids = ctx.hud_state.iter_z_order().collect::<Vec<_>>();
+    let module_ids = ctx.layout_state.iter_z_order().collect::<Vec<_>>();
     for module_id in module_ids {
-        let Some(module) = ctx.hud_state.get_mut(module_id) else {
+        let Some(module) = ctx.layout_state.get_mut(module_id) else {
             continue;
         };
         let content_rect = content_hit_rect(module_id, module.shell.current_rect);
@@ -260,11 +265,12 @@ fn adjacent_agent_terminal_id(
 pub(crate) fn handle_hud_module_shortcuts(
     mut messages: MessageReader<KeyboardInput>,
     keys: Res<ButtonInput<KeyCode>>,
-    hud_state: Res<HudState>,
+    modal_state: Res<HudModalState>,
+    input_capture: Res<HudInputCaptureState>,
     terminal_manager: Res<TerminalManager>,
     mut hud_commands: MessageWriter<HudIntent>,
 ) {
-    if hud_state.keyboard_capture_active() {
+    if modal_state.keyboard_capture_active(&input_capture) {
         return;
     }
 

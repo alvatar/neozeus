@@ -1,5 +1,8 @@
 use crate::{
-    hud::{HudIntent, HudState, TerminalVisibilityPolicy, TerminalVisibilityState},
+    hud::{
+        HudInputCaptureState, HudIntent, HudLayoutState, HudModalState, TerminalVisibilityPolicy,
+        TerminalVisibilityState,
+    },
     terminals::{
         mark_terminal_sessions_dirty, terminal_texture_screen_size, TerminalCommand,
         TerminalDisplayMode, TerminalManager, TerminalNotesState, TerminalPanel,
@@ -69,10 +72,11 @@ pub(crate) fn handle_global_terminal_spawn_shortcut(
     mut messages: MessageReader<KeyboardInput>,
     keys: Res<ButtonInput<KeyCode>>,
     primary_window: Single<&Window, With<PrimaryWindow>>,
-    hud_state: Res<HudState>,
+    modal_state: Res<HudModalState>,
+    input_capture: Res<HudInputCaptureState>,
     mut hud_commands: MessageWriter<HudIntent>,
 ) {
-    if hud_state.keyboard_capture_active() || !primary_window.focused {
+    if modal_state.keyboard_capture_active(&input_capture) || !primary_window.focused {
         return;
     }
 
@@ -87,11 +91,12 @@ pub(crate) fn handle_global_terminal_spawn_shortcut(
 pub(crate) fn handle_terminal_lifecycle_shortcuts(
     mut messages: MessageReader<KeyboardInput>,
     keys: Res<ButtonInput<KeyCode>>,
-    hud_state: Res<HudState>,
+    modal_state: Res<HudModalState>,
+    input_capture: Res<HudInputCaptureState>,
     mut hud_commands: MessageWriter<HudIntent>,
     mut app_exits: MessageWriter<AppExit>,
 ) {
-    if hud_state.keyboard_capture_active() {
+    if modal_state.keyboard_capture_active(&input_capture) {
         return;
     }
 
@@ -135,12 +140,13 @@ fn topmost_terminal_panel_at_cursor(
 pub(crate) fn focus_terminal_on_panel_click(
     mouse_buttons: Res<ButtonInput<MouseButton>>,
     primary_window: Single<&Window, With<PrimaryWindow>>,
-    hud_state: Res<HudState>,
+    layout_state: Res<HudLayoutState>,
+    modal_state: Res<HudModalState>,
     panels: Query<(&TerminalPanel, &TerminalPresentation, &Visibility)>,
     mut hud_commands: MessageWriter<HudIntent>,
 ) {
-    if hud_state.message_box.visible
-        || hud_state.task_dialog.visible
+    if modal_state.message_box.visible
+        || modal_state.task_dialog.visible
         || !mouse_buttons.just_pressed(MouseButton::Left)
         || !primary_window.focused
     {
@@ -149,7 +155,7 @@ pub(crate) fn focus_terminal_on_panel_click(
     let Some(cursor) = primary_window.cursor_position() else {
         return;
     };
-    if hud_state.topmost_enabled_at(cursor).is_some() {
+    if layout_state.topmost_enabled_at(cursor).is_some() {
         return;
     }
     let Some(panel) = topmost_terminal_panel_at_cursor(&primary_window, &panels, cursor) else {
@@ -167,15 +173,17 @@ pub(crate) fn hide_terminal_on_background_click(
     mouse_buttons: Res<ButtonInput<MouseButton>>,
     time: Res<Time>,
     primary_window: Single<&Window, With<PrimaryWindow>>,
-    mut hud_state: ResMut<HudState>,
+    layout_state: Res<HudLayoutState>,
+    modal_state: Res<HudModalState>,
+    mut input_capture: ResMut<HudInputCaptureState>,
     panels: Query<(&TerminalPanel, &TerminalPresentation, &Visibility)>,
     mut terminal_manager: ResMut<TerminalManager>,
     mut session_persistence: ResMut<TerminalSessionPersistenceState>,
     mut visibility_state: ResMut<TerminalVisibilityState>,
     mut view_state: ResMut<TerminalViewState>,
 ) {
-    if hud_state.message_box.visible
-        || hud_state.task_dialog.visible
+    if modal_state.message_box.visible
+        || modal_state.task_dialog.visible
         || !mouse_buttons.just_pressed(MouseButton::Left)
         || !primary_window.focused
     {
@@ -187,7 +195,7 @@ pub(crate) fn hide_terminal_on_background_click(
     let Some(cursor) = primary_window.cursor_position() else {
         return;
     };
-    if hud_state.topmost_enabled_at(cursor).is_some() {
+    if layout_state.topmost_enabled_at(cursor).is_some() {
         return;
     }
     if topmost_terminal_panel_at_cursor(&primary_window, &panels, cursor).is_some() {
@@ -196,7 +204,7 @@ pub(crate) fn hide_terminal_on_background_click(
     if terminal_manager.clear_active_terminal().is_some() {
         visibility_state.policy = TerminalVisibilityPolicy::ShowAll;
         view_state.focus_terminal(None);
-        hud_state.reconcile_direct_terminal_input(terminal_manager.active_id());
+        input_capture.reconcile_direct_terminal_input(terminal_manager.active_id());
         mark_terminal_sessions_dirty(&mut session_persistence, Some(&time));
     }
 }
@@ -212,7 +220,7 @@ pub(crate) fn drag_terminal_view(
     primary_window: Single<&Window, With<PrimaryWindow>>,
     terminal_manager: Res<TerminalManager>,
     presentation_store: Res<TerminalPresentationStore>,
-    hud_state: Res<HudState>,
+    layout_state: Res<HudLayoutState>,
     mut view_state: ResMut<TerminalViewState>,
     mut pointer_state: ResMut<TerminalPointerState>,
 ) {
@@ -244,7 +252,7 @@ pub(crate) fn drag_terminal_view(
         texture_state,
         &view_state,
         &primary_window,
-        &hud_state,
+        &layout_state,
         pixel_perfect,
     );
     let screen_cell_height = if texture_state.cell_size.y == 0 || texture_state.texture_size.y == 0
@@ -295,30 +303,33 @@ pub(crate) fn handle_terminal_direct_input_keyboard(
     keys: Res<ButtonInput<KeyCode>>,
     primary_window: Single<&Window, With<PrimaryWindow>>,
     terminal_manager: Res<TerminalManager>,
-    mut hud_state: ResMut<HudState>,
+    mut modal_state: ResMut<HudModalState>,
+    mut input_capture: ResMut<HudInputCaptureState>,
     mut redraws: MessageWriter<RequestRedraw>,
 ) {
-    if !primary_window.focused || hud_state.message_box.visible || hud_state.task_dialog.visible {
+    if !primary_window.focused || modal_state.message_box.visible || modal_state.task_dialog.visible
+    {
         return;
     }
 
     let (ctrl, alt, super_key) = has_plain_modifiers(&keys);
-    let had_direct_input = hud_state.direct_input_terminal.is_some();
-    hud_state.reconcile_direct_terminal_input(terminal_manager.active_id());
-    if had_direct_input && hud_state.direct_input_terminal.is_none() {
+    let had_direct_input = input_capture.direct_input_terminal.is_some();
+    input_capture.reconcile_direct_terminal_input(terminal_manager.active_id());
+    if had_direct_input && input_capture.direct_input_terminal.is_none() {
         redraws.write(RequestRedraw);
     }
 
-    if let Some(target_terminal) = hud_state.direct_input_terminal {
+    if let Some(target_terminal) = input_capture.direct_input_terminal {
         let Some(terminal) = terminal_manager.get(target_terminal) else {
-            hud_state.close_direct_terminal_input();
+            input_capture.close_direct_terminal_input();
             redraws.write(RequestRedraw);
             return;
         };
         let mut mode_changed = false;
         for event in messages.read() {
             if is_plain_ctrl_enter(event, ctrl, alt, super_key) {
-                let _ = hud_state.toggle_direct_terminal_input(target_terminal);
+                let _ =
+                    input_capture.toggle_direct_terminal_input(&mut modal_state, target_terminal);
                 mode_changed = true;
                 break;
             }
@@ -340,7 +351,7 @@ pub(crate) fn handle_terminal_direct_input_keyboard(
         if !is_plain_ctrl_enter(event, ctrl, alt, super_key) {
             continue;
         }
-        let _ = hud_state.toggle_direct_terminal_input(active_id);
+        let _ = input_capture.toggle_direct_terminal_input(&mut modal_state, active_id);
         redraws.write(RequestRedraw);
         break;
     }
@@ -359,10 +370,10 @@ fn message_box_event_text(event: &KeyboardInput) -> Option<String> {
         })
 }
 
-fn close_task_dialog_intent(hud_state: &mut HudState) -> Option<HudIntent> {
-    let target_terminal = hud_state.task_dialog.target_terminal?;
-    let payload = hud_state.task_dialog.text.clone();
-    hud_state.close_task_dialog();
+fn close_task_dialog_intent(modal_state: &mut HudModalState) -> Option<HudIntent> {
+    let target_terminal = modal_state.task_dialog.target_terminal?;
+    let payload = modal_state.task_dialog.text.clone();
+    modal_state.close_task_dialog();
     Some(HudIntent::SetTerminalTaskText(target_terminal, payload))
 }
 
@@ -430,7 +441,8 @@ pub(crate) fn handle_terminal_message_box_keyboard(
     primary_window: Single<&Window, With<PrimaryWindow>>,
     terminal_manager: Res<TerminalManager>,
     notes_state: Res<TerminalNotesState>,
-    mut hud_state: ResMut<HudState>,
+    mut modal_state: ResMut<HudModalState>,
+    mut input_capture: ResMut<HudInputCaptureState>,
     mut hud_commands: MessageWriter<HudIntent>,
     mut redraws: MessageWriter<RequestRedraw>,
 ) {
@@ -440,11 +452,11 @@ pub(crate) fn handle_terminal_message_box_keyboard(
 
     let (ctrl, alt, super_key) = has_plain_modifiers(&keys);
 
-    if hud_state.direct_input_terminal.is_some() {
+    if input_capture.direct_input_terminal.is_some() {
         return;
     }
 
-    if hud_state.message_box.visible {
+    if modal_state.message_box.visible {
         let mut needs_redraw = false;
         for event in messages.read() {
             if event.state != ButtonState::Pressed {
@@ -452,26 +464,26 @@ pub(crate) fn handle_terminal_message_box_keyboard(
             }
 
             if ctrl && !alt && !super_key && event.key_code == KeyCode::KeyS {
-                if let Some(target_terminal) = hud_state.message_box.target_terminal {
-                    let payload = hud_state.message_box.text.clone();
+                if let Some(target_terminal) = modal_state.message_box.target_terminal {
+                    let payload = modal_state.message_box.text.clone();
                     if !payload.is_empty() {
                         hud_commands
                             .write(HudIntent::SendTerminalCommand(target_terminal, payload));
                     }
                 }
-                hud_state.close_message_box_and_discard_draft();
+                modal_state.close_message_box_and_discard_draft();
                 needs_redraw = true;
                 break;
             }
 
             if event.key_code == KeyCode::Escape {
-                hud_state.close_message_box();
+                modal_state.close_message_box();
                 needs_redraw = true;
                 break;
             }
 
             needs_redraw |=
-                handle_text_editor_event(&mut hud_state.message_box, event, ctrl, alt, super_key);
+                handle_text_editor_event(&mut modal_state.message_box, event, ctrl, alt, super_key);
         }
 
         if needs_redraw {
@@ -480,7 +492,7 @@ pub(crate) fn handle_terminal_message_box_keyboard(
         return;
     }
 
-    if hud_state.task_dialog.visible {
+    if modal_state.task_dialog.visible {
         let mut needs_redraw = false;
         for event in messages.read() {
             if event.state != ButtonState::Pressed {
@@ -488,7 +500,7 @@ pub(crate) fn handle_terminal_message_box_keyboard(
             }
 
             if ctrl && !alt && !super_key && event.key_code == KeyCode::KeyT {
-                if let Some(target_terminal) = hud_state.task_dialog.target_terminal {
+                if let Some(target_terminal) = modal_state.task_dialog.target_terminal {
                     hud_commands.write(HudIntent::ClearDoneTerminalTasks(target_terminal));
                 }
                 needs_redraw = true;
@@ -496,7 +508,7 @@ pub(crate) fn handle_terminal_message_box_keyboard(
             }
 
             if event.key_code == KeyCode::Escape {
-                if let Some(intent) = close_task_dialog_intent(&mut hud_state) {
+                if let Some(intent) = close_task_dialog_intent(&mut modal_state) {
                     hud_commands.write(intent);
                 }
                 needs_redraw = true;
@@ -504,7 +516,7 @@ pub(crate) fn handle_terminal_message_box_keyboard(
             }
 
             needs_redraw |=
-                handle_text_editor_event(&mut hud_state.task_dialog, event, ctrl, alt, super_key);
+                handle_text_editor_event(&mut modal_state.task_dialog, event, ctrl, alt, super_key);
         }
 
         if needs_redraw {
@@ -532,7 +544,7 @@ pub(crate) fn handle_terminal_message_box_keyboard(
 
         match event.key_code {
             KeyCode::Enter => {
-                hud_state.open_message_box(active_id);
+                modal_state.open_message_box(&mut input_capture, active_id);
                 redraws.write(RequestRedraw);
                 break;
             }
@@ -542,7 +554,7 @@ pub(crate) fn handle_terminal_message_box_keyboard(
                     .and_then(|terminal| notes_state.note_text(&terminal.session_name))
                     .unwrap_or_default()
                     .to_owned();
-                hud_state.open_task_dialog(active_id, &note_text);
+                modal_state.open_task_dialog(&mut input_capture, active_id, &note_text);
                 redraws.write(RequestRedraw);
                 break;
             }

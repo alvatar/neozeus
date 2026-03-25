@@ -1,8 +1,8 @@
 use crate::{
     hud::{
         message_box_action_buttons, message_box_rect, modules, task_dialog_action_buttons,
-        task_dialog_rect, AgentDirectory, HudMessageBoxState, HudModuleId, HudRect, HudState,
-        HudTaskDialogState, HUD_TITLEBAR_HEIGHT,
+        task_dialog_rect, AgentDirectory, HudLayoutState, HudMessageBoxState, HudModalState,
+        HudModuleId, HudRect, HudTaskDialogState, HUD_TITLEBAR_HEIGHT,
     },
     terminals::{
         TerminalFontState, TerminalManager, TerminalNotesState, TerminalPresentationStore,
@@ -221,7 +221,7 @@ pub(crate) struct HudRenderInputs<'a> {
     pub(crate) view_state: &'a TerminalViewState,
     pub(crate) agent_directory: &'a AgentDirectory,
     pub(crate) notes_state: &'a TerminalNotesState,
-    pub(crate) hud_state: &'a HudState,
+    pub(crate) layout_state: &'a HudLayoutState,
     pub(crate) font_state: &'a TerminalFontState,
 }
 
@@ -577,7 +577,8 @@ fn draw_module_shell(painter: &mut HudPainter, module_id: HudModuleId, shell_rec
 )]
 pub(crate) fn render_hud_scene(
     primary_window: Single<&Window, With<PrimaryWindow>>,
-    hud_state: Res<HudState>,
+    layout_state: Res<HudLayoutState>,
+    modal_state: Res<HudModalState>,
     terminal_manager: Res<TerminalManager>,
     presentation_store: Res<TerminalPresentationStore>,
     view_state: Res<TerminalViewState>,
@@ -594,12 +595,12 @@ pub(crate) fn render_hud_scene(
         view_state: &view_state,
         agent_directory: &agent_directory,
         notes_state: &notes_state,
-        hud_state: &hud_state,
+        layout_state: &layout_state,
         font_state: &font_state,
     };
 
-    for module_id in hud_state.iter_z_order() {
-        let Some(module) = hud_state.get(module_id) else {
+    for module_id in layout_state.iter_z_order() {
+        let Some(module) = layout_state.get(module_id) else {
             continue;
         };
         if !module.shell.enabled && module.shell.current_alpha <= 0.01 {
@@ -632,13 +633,13 @@ pub(crate) fn render_hud_scene(
     draw_message_box(
         &mut painter,
         &primary_window,
-        &hud_state.message_box,
+        &modal_state.message_box,
         &agent_directory,
     );
     draw_task_dialog(
         &mut painter,
         &primary_window,
-        &hud_state.task_dialog,
+        &modal_state.task_dialog,
         &agent_directory,
     );
 

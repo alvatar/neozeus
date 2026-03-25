@@ -4,7 +4,7 @@ mod debug_toolbar;
 use crate::{
     hud::{
         render::{HudPainter, HudRenderInputs},
-        AgentDirectory, HudIntent, HudModuleId, HudModuleModel, HudRect, HudState,
+        AgentDirectory, HudIntent, HudLayoutState, HudModuleId, HudModuleModel, HudRect,
     },
     terminals::{TerminalManager, TerminalPresentationStore, TerminalViewState},
 };
@@ -36,7 +36,7 @@ pub(crate) fn handle_pointer_click(
     presentation_store: &TerminalPresentationStore,
     view_state: &TerminalViewState,
     agent_directory: &AgentDirectory,
-    hud_state: &HudState,
+    layout_state: &HudLayoutState,
     emitted_commands: &mut Vec<HudIntent>,
 ) {
     match module_id {
@@ -47,7 +47,7 @@ pub(crate) fn handle_pointer_click(
             terminal_manager,
             presentation_store,
             view_state,
-            hud_state,
+            layout_state,
             emitted_commands,
         ),
         HudModuleId::AgentList => agent_list::handle_pointer_click(
