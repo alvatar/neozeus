@@ -281,17 +281,6 @@ fn handle_request(
     request: DaemonRequest,
 ) -> Result<DaemonResponse, String> {
     match request {
-        DaemonRequest::Handshake { version } => {
-            if version != crate::terminals::DAEMON_PROTOCOL_VERSION {
-                return Err(format!(
-                    "daemon protocol version mismatch: client={version} server={}",
-                    crate::terminals::DAEMON_PROTOCOL_VERSION
-                ));
-            }
-            Ok(DaemonResponse::HandshakeAck {
-                version: crate::terminals::DAEMON_PROTOCOL_VERSION,
-            })
-        }
         DaemonRequest::ListSessions => Ok(DaemonResponse::SessionList {
             sessions: registry.list_sessions(),
         }),

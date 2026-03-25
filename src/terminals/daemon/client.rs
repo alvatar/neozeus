@@ -1,6 +1,6 @@
 use super::protocol::{
     read_server_message, write_client_message, ClientMessage, DaemonEvent, DaemonRequest,
-    DaemonResponse, DaemonSessionInfo, ServerMessage, DAEMON_PROTOCOL_VERSION,
+    DaemonResponse, DaemonSessionInfo, ServerMessage,
 };
 use crate::terminals::{append_debug_log, TerminalCommand, TerminalSnapshot, TerminalUpdate};
 use bevy::prelude::Resource;
@@ -147,32 +147,13 @@ impl SocketTerminalDaemonClient {
             lock(&routes_reader).clear();
         });
 
-        let client = Self {
+        Ok(Self {
             writer_tx,
             pending,
             session_routes,
             next_request_id: Mutex::new(1),
             shutdown_stream: Mutex::new(Some(shutdown_stream)),
-        };
-        client.handshake()?;
-        Ok(client)
-    }
-
-    fn handshake(&self) -> Result<(), String> {
-        match self.request(DaemonRequest::Handshake {
-            version: DAEMON_PROTOCOL_VERSION,
-        })? {
-            DaemonResponse::HandshakeAck { version } if version == DAEMON_PROTOCOL_VERSION => {
-                Ok(())
-            }
-            DaemonResponse::HandshakeAck { version } => Err(format!(
-                "daemon protocol mismatch after handshake: client={} server={version}",
-                DAEMON_PROTOCOL_VERSION
-            )),
-            response => Err(format!(
-                "unexpected daemon handshake response: {response:?}"
-            )),
-        }
+        })
     }
 
     fn request(&self, request: DaemonRequest) -> Result<DaemonResponse, String> {

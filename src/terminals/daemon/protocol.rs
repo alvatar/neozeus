@@ -6,8 +6,6 @@ use crate::terminals::{
 use bevy_egui::egui;
 use std::io::{Read, Write};
 
-pub(crate) const DAEMON_PROTOCOL_VERSION: u32 = 1;
-
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum ClientMessage {
     Request {
@@ -18,9 +16,6 @@ pub(crate) enum ClientMessage {
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum DaemonRequest {
-    Handshake {
-        version: u32,
-    },
     ListSessions,
     CreateSession {
         prefix: String,
@@ -53,9 +48,6 @@ pub(crate) enum ServerMessage {
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum DaemonResponse {
-    HandshakeAck {
-        version: u32,
-    },
     SessionList {
         sessions: Vec<DaemonSessionInfo>,
     },
@@ -172,10 +164,6 @@ fn decode_client_message(decoder: &mut Decoder<'_>) -> Result<ClientMessage, Str
 
 fn encode_request(buffer: &mut Vec<u8>, request: &DaemonRequest) {
     match request {
-        DaemonRequest::Handshake { version } => {
-            push_u8(buffer, 0);
-            push_u32(buffer, *version);
-        }
         DaemonRequest::ListSessions => push_u8(buffer, 1),
         DaemonRequest::CreateSession { prefix } => {
             push_u8(buffer, 2);
@@ -212,9 +200,6 @@ fn encode_request(buffer: &mut Vec<u8>, request: &DaemonRequest) {
 
 fn decode_request(decoder: &mut Decoder<'_>) -> Result<DaemonRequest, String> {
     match decoder.read_u8()? {
-        0 => Ok(DaemonRequest::Handshake {
-            version: decoder.read_u32()?,
-        }),
         1 => Ok(DaemonRequest::ListSessions),
         2 => Ok(DaemonRequest::CreateSession {
             prefix: decoder.read_string()?,
@@ -268,10 +253,6 @@ fn decode_server_message(decoder: &mut Decoder<'_>) -> Result<ServerMessage, Str
 
 fn encode_response(buffer: &mut Vec<u8>, response: &DaemonResponse) {
     match response {
-        DaemonResponse::HandshakeAck { version } => {
-            push_u8(buffer, 0);
-            push_u32(buffer, *version);
-        }
         DaemonResponse::SessionList { sessions } => {
             push_u8(buffer, 1);
             push_vec(buffer, sessions, encode_session_info);
@@ -296,9 +277,6 @@ fn encode_response(buffer: &mut Vec<u8>, response: &DaemonResponse) {
 
 fn decode_response(decoder: &mut Decoder<'_>) -> Result<DaemonResponse, String> {
     match decoder.read_u8()? {
-        0 => Ok(DaemonResponse::HandshakeAck {
-            version: decoder.read_u32()?,
-        }),
         1 => Ok(DaemonResponse::SessionList {
             sessions: decoder.read_vec(decode_session_info)?,
         }),
