@@ -30,106 +30,109 @@ Success criteria:
 ## Phase 0 — freeze the target semantics before refactoring
 
 ### 0.1 Record current architectural invariants
-- [ ] Write down the current authority split explicitly:
-  - [ ] `TerminalManager` / successor owns terminal identity + registry truth
-  - [ ] `TerminalPresentationStore` / successor owns presentation projection truth
-  - [ ] HUD state resources own retained HUD truth
-  - [ ] ECS entities remain projections, not the primary source of truth
-- [ ] Record current startup invariants:
-  - [ ] normal startup restores/imports daemon sessions
-  - [ ] verifier startup bypasses restore/import path
-  - [ ] focus and visibility are separate concerns
-- [ ] Record redraw invariants:
-  - [ ] terminal work, presentation animation, and HUD animation can all request redraw
-- [ ] Record persistence invariants:
-  - [ ] UI metadata persistence is best-effort and non-fatal
-  - [ ] process/session continuity is not derived from `TerminalId`
+- [x] Write down the current authority split explicitly:
+  - [x] `TerminalManager` / successor owns terminal identity + registry truth
+  - [x] `TerminalPresentationStore` / successor owns presentation projection truth
+  - [x] HUD state resources own retained HUD truth
+  - [x] ECS entities remain projections, not the primary source of truth
+- [x] Record current startup invariants:
+  - [x] normal startup restores/imports daemon sessions
+  - [x] verifier startup bypasses restore/import path
+  - [x] focus and visibility are separate concerns
+- [x] Record redraw invariants:
+  - [x] terminal work, presentation animation, and HUD animation can all request redraw
+- [x] Record persistence invariants:
+  - [x] UI metadata persistence is best-effort and non-fatal
+  - [x] process/session continuity is not derived from `TerminalId`
 
 ### 0.2 Decide up front what is intentionally unchanged in Phases 1-2
-- [ ] No UX change for spawn/focus/isolate/reset view/direct input/task dialogs
-- [ ] No daemon protocol change yet
-- [ ] No renderer/perf optimization yet
-- [ ] No persistence format change yet
+- [x] No UX change for spawn/focus/isolate/reset view/direct input/task dialogs
+- [x] No daemon protocol change yet
+- [x] No renderer/perf optimization yet
+- [x] No persistence format change yet
 
 ### 0.3 Create validation checklist to run after every phase
-- [ ] `cargo test`
-- [ ] `cargo clippy --all-targets -- -D warnings`
-- [ ] `cargo fmt --check`
-- [ ] no debug artifacts left behind
-- [ ] existing GUI verifiers remain runnable even if not executed every phase
+- [x] `cargo test`
+- [x] `cargo clippy --all-targets -- -D warnings`
+- [x] `cargo fmt --check`
+- [x] no debug artifacts left behind
+- [x] existing GUI verifiers remain runnable even if not executed every phase
+
+Note:
+- invariants/non-goals were recorded in `work/ARCH-20260325-refactor-invariants.md`
 
 ---
 
 ## Phase 1 — split orchestration and bootstrap without behavior change
 
 ### 1.1 Break up `src/scene.rs`
-- [ ] Extract startup/bootstrap concerns into dedicated modules
-- [ ] Move panic/GPU startup handling out of the main scene wiring file
-- [ ] Move window/env config helpers out of the giant scene module
-- [ ] Move resource/plugin registration into an app/bootstrap layer
-- [ ] Move startup-only terminal restore/import code into a dedicated startup module
-- [ ] Move verifier-only startup path into a dedicated startup/verifier module
-- [ ] Keep `build_app()` as a thin composition root
+- [x] Extract startup/bootstrap concerns into dedicated modules
+- [x] Move panic/GPU startup handling out of the main scene wiring file
+- [x] Move window/env config helpers out of the giant scene module
+- [x] Move resource/plugin registration into an app/bootstrap layer
+- [x] Move startup-only terminal restore/import code into a dedicated startup module
+- [x] Move verifier-only startup path into a dedicated startup/verifier module
+- [x] Keep `build_app()` as a thin composition root
 
 ### 1.2 Make scheduling topology easier to read
-- [ ] Centralize `NeoZeusSet` definitions and ordering in one scheduling-focused file
-- [ ] Keep the current ordering semantics identical
-- [ ] Reduce cross-file hidden schedule coupling
-- [ ] Document which sets mutate domain state vs projections
+- [x] Centralize `NeoZeusSet` definitions and ordering in one scheduling-focused file
+- [x] Keep the current ordering semantics identical
+- [x] Reduce cross-file hidden schedule coupling
+- [x] Document which sets mutate domain state vs projections
 
 ### 1.3 Reduce `scene.rs` responsibilities to app composition only
-- [ ] after extraction, `scene.rs` should primarily:
-  - [ ] define the public app build entrypoint
-  - [ ] compose plugins/resources/startup hooks
-  - [ ] expose only minimal helper APIs still genuinely scene-specific
-- [ ] remove startup-restore and verifier implementation detail from this file
+- [x] after extraction, `scene.rs` should primarily:
+  - [x] define the public app build entrypoint
+  - [x] compose plugins/resources/startup hooks
+  - [x] expose only minimal helper APIs still genuinely scene-specific
+- [x] remove startup-restore and verifier implementation detail from this file
 
 ### 1.4 Validation
-- [ ] deterministic tests unchanged
-- [ ] startup restore behavior unchanged
-- [ ] verifier bypass behavior unchanged
-- [ ] redraw behavior unchanged
+- [x] deterministic tests unchanged
+- [x] startup restore behavior unchanged
+- [x] verifier bypass behavior unchanged
+- [x] redraw behavior unchanged
 
 ### Phase 1 gate
-- [ ] `cargo test`
-- [ ] `cargo clippy --all-targets -- -D warnings`
-- [ ] `cargo fmt --check`
+- [x] `cargo test`
+- [x] `cargo clippy --all-targets -- -D warnings`
+- [x] `cargo fmt --check`
 
 ---
 
 ## Phase 2 — split HUD command/orchestration surface by concern
 
 ### 2.1 Break up `src/hud/dispatcher.rs`
-- [ ] separate intent fanout from command application
-- [ ] create dedicated modules/files for:
-  - [ ] focus command handling
-  - [ ] visibility command handling
-  - [ ] HUD module toggle/reset handling
-  - [ ] terminal view command handling
-  - [ ] terminal send command handling
-  - [ ] terminal task command handling
-  - [ ] terminal lifecycle command handling
-- [ ] keep external behavior identical
+- [x] separate intent fanout from command application
+- [x] create dedicated modules/files for:
+  - [x] focus command handling
+  - [x] visibility command handling
+  - [x] HUD module toggle/reset handling
+  - [x] terminal view command handling
+  - [x] terminal send command handling
+  - [x] terminal task command handling
+  - [x] terminal lifecycle command handling
+- [x] keep external behavior identical
 
 ### 2.2 Narrow mutation surfaces
-- [ ] ensure each command handler reads/writes the minimum resources needed
-- [ ] reduce giant multi-resource systems where practical
-- [ ] keep central lifecycle operations explicit rather than ad hoc in input handlers
+- [x] ensure each command handler reads/writes the minimum resources needed
+- [x] reduce giant multi-resource systems where practical
+- [x] keep central lifecycle operations explicit rather than ad hoc in input handlers
 
 ### 2.3 Make command paths legible
-- [ ] one place for intent fanout
-- [ ] one place per domain mutation category
-- [ ] no mixed concerns like “task editing + terminal spawn + visibility” in the same file
+- [x] one place for intent fanout
+- [x] one place per domain mutation category
+- [x] no mixed concerns like “task editing + terminal spawn + visibility” in the same file
 
 ### 2.4 Validation
-- [ ] all HUD interactions still route correctly
-- [ ] task dialog/message box behavior unchanged
-- [ ] spawn/kill/focus/isolate semantics unchanged
+- [x] all HUD interactions still route correctly
+- [x] task dialog/message box behavior unchanged
+- [x] spawn/kill/focus/isolate semantics unchanged
 
 ### Phase 2 gate
-- [ ] `cargo test`
-- [ ] `cargo clippy --all-targets -- -D warnings`
-- [ ] `cargo fmt --check`
+- [x] `cargo test`
+- [x] `cargo clippy --all-targets -- -D warnings`
+- [x] `cargo fmt --check`
 
 ---
 
