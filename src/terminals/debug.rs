@@ -1,9 +1,9 @@
 use crate::app_config::DEBUG_LOG_PATH;
 use bevy::input::keyboard::KeyboardInput;
 use std::{
-    env, fs,
+    fs,
     io::Write,
-    sync::{Arc, Mutex, OnceLock},
+    sync::{Arc, Mutex},
 };
 
 #[derive(Clone, Default)]
@@ -39,19 +39,6 @@ pub(crate) fn append_debug_log(message: impl AsRef<str>) {
     {
         let _ = writeln!(file, "{message}");
     }
-}
-
-pub(crate) fn startup_trace_enabled() -> bool {
-    static ENABLED: OnceLock<bool> = OnceLock::new();
-    *ENABLED.get_or_init(|| env::var_os("NEOZEUS_TRACE_STARTUP").is_some())
-}
-
-pub(crate) fn should_trace_startup(counter: &mut u8, max_frames: u8) -> bool {
-    if !startup_trace_enabled() || *counter >= max_frames {
-        return false;
-    }
-    *counter += 1;
-    true
 }
 
 pub(crate) fn with_debug_stats(
