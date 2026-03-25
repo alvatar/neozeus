@@ -200,6 +200,16 @@ fn active_terminal_ready_for_presentation(
         && presented_terminal.uploaded_revision == terminal.surface_revision
 }
 
+fn terminal_has_presentable_uploaded_frame(
+    terminal: &crate::terminals::registry::ManagedTerminal,
+    presented_terminal: &crate::terminals::PresentedTerminal,
+) -> bool {
+    terminal.snapshot.surface.is_some()
+        && presented_terminal.uploaded_revision == terminal.surface_revision
+        && presented_terminal.texture_state.texture_size != UVec2::ONE
+        && presented_terminal.texture_state.cell_size != UVec2::ZERO
+}
+
 pub(crate) fn sync_active_terminal_dimensions(
     mut terminal_manager: ResMut<TerminalManager>,
     focus_state: Res<TerminalFocusState>,
@@ -430,7 +440,8 @@ pub(crate) fn sync_terminal_presentations(
             continue;
         }
         let active_ready = Some(panel.id) != active_id
-            || active_terminal_ready_for_presentation(terminal, presented_terminal, active_layout);
+            || active_terminal_ready_for_presentation(terminal, presented_terminal, active_layout)
+            || terminal_has_presentable_uploaded_frame(terminal, presented_terminal);
         if !active_ready {
             *visibility = Visibility::Hidden;
             continue;
