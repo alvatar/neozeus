@@ -6,7 +6,8 @@ use bevy::prelude::*;
 use std::{collections::BTreeSet, env, fs, path::PathBuf};
 
 const TERMINAL_SESSIONS_FILENAME: &str = "terminals.v1";
-const TERMINAL_SESSIONS_VERSION: &str = "version 1";
+const TERMINAL_SESSIONS_VERSION_V1: &str = "version 1";
+const TERMINAL_SESSIONS_VERSION_V2: &str = "version 2";
 const TERMINAL_SESSIONS_SAVE_DEBOUNCE_SECS: f32 = 0.3;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -85,7 +86,44 @@ pub(crate) fn resolve_terminal_sessions_path() -> Option<PathBuf> {
     )
 }
 
-pub(crate) fn parse_persisted_terminal_sessions(text: &str) -> PersistedTerminalSessions {
+fn escape_persisted_string(value: &str) -> String {
+    let mut escaped = String::with_capacity(value.len() + 4);
+    for ch in value.chars() {
+        match ch {
+            '\\' => escaped.push_str("\\\\"),
+            '"' => escaped.push_str("\\\""),
+            '\n' => escaped.push_str("\\n"),
+            '\r' => escaped.push_str("\\r"),
+            '\t' => escaped.push_str("\\t"),
+            _ => escaped.push(ch),
+        }
+    }
+    escaped
+}
+
+fn parse_quoted_string(value: &str) -> Option<String> {
+    let trimmed = value.trim();
+    let inner = trimmed.strip_prefix('"')?.strip_suffix('"')?;
+    let mut parsed = String::with_capacity(inner.len());
+    let mut chars = inner.chars();
+    while let Some(ch) = chars.next() {
+        if ch != '\\' {
+            parsed.push(ch);
+            continue;
+        }
+        match chars.next()? {
+            '\\' => parsed.push('\\'),
+            '"' => parsed.push('"'),
+            'n' => parsed.push('\n'),
+            'r' => parsed.push('\r'),
+            't' => parsed.push('\t'),
+            _ => return None,
+        }
+    }
+    Some(parsed)
+}
+
+fn parse_v1_terminal_sessions(text: &str) -> PersistedTerminalSessions {
     let mut persisted = PersistedTerminalSessions::default();
     for (line_index, line) in text.lines().enumerate() {
         let line = line.trim();
@@ -93,12 +131,6 @@ pub(crate) fn parse_persisted_terminal_sessions(text: &str) -> PersistedTerminal
             continue;
         }
         if line_index == 0 {
-            if line != TERMINAL_SESSIONS_VERSION {
-                append_debug_log(format!(
-                    "terminal sessions: unexpected version line `{line}`"
-                ));
-                return PersistedTerminalSessions::default();
-            }
             continue;
         }
 
@@ -143,29 +175,107 @@ pub(crate) fn parse_persisted_terminal_sessions(text: &str) -> PersistedTerminal
             last_focused,
         });
     }
+    persisted
+}
+
+fn parse_v2_terminal_sessions(text: &str) -> PersistedTerminalSessions {
+    let mut persisted = PersistedTerminalSessions::default();
+    let mut session_name = None;
+    let mut label = None;
+    let mut creation_index = None;
+    let mut last_focused = None;
+    let mut in_session = false;
+
+    for (line_index, raw_line) in text.lines().enumerate() {
+        let line = raw_line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        if line_index == 0 {
+            continue;
+        }
+
+        match line {
+            "[session]" => {
+                in_session = true;
+                session_name = None;
+                label = None;
+                creation_index = None;
+                last_focused = None;
+            }
+            "[/session]" => {
+                if in_session {
+                    if let (Some(session_name), Some(creation_index), Some(last_focused)) = (
+                        session_name.take(),
+                        creation_index.take(),
+                        last_focused.take(),
+                    ) {
+                        persisted.sessions.push(TerminalSessionRecord {
+                            session_name,
+                            label: label.take(),
+                            creation_index,
+                            last_focused,
+                        });
+                    }
+                }
+                in_session = false;
+            }
+            _ if !in_session => {}
+            _ => {
+                let Some((key, value)) = line.split_once('=') else {
+                    continue;
+                };
+                match key {
+                    "name" => session_name = parse_quoted_string(value),
+                    "label" => label = parse_quoted_string(value),
+                    "creation_index" => creation_index = value.parse::<u64>().ok(),
+                    "focused" => last_focused = value.parse::<u8>().ok().map(|flag| flag != 0),
+                    _ => {}
+                }
+            }
+        }
+    }
 
     persisted
+}
+
+pub(crate) fn parse_persisted_terminal_sessions(text: &str) -> PersistedTerminalSessions {
+    let version_line = text
+        .lines()
+        .find(|line| !line.trim().is_empty())
+        .map(str::trim)
+        .unwrap_or_default();
+    match version_line {
+        TERMINAL_SESSIONS_VERSION_V1 => parse_v1_terminal_sessions(text),
+        TERMINAL_SESSIONS_VERSION_V2 => parse_v2_terminal_sessions(text),
+        line => {
+            append_debug_log(format!(
+                "terminal sessions: unexpected version line `{line}`"
+            ));
+            PersistedTerminalSessions::default()
+        }
+    }
 }
 
 pub(crate) fn serialize_persisted_terminal_sessions(
     sessions: &PersistedTerminalSessions,
 ) -> String {
-    let mut output = String::from(TERMINAL_SESSIONS_VERSION);
+    let mut output = String::from(TERMINAL_SESSIONS_VERSION_V2);
     output.push('\n');
     let mut ordered = sessions.sessions.clone();
     ordered.sort_by_key(|record| record.creation_index);
     for record in ordered {
+        output.push_str("[session]\n");
         output.push_str(&format!(
-            "session name={} label={} creation_index={} focused={}\n",
-            record.session_name,
-            record
-                .label
-                .as_deref()
-                .map(|label| label.replace(' ', "\\s"))
-                .unwrap_or_default(),
-            record.creation_index,
-            u8::from(record.last_focused),
+            "name=\"{}\"\n",
+            escape_persisted_string(&record.session_name)
         ));
+        if let Some(label) = record.label {
+            output.push_str(&format!("label=\"{}\"\n", escape_persisted_string(&label)));
+        }
+        output.push_str(&format!("creation_index={}\n", record.creation_index));
+        output.push_str(&format!("focused={}\n", u8::from(record.last_focused)));
+        output.push_str("[/session]\n");
     }
     output
 }

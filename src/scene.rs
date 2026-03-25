@@ -3,7 +3,8 @@
     reason = "scene.rs is a compatibility facade for tests and main"
 )]
 pub(crate) use crate::app::{
-    build_app, format_startup_panic, resolve_window_mode, resolve_window_scale_factor,
+    build_app, format_startup_panic, resolve_force_fallback_adapter, resolve_window_mode,
+    resolve_window_scale_factor,
 };
 #[allow(
     unused_imports,

@@ -18,7 +18,12 @@ use crate::{
 use std::{env, fs, path::PathBuf};
 
 fn main() {
-    let _ = fs::write(DEBUG_LOG_PATH, "");
+    if env::var("NEOZEUS_CLEAR_DEBUG_LOG")
+        .map(|value| !matches!(value.trim().to_ascii_lowercase().as_str(), "0" | "false" | "no" | "off"))
+        .unwrap_or(true)
+    {
+        let _ = fs::write(DEBUG_LOG_PATH, "");
+    }
     let args = env::args().collect::<Vec<_>>();
     if args.get(1).is_some_and(|arg| arg == "daemon") {
         if let Err(error) = run_daemon_mode(&args[2..]) {

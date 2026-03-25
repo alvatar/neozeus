@@ -43,13 +43,15 @@ impl Default for DaemonRegistry {
 
 impl DaemonRegistry {
     fn list_sessions(&self) -> Vec<DaemonSessionInfo> {
+        // Session list order follows daemon creation order, not lexical session ids. Dead sessions
+        // remain listed until an explicit kill/reap so the UI can inspect final runtime state.
         let registry = lock(&self.inner);
         let mut sessions = registry
             .sessions
             .values()
             .map(|session| session.info())
             .collect::<Vec<_>>();
-        sessions.sort_by(|left, right| left.session_id.cmp(&right.session_id));
+        sessions.sort_by_key(|session| session.created_order);
         sessions
     }
 
@@ -57,13 +59,14 @@ impl DaemonRegistry {
         if prefix.trim().is_empty() {
             return Err("daemon session prefix must not be empty".to_owned());
         }
-        let session_id = {
+        let (session_id, created_order) = {
             let mut registry = lock(&self.inner);
-            let session_id = format!("{prefix}{}", registry.next_session_counter);
+            let created_order = registry.next_session_counter;
+            let session_id = format!("{prefix}{created_order}");
             registry.next_session_counter += 1;
-            session_id
+            (session_id, created_order)
         };
-        let session = DaemonSession::start(session_id.clone())?;
+        let session = DaemonSession::start(session_id.clone(), created_order)?;
         let mut registry = lock(&self.inner);
         if registry
             .sessions

@@ -174,6 +174,7 @@ pub(crate) fn render_content(
         state.scroll_offset,
         state.hovered_terminal,
         inputs.terminal_manager,
+        inputs.focus_state,
         inputs.agent_directory,
     ) {
         if row.rect.y + row.rect.h < content_rect.y || row.rect.y > content_rect.y + content_rect.h
@@ -212,7 +213,7 @@ pub(crate) fn render_content(
         draw_label(
             painter,
             Vec2::new(main_rect.x + 12.0, main_rect.y + 2.0),
-            &row.label.to_uppercase(),
+            &row.display_label,
             16.0,
             if row.focused {
                 EVA_ORANGE_BRIGHT

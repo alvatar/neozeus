@@ -530,6 +530,15 @@ fn hud_layout_parse_and_serialize_roundtrip() {
 }
 
 #[test]
+fn hud_layout_v1_parser_remains_backward_compatible() {
+    let persisted =
+        parse_persisted_hud_state("version 1\nAgentList enabled=1 x=24 y=96 w=300 h=420\n");
+    let module = persisted.modules.get(&HudModuleId::AgentList).unwrap();
+    assert!(module.enabled);
+    assert_eq!(module.rect.w, 300.0);
+}
+
+#[test]
 fn apply_persisted_layout_overrides_defaults() {
     let mut persisted = PersistedHudState::default();
     persisted.modules.insert(
@@ -1366,7 +1375,14 @@ fn saving_hud_layout_persists_target_rect() {
     world.run_system_once(save_hud_layout_if_dirty).unwrap();
 
     let serialized = fs::read_to_string(&path).expect("hud layout file missing");
-    assert!(serialized.contains("AgentList enabled=1 x=321 y=222 w=333 h=444"));
+    assert!(serialized.contains("version 2"));
+    assert!(serialized.contains("[module]"));
+    assert!(serialized.contains("id=\"AgentList\""));
+    assert!(serialized.contains("enabled=1"));
+    assert!(serialized.contains("x=321"));
+    assert!(serialized.contains("y=222"));
+    assert!(serialized.contains("w=333"));
+    assert!(serialized.contains("h=444"));
 }
 
 #[test]

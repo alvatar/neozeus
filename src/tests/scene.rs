@@ -1,8 +1,8 @@
 use crate::{
     hud::TerminalVisibilityPolicy,
     scene::{
-        choose_startup_focus_session_name, format_startup_panic, resolve_window_mode,
-        resolve_window_scale_factor, should_request_visual_redraw,
+        choose_startup_focus_session_name, format_startup_panic, resolve_force_fallback_adapter,
+        resolve_window_mode, resolve_window_scale_factor, should_request_visual_redraw,
         startup_visibility_policy_for_focus,
     },
     terminals::TerminalId,
@@ -81,6 +81,16 @@ fn parses_optional_window_scale_factor_override() {
     assert_eq!(resolve_window_scale_factor(Some("0")), None);
     assert_eq!(resolve_window_scale_factor(Some("-1")), None);
     assert_eq!(resolve_window_scale_factor(Some("abc")), None);
+}
+
+#[test]
+fn parses_force_fallback_adapter_override() {
+    assert!(resolve_force_fallback_adapter(None));
+    assert!(resolve_force_fallback_adapter(Some("")));
+    assert!(resolve_force_fallback_adapter(Some("true")));
+    assert!(resolve_force_fallback_adapter(Some("1")));
+    assert!(!resolve_force_fallback_adapter(Some("false")));
+    assert!(!resolve_force_fallback_adapter(Some("0")));
 }
 
 #[test]

@@ -197,6 +197,8 @@ impl SocketTerminalDaemonClient {
 
 impl Drop for SocketTerminalDaemonClient {
     fn drop(&mut self) {
+        // Shutting down the cloned socket side unblocks the reader/writer threads deterministically
+        // so pending requests and routes drain to connection-closed errors instead of hanging.
         if let Some(stream) = lock(&self.shutdown_stream).take() {
             let _ = stream.shutdown(Shutdown::Both);
         }
@@ -224,6 +226,8 @@ impl TerminalDaemonClient for SocketTerminalDaemonClient {
         let (updates_tx, updates_rx) = mpsc::channel();
         {
             let mut routes = lock(&self.session_routes);
+            // A single UI process owns at most one live route per session id. Re-attachment within
+            // the same process must happen after the previous route is torn down.
             if routes.contains_key(session_id) {
                 return Err(format!(
                     "daemon session `{session_id}` is already attached in this UI process"

@@ -7,7 +7,8 @@ use bevy::prelude::*;
 use std::{collections::BTreeMap, env, fs, path::PathBuf};
 
 const HUD_LAYOUT_FILENAME: &str = "hud-layout.v1";
-const HUD_LAYOUT_VERSION: &str = "version 1";
+const HUD_LAYOUT_VERSION_V1: &str = "version 1";
+const HUD_LAYOUT_VERSION_V2: &str = "version 2";
 const HUD_LAYOUT_SAVE_DEBOUNCE_SECS: f32 = 0.3;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -49,7 +50,7 @@ pub(crate) fn resolve_hud_layout_path() -> Option<PathBuf> {
     )
 }
 
-pub(crate) fn parse_persisted_hud_state(text: &str) -> PersistedHudState {
+fn parse_v1_hud_state(text: &str) -> PersistedHudState {
     let mut persisted = PersistedHudState::default();
     for (line_index, line) in text.lines().enumerate() {
         let line = line.trim();
@@ -57,10 +58,6 @@ pub(crate) fn parse_persisted_hud_state(text: &str) -> PersistedHudState {
             continue;
         }
         if line_index == 0 {
-            if line != HUD_LAYOUT_VERSION {
-                append_hud_log(format!("hud layout: unexpected version line `{line}`"));
-                return PersistedHudState::default();
-            }
             continue;
         }
 
@@ -103,22 +100,103 @@ pub(crate) fn parse_persisted_hud_state(text: &str) -> PersistedHudState {
     persisted
 }
 
+fn parse_v2_hud_state(text: &str) -> PersistedHudState {
+    let mut persisted = PersistedHudState::default();
+    let mut module_id = None;
+    let mut enabled = None;
+    let mut x = None;
+    let mut y = None;
+    let mut w = None;
+    let mut h = None;
+    let mut in_module = false;
+
+    for (line_index, raw_line) in text.lines().enumerate() {
+        let line = raw_line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        if line_index == 0 {
+            continue;
+        }
+
+        match line {
+            "[module]" => {
+                in_module = true;
+                module_id = None;
+                enabled = None;
+                x = None;
+                y = None;
+                w = None;
+                h = None;
+            }
+            "[/module]" => {
+                if in_module {
+                    if let (Some(module_id), Some(enabled), Some(x), Some(y), Some(w), Some(h)) =
+                        (module_id, enabled, x, y, w, h)
+                    {
+                        persisted.modules.insert(
+                            module_id,
+                            PersistedHudModuleState {
+                                enabled,
+                                rect: HudRect { x, y, w, h },
+                            },
+                        );
+                    }
+                }
+                in_module = false;
+            }
+            _ if !in_module => {}
+            _ => {
+                let Some((key, value)) = line.split_once('=') else {
+                    continue;
+                };
+                match key {
+                    "id" => module_id = parse_hud_module_id(value.trim_matches('"')),
+                    "enabled" => enabled = value.parse::<u8>().ok().map(|flag| flag != 0),
+                    "x" => x = value.parse::<f32>().ok(),
+                    "y" => y = value.parse::<f32>().ok(),
+                    "w" => w = value.parse::<f32>().ok(),
+                    "h" => h = value.parse::<f32>().ok(),
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    persisted
+}
+
+pub(crate) fn parse_persisted_hud_state(text: &str) -> PersistedHudState {
+    let version_line = text
+        .lines()
+        .find(|line| !line.trim().is_empty())
+        .map(str::trim)
+        .unwrap_or_default();
+    match version_line {
+        HUD_LAYOUT_VERSION_V1 => parse_v1_hud_state(text),
+        HUD_LAYOUT_VERSION_V2 => parse_v2_hud_state(text),
+        line => {
+            append_hud_log(format!("hud layout: unexpected version line `{line}`"));
+            PersistedHudState::default()
+        }
+    }
+}
+
 pub(crate) fn serialize_persisted_hud_state(state: &PersistedHudState) -> String {
-    let mut output = String::from(HUD_LAYOUT_VERSION);
+    let mut output = String::from(HUD_LAYOUT_VERSION_V2);
     output.push('\n');
     for definition in HUD_MODULE_DEFINITIONS {
         let Some(module) = state.modules.get(&definition.id) else {
             continue;
         };
-        output.push_str(&format!(
-            "{} enabled={} x={} y={} w={} h={}\n",
-            definition.id.title_key(),
-            u8::from(module.enabled),
-            module.rect.x,
-            module.rect.y,
-            module.rect.w,
-            module.rect.h,
-        ));
+        output.push_str("[module]\n");
+        output.push_str(&format!("id=\"{}\"\n", definition.id.title_key()));
+        output.push_str(&format!("enabled={}\n", u8::from(module.enabled)));
+        output.push_str(&format!("x={}\n", module.rect.x));
+        output.push_str(&format!("y={}\n", module.rect.y));
+        output.push_str(&format!("w={}\n", module.rect.w));
+        output.push_str(&format!("h={}\n", module.rect.h));
+        output.push_str("[/module]\n");
     }
     output
 }

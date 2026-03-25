@@ -163,10 +163,12 @@ impl TerminalDaemonClient for FakeDaemonClient {
             .unwrap()
             .iter()
             .cloned()
-            .map(|session_id| DaemonSessionInfo {
+            .enumerate()
+            .map(|(index, session_id)| DaemonSessionInfo {
                 session_id,
                 runtime: TerminalRuntimeState::running("fake daemon"),
                 revision: 0,
+                created_order: index as u64,
             })
             .collect())
     }
