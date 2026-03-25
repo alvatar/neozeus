@@ -364,6 +364,7 @@ pub(crate) fn sync_terminal_presentations(
     mut last_active_id: Local<Option<TerminalId>>,
     mut last_visibility_policy: Local<Option<TerminalVisibilityPolicy>>,
     mut last_active_texture_state: Local<Option<TerminalTextureState>>,
+    mut last_active_ready: Local<bool>,
     mut startup_trace_frames: Local<u8>,
     mut panels: Query<(
         &TerminalPanel,
@@ -378,9 +379,21 @@ pub(crate) fn sync_terminal_presentations(
     let background_ids = ordered_background_ids(&terminal_manager, active_id);
     let active_layout = active_terminal_layout(&primary_window, &hud_state, &view_state);
     let active_texture_state = active_layout_texture_state(active_layout);
+    let active_ready = active_id
+        .and_then(|id| {
+            let terminal = terminal_manager.get(id)?;
+            let presented_terminal = presentation_store.get(id)?;
+            Some(active_terminal_ready_for_presentation(
+                terminal,
+                presented_terminal,
+                active_layout,
+            ))
+        })
+        .unwrap_or(false);
     let snap_switch = *last_active_id != active_id
         || *last_visibility_policy != Some(visibility_policy)
-        || *last_active_texture_state != active_id.map(|_| active_texture_state.clone());
+        || *last_active_texture_state != active_id.map(|_| active_texture_state.clone())
+        || *last_active_ready != active_ready;
     let trace_startup = should_trace_startup(&mut startup_trace_frames, 8);
     let active_size = physical_to_logical_size(
         Vec2::new(
@@ -521,6 +534,7 @@ pub(crate) fn sync_terminal_presentations(
     *last_active_id = active_id;
     *last_visibility_policy = Some(visibility_policy);
     *last_active_texture_state = active_id.map(|_| active_texture_state);
+    *last_active_ready = active_ready;
 }
 
 #[allow(
