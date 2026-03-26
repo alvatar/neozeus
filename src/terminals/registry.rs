@@ -71,6 +71,7 @@ impl TerminalFocusState {
             .unwrap_or_default()
     }
 
+    #[cfg(test)]
     pub(crate) fn focus_order(&self) -> &[TerminalId] {
         &self.focus_order
     }
