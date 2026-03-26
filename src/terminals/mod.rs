@@ -66,9 +66,7 @@ pub(crate) use types::{
 };
 
 #[cfg(test)]
-pub(crate) use backend::{
-    compute_terminal_damage, resolve_alacritty_color, send_command_payload_bytes, xterm_indexed_rgb,
-};
+pub(crate) use backend::{resolve_alacritty_color, send_command_payload_bytes, xterm_indexed_rgb};
 #[cfg(test)]
 pub(crate) use daemon::{
     read_client_message, read_server_message, resolve_daemon_socket_path_with,

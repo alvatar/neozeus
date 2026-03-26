@@ -56,13 +56,6 @@ pub(crate) use state::{
 };
 
 #[cfg(test)]
-pub(crate) use bloom::{
-    agent_list_bloom_layer, agent_list_bloom_z, resolve_agent_list_bloom_debug_previews,
-    resolve_agent_list_bloom_intensity, AgentListBloomBlurUniform, AgentListBloomCameraMarker,
-    AgentListBloomCompositeMarker, AgentListBloomSourceKind, AgentListBloomSourceSegment,
-    AgentListBloomSourceSprite,
-};
-#[cfg(test)]
 pub(crate) use compositor::{
     HudCompositeLayerId, HudCompositeLayerMarker, HUD_COMPOSITE_FOREGROUND_Z,
     HUD_COMPOSITE_RENDER_LAYER,
@@ -71,9 +64,7 @@ pub(crate) use compositor::{
 pub(crate) use modules::{
     agent_row_rect, agent_rows, debug_toolbar_buttons,
     handle_pointer_click as dispatch_hud_pointer_click, handle_scroll as dispatch_hud_scroll,
-    resolve_agent_label, AgentListRowSection, AGENT_LIST_BLOOM_RED_B, AGENT_LIST_BLOOM_RED_G,
-    AGENT_LIST_BLOOM_RED_R, AGENT_LIST_BORDER_ORANGE_B, AGENT_LIST_BORDER_ORANGE_G,
-    AGENT_LIST_BORDER_ORANGE_R,
+    resolve_agent_label, AgentListRowSection,
 };
 #[cfg(test)]
 pub(crate) use state::HudState;

@@ -40,3 +40,6 @@ pub(crate) fn compute_terminal_damage(
         TerminalDamage::Rows(dirty_rows)
     }
 }
+
+#[cfg(test)]
+mod tests;

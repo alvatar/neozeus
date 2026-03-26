@@ -1111,3 +1111,6 @@ pub(crate) fn agent_list_bloom_layer() -> usize {
 pub(crate) fn agent_list_bloom_z() -> f32 {
     BLOOM_COMPOSITE_Z
 }
+
+#[cfg(test)]
+mod tests;
