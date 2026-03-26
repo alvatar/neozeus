@@ -9,7 +9,7 @@ Window manager identity defaults to `neozeus` and can be overridden with:
 - `NEOZEUS_APP_ID` — native window/app id (Wayland app_id / WM-visible name)
 - `NEOZEUS_WINDOW_TITLE` — human-facing window title
 - `NEOZEUS_WINDOW_MODE` — `windowed` to disable the default borderless fullscreen startup mode
-- `NEOZEUS_WINDOW_SCALE_FACTOR` — optional scale-factor override for deterministic window sizing in GUI verification
+- `NEOZEUS_WINDOW_SCALE_FACTOR` — optional scale-factor override for deterministic sizing in offscreen verification
 
 Agent-list bloom verification / tuning can also override:
 
@@ -23,7 +23,7 @@ Default development checks stay headless and cheap:
 - `cargo clippy --all-targets -- -D warnings`
 - `cargo fmt --check`
 
-Offscreen visual verification is now the default path for layering/composition work. In
+Offscreen visual verification is now the only supported visual-regression path. In
 `NEOZEUS_OUTPUT_MODE=offscreen`, NeoZeus runs with a synthetic `PrimaryWindow`, disables Winit,
 and renders directly into image targets without creating a real OS window.
 
@@ -51,18 +51,10 @@ To add a new offscreen scenario:
 4. add a dedicated verifier script under `scripts/offscreen/`
 5. wire it into `scripts/offscreen/run-suite.sh` if it should be part of the default regression set
 
-Window-opening GUI verifiers remain opt-in for cases the offscreen path does not yet cover and are
-kept under `scripts/gui/`:
+Legacy GUI verifier entrypoints remain only as compatibility shims:
 
-- full GUI suite: `./scripts/gui/run-suite.sh`
-- visible-output verifier only: `./scripts/gui/verify-visible-terminal.sh`
-- color verifier only: `./scripts/gui/verify-terminal-colors.sh`
-- agent-list bloom verifier only: `./scripts/gui/verify-agent-list-bloom.sh`
-- agent-list bloom stage inspector: `./scripts/gui/inspect-agent-list-bloom-stages.sh`
+- `./scripts/gui/run-suite.sh` delegates to the offscreen suite where possible
+- GUI-only verifiers that still require a real window now fail fast with an explicit error
+- `./scripts/verify-agent-list-bloom.sh` now points directly at the offscreen verifier
 
-Compatibility wrappers remain at the old paths:
-
-- `./scripts/verify-visible-terminal.sh`
-- `./scripts/verify-terminal-colors.sh`
-- `./scripts/verify-agent-list-bloom.sh`
-- `./scripts/inspect-agent-list-bloom-stages.sh`
+Compatibility wrappers remain at the old paths, but they no longer launch a visible window.
