@@ -236,6 +236,7 @@ fn configure_app(app: &mut App) -> Result<(), String> {
         .insert_resource(HudWidgetBloom::default())
         .insert_resource(AgentDirectory::default())
         .insert_resource(TerminalVisibilityState::default())
+        .insert_resource(crate::startup::StartupLoadingState::default())
         .add_message::<HudIntent>()
         .add_message::<TerminalFocusRequest>()
         .add_message::<TerminalVisibilityRequest>()
