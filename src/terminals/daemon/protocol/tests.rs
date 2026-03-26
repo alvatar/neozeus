@@ -2,14 +2,14 @@ use super::*;
 use crate::terminals::{TerminalLifecycle, TerminalRuntimeState};
 use std::io::Cursor;
 
-// Encodes v1 session info.
+/// Encodes v1 session info.
 fn encode_v1_session_info(buffer: &mut Vec<u8>, info: &DaemonSessionInfo) {
     push_string(buffer, &info.session_id);
     encode_runtime_state(buffer, &info.runtime);
     push_u64(buffer, info.revision);
 }
 
-// Verifies that decodes v1 session list payloads without created order.
+/// Verifies that decodes v1 session list payloads without created order.
 #[test]
 fn decodes_v1_session_list_payloads_without_created_order() {
     let response = DaemonResponse::SessionList {
@@ -63,7 +63,7 @@ fn decodes_v1_session_list_payloads_without_created_order() {
     assert_eq!(sessions[0].created_order, 0);
 }
 
-// Verifies that session list wire format omits created order for v1 compatibility.
+/// Verifies that session list wire format omits created order for v1 compatibility.
 #[test]
 fn session_list_wire_format_omits_created_order_for_v1_compatibility() {
     let message = ServerMessage::Response {

@@ -10,7 +10,7 @@ pub(crate) struct TerminalViewState {
 }
 
 impl Default for TerminalViewState {
-    // Returns the default value for this type.
+    /// Returns the default value for this type.
     fn default() -> Self {
         Self {
             distance: 10.0,
@@ -21,7 +21,7 @@ impl Default for TerminalViewState {
 }
 
 impl TerminalViewState {
-    // Focuses terminal.
+    /// Focuses terminal.
     pub(crate) fn focus_terminal(&mut self, active_id: Option<TerminalId>) {
         self.offset = active_id
             .map(|id| {
@@ -33,7 +33,7 @@ impl TerminalViewState {
             .unwrap_or(Vec2::ZERO);
     }
 
-    // Applies offset delta.
+    /// Applies offset delta.
     pub(crate) fn apply_offset_delta(&mut self, active_id: Option<TerminalId>, delta: Vec2) {
         self.offset += delta;
         if let Some(id) = active_id {
@@ -41,7 +41,7 @@ impl TerminalViewState {
         }
     }
 
-    // Implements reset active offset.
+    /// Implements reset active offset.
     pub(crate) fn reset_active_offset(&mut self, active_id: Option<TerminalId>) {
         self.offset = Vec2::ZERO;
         if let Some(id) = active_id {
@@ -49,7 +49,7 @@ impl TerminalViewState {
         }
     }
 
-    // Implements forget terminal.
+    /// Implements forget terminal.
     pub(crate) fn forget_terminal(&mut self, terminal_id: TerminalId) {
         self.offsets_by_terminal.remove(&terminal_id);
     }
@@ -121,27 +121,27 @@ pub(crate) struct TerminalPresentationStore {
 }
 
 impl TerminalPresentationStore {
-    // Registers this item in the current state.
+    /// Registers this item in the current state.
     pub(crate) fn register(&mut self, id: TerminalId, terminal: PresentedTerminal) {
         self.terminals.insert(id, terminal);
     }
 
-    // Implements get.
+    /// Implements get.
     pub(crate) fn get(&self, id: TerminalId) -> Option<&PresentedTerminal> {
         self.terminals.get(&id)
     }
 
-    // Implements get mut.
+    /// Implements get mut.
     pub(crate) fn get_mut(&mut self, id: TerminalId) -> Option<&mut PresentedTerminal> {
         self.terminals.get_mut(&id)
     }
 
-    // Removes this value.
+    /// Removes this value.
     pub(crate) fn remove(&mut self, id: TerminalId) -> Option<PresentedTerminal> {
         self.terminals.remove(&id)
     }
 
-    // Implements active texture state.
+    /// Implements active texture state.
     pub(crate) fn active_texture_state(
         &self,
         active_id: Option<TerminalId>,
@@ -151,7 +151,7 @@ impl TerminalPresentationStore {
             .map(|terminal| &terminal.texture_state)
     }
 
-    // Implements active display mode.
+    /// Implements active display mode.
     pub(crate) fn active_display_mode(
         &self,
         active_id: Option<TerminalId>,
@@ -161,7 +161,7 @@ impl TerminalPresentationStore {
             .map(|terminal| terminal.display_mode)
     }
 
-    // Toggles active display mode.
+    /// Toggles active display mode.
     pub(crate) fn toggle_active_display_mode(&mut self, active_id: Option<TerminalId>) {
         let Some(terminal) = active_id.and_then(|id| self.terminals.get_mut(&id)) else {
             return;

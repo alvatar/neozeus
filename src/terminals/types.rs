@@ -13,7 +13,7 @@ pub(crate) enum TerminalCellContent {
 }
 
 impl TerminalCellContent {
-    // Builds this value from parts.
+    /// Builds this value from parts.
     pub(crate) fn from_parts(base: char, extra: Option<&[char]>) -> Self {
         let Some(extra) = extra else {
             return Self::Single(base);
@@ -32,12 +32,12 @@ impl TerminalCellContent {
         }
     }
 
-    // Returns whether empty.
+    /// Returns whether empty.
     pub(crate) fn is_empty(&self) -> bool {
         matches!(self, Self::Empty)
     }
 
-    // Implements any char.
+    /// Implements any char.
     pub(crate) fn any_char(&self, mut predicate: impl FnMut(char) -> bool) -> bool {
         match self {
             Self::Empty => false,
@@ -50,7 +50,7 @@ impl TerminalCellContent {
         }
     }
 
-    // Converts this value to owned string.
+    /// Converts this value to owned string.
     pub(crate) fn to_owned_string(&self) -> String {
         match self {
             Self::Empty => String::new(),
@@ -70,7 +70,7 @@ pub(crate) struct TerminalCell {
 }
 
 impl Default for TerminalCell {
-    // Returns the default value for this type.
+    /// Returns the default value for this type.
     fn default() -> Self {
         Self {
             content: TerminalCellContent::Empty,
@@ -106,7 +106,7 @@ pub(crate) struct TerminalSurface {
 }
 
 impl TerminalSurface {
-    // Constructs a new value.
+    /// Constructs a new value.
     pub(crate) fn new(cols: usize, rows: usize) -> Self {
         Self {
             cols,
@@ -116,7 +116,7 @@ impl TerminalSurface {
         }
     }
 
-    // Sets cell.
+    /// Sets cell.
     pub(crate) fn set_cell(&mut self, x: usize, y: usize, cell: TerminalCell) {
         if x >= self.cols || y >= self.rows {
             return;
@@ -124,7 +124,7 @@ impl TerminalSurface {
         self.cells[y * self.cols + x] = cell;
     }
 
-    // Sets text cell.
+    /// Sets text cell.
     #[cfg(test)]
     pub(crate) fn set_text_cell(&mut self, x: usize, y: usize, text: &str) {
         let mut chars = text.chars();
@@ -143,7 +143,7 @@ impl TerminalSurface {
         );
     }
 
-    // Implements cell.
+    /// Implements cell.
     pub(crate) fn cell(&self, x: usize, y: usize) -> &TerminalCell {
         &self.cells[y * self.cols + x]
     }
@@ -176,12 +176,12 @@ pub(crate) struct TerminalRuntimeState {
 }
 
 impl TerminalRuntimeState {
-    // Returns whether interactive.
+    /// Returns whether interactive.
     pub(crate) fn is_interactive(&self) -> bool {
         matches!(self.lifecycle, TerminalLifecycle::Running)
     }
 
-    // Implements running.
+    /// Implements running.
     pub(crate) fn running(status: impl Into<String>) -> Self {
         Self {
             status: status.into(),
@@ -190,7 +190,7 @@ impl TerminalRuntimeState {
         }
     }
 
-    // Implements failed.
+    /// Implements failed.
     pub(crate) fn failed(status: impl Into<String>) -> Self {
         let status = status.into();
         Self {
@@ -200,7 +200,7 @@ impl TerminalRuntimeState {
         }
     }
 
-    // Implements disconnected.
+    /// Implements disconnected.
     pub(crate) fn disconnected(status: impl Into<String>) -> Self {
         Self {
             status: status.into(),
@@ -209,7 +209,7 @@ impl TerminalRuntimeState {
         }
     }
 
-    // Implements exited.
+    /// Implements exited.
     pub(crate) fn exited(
         status: impl Into<String>,
         code: Option<u32>,
@@ -267,17 +267,17 @@ pub(crate) struct TerminalDimensions {
 }
 
 impl Dimensions for TerminalDimensions {
-    // Implements total lines.
+    /// Implements total lines.
     fn total_lines(&self) -> usize {
         self.rows
     }
 
-    // Implements screen lines.
+    /// Implements screen lines.
     fn screen_lines(&self) -> usize {
         self.rows
     }
 
-    // Implements columns.
+    /// Implements columns.
     fn columns(&self) -> usize {
         self.cols
     }

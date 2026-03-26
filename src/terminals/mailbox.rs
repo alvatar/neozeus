@@ -22,7 +22,7 @@ pub(crate) struct TerminalUpdateMailbox {
 }
 
 impl TerminalUpdateMailbox {
-    // Pushes frame.
+    /// Pushes frame.
     pub(crate) fn push_frame(&self, frame: TerminalFrameUpdate) -> MailboxPush {
         let mut pending = match self.inner.lock() {
             Ok(pending) => pending,
@@ -36,7 +36,7 @@ impl TerminalUpdateMailbox {
         }
     }
 
-    // Pushes status.
+    /// Pushes status.
     pub(crate) fn push_status(&self, status: LatestTerminalStatus) -> MailboxPush {
         let mut pending = match self.inner.lock() {
             Ok(pending) => pending,
@@ -48,7 +48,7 @@ impl TerminalUpdateMailbox {
         }
     }
 
-    // Pushes this value.
+    /// Pushes this value.
     pub(crate) fn push(&self, update: TerminalUpdate) -> MailboxPush {
         match update {
             TerminalUpdate::Frame(frame) => self.push_frame(frame),
@@ -56,7 +56,7 @@ impl TerminalUpdateMailbox {
         }
     }
 
-    // Drains this value.
+    /// Drains this value.
     pub(crate) fn drain(&self) -> DrainedTerminalUpdates {
         let mut pending = match self.inner.lock() {
             Ok(pending) => pending,
@@ -71,7 +71,7 @@ impl TerminalUpdateMailbox {
     }
 }
 
-// Marks wake pending.
+/// Marks wake pending.
 fn mark_wake_pending(pending: &mut PendingTerminalUpdates) -> bool {
     if pending.wake_pending {
         false

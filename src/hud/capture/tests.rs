@@ -1,7 +1,7 @@
 use super::{align_copy_bytes_per_row, texture_bytes_to_ppm};
 use bevy::render::render_resource::TextureFormat;
 
-// Verifies that texture dump skips row padding for RGBA.
+/// Verifies that texture dump skips row padding for RGBA.
 #[test]
 fn texture_dump_skips_row_padding_for_rgba() {
     let width = 2;
@@ -19,7 +19,7 @@ fn texture_dump_skips_row_padding_for_rgba() {
     );
 }
 
-// Verifies that texture dump swaps BGRA channels.
+/// Verifies that texture dump swaps BGRA channels.
 #[test]
 fn texture_dump_swaps_bgra_channels() {
     let bytes = [10u8, 129, 225, 255];

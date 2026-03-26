@@ -23,7 +23,7 @@ pub(crate) struct TerminalFocusState {
 }
 
 impl TerminalFocusState {
-    // Focuses terminal.
+    /// Focuses terminal.
     pub(crate) fn focus_terminal(&mut self, terminal_manager: &TerminalManager, id: TerminalId) {
         if !terminal_manager.contains_terminal(id) {
             return;
@@ -37,19 +37,19 @@ impl TerminalFocusState {
         append_debug_log(format!("focused terminal {}", id.0));
     }
 
-    // Implements active id.
+    /// Implements active id.
     pub(crate) fn active_id(&self) -> Option<TerminalId> {
         self.active_id
     }
 
-    // Clears active terminal.
+    /// Clears active terminal.
     pub(crate) fn clear_active_terminal(&mut self) -> Option<TerminalId> {
         let cleared = self.active_id.take()?;
         append_debug_log(format!("cleared active terminal {}", cleared.0));
         Some(cleared)
     }
 
-    // Implements active bridge.
+    /// Implements active bridge.
     pub(crate) fn active_bridge<'a>(
         &self,
         terminal_manager: &'a TerminalManager,
@@ -58,7 +58,7 @@ impl TerminalFocusState {
             .and_then(|id| terminal_manager.get(id).map(|terminal| &terminal.bridge))
     }
 
-    // Implements active snapshot.
+    /// Implements active snapshot.
     pub(crate) fn active_snapshot<'a>(
         &self,
         terminal_manager: &'a TerminalManager,
@@ -67,7 +67,7 @@ impl TerminalFocusState {
             .and_then(|id| terminal_manager.get(id).map(|terminal| &terminal.snapshot))
     }
 
-    // Implements active debug stats.
+    /// Implements active debug stats.
     pub(crate) fn active_debug_stats(
         &self,
         terminal_manager: &TerminalManager,
@@ -77,13 +77,13 @@ impl TerminalFocusState {
             .unwrap_or_default()
     }
 
-    // Focuses order.
+    /// Focuses order.
     #[cfg(test)]
     pub(crate) fn focus_order(&self) -> &[TerminalId] {
         &self.focus_order
     }
 
-    // Implements forget terminal.
+    /// Implements forget terminal.
     pub(crate) fn forget_terminal(&mut self, id: TerminalId) {
         self.focus_order.retain(|existing| *existing != id);
         if self.active_id == Some(id) {
@@ -102,7 +102,7 @@ pub(crate) struct TerminalManager {
 }
 
 impl Default for TerminalManager {
-    // Returns the default value for this type.
+    /// Returns the default value for this type.
     fn default() -> Self {
         Self {
             next_id: 1,
@@ -115,7 +115,7 @@ impl Default for TerminalManager {
 }
 
 impl TerminalManager {
-    // Inserts terminal.
+    /// Inserts terminal.
     fn insert_terminal(&mut self, bridge: TerminalBridge, session_name: String) -> TerminalId {
         let id = TerminalId(self.next_id);
         self.next_id += 1;
@@ -134,12 +134,12 @@ impl TerminalManager {
         id
     }
 
-    // Implements contains terminal.
+    /// Implements contains terminal.
     pub(crate) fn contains_terminal(&self, id: TerminalId) -> bool {
         self.terminals.contains_key(&id)
     }
 
-    // Creates terminal without focus with session.
+    /// Creates terminal without focus with session.
     pub(crate) fn create_terminal_without_focus_with_session(
         &mut self,
         bridge: TerminalBridge,
@@ -148,7 +148,7 @@ impl TerminalManager {
         self.insert_terminal(bridge, session_name)
     }
 
-    // Creates terminal without focus with slot and session.
+    /// Creates terminal without focus with slot and session.
     pub(crate) fn create_terminal_without_focus_with_slot_and_session(
         &mut self,
         bridge: TerminalBridge,
@@ -160,22 +160,22 @@ impl TerminalManager {
         (id, slot)
     }
 
-    // Handles ids.
+    /// Handles ids.
     pub(crate) fn terminal_ids(&self) -> &[TerminalId] {
         &self.creation_order
     }
 
-    // Implements get.
+    /// Implements get.
     pub(crate) fn get(&self, id: TerminalId) -> Option<&ManagedTerminal> {
         self.terminals.get(&id)
     }
 
-    // Implements get mut.
+    /// Implements get mut.
     pub(crate) fn get_mut(&mut self, id: TerminalId) -> Option<&mut ManagedTerminal> {
         self.terminals.get_mut(&id)
     }
 
-    // Removes terminal.
+    /// Removes terminal.
     pub(crate) fn remove_terminal(&mut self, id: TerminalId) -> Option<ManagedTerminal> {
         let removed = self.terminals.remove(&id)?;
         self.creation_order.retain(|existing| *existing != id);
@@ -184,19 +184,19 @@ impl TerminalManager {
         Some(removed)
     }
 
-    // Implements iter.
+    /// Implements iter.
     pub(crate) fn iter(&self) -> impl Iterator<Item = (TerminalId, &ManagedTerminal)> {
         self.terminals.iter().map(|(id, terminal)| (*id, terminal))
     }
 
-    // Implements iter mut.
+    /// Implements iter mut.
     pub(crate) fn iter_mut(&mut self) -> impl Iterator<Item = (TerminalId, &mut ManagedTerminal)> {
         self.terminals
             .iter_mut()
             .map(|(id, terminal)| (*id, terminal))
     }
 
-    // Creates terminal.
+    /// Creates terminal.
     #[cfg(test)]
     pub(crate) fn create_terminal(&mut self, bridge: TerminalBridge) -> TerminalId {
         let session_name = format!("terminal-{}", self.next_id);
@@ -208,7 +208,7 @@ impl TerminalManager {
         id
     }
 
-    // Creates terminal with session.
+    /// Creates terminal with session.
     #[cfg(test)]
     pub(crate) fn create_terminal_with_session(
         &mut self,
@@ -223,7 +223,7 @@ impl TerminalManager {
         id
     }
 
-    // Creates terminal without focus.
+    /// Creates terminal without focus.
     #[cfg(test)]
     pub(crate) fn create_terminal_without_focus(&mut self, bridge: TerminalBridge) -> TerminalId {
         let session_name = format!("terminal-{}", self.next_id);
@@ -235,7 +235,7 @@ impl TerminalManager {
         dead_code,
         reason = "test compatibility API preserves pre-split focused-create helper"
     )]
-    // Creates terminal with slot and session.
+    /// Creates terminal with slot and session.
     pub(crate) fn create_terminal_with_slot_and_session(
         &mut self,
         bridge: TerminalBridge,
@@ -247,7 +247,7 @@ impl TerminalManager {
         (id, slot)
     }
 
-    // Focuses terminal.
+    /// Focuses terminal.
     #[cfg(test)]
     pub(crate) fn focus_terminal(&mut self, id: TerminalId) {
         let snapshot = self.clone_focus_state();
@@ -256,7 +256,7 @@ impl TerminalManager {
         self.test_focus_state = focus_state;
     }
 
-    // Implements active id.
+    /// Implements active id.
     #[cfg(test)]
     pub(crate) fn active_id(&self) -> Option<TerminalId> {
         self.test_focus_state.active_id()
@@ -267,7 +267,7 @@ impl TerminalManager {
         dead_code,
         reason = "test compatibility API preserves pre-split focus helpers"
     )]
-    // Clears active terminal.
+    /// Clears active terminal.
     pub(crate) fn clear_active_terminal(&mut self) -> Option<TerminalId> {
         self.test_focus_state.clear_active_terminal()
     }
@@ -277,7 +277,7 @@ impl TerminalManager {
         dead_code,
         reason = "test compatibility API preserves pre-split focus helpers"
     )]
-    // Implements active bridge.
+    /// Implements active bridge.
     pub(crate) fn active_bridge(&self) -> Option<&TerminalBridge> {
         self.test_focus_state.active_bridge(self)
     }
@@ -287,7 +287,7 @@ impl TerminalManager {
         dead_code,
         reason = "test compatibility API preserves pre-split focus helpers"
     )]
-    // Implements active snapshot.
+    /// Implements active snapshot.
     pub(crate) fn active_snapshot(&self) -> Option<&TerminalSnapshot> {
         self.test_focus_state.active_snapshot(self)
     }
@@ -297,31 +297,31 @@ impl TerminalManager {
         dead_code,
         reason = "test compatibility API preserves pre-split focus helpers"
     )]
-    // Implements active debug stats.
+    /// Implements active debug stats.
     pub(crate) fn active_debug_stats(&self) -> TerminalDebugStats {
         self.test_focus_state.active_debug_stats(self)
     }
 
-    // Focuses order.
+    /// Focuses order.
     #[cfg(test)]
     pub(crate) fn focus_order(&self) -> &[TerminalId] {
         self.test_focus_state.focus_order()
     }
 
-    // Implements clone focus state.
+    /// Implements clone focus state.
     #[cfg(test)]
     pub(crate) fn clone_focus_state(&self) -> TerminalFocusState {
         self.test_focus_state.clone()
     }
 
-    // Implements replace test focus state.
+    /// Implements replace test focus state.
     #[cfg(test)]
     pub(crate) fn replace_test_focus_state(&mut self, focus_state: &TerminalFocusState) {
         self.test_focus_state = focus_state.clone();
     }
 }
 
-// Polls terminal snapshots.
+/// Polls terminal snapshots.
 pub(crate) fn poll_terminal_snapshots(mut terminal_manager: ResMut<TerminalManager>) {
     for (_, terminal) in terminal_manager.iter_mut() {
         let (latest_frame, latest_status, dropped_frames) = terminal.bridge.drain_updates();

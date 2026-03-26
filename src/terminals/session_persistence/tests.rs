@@ -7,7 +7,7 @@ use bevy::{
 use std::fs;
 use std::time::Duration;
 
-// Verifies that terminal sessions path prefers state home then home state then config.
+/// Verifies that terminal sessions path prefers state home then home state then config.
 #[test]
 fn terminal_sessions_path_prefers_state_home_then_home_state_then_config() {
     assert_eq!(
@@ -30,7 +30,7 @@ fn terminal_sessions_path_prefers_state_home_then_home_state_then_config() {
     );
 }
 
-// Verifies that terminal sessions parse and serialize roundtrip.
+/// Verifies that terminal sessions parse and serialize roundtrip.
 #[test]
 fn terminal_sessions_parse_and_serialize_roundtrip() {
     let persisted = PersistedTerminalSessions {
@@ -54,7 +54,7 @@ fn terminal_sessions_parse_and_serialize_roundtrip() {
     assert_eq!(parse_persisted_terminal_sessions(&serialized), persisted);
 }
 
-// Verifies that terminal sessions v2 quoted labels roundtrip.
+/// Verifies that terminal sessions v2 quoted labels roundtrip.
 #[test]
 fn terminal_sessions_v2_quoted_labels_roundtrip() {
     let persisted = PersistedTerminalSessions {
@@ -71,7 +71,7 @@ fn terminal_sessions_v2_quoted_labels_roundtrip() {
     assert_eq!(parse_persisted_terminal_sessions(&serialized), persisted);
 }
 
-// Verifies that terminal sessions v1 parser remains backward compatible.
+/// Verifies that terminal sessions v1 parser remains backward compatible.
 #[test]
 fn terminal_sessions_v1_parser_remains_backward_compatible() {
     let persisted = parse_persisted_terminal_sessions(
@@ -81,7 +81,7 @@ fn terminal_sessions_v1_parser_remains_backward_compatible() {
     assert_eq!(persisted.sessions[0].label.as_deref(), Some("agent 1"));
 }
 
-// Verifies that malformed terminal sessions version falls back to default.
+/// Verifies that malformed terminal sessions version falls back to default.
 #[test]
 fn malformed_terminal_sessions_version_falls_back_to_default() {
     assert_eq!(
@@ -92,7 +92,7 @@ fn malformed_terminal_sessions_version_falls_back_to_default() {
     );
 }
 
-// Verifies that reconcile terminal sessions restores prunes and imports.
+/// Verifies that reconcile terminal sessions restores prunes and imports.
 #[test]
 fn reconcile_terminal_sessions_restores_prunes_and_imports() {
     let persisted = PersistedTerminalSessions {
@@ -130,7 +130,7 @@ fn reconcile_terminal_sessions_restores_prunes_and_imports() {
     assert_eq!(reconciled.import[0].creation_index, 2);
 }
 
-// Verifies that saving terminal sessions persists focus order and labels.
+/// Verifies that saving terminal sessions persists focus order and labels.
 #[test]
 fn saving_terminal_sessions_persists_focus_order_and_labels() {
     let dir = temp_dir("neozeus-terminal-sessions-save");
@@ -169,7 +169,7 @@ fn saving_terminal_sessions_persists_focus_order_and_labels() {
     assert!(persisted.sessions[1].last_focused);
 }
 
-// Verifies that terminal sessions save waits for debounce window.
+/// Verifies that terminal sessions save waits for debounce window.
 #[test]
 fn terminal_sessions_save_waits_for_debounce_window() {
     let dir = temp_dir("neozeus-terminal-sessions-save-debounce");

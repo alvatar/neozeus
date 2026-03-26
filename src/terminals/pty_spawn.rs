@@ -5,7 +5,7 @@ use std::{ffi::OsString, io::Write};
 #[cfg(test)]
 use std::fs;
 
-// Spawns PTY.
+/// Spawns PTY.
 pub(crate) fn spawn_pty(cols: u16, rows: u16) -> Result<PtySession, String> {
     let pty_system = native_pty_system();
     let pair = pty_system
@@ -39,7 +39,7 @@ pub(crate) fn spawn_pty(cols: u16, rows: u16) -> Result<PtySession, String> {
     })
 }
 
-// Builds shell command.
+/// Builds shell command.
 fn build_shell_command() -> CommandBuilder {
     let command = CommandBuilder::new(raw_shell_program());
     #[cfg(test)]
@@ -49,12 +49,12 @@ fn build_shell_command() -> CommandBuilder {
     command
 }
 
-// Implements raw shell program.
+/// Implements raw shell program.
 fn raw_shell_program() -> OsString {
     OsString::from("zsh")
 }
 
-// Applies test shell isolation.
+/// Applies test shell isolation.
 #[cfg(test)]
 fn apply_test_shell_isolation(command: &mut CommandBuilder) {
     let root = std::env::temp_dir().join(format!("neozeus-test-shell-{}", std::process::id()));
@@ -86,7 +86,7 @@ fn apply_test_shell_isolation(command: &mut CommandBuilder) {
     command.env("PATH", "/usr/bin:/bin");
 }
 
-// Writes input.
+/// Writes input.
 pub(crate) fn write_input(writer: &mut dyn Write, bytes: &[u8]) -> std::io::Result<()> {
     writer.write_all(bytes)?;
     writer.flush()
@@ -97,7 +97,7 @@ mod tests {
     use super::raw_shell_program;
     use std::ffi::OsString;
 
-    // Verifies that raw shell program is zsh.
+    /// Verifies that raw shell program is zsh.
     #[test]
     fn raw_shell_program_is_zsh() {
         assert_eq!(raw_shell_program(), OsString::from("zsh"));

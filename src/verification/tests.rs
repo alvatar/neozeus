@@ -3,7 +3,7 @@ use crate::tests::{fake_runtime_spawner, insert_default_hud_resources, surface_w
 use bevy::{ecs::system::RunSystemOnce, window::RequestRedraw};
 use std::sync::Arc;
 
-// Verifies that parses verification scenarios.
+/// Verifies that parses verification scenarios.
 #[test]
 fn parses_verification_scenarios() {
     assert_eq!(resolve_verification_scenario(None), None);
@@ -26,7 +26,7 @@ fn parses_verification_scenarios() {
     );
 }
 
-// Verifies that message box scenario opens modal and spawns terminal.
+/// Verifies that message box scenario opens modal and spawns terminal.
 #[test]
 fn message_box_scenario_opens_modal_and_spawns_terminal() {
     let client = Arc::new(crate::tests::FakeDaemonClient::default());
@@ -59,7 +59,7 @@ fn message_box_scenario_opens_modal_and_spawns_terminal() {
     assert!(world.resource::<VerificationScenarioConfig>().applied);
 }
 
-// Verifies that task dialog scenario populates note text.
+/// Verifies that task dialog scenario populates note text.
 #[test]
 fn task_dialog_scenario_populates_note_text() {
     let client = Arc::new(crate::tests::FakeDaemonClient::default());
@@ -94,7 +94,7 @@ fn task_dialog_scenario_populates_note_text() {
     assert_eq!(world.resource::<TerminalManager>().terminal_ids().len(), 1);
 }
 
-// Verifies that inspect switch scenario spawns two terminals and focuses second.
+/// Verifies that inspect switch scenario spawns two terminals and focuses second.
 #[test]
 fn inspect_switch_scenario_spawns_two_terminals_and_focuses_second() {
     let client = Arc::new(crate::tests::FakeDaemonClient::default());

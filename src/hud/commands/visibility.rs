@@ -4,7 +4,7 @@ use crate::{
 };
 use bevy::{prelude::*, window::RequestRedraw};
 
-// Applies visibility requests.
+/// Applies visibility requests.
 pub(crate) fn apply_visibility_requests(
     mut requests: MessageReader<TerminalVisibilityRequest>,
     terminal_manager: Res<TerminalManager>,

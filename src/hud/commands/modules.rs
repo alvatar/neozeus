@@ -2,7 +2,7 @@ use crate::hud::{HudLayoutState, HudModuleId, HudModuleRequest};
 use crate::terminals::append_debug_log;
 use bevy::prelude::*;
 
-// Toggles module.
+/// Toggles module.
 fn toggle_module(layout_state: &mut HudLayoutState, id: HudModuleId) {
     let enabled = layout_state
         .get(id)
@@ -10,7 +10,7 @@ fn toggle_module(layout_state: &mut HudLayoutState, id: HudModuleId) {
     layout_state.set_module_enabled(id, enabled);
 }
 
-// Applies HUD module requests.
+/// Applies HUD module requests.
 pub(crate) fn apply_hud_module_requests(
     mut requests: MessageReader<HudModuleRequest>,
     mut layout_state: ResMut<HudLayoutState>,

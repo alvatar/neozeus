@@ -65,7 +65,7 @@ pub(crate) struct HudMessageBoxState {
     drafts: BTreeMap<TerminalId, HudMessageBoxDraft>,
 }
 
-// Implements message box rect.
+/// Implements message box rect.
 pub(crate) fn message_box_rect(window: &Window) -> HudRect {
     let size = Vec2::new(
         (window.width() * 0.84).clamp(520.0, 1680.0),
@@ -79,7 +79,7 @@ pub(crate) fn message_box_rect(window: &Window) -> HudRect {
     }
 }
 
-// Implements message box action buttons.
+/// Implements message box action buttons.
 pub(crate) fn message_box_action_buttons(window: &Window) -> [HudMessageBoxActionButton; 2] {
     let rect = message_box_rect(window);
     let base_y = rect.y + rect.h - 36.0;
@@ -109,7 +109,7 @@ pub(crate) fn message_box_action_buttons(window: &Window) -> [HudMessageBoxActio
     ]
 }
 
-// Implements message box action at.
+/// Implements message box action at.
 pub(crate) fn message_box_action_at(window: &Window, point: Vec2) -> Option<HudMessageBoxAction> {
     message_box_action_buttons(window)
         .into_iter()
@@ -125,28 +125,28 @@ pub(crate) struct HudTaskDialogState {
 impl Deref for HudTaskDialogState {
     type Target = HudMessageBoxState;
 
-    // Implements deref.
+    /// Implements deref.
     fn deref(&self) -> &Self::Target {
         &self.inner
     }
 }
 
 impl DerefMut for HudTaskDialogState {
-    // Implements deref mut.
+    /// Implements deref mut.
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.inner
     }
 }
 
 impl HudTaskDialogState {
-    // Opens with text.
+    /// Opens with text.
     pub(crate) fn open_with_text(&mut self, target_terminal: TerminalId, text: &str) {
         self.inner.visible = true;
         self.inner.target_terminal = Some(target_terminal);
         self.inner.load_text(text);
     }
 
-    // Closes this value.
+    /// Closes this value.
     pub(crate) fn close(&mut self) {
         self.inner.visible = false;
         self.inner.target_terminal = None;
@@ -154,12 +154,12 @@ impl HudTaskDialogState {
     }
 }
 
-// Implements task dialog rect.
+/// Implements task dialog rect.
 pub(crate) fn task_dialog_rect(window: &Window) -> HudRect {
     message_box_rect(window)
 }
 
-// Implements task dialog action buttons.
+/// Implements task dialog action buttons.
 pub(crate) fn task_dialog_action_buttons(window: &Window) -> [HudTaskDialogActionButton; 1] {
     let rect = task_dialog_rect(window);
     let base_y = rect.y + rect.h - 36.0;
@@ -175,7 +175,7 @@ pub(crate) fn task_dialog_action_buttons(window: &Window) -> [HudTaskDialogActio
     }]
 }
 
-// Implements task dialog action at.
+/// Implements task dialog action at.
 pub(crate) fn task_dialog_action_at(window: &Window, point: Vec2) -> Option<HudTaskDialogAction> {
     task_dialog_action_buttons(window)
         .into_iter()
@@ -184,7 +184,7 @@ pub(crate) fn task_dialog_action_at(window: &Window, point: Vec2) -> Option<HudT
 }
 
 impl HudMessageBoxState {
-    // Clears editor.
+    /// Clears editor.
     fn clear_editor(&mut self) {
         self.text.clear();
         self.cursor = 0;
@@ -193,7 +193,7 @@ impl HudMessageBoxState {
         self.yank_state = None;
     }
 
-    // Saves current draft.
+    /// Saves current draft.
     fn save_current_draft(&mut self) {
         let Some(target_terminal) = self.target_terminal else {
             return;
@@ -209,7 +209,7 @@ impl HudMessageBoxState {
         );
     }
 
-    // Restores draft.
+    /// Restores draft.
     fn restore_draft(&mut self, target_terminal: TerminalId) -> bool {
         if let Some(draft) = self.drafts.get(&target_terminal).cloned() {
             self.text = draft.text;
@@ -223,14 +223,14 @@ impl HudMessageBoxState {
         false
     }
 
-    // Loads text.
+    /// Loads text.
     pub(crate) fn load_text(&mut self, text: &str) {
         self.clear_editor();
         self.text = normalize_message_box_text(text);
         self.cursor = self.text.len();
     }
 
-    // Implements reset for target with text.
+    /// Implements reset for target with text.
     pub(crate) fn reset_for_target_with_text(&mut self, target_terminal: TerminalId, text: &str) {
         self.save_current_draft();
         self.visible = true;
@@ -240,12 +240,12 @@ impl HudMessageBoxState {
         }
     }
 
-    // Implements reset for target.
+    /// Implements reset for target.
     pub(crate) fn reset_for_target(&mut self, target_terminal: TerminalId) {
         self.reset_for_target_with_text(target_terminal, "");
     }
 
-    // Closes this value.
+    /// Closes this value.
     pub(crate) fn close(&mut self) {
         self.save_current_draft();
         self.visible = false;
@@ -255,7 +255,7 @@ impl HudMessageBoxState {
         self.yank_state = None;
     }
 
-    // Closes and discard current.
+    /// Closes and discard current.
     pub(crate) fn close_and_discard_current(&mut self) {
         self.clear_current_draft();
         self.visible = false;
@@ -263,20 +263,20 @@ impl HudMessageBoxState {
         self.clear_editor();
     }
 
-    // Clears current draft.
+    /// Clears current draft.
     pub(crate) fn clear_current_draft(&mut self) {
         if let Some(target_terminal) = self.target_terminal {
             self.drafts.remove(&target_terminal);
         }
     }
 
-    // Implements region bounds.
+    /// Implements region bounds.
     pub(crate) fn region_bounds(&self) -> Option<(usize, usize)> {
         let mark = self.mark?;
         (mark != self.cursor).then_some((mark.min(self.cursor), mark.max(self.cursor)))
     }
 
-    // Sets mark.
+    /// Sets mark.
     pub(crate) fn set_mark(&mut self) -> bool {
         let changed = self.mark != Some(self.cursor);
         self.mark = Some(self.cursor);
@@ -284,7 +284,7 @@ impl HudMessageBoxState {
         changed
     }
 
-    // Inserts text.
+    /// Inserts text.
     pub(crate) fn insert_text(&mut self, text: &str) -> bool {
         let inserted = self.insert_text_internal(self.cursor, text, true);
         if inserted == 0 {
@@ -295,17 +295,17 @@ impl HudMessageBoxState {
         true
     }
 
-    // Inserts newline.
+    /// Inserts newline.
     pub(crate) fn insert_newline(&mut self) -> bool {
         self.insert_text("\n")
     }
 
-    // Implements newline and indent.
+    /// Implements newline and indent.
     pub(crate) fn newline_and_indent(&mut self) -> bool {
         self.insert_newline()
     }
 
-    // Opens line.
+    /// Opens line.
     pub(crate) fn open_line(&mut self) -> bool {
         let inserted = self.insert_text_internal(self.cursor, "\n", true);
         if inserted == 0 {
@@ -315,7 +315,7 @@ impl HudMessageBoxState {
         true
     }
 
-    // Implements move left.
+    /// Implements move left.
     pub(crate) fn move_left(&mut self) -> bool {
         let Some(previous) = previous_char_boundary(&self.text, self.cursor) else {
             return false;
@@ -326,7 +326,7 @@ impl HudMessageBoxState {
         true
     }
 
-    // Implements move right.
+    /// Implements move right.
     pub(crate) fn move_right(&mut self) -> bool {
         let Some(next) = next_char_boundary(&self.text, self.cursor) else {
             return false;
@@ -337,7 +337,7 @@ impl HudMessageBoxState {
         true
     }
 
-    // Implements move line start.
+    /// Implements move line start.
     pub(crate) fn move_line_start(&mut self) -> bool {
         let (line_start, _) = current_line_bounds(&self.text, self.cursor);
         if self.cursor == line_start {
@@ -349,7 +349,7 @@ impl HudMessageBoxState {
         true
     }
 
-    // Implements move line end.
+    /// Implements move line end.
     pub(crate) fn move_line_end(&mut self) -> bool {
         let (_, line_end) = current_line_bounds(&self.text, self.cursor);
         if self.cursor == line_end {
@@ -361,7 +361,7 @@ impl HudMessageBoxState {
         true
     }
 
-    // Implements move up.
+    /// Implements move up.
     pub(crate) fn move_up(&mut self) -> bool {
         let (line_start, _) = current_line_bounds(&self.text, self.cursor);
         if line_start == 0 {
@@ -386,7 +386,7 @@ impl HudMessageBoxState {
         true
     }
 
-    // Implements move down.
+    /// Implements move down.
     pub(crate) fn move_down(&mut self) -> bool {
         let (_, line_end) = current_line_bounds(&self.text, self.cursor);
         if line_end >= self.text.len() {
@@ -406,7 +406,7 @@ impl HudMessageBoxState {
         true
     }
 
-    // Implements move word backward.
+    /// Implements move word backward.
     pub(crate) fn move_word_backward(&mut self) -> bool {
         let boundary = word_backward_boundary(&self.text, self.cursor);
         if boundary == self.cursor {
@@ -418,7 +418,7 @@ impl HudMessageBoxState {
         true
     }
 
-    // Implements move word forward.
+    /// Implements move word forward.
     pub(crate) fn move_word_forward(&mut self) -> bool {
         let boundary = word_forward_boundary(&self.text, self.cursor);
         if boundary == self.cursor {
@@ -430,7 +430,7 @@ impl HudMessageBoxState {
         true
     }
 
-    // Implements delete backward char.
+    /// Implements delete backward char.
     pub(crate) fn delete_backward_char(&mut self) -> bool {
         let Some(previous) = previous_char_boundary(&self.text, self.cursor) else {
             return false;
@@ -439,7 +439,7 @@ impl HudMessageBoxState {
             .is_some()
     }
 
-    // Implements delete forward char.
+    /// Implements delete forward char.
     pub(crate) fn delete_forward_char(&mut self) -> bool {
         let Some(next) = next_char_boundary(&self.text, self.cursor) else {
             return false;
@@ -448,7 +448,7 @@ impl HudMessageBoxState {
             .is_some()
     }
 
-    // Implements copy region.
+    /// Implements copy region.
     pub(crate) fn copy_region(&mut self) -> bool {
         let Some((start, end)) = self.region_bounds() else {
             return false;
@@ -460,7 +460,7 @@ impl HudMessageBoxState {
         pushed
     }
 
-    // Kills region.
+    /// Kills region.
     pub(crate) fn kill_region(&mut self) -> bool {
         let Some((start, end)) = self.region_bounds() else {
             return false;
@@ -472,7 +472,7 @@ impl HudMessageBoxState {
         self.push_kill(killed)
     }
 
-    // Kills to end of line.
+    /// Kills to end of line.
     pub(crate) fn kill_to_end_of_line(&mut self) -> bool {
         let (_, line_end) = current_line_bounds(&self.text, self.cursor);
         let kill_end = if self.cursor == line_end && line_end < self.text.len() {
@@ -486,7 +486,7 @@ impl HudMessageBoxState {
         self.push_kill(killed)
     }
 
-    // Kills word forward.
+    /// Kills word forward.
     pub(crate) fn kill_word_forward(&mut self) -> bool {
         let boundary = word_forward_boundary(&self.text, self.cursor);
         let Some(killed) = self.delete_range_internal(self.cursor, boundary, true) else {
@@ -495,7 +495,7 @@ impl HudMessageBoxState {
         self.push_kill(killed)
     }
 
-    // Kills word backward.
+    /// Kills word backward.
     pub(crate) fn kill_word_backward(&mut self) -> bool {
         let boundary = word_backward_boundary(&self.text, self.cursor);
         let Some(killed) = self.delete_range_internal(boundary, self.cursor, true) else {
@@ -504,7 +504,7 @@ impl HudMessageBoxState {
         self.push_kill(killed)
     }
 
-    // Implements yank.
+    /// Implements yank.
     pub(crate) fn yank(&mut self) -> bool {
         let Some(payload) = self.kill_ring.first().cloned() else {
             return false;
@@ -524,7 +524,7 @@ impl HudMessageBoxState {
         true
     }
 
-    // Implements yank pop.
+    /// Implements yank pop.
     pub(crate) fn yank_pop(&mut self) -> bool {
         let Some(yank_state) = self.yank_state.clone() else {
             return false;
@@ -546,7 +546,7 @@ impl HudMessageBoxState {
         true
     }
 
-    // Implements cursor line and column.
+    /// Implements cursor line and column.
     pub(crate) fn cursor_line_and_column(&self) -> (usize, usize) {
         (
             self.text[..self.cursor]
@@ -557,7 +557,7 @@ impl HudMessageBoxState {
         )
     }
 
-    // Inserts text internal.
+    /// Inserts text internal.
     fn insert_text_internal(&mut self, at: usize, text: &str, clear_yank_state: bool) -> usize {
         let normalized = normalize_message_box_text(text);
         if normalized.is_empty() {
@@ -584,7 +584,7 @@ impl HudMessageBoxState {
         inserted
     }
 
-    // Implements delete range internal.
+    /// Implements delete range internal.
     fn delete_range_internal(
         &mut self,
         start: usize,
@@ -613,7 +613,7 @@ impl HudMessageBoxState {
         Some(removed)
     }
 
-    // Pushes kill.
+    /// Pushes kill.
     fn push_kill(&mut self, text: String) -> bool {
         if text.is_empty() {
             return false;
@@ -627,12 +627,12 @@ impl HudMessageBoxState {
     }
 }
 
-// Normalizes message box text.
+/// Normalizes message box text.
 fn normalize_message_box_text(text: &str) -> String {
     text.replace("\r\n", "\n").replace('\r', "\n")
 }
 
-// Adjusts index after delete.
+/// Adjusts index after delete.
 fn adjust_index_after_delete(index: usize, start: usize, end: usize) -> usize {
     if index <= start {
         index
@@ -643,7 +643,7 @@ fn adjust_index_after_delete(index: usize, start: usize, end: usize) -> usize {
     }
 }
 
-// Implements word backward boundary.
+/// Implements word backward boundary.
 fn word_backward_boundary(text: &str, cursor: usize) -> usize {
     let mut current = cursor;
     while let Some((previous, ch)) = previous_char(text, current) {
@@ -661,7 +661,7 @@ fn word_backward_boundary(text: &str, cursor: usize) -> usize {
     current
 }
 
-// Implements word forward boundary.
+/// Implements word forward boundary.
 fn word_forward_boundary(text: &str, cursor: usize) -> usize {
     let mut current = cursor;
     while let Some((next, ch)) = next_char(text, current) {
@@ -679,7 +679,7 @@ fn word_forward_boundary(text: &str, cursor: usize) -> usize {
     current
 }
 
-// Implements previous char boundary.
+/// Implements previous char boundary.
 fn previous_char_boundary(text: &str, cursor: usize) -> Option<usize> {
     if cursor == 0 {
         return None;
@@ -687,7 +687,7 @@ fn previous_char_boundary(text: &str, cursor: usize) -> Option<usize> {
     text[..cursor].char_indices().last().map(|(index, _)| index)
 }
 
-// Implements next char boundary.
+/// Implements next char boundary.
 fn next_char_boundary(text: &str, cursor: usize) -> Option<usize> {
     if cursor >= text.len() {
         return None;
@@ -698,7 +698,7 @@ fn next_char_boundary(text: &str, cursor: usize) -> Option<usize> {
         .map(|ch| cursor + ch.len_utf8())
 }
 
-// Implements previous char.
+/// Implements previous char.
 fn previous_char(text: &str, cursor: usize) -> Option<(usize, char)> {
     if cursor == 0 {
         return None;
@@ -706,7 +706,7 @@ fn previous_char(text: &str, cursor: usize) -> Option<(usize, char)> {
     text[..cursor].char_indices().last()
 }
 
-// Implements next char.
+/// Implements next char.
 fn next_char(text: &str, cursor: usize) -> Option<(usize, char)> {
     if cursor >= text.len() {
         return None;
@@ -717,7 +717,7 @@ fn next_char(text: &str, cursor: usize) -> Option<(usize, char)> {
         .map(|ch| (cursor + ch.len_utf8(), ch))
 }
 
-// Implements current line bounds.
+/// Implements current line bounds.
 fn current_line_bounds(text: &str, cursor: usize) -> (usize, usize) {
     let line_start = text[..cursor]
         .rfind('\n')
@@ -730,13 +730,13 @@ fn current_line_bounds(text: &str, cursor: usize) -> (usize, usize) {
     (line_start, line_end)
 }
 
-// Implements current line column chars.
+/// Implements current line column chars.
 fn current_line_column_chars(text: &str, cursor: usize) -> usize {
     let (line_start, _) = current_line_bounds(text, cursor);
     text[line_start..cursor].chars().count()
 }
 
-// Advances by chars.
+/// Advances by chars.
 fn advance_by_chars(text: &str, start: usize, end: usize, count: usize) -> usize {
     let mut cursor = start;
     for ch in text[start..end].chars().take(count) {
@@ -749,7 +749,7 @@ fn advance_by_chars(text: &str, start: usize, end: usize, count: usize) -> usize
     }
 }
 
-// Returns whether word char.
+/// Returns whether word char.
 fn is_word_char(ch: char) -> bool {
     ch.is_alphanumeric() || ch == '_'
 }

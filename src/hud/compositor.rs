@@ -52,7 +52,7 @@ pub(crate) struct HudOffscreenCompositor {
 }
 
 impl Default for HudOffscreenCompositor {
-    // Returns the default value for this type.
+    /// Returns the default value for this type.
     fn default() -> Self {
         Self {
             layers: vec![HudCompositeLayer {
@@ -67,13 +67,13 @@ impl Default for HudOffscreenCompositor {
 }
 
 impl HudOffscreenCompositor {
-    // Implements layer.
+    /// Implements layer.
     fn layer(&self, id: HudCompositeLayerId) -> Option<&HudCompositeLayer> {
         self.layers.iter().find(|layer| layer.id == id)
     }
 }
 
-// Implements fullscreen clip mesh.
+/// Implements fullscreen clip mesh.
 fn fullscreen_clip_mesh() -> Mesh {
     let mut mesh = Mesh::new(
         PrimitiveTopology::TriangleList,
@@ -96,7 +96,7 @@ fn fullscreen_clip_mesh() -> Mesh {
     mesh
 }
 
-// Sets up HUD offscreen compositor.
+/// Sets up HUD offscreen compositor.
 pub(crate) fn setup_hud_offscreen_compositor(
     commands: &mut Commands,
     compositor: &mut HudOffscreenCompositor,
@@ -161,7 +161,7 @@ type HudCompositeQuadQueryItem<'a> = (
     clippy::too_many_arguments,
     reason = "compositor sync needs window, image assets, materials, and visibility queries together"
 )]
-// Synchronizes HUD offscreen compositor.
+/// Synchronizes HUD offscreen compositor.
 pub(crate) fn sync_hud_offscreen_compositor(
     mut compositor: ResMut<HudOffscreenCompositor>,
     images: Res<Assets<Image>>,

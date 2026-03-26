@@ -31,7 +31,7 @@ struct DaemonRegistryInner {
 }
 
 impl Default for DaemonRegistry {
-    // Returns the default value for this type.
+    /// Returns the default value for this type.
     fn default() -> Self {
         Self {
             inner: Arc::new(Mutex::new(DaemonRegistryInner {
@@ -43,7 +43,7 @@ impl Default for DaemonRegistry {
 }
 
 impl DaemonRegistry {
-    // Implements list sessions.
+    /// Implements list sessions.
     fn list_sessions(&self) -> Vec<DaemonSessionInfo> {
         // Session list order follows daemon creation order, not lexical session ids. Dead sessions
         // remain listed until an explicit kill/reap so the UI can inspect final runtime state.
@@ -57,7 +57,7 @@ impl DaemonRegistry {
         sessions
     }
 
-    // Creates session.
+    /// Creates session.
     fn create_session(&self, prefix: &str) -> Result<String, String> {
         if prefix.trim().is_empty() {
             return Err("daemon session prefix must not be empty".to_owned());
@@ -81,7 +81,7 @@ impl DaemonRegistry {
         Ok(session_id)
     }
 
-    // Implements session.
+    /// Implements session.
     fn session(&self, session_id: &str) -> Result<Arc<DaemonSession>, String> {
         let registry = lock(&self.inner);
         registry
@@ -91,7 +91,7 @@ impl DaemonRegistry {
             .ok_or_else(|| format!("daemon session `{session_id}` not found"))
     }
 
-    // Kills session.
+    /// Kills session.
     fn kill_session(&self, session_id: &str) -> Result<(), String> {
         let session = {
             let mut registry = lock(&self.inner);
@@ -113,7 +113,7 @@ pub(crate) struct DaemonServerHandle {
 
 #[cfg(test)]
 impl DaemonServerHandle {
-    // Starts this value.
+    /// Starts this value.
     pub(crate) fn start(socket_path: PathBuf) -> Result<Self, String> {
         let stop = Arc::new(AtomicBool::new(false));
         let worker_stop = stop.clone();
@@ -134,7 +134,7 @@ impl DaemonServerHandle {
 
 #[cfg(test)]
 impl Drop for DaemonServerHandle {
-    // Releases owned resources on drop.
+    /// Releases owned resources on drop.
     fn drop(&mut self) {
         self.stop.store(true, Ordering::Relaxed);
         let _ = UnixStream::connect(&self.socket_path);
@@ -145,12 +145,12 @@ impl Drop for DaemonServerHandle {
     }
 }
 
-// Runs daemon server.
+/// Runs daemon server.
 pub(crate) fn run_daemon_server(socket_path: &Path) -> Result<(), String> {
     run_server_loop(socket_path, Arc::new(AtomicBool::new(false)))
 }
 
-// Runs server loop.
+/// Runs server loop.
 fn run_server_loop(socket_path: &Path, stop: Arc<AtomicBool>) -> Result<(), String> {
     let listener = bind_listener(socket_path)?;
     append_debug_log(format!("daemon server listening {}", socket_path.display()));
@@ -179,7 +179,7 @@ fn run_server_loop(socket_path: &Path, stop: Arc<AtomicBool>) -> Result<(), Stri
     Ok(())
 }
 
-// Implements bind listener.
+/// Implements bind listener.
 fn bind_listener(socket_path: &Path) -> Result<UnixListener, String> {
     if let Some(parent) = socket_path.parent() {
         fs::create_dir_all(parent).map_err(|error| {
@@ -215,7 +215,7 @@ fn bind_listener(socket_path: &Path) -> Result<UnixListener, String> {
     })
 }
 
-// Waits for for socket.
+/// Waits for for socket.
 #[cfg(test)]
 fn wait_for_socket(socket_path: &Path, timeout: Duration) -> Result<(), String> {
     let deadline = std::time::Instant::now() + timeout;
@@ -233,7 +233,7 @@ fn wait_for_socket(socket_path: &Path, timeout: Duration) -> Result<(), String> 
     }
 }
 
-// Handles connection.
+/// Handles connection.
 fn handle_connection(
     connection_id: u64,
     registry: DaemonRegistry,
@@ -285,7 +285,7 @@ fn handle_connection(
     Ok(())
 }
 
-// Handles request.
+/// Handles request.
 fn handle_request(
     registry: &DaemonRegistry,
     subscriber_ids: &SubscriberIdAllocator,
@@ -341,7 +341,7 @@ fn handle_request(
     }
 }
 
-// Locks this value.
+/// Locks this value.
 fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     match mutex.lock() {
         Ok(guard) => guard,

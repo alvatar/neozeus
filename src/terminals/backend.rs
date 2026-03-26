@@ -2,7 +2,7 @@
 pub(crate) use crate::terminals::ansi_surface::{resolve_alacritty_color, xterm_indexed_rgb};
 pub(crate) use crate::terminals::damage::compute_terminal_damage;
 
-// Implements send command payload bytes.
+/// Implements send command payload bytes.
 pub(crate) fn send_command_payload_bytes(command: &str) -> Vec<u8> {
     let mut bytes = Vec::with_capacity(command.len() + 1);
     let mut chars = command.chars().peekable();

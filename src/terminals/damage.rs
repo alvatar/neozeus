@@ -1,6 +1,6 @@
 use crate::terminals::{TerminalDamage, TerminalSurface};
 
-// Computes terminal damage.
+/// Computes terminal damage.
 pub(crate) fn compute_terminal_damage(
     previous_surface: Option<&TerminalSurface>,
     surface: &TerminalSurface,

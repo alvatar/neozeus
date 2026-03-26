@@ -21,7 +21,7 @@ pub(crate) struct AutoVerifyConfig {
 }
 
 impl AutoVerifyConfig {
-    // Builds this value from environment variables.
+    /// Builds this value from environment variables.
     pub(crate) fn from_env() -> Option<Self> {
         Some(Self {
             command: env::var("NEOZEUS_AUTOVERIFY_COMMAND").ok()?,
@@ -41,7 +41,7 @@ pub(crate) enum VerificationScenario {
     InspectSwitchLatency,
 }
 
-// Resolves verification scenario.
+/// Resolves verification scenario.
 pub(crate) fn resolve_verification_scenario(raw: Option<&str>) -> Option<VerificationScenario> {
     match raw.map(str::trim).filter(|value| !value.is_empty()) {
         Some(value) if value.eq_ignore_ascii_case("message-box-bloom") => {
@@ -70,7 +70,7 @@ pub(crate) struct VerificationScenarioConfig {
 }
 
 impl VerificationScenarioConfig {
-    // Builds this value from environment variables.
+    /// Builds this value from environment variables.
     pub(crate) fn from_env() -> Option<Self> {
         Some(Self {
             scenario: resolve_verification_scenario(
@@ -87,7 +87,7 @@ impl VerificationScenarioConfig {
     }
 }
 
-// Handles has presentable frame.
+/// Handles has presentable frame.
 fn terminal_has_presentable_frame(
     terminal_id: TerminalId,
     terminal_manager: &TerminalManager,
@@ -105,7 +105,7 @@ fn terminal_has_presentable_frame(
         && presented.texture_state.cell_size != UVec2::ZERO
 }
 
-// Implements seeded inspect surface.
+/// Implements seeded inspect surface.
 fn seeded_inspect_surface(label: &str, accent: egui::Color32) -> TerminalSurface {
     let cols = 120;
     let rows = 38;
@@ -132,7 +132,7 @@ fn seeded_inspect_surface(label: &str, accent: egui::Color32) -> TerminalSurface
     surface
 }
 
-// Seeds terminal surface.
+/// Seeds terminal surface.
 fn seed_terminal_surface(
     terminal_manager: &mut TerminalManager,
     terminal_id: TerminalId,
@@ -146,7 +146,7 @@ fn seed_terminal_surface(
     terminal.surface_revision += 1;
 }
 
-// Starts auto verify dispatcher.
+/// Starts auto verify dispatcher.
 pub(crate) fn start_auto_verify_dispatcher(
     bridge: TerminalBridge,
     notifier: RuntimeNotifier,
@@ -167,7 +167,7 @@ pub(crate) fn start_auto_verify_dispatcher(
     clippy::too_many_arguments,
     reason = "verification scenario setup spans terminal spawn, HUD modal state, notes, and visibility"
 )]
-// Runs verification scenario.
+/// Runs verification scenario.
 pub(crate) fn run_verification_scenario(
     config: Option<ResMut<VerificationScenarioConfig>>,
     mut commands: Commands,

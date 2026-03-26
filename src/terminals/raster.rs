@@ -53,7 +53,7 @@ pub(crate) struct TerminalGlyphCache {
     pub(crate) glyphs: std::collections::HashMap<TerminalGlyphCacheKey, CachedTerminalGlyph>,
 }
 
-// Creates terminal image.
+/// Creates terminal image.
 pub(crate) fn create_terminal_image(size: UVec2) -> Image {
     let mut image = Image::new_fill(
         Extent3d {
@@ -75,7 +75,7 @@ pub(crate) fn create_terminal_image(size: UVec2) -> Image {
     image
 }
 
-// Dumps terminal image PPM.
+/// Dumps terminal image PPM.
 fn dump_terminal_image_ppm(image: &Image, path: &Path) -> Result<(), String> {
     let width = image.texture_descriptor.size.width;
     let height = image.texture_descriptor.size.height;
@@ -91,7 +91,7 @@ fn dump_terminal_image_ppm(image: &Image, path: &Path) -> Result<(), String> {
     fs::write(path, output).map_err(|error| format!("failed to write {}: {error}", path.display()))
 }
 
-// Implements default texture state for surface.
+/// Implements default texture state for surface.
 fn default_texture_state_for_surface(surface: &TerminalSurface) -> TerminalTextureState {
     TerminalTextureState {
         texture_size: UVec2::new(
@@ -102,12 +102,12 @@ fn default_texture_state_for_surface(surface: &TerminalSurface) -> TerminalTextu
     }
 }
 
-// Returns whether render active layout.
+/// Returns whether render active layout.
 fn can_render_active_layout(surface: &TerminalSurface, dimensions: TerminalDimensions) -> bool {
     surface.cols == dimensions.cols && surface.rows == dimensions.rows
 }
 
-// Implements cached or default texture state.
+/// Implements cached or default texture state.
 fn cached_or_default_texture_state(
     presented_terminal: &crate::terminals::PresentedTerminal,
     surface: &TerminalSurface,
@@ -126,7 +126,7 @@ fn cached_or_default_texture_state(
     clippy::too_many_arguments,
     reason = "texture sync needs terminal, presentation, font, HUD layout, window, image, and renderer state together"
 )]
-// Synchronizes terminal texture.
+/// Synchronizes terminal texture.
 pub(crate) fn sync_terminal_texture(
     mut terminal_manager: ResMut<TerminalManager>,
     focus_state: Res<TerminalFocusState>,
@@ -270,7 +270,7 @@ pub(crate) fn sync_terminal_texture(
     }
 }
 
-// Clears terminal pixels.
+/// Clears terminal pixels.
 fn clear_terminal_pixels(buffer: &mut [u8]) {
     for pixel in buffer.chunks_exact_mut(4) {
         pixel.copy_from_slice(&[
@@ -286,7 +286,7 @@ fn clear_terminal_pixels(buffer: &mut [u8]) {
     clippy::too_many_arguments,
     reason = "terminal row repaint needs renderer/cache/font state together"
 )]
-// Implements repaint terminal pixels.
+/// Implements repaint terminal pixels.
 fn repaint_terminal_pixels(
     buffer: &mut [u8],
     texture_width: u32,
@@ -355,7 +355,7 @@ fn repaint_terminal_pixels(
     }
 }
 
-// Selects terminal font role.
+/// Selects terminal font role.
 fn select_terminal_font_role(
     content: &crate::terminals::TerminalCellContent,
     font_state: &TerminalFontState,
@@ -371,7 +371,7 @@ fn select_terminal_font_role(
     (TerminalFontRole::Primary, false)
 }
 
-// Handles text attrs.
+/// Handles text attrs.
 fn terminal_text_attrs<'a>(
     font_role: TerminalFontRole,
     font_state: &'a TerminalFontState,
@@ -390,7 +390,7 @@ fn terminal_text_attrs<'a>(
     CtAttrs::new().family(family)
 }
 
-// Implements rasterize terminal glyph.
+/// Implements rasterize terminal glyph.
 pub(crate) fn rasterize_terminal_glyph(
     cache_key: &TerminalGlyphCacheKey,
     font_role: TerminalFontRole,
@@ -461,7 +461,7 @@ pub(crate) fn rasterize_terminal_glyph(
     }
 }
 
-// Blits cached glyph in buffer.
+/// Blits cached glyph in buffer.
 fn blit_cached_glyph_in_buffer(
     buffer: &mut [u8],
     stride: usize,
@@ -499,7 +499,7 @@ fn blit_cached_glyph_in_buffer(
     }
 }
 
-// Fills rect in buffer.
+/// Fills rect in buffer.
 fn fill_rect_in_buffer(
     buffer: &mut [u8],
     stride: usize,
@@ -524,7 +524,7 @@ fn fill_rect_in_buffer(
     }
 }
 
-// Draws cursor in buffer.
+/// Draws cursor in buffer.
 fn draw_cursor_in_buffer(
     buffer: &mut [u8],
     stride: usize,
@@ -574,7 +574,7 @@ fn draw_cursor_in_buffer(
     }
 }
 
-// Fills alpha rect in buffer.
+/// Fills alpha rect in buffer.
 fn fill_alpha_rect_in_buffer(
     buffer: &mut [u8],
     stride: usize,
@@ -598,13 +598,13 @@ fn fill_alpha_rect_in_buffer(
     }
 }
 
-// Blends over pixel.
+/// Blends over pixel.
 fn blend_over_pixel(buffer: &mut [u8], width: u32, x: u32, y: u32, source: [u8; 4]) {
     let index = ((y * width + x) * 4) as usize;
     blend_rgba_in_place(&mut buffer[index..index + 4], source);
 }
 
-// Blends RGBA in place.
+/// Blends RGBA in place.
 pub(crate) fn blend_rgba_in_place(dst: &mut [u8], source: [u8; 4]) {
     let src_alpha = source[3] as f32 / 255.0;
     let dst_alpha = dst[3] as f32 / 255.0;

@@ -29,12 +29,12 @@ use bevy::{
 use bevy_vello::render::VelloCanvasMaterial;
 use std::{sync::Arc, time::Duration};
 
-// Verifies that init HUD commands.
+/// Verifies that init HUD commands.
 fn init_hud_commands(world: &mut World) {
     world.init_resource::<Messages<HudIntent>>();
 }
 
-// Verifies that drain HUD commands.
+/// Verifies that drain HUD commands.
 fn drain_hud_commands(world: &mut World) -> Vec<HudIntent> {
     world
         .run_system_once(|mut reader: bevy::prelude::MessageReader<HudIntent>| {
@@ -43,7 +43,7 @@ fn drain_hud_commands(world: &mut World) -> Vec<HudIntent> {
         .unwrap()
 }
 
-// Verifies that setup HUD requests initial redraw.
+/// Verifies that setup HUD requests initial redraw.
 #[test]
 fn setup_hud_requests_initial_redraw() {
     let mut world = World::default();
@@ -92,7 +92,7 @@ fn setup_hud_requests_initial_redraw() {
     assert!(modal_layers.intersects(&RenderLayers::layer(crate::hud::HUD_MODAL_RENDER_LAYER)));
 }
 
-// Verifies that sync structural HUD layout docks agent list to full height left column.
+/// Verifies that sync structural HUD layout docks agent list to full height left column.
 #[test]
 fn sync_structural_hud_layout_docks_agent_list_to_full_height_left_column() {
     let mut world = World::default();
@@ -123,7 +123,7 @@ fn sync_structural_hud_layout_docks_agent_list_to_full_height_left_column() {
     assert_eq!(module.shell.current_rect, expected_rect);
 }
 
-// Verifies that agent row rect splits main and marker geometry.
+/// Verifies that agent row rect splits main and marker geometry.
 #[test]
 fn agent_row_rect_splits_main_and_marker_geometry() {
     let row = HudRect {
@@ -146,7 +146,7 @@ fn agent_row_rect_splits_main_and_marker_geometry() {
     assert_eq!(accent.h, row.h - 6.0);
 }
 
-// Verifies that sync HUD offscreen compositor hides Vello canvas and binds texture.
+/// Verifies that sync HUD offscreen compositor hides Vello canvas and binds texture.
 #[test]
 fn sync_hud_offscreen_compositor_hides_vello_canvas_and_binds_texture() {
     let mut world = World::default();
@@ -239,7 +239,7 @@ fn sync_hud_offscreen_compositor_hides_vello_canvas_and_binds_texture() {
     assert!(quad_layers.intersects(&RenderLayers::layer(crate::hud::HUD_COMPOSITE_RENDER_LAYER,)));
 }
 
-// Verifies that sync HUD offscreen compositor leaves modal Vello canvas visible.
+/// Verifies that sync HUD offscreen compositor leaves modal Vello canvas visible.
 #[test]
 fn sync_hud_offscreen_compositor_leaves_modal_vello_canvas_visible() {
     let mut world = World::default();
@@ -302,7 +302,7 @@ fn sync_hud_offscreen_compositor_leaves_modal_vello_canvas_visible() {
     );
 }
 
-// Verifies that HUD composite quad matches upstream Vello canvas contract.
+/// Verifies that HUD composite quad matches upstream Vello canvas contract.
 #[test]
 fn hud_composite_quad_matches_upstream_vello_canvas_contract() {
     assert_eq!(crate::hud::HUD_COMPOSITE_FOREGROUND_Z, 0.0);
@@ -364,10 +364,10 @@ fn hud_composite_quad_matches_upstream_vello_canvas_contract() {
     assert_eq!(uvs, &[[-1.0, -1.0], [1.0, -1.0], [1.0, 1.0], [1.0, 1.0]]);
 }
 
-// Verifies that upstream Vello present contract preserves target orange bytes.
+/// Verifies that upstream Vello present contract preserves target orange bytes.
 #[test]
 fn upstream_vello_present_contract_preserves_target_orange_bytes() {
-    // Verifies that sRGB to linear channel.
+    /// Verifies that sRGB to linear channel.
     fn srgb_to_linear_channel(value: u8) -> f32 {
         let srgb = value as f32 / 255.0;
         if srgb <= 0.04045 {
@@ -377,7 +377,7 @@ fn upstream_vello_present_contract_preserves_target_orange_bytes() {
         }
     }
 
-    // Verifies that linear to sRGB channel.
+    /// Verifies that linear to sRGB channel.
     fn linear_to_srgb_channel(value: f32) -> u8 {
         let srgb = if value <= 0.0031308 {
             value * 12.92
@@ -407,7 +407,7 @@ fn upstream_vello_present_contract_preserves_target_orange_bytes() {
     assert!(target_dist < wrong_dist);
 }
 
-// Verifies that reset module restores default toolbar state.
+/// Verifies that reset module restores default toolbar state.
 #[test]
 fn reset_module_restores_default_toolbar_state() {
     let mut hud_state = HudState::default();
@@ -437,7 +437,7 @@ fn reset_module_restores_default_toolbar_state() {
     assert!(hud_state.dirty_layout);
 }
 
-// Verifies that plain digit module shortcut toggles module.
+/// Verifies that plain digit module shortcut toggles module.
 #[test]
 fn plain_digit_module_shortcut_toggles_module() {
     let mut world = World::default();
@@ -458,7 +458,7 @@ fn plain_digit_module_shortcut_toggles_module() {
     );
 }
 
-// Verifies that plain j navigates to next agent and isolates it.
+/// Verifies that plain j navigates to next agent and isolates it.
 #[test]
 fn plain_j_navigates_to_next_agent_and_isolates_it() {
     let mut world = World::default();
@@ -488,7 +488,7 @@ fn plain_j_navigates_to_next_agent_and_isolates_it() {
     );
 }
 
-// Verifies that down arrow navigates to next agent and isolates it.
+/// Verifies that down arrow navigates to next agent and isolates it.
 #[test]
 fn down_arrow_navigates_to_next_agent_and_isolates_it() {
     let mut world = World::default();
@@ -518,7 +518,7 @@ fn down_arrow_navigates_to_next_agent_and_isolates_it() {
     );
 }
 
-// Verifies that plain k navigates to previous agent and isolates it.
+/// Verifies that plain k navigates to previous agent and isolates it.
 #[test]
 fn plain_k_navigates_to_previous_agent_and_isolates_it() {
     let mut world = World::default();
@@ -548,7 +548,7 @@ fn plain_k_navigates_to_previous_agent_and_isolates_it() {
     );
 }
 
-// Verifies that up arrow navigates to previous agent and isolates it.
+/// Verifies that up arrow navigates to previous agent and isolates it.
 #[test]
 fn up_arrow_navigates_to_previous_agent_and_isolates_it() {
     let mut world = World::default();
@@ -578,7 +578,7 @@ fn up_arrow_navigates_to_previous_agent_and_isolates_it() {
     );
 }
 
-// Verifies that focus and visibility requests request redraw immediately.
+/// Verifies that focus and visibility requests request redraw immediately.
 #[test]
 fn focus_and_visibility_requests_request_redraw_immediately() {
     let mut world = World::default();
@@ -625,7 +625,7 @@ fn focus_and_visibility_requests_request_redraw_immediately() {
     assert_eq!(world.resource::<Messages<RequestRedraw>>().len(), 2);
 }
 
-// Verifies that alt shift module shortcut still resets module.
+/// Verifies that alt shift module shortcut still resets module.
 #[test]
 fn alt_shift_module_shortcut_still_resets_module() {
     let mut world = World::default();
@@ -649,7 +649,7 @@ fn alt_shift_module_shortcut_still_resets_module() {
     );
 }
 
-// Verifies that module shortcuts are suppressed while direct input is open.
+/// Verifies that module shortcuts are suppressed while direct input is open.
 #[test]
 fn module_shortcuts_are_suppressed_while_direct_input_is_open() {
     let mut world = World::default();
@@ -669,7 +669,7 @@ fn module_shortcuts_are_suppressed_while_direct_input_is_open() {
     assert!(drain_hud_commands(&mut world).is_empty());
 }
 
-// Verifies that resolve agent label prefers directory over fallback.
+/// Verifies that resolve agent label prefers directory over fallback.
 #[test]
 fn resolve_agent_label_prefers_directory_over_fallback() {
     let terminal_ids = [
@@ -691,7 +691,7 @@ fn resolve_agent_label_prefers_directory_over_fallback() {
     );
 }
 
-// Verifies that agent rows follow terminal order and focus.
+/// Verifies that agent rows follow terminal order and focus.
 #[test]
 fn agent_rows_follow_terminal_order_and_focus() {
     let (bridge_one, _) = test_bridge();
@@ -725,7 +725,7 @@ fn agent_rows_follow_terminal_order_and_focus() {
     assert_eq!(rows[1].rect.y - rows[0].rect.y, 42.0);
 }
 
-// Verifies that agent rows mark hovered terminal.
+/// Verifies that agent rows mark hovered terminal.
 #[test]
 fn agent_rows_mark_hovered_terminal() {
     let (bridge_one, _) = test_bridge();
@@ -762,7 +762,7 @@ fn agent_rows_mark_hovered_terminal() {
     );
 }
 
-// Verifies that agent list is not draggable.
+/// Verifies that agent list is not draggable.
 #[test]
 fn agent_list_is_not_draggable() {
     let mut world = World::default();
@@ -802,7 +802,7 @@ fn agent_list_is_not_draggable() {
     assert!(!hud_state.dirty_layout);
 }
 
-// Verifies that message box rect is top aligned and shorter.
+/// Verifies that message box rect is top aligned and shorter.
 #[test]
 fn message_box_rect_is_top_aligned_and_shorter() {
     let window = Window {
@@ -817,7 +817,7 @@ fn message_box_rect_is_top_aligned_and_shorter() {
     assert!((rect.y - 8.0).abs() < 0.01);
 }
 
-// Verifies that clicking task dialog clear done button persists updated text.
+/// Verifies that clicking task dialog clear done button persists updated text.
 #[test]
 fn clicking_task_dialog_clear_done_button_persists_updated_text() {
     let mut world = World::default();
@@ -862,7 +862,7 @@ fn clicking_task_dialog_clear_done_button_persists_updated_text() {
     assert_eq!(hud_state.task_dialog.text, "- [x] done\n- [ ] keep");
 }
 
-// Verifies that clear done task request updates open dialog from persisted state.
+/// Verifies that clear done task request updates open dialog from persisted state.
 #[test]
 fn clear_done_task_request_updates_open_dialog_from_persisted_state() {
     let (bridge, _, _) = super::capturing_bridge();
@@ -898,7 +898,7 @@ fn clear_done_task_request_updates_open_dialog_from_persisted_state() {
     assert_eq!(world.resource::<Messages<RequestRedraw>>().len(), 1);
 }
 
-// Verifies that set task text request clears persisted task presence when empty.
+/// Verifies that set task text request clears persisted task presence when empty.
 #[test]
 fn set_task_text_request_clears_persisted_task_presence_when_empty() {
     let (bridge, _, _) = super::capturing_bridge();
@@ -931,7 +931,7 @@ fn set_task_text_request_clears_persisted_task_presence_when_empty() {
     assert_eq!(world.resource::<Messages<RequestRedraw>>().len(), 1);
 }
 
-// Verifies that consume next task request sends message and marks task done.
+/// Verifies that consume next task request sends message and marks task done.
 #[test]
 fn consume_next_task_request_sends_message_and_marks_task_done() {
     let (bridge, input_rx, _) = super::capturing_bridge();
@@ -967,7 +967,7 @@ fn consume_next_task_request_sends_message_and_marks_task_done() {
     assert_eq!(world.resource::<Messages<RequestRedraw>>().len(), 1);
 }
 
-// Verifies that clicking message box task button emits append task intent.
+/// Verifies that clicking message box task button emits append task intent.
 #[test]
 fn clicking_message_box_task_button_emits_append_task_intent() {
     let mut world = World::default();
@@ -1014,7 +1014,7 @@ fn clicking_message_box_task_button_emits_append_task_intent() {
     assert!(!snapshot_test_hud_state(&world).message_box.visible);
 }
 
-// Verifies that animate HUD modules moves current rect and alpha toward target.
+/// Verifies that animate HUD modules moves current rect and alpha toward target.
 #[test]
 fn animate_hud_modules_moves_current_rect_and_alpha_toward_target() {
     let mut world = World::default();
@@ -1043,7 +1043,7 @@ fn animate_hud_modules_moves_current_rect_and_alpha_toward_target() {
     assert!(module.shell.current_alpha < 1.0);
 }
 
-// Verifies that clicking debug toolbar button emits spawn terminal command.
+/// Verifies that clicking debug toolbar button emits spawn terminal command.
 #[test]
 fn clicking_debug_toolbar_button_emits_spawn_terminal_command() {
     let (bridge, _) = test_bridge();
@@ -1106,7 +1106,7 @@ fn clicking_debug_toolbar_button_emits_spawn_terminal_command() {
     assert_eq!(emitted_commands, vec![crate::hud::HudIntent::SpawnTerminal]);
 }
 
-// Verifies that clicking debug toolbar command button emits terminal command.
+/// Verifies that clicking debug toolbar command button emits terminal command.
 #[test]
 fn clicking_debug_toolbar_command_button_emits_terminal_command() {
     let (bridge, _) = test_bridge();
@@ -1171,7 +1171,7 @@ fn clicking_debug_toolbar_command_button_emits_terminal_command() {
     );
 }
 
-// Verifies that clicking agent list row emits focus and isolate commands.
+/// Verifies that clicking agent list row emits focus and isolate commands.
 #[test]
 fn clicking_agent_list_row_emits_focus_and_isolate_commands() {
     let (bridge_one, _) = test_bridge();
@@ -1240,7 +1240,7 @@ fn clicking_agent_list_row_emits_focus_and_isolate_commands() {
     );
 }
 
-// Verifies that agent list scroll clamps to content height.
+/// Verifies that agent list scroll clamps to content height.
 #[test]
 fn agent_list_scroll_clamps_to_content_height() {
     let mut model = HudModuleModel::AgentList(Default::default());
@@ -1269,7 +1269,7 @@ fn agent_list_scroll_clamps_to_content_height() {
     assert_eq!(state.scroll_offset, 84.0);
 }
 
-// Verifies that debug toolbar buttons include module toggle entries.
+/// Verifies that debug toolbar buttons include module toggle entries.
 #[test]
 fn debug_toolbar_buttons_include_module_toggle_entries() {
     let (bridge, _) = test_bridge();
@@ -1301,7 +1301,7 @@ fn debug_toolbar_buttons_include_module_toggle_entries() {
     assert!(buttons.iter().any(|button| button.label == "1 agents"));
 }
 
-// Verifies that debug toolbar module toggle buttons reflect enabled state.
+/// Verifies that debug toolbar module toggle buttons reflect enabled state.
 #[test]
 fn debug_toolbar_module_toggle_buttons_reflect_enabled_state() {
     let (bridge, _) = test_bridge();
@@ -1344,7 +1344,7 @@ fn debug_toolbar_module_toggle_buttons_reflect_enabled_state() {
     assert!(!agents.active);
 }
 
-// Verifies that HUD state topmost enabled at prefers frontmost module.
+/// Verifies that HUD state topmost enabled at prefers frontmost module.
 #[test]
 fn hud_state_topmost_enabled_at_prefers_frontmost_module() {
     let mut state = HudState::default();
@@ -1364,7 +1364,7 @@ fn hud_state_topmost_enabled_at_prefers_frontmost_module() {
     );
 }
 
-// Verifies that HUD needs redraw when drag or animation is active.
+/// Verifies that HUD needs redraw when drag or animation is active.
 #[test]
 fn hud_needs_redraw_when_drag_or_animation_is_active() {
     let mut state = HudState::default();
@@ -1385,7 +1385,7 @@ fn hud_needs_redraw_when_drag_or_animation_is_active() {
     assert!(hud_needs_redraw(&state.layout_state()));
 }
 
-// Verifies that disabled HUD module still requests redraw while fading out.
+/// Verifies that disabled HUD module still requests redraw while fading out.
 #[test]
 fn disabled_hud_module_still_requests_redraw_while_fading_out() {
     let mut state = HudState::default();
@@ -1402,7 +1402,7 @@ fn disabled_hud_module_still_requests_redraw_while_fading_out() {
     assert!(hud_needs_redraw(&state.layout_state()));
 }
 
-// Verifies that killing active terminal selects previous terminal in creation order.
+/// Verifies that killing active terminal selects previous terminal in creation order.
 #[test]
 fn killing_active_terminal_selects_previous_terminal_in_creation_order() {
     let client = Arc::new(FakeDaemonClient::default());
@@ -1505,7 +1505,7 @@ fn killing_active_terminal_selects_previous_terminal_in_creation_order() {
         .contains_key(&id_two));
 }
 
-// Verifies that killing first active terminal selects next terminal.
+/// Verifies that killing first active terminal selects next terminal.
 #[test]
 fn killing_first_active_terminal_selects_next_terminal() {
     let client = Arc::new(FakeDaemonClient::default());
@@ -1604,7 +1604,7 @@ fn killing_first_active_terminal_selects_next_terminal() {
         .contains_key(&id_one));
 }
 
-// Verifies that killing active terminal removes runtime presentation and labels.
+/// Verifies that killing active terminal removes runtime presentation and labels.
 #[test]
 fn killing_active_terminal_removes_runtime_presentation_and_labels() {
     let client = Arc::new(FakeDaemonClient::default());
@@ -1710,7 +1710,7 @@ fn killing_active_terminal_removes_runtime_presentation_and_labels() {
     assert_eq!(frame_count, 0);
 }
 
-// Verifies that spawn shell lifecycle request does not send pi command.
+/// Verifies that spawn shell lifecycle request does not send pi command.
 #[test]
 fn spawn_shell_lifecycle_request_does_not_send_pi_command() {
     let client = Arc::new(FakeDaemonClient::default());
@@ -1742,7 +1742,7 @@ fn spawn_shell_lifecycle_request_does_not_send_pi_command() {
     assert!(client.sent_commands.lock().unwrap().is_empty());
 }
 
-// Verifies that killing disconnected active terminal removes local state even if daemon kill fails.
+/// Verifies that killing disconnected active terminal removes local state even if daemon kill fails.
 #[test]
 fn killing_disconnected_active_terminal_removes_local_state_even_if_daemon_kill_fails() {
     let client = Arc::new(FakeDaemonClient::default());
@@ -1852,7 +1852,7 @@ fn killing_disconnected_active_terminal_removes_local_state_even_if_daemon_kill_
     assert_eq!(frame_count, 0);
 }
 
-// Verifies that killing active terminal preserves local state when tmux kill fails.
+/// Verifies that killing active terminal preserves local state when tmux kill fails.
 #[test]
 fn killing_active_terminal_preserves_local_state_when_tmux_kill_fails() {
     let client = Arc::new(FakeDaemonClient::default());
@@ -1955,7 +1955,7 @@ fn killing_active_terminal_preserves_local_state_when_tmux_kill_fails() {
     assert_eq!(frame_count, 1);
 }
 
-// Verifies that terminal visibility policy defaults to show all.
+/// Verifies that terminal visibility policy defaults to show all.
 #[test]
 fn terminal_visibility_policy_defaults_to_show_all() {
     assert_eq!(

@@ -79,7 +79,7 @@ pub(crate) enum DaemonEvent {
     },
 }
 
-// Writes client message.
+/// Writes client message.
 pub(crate) fn write_client_message(
     writer: &mut impl Write,
     message: &ClientMessage,
@@ -89,7 +89,7 @@ pub(crate) fn write_client_message(
     write_frame(writer, &payload)
 }
 
-// Reads client message.
+/// Reads client message.
 pub(crate) fn read_client_message(reader: &mut impl Read) -> Result<ClientMessage, String> {
     let payload = read_frame(reader)?;
     let mut decoder = Decoder::new(&payload);
@@ -98,7 +98,7 @@ pub(crate) fn read_client_message(reader: &mut impl Read) -> Result<ClientMessag
     Ok(message)
 }
 
-// Writes server message.
+/// Writes server message.
 pub(crate) fn write_server_message(
     writer: &mut impl Write,
     message: &ServerMessage,
@@ -108,7 +108,7 @@ pub(crate) fn write_server_message(
     write_frame(writer, &payload)
 }
 
-// Reads server message.
+/// Reads server message.
 pub(crate) fn read_server_message(reader: &mut impl Read) -> Result<ServerMessage, String> {
     let payload = read_frame(reader)?;
     let mut decoder = Decoder::new(&payload);
@@ -117,7 +117,7 @@ pub(crate) fn read_server_message(reader: &mut impl Read) -> Result<ServerMessag
     Ok(message)
 }
 
-// Writes frame.
+/// Writes frame.
 fn write_frame(writer: &mut impl Write, payload: &[u8]) -> Result<(), String> {
     let len = u32::try_from(payload.len()).map_err(|_| "protocol frame too large".to_owned())?;
     writer
@@ -131,7 +131,7 @@ fn write_frame(writer: &mut impl Write, payload: &[u8]) -> Result<(), String> {
         .map_err(|error| format!("failed to flush frame payload: {error}"))
 }
 
-// Reads frame.
+/// Reads frame.
 fn read_frame(reader: &mut impl Read) -> Result<Vec<u8>, String> {
     let mut len_buf = [0_u8; 4];
     reader
@@ -145,7 +145,7 @@ fn read_frame(reader: &mut impl Read) -> Result<Vec<u8>, String> {
     Ok(payload)
 }
 
-// Encodes client message.
+/// Encodes client message.
 fn encode_client_message(buffer: &mut Vec<u8>, message: &ClientMessage) {
     match message {
         ClientMessage::Request {
@@ -159,7 +159,7 @@ fn encode_client_message(buffer: &mut Vec<u8>, message: &ClientMessage) {
     }
 }
 
-// Decodes client message.
+/// Decodes client message.
 fn decode_client_message(decoder: &mut Decoder<'_>) -> Result<ClientMessage, String> {
     match decoder.read_u8()? {
         0 => Ok(ClientMessage::Request {
@@ -170,7 +170,7 @@ fn decode_client_message(decoder: &mut Decoder<'_>) -> Result<ClientMessage, Str
     }
 }
 
-// Encodes request.
+/// Encodes request.
 fn encode_request(buffer: &mut Vec<u8>, request: &DaemonRequest) {
     match request {
         DaemonRequest::ListSessions => push_u8(buffer, 1),
@@ -207,7 +207,7 @@ fn encode_request(buffer: &mut Vec<u8>, request: &DaemonRequest) {
     }
 }
 
-// Decodes request.
+/// Decodes request.
 fn decode_request(decoder: &mut Decoder<'_>) -> Result<DaemonRequest, String> {
     match decoder.read_u8()? {
         1 => Ok(DaemonRequest::ListSessions),
@@ -233,7 +233,7 @@ fn decode_request(decoder: &mut Decoder<'_>) -> Result<DaemonRequest, String> {
     }
 }
 
-// Encodes server message.
+/// Encodes server message.
 fn encode_server_message(buffer: &mut Vec<u8>, message: &ServerMessage) {
     match message {
         ServerMessage::Response {
@@ -251,7 +251,7 @@ fn encode_server_message(buffer: &mut Vec<u8>, message: &ServerMessage) {
     }
 }
 
-// Decodes server message.
+/// Decodes server message.
 fn decode_server_message(decoder: &mut Decoder<'_>) -> Result<ServerMessage, String> {
     match decoder.read_u8()? {
         0 => Ok(ServerMessage::Response {
@@ -263,7 +263,7 @@ fn decode_server_message(decoder: &mut Decoder<'_>) -> Result<ServerMessage, Str
     }
 }
 
-// Encodes response.
+/// Encodes response.
 fn encode_response(buffer: &mut Vec<u8>, response: &DaemonResponse) {
     match response {
         DaemonResponse::SessionList { sessions } => {
@@ -288,7 +288,7 @@ fn encode_response(buffer: &mut Vec<u8>, response: &DaemonResponse) {
     }
 }
 
-// Decodes response.
+/// Decodes response.
 fn decode_response(decoder: &mut Decoder<'_>) -> Result<DaemonResponse, String> {
     match decoder.read_u8()? {
         1 => Ok(DaemonResponse::SessionList {
@@ -307,7 +307,7 @@ fn decode_response(decoder: &mut Decoder<'_>) -> Result<DaemonResponse, String> 
     }
 }
 
-// Encodes session info.
+/// Encodes session info.
 fn encode_session_info(buffer: &mut Vec<u8>, info: &DaemonSessionInfo) {
     push_string(buffer, &info.session_id);
     encode_runtime_state(buffer, &info.runtime);
@@ -316,7 +316,7 @@ fn encode_session_info(buffer: &mut Vec<u8>, info: &DaemonSessionInfo) {
     push_u64(buffer, info.revision);
 }
 
-// Decodes session info.
+/// Decodes session info.
 fn decode_session_info(decoder: &mut Decoder<'_>) -> Result<DaemonSessionInfo, String> {
     Ok(DaemonSessionInfo {
         session_id: decoder.read_string()?,
@@ -326,7 +326,7 @@ fn decode_session_info(decoder: &mut Decoder<'_>) -> Result<DaemonSessionInfo, S
     })
 }
 
-// Encodes event.
+/// Encodes event.
 fn encode_event(buffer: &mut Vec<u8>, event: &DaemonEvent) {
     match event {
         DaemonEvent::SessionUpdated {
@@ -342,7 +342,7 @@ fn encode_event(buffer: &mut Vec<u8>, event: &DaemonEvent) {
     }
 }
 
-// Decodes event.
+/// Decodes event.
 fn decode_event(decoder: &mut Decoder<'_>) -> Result<DaemonEvent, String> {
     match decoder.read_u8()? {
         0 => Ok(DaemonEvent::SessionUpdated {
@@ -354,7 +354,7 @@ fn decode_event(decoder: &mut Decoder<'_>) -> Result<DaemonEvent, String> {
     }
 }
 
-// Encodes command.
+/// Encodes command.
 fn encode_command(buffer: &mut Vec<u8>, command: &TerminalCommand) {
     match command {
         TerminalCommand::InputText(text) => {
@@ -376,7 +376,7 @@ fn encode_command(buffer: &mut Vec<u8>, command: &TerminalCommand) {
     }
 }
 
-// Decodes command.
+/// Decodes command.
 fn decode_command(decoder: &mut Decoder<'_>) -> Result<TerminalCommand, String> {
     match decoder.read_u8()? {
         0 => Ok(TerminalCommand::InputText(decoder.read_string()?)),
@@ -387,13 +387,13 @@ fn decode_command(decoder: &mut Decoder<'_>) -> Result<TerminalCommand, String> 
     }
 }
 
-// Encodes snapshot.
+/// Encodes snapshot.
 fn encode_snapshot(buffer: &mut Vec<u8>, snapshot: &TerminalSnapshot) {
     push_option(buffer, snapshot.surface.as_ref(), encode_surface);
     encode_runtime_state(buffer, &snapshot.runtime);
 }
 
-// Decodes snapshot.
+/// Decodes snapshot.
 fn decode_snapshot(decoder: &mut Decoder<'_>) -> Result<TerminalSnapshot, String> {
     Ok(TerminalSnapshot {
         surface: decoder.read_option(decode_surface)?,
@@ -401,7 +401,7 @@ fn decode_snapshot(decoder: &mut Decoder<'_>) -> Result<TerminalSnapshot, String
     })
 }
 
-// Encodes update.
+/// Encodes update.
 fn encode_update(buffer: &mut Vec<u8>, update: &TerminalUpdate) {
     match update {
         TerminalUpdate::Frame(frame) => {
@@ -416,7 +416,7 @@ fn encode_update(buffer: &mut Vec<u8>, update: &TerminalUpdate) {
     }
 }
 
-// Decodes update.
+/// Decodes update.
 fn decode_update(decoder: &mut Decoder<'_>) -> Result<TerminalUpdate, String> {
     match decoder.read_u8()? {
         0 => Ok(TerminalUpdate::Frame(decode_frame_update(decoder)?)),
@@ -428,14 +428,14 @@ fn decode_update(decoder: &mut Decoder<'_>) -> Result<TerminalUpdate, String> {
     }
 }
 
-// Encodes frame update.
+/// Encodes frame update.
 fn encode_frame_update(buffer: &mut Vec<u8>, frame: &TerminalFrameUpdate) {
     encode_surface(buffer, &frame.surface);
     encode_damage(buffer, &frame.damage);
     encode_runtime_state(buffer, &frame.runtime);
 }
 
-// Decodes frame update.
+/// Decodes frame update.
 fn decode_frame_update(decoder: &mut Decoder<'_>) -> Result<TerminalFrameUpdate, String> {
     Ok(TerminalFrameUpdate {
         surface: decode_surface(decoder)?,
@@ -444,7 +444,7 @@ fn decode_frame_update(decoder: &mut Decoder<'_>) -> Result<TerminalFrameUpdate,
     })
 }
 
-// Encodes damage.
+/// Encodes damage.
 fn encode_damage(buffer: &mut Vec<u8>, damage: &TerminalDamage) {
     match damage {
         TerminalDamage::Full => push_u8(buffer, 0),
@@ -455,7 +455,7 @@ fn encode_damage(buffer: &mut Vec<u8>, damage: &TerminalDamage) {
     }
 }
 
-// Decodes damage.
+/// Decodes damage.
 fn decode_damage(decoder: &mut Decoder<'_>) -> Result<TerminalDamage, String> {
     match decoder.read_u8()? {
         0 => Ok(TerminalDamage::Full),
@@ -466,7 +466,7 @@ fn decode_damage(decoder: &mut Decoder<'_>) -> Result<TerminalDamage, String> {
     }
 }
 
-// Encodes surface.
+/// Encodes surface.
 fn encode_surface(buffer: &mut Vec<u8>, surface: &TerminalSurface) {
     push_usize(buffer, surface.cols);
     push_usize(buffer, surface.rows);
@@ -474,7 +474,7 @@ fn encode_surface(buffer: &mut Vec<u8>, surface: &TerminalSurface) {
     push_option(buffer, surface.cursor.as_ref(), encode_cursor);
 }
 
-// Decodes surface.
+/// Decodes surface.
 fn decode_surface(decoder: &mut Decoder<'_>) -> Result<TerminalSurface, String> {
     Ok(TerminalSurface {
         cols: decoder.read_usize()?,
@@ -484,7 +484,7 @@ fn decode_surface(decoder: &mut Decoder<'_>) -> Result<TerminalSurface, String> 
     })
 }
 
-// Encodes cell.
+/// Encodes cell.
 fn encode_cell(buffer: &mut Vec<u8>, cell: &TerminalCell) {
     encode_cell_content(buffer, &cell.content);
     encode_color(buffer, cell.fg);
@@ -492,7 +492,7 @@ fn encode_cell(buffer: &mut Vec<u8>, cell: &TerminalCell) {
     push_u8(buffer, cell.width);
 }
 
-// Decodes cell.
+/// Decodes cell.
 fn decode_cell(decoder: &mut Decoder<'_>) -> Result<TerminalCell, String> {
     Ok(TerminalCell {
         content: decode_cell_content(decoder)?,
@@ -502,7 +502,7 @@ fn decode_cell(decoder: &mut Decoder<'_>) -> Result<TerminalCell, String> {
     })
 }
 
-// Encodes cell content.
+/// Encodes cell content.
 fn encode_cell_content(buffer: &mut Vec<u8>, content: &TerminalCellContent) {
     match content {
         TerminalCellContent::Empty => push_u8(buffer, 0),
@@ -524,7 +524,7 @@ fn encode_cell_content(buffer: &mut Vec<u8>, content: &TerminalCellContent) {
     }
 }
 
-// Decodes cell content.
+/// Decodes cell content.
 fn decode_cell_content(decoder: &mut Decoder<'_>) -> Result<TerminalCellContent, String> {
     match decoder.read_u8()? {
         0 => Ok(TerminalCellContent::Empty),
@@ -540,7 +540,7 @@ fn decode_cell_content(decoder: &mut Decoder<'_>) -> Result<TerminalCellContent,
     }
 }
 
-// Encodes cursor.
+/// Encodes cursor.
 fn encode_cursor(buffer: &mut Vec<u8>, cursor: &TerminalCursor) {
     push_usize(buffer, cursor.x);
     push_usize(buffer, cursor.y);
@@ -549,7 +549,7 @@ fn encode_cursor(buffer: &mut Vec<u8>, cursor: &TerminalCursor) {
     encode_color(buffer, cursor.color);
 }
 
-// Decodes cursor.
+/// Decodes cursor.
 fn decode_cursor(decoder: &mut Decoder<'_>) -> Result<TerminalCursor, String> {
     Ok(TerminalCursor {
         x: decoder.read_usize()?,
@@ -560,7 +560,7 @@ fn decode_cursor(decoder: &mut Decoder<'_>) -> Result<TerminalCursor, String> {
     })
 }
 
-// Encodes cursor shape.
+/// Encodes cursor shape.
 fn encode_cursor_shape(buffer: &mut Vec<u8>, shape: TerminalCursorShape) {
     match shape {
         TerminalCursorShape::Block => push_u8(buffer, 0),
@@ -569,7 +569,7 @@ fn encode_cursor_shape(buffer: &mut Vec<u8>, shape: TerminalCursorShape) {
     }
 }
 
-// Decodes cursor shape.
+/// Decodes cursor shape.
 fn decode_cursor_shape(decoder: &mut Decoder<'_>) -> Result<TerminalCursorShape, String> {
     match decoder.read_u8()? {
         0 => Ok(TerminalCursorShape::Block),
@@ -579,7 +579,7 @@ fn decode_cursor_shape(decoder: &mut Decoder<'_>) -> Result<TerminalCursorShape,
     }
 }
 
-// Encodes runtime state.
+/// Encodes runtime state.
 fn encode_runtime_state(buffer: &mut Vec<u8>, state: &TerminalRuntimeState) {
     push_string(buffer, &state.status);
     encode_lifecycle(buffer, &state.lifecycle);
@@ -588,7 +588,7 @@ fn encode_runtime_state(buffer: &mut Vec<u8>, state: &TerminalRuntimeState) {
     });
 }
 
-// Decodes runtime state.
+/// Decodes runtime state.
 fn decode_runtime_state(decoder: &mut Decoder<'_>) -> Result<TerminalRuntimeState, String> {
     Ok(TerminalRuntimeState {
         status: decoder.read_string()?,
@@ -597,7 +597,7 @@ fn decode_runtime_state(decoder: &mut Decoder<'_>) -> Result<TerminalRuntimeStat
     })
 }
 
-// Encodes lifecycle.
+/// Encodes lifecycle.
 fn encode_lifecycle(buffer: &mut Vec<u8>, lifecycle: &TerminalLifecycle) {
     match lifecycle {
         TerminalLifecycle::Running => push_u8(buffer, 0),
@@ -615,7 +615,7 @@ fn encode_lifecycle(buffer: &mut Vec<u8>, lifecycle: &TerminalLifecycle) {
     }
 }
 
-// Decodes lifecycle.
+/// Decodes lifecycle.
 fn decode_lifecycle(decoder: &mut Decoder<'_>) -> Result<TerminalLifecycle, String> {
     match decoder.read_u8()? {
         0 => Ok(TerminalLifecycle::Running),
@@ -629,7 +629,7 @@ fn decode_lifecycle(decoder: &mut Decoder<'_>) -> Result<TerminalLifecycle, Stri
     }
 }
 
-// Encodes color.
+/// Encodes color.
 fn encode_color(buffer: &mut Vec<u8>, color: egui::Color32) {
     let [r, g, b, a] = color.to_array();
     push_u8(buffer, r);
@@ -638,7 +638,7 @@ fn encode_color(buffer: &mut Vec<u8>, color: egui::Color32) {
     push_u8(buffer, a);
 }
 
-// Decodes color.
+/// Decodes color.
 fn decode_color(decoder: &mut Decoder<'_>) -> Result<egui::Color32, String> {
     Ok(egui::Color32::from_rgba_unmultiplied(
         decoder.read_u8()?,
@@ -648,7 +648,7 @@ fn decode_color(decoder: &mut Decoder<'_>) -> Result<egui::Color32, String> {
     ))
 }
 
-// Encodes result.
+/// Encodes result.
 fn encode_result<T>(
     buffer: &mut Vec<u8>,
     result: &Result<T, String>,
@@ -666,7 +666,7 @@ fn encode_result<T>(
     }
 }
 
-// Decodes result.
+/// Decodes result.
 fn decode_result<T>(
     decoder: &mut Decoder<'_>,
     decode_ok: impl Fn(&mut Decoder<'_>) -> Result<T, String>,
@@ -678,7 +678,7 @@ fn decode_result<T>(
     }
 }
 
-// Pushes vec.
+/// Pushes vec.
 fn push_vec<T>(buffer: &mut Vec<u8>, items: &[T], encode: impl Fn(&mut Vec<u8>, &T)) {
     push_u32(buffer, u32::try_from(items.len()).unwrap_or(u32::MAX));
     for item in items {
@@ -686,7 +686,7 @@ fn push_vec<T>(buffer: &mut Vec<u8>, items: &[T], encode: impl Fn(&mut Vec<u8>, 
     }
 }
 
-// Pushes option.
+/// Pushes option.
 fn push_option<T>(buffer: &mut Vec<u8>, value: Option<&T>, encode: impl Fn(&mut Vec<u8>, &T)) {
     match value {
         Some(value) => {
@@ -697,42 +697,42 @@ fn push_option<T>(buffer: &mut Vec<u8>, value: Option<&T>, encode: impl Fn(&mut 
     }
 }
 
-// Pushes bool.
+/// Pushes bool.
 fn push_bool(buffer: &mut Vec<u8>, value: bool) {
     push_u8(buffer, u8::from(value));
 }
 
-// Pushes u8.
+/// Pushes u8.
 fn push_u8(buffer: &mut Vec<u8>, value: u8) {
     buffer.push(value);
 }
 
-// Pushes u32.
+/// Pushes u32.
 fn push_u32(buffer: &mut Vec<u8>, value: u32) {
     buffer.extend_from_slice(&value.to_le_bytes());
 }
 
-// Pushes u64.
+/// Pushes u64.
 fn push_u64(buffer: &mut Vec<u8>, value: u64) {
     buffer.extend_from_slice(&value.to_le_bytes());
 }
 
-// Pushes i32.
+/// Pushes i32.
 fn push_i32(buffer: &mut Vec<u8>, value: i32) {
     buffer.extend_from_slice(&value.to_le_bytes());
 }
 
-// Pushes usize.
+/// Pushes usize.
 fn push_usize(buffer: &mut Vec<u8>, value: usize) {
     push_u64(buffer, value as u64);
 }
 
-// Pushes char.
+/// Pushes char.
 fn push_char(buffer: &mut Vec<u8>, value: char) {
     push_u32(buffer, value as u32);
 }
 
-// Pushes string.
+/// Pushes string.
 fn push_string(buffer: &mut Vec<u8>, value: &str) {
     let bytes = value.as_bytes();
     push_u32(buffer, u32::try_from(bytes.len()).unwrap_or(u32::MAX));
@@ -745,12 +745,12 @@ struct Decoder<'a> {
 }
 
 impl<'a> Decoder<'a> {
-    // Constructs a new value.
+    /// Constructs a new value.
     fn new(bytes: &'a [u8]) -> Self {
         Self { bytes, cursor: 0 }
     }
 
-    // Implements finish.
+    /// Implements finish.
     fn finish(&self) -> Result<(), String> {
         if self.cursor == self.bytes.len() {
             Ok(())
@@ -759,7 +759,7 @@ impl<'a> Decoder<'a> {
         }
     }
 
-    // Implements take.
+    /// Implements take.
     fn take(&mut self, len: usize) -> Result<&'a [u8], String> {
         let end = self
             .cursor
@@ -773,55 +773,55 @@ impl<'a> Decoder<'a> {
         Ok(bytes)
     }
 
-    // Reads bool.
+    /// Reads bool.
     fn read_bool(&mut self) -> Result<bool, String> {
         Ok(self.read_u8()? != 0)
     }
 
-    // Reads u8.
+    /// Reads u8.
     fn read_u8(&mut self) -> Result<u8, String> {
         Ok(self.take(1)?[0])
     }
 
-    // Reads u32.
+    /// Reads u32.
     fn read_u32(&mut self) -> Result<u32, String> {
         let mut buf = [0_u8; 4];
         buf.copy_from_slice(self.take(4)?);
         Ok(u32::from_le_bytes(buf))
     }
 
-    // Reads u64.
+    /// Reads u64.
     fn read_u64(&mut self) -> Result<u64, String> {
         let mut buf = [0_u8; 8];
         buf.copy_from_slice(self.take(8)?);
         Ok(u64::from_le_bytes(buf))
     }
 
-    // Reads i32.
+    /// Reads i32.
     fn read_i32(&mut self) -> Result<i32, String> {
         let mut buf = [0_u8; 4];
         buf.copy_from_slice(self.take(4)?);
         Ok(i32::from_le_bytes(buf))
     }
 
-    // Reads usize.
+    /// Reads usize.
     fn read_usize(&mut self) -> Result<usize, String> {
         usize::try_from(self.read_u64()?).map_err(|_| "usize decode overflow".to_owned())
     }
 
-    // Reads char.
+    /// Reads char.
     fn read_char(&mut self) -> Result<char, String> {
         char::from_u32(self.read_u32()?).ok_or_else(|| "invalid char codepoint".to_owned())
     }
 
-    // Reads string.
+    /// Reads string.
     fn read_string(&mut self) -> Result<String, String> {
         let len = self.read_u32()? as usize;
         let bytes = self.take(len)?;
         String::from_utf8(bytes.to_vec()).map_err(|error| format!("invalid utf-8 string: {error}"))
     }
 
-    // Reads vec.
+    /// Reads vec.
     fn read_vec<T>(
         &mut self,
         decode: impl Fn(&mut Decoder<'_>) -> Result<T, String>,
@@ -834,7 +834,7 @@ impl<'a> Decoder<'a> {
         Ok(values)
     }
 
-    // Reads option.
+    /// Reads option.
     fn read_option<T>(
         &mut self,
         decode: impl Fn(&mut Decoder<'_>) -> Result<T, String>,

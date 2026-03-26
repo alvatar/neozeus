@@ -29,22 +29,22 @@ pub(crate) struct StartupLoadingState {
 }
 
 impl StartupLoadingState {
-    // Registers this item in the current state.
+    /// Registers this item in the current state.
     pub(crate) fn register(&mut self, terminal_id: crate::terminals::TerminalId) {
         self.pending_terminal_ids.insert(terminal_id);
     }
 
-    // Resolves this item in the current state.
+    /// Resolves this item in the current state.
     pub(crate) fn resolve(&mut self, terminal_id: crate::terminals::TerminalId) {
         self.pending_terminal_ids.remove(&terminal_id);
     }
 
-    // Returns whether this item is still pending.
+    /// Returns whether this item is still pending.
     pub(crate) fn is_pending(&self, terminal_id: crate::terminals::TerminalId) -> bool {
         self.pending_terminal_ids.contains(&terminal_id)
     }
 
-    // Returns whether this state is currently active.
+    /// Returns whether this state is currently active.
     pub(crate) fn active(&self) -> bool {
         !self.pending_terminal_ids.is_empty()
     }
@@ -65,7 +65,7 @@ pub(crate) struct SceneSetupContext<'w, 's> {
     startup_loading: Option<ResMut<'w, StartupLoadingState>>,
 }
 
-// Returns whether request visual redraw.
+/// Returns whether request visual redraw.
 pub(crate) fn should_request_visual_redraw(
     terminal_work_pending: bool,
     presentation_animating: bool,
@@ -74,7 +74,7 @@ pub(crate) fn should_request_visual_redraw(
     terminal_work_pending || presentation_animating || hud_visuals_active
 }
 
-// Chooses startup focus session name.
+/// Chooses startup focus session name.
 pub(crate) fn choose_startup_focus_session_name<'a>(
     restored_focus_session: Option<&'a str>,
     restored_session_names: &[&'a str],
@@ -85,7 +85,7 @@ pub(crate) fn choose_startup_focus_session_name<'a>(
         .or_else(|| imported_session_names.first().copied())
 }
 
-// Implements startup visibility policy for focus.
+/// Implements startup visibility policy for focus.
 pub(crate) fn startup_visibility_policy_for_focus(
     focused_id: Option<crate::terminals::TerminalId>,
 ) -> TerminalVisibilityPolicy {
@@ -94,12 +94,12 @@ pub(crate) fn startup_visibility_policy_for_focus(
         .unwrap_or(TerminalVisibilityPolicy::ShowAll)
 }
 
-// Implements startup focus candidate is interactive.
+/// Implements startup focus candidate is interactive.
 fn startup_focus_candidate_is_interactive(session: &DaemonSessionInfo) -> bool {
     matches!(session.runtime.lifecycle, TerminalLifecycle::Running)
 }
 
-// Requests redraw while visuals active.
+/// Requests redraw while visuals active.
 pub(crate) fn request_redraw_while_visuals_active(
     terminal_manager: Res<TerminalManager>,
     presentation_store: Res<TerminalPresentationStore>,
@@ -133,7 +133,7 @@ pub(crate) fn request_redraw_while_visuals_active(
     }
 }
 
-// Sets up scene.
+/// Sets up scene.
 pub(crate) fn setup_scene(
     mut ctx: SceneSetupContext,
     auto_verify: Option<Res<AutoVerifyConfig>>,
@@ -176,7 +176,7 @@ pub(crate) fn setup_scene(
     restore_startup_terminals(&mut ctx);
 }
 
-// Implements register startup loading terminal.
+/// Implements register startup loading terminal.
 fn register_startup_loading_terminal(
     ctx: &mut SceneSetupContext,
     terminal_id: crate::terminals::TerminalId,
@@ -186,7 +186,7 @@ fn register_startup_loading_terminal(
     }
 }
 
-// Sets up verifier terminal.
+/// Sets up verifier terminal.
 fn setup_verifier_terminal(ctx: &mut SceneSetupContext, config: AutoVerifyConfig) {
     let session_name = match ctx.runtime_spawner.create_session(VERIFIER_SESSION_PREFIX) {
         Ok(session_name) => session_name,
@@ -224,7 +224,7 @@ fn setup_verifier_terminal(ctx: &mut SceneSetupContext, config: AutoVerifyConfig
     start_auto_verify_dispatcher(dispatcher_bridge, ctx.runtime_spawner.notifier(), config);
 }
 
-// Spawns initial terminal.
+/// Spawns initial terminal.
 fn spawn_initial_terminal(ctx: &mut SceneSetupContext, reason: &str) {
     let session_name = match ctx
         .runtime_spawner
@@ -265,7 +265,7 @@ fn spawn_initial_terminal(ctx: &mut SceneSetupContext, reason: &str) {
     ));
 }
 
-// Restores startup terminals.
+/// Restores startup terminals.
 fn restore_startup_terminals(ctx: &mut SceneSetupContext) {
     let persisted = ctx
         .session_persistence
