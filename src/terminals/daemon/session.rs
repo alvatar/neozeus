@@ -2,7 +2,9 @@ use super::protocol::{DaemonEvent, DaemonSessionInfo, ServerMessage};
 use crate::{
     app_config::{DEFAULT_COLS, DEFAULT_ROWS},
     terminals::{
-        build_surface, compute_terminal_damage, send_command_payload_bytes, spawn_pty, write_input,
+        ansi_surface::build_surface,
+        backend::{compute_terminal_damage, send_command_payload_bytes},
+        pty_spawn::{spawn_pty, write_input},
         TerminalAttachTarget, TerminalCommand, TerminalDamage, TerminalFrameUpdate,
         TerminalRuntimeState, TerminalSnapshot, TerminalSurface, TerminalUpdate,
         PTY_OUTPUT_BATCH_BYTES, PTY_OUTPUT_BATCH_WINDOW, PTY_OUTPUT_WAIT_TIMEOUT,

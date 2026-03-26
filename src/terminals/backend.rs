@@ -1,4 +1,3 @@
-pub(crate) use crate::terminals::ansi_surface::build_surface;
 #[cfg(test)]
 pub(crate) use crate::terminals::ansi_surface::{resolve_alacritty_color, xterm_indexed_rgb};
 pub(crate) use crate::terminals::damage::compute_terminal_damage;

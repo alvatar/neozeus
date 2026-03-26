@@ -1,6 +1,6 @@
 use crate::{
     hud::AgentDirectory,
-    terminals::{append_debug_log, is_persistent_session_name, TerminalManager},
+    terminals::{append_debug_log, daemon::is_persistent_session_name, TerminalManager},
 };
 use bevy::prelude::*;
 use std::{collections::BTreeSet, env, fs, path::PathBuf};

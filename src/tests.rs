@@ -291,11 +291,6 @@ impl TerminalSessionClient for FakeTmuxClient {
         }
         Ok(self.sessions.lock().unwrap().contains(name))
     }
-
-    fn kill_session(&self, name: &str) -> Result<(), String> {
-        self.sessions.lock().unwrap().remove(name);
-        Ok(())
-    }
 }
 
 impl TmuxPaneClient for FakeTmuxClient {
