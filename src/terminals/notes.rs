@@ -389,3 +389,6 @@ pub(crate) fn task_entry_from_text(text: &str) -> Option<String> {
     }
     Some(task_entry)
 }
+
+#[cfg(test)]
+mod tests;

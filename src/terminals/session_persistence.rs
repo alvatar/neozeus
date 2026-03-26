@@ -428,3 +428,6 @@ pub(crate) fn reconcile_terminal_sessions(
         prune,
     }
 }
+
+#[cfg(test)]
+mod tests;

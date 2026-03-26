@@ -76,9 +76,4 @@ pub(crate) use modules::{
     AGENT_LIST_BORDER_ORANGE_R,
 };
 #[cfg(test)]
-pub(crate) use persistence::{
-    apply_persisted_layout, parse_persisted_hud_state, resolve_hud_layout_path_with,
-    serialize_persisted_hud_state, PersistedHudModuleState, PersistedHudState,
-};
-#[cfg(test)]
 pub(crate) use state::HudState;
