@@ -194,7 +194,7 @@ pub(crate) fn sync_final_frame_output_target(
             .chain(bloom_additive_cameras.iter())
             .chain(modal_cameras.iter())
         {
-            commands.entity(entity).remove::<RenderTarget>();
+            commands.entity(entity).insert(RenderTarget::default());
         }
         return;
     }
@@ -462,9 +462,18 @@ mod tests {
         world
             .run_system_once(sync_final_frame_output_target)
             .unwrap();
-        assert!(world.get::<RenderTarget>(terminal).is_none());
-        assert!(world.get::<RenderTarget>(composite).is_none());
-        assert!(world.get::<RenderTarget>(bloom).is_none());
+        assert!(matches!(
+            world.get::<RenderTarget>(terminal),
+            Some(RenderTarget::Window(_))
+        ));
+        assert!(matches!(
+            world.get::<RenderTarget>(composite),
+            Some(RenderTarget::Window(_))
+        ));
+        assert!(matches!(
+            world.get::<RenderTarget>(bloom),
+            Some(RenderTarget::Window(_))
+        ));
     }
 
     #[test]
