@@ -3,20 +3,14 @@ use super::{
     insert_test_hud_state, pressed_text, snapshot_test_hud_state, test_bridge, FakeDaemonClient,
 };
 use crate::hud::{
-    agent_list_bloom_layer, agent_list_bloom_z, agent_row_rect, agent_rows,
-    apply_terminal_focus_requests, apply_terminal_lifecycle_requests, apply_terminal_task_requests,
-    apply_visibility_requests, debug_toolbar_buttons, dispatch_hud_pointer_click,
-    dispatch_hud_scroll, handle_hud_module_shortcuts, handle_hud_pointer_input, hud_needs_redraw,
-    message_box_action_buttons, message_box_rect, resolve_agent_label,
-    resolve_agent_list_bloom_debug_previews, resolve_agent_list_bloom_intensity,
-    task_dialog_action_buttons, AgentDirectory, AgentListBloomCameraMarker,
-    AgentListBloomCompositeMarker, AgentListBloomSourceKind, AgentListBloomSourceSegment,
-    AgentListBloomSourceSprite, AgentListRowSection, HudBloomSettings, HudDragState, HudIntent,
-    HudModuleId, HudModuleModel, HudOffscreenCompositor, HudPersistenceState, HudRect, HudState,
-    HudWidgetBloom, TerminalFocusRequest, TerminalLifecycleRequest, TerminalVisibilityPolicy,
-    TerminalVisibilityRequest, TerminalVisibilityState, AGENT_LIST_BLOOM_RED_B,
-    AGENT_LIST_BLOOM_RED_G, AGENT_LIST_BLOOM_RED_R, AGENT_LIST_BORDER_ORANGE_B,
-    AGENT_LIST_BORDER_ORANGE_G, AGENT_LIST_BORDER_ORANGE_R,
+    agent_row_rect, agent_rows, apply_terminal_focus_requests, apply_terminal_lifecycle_requests,
+    apply_terminal_task_requests, apply_visibility_requests, debug_toolbar_buttons,
+    dispatch_hud_pointer_click, dispatch_hud_scroll, handle_hud_module_shortcuts,
+    handle_hud_pointer_input, hud_needs_redraw, message_box_action_buttons, message_box_rect,
+    resolve_agent_label, task_dialog_action_buttons, AgentDirectory, AgentListRowSection,
+    HudDragState, HudIntent, HudModuleId, HudModuleModel, HudOffscreenCompositor,
+    HudPersistenceState, HudRect, HudState, TerminalFocusRequest, TerminalLifecycleRequest,
+    TerminalVisibilityPolicy, TerminalVisibilityRequest, TerminalVisibilityState,
 };
 use crate::terminals::{
     kill_active_terminal_session_and_remove as kill_active_terminal, TerminalManager,
@@ -24,17 +18,13 @@ use crate::terminals::{
     TerminalSessionPersistenceState, TerminalViewState,
 };
 use bevy::{
-    camera::{
-        visibility::{NoFrustumCulling, RenderLayers},
-        RenderTarget,
-    },
+    camera::visibility::{NoFrustumCulling, RenderLayers},
     ecs::system::RunSystemOnce,
     input::{keyboard::KeyboardInput, mouse::MouseWheel},
     mesh::VertexAttributeValues,
     prelude::*,
-    render::render_resource::TextureFormat,
-    sprite_render::{AlphaMode2d, Material2d, MeshMaterial2d},
-    window::{PrimaryWindow, RequestRedraw, WindowResolution},
+    sprite_render::MeshMaterial2d,
+    window::{PrimaryWindow, RequestRedraw},
 };
 use bevy_vello::render::VelloCanvasMaterial;
 use std::{sync::Arc, time::Duration};
@@ -100,119 +90,6 @@ fn setup_hud_requests_initial_redraw() {
 }
 
 #[test]
-fn setup_hud_widget_bloom_spawns_camera_and_composite_sprite() {
-    let mut world = World::default();
-    world.insert_resource(HudBloomSettings::default());
-    world.insert_resource(HudWidgetBloom::default());
-    world.insert_resource(Assets::<Image>::default());
-    world.insert_resource(Assets::<Mesh>::default());
-    world.insert_resource(Assets::<crate::hud::AgentListBloomBlurMaterial>::default());
-    world.spawn((
-        Window {
-            resolution: (1400, 900).into(),
-            ..default()
-        },
-        PrimaryWindow,
-    ));
-
-    world
-        .run_system_once(crate::hud::setup_hud_widget_bloom)
-        .unwrap();
-
-    assert_eq!(
-        world
-            .query::<&AgentListBloomCameraMarker>()
-            .iter(&world)
-            .count(),
-        1
-    );
-
-    let layer = agent_list_bloom_layer();
-    let mut camera_query =
-        world.query_filtered::<(&RenderLayers, &RenderTarget), With<AgentListBloomCameraMarker>>();
-    let (layers, target) = camera_query.single(&world).unwrap();
-    assert!(layers.intersects(&RenderLayers::layer(layer)));
-
-    let RenderTarget::Image(handle) = target else {
-        panic!("bloom camera must render to image target");
-    };
-    let bloom_image_handle = handle.handle.clone();
-    let image_format = {
-        let images = world.resource::<Assets<Image>>();
-        images
-            .get(bloom_image_handle.id())
-            .expect("bloom image exists")
-            .texture_descriptor
-            .format
-    };
-    assert_eq!(image_format, TextureFormat::Rgba16Float);
-
-    let mut composite_query = world.query::<(
-        &Transform,
-        &Visibility,
-        &Sprite,
-        &AgentListBloomCompositeMarker,
-    )>();
-    let (transform, visibility, sprite, _) = composite_query.single(&world).unwrap();
-    assert_eq!(transform.translation.z, agent_list_bloom_z());
-    assert_eq!(visibility, &Visibility::Hidden);
-    let composite_image_format = {
-        let images = world.resource::<Assets<Image>>();
-        images
-            .get(sprite.image.id())
-            .expect("bloom composite image exists")
-            .texture_descriptor
-            .format
-    };
-    assert_eq!(composite_image_format, TextureFormat::Rgba16Float);
-}
-#[test]
-fn setup_hud_widget_bloom_uses_logical_window_size_for_targets() {
-    let mut world = World::default();
-    world.insert_resource(HudBloomSettings::default());
-    world.insert_resource(HudWidgetBloom::default());
-    world.insert_resource(Assets::<Image>::default());
-    world.insert_resource(Assets::<Mesh>::default());
-    world.insert_resource(Assets::<crate::hud::AgentListBloomBlurMaterial>::default());
-    world.spawn((
-        Window {
-            resolution: WindowResolution::new(1400, 900).with_scale_factor_override(2.0),
-            ..default()
-        },
-        PrimaryWindow,
-    ));
-
-    world
-        .run_system_once(crate::hud::setup_hud_widget_bloom)
-        .unwrap();
-
-    let target_handles = {
-        let mut target_query = world.query::<&RenderTarget>();
-        target_query
-            .iter(&world)
-            .filter_map(|target| match target {
-                RenderTarget::Image(handle) => Some(handle.handle.clone()),
-                _ => None,
-            })
-            .collect::<Vec<_>>()
-    };
-    let images = world.resource::<Assets<Image>>();
-    let target_images = target_handles
-        .iter()
-        .filter_map(|handle| images.get(handle.id()))
-        .collect::<Vec<_>>();
-    let target_sizes = target_images
-        .iter()
-        .map(|image| image.texture_descriptor.size)
-        .collect::<Vec<_>>();
-    assert!(target_sizes.iter().all(|size| size.width == 700));
-    assert!(target_sizes.iter().all(|size| size.height == 450));
-    assert!(target_images
-        .iter()
-        .all(|image| image.texture_descriptor.format == TextureFormat::Rgba16Float));
-}
-
-#[test]
 fn sync_structural_hud_layout_docks_agent_list_to_full_height_left_column() {
     let mut world = World::default();
     let mut hud_state = HudState::default();
@@ -240,58 +117,6 @@ fn sync_structural_hud_layout_docks_agent_list_to_full_height_left_column() {
     let hud_state = snapshot_test_hud_state(&world);
     let module = hud_state.get(HudModuleId::AgentList).unwrap();
     assert_eq!(module.shell.current_rect, expected_rect);
-}
-
-#[test]
-fn agent_list_reference_colors_match_requested_values() {
-    assert_eq!(
-        (
-            AGENT_LIST_BORDER_ORANGE_R,
-            AGENT_LIST_BORDER_ORANGE_G,
-            AGENT_LIST_BORDER_ORANGE_B
-        ),
-        (225, 129, 10)
-    );
-    assert_eq!(
-        (
-            AGENT_LIST_BLOOM_RED_R,
-            AGENT_LIST_BLOOM_RED_G,
-            AGENT_LIST_BLOOM_RED_B
-        ),
-        (143, 37, 15)
-    );
-}
-
-#[test]
-fn parses_agent_bloom_intensity_override() {
-    assert_eq!(resolve_agent_list_bloom_intensity(None), 0.10);
-    assert_eq!(resolve_agent_list_bloom_intensity(Some("")), 0.10);
-    assert_eq!(resolve_agent_list_bloom_intensity(Some("2.0")), 2.0);
-    assert_eq!(resolve_agent_list_bloom_intensity(Some(" 0.0 ")), 0.0);
-    assert_eq!(resolve_agent_list_bloom_intensity(Some("-1")), 0.10);
-    assert_eq!(resolve_agent_list_bloom_intensity(Some("abc")), 0.10);
-}
-
-#[test]
-fn parses_agent_bloom_debug_previews_override() {
-    assert!(!resolve_agent_list_bloom_debug_previews(None));
-    assert!(!resolve_agent_list_bloom_debug_previews(Some("")));
-    assert!(resolve_agent_list_bloom_debug_previews(Some("1")));
-    assert!(resolve_agent_list_bloom_debug_previews(Some(" true ")));
-    assert!(resolve_agent_list_bloom_debug_previews(Some("on")));
-    assert!(!resolve_agent_list_bloom_debug_previews(Some("0")));
-    assert!(!resolve_agent_list_bloom_debug_previews(Some("false")));
-}
-
-#[test]
-fn bloom_blur_material_writes_offscreen_passes_opaquely() {
-    let material = crate::hud::AgentListBloomBlurMaterial {
-        image: default(),
-        uniform: crate::hud::AgentListBloomBlurUniform {
-            texel_step_gain: Vec4::ZERO,
-        },
-    };
-    assert_eq!(Material2d::alpha_mode(&material), AlphaMode2d::Opaque);
 }
 
 #[test]
@@ -912,245 +737,6 @@ fn agent_rows_mark_hovered_terminal() {
             .unwrap()
             .hovered
     );
-}
-
-#[test]
-fn sync_hud_widget_bloom_spawns_agent_list_source_sprites() {
-    let mut world = World::default();
-    let (bridge, _) = test_bridge();
-    let mut manager = TerminalManager::default();
-    manager.create_terminal(bridge);
-    let mut hud_state = HudState::default();
-    hud_state.insert(
-        HudModuleId::AgentList,
-        crate::hud::default_hud_module_instance(&crate::hud::HUD_MODULE_DEFINITIONS[1]),
-    );
-    insert_terminal_manager_resources(&mut world, manager);
-    insert_test_hud_state(&mut world, hud_state);
-    world.insert_resource(AgentDirectory::default());
-    world.insert_resource(HudBloomSettings::default());
-    world.insert_resource(HudWidgetBloom::default());
-    world.insert_resource(Assets::<Image>::default());
-    world.insert_resource(Assets::<Mesh>::default());
-    world.insert_resource(Assets::<crate::hud::AgentListBloomBlurMaterial>::default());
-    world.spawn((
-        Window {
-            resolution: (1400, 900).into(),
-            ..default()
-        },
-        PrimaryWindow,
-    ));
-
-    world
-        .run_system_once(crate::hud::setup_hud_widget_bloom)
-        .unwrap();
-    world
-        .run_system_once(crate::hud::sync_structural_hud_layout)
-        .unwrap();
-    world
-        .run_system_once(crate::hud::sync_hud_widget_bloom)
-        .unwrap();
-
-    let source_sprites = world
-        .query::<(&AgentListBloomSourceSprite, &Sprite)>()
-        .iter(&world)
-        .map(|(marker, sprite)| (*marker, sprite.clone()))
-        .collect::<Vec<_>>();
-    assert_eq!(source_sprites.len(), 8);
-    assert_eq!(
-        source_sprites
-            .iter()
-            .filter(|(sprite, _)| sprite.kind == AgentListBloomSourceKind::Main)
-            .count(),
-        4
-    );
-    assert_eq!(
-        source_sprites
-            .iter()
-            .filter(|(sprite, _)| sprite.kind == AgentListBloomSourceKind::Marker)
-            .count(),
-        4
-    );
-    for segment in [
-        AgentListBloomSourceSegment::Top,
-        AgentListBloomSourceSegment::Right,
-        AgentListBloomSourceSegment::Bottom,
-        AgentListBloomSourceSegment::Left,
-    ] {
-        assert!(source_sprites.iter().any(|(sprite, _)| {
-            sprite.kind == AgentListBloomSourceKind::Main && sprite.segment == segment
-        }));
-        assert!(source_sprites.iter().any(|(sprite, _)| {
-            sprite.kind == AgentListBloomSourceKind::Marker && sprite.segment == segment
-        }));
-    }
-
-    let expected_sizes = {
-        let manager = world.resource::<TerminalManager>();
-        let hud_state = snapshot_test_hud_state(&world);
-        let directory = world.resource::<AgentDirectory>();
-        let module = hud_state.get(HudModuleId::AgentList).unwrap();
-        let crate::hud::HudModuleModel::AgentList(state) = &module.model else {
-            panic!("agent list module model missing")
-        };
-        let row = agent_rows(
-            module.shell.current_rect,
-            state.scroll_offset,
-            state.hovered_terminal,
-            manager,
-            &manager.clone_focus_state(),
-            directory,
-        )
-        .into_iter()
-        .next()
-        .expect("agent row exists");
-        let main = agent_row_rect(row.rect, AgentListRowSection::Main);
-        let marker = agent_row_rect(row.rect, AgentListRowSection::Marker);
-        let target_size = {
-            let mut camera_query =
-                world.query_filtered::<&RenderTarget, With<AgentListBloomCameraMarker>>();
-            let RenderTarget::Image(handle) = camera_query.single(&world).unwrap() else {
-                panic!("bloom target missing")
-            };
-            let images = world.resource::<Assets<Image>>();
-            images
-                .get(handle.handle.id())
-                .expect("bloom target image exists")
-                .texture_descriptor
-                .size
-        };
-        let scale_x = target_size.width as f32 / 1400.0;
-        let scale_y = target_size.height as f32 / 900.0;
-        [
-            Vec2::new(main.w * scale_x, 3.0 * scale_y),
-            Vec2::new(3.0 * scale_x, main.h * scale_y),
-            Vec2::new(marker.w * scale_x, 2.5 * scale_y),
-            Vec2::new(2.5 * scale_x, marker.h * scale_y),
-        ]
-    };
-    let actual_sizes = source_sprites
-        .iter()
-        .map(|(_, sprite)| sprite.custom_size.expect("source size exists"))
-        .collect::<Vec<_>>();
-    assert!(actual_sizes
-        .iter()
-        .all(|size| expected_sizes.contains(size)));
-
-    let mut composite_query = world.query::<(
-        &Visibility,
-        &Transform,
-        &Sprite,
-        &AgentListBloomCompositeMarker,
-    )>();
-    let (visibility, transform, sprite, _) = composite_query.single(&world).unwrap();
-    assert_eq!(visibility, &Visibility::Visible);
-    assert_eq!(transform.translation.z, agent_list_bloom_z());
-    assert_eq!(sprite.custom_size, Some(Vec2::new(1400.0, 900.0)));
-}
-
-#[test]
-fn sync_hud_widget_bloom_hides_sources_and_composite_while_modal_is_visible() {
-    let mut world = World::default();
-    let (bridge, _) = test_bridge();
-    let mut manager = TerminalManager::default();
-    manager.create_terminal(bridge);
-    let mut hud_state = HudState::default();
-    hud_state.insert(
-        HudModuleId::AgentList,
-        crate::hud::default_hud_module_instance(&crate::hud::HUD_MODULE_DEFINITIONS[1]),
-    );
-    hud_state.message_box.visible = true;
-    insert_terminal_manager_resources(&mut world, manager);
-    insert_test_hud_state(&mut world, hud_state);
-    world.insert_resource(AgentDirectory::default());
-    world.insert_resource(HudBloomSettings::default());
-    world.insert_resource(HudWidgetBloom::default());
-    world.insert_resource(Assets::<Image>::default());
-    world.insert_resource(Assets::<Mesh>::default());
-    world.insert_resource(Assets::<crate::hud::AgentListBloomBlurMaterial>::default());
-    world.spawn((
-        Window {
-            resolution: (1400, 900).into(),
-            ..default()
-        },
-        PrimaryWindow,
-    ));
-
-    world
-        .run_system_once(crate::hud::setup_hud_widget_bloom)
-        .unwrap();
-    world
-        .run_system_once(crate::hud::sync_structural_hud_layout)
-        .unwrap();
-    world
-        .run_system_once(crate::hud::sync_hud_widget_bloom)
-        .unwrap();
-
-    assert_eq!(
-        world
-            .query::<&AgentListBloomSourceSprite>()
-            .iter(&world)
-            .count(),
-        0
-    );
-    let mut composite_query = world.query::<(&Visibility, &AgentListBloomCompositeMarker)>();
-    let (visibility, _) = composite_query.single(&world).unwrap();
-    assert_eq!(visibility, &Visibility::Hidden);
-}
-
-#[test]
-fn sync_hud_widget_bloom_only_uses_active_agent_source() {
-    let mut world = World::default();
-    let (bridge_one, _) = test_bridge();
-    let (bridge_two, _) = test_bridge();
-    let mut manager = TerminalManager::default();
-    let id_one = manager.create_terminal(bridge_one);
-    let id_two = manager.create_terminal(bridge_two);
-    manager.focus_terminal(id_two);
-
-    let mut hud_state = HudState::default();
-    hud_state.insert(
-        HudModuleId::AgentList,
-        crate::hud::default_hud_module_instance(&crate::hud::HUD_MODULE_DEFINITIONS[1]),
-    );
-    insert_terminal_manager_resources(&mut world, manager);
-    insert_test_hud_state(&mut world, hud_state);
-    world.insert_resource(AgentDirectory::default());
-    world.insert_resource(HudBloomSettings::default());
-    world.insert_resource(HudWidgetBloom::default());
-    world.insert_resource(Assets::<Image>::default());
-    world.insert_resource(Assets::<Mesh>::default());
-    world.insert_resource(Assets::<crate::hud::AgentListBloomBlurMaterial>::default());
-    world.spawn((
-        Window {
-            resolution: (1400, 900).into(),
-            ..default()
-        },
-        PrimaryWindow,
-    ));
-
-    world
-        .run_system_once(crate::hud::setup_hud_widget_bloom)
-        .unwrap();
-    world
-        .run_system_once(crate::hud::sync_structural_hud_layout)
-        .unwrap();
-    world
-        .run_system_once(crate::hud::sync_hud_widget_bloom)
-        .unwrap();
-
-    let source_sprites = world
-        .query::<&AgentListBloomSourceSprite>()
-        .iter(&world)
-        .copied()
-        .collect::<Vec<_>>();
-    assert_eq!(source_sprites.len(), 8);
-    assert!(source_sprites
-        .iter()
-        .all(|sprite| sprite.terminal_id == id_two));
-    assert!(source_sprites
-        .iter()
-        .all(|sprite| sprite.terminal_id != id_one));
 }
 
 #[test]

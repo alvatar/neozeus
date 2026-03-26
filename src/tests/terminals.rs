@@ -13,24 +13,23 @@ use crate::{
     startup::StartupLoadingState,
     terminals::{
         active_terminal_cell_size, active_terminal_dimensions, active_terminal_layout,
-        active_terminal_viewport, blend_rgba_in_place, compute_terminal_damage,
-        create_terminal_image, find_kitty_config_path_with,
-        initialize_terminal_text_renderer_with_locale, is_emoji_like, is_private_use_like,
-        parse_kitty_config_file, pixel_perfect_cell_size, pixel_perfect_terminal_logical_size,
-        poll_terminal_snapshots, rasterize_terminal_glyph, read_client_message,
-        read_server_message, resolve_alacritty_color, resolve_daemon_socket_path_with,
-        resolve_terminal_font_report_for_family, resolve_terminal_font_report_for_path,
-        send_command_payload_bytes, snap_to_pixel_grid, sync_active_terminal_dimensions,
-        sync_terminal_panel_frames, sync_terminal_presentations, sync_terminal_texture,
-        terminal_texture_screen_size, write_client_message, write_server_message,
-        xterm_indexed_rgb, ClientMessage, DaemonEvent, DaemonRequest, DaemonServerHandle,
-        KittyFontConfig, PresentedTerminal, ServerMessage, SocketTerminalDaemonClient,
-        TerminalCommand, TerminalDaemonClient, TerminalDamage, TerminalDisplayMode,
-        TerminalFontRole, TerminalFontState, TerminalFrameUpdate, TerminalGlyphCacheKey,
-        TerminalLifecycle, TerminalManager, TerminalPanel, TerminalPanelFrame,
-        TerminalPresentation, TerminalPresentationStore, TerminalRuntimeState, TerminalSurface,
-        TerminalTextRenderer, TerminalTextureState, TerminalUpdate, TerminalViewState,
-        PERSISTENT_SESSION_PREFIX, VERIFIER_SESSION_PREFIX,
+        active_terminal_viewport, blend_rgba_in_place, create_terminal_image,
+        find_kitty_config_path_with, initialize_terminal_text_renderer_with_locale, is_emoji_like,
+        is_private_use_like, parse_kitty_config_file, pixel_perfect_cell_size,
+        pixel_perfect_terminal_logical_size, poll_terminal_snapshots, rasterize_terminal_glyph,
+        read_client_message, read_server_message, resolve_alacritty_color,
+        resolve_daemon_socket_path_with, resolve_terminal_font_report_for_family,
+        resolve_terminal_font_report_for_path, send_command_payload_bytes, snap_to_pixel_grid,
+        sync_active_terminal_dimensions, sync_terminal_panel_frames, sync_terminal_presentations,
+        sync_terminal_texture, terminal_texture_screen_size, write_client_message,
+        write_server_message, xterm_indexed_rgb, ClientMessage, DaemonEvent, DaemonRequest,
+        DaemonServerHandle, KittyFontConfig, PresentedTerminal, ServerMessage,
+        SocketTerminalDaemonClient, TerminalCommand, TerminalDaemonClient, TerminalDamage,
+        TerminalDisplayMode, TerminalFontRole, TerminalFontState, TerminalFrameUpdate,
+        TerminalGlyphCacheKey, TerminalLifecycle, TerminalManager, TerminalPanel,
+        TerminalPanelFrame, TerminalPresentation, TerminalPresentationStore, TerminalRuntimeState,
+        TerminalSurface, TerminalTextRenderer, TerminalTextureState, TerminalUpdate,
+        TerminalViewState, PERSISTENT_SESSION_PREFIX, VERIFIER_SESSION_PREFIX,
     },
 };
 use alacritty_terminal::vte::ansi::{Color as AnsiColor, NamedColor};
@@ -1061,26 +1060,6 @@ fn active_terminal_resize_requests_follow_zoom_distance() {
     assert_eq!(
         requests,
         vec![("neozeus-session-1".into(), expected.cols, expected.rows)]
-    );
-}
-
-#[test]
-fn compute_terminal_damage_marks_only_changed_rows() {
-    let previous = surface_with_text(3, 4, 1, "ab");
-    let next = surface_with_text(3, 4, 2, "cd");
-    assert_eq!(
-        compute_terminal_damage(Some(&previous), &next),
-        TerminalDamage::Rows(vec![1, 2])
-    );
-}
-
-#[test]
-fn compute_terminal_damage_marks_resize_as_full() {
-    let previous = TerminalSurface::new(4, 3);
-    let next = TerminalSurface::new(5, 3);
-    assert_eq!(
-        compute_terminal_damage(Some(&previous), &next),
-        TerminalDamage::Full
     );
 }
 
