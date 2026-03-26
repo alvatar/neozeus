@@ -1,5 +1,8 @@
 use crate::{
-    app_config::{load_neozeus_config, resolve_terminal_font_path},
+    app_config::{
+        load_neozeus_config, resolve_terminal_baseline_offset_px, resolve_terminal_font_path,
+        resolve_terminal_font_size_px,
+    },
     terminals::{TerminalFontFace, TerminalFontReport},
 };
 use bevy::prelude::{ResMut, Resource};
@@ -11,9 +14,25 @@ use std::{
     process::Command,
 };
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct TerminalFontRasterConfig {
+    pub(crate) font_size_px: f32,
+    pub(crate) baseline_offset_px: f32,
+}
+
+impl Default for TerminalFontRasterConfig {
+    fn default() -> Self {
+        Self {
+            font_size_px: 16.0,
+            baseline_offset_px: -0.5,
+        }
+    }
+}
+
 #[derive(Resource, Default)]
 pub(crate) struct TerminalFontState {
     pub(crate) report: Option<Result<TerminalFontReport, String>>,
+    pub(crate) raster: TerminalFontRasterConfig,
 }
 
 #[derive(Resource)]
@@ -40,6 +59,15 @@ impl TerminalFontState {
         self.fallback_family_name("emoji").is_some()
     }
 
+    pub(crate) fn glyph_metrics_for_cell_height(&self, cell_height: u32) -> cosmic_text::Metrics {
+        let scale = cell_height.max(1) as f32 / 16.0;
+        cosmic_text::Metrics::new(self.raster.font_size_px * scale, cell_height.max(1) as f32)
+    }
+
+    pub(crate) fn baseline_offset_for_cell_height(&self, cell_height: u32) -> f32 {
+        self.raster.baseline_offset_px * (cell_height.max(1) as f32 / 16.0)
+    }
+
     pub(crate) fn fallback_family_name<'a>(&'a self, needle: &str) -> Option<&'a str> {
         let report = self.report.as_ref()?.as_ref().ok()?;
         report
@@ -57,6 +85,22 @@ pub(crate) fn configure_terminal_fonts(
     if font_state.report.is_some() {
         return;
     }
+
+    let config = match load_neozeus_config() {
+        Ok(config) => config,
+        Err(error) => {
+            font_state.report = Some(Err(error));
+            return;
+        }
+    };
+    let defaults = TerminalFontRasterConfig::default();
+    font_state.raster = TerminalFontRasterConfig {
+        font_size_px: resolve_terminal_font_size_px(&config, defaults.font_size_px),
+        baseline_offset_px: resolve_terminal_baseline_offset_px(
+            &config,
+            defaults.baseline_offset_px,
+        ),
+    };
 
     match resolve_terminal_font_report() {
         Ok(report) => match initialize_terminal_text_renderer(&report, &mut text_renderer) {

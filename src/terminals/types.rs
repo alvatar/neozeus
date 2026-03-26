@@ -167,6 +167,10 @@ pub(crate) struct TerminalRuntimeState {
 }
 
 impl TerminalRuntimeState {
+    pub(crate) fn is_interactive(&self) -> bool {
+        matches!(self.lifecycle, TerminalLifecycle::Running)
+    }
+
     pub(crate) fn running(status: impl Into<String>) -> Self {
         Self {
             status: status.into(),

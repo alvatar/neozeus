@@ -133,6 +133,7 @@ pub(super) fn insert_test_hud_state_into_app(app: &mut App, hud_state: crate::hu
 #[derive(Default)]
 pub(super) struct FakeDaemonClient {
     pub(super) sessions: Mutex<BTreeSet<String>>,
+    pub(super) session_runtimes: Mutex<std::collections::HashMap<String, TerminalRuntimeState>>,
     pub(super) sent_commands: Mutex<Vec<(String, TerminalCommand)>>,
     pub(super) resize_requests: Mutex<Vec<(String, usize, usize)>>,
     pub(super) fail_kill: Mutex<bool>,
@@ -153,6 +154,23 @@ impl FakeDaemonClient {
             let _ = sender.send(update.clone());
         }
     }
+
+    pub(super) fn set_session_runtime(&self, session_id: &str, runtime: TerminalRuntimeState) {
+        self.sessions.lock().unwrap().insert(session_id.to_owned());
+        self.session_runtimes
+            .lock()
+            .unwrap()
+            .insert(session_id.to_owned(), runtime);
+    }
+
+    fn session_runtime(&self, session_id: &str) -> TerminalRuntimeState {
+        self.session_runtimes
+            .lock()
+            .unwrap()
+            .get(session_id)
+            .cloned()
+            .unwrap_or_else(|| TerminalRuntimeState::running("fake daemon"))
+    }
 }
 
 impl TerminalDaemonClient for FakeDaemonClient {
@@ -165,8 +183,8 @@ impl TerminalDaemonClient for FakeDaemonClient {
             .cloned()
             .enumerate()
             .map(|(index, session_id)| DaemonSessionInfo {
+                runtime: self.session_runtime(&session_id),
                 session_id,
-                runtime: TerminalRuntimeState::running("fake daemon"),
                 revision: 0,
                 created_order: index as u64,
             })
@@ -177,7 +195,7 @@ impl TerminalDaemonClient for FakeDaemonClient {
         let mut next = self.next_session_index.lock().unwrap();
         let session_id = format!("{prefix}{}", *next);
         *next += 1;
-        self.sessions.lock().unwrap().insert(session_id.clone());
+        self.set_session_runtime(&session_id, TerminalRuntimeState::running("fake daemon"));
         Ok(session_id)
     }
 
@@ -195,7 +213,7 @@ impl TerminalDaemonClient for FakeDaemonClient {
         Ok(AttachedDaemonSession {
             snapshot: TerminalSnapshot {
                 surface: Some(TerminalSurface::new(120, 38)),
-                runtime: TerminalRuntimeState::running("fake daemon"),
+                runtime: self.session_runtime(session_id),
             },
             updates: rx,
         })
@@ -222,6 +240,7 @@ impl TerminalDaemonClient for FakeDaemonClient {
             return Err("kill failed".into());
         }
         self.sessions.lock().unwrap().remove(session_id);
+        self.session_runtimes.lock().unwrap().remove(session_id);
         self.updates.lock().unwrap().remove(session_id);
         Ok(())
     }

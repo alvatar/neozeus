@@ -1,7 +1,8 @@
 use crate::terminals::{
-    append_debug_log, note_terminal_error, with_debug_stats, AttachedDaemonSession, TerminalBridge,
-    TerminalCommand, TerminalDaemonClientResource, TerminalDebugStats, TerminalRuntimeState,
-    TerminalUpdate, TerminalUpdateMailbox, PERSISTENT_SESSION_PREFIX,
+    append_debug_log, note_terminal_error, with_debug_stats, AttachedDaemonSession,
+    DaemonSessionInfo, TerminalBridge, TerminalCommand, TerminalDaemonClientResource,
+    TerminalDebugStats, TerminalRuntimeState, TerminalUpdate, TerminalUpdateMailbox,
+    PERSISTENT_SESSION_PREFIX,
 };
 use bevy::{
     prelude::Resource,
@@ -78,13 +79,8 @@ impl TerminalRuntimeSpawner {
         self.notifier.clone()
     }
 
-    pub(crate) fn list_sessions(&self) -> Result<Vec<String>, String> {
-        self.daemon.client().list_sessions().map(|sessions| {
-            sessions
-                .into_iter()
-                .map(|session| session.session_id)
-                .collect()
-        })
+    pub(crate) fn list_session_infos(&self) -> Result<Vec<DaemonSessionInfo>, String> {
+        self.daemon.client().list_sessions()
     }
 
     pub(crate) fn create_session(&self, prefix: &str) -> Result<String, String> {

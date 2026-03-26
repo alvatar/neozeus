@@ -5,7 +5,10 @@ use super::{
     test_bridge, FakeDaemonClient, FakeTmuxClient,
 };
 use crate::{
-    app_config::{DEFAULT_CELL_HEIGHT_PX, DEFAULT_CELL_WIDTH_PX},
+    app_config::{
+        load_neozeus_config, resolve_terminal_baseline_offset_px, resolve_terminal_font_path,
+        resolve_terminal_font_size_px, DEFAULT_BG, DEFAULT_CELL_HEIGHT_PX, DEFAULT_CELL_WIDTH_PX,
+    },
     hud::{AgentDirectory, HudModuleId, HudState},
     startup::StartupLoadingState,
     terminals::{
@@ -40,11 +43,22 @@ use crate::{
 };
 use alacritty_terminal::vte::ansi::{Color as AnsiColor, NamedColor};
 use bevy::{ecs::system::RunSystemOnce, prelude::*, window::PrimaryWindow};
+use bevy_egui::egui;
 use std::{collections::BTreeSet, fs, sync::Arc, time::Duration};
 
 fn test_terminal_font_report() -> crate::terminals::TerminalFontReport {
     resolve_terminal_font_report_for_family("monospace")
         .expect("failed to resolve terminal fonts for test family")
+}
+
+fn configured_terminal_font_report() -> crate::terminals::TerminalFontReport {
+    let config = load_neozeus_config().unwrap_or_default();
+    if let Some(path) = resolve_terminal_font_path(&config) {
+        resolve_terminal_font_report_for_path(&path)
+            .expect("failed to resolve configured terminal font report")
+    } else {
+        test_terminal_font_report()
+    }
 }
 
 fn initialize_test_terminal_text_renderer(
@@ -53,6 +67,128 @@ fn initialize_test_terminal_text_renderer(
 ) {
     initialize_terminal_text_renderer_with_locale(report, renderer, "en-US")
         .expect("failed to initialize terminal text renderer");
+}
+
+fn configured_test_font_raster() -> crate::terminals::TerminalFontRasterConfig {
+    let config = load_neozeus_config().unwrap_or_default();
+    let defaults = crate::terminals::TerminalFontRasterConfig::default();
+    crate::terminals::TerminalFontRasterConfig {
+        font_size_px: resolve_terminal_font_size_px(&config, defaults.font_size_px),
+        baseline_offset_px: resolve_terminal_baseline_offset_px(
+            &config,
+            defaults.baseline_offset_px,
+        ),
+    }
+}
+
+fn set_colored_text(
+    surface: &mut TerminalSurface,
+    row: usize,
+    col: usize,
+    text: &str,
+    fg: egui::Color32,
+) {
+    for (offset, ch) in text.chars().enumerate() {
+        if col + offset >= surface.cols {
+            break;
+        }
+        surface.set_cell(
+            col + offset,
+            row,
+            crate::terminals::TerminalCell {
+                content: crate::terminals::TerminalCellContent::Single(ch),
+                fg,
+                bg: DEFAULT_BG,
+                width: 1,
+            },
+        );
+    }
+}
+
+fn render_surface_to_terminal_image(surface: TerminalSurface) -> (Image, TerminalTextureState) {
+    let report = configured_terminal_font_report();
+    let mut renderer = TerminalTextRenderer::default();
+    initialize_test_terminal_text_renderer(&report, &mut renderer);
+    let font_state = TerminalFontState {
+        report: Some(Ok(report)),
+        raster: configured_test_font_raster(),
+    };
+
+    let window = Window {
+        resolution: (1400, 900).into(),
+        ..Default::default()
+    };
+    let hud_state = HudState::default();
+    let view_state = TerminalViewState::default();
+
+    let (bridge, _) = test_bridge();
+    let mut manager = TerminalManager::default();
+    let id = manager.create_terminal(bridge);
+    let terminal = manager.get_mut(id).expect("terminal should exist");
+    terminal.snapshot.surface = Some(surface);
+    terminal.surface_revision = 1;
+    terminal.pending_damage = Some(TerminalDamage::Full);
+
+    let mut images = Assets::<Image>::default();
+    let image = images.add(create_terminal_image(UVec2::ONE));
+    let mut presentation_store = TerminalPresentationStore::default();
+    presentation_store.register(
+        id,
+        PresentedTerminal {
+            image: image.clone(),
+            texture_state: Default::default(),
+            desired_texture_state: Default::default(),
+            display_mode: TerminalDisplayMode::Smooth,
+            uploaded_revision: 0,
+            panel_entity: Entity::PLACEHOLDER,
+            frame_entity: Entity::PLACEHOLDER,
+        },
+    );
+
+    let mut world = World::default();
+    insert_terminal_manager_resources(&mut world, manager);
+    world.insert_resource(presentation_store);
+    world.insert_resource(font_state);
+    world.insert_resource(view_state);
+    insert_test_hud_state(&mut world, hud_state);
+    world.insert_resource(crate::terminals::TerminalGlyphCache::default());
+    world.insert_resource(renderer);
+    world.insert_resource(images);
+    world.spawn((window, PrimaryWindow));
+
+    world
+        .run_system_once(sync_terminal_texture)
+        .expect("texture sync should succeed");
+
+    let store = world.resource::<TerminalPresentationStore>();
+    let presented = store.get(id).expect("missing presented terminal");
+    let texture_state = presented.texture_state.clone();
+    let images = world.resource::<Assets<Image>>();
+    let image = images
+        .get(&presented.image)
+        .expect("rendered image should exist")
+        .clone();
+    (image, texture_state)
+}
+
+fn count_non_background_pixels_in_band(image: &Image, y_start: u32, y_end: u32) -> usize {
+    let width = image.texture_descriptor.size.width as usize;
+    let data = image.data.as_ref().expect("image data should exist");
+    let y_end = y_end.min(image.texture_descriptor.size.height);
+    let mut count = 0usize;
+    for y in y_start.min(y_end)..y_end {
+        let row = &data[y as usize * width * 4..(y as usize + 1) * width * 4];
+        for pixel in row.chunks_exact(4) {
+            if pixel[0] != DEFAULT_BG.r()
+                || pixel[1] != DEFAULT_BG.g()
+                || pixel[2] != DEFAULT_BG.b()
+                || pixel[3] != DEFAULT_BG.a()
+            {
+                count += 1;
+            }
+        }
+    }
+    count
 }
 
 struct UnavailableTmuxClient;
@@ -736,6 +872,7 @@ fn sync_terminal_texture_keeps_cached_switch_frame_until_resized_surface_arrives
     initialize_test_terminal_text_renderer(&report, &mut renderer);
     let font_state = TerminalFontState {
         report: Some(Ok(report)),
+        ..Default::default()
     };
 
     let (bridge_one, _) = test_bridge();
@@ -842,6 +979,7 @@ fn sync_terminal_texture_promotes_active_terminal_once_resized_surface_arrives()
     initialize_test_terminal_text_renderer(&report, &mut renderer);
     let font_state = TerminalFontState {
         report: Some(Ok(report)),
+        ..Default::default()
     };
 
     let (bridge, _) = test_bridge();
@@ -1140,6 +1278,123 @@ fn configured_terminal_font_path_resolves_exact_primary_face() {
 }
 
 #[test]
+#[ignore = "manual offscreen font-reference verifier"]
+fn dump_terminal_font_reference_sample() {
+    let report = resolve_terminal_font_report_for_path(std::path::Path::new(
+        "/usr/share/fonts/Adwaita/AdwaitaMono-Regular.ttf",
+    ))
+    .expect("configured font path should resolve");
+    let mut renderer = TerminalTextRenderer::default();
+    initialize_test_terminal_text_renderer(&report, &mut renderer);
+    let font_state = TerminalFontState {
+        report: Some(Ok(report)),
+        raster: configured_test_font_raster(),
+    };
+
+    let window = Window {
+        resolution: bevy::window::WindowResolution::new(1908, 243).with_scale_factor_override(1.45),
+        ..Default::default()
+    };
+    let hud_state = HudState::default();
+    let view_state = TerminalViewState::default();
+    let active_layout = active_terminal_layout(&window, &hud_state.layout_state(), &view_state);
+
+    let (bridge, _) = test_bridge();
+    let mut manager = TerminalManager::default();
+    let id = manager.create_terminal(bridge);
+    let terminal = manager.get_mut(id).unwrap();
+    let mut surface =
+        TerminalSurface::new(active_layout.dimensions.cols, active_layout.dimensions.rows);
+    let gray = egui::Color32::from_rgb(138, 150, 150);
+    let info = egui::Color32::from_rgb(45, 240, 160);
+    let warn = egui::Color32::from_rgb(198, 216, 92);
+    let line0_a = "2026-03-26T15:07:52.729339Z  ";
+    let line0_b = "INFO";
+    let line0_c = " bevy_diagnostics::system_information_diagnostics_plugin::internal: SystemInfo { os: \"Linux (Arch Linux)\", kernel:";
+    set_colored_text(&mut surface, 0, 0, line0_a, gray);
+    set_colored_text(&mut surface, 0, line0_a.chars().count(), line0_b, info);
+    set_colored_text(
+        &mut surface,
+        0,
+        line0_a.chars().count() + line0_b.chars().count(),
+        line0_c,
+        gray,
+    );
+    set_colored_text(&mut surface, 1, 0, "memory: \"62.3 GiB\" }", gray);
+    let line6_a = "2026-03-26T15:07:53.637782Z  ";
+    let line6_b = "INFO";
+    let line6_c = " bevy_winit::system: Creating new window neozeus (0v0)";
+    set_colored_text(&mut surface, 6, 0, line6_a, gray);
+    set_colored_text(&mut surface, 6, line6_a.chars().count(), line6_b, info);
+    set_colored_text(
+        &mut surface,
+        6,
+        line6_a.chars().count() + line6_b.chars().count(),
+        line6_c,
+        gray,
+    );
+    let line7_a = "2026-03-26T15:07:53.6378787Z ";
+    let line7_b = "WARN";
+    let line7_c = " bevy_winit::winit_windows: Can't select current monitor on window creation or cannot find current monitor!";
+    set_colored_text(&mut surface, 7, 0, line7_a, gray);
+    set_colored_text(&mut surface, 7, line7_a.chars().count(), line7_b, warn);
+    set_colored_text(
+        &mut surface,
+        7,
+        line7_a.chars().count() + line7_b.chars().count(),
+        line7_c,
+        gray,
+    );
+    terminal.snapshot.surface = Some(surface);
+    terminal.surface_revision = 1;
+    terminal.pending_damage = Some(TerminalDamage::Full);
+
+    let mut images = Assets::<Image>::default();
+    let image = images.add(create_terminal_image(UVec2::ONE));
+    let mut presentation_store = TerminalPresentationStore::default();
+    presentation_store.register(
+        id,
+        PresentedTerminal {
+            image: image.clone(),
+            texture_state: Default::default(),
+            desired_texture_state: Default::default(),
+            display_mode: TerminalDisplayMode::Smooth,
+            uploaded_revision: 0,
+            panel_entity: Entity::PLACEHOLDER,
+            frame_entity: Entity::PLACEHOLDER,
+        },
+    );
+
+    let mut world = World::default();
+    insert_terminal_manager_resources(&mut world, manager);
+    world.insert_resource(presentation_store);
+    world.insert_resource(font_state);
+    world.insert_resource(view_state);
+    insert_test_hud_state(&mut world, hud_state);
+    world.insert_resource(crate::terminals::TerminalGlyphCache::default());
+    world.insert_resource(renderer);
+    world.insert_resource(images);
+    world.spawn((window, PrimaryWindow));
+
+    world.run_system_once(sync_terminal_texture).unwrap();
+
+    let store = world.resource::<TerminalPresentationStore>();
+    let presented = store.get(id).expect("missing presented terminal");
+    let images = world.resource::<Assets<Image>>();
+    let image = images
+        .get(&presented.image)
+        .expect("rendered image should exist");
+    let size = image.texture_descriptor.size;
+    let data = image.data.as_ref().expect("image data should exist");
+    let mut ppm = Vec::with_capacity(data.len());
+    ppm.extend_from_slice(format!("P6\n{} {}\n255\n", size.width, size.height).as_bytes());
+    for pixel in data.chunks_exact(4) {
+        ppm.extend_from_slice(&pixel[..3]);
+    }
+    std::fs::write("/tmp/neozeus-terminal-font-reference.ppm", ppm).expect("ppm should write");
+}
+
+#[test]
 fn resolves_effective_terminal_font_stack_on_host() {
     let report = test_terminal_font_report();
     assert_eq!(report.requested_family, "monospace");
@@ -1163,6 +1418,7 @@ fn standalone_text_renderer_rasterizes_ascii_glyph() {
     initialize_test_terminal_text_renderer(&report, &mut renderer);
     let font_state = TerminalFontState {
         report: Some(Ok(report)),
+        ..Default::default()
     };
     let glyph = rasterize_terminal_glyph(
         &TerminalGlyphCacheKey {
@@ -1178,6 +1434,98 @@ fn standalone_text_renderer_rasterizes_ascii_glyph() {
         &font_state,
     );
     assert_glyph_has_visible_pixels(&glyph);
+}
+
+#[test]
+fn sync_terminal_texture_renders_visible_text_on_last_row() {
+    let window = Window {
+        resolution: (1400, 900).into(),
+        ..Default::default()
+    };
+    let hud_state = HudState::default();
+    let view_state = TerminalViewState::default();
+    let active_layout = active_terminal_layout(&window, &hud_state.layout_state(), &view_state);
+
+    let mut surface =
+        TerminalSurface::new(active_layout.dimensions.cols, active_layout.dimensions.rows);
+    set_colored_text(
+        &mut surface,
+        active_layout.dimensions.rows - 1,
+        0,
+        "typed text",
+        egui::Color32::from_rgb(220, 220, 220),
+    );
+
+    let (image, texture_state) = render_surface_to_terminal_image(surface);
+    let y_start = (active_layout.dimensions.rows as u32 - 1) * texture_state.cell_size.y;
+    let visible_pixels =
+        count_non_background_pixels_in_band(&image, y_start, y_start + texture_state.cell_size.y);
+    assert!(
+        visible_pixels > 0,
+        "last terminal row rendered no visible text pixels"
+    );
+}
+
+#[test]
+fn sync_terminal_texture_updates_pixels_when_last_row_text_changes() {
+    let window = Window {
+        resolution: (1400, 900).into(),
+        ..Default::default()
+    };
+    let hud_state = HudState::default();
+    let view_state = TerminalViewState::default();
+    let active_layout = active_terminal_layout(&window, &hud_state.layout_state(), &view_state);
+
+    let mut before =
+        TerminalSurface::new(active_layout.dimensions.cols, active_layout.dimensions.rows);
+    set_colored_text(
+        &mut before,
+        active_layout.dimensions.rows - 1,
+        0,
+        "$ ",
+        egui::Color32::from_rgb(220, 220, 220),
+    );
+    let (before_image, texture_state) = render_surface_to_terminal_image(before);
+
+    let mut after =
+        TerminalSurface::new(active_layout.dimensions.cols, active_layout.dimensions.rows);
+    set_colored_text(
+        &mut after,
+        active_layout.dimensions.rows - 1,
+        0,
+        "$ abc",
+        egui::Color32::from_rgb(220, 220, 220),
+    );
+    let (after_image, _) = render_surface_to_terminal_image(after);
+
+    let before_data = before_image
+        .data
+        .as_ref()
+        .expect("before image data should exist");
+    let after_data = after_image
+        .data
+        .as_ref()
+        .expect("after image data should exist");
+    assert_ne!(
+        before_data, after_data,
+        "typed text did not change terminal image pixels"
+    );
+
+    let y_start = (active_layout.dimensions.rows as u32 - 1) * texture_state.cell_size.y;
+    let before_pixels = count_non_background_pixels_in_band(
+        &before_image,
+        y_start,
+        y_start + texture_state.cell_size.y,
+    );
+    let after_pixels = count_non_background_pixels_in_band(
+        &after_image,
+        y_start,
+        y_start + texture_state.cell_size.y,
+    );
+    assert!(
+        after_pixels > before_pixels,
+        "typed text did not add visible pixels on the active input row"
+    );
 }
 
 #[test]
@@ -1777,6 +2125,7 @@ fn show_all_presentations_remain_visible_when_no_terminal_is_active() {
 fn terminal_panel_frames_are_hidden_without_direct_input_mode() {
     let mut world = World::default();
     insert_default_hud_resources(&mut world);
+    world.insert_resource(TerminalManager::default());
     world.insert_resource(TerminalPresentationStore::default());
     world.spawn((
         TerminalPanelFrame {
@@ -1797,12 +2146,16 @@ fn terminal_panel_frames_are_hidden_without_direct_input_mode() {
 
 #[test]
 fn direct_input_mode_shows_orange_terminal_frame() {
-    let terminal_id = crate::terminals::TerminalId(7);
+    let (bridge, _) = test_bridge();
+    let mut manager = TerminalManager::default();
+    let terminal_id = manager.create_terminal(bridge);
+
     let mut hud_state = crate::hud::HudState::default();
     hud_state.open_direct_terminal_input(terminal_id);
 
     let mut world = World::default();
     insert_test_hud_state(&mut world, hud_state);
+    world.insert_resource(manager);
     let panel_entity = world
         .spawn((
             TerminalPanel { id: terminal_id },
@@ -1851,6 +2204,71 @@ fn direct_input_mode_shows_orange_terminal_frame() {
     assert_eq!(*frames[0].3, Visibility::Visible);
     assert_eq!(frames[0].1.translation, Vec3::new(30.0, -20.0, 0.48));
     assert_eq!(frames[0].2.custom_size, Some(Vec2::new(332.0, 192.0)));
+    assert_eq!(frames[0].2.color, Color::srgba(1.0, 0.48, 0.08, 0.96));
+}
+
+#[test]
+fn disconnected_terminal_shows_red_status_frame() {
+    let mut world = World::default();
+    insert_default_hud_resources(&mut world);
+    let (bridge, _) = test_bridge();
+    let mut manager = TerminalManager::default();
+    let terminal_id = manager.create_terminal(bridge);
+    manager
+        .get_mut(terminal_id)
+        .expect("terminal should exist")
+        .snapshot
+        .runtime = crate::terminals::TerminalRuntimeState::disconnected("dead session");
+    world.insert_resource(manager);
+    let panel_entity = world
+        .spawn((
+            TerminalPanel { id: terminal_id },
+            TerminalPresentation {
+                home_position: Vec2::ZERO,
+                current_position: Vec2::new(10.0, 15.0),
+                target_position: Vec2::ZERO,
+                current_size: Vec2::new(300.0, 160.0),
+                target_size: Vec2::ZERO,
+                current_alpha: 1.0,
+                target_alpha: 1.0,
+                current_z: 0.5,
+                target_z: 0.0,
+            },
+            Visibility::Visible,
+        ))
+        .id();
+    let frame_entity = world
+        .spawn((
+            TerminalPanelFrame { id: terminal_id },
+            Transform::default(),
+            Sprite::default(),
+            Visibility::Hidden,
+        ))
+        .id();
+    let mut presentation_store = TerminalPresentationStore::default();
+    presentation_store.register(
+        terminal_id,
+        PresentedTerminal {
+            image: Default::default(),
+            texture_state: Default::default(),
+            desired_texture_state: Default::default(),
+            display_mode: Default::default(),
+            uploaded_revision: 0,
+            panel_entity,
+            frame_entity,
+        },
+    );
+    world.insert_resource(presentation_store);
+
+    world.run_system_once(sync_terminal_panel_frames).unwrap();
+
+    let mut query = world.query::<(&TerminalPanelFrame, &Transform, &Sprite, &Visibility)>();
+    let frames = query.iter(&world).collect::<Vec<_>>();
+    assert_eq!(frames.len(), 1);
+    assert_eq!(*frames[0].3, Visibility::Visible);
+    assert_eq!(frames[0].1.translation, Vec3::new(10.0, 15.0, 0.48));
+    assert_eq!(frames[0].2.custom_size, Some(Vec2::new(308.0, 168.0)));
+    assert_eq!(frames[0].2.color, Color::srgba(0.86, 0.20, 0.20, 0.92));
 }
 
 #[test]

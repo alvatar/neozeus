@@ -16,18 +16,20 @@ pub(crate) const DEBUG_TEXTURE_DUMP_PATH: &str = "/tmp/neozeus-texture.ppm";
 const NEOZEUS_CONFIG_FILENAME: &str = "config.toml";
 const NEOZEUS_CWD_CONFIG_FILENAME: &str = "neozeus.toml";
 
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub(crate) struct NeoZeusConfig {
     pub(crate) terminal: NeoZeusTerminalConfig,
     pub(crate) window: NeoZeusWindowConfig,
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub(crate) struct NeoZeusTerminalConfig {
     pub(crate) font_path: Option<PathBuf>,
+    pub(crate) font_size_px: Option<f32>,
+    pub(crate) baseline_offset_px: Option<f32>,
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub(crate) struct NeoZeusWindowConfig {
     pub(crate) title: Option<String>,
     pub(crate) app_id: Option<String>,
@@ -115,6 +117,26 @@ pub(crate) fn resolve_terminal_font_path(config: &NeoZeusConfig) -> Option<PathB
         .or_else(|| config.terminal.font_path.clone())
 }
 
+pub(crate) fn resolve_terminal_font_size_px(config: &NeoZeusConfig, default: f32) -> f32 {
+    env::var("NEOZEUS_TERMINAL_FONT_SIZE_PX")
+        .ok()
+        .and_then(|value| value.trim().parse::<f32>().ok())
+        .filter(|value| value.is_finite() && *value > 0.0)
+        .or(config.terminal.font_size_px)
+        .filter(|value| value.is_finite() && *value > 0.0)
+        .unwrap_or(default)
+}
+
+pub(crate) fn resolve_terminal_baseline_offset_px(config: &NeoZeusConfig, default: f32) -> f32 {
+    env::var("NEOZEUS_TERMINAL_BASELINE_OFFSET_PX")
+        .ok()
+        .and_then(|value| value.trim().parse::<f32>().ok())
+        .filter(|value| value.is_finite())
+        .or(config.terminal.baseline_offset_px)
+        .filter(|value| value.is_finite())
+        .unwrap_or(default)
+}
+
 pub(crate) fn parse_neozeus_config(text: &str) -> Result<NeoZeusConfig, String> {
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     enum Section {
@@ -163,6 +185,12 @@ pub(crate) fn parse_neozeus_config(text: &str) -> Result<NeoZeusConfig, String> 
                 config.terminal.font_path =
                     Some(PathBuf::from(parse_toml_basic_string(raw_value)?));
             }
+            (Section::Terminal, "font_size_px") => {
+                config.terminal.font_size_px = Some(parse_toml_f32(raw_value)?);
+            }
+            (Section::Terminal, "baseline_offset_px") => {
+                config.terminal.baseline_offset_px = Some(parse_toml_f32(raw_value)?);
+            }
             (Section::Window, "title") => {
                 config.window.title = Some(parse_toml_basic_string(raw_value)?);
             }
@@ -209,6 +237,11 @@ fn strip_toml_comment(line: &str) -> Result<String, String> {
     }
 
     Ok(out)
+}
+
+fn parse_toml_f32(raw: &str) -> Result<f32, String> {
+    raw.parse::<f32>()
+        .map_err(|error| format!("NeoZeus config expected float value, got `{raw}`: {error}"))
 }
 
 fn parse_toml_basic_string(raw: &str) -> Result<String, String> {

@@ -13,6 +13,7 @@ use bevy::{prelude::*, window::PrimaryWindow};
 pub(crate) const HUD_FRAME_PADDING: Vec2 = Vec2::ZERO;
 pub(crate) const ACTIVE_TERMINAL_MARGIN: Vec2 = Vec2::splat(16.0);
 pub(crate) const DIRECT_INPUT_FRAME_OUTSET: f32 = 6.0;
+const INACTIVE_RUNTIME_FRAME_OUTSET: f32 = 4.0;
 const STARTUP_PLACEHOLDER_COLS: u32 = 120;
 const STARTUP_PLACEHOLDER_ROWS: u32 = 38;
 const STARTUP_PLACEHOLDER_COLOR: Color = Color::srgb(0.10, 0.13, 0.18);
@@ -596,9 +597,10 @@ pub(crate) fn sync_terminal_presentations(
 )]
 pub(crate) fn sync_terminal_panel_frames(
     input_capture: Res<crate::hud::HudInputCaptureState>,
+    terminal_manager: Res<TerminalManager>,
     presentation_store: Res<TerminalPresentationStore>,
     panels: Query<
-        (&TerminalPresentation, &Visibility),
+        (&TerminalPanel, &TerminalPresentation, &Visibility),
         (With<TerminalPanel>, Without<TerminalPanelFrame>),
     >,
     mut frames: Query<
@@ -610,34 +612,57 @@ pub(crate) fn sync_terminal_panel_frames(
         *frame_visibility = Visibility::Hidden;
     }
 
-    let Some(target_terminal) = input_capture.direct_input_terminal else {
-        return;
-    };
-    let Some(presented_terminal) = presentation_store.get(target_terminal) else {
-        return;
-    };
-    let Ok((presentation, panel_visibility)) = panels.get(presented_terminal.panel_entity) else {
-        return;
-    };
-    if *panel_visibility != Visibility::Visible {
-        return;
-    }
-    let Ok((mut transform, mut sprite, mut visibility)) =
-        frames.get_mut(presented_terminal.frame_entity)
-    else {
-        return;
-    };
+    for (panel, presentation, panel_visibility) in &panels {
+        if *panel_visibility != Visibility::Visible {
+            continue;
+        }
+        let Some(terminal) = terminal_manager.get(panel.id) else {
+            continue;
+        };
+        let Some(presented_terminal) = presentation_store.get(panel.id) else {
+            continue;
+        };
+        let Ok((mut transform, mut sprite, mut visibility)) =
+            frames.get_mut(presented_terminal.frame_entity)
+        else {
+            continue;
+        };
 
-    *visibility = Visibility::Visible;
-    sprite.custom_size = Some(
-        (presentation.current_size + Vec2::splat(DIRECT_INPUT_FRAME_OUTSET * 2.0)).max(Vec2::ONE),
-    );
-    sprite.color = Color::srgba(1.0, 0.48, 0.08, 0.96);
-    transform.translation = presentation
-        .current_position
-        .extend(presentation.current_z - 0.02);
-    transform.rotation = Quat::IDENTITY;
-    transform.scale = Vec3::ONE;
+        let direct_input = input_capture.direct_input_terminal == Some(panel.id);
+        let runtime_interactive = terminal.snapshot.runtime.is_interactive();
+        if !direct_input && runtime_interactive {
+            continue;
+        }
+
+        let (outset, color) = if direct_input {
+            (
+                DIRECT_INPUT_FRAME_OUTSET,
+                Color::srgba(1.0, 0.48, 0.08, 0.96),
+            )
+        } else {
+            let color = match terminal.snapshot.runtime.lifecycle {
+                crate::terminals::TerminalLifecycle::Exited { .. } => {
+                    Color::srgba(0.90, 0.72, 0.18, 0.92)
+                }
+                crate::terminals::TerminalLifecycle::Disconnected => {
+                    Color::srgba(0.86, 0.20, 0.20, 0.92)
+                }
+                crate::terminals::TerminalLifecycle::Failed => Color::srgba(0.96, 0.10, 0.10, 0.94),
+                crate::terminals::TerminalLifecycle::Running => unreachable!(),
+            };
+            (INACTIVE_RUNTIME_FRAME_OUTSET, color)
+        };
+
+        *visibility = Visibility::Visible;
+        sprite.custom_size =
+            Some((presentation.current_size + Vec2::splat(outset * 2.0)).max(Vec2::ONE));
+        sprite.color = color;
+        transform.translation = presentation
+            .current_position
+            .extend(presentation.current_z - 0.02);
+        transform.rotation = Quat::IDENTITY;
+        transform.scale = Vec3::ONE;
+    }
 }
 
 pub(crate) fn sync_terminal_hud_surface(

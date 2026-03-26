@@ -31,16 +31,17 @@ pub(crate) use daemon::is_persistent_session_name;
 pub(crate) use daemon::{
     read_client_message, read_server_message, resolve_daemon_socket_path_with,
     write_client_message, write_server_message, ClientMessage, DaemonEvent, DaemonRequest,
-    DaemonServerHandle, DaemonSessionInfo, ServerMessage, SocketTerminalDaemonClient,
-    TerminalDaemonClient,
+    DaemonServerHandle, ServerMessage, SocketTerminalDaemonClient, TerminalDaemonClient,
 };
 pub(crate) use daemon::{
-    resolve_daemon_socket_path, run_daemon_server, AttachedDaemonSession,
+    resolve_daemon_socket_path, run_daemon_server, AttachedDaemonSession, DaemonSessionInfo,
     TerminalDaemonClientResource, PERSISTENT_SESSION_PREFIX, VERIFIER_SESSION_PREFIX,
 };
 pub(crate) use debug::{
     append_debug_log, note_key_event, note_terminal_error, with_debug_stats, TerminalDebugStats,
 };
+#[cfg(test)]
+pub(crate) use fonts::TerminalFontRasterConfig;
 pub(crate) use fonts::{
     configure_terminal_fonts, is_emoji_like, is_private_use_like, TerminalFontState,
     TerminalTextRenderer,
@@ -112,7 +113,6 @@ pub(crate) use tmux::{
 };
 #[cfg(test)]
 pub(crate) use tmux::{send_bytes_tmux_commands, TmuxPaneDescriptor, TmuxPaneState};
-#[cfg(test)]
 pub(crate) use types::TerminalLifecycle;
 pub(crate) use types::{
     DrainedTerminalUpdates, LatestTerminalStatus, PtySession, TerminalAttachTarget, TerminalCell,

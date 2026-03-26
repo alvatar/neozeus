@@ -6,10 +6,10 @@ use crate::{
     terminals::{
         append_debug_log, load_persisted_terminal_sessions_from, mark_terminal_sessions_dirty,
         reconcile_terminal_sessions, resolve_terminal_notes_path, resolve_terminal_sessions_path,
-        spawn_attached_terminal_with_presentation, TerminalCameraMarker, TerminalFocusState,
-        TerminalHudSurfaceMarker, TerminalManager, TerminalPanel, TerminalPresentation,
-        TerminalPresentationStore, TerminalRuntimeSpawner, TerminalSessionPersistenceState,
-        PERSISTENT_SESSION_PREFIX, VERIFIER_SESSION_PREFIX,
+        spawn_attached_terminal_with_presentation, DaemonSessionInfo, TerminalCameraMarker,
+        TerminalFocusState, TerminalHudSurfaceMarker, TerminalLifecycle, TerminalManager,
+        TerminalPanel, TerminalPresentation, TerminalPresentationStore, TerminalRuntimeSpawner,
+        TerminalSessionPersistenceState, PERSISTENT_SESSION_PREFIX, VERIFIER_SESSION_PREFIX,
     },
     verification::{start_auto_verify_dispatcher, AutoVerifyConfig, VerificationScenarioConfig},
 };
@@ -85,6 +85,10 @@ pub(crate) fn startup_visibility_policy_for_focus(
     focused_id
         .map(TerminalVisibilityPolicy::Isolate)
         .unwrap_or(TerminalVisibilityPolicy::ShowAll)
+}
+
+fn startup_focus_candidate_is_interactive(session: &DaemonSessionInfo) -> bool {
+    matches!(session.runtime.lifecycle, TerminalLifecycle::Running)
 }
 
 pub(crate) fn request_redraw_while_visuals_active(
@@ -255,7 +259,7 @@ fn restore_startup_terminals(ctx: &mut SceneSetupContext) {
         .as_ref()
         .map(load_persisted_terminal_sessions_from)
         .unwrap_or_default();
-    let live_sessions = match ctx.runtime_spawner.list_sessions() {
+    let live_session_infos = match ctx.runtime_spawner.list_session_infos() {
         Ok(sessions) => sessions,
         Err(error) => {
             append_debug_log(format!("daemon session discovery failed: {error}"));
@@ -263,6 +267,10 @@ fn restore_startup_terminals(ctx: &mut SceneSetupContext) {
             return;
         }
     };
+    let live_sessions = live_session_infos
+        .iter()
+        .map(|session| session.session_id.clone())
+        .collect::<Vec<_>>();
     let reconciled = reconcile_terminal_sessions(&persisted, &live_sessions);
     if !reconciled.prune.is_empty() || !reconciled.import.is_empty() {
         mark_terminal_sessions_dirty(&mut ctx.session_persistence, None);
@@ -311,19 +319,38 @@ fn restore_startup_terminals(ctx: &mut SceneSetupContext) {
         }
     }
 
+    let live_session_lookup = live_session_infos
+        .iter()
+        .map(|session| (session.session_id.as_str(), session))
+        .collect::<std::collections::HashMap<_, _>>();
     let restored_focus_session = reconciled
         .restore
         .iter()
-        .find(|record| record.last_focused)
+        .find(|record| {
+            record.last_focused
+                && live_session_lookup
+                    .get(record.session_name.as_str())
+                    .is_some_and(|session| startup_focus_candidate_is_interactive(session))
+        })
         .map(|record| record.session_name.as_str());
     let restored_session_names = reconciled
         .restore
         .iter()
+        .filter(|record| {
+            live_session_lookup
+                .get(record.session_name.as_str())
+                .is_some_and(|session| startup_focus_candidate_is_interactive(session))
+        })
         .map(|record| record.session_name.as_str())
         .collect::<Vec<_>>();
     let imported_session_names = reconciled
         .import
         .iter()
+        .filter(|record| {
+            live_session_lookup
+                .get(record.session_name.as_str())
+                .is_some_and(|session| startup_focus_candidate_is_interactive(session))
+        })
         .map(|record| record.session_name.as_str())
         .collect::<Vec<_>>();
 
@@ -349,9 +376,14 @@ fn restore_startup_terminals(ctx: &mut SceneSetupContext) {
                 terminal_id.0, session_name
             ));
         }
-    }
-
-    if ctx.terminal_manager.terminal_ids().is_empty() {
+    } else if !ctx.terminal_manager.terminal_ids().is_empty() {
+        ctx.focus_state.clear_active_terminal();
+        #[cfg(test)]
+        ctx.terminal_manager
+            .replace_test_focus_state(&ctx.focus_state);
+        ctx.visibility_state.policy = TerminalVisibilityPolicy::ShowAll;
+        append_debug_log("startup restored terminals but none are interactive; leaving them visible and unfocused");
+    } else {
         spawn_initial_terminal(ctx, "no restored or imported sessions");
     }
 }
