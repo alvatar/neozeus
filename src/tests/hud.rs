@@ -5,20 +5,21 @@ use super::{
 };
 use crate::hud::{
     agent_list_bloom_layer, agent_list_bloom_z, agent_row_rect, agent_rows, apply_persisted_layout,
-    apply_terminal_focus_requests, apply_terminal_task_requests, apply_visibility_requests,
-    debug_toolbar_buttons, dispatch_hud_pointer_click, dispatch_hud_scroll,
-    handle_hud_module_shortcuts, handle_hud_pointer_input, hud_needs_redraw, kill_active_terminal,
-    message_box_action_buttons, message_box_rect, parse_persisted_hud_state, resolve_agent_label,
-    resolve_agent_list_bloom_debug_previews, resolve_agent_list_bloom_intensity,
-    resolve_hud_layout_path_with, save_hud_layout_if_dirty, serialize_persisted_hud_state,
-    task_dialog_action_buttons, AgentDirectory, AgentListBloomCameraMarker,
-    AgentListBloomCompositeMarker, AgentListBloomSourceKind, AgentListBloomSourceSegment,
-    AgentListBloomSourceSprite, AgentListRowSection, HudBloomSettings, HudDragState, HudIntent,
-    HudModuleId, HudModuleModel, HudOffscreenCompositor, HudPersistenceState, HudRect, HudState,
-    HudWidgetBloom, PersistedHudModuleState, PersistedHudState, TerminalFocusRequest,
-    TerminalVisibilityPolicy, TerminalVisibilityRequest, TerminalVisibilityState,
-    AGENT_LIST_BLOOM_RED_B, AGENT_LIST_BLOOM_RED_G, AGENT_LIST_BLOOM_RED_R,
-    AGENT_LIST_BORDER_ORANGE_B, AGENT_LIST_BORDER_ORANGE_G, AGENT_LIST_BORDER_ORANGE_R,
+    apply_terminal_focus_requests, apply_terminal_lifecycle_requests, apply_terminal_task_requests,
+    apply_visibility_requests, debug_toolbar_buttons, dispatch_hud_pointer_click,
+    dispatch_hud_scroll, handle_hud_module_shortcuts, handle_hud_pointer_input, hud_needs_redraw,
+    kill_active_terminal, message_box_action_buttons, message_box_rect, parse_persisted_hud_state,
+    resolve_agent_label, resolve_agent_list_bloom_debug_previews,
+    resolve_agent_list_bloom_intensity, resolve_hud_layout_path_with, save_hud_layout_if_dirty,
+    serialize_persisted_hud_state, task_dialog_action_buttons, AgentDirectory,
+    AgentListBloomCameraMarker, AgentListBloomCompositeMarker, AgentListBloomSourceKind,
+    AgentListBloomSourceSegment, AgentListBloomSourceSprite, AgentListRowSection, HudBloomSettings,
+    HudDragState, HudIntent, HudModuleId, HudModuleModel, HudOffscreenCompositor,
+    HudPersistenceState, HudRect, HudState, HudWidgetBloom, PersistedHudModuleState,
+    PersistedHudState, TerminalFocusRequest, TerminalLifecycleRequest, TerminalVisibilityPolicy,
+    TerminalVisibilityRequest, TerminalVisibilityState, AGENT_LIST_BLOOM_RED_B,
+    AGENT_LIST_BLOOM_RED_G, AGENT_LIST_BLOOM_RED_R, AGENT_LIST_BORDER_ORANGE_B,
+    AGENT_LIST_BORDER_ORANGE_G, AGENT_LIST_BORDER_ORANGE_R,
 };
 use crate::terminals::{
     TerminalManager, TerminalNotesState, TerminalPanel, TerminalPanelFrame,
@@ -1986,6 +1987,37 @@ fn killing_active_terminal_removes_runtime_presentation_and_labels() {
     let frame_count = world.query::<&TerminalPanelFrame>().iter(&world).count();
     assert_eq!(panel_count, 0);
     assert_eq!(frame_count, 0);
+}
+
+#[test]
+fn spawn_shell_lifecycle_request_does_not_send_pi_command() {
+    let client = Arc::new(FakeDaemonClient::default());
+    let mut world = World::default();
+    let mut time = Time::<()>::default();
+    time.advance_by(Duration::from_secs(1));
+    world.insert_resource(time);
+    world.insert_resource(Assets::<Image>::default());
+    insert_terminal_manager_resources(&mut world, TerminalManager::default());
+    insert_default_hud_resources(&mut world);
+    world.insert_resource(TerminalPresentationStore::default());
+    world.insert_resource(AgentDirectory::default());
+    world.insert_resource(fake_runtime_spawner(client.clone()));
+    world.insert_resource(TerminalSessionPersistenceState::default());
+    world.insert_resource(TerminalVisibilityState::default());
+    world.insert_resource(TerminalViewState::default());
+    world.init_resource::<Messages<TerminalLifecycleRequest>>();
+    world.init_resource::<Messages<RequestRedraw>>();
+
+    world
+        .resource_mut::<Messages<TerminalLifecycleRequest>>()
+        .write(TerminalLifecycleRequest::SpawnShell);
+
+    world
+        .run_system_once(apply_terminal_lifecycle_requests)
+        .unwrap();
+
+    assert_eq!(world.resource::<TerminalManager>().terminal_ids().len(), 1);
+    assert!(client.sent_commands.lock().unwrap().is_empty());
 }
 
 #[test]

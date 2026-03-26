@@ -34,8 +34,15 @@ pub(crate) fn apply_terminal_lifecycle_requests(
     for request in requests.read() {
         let mut state_changed = false;
         match request {
-            crate::hud::TerminalLifecycleRequest::Spawn => {
-                let session_name = match runtime_spawner.create_session(PERSISTENT_SESSION_PREFIX) {
+            crate::hud::TerminalLifecycleRequest::Spawn
+            | crate::hud::TerminalLifecycleRequest::SpawnShell => {
+                let spawn_shell_only =
+                    matches!(request, crate::hud::TerminalLifecycleRequest::SpawnShell);
+                let session_name = match if spawn_shell_only {
+                    runtime_spawner.create_shell_session(PERSISTENT_SESSION_PREFIX)
+                } else {
+                    runtime_spawner.create_session(PERSISTENT_SESSION_PREFIX)
+                } {
                     Ok(session_name) => session_name,
                     Err(error) => {
                         append_debug_log(format!("spawn terminal failed: {error}"));
@@ -72,8 +79,10 @@ pub(crate) fn apply_terminal_lifecycle_requests(
                 view_state.focus_terminal(Some(terminal_id));
                 mark_terminal_sessions_dirty(&mut session_persistence, Some(&time));
                 append_debug_log(format!(
-                    "spawned terminal {} session={}",
-                    terminal_id.0, session_name
+                    "spawned {}terminal {} session={}",
+                    if spawn_shell_only { "shell " } else { "" },
+                    terminal_id.0,
+                    session_name
                 ));
                 state_changed = true;
             }

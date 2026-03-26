@@ -23,6 +23,9 @@ pub(crate) fn dispatch_hud_intents(
             HudIntent::SpawnTerminal => {
                 lifecycle_requests.write(TerminalLifecycleRequest::Spawn);
             }
+            HudIntent::SpawnShellTerminal => {
+                lifecycle_requests.write(TerminalLifecycleRequest::SpawnShell);
+            }
             HudIntent::FocusTerminal(terminal_id) => {
                 focus_requests.write(TerminalFocusRequest {
                     terminal_id: *terminal_id,

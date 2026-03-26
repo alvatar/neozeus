@@ -53,6 +53,18 @@ pub(crate) fn should_spawn_terminal_globally(
     !(ctrl || alt || super_key)
 }
 
+pub(crate) fn should_spawn_shell_terminal_globally(
+    event: &KeyboardInput,
+    keys: &ButtonInput<KeyCode>,
+) -> bool {
+    if event.state != ButtonState::Pressed || event.key_code != KeyCode::KeyZ {
+        return false;
+    }
+
+    let (ctrl, alt, super_key) = has_plain_modifiers(keys);
+    ctrl && alt && !super_key
+}
+
 pub(crate) fn should_kill_active_terminal(
     event: &KeyboardInput,
     keys: &ButtonInput<KeyCode>,
@@ -85,6 +97,10 @@ pub(crate) fn handle_global_terminal_spawn_shortcut(
     }
 
     for event in messages.read() {
+        if should_spawn_shell_terminal_globally(event, &keys) {
+            hud_commands.write(HudIntent::SpawnShellTerminal);
+            break;
+        }
         if should_spawn_terminal_globally(event, &keys) {
             hud_commands.write(HudIntent::SpawnTerminal);
             break;
