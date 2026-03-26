@@ -12,6 +12,7 @@ use bevy::{
 };
 use bevy_vello::prelude::{VelloScene2d, VelloView};
 
+// Appends HUD log.
 pub(crate) fn append_hud_log(message: impl AsRef<str>) {
     crate::terminals::append_debug_log(format!("hud: {}", message.as_ref()));
 }
@@ -20,6 +21,7 @@ pub(crate) fn append_hud_log(message: impl AsRef<str>) {
     clippy::too_many_arguments,
     reason = "HUD setup initializes retained state, persistence, compositor, and scene resources together"
 )]
+// Sets up HUD.
 pub(crate) fn setup_hud(
     mut commands: Commands,
     mut layout_state: ResMut<HudLayoutState>,
@@ -89,6 +91,7 @@ pub(crate) fn setup_hud(
     redraws.write(RequestRedraw);
 }
 
+// Synchronizes structural HUD layout.
 pub(crate) fn sync_structural_hud_layout(
     primary_window: Single<&Window, With<PrimaryWindow>>,
     mut layout_state: ResMut<HudLayoutState>,
@@ -101,6 +104,7 @@ pub(crate) fn sync_structural_hud_layout(
     agent_list.shell.current_rect = rect;
 }
 
+// Handles needs redraw.
 pub(crate) fn hud_needs_redraw(layout_state: &HudLayoutState) -> bool {
     layout_state.drag.is_some() || layout_state.is_animating()
 }

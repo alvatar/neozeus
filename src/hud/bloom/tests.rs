@@ -14,6 +14,7 @@ use bevy::{
     window::{PrimaryWindow, WindowResolution},
 };
 
+// Verifies that agent list reference colors match requested values.
 #[test]
 fn agent_list_reference_colors_match_requested_values() {
     assert_eq!(
@@ -34,6 +35,7 @@ fn agent_list_reference_colors_match_requested_values() {
     );
 }
 
+// Verifies that parses agent bloom intensity override.
 #[test]
 fn parses_agent_bloom_intensity_override() {
     assert_eq!(resolve_agent_list_bloom_intensity(None), 0.10);
@@ -44,6 +46,7 @@ fn parses_agent_bloom_intensity_override() {
     assert_eq!(resolve_agent_list_bloom_intensity(Some("abc")), 0.10);
 }
 
+// Verifies that parses agent bloom debug previews override.
 #[test]
 fn parses_agent_bloom_debug_previews_override() {
     assert!(!resolve_agent_list_bloom_debug_previews(None));
@@ -55,6 +58,7 @@ fn parses_agent_bloom_debug_previews_override() {
     assert!(!resolve_agent_list_bloom_debug_previews(Some("false")));
 }
 
+// Verifies that bloom blur material writes offscreen passes opaquely.
 #[test]
 fn bloom_blur_material_writes_offscreen_passes_opaquely() {
     let material = AgentListBloomBlurMaterial {
@@ -66,6 +70,7 @@ fn bloom_blur_material_writes_offscreen_passes_opaquely() {
     assert_eq!(Material2d::alpha_mode(&material), AlphaMode2d::Opaque);
 }
 
+// Verifies that setup HUD widget bloom spawns camera and composite sprite.
 #[test]
 fn setup_hud_widget_bloom_spawns_camera_and_composite_sprite() {
     let mut world = World::default();
@@ -132,6 +137,7 @@ fn setup_hud_widget_bloom_spawns_camera_and_composite_sprite() {
     assert_eq!(composite_image_format, TextureFormat::Rgba16Float);
 }
 
+// Verifies that setup HUD widget bloom uses logical window size for targets.
 #[test]
 fn setup_hud_widget_bloom_uses_logical_window_size_for_targets() {
     let mut world = World::default();
@@ -176,6 +182,7 @@ fn setup_hud_widget_bloom_uses_logical_window_size_for_targets() {
         .all(|image| image.texture_descriptor.format == TextureFormat::Rgba16Float));
 }
 
+// Verifies that sync HUD widget bloom spawns agent list source sprites.
 #[test]
 fn sync_hud_widget_bloom_spawns_agent_list_source_sprites() {
     let mut world = World::default();
@@ -306,6 +313,7 @@ fn sync_hud_widget_bloom_spawns_agent_list_source_sprites() {
     assert_eq!(sprite.custom_size, Some(Vec2::new(1400.0, 900.0)));
 }
 
+// Verifies that sync HUD widget bloom hides sources and composite while modal is visible.
 #[test]
 fn sync_hud_widget_bloom_hides_sources_and_composite_while_modal_is_visible() {
     let mut world = World::default();
@@ -352,6 +360,7 @@ fn sync_hud_widget_bloom_hides_sources_and_composite_while_modal_is_visible() {
     assert_eq!(visibility, &Visibility::Hidden);
 }
 
+// Verifies that sync HUD widget bloom only uses active agent source.
 #[test]
 fn sync_hud_widget_bloom_only_uses_active_agent_source() {
     let mut world = World::default();

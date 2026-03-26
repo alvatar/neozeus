@@ -6,6 +6,7 @@ use bevy::{
 };
 use std::time::Duration;
 
+// Verifies that task entry from text matches zeus checkbox format.
 #[test]
 fn task_entry_from_text_matches_zeus_checkbox_format() {
     assert_eq!(
@@ -15,6 +16,7 @@ fn task_entry_from_text_matches_zeus_checkbox_format() {
     assert_eq!(task_entry_from_text("  \n \t"), None);
 }
 
+// Verifies that terminal notes path prefers state home then home state then config.
 #[test]
 fn terminal_notes_path_prefers_state_home_then_home_state_then_config() {
     assert_eq!(
@@ -37,6 +39,7 @@ fn terminal_notes_path_prefers_state_home_then_home_state_then_config() {
     );
 }
 
+// Verifies that terminal notes parse and serialize roundtrip.
 #[test]
 fn terminal_notes_parse_and_serialize_roundtrip() {
     let mut notes = std::collections::HashMap::new();
@@ -49,6 +52,7 @@ fn terminal_notes_parse_and_serialize_roundtrip() {
     assert_eq!(reparsed, notes);
 }
 
+// Verifies that terminal notes append and prepend tasks follow zeus ordering.
 #[test]
 fn terminal_notes_append_and_prepend_tasks_follow_zeus_ordering() {
     let mut notes_state = TerminalNotesState::default();
@@ -61,6 +65,7 @@ fn terminal_notes_append_and_prepend_tasks_follow_zeus_ordering() {
     assert!(notes_state.has_note_text("session-a"));
 }
 
+// Verifies that clear done tasks removes done task blocks.
 #[test]
 fn clear_done_tasks_removes_done_task_blocks() {
     let (updated, removed) =
@@ -69,6 +74,7 @@ fn clear_done_tasks_removes_done_task_blocks() {
     assert_eq!(updated, "- [ ] keep");
 }
 
+// Verifies that extract next task marks first pending block done.
 #[test]
 fn extract_next_task_marks_first_pending_block_done() {
     let extracted = extract_next_task("- [ ] first\n  detail\n- [x] done\n- [ ] second")
@@ -80,6 +86,7 @@ fn extract_next_task_marks_first_pending_block_done() {
     );
 }
 
+// Verifies that extract next task falls back to first non empty line without headers.
 #[test]
 fn extract_next_task_falls_back_to_first_non_empty_line_without_headers() {
     let extracted =
@@ -88,6 +95,7 @@ fn extract_next_task_falls_back_to_first_non_empty_line_without_headers() {
     assert_eq!(extracted.1, "\nsecond line");
 }
 
+// Verifies that terminal notes save waits for debounce window.
 #[test]
 fn terminal_notes_save_waits_for_debounce_window() {
     let dir = temp_dir("neozeus-terminal-notes-save-debounce");

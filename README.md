@@ -36,6 +36,103 @@ Agent-list bloom verification / tuning can also override:
 
 - `NEOZEUS_AGENT_BLOOM_INTENSITY` — non-negative bloom intensity override
 
+## Module map
+
+### Core
+
+| Module | Purpose |
+| --- | --- |
+| `main` | Entry point; chooses app vs daemon mode. |
+| `app` | App facade; re-exports bootstrap/output/schedule pieces. |
+| `app::bootstrap` | Builds the Bevy app, plugins, resources, and window setup. |
+| `app::output` | Offscreen output routing and final-frame capture. |
+| `app::schedule` | System-set ordering and schedule wiring. |
+| `app_config` | Env/TOML config loading and parsing. |
+| `startup` | Scene bootstrap, restore/import, initial terminal startup. |
+| `input` | Global terminal keyboard/mouse input handling. |
+| `verification` | Auto-verify dispatch and deterministic verification scenarios. |
+
+### HUD
+
+| Module | Purpose |
+| --- | --- |
+| `hud` | HUD facade; exports HUD systems, state, and helpers. |
+| `hud::animation` | Shell rect/alpha animation for retained HUD modules. |
+| `hud::bloom` | Agent-list bloom render pipeline and tuning. |
+| `hud::capture` | HUD/window texture readback and dumps. |
+| `hud::commands` | HUD intent application layer. |
+| `hud::commands::focus` | Applies focus requests into terminal state. |
+| `hud::commands::intent_fanout` | Fans HUD intents into typed request queues. |
+| `hud::commands::lifecycle` | Applies spawn/kill lifecycle requests. |
+| `hud::commands::modules` | Applies HUD module enable/reset requests. |
+| `hud::commands::send` | Applies terminal send/message requests. |
+| `hud::commands::tasks` | Applies task-note mutations and task sends. |
+| `hud::commands::view` | Applies pan/zoom view changes. |
+| `hud::commands::visibility` | Applies show-all/isolate visibility changes. |
+| `hud::compositor` | Offscreen HUD composite mesh/camera setup. |
+| `hud::input` | HUD pointer hit-testing and HUD shortcuts. |
+| `hud::message_box` | Retained message-box/task-dialog editor state. |
+| `hud::messages` | Intent/request enums shared by HUD systems. |
+| `hud::modules` | Module dispatch layer for HUD widgets. |
+| `hud::modules::agent_list` | Agent-list widget state/rows/interaction. |
+| `hud::modules::agent_list::interaction` | Agent-list click/hover/scroll behavior. |
+| `hud::modules::agent_list::render` | Agent-list drawing helpers. |
+| `hud::modules::debug_toolbar` | Debug-toolbar widget wiring. |
+| `hud::modules::debug_toolbar::buttons` | Debug-toolbar button models. |
+| `hud::modules::debug_toolbar::input` | Debug-toolbar pointer handling. |
+| `hud::modules::debug_toolbar::render` | Debug-toolbar drawing helpers. |
+| `hud::persistence` | HUD layout save/load and debounce. |
+| `hud::render` | Vello drawing for HUD shells and modals. |
+| `hud::setup` | HUD scene startup and structural layout sync. |
+| `hud::state` | Retained HUD resources and data model. |
+
+### Terminals
+
+| Module | Purpose |
+| --- | --- |
+| `terminals` | Terminal facade; exports runtime/render/state pieces. |
+| `terminals::ansi_surface` | Converts Alacritty grid state into `TerminalSurface`. |
+| `terminals::backend` | Terminal backend helpers, colors, and command encoding. |
+| `terminals::bridge` | App-side command bridge to terminal runtimes. |
+| `terminals::daemon` | Daemon facade for client/server/protocol/session. |
+| `terminals::daemon::client` | Unix-socket daemon client and subprocess bootstrap. |
+| `terminals::daemon::protocol` | Wire-format encode/decode for daemon IPC. |
+| `terminals::daemon::server` | Daemon accept loop and request dispatch. |
+| `terminals::daemon::session` | Per-session PTY worker and subscriber fanout. |
+| `terminals::damage` | Row-damage computation for partial reraster. |
+| `terminals::debug` | Debug logging and runtime stats helpers. |
+| `terminals::fonts` | Font discovery, matching, and raster config. |
+| `terminals::lifecycle` | Spawn/kill terminal sessions and ECS cleanup. |
+| `terminals::mailbox` | Coalesced terminal update mailbox. |
+| `terminals::notes` | Per-session notes/tasks parsing and persistence. |
+| `terminals::presentation` | Terminal layout, visibility, and panel placement. |
+| `terminals::presentation_state` | Presentation/view ECS state and resources. |
+| `terminals::pty_spawn` | Shell command creation and test-shell isolation. |
+| `terminals::raster` | `TerminalSurface` → Bevy image rasterization. |
+| `terminals::registry` | Authoritative terminal manager and focus state. |
+| `terminals::runtime` | Runtime spawner and runtime-status publication. |
+| `terminals::session_persistence` | Session save/load/reconcile logic. |
+| `terminals::types` | Shared terminal data types. |
+
+### Tests
+
+| Module | Purpose |
+| --- | --- |
+| `tests` | Shared test helpers and fake daemon/runtime plumbing. |
+| `tests::hud` | HUD behavior regression tests. |
+| `tests::input` | Keyboard/mouse input regression tests. |
+| `tests::scene` | Startup/config/output scheduling regression tests. |
+| `tests::terminals` | Terminal rendering, daemon, and lifecycle regression tests. |
+| `app::output::tests` | Offscreen output/capture unit tests. |
+| `hud::bloom::tests` | Bloom pipeline unit tests. |
+| `hud::capture::tests` | HUD capture utility unit tests. |
+| `hud::persistence::tests` | HUD persistence unit tests. |
+| `terminals::damage::tests` | Damage-tracking unit tests. |
+| `terminals::daemon::protocol::tests` | Daemon protocol compatibility tests. |
+| `terminals::notes::tests` | Notes/task parsing unit tests. |
+| `terminals::session_persistence::tests` | Session persistence unit tests. |
+| `verification::tests` | Verification scenario parsing tests. |
+
 ## Verification
 
 Default development checks stay headless and cheap:

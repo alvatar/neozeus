@@ -7,6 +7,7 @@ use bevy::{
 };
 use std::{fs, path::PathBuf, time::Duration};
 
+// Verifies that HUD layout path prefers XDG then home.
 #[test]
 fn hud_layout_path_prefers_xdg_then_home() {
     assert_eq!(
@@ -20,6 +21,7 @@ fn hud_layout_path_prefers_xdg_then_home() {
     assert_eq!(resolve_hud_layout_path_with(None, None), None);
 }
 
+// Verifies that HUD layout parse and serialize roundtrip.
 #[test]
 fn hud_layout_parse_and_serialize_roundtrip() {
     let mut persisted = PersistedHudState::default();
@@ -39,6 +41,7 @@ fn hud_layout_parse_and_serialize_roundtrip() {
     assert_eq!(parse_persisted_hud_state(&text), persisted);
 }
 
+// Verifies that HUD layout v1 parser remains backward compatible.
 #[test]
 fn hud_layout_v1_parser_remains_backward_compatible() {
     let persisted =
@@ -48,6 +51,7 @@ fn hud_layout_v1_parser_remains_backward_compatible() {
     assert_eq!(module.rect.w, 300.0);
 }
 
+// Verifies that apply persisted layout overrides defaults.
 #[test]
 fn apply_persisted_layout_overrides_defaults() {
     let mut persisted = PersistedHudState::default();
@@ -71,6 +75,7 @@ fn apply_persisted_layout_overrides_defaults() {
     assert_eq!(module.shell.target_rect.w, 333.0);
 }
 
+// Verifies that saving HUD layout persists target rect.
 #[test]
 fn saving_hud_layout_persists_target_rect() {
     let dir = temp_dir("neozeus-hud-layout-save");

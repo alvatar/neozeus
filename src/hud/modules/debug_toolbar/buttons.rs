@@ -11,6 +11,7 @@ use crate::{
 
 use super::{DebugToolbarAction, DebugToolbarButton};
 
+// Implements debug toolbar buttons.
 pub(crate) fn debug_toolbar_buttons(
     shell_rect: HudRect,
     _terminal_manager: &TerminalManager,

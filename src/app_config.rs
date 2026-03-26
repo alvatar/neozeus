@@ -35,6 +35,7 @@ pub(crate) struct NeoZeusWindowConfig {
     pub(crate) app_id: Option<String>,
 }
 
+// Loads NeoZeus config.
 pub(crate) fn load_neozeus_config() -> Result<NeoZeusConfig, String> {
     let Some(path) = resolve_neozeus_config_path() else {
         return Ok(NeoZeusConfig::default());
@@ -42,12 +43,14 @@ pub(crate) fn load_neozeus_config() -> Result<NeoZeusConfig, String> {
     load_neozeus_config_from(&path)
 }
 
+// Loads NeoZeus config from.
 pub(crate) fn load_neozeus_config_from(path: &Path) -> Result<NeoZeusConfig, String> {
     let text = fs::read_to_string(path)
         .map_err(|error| format!("failed to read NeoZeus config {}: {error}", path.display()))?;
     parse_neozeus_config(&text)
 }
 
+// Resolves NeoZeus config path.
 pub(crate) fn resolve_neozeus_config_path() -> Option<PathBuf> {
     let current_dir = env::current_dir().ok();
     resolve_neozeus_config_path_with(
@@ -58,6 +61,7 @@ pub(crate) fn resolve_neozeus_config_path() -> Option<PathBuf> {
     )
 }
 
+// Resolves NeoZeus config path with.
 pub(crate) fn resolve_neozeus_config_path_with(
     explicit_path: Option<&std::ffi::OsStr>,
     xdg_config_home: Option<&std::ffi::OsStr>,
@@ -94,6 +98,7 @@ pub(crate) fn resolve_neozeus_config_path_with(
         .filter(|path| path.is_file())
 }
 
+// Resolves window title.
 pub(crate) fn resolve_window_title(config: &NeoZeusConfig) -> String {
     env::var("NEOZEUS_WINDOW_TITLE")
         .ok()
@@ -102,6 +107,7 @@ pub(crate) fn resolve_window_title(config: &NeoZeusConfig) -> String {
         .unwrap_or_else(|| "neozeus".to_owned())
 }
 
+// Resolves app id.
 pub(crate) fn resolve_app_id(config: &NeoZeusConfig) -> String {
     env::var("NEOZEUS_APP_ID")
         .ok()
@@ -110,6 +116,7 @@ pub(crate) fn resolve_app_id(config: &NeoZeusConfig) -> String {
         .unwrap_or_else(|| "neozeus".to_owned())
 }
 
+// Resolves terminal font path.
 pub(crate) fn resolve_terminal_font_path(config: &NeoZeusConfig) -> Option<PathBuf> {
     env::var_os("NEOZEUS_TERMINAL_FONT_PATH")
         .filter(|value| !value.is_empty())
@@ -117,6 +124,7 @@ pub(crate) fn resolve_terminal_font_path(config: &NeoZeusConfig) -> Option<PathB
         .or_else(|| config.terminal.font_path.clone())
 }
 
+// Resolves terminal font size px.
 pub(crate) fn resolve_terminal_font_size_px(config: &NeoZeusConfig, default: f32) -> f32 {
     env::var("NEOZEUS_TERMINAL_FONT_SIZE_PX")
         .ok()
@@ -127,6 +135,7 @@ pub(crate) fn resolve_terminal_font_size_px(config: &NeoZeusConfig, default: f32
         .unwrap_or(default)
 }
 
+// Resolves terminal baseline offset px.
 pub(crate) fn resolve_terminal_baseline_offset_px(config: &NeoZeusConfig, default: f32) -> f32 {
     env::var("NEOZEUS_TERMINAL_BASELINE_OFFSET_PX")
         .ok()
@@ -137,6 +146,7 @@ pub(crate) fn resolve_terminal_baseline_offset_px(config: &NeoZeusConfig, defaul
         .unwrap_or(default)
 }
 
+// Parses NeoZeus config.
 pub(crate) fn parse_neozeus_config(text: &str) -> Result<NeoZeusConfig, String> {
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     enum Section {
@@ -204,6 +214,7 @@ pub(crate) fn parse_neozeus_config(text: &str) -> Result<NeoZeusConfig, String> 
     Ok(config)
 }
 
+// Strips TOML comment.
 fn strip_toml_comment(line: &str) -> Result<String, String> {
     let mut out = String::with_capacity(line.len());
     let mut in_string = false;
@@ -239,11 +250,13 @@ fn strip_toml_comment(line: &str) -> Result<String, String> {
     Ok(out)
 }
 
+// Parses TOML f32.
 fn parse_toml_f32(raw: &str) -> Result<f32, String> {
     raw.parse::<f32>()
         .map_err(|error| format!("NeoZeus config expected float value, got `{raw}`: {error}"))
 }
 
+// Parses TOML basic string.
 fn parse_toml_basic_string(raw: &str) -> Result<String, String> {
     let Some(raw) = raw
         .strip_prefix('"')

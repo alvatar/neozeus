@@ -27,6 +27,7 @@ pub(crate) struct HudTextureCaptureConfig {
 }
 
 impl HudTextureCaptureConfig {
+    // Builds this value from environment variables.
     pub(crate) fn from_env() -> Option<Self> {
         let path = env::var("NEOZEUS_CAPTURE_HUD_TEXTURE_PATH").ok()?;
         let frames_until_capture = env::var("NEOZEUS_CAPTURE_HUD_TEXTURE_DELAY_FRAMES")
@@ -51,6 +52,7 @@ pub(crate) struct WindowCaptureConfig {
 }
 
 impl WindowCaptureConfig {
+    // Builds this value from environment variables.
     pub(crate) fn from_env() -> Option<Self> {
         let path = env::var("NEOZEUS_CAPTURE_WINDOW_PATH").ok()?;
         let frames_until_capture = env::var("NEOZEUS_CAPTURE_WINDOW_DELAY_FRAMES")
@@ -77,6 +79,7 @@ pub(crate) struct HudCompositeCaptureConfig {
 }
 
 impl HudCompositeCaptureConfig {
+    // Builds this value from environment variables.
     pub(crate) fn from_env() -> Option<Self> {
         let path = env::var("NEOZEUS_CAPTURE_HUD_COMPOSITE_PATH").ok()?;
         let frames_until_capture = env::var("NEOZEUS_CAPTURE_HUD_COMPOSITE_DELAY_FRAMES")
@@ -103,6 +106,7 @@ struct HudTextureReadbackMeta {
 }
 
 impl HudTextureReadbackMeta {
+    // Builds this value from image metadata.
     fn from_image(path: PathBuf, image: &Image) -> Self {
         Self {
             path,
@@ -113,6 +117,7 @@ impl HudTextureReadbackMeta {
     }
 }
 
+// Implements composite capture target image.
 fn composite_capture_target_image(size: UVec2) -> Image {
     let mut image = Image::new_fill(
         Extent3d {
@@ -133,6 +138,7 @@ fn composite_capture_target_image(size: UVec2) -> Image {
     image
 }
 
+// Requests HUD composite capture.
 pub(crate) fn request_hud_composite_capture(
     mut commands: Commands,
     config: Option<ResMut<HudCompositeCaptureConfig>>,
@@ -220,6 +226,7 @@ pub(crate) fn request_hud_composite_capture(
     config.requested = true;
 }
 
+// Requests HUD texture capture.
 pub(crate) fn request_hud_texture_capture(
     mut commands: Commands,
     config: Option<ResMut<HudTextureCaptureConfig>>,
@@ -274,6 +281,7 @@ pub(crate) fn request_hud_texture_capture(
     }
 }
 
+// Requests window capture.
 pub(crate) fn request_window_capture(
     mut commands: Commands,
     config: Option<ResMut<WindowCaptureConfig>>,
@@ -301,6 +309,7 @@ pub(crate) fn request_window_capture(
     config.requested = true;
 }
 
+// Finalizes window capture.
 pub(crate) fn finalize_window_capture(
     config: Option<ResMut<WindowCaptureConfig>>,
     captures: Query<(), With<Capturing>>,
@@ -323,6 +332,7 @@ pub(crate) fn finalize_window_capture(
     exits.write(AppExit::Success);
 }
 
+// Handles HUD texture capture complete.
 fn handle_hud_texture_capture_complete(
     event: On<ReadbackComplete>,
     metas: Query<&HudTextureReadbackMeta>,
@@ -346,6 +356,7 @@ fn handle_hud_texture_capture_complete(
     exits.write(AppExit::Success);
 }
 
+// Handles HUD composite capture complete.
 fn handle_hud_composite_capture_complete(
     event: On<ReadbackComplete>,
     metas: Query<&HudTextureReadbackMeta>,
@@ -372,12 +383,14 @@ fn handle_hud_composite_capture_complete(
     exits.write(AppExit::Success);
 }
 
+// Writes texture dump.
 fn write_texture_dump(meta: &HudTextureReadbackMeta, bytes: &[u8]) -> Result<(), String> {
     let ppm = texture_bytes_to_ppm(meta.width, meta.height, meta.format, bytes)?;
     fs::write(&meta.path, ppm)
         .map_err(|error| format!("failed to write {}: {error}", meta.path.display()))
 }
 
+// Implements texture bytes to PPM.
 fn texture_bytes_to_ppm(
     width: u32,
     height: u32,
@@ -425,6 +438,7 @@ fn texture_bytes_to_ppm(
     Ok(ppm)
 }
 
+// Implements align copy bytes per row.
 fn align_copy_bytes_per_row(value: usize) -> usize {
     const ALIGNMENT: usize = 256;
     (value + (ALIGNMENT - 1)) & !(ALIGNMENT - 1)

@@ -12,6 +12,7 @@ use bevy::prelude::*;
     clippy::too_many_arguments,
     reason = "terminal attach joins daemon bridge creation, domain state, projection spawn, and presentation assets"
 )]
+// Spawns attached terminal with presentation.
 pub(crate) fn spawn_attached_terminal_with_presentation(
     commands: &mut Commands,
     images: &mut Assets<Image>,
@@ -34,6 +35,7 @@ pub(crate) fn spawn_attached_terminal_with_presentation(
     Ok((terminal_id, bridge))
 }
 
+// Implements adjacent terminal in creation order.
 fn adjacent_terminal_in_creation_order(
     terminal_manager: &TerminalManager,
     terminal_id: TerminalId,
@@ -47,6 +49,7 @@ fn adjacent_terminal_in_creation_order(
     }
 }
 
+// Removes terminal with projection.
 pub(crate) fn remove_terminal_with_projection(
     commands: &mut Commands,
     terminal_manager: &mut TerminalManager,
@@ -69,6 +72,7 @@ pub(crate) fn remove_terminal_with_projection(
     clippy::too_many_arguments,
     reason = "kill spans daemon authority, domain state, projection cleanup, and persistence/view updates"
 )]
+// Kills active terminal session and remove.
 pub(crate) fn kill_active_terminal_session_and_remove(
     commands: &mut Commands,
     time: &Time,

@@ -27,6 +27,7 @@ pub(crate) enum OutputMode {
 }
 
 impl OutputMode {
+    // Returns whether offscreen.
     pub(crate) fn is_offscreen(self) -> bool {
         matches!(self, Self::OffscreenVerify)
     }
@@ -41,6 +42,7 @@ pub(crate) struct AppOutputConfig {
 }
 
 impl Default for AppOutputConfig {
+    // Returns the default value for this type.
     fn default() -> Self {
         Self {
             mode: OutputMode::Desktop,
@@ -52,6 +54,7 @@ impl Default for AppOutputConfig {
 }
 
 impl AppOutputConfig {
+    // Builds this value from environment variables.
     pub(crate) fn from_env() -> Self {
         Self {
             mode: resolve_output_mode(env::var("NEOZEUS_OUTPUT_MODE").ok().as_deref()),
@@ -70,6 +73,7 @@ impl AppOutputConfig {
     }
 }
 
+// Resolves output mode.
 pub(crate) fn resolve_output_mode(raw: Option<&str>) -> OutputMode {
     match raw.map(str::trim).filter(|value| !value.is_empty()) {
         Some(value) if value.eq_ignore_ascii_case("offscreen") => OutputMode::OffscreenVerify,
@@ -80,6 +84,7 @@ pub(crate) fn resolve_output_mode(raw: Option<&str>) -> OutputMode {
     }
 }
 
+// Resolves output dimension.
 pub(crate) fn resolve_output_dimension(raw: Option<&str>, default: u32) -> u32 {
     raw.map(str::trim)
         .filter(|value| !value.is_empty())
@@ -95,12 +100,14 @@ pub(crate) struct FinalFrameOutputState {
 }
 
 impl FinalFrameOutputState {
+    // Returns whether this feature is enabled.
     #[cfg(test)]
     pub(crate) fn enabled(&self) -> bool {
         self.target_image.is_some()
     }
 }
 
+// Creates final frame image.
 pub(crate) fn create_final_frame_image(size: UVec2) -> Image {
     let mut image = Image::new_fill(
         Extent3d {
@@ -128,6 +135,7 @@ pub(crate) struct FinalFrameCaptureConfig {
 }
 
 impl FinalFrameCaptureConfig {
+    // Builds this value from environment variables.
     pub(crate) fn from_env() -> Option<Self> {
         Some(Self {
             path: PathBuf::from(env::var("NEOZEUS_CAPTURE_FINAL_FRAME_PATH").ok()?),
@@ -159,6 +167,7 @@ pub(crate) struct FinalFrameReadbackMeta {
 }
 
 impl FinalFrameReadbackMeta {
+    // Builds this value from image metadata.
     pub(crate) fn from_image(path: PathBuf, image: &Image) -> Self {
         Self {
             path,
@@ -173,6 +182,7 @@ impl FinalFrameReadbackMeta {
     clippy::too_many_arguments,
     reason = "camera target routing needs output state, image assets, and multiple camera marker queries"
 )]
+// Synchronizes final frame output target.
 pub(crate) fn sync_final_frame_output_target(
     output: Res<AppOutputConfig>,
     primary_window: Single<&Window, With<PrimaryWindow>>,
@@ -234,6 +244,7 @@ pub(crate) fn sync_final_frame_output_target(
     }
 }
 
+// Requests final frame capture.
 pub(crate) fn request_final_frame_capture(
     mut commands: Commands,
     config: Option<ResMut<FinalFrameCaptureConfig>>,
@@ -284,6 +295,7 @@ pub(crate) fn request_final_frame_capture(
     config.requested = true;
 }
 
+// Handles final frame capture complete.
 fn handle_final_frame_capture_complete(
     event: On<ReadbackComplete>,
     metas: Query<&FinalFrameReadbackMeta>,
@@ -313,12 +325,14 @@ fn handle_final_frame_capture_complete(
     }
 }
 
+// Writes texture dump.
 fn write_texture_dump(meta: &FinalFrameReadbackMeta, bytes: &[u8]) -> Result<(), String> {
     let ppm = texture_bytes_to_ppm(meta.width, meta.height, meta.format, bytes)?;
     std::fs::write(&meta.path, ppm)
         .map_err(|error| format!("failed to write {}: {error}", meta.path.display()))
 }
 
+// Implements texture bytes to PPM.
 fn texture_bytes_to_ppm(
     width: u32,
     height: u32,
@@ -364,11 +378,13 @@ fn texture_bytes_to_ppm(
     Ok(ppm)
 }
 
+// Implements align copy bytes per row.
 fn align_copy_bytes_per_row(value: usize) -> usize {
     const ALIGNMENT: usize = 256;
     (value + (ALIGNMENT - 1)) & !(ALIGNMENT - 1)
 }
 
+// Implements final frame format.
 #[cfg(test)]
 pub(crate) fn final_frame_format() -> TextureFormat {
     FINAL_FRAME_FORMAT

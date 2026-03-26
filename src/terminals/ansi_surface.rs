@@ -9,6 +9,7 @@ use alacritty_terminal::{
 };
 use bevy_egui::egui;
 
+// Builds surface.
 pub(crate) fn build_surface(term: &Term<VoidListener>) -> TerminalSurface {
     let content = term.renderable_content();
     let cols = term.columns();
@@ -75,6 +76,7 @@ pub(crate) fn build_surface(term: &Term<VoidListener>) -> TerminalSurface {
     surface
 }
 
+// Maps cursor shape.
 fn map_cursor_shape(shape: CursorShape) -> TerminalCursorShape {
     match shape {
         CursorShape::Underline => TerminalCursorShape::Underline,
@@ -85,6 +87,7 @@ fn map_cursor_shape(shape: CursorShape) -> TerminalCursorShape {
     }
 }
 
+// Resolves Alacritty color.
 pub(crate) fn resolve_alacritty_color(
     color: AnsiColor,
     colors: &Colors,
@@ -101,6 +104,7 @@ pub(crate) fn resolve_alacritty_color(
     egui::Color32::from_rgb(rgb.r, rgb.g, rgb.b)
 }
 
+// Implements fallback named RGB.
 fn fallback_named_rgb(named: NamedColor, is_foreground: bool) -> Rgb {
     match named {
         NamedColor::Black => Rgb { r: 0, g: 0, b: 0 },
@@ -247,6 +251,7 @@ fn fallback_named_rgb(named: NamedColor, is_foreground: bool) -> Rgb {
     }
 }
 
+// Implements xterm indexed RGB.
 pub(crate) fn xterm_indexed_rgb(index: u8) -> Rgb {
     const ANSI: [(u8, u8, u8); 16] = [
         (0x00, 0x00, 0x00),

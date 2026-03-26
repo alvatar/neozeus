@@ -37,6 +37,7 @@ pub(crate) struct ReconciledTerminalSessions {
 }
 
 impl ReconciledTerminalSessions {
+    // Implements ordered sessions.
     pub(crate) fn ordered_sessions(&self) -> Vec<TerminalSessionRecord> {
         self.restore
             .iter()
@@ -46,6 +47,7 @@ impl ReconciledTerminalSessions {
     }
 }
 
+// Resolves terminal sessions path with.
 pub(crate) fn resolve_terminal_sessions_path_with(
     xdg_state_home: Option<&str>,
     home: Option<&str>,
@@ -78,6 +80,7 @@ pub(crate) fn resolve_terminal_sessions_path_with(
     None
 }
 
+// Resolves terminal sessions path.
 pub(crate) fn resolve_terminal_sessions_path() -> Option<PathBuf> {
     resolve_terminal_sessions_path_with(
         env::var("XDG_STATE_HOME").ok().as_deref(),
@@ -86,6 +89,7 @@ pub(crate) fn resolve_terminal_sessions_path() -> Option<PathBuf> {
     )
 }
 
+// Implements escape persisted string.
 fn escape_persisted_string(value: &str) -> String {
     let mut escaped = String::with_capacity(value.len() + 4);
     for ch in value.chars() {
@@ -101,6 +105,7 @@ fn escape_persisted_string(value: &str) -> String {
     escaped
 }
 
+// Parses quoted string.
 fn parse_quoted_string(value: &str) -> Option<String> {
     let trimmed = value.trim();
     let inner = trimmed.strip_prefix('"')?.strip_suffix('"')?;
@@ -123,6 +128,7 @@ fn parse_quoted_string(value: &str) -> Option<String> {
     Some(parsed)
 }
 
+// Parses v1 terminal sessions.
 fn parse_v1_terminal_sessions(text: &str) -> PersistedTerminalSessions {
     let mut persisted = PersistedTerminalSessions::default();
     for (line_index, line) in text.lines().enumerate() {
@@ -178,6 +184,7 @@ fn parse_v1_terminal_sessions(text: &str) -> PersistedTerminalSessions {
     persisted
 }
 
+// Parses v2 terminal sessions.
 fn parse_v2_terminal_sessions(text: &str) -> PersistedTerminalSessions {
     let mut persisted = PersistedTerminalSessions::default();
     let mut session_name = None;
@@ -239,6 +246,7 @@ fn parse_v2_terminal_sessions(text: &str) -> PersistedTerminalSessions {
     persisted
 }
 
+// Parses persisted terminal sessions.
 pub(crate) fn parse_persisted_terminal_sessions(text: &str) -> PersistedTerminalSessions {
     let version_line = text
         .lines()
@@ -257,6 +265,7 @@ pub(crate) fn parse_persisted_terminal_sessions(text: &str) -> PersistedTerminal
     }
 }
 
+// Implements serialize persisted terminal sessions.
 pub(crate) fn serialize_persisted_terminal_sessions(
     sessions: &PersistedTerminalSessions,
 ) -> String {
@@ -280,6 +289,7 @@ pub(crate) fn serialize_persisted_terminal_sessions(
     output
 }
 
+// Loads persisted terminal sessions from.
 pub(crate) fn load_persisted_terminal_sessions_from(path: &PathBuf) -> PersistedTerminalSessions {
     match fs::read_to_string(path) {
         Ok(text) => parse_persisted_terminal_sessions(&text),
@@ -296,6 +306,7 @@ pub(crate) fn load_persisted_terminal_sessions_from(path: &PathBuf) -> Persisted
     }
 }
 
+// Marks terminal sessions dirty.
 pub(crate) fn mark_terminal_sessions_dirty(
     persistence_state: &mut TerminalSessionPersistenceState,
     time: Option<&Time>,
@@ -305,6 +316,7 @@ pub(crate) fn mark_terminal_sessions_dirty(
     }
 }
 
+// Builds persisted terminal sessions.
 pub(crate) fn build_persisted_terminal_sessions(
     terminal_manager: &TerminalManager,
     focus_state: &crate::terminals::TerminalFocusState,
@@ -327,6 +339,7 @@ pub(crate) fn build_persisted_terminal_sessions(
     PersistedTerminalSessions { sessions }
 }
 
+// Saves terminal sessions if dirty.
 pub(crate) fn save_terminal_sessions_if_dirty(
     time: Res<Time>,
     terminal_manager: Res<TerminalManager>,
@@ -370,6 +383,7 @@ pub(crate) fn save_terminal_sessions_if_dirty(
     persistence_state.dirty_since_secs = None;
 }
 
+// Reconciles terminal sessions.
 pub(crate) fn reconcile_terminal_sessions(
     persisted: &PersistedTerminalSessions,
     live_sessions: &[String],

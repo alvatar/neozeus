@@ -49,12 +49,14 @@ impl HudColors {
     pub(crate) const MESSAGE_BOX: peniko::Color = peniko::Color::from_rgba8(0, 0, 0, 255);
 }
 
+// Applies alpha.
 pub(crate) fn apply_alpha(color: peniko::Color, factor: f32) -> peniko::Color {
     let rgba = color.to_rgba8();
     let alpha = ((rgba.a as f32) * factor.clamp(0.0, 1.0)).round() as u8;
     peniko::Color::from_rgba8(rgba.r, rgba.g, rgba.b, alpha)
 }
 
+// Handles to scene.
 fn hud_to_scene(window: &Window, point: Vec2) -> (f64, f64) {
     (
         f64::from(point.x - window.width() * 0.5),
@@ -62,6 +64,7 @@ fn hud_to_scene(window: &Window, point: Vec2) -> (f64, f64) {
     )
 }
 
+// Handles rect to scene.
 pub(crate) fn hud_rect_to_scene(window: &Window, rect: HudRect) -> Rect {
     let (x0, y0) = hud_to_scene(window, Vec2::new(rect.x, rect.y));
     let (x1, y1) = hud_to_scene(window, Vec2::new(rect.x + rect.w, rect.y + rect.h));
@@ -76,6 +79,7 @@ pub(crate) struct HudPainter<'scene, 'res> {
 }
 
 impl<'scene, 'res> HudPainter<'scene, 'res> {
+    // Constructs a new value.
     pub(crate) fn new(
         scene: &'scene mut vello::Scene,
         fonts: &'res Assets<VelloFont>,
@@ -90,6 +94,7 @@ impl<'scene, 'res> HudPainter<'scene, 'res> {
         }
     }
 
+    // Fills rect.
     pub(crate) fn fill_rect(&mut self, rect: HudRect, color: peniko::Color, _radius: f64) {
         self.scene.fill(
             Fill::NonZero,
@@ -100,10 +105,12 @@ impl<'scene, 'res> HudPainter<'scene, 'res> {
         );
     }
 
+    // Implements stroke rect.
     pub(crate) fn stroke_rect(&mut self, rect: HudRect, color: peniko::Color, _radius: f64) {
         self.stroke_rect_width(rect, color, 1.5);
     }
 
+    // Implements stroke rect width.
     pub(crate) fn stroke_rect_width(&mut self, rect: HudRect, color: peniko::Color, width: f64) {
         self.scene.stroke(
             &Stroke::new(width),
@@ -114,6 +121,7 @@ impl<'scene, 'res> HudPainter<'scene, 'res> {
         );
     }
 
+    // Implements text size.
     pub(crate) fn text_size(&self, text: &str, size: f32) -> Vec2 {
         let Some(font) = self.fonts.get(&Handle::<VelloFont>::default()) else {
             return Vec2::ZERO;
@@ -132,6 +140,7 @@ impl<'scene, 'res> HudPainter<'scene, 'res> {
         clippy::too_many_arguments,
         reason = "Vello text drawing needs scene/font/window/position/style inputs together"
     )]
+    // Implements label.
     pub(crate) fn label(
         &mut self,
         position: Vec2,
@@ -147,6 +156,7 @@ impl<'scene, 'res> HudPainter<'scene, 'res> {
         clippy::too_many_arguments,
         reason = "scaled Vello text drawing needs scene/font/window/position/style inputs together"
     )]
+    // Implements label scaled.
     pub(crate) fn label_scaled(
         &mut self,
         position: Vec2,
@@ -235,6 +245,7 @@ pub(crate) struct HudRenderInputs<'a> {
     pub(crate) font_state: &'a TerminalFontState,
 }
 
+// Implements log HUD draw colors if requested.
 fn log_hud_draw_colors_if_requested(scene: &vello::Scene) {
     let enabled = env::var("NEOZEUS_LOG_HUD_DRAW_COLORS")
         .ok()
@@ -256,10 +267,12 @@ fn log_hud_draw_colors_if_requested(scene: &vello::Scene) {
     ));
 }
 
+// Slices chars.
 fn slice_chars(text: &str, start_chars: usize, max_chars: usize) -> String {
     text.chars().skip(start_chars).take(max_chars).collect()
 }
 
+// Implements message box lines.
 fn message_box_lines(text: &str) -> Vec<(usize, usize, &str)> {
     text.split('\n')
         .scan(0usize, |start, line| {
@@ -271,6 +284,7 @@ fn message_box_lines(text: &str) -> Vec<(usize, usize, &str)> {
         .collect()
 }
 
+// Implements editor selection status.
 fn editor_selection_status(editor: &HudMessageBoxState) -> String {
     editor
         .region_bounds()
@@ -279,6 +293,7 @@ fn editor_selection_status(editor: &HudMessageBoxState) -> String {
         .unwrap_or_else(|| "No mark".to_owned())
 }
 
+// Draws text editor body.
 fn draw_text_editor_body(
     painter: &mut HudPainter,
     window: &Window,
@@ -393,6 +408,7 @@ fn draw_text_editor_body(
     painter.scene.pop_layer();
 }
 
+// Draws dialog button row.
 fn draw_dialog_button_row(
     painter: &mut HudPainter,
     buttons: impl IntoIterator<Item = (HudRect, &'static str)>,
@@ -410,6 +426,7 @@ fn draw_dialog_button_row(
     }
 }
 
+// Implements target label.
 fn target_label(editor: &HudMessageBoxState, agent_directory: &AgentDirectory) -> String {
     editor
         .target_terminal
@@ -422,6 +439,7 @@ fn target_label(editor: &HudMessageBoxState, agent_directory: &AgentDirectory) -
         })
 }
 
+// Draws message box.
 fn draw_message_box(
     painter: &mut HudPainter,
     window: &Window,
@@ -483,6 +501,7 @@ fn draw_message_box(
     );
 }
 
+// Draws task dialog.
 fn draw_task_dialog(
     painter: &mut HudPainter,
     window: &Window,
@@ -544,6 +563,7 @@ fn draw_task_dialog(
     );
 }
 
+// Implements module content rect.
 fn module_content_rect(module_id: HudModuleId, shell_rect: HudRect) -> HudRect {
     if module_id == HudModuleId::AgentList {
         return shell_rect;
@@ -556,6 +576,7 @@ fn module_content_rect(module_id: HudModuleId, shell_rect: HudRect) -> HudRect {
     }
 }
 
+// Draws module shell.
 fn draw_module_shell(painter: &mut HudPainter, module_id: HudModuleId, shell_rect: HudRect) {
     if module_id == HudModuleId::AgentList {
         return;
@@ -585,6 +606,7 @@ fn draw_module_shell(painter: &mut HudPainter, module_id: HudModuleId, shell_rec
     clippy::too_many_arguments,
     reason = "HUD scene rebuild reads HUD, terminal, font, and Vello scene resources together"
 )]
+// Renders HUD scene.
 pub(crate) fn render_hud_scene(
     primary_window: Single<&Window, With<PrimaryWindow>>,
     layout_state: Res<HudLayoutState>,
@@ -644,6 +666,7 @@ pub(crate) fn render_hud_scene(
     **scene = VelloScene2d::from(built);
 }
 
+// Renders HUD modal scene.
 pub(crate) fn render_hud_modal_scene(
     primary_window: Single<&Window, With<PrimaryWindow>>,
     modal_state: Res<HudModalState>,

@@ -38,6 +38,7 @@ pub(crate) struct AgentRow {
     pub(crate) hovered: bool,
 }
 
+// Implements agent row rect.
 pub(crate) fn agent_row_rect(rect: HudRect, section: AgentListRowSection) -> HudRect {
     match section {
         AgentListRowSection::Main => HudRect {
@@ -61,6 +62,7 @@ pub(crate) fn agent_row_rect(rect: HudRect, section: AgentListRowSection) -> Hud
     }
 }
 
+// Resolves agent label.
 pub(crate) fn resolve_agent_label(
     terminal_ids: &[TerminalId],
     agent_directory: &AgentDirectory,
@@ -77,10 +79,12 @@ pub(crate) fn resolve_agent_label(
     format!("agent-{index}")
 }
 
+// Implements agent row stride.
 pub(crate) fn agent_row_stride() -> f32 {
     HUD_ROW_HEIGHT + AGENT_LIST_ROW_GAP
 }
 
+// Implements agent list content height.
 pub(crate) fn agent_list_content_height(row_count: usize) -> f32 {
     match row_count {
         0 => 0.0,
@@ -88,6 +92,7 @@ pub(crate) fn agent_list_content_height(row_count: usize) -> f32 {
     }
 }
 
+// Implements agent rows.
 pub(crate) fn agent_rows(
     shell_rect: HudRect,
     scroll_offset: f32,

@@ -8,6 +8,7 @@ use bevy::prelude::*;
     clippy::too_many_arguments,
     reason = "intent fanout is intentionally explicit across narrow request channels"
 )]
+// Dispatches HUD intents.
 pub(crate) fn dispatch_hud_intents(
     mut intents: MessageReader<HudIntent>,
     mut focus_requests: MessageWriter<TerminalFocusRequest>,

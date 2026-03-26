@@ -5,6 +5,7 @@ use bevy::{
     render::{gpu_readback::Readback, render_resource::TextureFormat},
 };
 
+// Verifies that parses output mode and dimensions.
 #[test]
 fn parses_output_mode_and_dimensions() {
     assert_eq!(resolve_output_mode(None), OutputMode::Desktop);
@@ -24,6 +25,7 @@ fn parses_output_mode_and_dimensions() {
     assert_eq!(resolve_output_dimension(Some("abc"), 12), 12);
 }
 
+// Verifies that offscreen window config is hidden and windowed.
 #[test]
 fn offscreen_window_config_is_hidden_and_windowed() {
     let output = AppOutputConfig {
@@ -42,6 +44,7 @@ fn offscreen_window_config_is_hidden_and_windowed() {
     assert_eq!(window.resolution.scale_factor_override(), Some(1.5));
 }
 
+// Verifies that create final frame image uses renderable sRGB target.
 #[test]
 fn create_final_frame_image_uses_renderable_srgb_target() {
     let image = create_final_frame_image(UVec2::new(1920, 1080));
@@ -54,6 +57,7 @@ fn create_final_frame_image_uses_renderable_srgb_target() {
     assert!(usage.contains(TextureUsages::TEXTURE_BINDING));
 }
 
+// Verifies that sync final frame output target assigns targets only in offscreen mode.
 #[test]
 fn sync_final_frame_output_target_assigns_targets_only_in_offscreen_mode() {
     let mut world = World::default();
@@ -98,6 +102,7 @@ fn sync_final_frame_output_target_assigns_targets_only_in_offscreen_mode() {
     ));
 }
 
+// Verifies that final frame capture waits for target before requesting readback.
 #[test]
 fn final_frame_capture_waits_for_target_before_requesting_readback() {
     let mut world = World::default();
@@ -117,6 +122,7 @@ fn final_frame_capture_waits_for_target_before_requesting_readback() {
     assert!(!world.resource::<FinalFrameCaptureConfig>().requested);
 }
 
+// Verifies that final frame capture waits for verification scenario to finish.
 #[test]
 fn final_frame_capture_waits_for_verification_scenario_to_finish() {
     let mut world = World::default();
@@ -143,6 +149,7 @@ fn final_frame_capture_waits_for_verification_scenario_to_finish() {
     assert!(!world.resource::<FinalFrameCaptureConfig>().requested);
 }
 
+// Verifies that texture dump skips row padding for RGBA.
 #[test]
 fn texture_dump_skips_row_padding_for_rgba() {
     let width = 2;

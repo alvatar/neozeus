@@ -21,6 +21,7 @@ use bevy::{
     window::{PrimaryWindow, RequestRedraw},
 };
 
+// Returns whether plain modifiers.
 fn has_plain_modifiers(keys: &ButtonInput<KeyCode>) -> (bool, bool, bool) {
     (
         keys.pressed(KeyCode::ControlLeft) || keys.pressed(KeyCode::ControlRight),
@@ -29,6 +30,7 @@ fn has_plain_modifiers(keys: &ButtonInput<KeyCode>) -> (bool, bool, bool) {
     )
 }
 
+// Returns whether plain ctrl enter.
 fn is_plain_ctrl_enter(event: &KeyboardInput, ctrl: bool, alt: bool, super_key: bool) -> bool {
     event.state == ButtonState::Pressed
         && event.key_code == KeyCode::Enter
@@ -37,10 +39,12 @@ fn is_plain_ctrl_enter(event: &KeyboardInput, ctrl: bool, alt: bool, super_key: 
         && !super_key
 }
 
+// Handles is interactive.
 fn terminal_is_interactive(terminal: &crate::terminals::TerminalRuntimeState) -> bool {
     terminal.is_interactive()
 }
 
+// Returns whether spawn terminal globally.
 pub(crate) fn should_spawn_terminal_globally(
     event: &KeyboardInput,
     keys: &ButtonInput<KeyCode>,
@@ -53,6 +57,7 @@ pub(crate) fn should_spawn_terminal_globally(
     !(ctrl || alt || super_key)
 }
 
+// Returns whether spawn shell terminal globally.
 pub(crate) fn should_spawn_shell_terminal_globally(
     event: &KeyboardInput,
     keys: &ButtonInput<KeyCode>,
@@ -65,6 +70,7 @@ pub(crate) fn should_spawn_shell_terminal_globally(
     ctrl && alt && !super_key
 }
 
+// Returns whether kill active terminal.
 pub(crate) fn should_kill_active_terminal(
     event: &KeyboardInput,
     keys: &ButtonInput<KeyCode>,
@@ -76,6 +82,7 @@ pub(crate) fn should_kill_active_terminal(
     ctrl && !alt && !super_key
 }
 
+// Returns whether exit application.
 pub(crate) fn should_exit_application(event: &KeyboardInput, keys: &ButtonInput<KeyCode>) -> bool {
     if event.state != ButtonState::Pressed || event.key_code != KeyCode::F10 {
         return false;
@@ -84,6 +91,7 @@ pub(crate) fn should_exit_application(event: &KeyboardInput, keys: &ButtonInput<
     !(ctrl || alt || super_key)
 }
 
+// Handles global terminal spawn shortcut.
 pub(crate) fn handle_global_terminal_spawn_shortcut(
     mut messages: MessageReader<KeyboardInput>,
     keys: Res<ButtonInput<KeyCode>>,
@@ -108,6 +116,7 @@ pub(crate) fn handle_global_terminal_spawn_shortcut(
     }
 }
 
+// Handles terminal lifecycle shortcuts.
 pub(crate) fn handle_terminal_lifecycle_shortcuts(
     mut messages: MessageReader<KeyboardInput>,
     keys: Res<ButtonInput<KeyCode>>,
@@ -131,6 +140,7 @@ pub(crate) fn handle_terminal_lifecycle_shortcuts(
     }
 }
 
+// Handles panel contains cursor.
 fn terminal_panel_contains_cursor(
     window: &Window,
     presentation: &TerminalPresentation,
@@ -144,6 +154,7 @@ fn terminal_panel_contains_cursor(
     cursor.x >= min.x && cursor.x <= max.x && cursor.y >= min.y && cursor.y <= max.y
 }
 
+// Implements topmost terminal panel at cursor.
 fn topmost_terminal_panel_at_cursor(
     window: &Window,
     panels: &Query<(&TerminalPanel, &TerminalPresentation, &Visibility)>,
@@ -157,6 +168,7 @@ fn topmost_terminal_panel_at_cursor(
         .map(|(panel, _, _)| *panel)
 }
 
+// Focuses terminal on panel click.
 pub(crate) fn focus_terminal_on_panel_click(
     mouse_buttons: Res<ButtonInput<MouseButton>>,
     primary_window: Single<&Window, With<PrimaryWindow>>,
@@ -189,6 +201,7 @@ pub(crate) fn focus_terminal_on_panel_click(
     clippy::too_many_arguments,
     reason = "background-click clear needs input, focus, visibility, view, and persistence resources together"
 )]
+// Implements hide terminal on background click.
 pub(crate) fn hide_terminal_on_background_click(
     mouse_buttons: Res<ButtonInput<MouseButton>>,
     time: Res<Time>,
@@ -236,6 +249,7 @@ pub(crate) fn hide_terminal_on_background_click(
     clippy::too_many_arguments,
     reason = "mouse drag needs input, geometry, pointer state, and terminal bridge"
 )]
+// Implements drag terminal view.
 pub(crate) fn drag_terminal_view(
     mouse_buttons: Res<ButtonInput<MouseButton>>,
     keys: Res<ButtonInput<KeyCode>>,
@@ -297,6 +311,7 @@ pub(crate) fn drag_terminal_view(
     }
 }
 
+// Implements zoom terminal view.
 pub(crate) fn zoom_terminal_view(
     keys: Res<ButtonInput<KeyCode>>,
     primary_window: Single<&Window, With<PrimaryWindow>>,
@@ -326,6 +341,7 @@ pub(crate) fn zoom_terminal_view(
     clippy::too_many_arguments,
     reason = "direct terminal input needs keyboard, focus, modal capture, terminal state, and redraws together"
 )]
+// Handles terminal direct input keyboard.
 pub(crate) fn handle_terminal_direct_input_keyboard(
     mut messages: MessageReader<KeyboardInput>,
     keys: Res<ButtonInput<KeyCode>>,
@@ -397,6 +413,7 @@ pub(crate) fn handle_terminal_direct_input_keyboard(
     }
 }
 
+// Implements message box event text.
 fn message_box_event_text(event: &KeyboardInput) -> Option<String> {
     event
         .text
@@ -410,6 +427,7 @@ fn message_box_event_text(event: &KeyboardInput) -> Option<String> {
         })
 }
 
+// Closes task dialog intent.
 fn close_task_dialog_intent(modal_state: &mut HudModalState) -> Option<HudIntent> {
     let target_terminal = modal_state.task_dialog.target_terminal?;
     let payload = modal_state.task_dialog.text.clone();
@@ -417,6 +435,7 @@ fn close_task_dialog_intent(modal_state: &mut HudModalState) -> Option<HudIntent
     Some(HudIntent::SetTerminalTaskText(target_terminal, payload))
 }
 
+// Handles text editor event.
 fn handle_text_editor_event(
     editor: &mut crate::hud::HudMessageBoxState,
     event: &KeyboardInput,
@@ -475,6 +494,7 @@ fn handle_text_editor_event(
     clippy::too_many_arguments,
     reason = "dialog keyboard handling needs input, focus, notes, terminal state, HUD state, commands, and redraws together"
 )]
+// Handles terminal message box keyboard.
 pub(crate) fn handle_terminal_message_box_keyboard(
     mut messages: MessageReader<KeyboardInput>,
     keys: Res<ButtonInput<KeyCode>>,
@@ -608,6 +628,7 @@ pub(crate) fn handle_terminal_message_box_keyboard(
     }
 }
 
+// Implements keyboard input to terminal command.
 pub(crate) fn keyboard_input_to_terminal_command(
     event: &KeyboardInput,
     keys: &ButtonInput<KeyCode>,
@@ -657,6 +678,7 @@ pub(crate) fn keyboard_input_to_terminal_command(
     }
 }
 
+// Implements ctrl sequence.
 pub(crate) fn ctrl_sequence(key_code: KeyCode) -> Option<&'static str> {
     match key_code {
         KeyCode::KeyA => Some("\u{1}"),

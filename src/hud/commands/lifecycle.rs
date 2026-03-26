@@ -15,6 +15,7 @@ use bevy::{prelude::*, window::RequestRedraw};
     clippy::too_many_arguments,
     reason = "terminal spawn spans tmux provisioning, runtime spawn, projection spawn, and persistence"
 )]
+// Applies terminal lifecycle requests.
 pub(crate) fn apply_terminal_lifecycle_requests(
     mut requests: MessageReader<crate::hud::TerminalLifecycleRequest>,
     mut commands: Commands,

@@ -29,6 +29,7 @@ pub(crate) use debug_toolbar::debug_toolbar_buttons;
     clippy::too_many_arguments,
     reason = "module click routing needs shell geometry, terminal state, agent data, and command output together"
 )]
+// Handles pointer click.
 pub(crate) fn handle_pointer_click(
     module_id: HudModuleId,
     model: &HudModuleModel,
@@ -66,6 +67,7 @@ pub(crate) fn handle_pointer_click(
     }
 }
 
+// Handles hover.
 pub(crate) fn handle_hover(
     module_id: HudModuleId,
     model: &mut HudModuleModel,
@@ -88,6 +90,7 @@ pub(crate) fn handle_hover(
     }
 }
 
+// Clears hover.
 pub(crate) fn clear_hover(module_id: HudModuleId, model: &mut HudModuleModel) -> bool {
     match module_id {
         HudModuleId::DebugToolbar => false,
@@ -95,6 +98,7 @@ pub(crate) fn clear_hover(module_id: HudModuleId, model: &mut HudModuleModel) ->
     }
 }
 
+// Renders module content.
 pub(crate) fn render_module_content(
     module_id: HudModuleId,
     model: &HudModuleModel,
@@ -110,6 +114,7 @@ pub(crate) fn render_module_content(
     }
 }
 
+// Handles scroll.
 pub(crate) fn handle_scroll(
     module_id: HudModuleId,
     model: &mut HudModuleModel,
