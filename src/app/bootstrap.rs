@@ -3,7 +3,10 @@ use crate::{
         output::sync_final_frame_output_target, schedule::configure_app_schedule, AppOutputConfig,
         FinalFrameCaptureConfig, FinalFrameOutputState,
     },
-    app_config::GPU_NOT_FOUND_PANIC_FRAGMENT,
+    app_config::{
+        load_neozeus_config, resolve_app_id, resolve_window_title, NeoZeusConfig,
+        GPU_NOT_FOUND_PANIC_FRAGMENT,
+    },
     hud::{
         AgentDirectory, AgentListBloomBlurMaterial, HudBloomSettings, HudCompositeCaptureConfig,
         HudIntent, HudModuleRequest, HudOffscreenCompositor, HudPersistenceState,
@@ -98,15 +101,37 @@ pub(crate) fn resolve_force_fallback_adapter_for(
         .unwrap_or(!output_mode.is_offscreen())
 }
 
+#[allow(
+    dead_code,
+    reason = "compatibility wrapper retained for scene facade tests"
+)]
 pub(crate) fn primary_window_plugin_config_for(output: &AppOutputConfig) -> Option<Window> {
-    (!output.mode.is_offscreen()).then(|| primary_window_config_for(output))
+    primary_window_plugin_config_for_with_config(output, &NeoZeusConfig::default())
+}
+
+pub(crate) fn primary_window_plugin_config_for_with_config(
+    output: &AppOutputConfig,
+    config: &NeoZeusConfig,
+) -> Option<Window> {
+    (!output.mode.is_offscreen()).then(|| primary_window_config_for_with_config(output, config))
 }
 
 pub(crate) fn uses_headless_runner(output: &AppOutputConfig) -> bool {
     output.mode.is_offscreen()
 }
 
+#[allow(
+    dead_code,
+    reason = "compatibility wrapper retained for scene facade tests"
+)]
 pub(crate) fn primary_window_config_for(output: &AppOutputConfig) -> Window {
+    primary_window_config_for_with_config(output, &NeoZeusConfig::default())
+}
+
+pub(crate) fn primary_window_config_for_with_config(
+    output: &AppOutputConfig,
+    config: &NeoZeusConfig,
+) -> Window {
     let resolution = if let Some(scale_factor) = output.scale_factor_override {
         bevy::window::WindowResolution::new(output.width, output.height)
             .with_scale_factor_override(scale_factor)
@@ -114,8 +139,8 @@ pub(crate) fn primary_window_config_for(output: &AppOutputConfig) -> Window {
         (output.width, output.height).into()
     };
     Window {
-        title: env::var("NEOZEUS_WINDOW_TITLE").unwrap_or_else(|_| "neozeus".to_owned()),
-        name: Some(env::var("NEOZEUS_APP_ID").unwrap_or_else(|_| "neozeus".to_owned())),
+        title: resolve_window_title(config),
+        name: Some(resolve_app_id(config)),
         mode: if output.mode.is_offscreen() {
             WindowMode::Windowed
         } else {
@@ -130,6 +155,7 @@ pub(crate) fn primary_window_config_for(output: &AppOutputConfig) -> Window {
 }
 
 fn configure_app(app: &mut App) -> Result<(), String> {
+    let neozeus_config = load_neozeus_config()?;
     let output = AppOutputConfig::from_env();
     let hud_capture = HudTextureCaptureConfig::from_env();
     let hud_composite_capture = HudCompositeCaptureConfig::from_env();
@@ -163,7 +189,7 @@ fn configure_app(app: &mut App) -> Result<(), String> {
             ..default()
         })
         .set(WindowPlugin {
-            primary_window: primary_window_plugin_config_for(&output),
+            primary_window: primary_window_plugin_config_for_with_config(&output, &neozeus_config),
             ..default()
         });
     if uses_headless_runner(&output) {
@@ -180,8 +206,10 @@ fn configure_app(app: &mut App) -> Result<(), String> {
     ));
 
     if uses_headless_runner(&output) {
-        app.world_mut()
-            .spawn((primary_window_config_for(&output), PrimaryWindow));
+        app.world_mut().spawn((
+            primary_window_config_for_with_config(&output, &neozeus_config),
+            PrimaryWindow,
+        ));
     }
 
     let daemon_client = TerminalDaemonClientResource::system()?;

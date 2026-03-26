@@ -48,7 +48,8 @@ pub(crate) use fonts::{
 #[cfg(test)]
 pub(crate) use fonts::{
     find_kitty_config_path_with, initialize_terminal_text_renderer_with_locale,
-    parse_kitty_config_file, resolve_terminal_font_report_for_family, KittyFontConfig,
+    parse_kitty_config_file, resolve_terminal_font_report_for_family,
+    resolve_terminal_font_report_for_path, KittyFontConfig,
 };
 pub(crate) use lifecycle::{
     kill_active_terminal_session_and_remove, spawn_attached_terminal_with_presentation,

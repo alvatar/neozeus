@@ -1,0 +1,6 @@
+[terminal]
+font_path = "/usr/share/fonts/Adwaita/AdwaitaMono-Regular.ttf"
+
+[window]
+# title = "neozeus"
+# app_id = "neozeus"
