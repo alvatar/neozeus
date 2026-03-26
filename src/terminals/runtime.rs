@@ -13,8 +13,6 @@ use std::{
     thread,
 };
 
-const ZEUS_WRAPPED_PI_PATH: &str = "$HOME/.local/bin/pi";
-
 #[derive(Clone)]
 pub(crate) struct RuntimeNotifier {
     proxy: Option<EventLoopProxy<WinitUserEvent>>,
@@ -44,12 +42,6 @@ pub(crate) struct TerminalRuntimeSpawner {
 
 fn should_bootstrap_spawned_agent(prefix: &str) -> bool {
     prefix == PERSISTENT_SESSION_PREFIX
-}
-
-fn spawned_agent_bootstrap_command(session_id: &str) -> String {
-    format!(
-        "export ZEUS_AGENT_NAME='{session_id}'; if [ -x \"{ZEUS_WRAPPED_PI_PATH}\" ]; then exec \"{ZEUS_WRAPPED_PI_PATH}\"; else exec pi; fi"
-    )
 }
 
 impl TerminalRuntimeSpawner {
@@ -86,18 +78,17 @@ impl TerminalRuntimeSpawner {
     pub(crate) fn create_session(&self, prefix: &str) -> Result<String, String> {
         let session_id = self.daemon.client().create_session(prefix)?;
         if should_bootstrap_spawned_agent(prefix) {
-            let command = spawned_agent_bootstrap_command(&session_id);
             if let Err(error) = self
                 .daemon
                 .client()
-                .send_command(&session_id, TerminalCommand::SendCommand(command))
+                .send_command(&session_id, TerminalCommand::SendCommand("pi".into()))
             {
                 let _ = self.daemon.client().kill_session(&session_id);
                 return Err(format!(
-                    "failed to start sandboxed agent in session `{session_id}`: {error}"
+                    "failed to start pi in session `{session_id}`: {error}"
                 ));
             }
-            append_debug_log(format!("bootstrapped sandboxed agent session={session_id}"));
+            append_debug_log(format!("bootstrapped pi session={session_id}"));
         }
         Ok(session_id)
     }

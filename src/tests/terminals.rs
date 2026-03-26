@@ -1932,9 +1932,9 @@ fn build_attach_command_argv_uses_tmux_attach_for_tmux_target() {
 }
 
 #[test]
-fn build_attach_command_argv_uses_test_shell_for_raw_target() {
+fn build_attach_command_argv_uses_zsh_for_raw_target() {
     let (program, args) = build_attach_command_argv(&TerminalAttachTarget::RawShell);
-    assert_eq!(program, std::ffi::OsString::from("/bin/sh"));
+    assert_eq!(program, std::ffi::OsString::from("zsh"));
     assert!(args.is_empty());
 }
 
@@ -3271,36 +3271,24 @@ fn daemon_session_listing_preserves_creation_order_not_lexical_order() {
 }
 
 #[test]
-fn runtime_spawner_bootstraps_new_persistent_sessions_with_wrapped_pi() {
+fn runtime_spawner_bootstraps_persistent_sessions_with_plain_pi_only() {
     let client = Arc::new(FakeDaemonClient::default());
     let spawner = fake_runtime_spawner(client.clone());
 
-    let session_id = spawner
+    let persistent = spawner
         .create_session(PERSISTENT_SESSION_PREFIX)
         .expect("persistent session should be created");
-
-    let commands = client.sent_commands.lock().unwrap().clone();
-    assert_eq!(commands.len(), 1);
-    assert_eq!(commands[0].0, session_id);
-    assert!(matches!(
-        &commands[0].1,
-        TerminalCommand::SendCommand(command)
-            if command.contains("export ZEUS_AGENT_NAME='neozeus-session-0'")
-                && command.contains("$HOME/.local/bin/pi")
-                && command.contains("exec pi")
-    ));
-}
-
-#[test]
-fn runtime_spawner_does_not_bootstrap_verifier_sessions() {
-    let client = Arc::new(FakeDaemonClient::default());
-    let spawner = fake_runtime_spawner(client.clone());
-
-    let _ = spawner
+    let _verifier = spawner
         .create_session(VERIFIER_SESSION_PREFIX)
         .expect("verifier session should be created");
 
-    assert!(client.sent_commands.lock().unwrap().is_empty());
+    let commands = client.sent_commands.lock().unwrap().clone();
+    assert_eq!(commands.len(), 1);
+    assert_eq!(commands[0].0, persistent);
+    assert!(matches!(
+        &commands[0].1,
+        TerminalCommand::SendCommand(command) if command == "pi"
+    ));
 }
 
 #[test]
