@@ -30,7 +30,7 @@ pub(crate) const PERSISTENT_SESSION_PREFIX: &str = "neozeus-session-";
 pub(crate) const VERIFIER_SESSION_PREFIX: &str = "neozeus-verifier-";
 const DAEMON_BACKEND_STATUS: &str = "backend: neozeus daemon pty";
 
-// Returns whether persistent session name.
+/// Returns whether persistent session name.
 pub(crate) fn is_persistent_session_name(session_name: &str) -> bool {
     session_name.starts_with(PERSISTENT_SESSION_PREFIX)
 }
@@ -61,7 +61,7 @@ enum DaemonSessionCommand {
 }
 
 impl DaemonSession {
-    // Starts this value.
+    /// Starts this value.
     pub(crate) fn start(session_id: String, created_order: u64) -> Result<Arc<Self>, String> {
         let crate::terminals::PtySession {
             master,
@@ -95,12 +95,12 @@ impl DaemonSession {
         Ok(session)
     }
 
-    // Implements session id.
+    /// Implements session id.
     pub(crate) fn session_id(&self) -> &str {
         &self.session_id
     }
 
-    // Implements info.
+    /// Implements info.
     pub(crate) fn info(&self) -> DaemonSessionInfo {
         let state = lock(&self.state);
         DaemonSessionInfo {
@@ -111,7 +111,7 @@ impl DaemonSession {
         }
     }
 
-    // Implements subscribe.
+    /// Implements subscribe.
     pub(crate) fn subscribe(
         &self,
         subscriber_id: u64,
@@ -126,13 +126,13 @@ impl DaemonSession {
         }
     }
 
-    // Implements unsubscribe.
+    /// Implements unsubscribe.
     pub(crate) fn unsubscribe(&self, subscriber_id: u64) {
         let mut state = lock(&self.state);
         state.subscribers.remove(&subscriber_id);
     }
 
-    // Implements send command.
+    /// Implements send command.
     pub(crate) fn send_command(&self, command: TerminalCommand) -> Result<(), String> {
         self.command_tx
             .send(DaemonSessionCommand::Terminal(command))
@@ -144,7 +144,7 @@ impl DaemonSession {
             })
     }
 
-    // Resizes this value.
+    /// Resizes this value.
     pub(crate) fn resize(&self, cols: usize, rows: usize) -> Result<(), String> {
         self.command_tx
             .send(DaemonSessionCommand::Resize { cols, rows })
@@ -156,7 +156,7 @@ impl DaemonSession {
             })
     }
 
-    // Kills this value.
+    /// Kills this value.
     pub(crate) fn kill(&self) -> Result<(), String> {
         let _ = self.command_tx.send(DaemonSessionCommand::Kill);
         Ok(())
@@ -168,7 +168,7 @@ pub(crate) struct SubscriberIdAllocator {
 }
 
 impl Default for SubscriberIdAllocator {
-    // Returns the default value for this type.
+    /// Returns the default value for this type.
     fn default() -> Self {
         Self {
             next_id: AtomicU64::new(1),
@@ -177,7 +177,7 @@ impl Default for SubscriberIdAllocator {
 }
 
 impl SubscriberIdAllocator {
-    // Implements next.
+    /// Implements next.
     pub(crate) fn next(&self) -> u64 {
         self.next_id.fetch_add(1, Ordering::Relaxed)
     }
@@ -187,7 +187,7 @@ impl SubscriberIdAllocator {
     clippy::too_many_arguments,
     reason = "daemon session worker owns PTY, parser, child lifecycle, and subscriber broadcast"
 )]
-// Runs session worker.
+/// Runs session worker.
 fn run_session_worker(
     session_id: String,
     state: Arc<Mutex<DaemonSessionState>>,
@@ -456,7 +456,7 @@ fn run_session_worker(
     let _ = reader_thread.join();
 }
 
-// Applies terminal command.
+/// Applies terminal command.
 fn apply_terminal_command(
     master: &(dyn portable_pty::MasterPty + Send),
     writer: &mut Box<dyn std::io::Write + Send>,
@@ -488,7 +488,7 @@ fn apply_terminal_command(
     }
 }
 
-// Resizes terminal.
+/// Resizes terminal.
 fn resize_terminal(
     master: &(dyn portable_pty::MasterPty + Send),
     terminal: &mut Term<VoidListener>,
@@ -510,7 +510,7 @@ fn resize_terminal(
     Ok(())
 }
 
-// Publishes frame update.
+/// Publishes frame update.
 fn publish_frame_update(
     state: &Arc<Mutex<DaemonSessionState>>,
     session_id: &str,
@@ -532,7 +532,7 @@ fn publish_frame_update(
     );
 }
 
-// Publishes update.
+/// Publishes update.
 fn publish_update(
     state: &Arc<Mutex<DaemonSessionState>>,
     session_id: &str,
@@ -563,7 +563,7 @@ fn publish_update(
         .retain(|_, subscriber| subscriber.send(event.clone()).is_ok());
 }
 
-// Sets reader runtime state.
+/// Sets reader runtime state.
 fn set_reader_runtime_state(
     reader_state: &Arc<Mutex<Option<TerminalRuntimeState>>>,
     runtime: TerminalRuntimeState,
@@ -571,7 +571,7 @@ fn set_reader_runtime_state(
     *lock(reader_state) = Some(runtime);
 }
 
-// Locks this value.
+/// Locks this value.
 fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     match mutex.lock() {
         Ok(guard) => guard,

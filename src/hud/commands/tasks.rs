@@ -4,7 +4,7 @@ use crate::{
 };
 use bevy::{prelude::*, window::RequestRedraw};
 
-// Applies terminal task requests.
+/// Applies terminal task requests.
 pub(crate) fn apply_terminal_task_requests(
     mut requests: MessageReader<crate::hud::TerminalTaskRequest>,
     time: Res<Time>,

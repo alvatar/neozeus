@@ -30,7 +30,7 @@ pub(crate) struct TerminalDebugStats {
     pub(crate) last_error: String,
 }
 
-// Appends debug log.
+/// Appends debug log.
 pub(crate) fn append_debug_log(message: impl AsRef<str>) {
     let message = message.as_ref();
     if let Ok(mut file) = fs::OpenOptions::new()
@@ -42,7 +42,7 @@ pub(crate) fn append_debug_log(message: impl AsRef<str>) {
     }
 }
 
-// Implements with debug stats.
+/// Implements with debug stats.
 pub(crate) fn with_debug_stats(
     debug_stats: &Arc<Mutex<TerminalDebugStats>>,
     update: impl FnOnce(&mut TerminalDebugStats),
@@ -53,7 +53,7 @@ pub(crate) fn with_debug_stats(
     }
 }
 
-// Notes terminal error.
+/// Notes terminal error.
 pub(crate) fn note_terminal_error(
     debug_stats: &Arc<Mutex<TerminalDebugStats>>,
     message: impl Into<String>,
@@ -65,7 +65,7 @@ pub(crate) fn note_terminal_error(
     });
 }
 
-// Notes key event.
+/// Notes key event.
 pub(crate) fn note_key_event(debug_stats: &Arc<Mutex<TerminalDebugStats>>, event: &KeyboardInput) {
     let summary = format!(
         "{:?} text={:?} logical={:?}",

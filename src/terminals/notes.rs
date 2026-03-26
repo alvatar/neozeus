@@ -14,24 +14,24 @@ pub(crate) struct TerminalNotesState {
 }
 
 impl TerminalNotesState {
-    // Loads this value.
+    /// Loads this value.
     pub(crate) fn load(&mut self, notes_by_session: HashMap<String, String>) {
         self.notes_by_session = notes_by_session;
         self.dirty_since_secs = None;
     }
 
-    // Notes text.
+    /// Notes text.
     pub(crate) fn note_text(&self, session_name: &str) -> Option<&str> {
         self.notes_by_session.get(session_name).map(String::as_str)
     }
 
-    // Returns whether note text.
+    /// Returns whether note text.
     pub(crate) fn has_note_text(&self, session_name: &str) -> bool {
         self.note_text(session_name)
             .is_some_and(|text| !text.trim().is_empty())
     }
 
-    // Sets note text.
+    /// Sets note text.
     pub(crate) fn set_note_text(&mut self, session_name: &str, text: &str) -> bool {
         let trimmed = text.trim_end();
         if trimmed.is_empty() {
@@ -53,7 +53,7 @@ impl TerminalNotesState {
         }
     }
 
-    // Appends task from text.
+    /// Appends task from text.
     pub(crate) fn append_task_from_text(&mut self, session_name: &str, text: &str) -> bool {
         let Some(task_entry) = task_entry_from_text(text) else {
             return false;
@@ -73,7 +73,7 @@ impl TerminalNotesState {
         true
     }
 
-    // Implements prepend task from text.
+    /// Implements prepend task from text.
     pub(crate) fn prepend_task_from_text(&mut self, session_name: &str, text: &str) -> bool {
         let Some(task_entry) = task_entry_from_text(text) else {
             return false;
@@ -94,7 +94,7 @@ impl TerminalNotesState {
     }
 }
 
-// Resolves terminal notes path with.
+/// Resolves terminal notes path with.
 pub(crate) fn resolve_terminal_notes_path_with(
     xdg_state_home: Option<&str>,
     home: Option<&str>,
@@ -127,7 +127,7 @@ pub(crate) fn resolve_terminal_notes_path_with(
     None
 }
 
-// Resolves terminal notes path.
+/// Resolves terminal notes path.
 pub(crate) fn resolve_terminal_notes_path() -> Option<PathBuf> {
     resolve_terminal_notes_path_with(
         env::var("XDG_STATE_HOME").ok().as_deref(),
@@ -136,7 +136,7 @@ pub(crate) fn resolve_terminal_notes_path() -> Option<PathBuf> {
     )
 }
 
-// Loads terminal notes from.
+/// Loads terminal notes from.
 pub(crate) fn load_terminal_notes_from(path: &PathBuf) -> HashMap<String, String> {
     match fs::read_to_string(path) {
         Ok(text) => parse_terminal_notes(&text),
@@ -151,7 +151,7 @@ pub(crate) fn load_terminal_notes_from(path: &PathBuf) -> HashMap<String, String
     }
 }
 
-// Parses terminal notes.
+/// Parses terminal notes.
 pub(crate) fn parse_terminal_notes(text: &str) -> HashMap<String, String> {
     let mut lines = text.lines();
     let Some(version) = lines.next() else {
@@ -195,7 +195,7 @@ pub(crate) fn parse_terminal_notes(text: &str) -> HashMap<String, String> {
     notes
 }
 
-// Implements serialize terminal notes.
+/// Implements serialize terminal notes.
 pub(crate) fn serialize_terminal_notes(notes_by_session: &HashMap<String, String>) -> String {
     let mut sessions = notes_by_session
         .iter()
@@ -225,14 +225,14 @@ pub(crate) fn serialize_terminal_notes(notes_by_session: &HashMap<String, String
     output
 }
 
-// Marks terminal notes dirty.
+/// Marks terminal notes dirty.
 pub(crate) fn mark_terminal_notes_dirty(notes_state: &mut TerminalNotesState, time: Option<&Time>) {
     if notes_state.dirty_since_secs.is_none() {
         notes_state.dirty_since_secs = Some(time.map(Time::elapsed_secs).unwrap_or(0.0));
     }
 }
 
-// Saves terminal notes if dirty.
+/// Saves terminal notes if dirty.
 pub(crate) fn save_terminal_notes_if_dirty(
     time: Res<Time>,
     mut notes_state: ResMut<TerminalNotesState>,
@@ -276,7 +276,7 @@ struct TaskHeader<'a> {
     suffix: &'a str,
 }
 
-// Parses task header.
+/// Parses task header.
 fn parse_task_header(line: &str) -> Option<TaskHeader<'_>> {
     let trimmed = line.trim_start();
     let dash = trimmed.strip_prefix('-')?;
@@ -299,7 +299,7 @@ fn parse_task_header(line: &str) -> Option<TaskHeader<'_>> {
     })
 }
 
-// Clears done tasks.
+/// Clears done tasks.
 pub(crate) fn clear_done_tasks(text: &str) -> (String, usize) {
     let lines = text.lines().collect::<Vec<_>>();
     if lines.is_empty() {
@@ -329,7 +329,7 @@ pub(crate) fn clear_done_tasks(text: &str) -> (String, usize) {
     (kept.join("\n").trim_end().to_owned(), removed)
 }
 
-// Extracts next task.
+/// Extracts next task.
 pub(crate) fn extract_next_task(task_text: &str) -> Option<(String, String)> {
     let mut lines = task_text.lines().map(str::to_owned).collect::<Vec<_>>();
     if lines.is_empty() {
@@ -390,7 +390,7 @@ pub(crate) fn extract_next_task(task_text: &str) -> Option<(String, String)> {
     Some((message, lines.join("\n").trim_end().to_owned()))
 }
 
-// Implements task entry from text.
+/// Implements task entry from text.
 pub(crate) fn task_entry_from_text(text: &str) -> Option<String> {
     let clean = text.trim();
     if clean.is_empty() {

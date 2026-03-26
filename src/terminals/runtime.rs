@@ -19,17 +19,17 @@ pub(crate) struct RuntimeNotifier {
 }
 
 impl RuntimeNotifier {
-    // Constructs a new value.
+    /// Constructs a new value.
     pub(crate) fn new(proxy: EventLoopProxy<WinitUserEvent>) -> Self {
         Self { proxy: Some(proxy) }
     }
 
-    // Implements noop.
+    /// Implements noop.
     pub(crate) fn noop() -> Self {
         Self { proxy: None }
     }
 
-    // Implements wake.
+    /// Implements wake.
     pub(crate) fn wake(&self) {
         if let Some(proxy) = &self.proxy {
             let _ = proxy.send_event(WinitUserEvent::WakeUp);
@@ -43,13 +43,13 @@ pub(crate) struct TerminalRuntimeSpawner {
     daemon: TerminalDaemonClientResource,
 }
 
-// Returns whether bootstrap spawned agent.
+/// Returns whether bootstrap spawned agent.
 fn should_bootstrap_spawned_agent(prefix: &str) -> bool {
     prefix == PERSISTENT_SESSION_PREFIX
 }
 
 impl TerminalRuntimeSpawner {
-    // Constructs a new value.
+    /// Constructs a new value.
     pub(crate) fn new(
         proxy: EventLoopProxy<WinitUserEvent>,
         daemon: TerminalDaemonClientResource,
@@ -60,7 +60,7 @@ impl TerminalRuntimeSpawner {
         }
     }
 
-    // Implements headless.
+    /// Implements headless.
     pub(crate) fn headless(daemon: TerminalDaemonClientResource) -> Self {
         Self {
             notifier: RuntimeNotifier::noop(),
@@ -68,23 +68,23 @@ impl TerminalRuntimeSpawner {
         }
     }
 
-    // Implements for tests.
+    /// Implements for tests.
     #[cfg(test)]
     pub(crate) fn for_tests(daemon: TerminalDaemonClientResource) -> Self {
         Self::headless(daemon)
     }
 
-    // Implements notifier.
+    /// Implements notifier.
     pub(crate) fn notifier(&self) -> RuntimeNotifier {
         self.notifier.clone()
     }
 
-    // Implements list session infos.
+    /// Implements list session infos.
     pub(crate) fn list_session_infos(&self) -> Result<Vec<DaemonSessionInfo>, String> {
         self.daemon.client().list_sessions()
     }
 
-    // Creates session.
+    /// Creates session.
     pub(crate) fn create_session(&self, prefix: &str) -> Result<String, String> {
         let session_id = self.create_shell_session(prefix)?;
         if should_bootstrap_spawned_agent(prefix) {
@@ -103,17 +103,17 @@ impl TerminalRuntimeSpawner {
         Ok(session_id)
     }
 
-    // Creates shell session.
+    /// Creates shell session.
     pub(crate) fn create_shell_session(&self, prefix: &str) -> Result<String, String> {
         self.daemon.client().create_session(prefix)
     }
 
-    // Kills session.
+    /// Kills session.
     pub(crate) fn kill_session(&self, session_id: &str) -> Result<(), String> {
         self.daemon.client().kill_session(session_id)
     }
 
-    // Resizes session.
+    /// Resizes session.
     pub(crate) fn resize_session(
         &self,
         session_id: &str,
@@ -123,7 +123,7 @@ impl TerminalRuntimeSpawner {
         self.daemon.client().resize_session(session_id, cols, rows)
     }
 
-    // Spawns attached.
+    /// Spawns attached.
     pub(crate) fn spawn_attached(&self, session_id: &str) -> Result<TerminalBridge, String> {
         let attached = self.daemon.client().attach_session(session_id)?;
         Ok(spawn_daemon_terminal_runtime(
@@ -135,7 +135,7 @@ impl TerminalRuntimeSpawner {
     }
 }
 
-// Spawns daemon terminal runtime.
+/// Spawns daemon terminal runtime.
 pub(crate) fn spawn_daemon_terminal_runtime(
     notifier: RuntimeNotifier,
     daemon: TerminalDaemonClientResource,
@@ -202,7 +202,7 @@ pub(crate) fn spawn_daemon_terminal_runtime(
     bridge
 }
 
-// Pushes initial snapshot.
+/// Pushes initial snapshot.
 fn push_initial_snapshot(
     update_mailbox: &Arc<TerminalUpdateMailbox>,
     debug_stats: &Arc<Mutex<TerminalDebugStats>>,
@@ -221,7 +221,7 @@ fn push_initial_snapshot(
     }
 }
 
-// Publishes runtime status.
+/// Publishes runtime status.
 fn publish_runtime_status(
     update_mailbox: &Arc<TerminalUpdateMailbox>,
     debug_stats: &Arc<Mutex<TerminalDebugStats>>,

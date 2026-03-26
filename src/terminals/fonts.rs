@@ -21,7 +21,7 @@ pub(crate) struct TerminalFontRasterConfig {
 }
 
 impl Default for TerminalFontRasterConfig {
-    // Returns the default value for this type.
+    /// Returns the default value for this type.
     fn default() -> Self {
         Self {
             font_size_px: 16.0,
@@ -43,7 +43,7 @@ pub(crate) struct TerminalTextRenderer {
 }
 
 impl Default for TerminalTextRenderer {
-    // Returns the default value for this type.
+    /// Returns the default value for this type.
     fn default() -> Self {
         Self {
             font_system: None,
@@ -53,28 +53,28 @@ impl Default for TerminalTextRenderer {
 }
 
 impl TerminalFontState {
-    // Returns whether private use font.
+    /// Returns whether private use font.
     pub(crate) fn has_private_use_font(&self) -> bool {
         self.fallback_family_name("private-use").is_some()
     }
 
-    // Returns whether emoji font.
+    /// Returns whether emoji font.
     pub(crate) fn has_emoji_font(&self) -> bool {
         self.fallback_family_name("emoji").is_some()
     }
 
-    // Implements glyph metrics for cell height.
+    /// Implements glyph metrics for cell height.
     pub(crate) fn glyph_metrics_for_cell_height(&self, cell_height: u32) -> cosmic_text::Metrics {
         let scale = cell_height.max(1) as f32 / 16.0;
         cosmic_text::Metrics::new(self.raster.font_size_px * scale, cell_height.max(1) as f32)
     }
 
-    // Implements baseline offset for cell height.
+    /// Implements baseline offset for cell height.
     pub(crate) fn baseline_offset_for_cell_height(&self, cell_height: u32) -> f32 {
         self.raster.baseline_offset_px * (cell_height.max(1) as f32 / 16.0)
     }
 
-    // Implements fallback family name.
+    /// Implements fallback family name.
     pub(crate) fn fallback_family_name<'a>(&'a self, needle: &str) -> Option<&'a str> {
         let report = self.report.as_ref()?.as_ref().ok()?;
         report
@@ -85,7 +85,7 @@ impl TerminalFontState {
     }
 }
 
-// Configures terminal fonts.
+/// Configures terminal fonts.
 pub(crate) fn configure_terminal_fonts(
     mut font_state: ResMut<TerminalFontState>,
     mut text_renderer: ResMut<TerminalTextRenderer>,
@@ -125,7 +125,7 @@ pub(crate) fn configure_terminal_fonts(
     }
 }
 
-// Initializes terminal text renderer.
+/// Initializes terminal text renderer.
 pub(crate) fn initialize_terminal_text_renderer(
     report: &TerminalFontReport,
     text_renderer: &mut TerminalTextRenderer,
@@ -134,7 +134,7 @@ pub(crate) fn initialize_terminal_text_renderer(
     initialize_terminal_text_renderer_with_locale(report, text_renderer, &locale)
 }
 
-// Initializes terminal text renderer with locale.
+/// Initializes terminal text renderer with locale.
 pub(crate) fn initialize_terminal_text_renderer_with_locale(
     report: &TerminalFontReport,
     text_renderer: &mut TerminalTextRenderer,
@@ -164,7 +164,7 @@ pub(crate) fn initialize_terminal_text_renderer_with_locale(
     Ok(())
 }
 
-// Resolves terminal font report.
+/// Resolves terminal font report.
 pub(crate) fn resolve_terminal_font_report() -> Result<TerminalFontReport, String> {
     let config = load_neozeus_config()?;
     if let Some(font_path) = resolve_terminal_font_path(&config) {
@@ -175,7 +175,7 @@ pub(crate) fn resolve_terminal_font_report() -> Result<TerminalFontReport, Strin
     resolve_terminal_font_stack_for_family(&requested_family)
 }
 
-// Resolves terminal font report for family.
+/// Resolves terminal font report for family.
 #[cfg(test)]
 pub(crate) fn resolve_terminal_font_report_for_family(
     requested_family: &str,
@@ -183,7 +183,7 @@ pub(crate) fn resolve_terminal_font_report_for_family(
     resolve_terminal_font_stack_for_family(requested_family)
 }
 
-// Resolves terminal font report for path.
+/// Resolves terminal font report for path.
 #[cfg(test)]
 pub(crate) fn resolve_terminal_font_report_for_path(
     path: &Path,
@@ -191,7 +191,7 @@ pub(crate) fn resolve_terminal_font_report_for_path(
     resolve_terminal_font_stack_for_path(path)
 }
 
-// Resolves terminal font stack for path.
+/// Resolves terminal font stack for path.
 #[cfg_attr(test, allow(dead_code))]
 fn resolve_terminal_font_stack_for_path(path: &Path) -> Result<TerminalFontReport, String> {
     if !path.is_file() {
@@ -233,7 +233,7 @@ fn resolve_terminal_font_stack_for_path(path: &Path) -> Result<TerminalFontRepor
     })
 }
 
-// Resolves terminal font stack for family.
+/// Resolves terminal font stack for family.
 fn resolve_terminal_font_stack_for_family(
     requested_family: &str,
 ) -> Result<TerminalFontReport, String> {
@@ -269,7 +269,7 @@ pub(crate) struct KittyFontConfig {
     pub(crate) font_family: Option<String>,
 }
 
-// Loads kitty font family.
+/// Loads kitty font family.
 fn load_kitty_font_family() -> Result<Option<String>, String> {
     let Some(config_path) = find_kitty_config_path() else {
         return Ok(None);
@@ -281,7 +281,7 @@ fn load_kitty_font_family() -> Result<Option<String>, String> {
     Ok(config.font_family)
 }
 
-// Finds kitty config path.
+/// Finds kitty config path.
 pub(crate) fn find_kitty_config_path() -> Option<PathBuf> {
     find_kitty_config_path_with(
         env::var_os("KITTY_CONFIG_DIRECTORY").as_deref(),
@@ -292,7 +292,7 @@ pub(crate) fn find_kitty_config_path() -> Option<PathBuf> {
     )
 }
 
-// Finds kitty config path with.
+/// Finds kitty config path with.
 pub(crate) fn find_kitty_config_path_with(
     kitty_config_directory: Option<&std::ffi::OsStr>,
     xdg_config_home: Option<&std::ffi::OsStr>,
@@ -334,7 +334,7 @@ pub(crate) fn find_kitty_config_path_with(
     system_path.is_file().then_some(system_path)
 }
 
-// Parses kitty config file.
+/// Parses kitty config file.
 pub(crate) fn parse_kitty_config_file(
     path: &Path,
     visited: &mut BTreeSet<PathBuf>,
@@ -389,7 +389,7 @@ pub(crate) fn parse_kitty_config_file(
     Ok(())
 }
 
-// Implements fontconfig query family for path.
+/// Implements fontconfig query family for path.
 fn fc_query_family_for_path(path: &Path) -> Result<String, String> {
     let output = Command::new("fc-query")
         .arg("-f")
@@ -444,7 +444,7 @@ fn fc_query_family_for_path(path: &Path) -> Result<String, String> {
     Ok(family)
 }
 
-// Implements fontconfig match face.
+/// Implements fontconfig match face.
 fn fc_match_face(query: &str, source: &str) -> Result<TerminalFontFace, String> {
     let output = Command::new("/usr/bin/fc-match")
         .arg("-f")
@@ -491,12 +491,12 @@ fn fc_match_face(query: &str, source: &str) -> Result<TerminalFontFace, String> 
     })
 }
 
-// Returns whether private use like.
+/// Returns whether private use like.
 pub(crate) fn is_private_use_like(ch: char) -> bool {
     matches!(ch as u32, 0xE000..=0xF8FF | 0xF0000..=0xFFFFD | 0x100000..=0x10FFFD)
 }
 
-// Returns whether emoji like.
+/// Returns whether emoji like.
 pub(crate) fn is_emoji_like(ch: char) -> bool {
     matches!(
         ch as u32,

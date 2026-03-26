@@ -54,7 +54,7 @@ pub(crate) struct HudBloomSettings {
 }
 
 impl Default for HudBloomSettings {
-    // Returns the default value for this type.
+    /// Returns the default value for this type.
     fn default() -> Self {
         Self {
             agent_list_intensity: resolve_agent_list_bloom_intensity(
@@ -69,7 +69,7 @@ impl Default for HudBloomSettings {
     }
 }
 
-// Resolves agent list bloom intensity.
+/// Resolves agent list bloom intensity.
 pub(crate) fn resolve_agent_list_bloom_intensity(raw: Option<&str>) -> f32 {
     raw.map(str::trim)
         .filter(|value| !value.is_empty())
@@ -78,7 +78,7 @@ pub(crate) fn resolve_agent_list_bloom_intensity(raw: Option<&str>) -> f32 {
         .unwrap_or(DEFAULT_BLOOM_INTENSITY)
 }
 
-// Resolves agent list bloom debug previews.
+/// Resolves agent list bloom debug previews.
 pub(crate) fn resolve_agent_list_bloom_debug_previews(raw: Option<&str>) -> bool {
     matches!(
         raw.map(str::trim).filter(|value| !value.is_empty()),
@@ -144,12 +144,12 @@ pub(crate) struct AgentListBloomBlurMaterial {
 }
 
 impl Material2d for AgentListBloomBlurMaterial {
-    // Implements fragment shader.
+    /// Implements fragment shader.
     fn fragment_shader() -> ShaderRef {
         BLOOM_BLUR_SHADER_PATH.into()
     }
 
-    // Implements alpha mode.
+    /// Implements alpha mode.
     fn alpha_mode(&self) -> AlphaMode2d {
         AlphaMode2d::Opaque
     }
@@ -202,7 +202,7 @@ pub(crate) struct HudWidgetBloom {
     agent_list: AgentListBloomPass,
 }
 
-// Implements bloom target image.
+/// Implements bloom target image.
 fn bloom_target_image(size: UVec2) -> Image {
     let mut image = Image::new_fill(
         Extent3d {
@@ -221,7 +221,7 @@ fn bloom_target_image(size: UVec2) -> Image {
     image
 }
 
-// Implements image matches size.
+/// Implements image matches size.
 fn image_matches_size(images: &Assets<Image>, handle: &Handle<Image>, size: UVec2) -> bool {
     images
         .get(handle)
@@ -233,7 +233,7 @@ fn image_matches_size(images: &Assets<Image>, handle: &Handle<Image>, size: UVec
         .unwrap_or(false)
 }
 
-// Implements logical window size.
+/// Implements logical window size.
 fn logical_window_size(window: &Window) -> UVec2 {
     UVec2::new(
         window.width().round().max(1.0) as u32,
@@ -241,7 +241,7 @@ fn logical_window_size(window: &Window) -> UVec2 {
     )
 }
 
-// Implements bloom target size.
+/// Implements bloom target size.
 fn bloom_target_size(window: &Window) -> UVec2 {
     let size = logical_window_size(window);
     UVec2::new(
@@ -250,7 +250,7 @@ fn bloom_target_size(window: &Window) -> UVec2 {
     )
 }
 
-// Implements rect transform for frame.
+/// Implements rect transform for frame.
 fn rect_transform_for_frame(frame_size: Vec2, rect: HudRect, z: f32) -> Transform {
     Transform::from_xyz(
         rect.x + rect.w * 0.5 - frame_size.x * 0.5,
@@ -259,12 +259,12 @@ fn rect_transform_for_frame(frame_size: Vec2, rect: HudRect, z: f32) -> Transfor
     )
 }
 
-// Implements fullscreen transform for frame.
+/// Implements fullscreen transform for frame.
 fn fullscreen_transform_for_frame(frame_size: Vec2, z: f32) -> Transform {
     Transform::from_xyz(0.0, 0.0, z).with_scale(Vec3::new(frame_size.x, frame_size.y, 1.0))
 }
 
-// Implements scale rect into target.
+/// Implements scale rect into target.
 fn scale_rect_into_target(window: &Window, target_size: UVec2, rect: HudRect) -> HudRect {
     let scale_x = target_size.x.max(1) as f32 / window.width().max(1.0);
     let scale_y = target_size.y.max(1) as f32 / window.height().max(1.0);
@@ -276,7 +276,7 @@ fn scale_rect_into_target(window: &Window, target_size: UVec2, rect: HudRect) ->
     }
 }
 
-// Implements bloom debug preview transform.
+/// Implements bloom debug preview transform.
 fn bloom_debug_preview_transform(
     window: &Window,
     stage: AgentListBloomDebugPreviewStage,
@@ -296,7 +296,7 @@ fn bloom_debug_preview_transform(
     Transform::from_xyz(x, y, z)
 }
 
-// Implements bloom debug backdrop transform.
+/// Implements bloom debug backdrop transform.
 fn bloom_debug_backdrop_transform(window: &Window, z: f32) -> Transform {
     let total_width = BLOOM_DEBUG_PREVIEW_WIDTH * 3.0 + BLOOM_DEBUG_PREVIEW_GAP * 2.0;
     let panel_width = total_width + BLOOM_DEBUG_PREVIEW_BACKDROP_PADDING * 2.0;
@@ -306,14 +306,14 @@ fn bloom_debug_backdrop_transform(window: &Window, z: f32) -> Transform {
     Transform::from_xyz(x, y, z).with_scale(Vec3::new(panel_width, panel_height, 1.0))
 }
 
-// Implements blur uniform.
+/// Implements blur uniform.
 fn blur_uniform(texel_size: Vec2, radius_pixels: f32, gain: f32) -> AgentListBloomBlurUniform {
     AgentListBloomBlurUniform {
         texel_step_gain: Vec4::new(texel_size.x, texel_size.y, radius_pixels, gain),
     }
 }
 
-// Implements bloom reference red.
+/// Implements bloom reference red.
 fn bloom_reference_red(scale: f32, alpha: f32) -> Color {
     let linear: LinearRgba = Srgba::rgba_u8(
         AGENT_LIST_BLOOM_RED_R,
@@ -330,7 +330,7 @@ fn bloom_reference_red(scale: f32, alpha: f32) -> Color {
     )
 }
 
-// Implements bloom source color.
+/// Implements bloom source color.
 fn bloom_source_color(focused: bool, hovered: bool, kind: AgentListBloomSourceKind) -> Color {
     match (focused, hovered, kind) {
         (true, _, AgentListBloomSourceKind::Main) => bloom_reference_red(5.0, 1.0),
@@ -342,7 +342,7 @@ fn bloom_source_color(focused: bool, hovered: bool, kind: AgentListBloomSourceKi
     }
 }
 
-// Implements bloom border rects.
+/// Implements bloom border rects.
 fn bloom_border_rects(
     rect: HudRect,
     thickness: f32,
@@ -389,7 +389,7 @@ fn bloom_border_rects(
     ]
 }
 
-// Implements additive blend state.
+/// Implements additive blend state.
 fn additive_blend_state() -> BlendState {
     BlendState {
         color: BlendComponent {
@@ -405,7 +405,7 @@ fn additive_blend_state() -> BlendState {
     }
 }
 
-// Builds bloom specs.
+/// Builds bloom specs.
 fn build_bloom_specs(
     content_rect: HudRect,
     scroll_offset: f32,
@@ -474,7 +474,7 @@ pub(crate) struct HudWidgetBloomSetupContext<'w, 's> {
     bloom: ResMut<'w, HudWidgetBloom>,
 }
 
-// Sets up HUD widget bloom.
+/// Sets up HUD widget bloom.
 pub(crate) fn setup_hud_widget_bloom(mut ctx: HudWidgetBloomSetupContext) {
     let target_size = bloom_target_size(&ctx.primary_window);
     let target_texel_size = Vec2::new(
@@ -880,7 +880,7 @@ pub(crate) struct HudWidgetBloomContext<'w, 's> {
     >,
 }
 
-// Synchronizes HUD widget bloom.
+/// Synchronizes HUD widget bloom.
 pub(crate) fn sync_hud_widget_bloom(mut ctx: HudWidgetBloomContext) {
     let target_size = bloom_target_size(&ctx.primary_window);
     let pass = &mut ctx.bloom.agent_list;
@@ -1124,13 +1124,13 @@ pub(crate) fn sync_hud_widget_bloom(mut ctx: HudWidgetBloomContext) {
     }
 }
 
-// Implements agent list bloom layer.
+/// Implements agent list bloom layer.
 #[cfg(test)]
 pub(crate) fn agent_list_bloom_layer() -> usize {
     BLOOM_SOURCE_LAYER
 }
 
-// Implements agent list bloom z.
+/// Implements agent list bloom z.
 #[cfg(test)]
 pub(crate) fn agent_list_bloom_z() -> f32 {
     BLOOM_COMPOSITE_Z

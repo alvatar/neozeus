@@ -1,7 +1,7 @@
 use crate::terminals::{TerminalFocusState, TerminalPresentationStore, TerminalViewState};
 use bevy::{prelude::*, window::RequestRedraw};
 
-// Applies terminal view requests.
+/// Applies terminal view requests.
 pub(crate) fn apply_terminal_view_requests(
     mut requests: MessageReader<crate::hud::TerminalViewRequest>,
     focus_state: Res<TerminalFocusState>,

@@ -12,7 +12,7 @@ use super::{debug_toolbar_buttons, DebugToolbarAction};
     clippy::too_many_arguments,
     reason = "toolbar hit routing needs geometry, terminal state, HUD state, and command output together"
 )]
-// Handles pointer click.
+/// Handles pointer click.
 pub(crate) fn handle_pointer_click(
     model: &HudModuleModel,
     shell_rect: HudRect,

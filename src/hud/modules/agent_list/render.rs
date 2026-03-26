@@ -50,7 +50,7 @@ const TASK_RED: peniko::Color = peniko::Color::from_rgba8(255, 24, 24, 255);
     clippy::too_many_arguments,
     reason = "agent-list text helper needs position/color/anchor plus non-uniform scaling"
 )]
-// Draws label.
+/// Draws label.
 fn draw_label(
     painter: &mut HudPainter,
     position: Vec2,
@@ -64,7 +64,7 @@ fn draw_label(
     painter.label_scaled(position, text, size, color, anchor, scale_x, scale_y);
 }
 
-// Draws button rect.
+/// Draws button rect.
 fn draw_button_rect(
     painter: &mut HudPainter,
     rect: HudRect,
@@ -75,7 +75,7 @@ fn draw_button_rect(
     painter.stroke_rect_width(rect, stroke, 2.5);
 }
 
-// Implements marker fill.
+/// Implements marker fill.
 fn marker_fill(has_notes: bool) -> peniko::Color {
     if has_notes {
         TASK_RED
@@ -84,7 +84,7 @@ fn marker_fill(has_notes: bool) -> peniko::Color {
     }
 }
 
-// Draws left rail.
+/// Draws left rail.
 fn draw_left_rail(painter: &mut HudPainter, content_rect: HudRect) {
     let tick_x = content_rect.x + 5.0;
     let top = content_rect.y + HUD_MODULE_PADDING + 4.0;
@@ -123,7 +123,7 @@ fn draw_left_rail(painter: &mut HudPainter, content_rect: HudRect) {
     }
 }
 
-// Renders content.
+/// Renders content.
 pub(crate) fn render_content(
     model: &HudModuleModel,
     content_rect: HudRect,

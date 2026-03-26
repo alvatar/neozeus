@@ -20,12 +20,12 @@ use bevy::{
     window::{PrimaryWindow, RequestRedraw},
 };
 
-// Implements cursor HUD position.
+/// Implements cursor HUD position.
 fn cursor_hud_position(window: &Window) -> Option<Vec2> {
     window.cursor_position()
 }
 
-// Implements content hit rect.
+/// Implements content hit rect.
 fn content_hit_rect(module_id: HudModuleId, rect: HudRect) -> HudRect {
     if module_id == HudModuleId::AgentList {
         return rect;
@@ -55,7 +55,7 @@ pub(crate) struct HudPointerContext<'w, 's> {
     redraws: MessageWriter<'w, RequestRedraw>,
 }
 
-// Implements message box task intent.
+/// Implements message box task intent.
 fn message_box_task_intent(
     modal_state: &mut HudModalState,
     action: HudMessageBoxAction,
@@ -74,7 +74,7 @@ fn message_box_task_intent(
     })
 }
 
-// Implements task dialog intent.
+/// Implements task dialog intent.
 fn task_dialog_intent(
     modal_state: &mut HudModalState,
     action: HudTaskDialogAction,
@@ -87,7 +87,7 @@ fn task_dialog_intent(
     }
 }
 
-// Handles HUD pointer input.
+/// Handles HUD pointer input.
 pub(crate) fn handle_hud_pointer_input(mut ctx: HudPointerContext) {
     if ctx.modal_state.message_box.visible {
         ctx.layout_state.drag = None;
@@ -243,7 +243,7 @@ pub(crate) fn handle_hud_pointer_input(mut ctx: HudPointerContext) {
     }
 }
 
-// Implements adjacent agent terminal id.
+/// Implements adjacent agent terminal id.
 fn adjacent_agent_terminal_id(
     terminal_manager: &TerminalManager,
     focus_state: &TerminalFocusState,
@@ -275,7 +275,7 @@ fn adjacent_agent_terminal_id(
     (next_index != current_index).then_some(terminal_ids[next_index])
 }
 
-// Handles HUD module shortcuts.
+/// Handles HUD module shortcuts.
 pub(crate) fn handle_hud_module_shortcuts(
     mut messages: MessageReader<KeyboardInput>,
     keys: Res<ButtonInput<KeyCode>>,
