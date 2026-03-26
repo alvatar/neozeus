@@ -372,12 +372,12 @@ pub(crate) fn generate_unique_session_name(
 
 #[cfg(test)]
 fn raw_shell_program() -> OsString {
-    OsString::from("/bin/sh")
+    OsString::from("zsh")
 }
 
 #[cfg(not(test))]
 fn raw_shell_program() -> OsString {
-    std::env::var_os("SHELL").unwrap_or_else(|| OsString::from("bash"))
+    OsString::from("zsh")
 }
 
 pub(crate) fn build_attach_command_argv(
