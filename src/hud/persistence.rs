@@ -310,3 +310,6 @@ pub(crate) fn apply_persisted_layout(
     }
     hud_state
 }
+
+#[cfg(test)]
+mod tests;

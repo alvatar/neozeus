@@ -1,25 +1,22 @@
 use super::{
     fake_runtime_spawner, insert_default_hud_resources, insert_terminal_manager_resources,
-    insert_test_hud_state, pressed_text, snapshot_test_hud_state, temp_dir, test_bridge,
-    FakeDaemonClient,
+    insert_test_hud_state, pressed_text, snapshot_test_hud_state, test_bridge, FakeDaemonClient,
 };
 use crate::hud::{
-    agent_list_bloom_layer, agent_list_bloom_z, agent_row_rect, agent_rows, apply_persisted_layout,
+    agent_list_bloom_layer, agent_list_bloom_z, agent_row_rect, agent_rows,
     apply_terminal_focus_requests, apply_terminal_lifecycle_requests, apply_terminal_task_requests,
     apply_visibility_requests, debug_toolbar_buttons, dispatch_hud_pointer_click,
     dispatch_hud_scroll, handle_hud_module_shortcuts, handle_hud_pointer_input, hud_needs_redraw,
-    message_box_action_buttons, message_box_rect, parse_persisted_hud_state, resolve_agent_label,
+    message_box_action_buttons, message_box_rect, resolve_agent_label,
     resolve_agent_list_bloom_debug_previews, resolve_agent_list_bloom_intensity,
-    resolve_hud_layout_path_with, save_hud_layout_if_dirty, serialize_persisted_hud_state,
     task_dialog_action_buttons, AgentDirectory, AgentListBloomCameraMarker,
     AgentListBloomCompositeMarker, AgentListBloomSourceKind, AgentListBloomSourceSegment,
     AgentListBloomSourceSprite, AgentListRowSection, HudBloomSettings, HudDragState, HudIntent,
     HudModuleId, HudModuleModel, HudOffscreenCompositor, HudPersistenceState, HudRect, HudState,
-    HudWidgetBloom, PersistedHudModuleState, PersistedHudState, TerminalFocusRequest,
-    TerminalLifecycleRequest, TerminalVisibilityPolicy, TerminalVisibilityRequest,
-    TerminalVisibilityState, AGENT_LIST_BLOOM_RED_B, AGENT_LIST_BLOOM_RED_G,
-    AGENT_LIST_BLOOM_RED_R, AGENT_LIST_BORDER_ORANGE_B, AGENT_LIST_BORDER_ORANGE_G,
-    AGENT_LIST_BORDER_ORANGE_R,
+    HudWidgetBloom, TerminalFocusRequest, TerminalLifecycleRequest, TerminalVisibilityPolicy,
+    TerminalVisibilityRequest, TerminalVisibilityState, AGENT_LIST_BLOOM_RED_B,
+    AGENT_LIST_BLOOM_RED_G, AGENT_LIST_BLOOM_RED_R, AGENT_LIST_BORDER_ORANGE_B,
+    AGENT_LIST_BORDER_ORANGE_G, AGENT_LIST_BORDER_ORANGE_R,
 };
 use crate::terminals::{
     kill_active_terminal_session_and_remove as kill_active_terminal, TerminalManager,
@@ -40,7 +37,7 @@ use bevy::{
     window::{PrimaryWindow, RequestRedraw, WindowResolution},
 };
 use bevy_vello::render::VelloCanvasMaterial;
-use std::{fs, path::PathBuf, sync::Arc, time::Duration};
+use std::{sync::Arc, time::Duration};
 
 fn init_hud_commands(world: &mut World) {
     world.init_resource::<Messages<HudIntent>>();
@@ -572,70 +569,6 @@ fn upstream_vello_present_contract_preserves_target_orange_bytes() {
         + (visible.2 as f32 - wrong.2 as f32).powi(2))
     .sqrt();
     assert!(target_dist < wrong_dist);
-}
-
-#[test]
-fn hud_layout_path_prefers_xdg_then_home() {
-    assert_eq!(
-        resolve_hud_layout_path_with(Some("/tmp/xdg"), Some("/tmp/home")),
-        Some(PathBuf::from("/tmp/xdg/neozeus/hud-layout.v1"))
-    );
-    assert_eq!(
-        resolve_hud_layout_path_with(None, Some("/tmp/home")),
-        Some(PathBuf::from("/tmp/home/.config/neozeus/hud-layout.v1"))
-    );
-    assert_eq!(resolve_hud_layout_path_with(None, None), None);
-}
-
-#[test]
-fn hud_layout_parse_and_serialize_roundtrip() {
-    let mut persisted = PersistedHudState::default();
-    persisted.modules.insert(
-        HudModuleId::AgentList,
-        PersistedHudModuleState {
-            enabled: true,
-            rect: HudRect {
-                x: 24.0,
-                y: 96.0,
-                w: 300.0,
-                h: 420.0,
-            },
-        },
-    );
-    let text = serialize_persisted_hud_state(&persisted);
-    assert_eq!(parse_persisted_hud_state(&text), persisted);
-}
-
-#[test]
-fn hud_layout_v1_parser_remains_backward_compatible() {
-    let persisted =
-        parse_persisted_hud_state("version 1\nAgentList enabled=1 x=24 y=96 w=300 h=420\n");
-    let module = persisted.modules.get(&HudModuleId::AgentList).unwrap();
-    assert!(module.enabled);
-    assert_eq!(module.rect.w, 300.0);
-}
-
-#[test]
-fn apply_persisted_layout_overrides_defaults() {
-    let mut persisted = PersistedHudState::default();
-    persisted.modules.insert(
-        HudModuleId::AgentList,
-        PersistedHudModuleState {
-            enabled: false,
-            rect: HudRect {
-                x: 11.0,
-                y: 22.0,
-                w: 333.0,
-                h: 444.0,
-            },
-        },
-    );
-    let hud_state =
-        apply_persisted_layout(crate::hud::HUD_MODULE_DEFINITIONS.as_slice(), &persisted);
-    let module = hud_state.get(HudModuleId::AgentList).unwrap();
-    assert!(!module.shell.enabled);
-    assert_eq!(module.shell.target_rect.x, 11.0);
-    assert_eq!(module.shell.target_rect.w, 333.0);
 }
 
 #[test]
@@ -1491,48 +1424,6 @@ fn animate_hud_modules_moves_current_rect_and_alpha_toward_target() {
     assert!(module.shell.current_rect.x < 124.0);
     assert!(module.shell.current_alpha > 0.2);
     assert!(module.shell.current_alpha < 1.0);
-}
-
-#[test]
-fn saving_hud_layout_persists_target_rect() {
-    let dir = temp_dir("neozeus-hud-layout-save");
-    let path = dir.join("hud-layout.v1");
-    let mut world = World::default();
-    let mut hud_state = HudState::default();
-    let mut module =
-        crate::hud::default_hud_module_instance(&crate::hud::HUD_MODULE_DEFINITIONS[1]);
-    module.shell.target_rect = HudRect {
-        x: 321.0,
-        y: 222.0,
-        w: 333.0,
-        h: 444.0,
-    };
-    hud_state.insert(HudModuleId::AgentList, module);
-    hud_state.dirty_layout = true;
-    let mut time = Time::<()>::default();
-    time.advance_by(Duration::from_secs(1));
-    world.insert_resource(time);
-    insert_test_hud_state(&mut world, hud_state);
-    world.insert_resource(HudPersistenceState {
-        path: Some(path.clone()),
-        dirty_since_secs: None,
-    });
-
-    world.run_system_once(save_hud_layout_if_dirty).unwrap();
-    world
-        .resource_mut::<Time>()
-        .advance_by(Duration::from_secs(1));
-    world.run_system_once(save_hud_layout_if_dirty).unwrap();
-
-    let serialized = fs::read_to_string(&path).expect("hud layout file missing");
-    assert!(serialized.contains("version 2"));
-    assert!(serialized.contains("[module]"));
-    assert!(serialized.contains("id=\"AgentList\""));
-    assert!(serialized.contains("enabled=1"));
-    assert!(serialized.contains("x=321"));
-    assert!(serialized.contains("y=222"));
-    assert!(serialized.contains("w=333"));
-    assert!(serialized.contains("h=444"));
 }
 
 #[test]

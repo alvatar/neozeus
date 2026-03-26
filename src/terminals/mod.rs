@@ -84,11 +84,6 @@ pub(crate) use fonts::{
     resolve_terminal_font_report_for_path, KittyFontConfig,
 };
 #[cfg(test)]
-pub(crate) use notes::{
-    parse_terminal_notes, resolve_terminal_notes_path_with, serialize_terminal_notes,
-    task_entry_from_text,
-};
-#[cfg(test)]
 pub(crate) use presentation::{
     active_terminal_cell_size, active_terminal_dimensions, active_terminal_viewport,
     pixel_perfect_cell_size, pixel_perfect_terminal_logical_size, snap_to_pixel_grid,
@@ -100,6 +95,5 @@ pub(crate) use raster::{
 };
 #[cfg(test)]
 pub(crate) use session_persistence::{
-    parse_persisted_terminal_sessions, resolve_terminal_sessions_path_with,
     serialize_persisted_terminal_sessions, PersistedTerminalSessions, TerminalSessionRecord,
 };
