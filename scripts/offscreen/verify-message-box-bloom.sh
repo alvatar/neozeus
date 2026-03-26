@@ -12,21 +12,17 @@ read -r width height < <(neozeus_offscreen_detect_resolution)
 
 OFF="$NEOZEUS_OFFSCREEN_ROOT/message-box-off.ppm"
 ON="$NEOZEUS_OFFSCREEN_ROOT/message-box-on.ppm"
-OFF_CROP="$NEOZEUS_OFFSCREEN_ROOT/message-box-off-crop.png"
-ON_CROP="$NEOZEUS_OFFSCREEN_ROOT/message-box-on-crop.png"
 
 neozeus_offscreen_run_capture "message-box-bloom" "0.0" "$OFF" "$width" "$height"
 neozeus_offscreen_run_capture "message-box-bloom" "2.0" "$ON" "$width" "$height"
-neozeus_offscreen_crop_message_box "$OFF" "$OFF_CROP" "$width" "$height"
-neozeus_offscreen_crop_message_box "$ON" "$ON_CROP" "$width" "$height"
 
-metric=$(neozeus_offscreen_compare_ae "$OFF_CROP" "$ON_CROP")
+metric=$(neozeus_offscreen_compare_ae "$OFF" "$ON")
 value=$(neozeus_offscreen_parse_metric "$metric")
 python - "$value" <<'PY'
 import sys
 value = float(sys.argv[1])
-threshold = 400.0
-print(f"message_box_modal_diff={value:.0f}")
+threshold = 200.0
+print(f"message_box_full_frame_diff={value:.0f}")
 print(f"threshold={threshold:.0f}")
 if value > threshold:
     raise SystemExit(1)

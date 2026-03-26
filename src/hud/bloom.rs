@@ -3,7 +3,7 @@ use crate::hud::{
         agent_row_rect, agent_rows, AgentListRowSection, AGENT_LIST_BLOOM_RED_B,
         AGENT_LIST_BLOOM_RED_G, AGENT_LIST_BLOOM_RED_R,
     },
-    AgentDirectory, HudLayoutState, HudModuleId, HudRect,
+    AgentDirectory, HudLayoutState, HudModalState, HudModuleId, HudRect,
 };
 use crate::terminals::{TerminalId, TerminalManager};
 use bevy::{
@@ -362,7 +362,7 @@ fn build_bloom_specs(
         for (kind, rect) in [
             (
                 AgentListBloomSourceKind::Main,
-                agent_row_rect(row.rect, AgentListRowSection::Main),
+                agent_row_rect(row.rect, AgentListRowSection::Accent),
             ),
             (
                 AgentListBloomSourceKind::Marker,
@@ -719,6 +719,7 @@ type BloomDebugPreviewFilter = (
 pub(crate) struct HudWidgetBloomContext<'w, 's> {
     primary_window: Single<'w, 's, &'static Window, With<PrimaryWindow>>,
     layout_state: Res<'w, HudLayoutState>,
+    modal_state: Res<'w, HudModalState>,
     terminal_manager: Res<'w, TerminalManager>,
     focus_state: Res<'w, crate::terminals::TerminalFocusState>,
     agent_directory: Res<'w, AgentDirectory>,
@@ -861,11 +862,13 @@ pub(crate) fn sync_hud_widget_bloom(mut ctx: HudWidgetBloomContext) {
         }
     }
 
+    let modal_visible = ctx.modal_state.message_box.visible || ctx.modal_state.task_dialog.visible;
     let enabled = ctx
         .layout_state
         .get(HudModuleId::AgentList)
         .map(|module| module.shell.enabled && module.shell.current_alpha > 0.01)
-        .unwrap_or(false);
+        .unwrap_or(false)
+        && !modal_visible;
     let specs = if enabled {
         let module = ctx
             .layout_state
