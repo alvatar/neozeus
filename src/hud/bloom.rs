@@ -156,10 +156,19 @@ pub(crate) enum AgentListBloomSourceKind {
     Marker,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(crate) enum AgentListBloomSourceSegment {
+    Top,
+    Right,
+    Bottom,
+    Left,
+}
+
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct AgentListBloomSourceSprite {
     pub(crate) terminal_id: TerminalId,
     pub(crate) kind: AgentListBloomSourceKind,
+    pub(crate) segment: AgentListBloomSourceSegment,
 }
 
 #[derive(Clone, Debug)]
@@ -307,13 +316,59 @@ fn bloom_reference_red(scale: f32, alpha: f32) -> Color {
 
 fn bloom_source_color(focused: bool, hovered: bool, kind: AgentListBloomSourceKind) -> Color {
     match (focused, hovered, kind) {
-        (true, _, AgentListBloomSourceKind::Main) => bloom_reference_red(4.0, 1.0),
-        (_, true, AgentListBloomSourceKind::Main) => bloom_reference_red(2.2, 0.8),
-        (_, _, AgentListBloomSourceKind::Main) => bloom_reference_red(0.8, 0.25),
-        (true, _, AgentListBloomSourceKind::Marker) => bloom_reference_red(8.0, 1.0),
-        (_, true, AgentListBloomSourceKind::Marker) => bloom_reference_red(4.0, 0.85),
-        (_, _, AgentListBloomSourceKind::Marker) => bloom_reference_red(1.4, 0.3),
+        (true, _, AgentListBloomSourceKind::Main) => bloom_reference_red(5.0, 1.0),
+        (_, true, AgentListBloomSourceKind::Main) => bloom_reference_red(2.5, 0.85),
+        (_, _, AgentListBloomSourceKind::Main) => bloom_reference_red(1.0, 0.3),
+        (true, _, AgentListBloomSourceKind::Marker) => bloom_reference_red(6.0, 1.0),
+        (_, true, AgentListBloomSourceKind::Marker) => bloom_reference_red(3.0, 0.9),
+        (_, _, AgentListBloomSourceKind::Marker) => bloom_reference_red(1.2, 0.35),
     }
+}
+
+fn bloom_border_rects(
+    rect: HudRect,
+    thickness: f32,
+) -> [(AgentListBloomSourceSegment, HudRect); 4] {
+    let horizontal = thickness.min((rect.h * 0.5).max(1.0));
+    let vertical = thickness.min((rect.w * 0.5).max(1.0));
+    [
+        (
+            AgentListBloomSourceSegment::Top,
+            HudRect {
+                x: rect.x,
+                y: rect.y,
+                w: rect.w.max(1.0),
+                h: horizontal,
+            },
+        ),
+        (
+            AgentListBloomSourceSegment::Right,
+            HudRect {
+                x: rect.x + rect.w - vertical,
+                y: rect.y,
+                w: vertical,
+                h: rect.h.max(1.0),
+            },
+        ),
+        (
+            AgentListBloomSourceSegment::Bottom,
+            HudRect {
+                x: rect.x,
+                y: rect.y + rect.h - horizontal,
+                w: rect.w.max(1.0),
+                h: horizontal,
+            },
+        ),
+        (
+            AgentListBloomSourceSegment::Left,
+            HudRect {
+                x: rect.x,
+                y: rect.y,
+                w: vertical,
+                h: rect.h.max(1.0),
+            },
+        ),
+    ]
 }
 
 fn additive_blend_state() -> BlendState {
@@ -359,24 +414,30 @@ fn build_bloom_specs(
             continue;
         }
 
-        for (kind, rect) in [
+        for (kind, rect, thickness) in [
             (
                 AgentListBloomSourceKind::Main,
-                agent_row_rect(row.rect, AgentListRowSection::Accent),
+                agent_row_rect(row.rect, AgentListRowSection::Main),
+                3.0,
             ),
             (
                 AgentListBloomSourceKind::Marker,
                 agent_row_rect(row.rect, AgentListRowSection::Marker),
+                2.5,
             ),
         ] {
-            specs.push(BloomSourceSpec {
-                key: AgentListBloomSourceSprite {
-                    terminal_id: row.terminal_id,
-                    kind,
-                },
-                rect,
-                color: bloom_source_color(row.focused, row.hovered, kind),
-            });
+            let color = bloom_source_color(row.focused, row.hovered, kind);
+            for (segment, border_rect) in bloom_border_rects(rect, thickness) {
+                specs.push(BloomSourceSpec {
+                    key: AgentListBloomSourceSprite {
+                        terminal_id: row.terminal_id,
+                        kind,
+                        segment,
+                    },
+                    rect: border_rect,
+                    color,
+                });
+            }
         }
     }
     specs

@@ -20,7 +20,7 @@ pub(crate) use bloom::{
 #[cfg(test)]
 pub(crate) use bloom::{
     AgentListBloomBlurUniform, AgentListBloomCameraMarker, AgentListBloomCompositeMarker,
-    AgentListBloomSourceKind, AgentListBloomSourceSprite,
+    AgentListBloomSourceKind, AgentListBloomSourceSegment, AgentListBloomSourceSprite,
 };
 pub(crate) use capture::{
     finalize_window_capture, request_hud_composite_capture, request_hud_texture_capture,
