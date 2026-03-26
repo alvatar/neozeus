@@ -76,7 +76,7 @@ impl TerminalRuntimeSpawner {
     }
 
     pub(crate) fn create_session(&self, prefix: &str) -> Result<String, String> {
-        let session_id = self.daemon.client().create_session(prefix)?;
+        let session_id = self.create_shell_session(prefix)?;
         if should_bootstrap_spawned_agent(prefix) {
             if let Err(error) = self
                 .daemon
@@ -91,6 +91,10 @@ impl TerminalRuntimeSpawner {
             append_debug_log(format!("bootstrapped pi session={session_id}"));
         }
         Ok(session_id)
+    }
+
+    pub(crate) fn create_shell_session(&self, prefix: &str) -> Result<String, String> {
+        self.daemon.client().create_session(prefix)
     }
 
     pub(crate) fn kill_session(&self, session_id: &str) -> Result<(), String> {

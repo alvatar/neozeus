@@ -6,6 +6,7 @@ use super::state::HudModuleId;
 #[derive(Clone, Debug, Message, PartialEq)]
 pub(crate) enum HudIntent {
     SpawnTerminal,
+    SpawnShellTerminal,
     FocusTerminal(TerminalId),
     HideAllButTerminal(TerminalId),
     ShowAllTerminals,
@@ -58,6 +59,7 @@ pub(crate) enum TerminalSendRequest {
 #[derive(Clone, Debug, Message, PartialEq)]
 pub(crate) enum TerminalLifecycleRequest {
     Spawn,
+    SpawnShell,
     KillActive,
 }
 
