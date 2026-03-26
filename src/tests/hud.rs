@@ -1989,6 +1989,115 @@ fn killing_active_terminal_removes_runtime_presentation_and_labels() {
 }
 
 #[test]
+fn killing_disconnected_active_terminal_removes_local_state_even_if_daemon_kill_fails() {
+    let client = Arc::new(FakeDaemonClient::default());
+    *client.fail_kill.lock().unwrap() = true;
+    client.set_session_runtime(
+        "neozeus-session-a",
+        crate::terminals::TerminalRuntimeState::disconnected("dead session"),
+    );
+
+    let (bridge, _) = test_bridge();
+    let mut manager = TerminalManager::default();
+    let id = manager.create_terminal_with_session(bridge, "neozeus-session-a".into());
+    manager
+        .get_mut(id)
+        .expect("missing terminal")
+        .snapshot
+        .runtime = crate::terminals::TerminalRuntimeState::disconnected("dead session");
+    manager.focus_terminal(id);
+
+    let mut store = TerminalPresentationStore::default();
+    store.register(
+        id,
+        crate::terminals::PresentedTerminal {
+            image: Default::default(),
+            texture_state: Default::default(),
+            desired_texture_state: Default::default(),
+            display_mode: Default::default(),
+            uploaded_revision: 0,
+            panel_entity: Entity::PLACEHOLDER,
+            frame_entity: Entity::PLACEHOLDER,
+        },
+    );
+
+    let mut directory = AgentDirectory::default();
+    directory.labels.insert(id, "oracle".into());
+
+    let mut world = World::default();
+    let mut time = Time::<()>::default();
+    time.advance_by(Duration::from_secs(1));
+    world.insert_resource(time);
+    insert_terminal_manager_resources(&mut world, manager);
+    world.insert_resource(store);
+    world.insert_resource(directory);
+    world.insert_resource(fake_runtime_spawner(client.clone()));
+    world.insert_resource(TerminalSessionPersistenceState::default());
+    world.insert_resource(TerminalVisibilityState {
+        policy: TerminalVisibilityPolicy::Isolate(id),
+    });
+    world.insert_resource(TerminalViewState::default());
+    let panel_entity = world.spawn((TerminalPanel { id },)).id();
+    let frame_entity = world.spawn((TerminalPanelFrame { id },)).id();
+    {
+        let mut store = world.resource_mut::<TerminalPresentationStore>();
+        let presented = store.get_mut(id).expect("missing presented terminal");
+        presented.panel_entity = panel_entity;
+        presented.frame_entity = frame_entity;
+    }
+
+    world
+        .run_system_once(
+            |mut commands: Commands,
+             time: Res<Time>,
+             mut terminal_manager: ResMut<TerminalManager>,
+             mut focus_state: ResMut<crate::terminals::TerminalFocusState>,
+             mut presentation_store: ResMut<TerminalPresentationStore>,
+             runtime_spawner: Res<crate::terminals::TerminalRuntimeSpawner>,
+             mut agent_directory: ResMut<AgentDirectory>,
+             mut session_persistence: ResMut<TerminalSessionPersistenceState>,
+             mut visibility_state: ResMut<TerminalVisibilityState>,
+             mut view_state: ResMut<TerminalViewState>| {
+                let _ = kill_active_terminal(
+                    &mut commands,
+                    &time,
+                    &mut terminal_manager,
+                    &mut focus_state,
+                    &mut presentation_store,
+                    &runtime_spawner,
+                    &mut agent_directory,
+                    &mut session_persistence,
+                    &mut visibility_state,
+                    &mut view_state,
+                );
+            },
+        )
+        .unwrap();
+
+    assert!(world
+        .resource::<TerminalManager>()
+        .terminal_ids()
+        .is_empty());
+    assert!(world
+        .resource::<TerminalPresentationStore>()
+        .get(id)
+        .is_none());
+    assert!(!world.resource::<AgentDirectory>().labels.contains_key(&id));
+    assert_eq!(
+        world.resource::<TerminalVisibilityState>().policy,
+        TerminalVisibilityPolicy::ShowAll
+    );
+    assert!(world
+        .resource::<TerminalSessionPersistenceState>()
+        .dirty_since_secs
+        .is_some());
+    let panel_count = world.query::<&TerminalPanel>().iter(&world).count();
+    let frame_count = world.query::<&TerminalPanelFrame>().iter(&world).count();
+    assert_eq!(panel_count, 0);
+    assert_eq!(frame_count, 0);
+}
+
+#[test]
 fn killing_active_terminal_preserves_local_state_when_tmux_kill_fails() {
     let client = Arc::new(FakeDaemonClient::default());
     *client.fail_kill.lock().unwrap() = true;

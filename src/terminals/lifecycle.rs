@@ -1,8 +1,8 @@
 use crate::{
     hud::{AgentDirectory, TerminalVisibilityPolicy, TerminalVisibilityState},
     terminals::{
-        mark_terminal_sessions_dirty, spawn_terminal_presentation, TerminalBridge,
-        TerminalFocusState, TerminalId, TerminalManager, TerminalPresentationStore,
+        append_debug_log, mark_terminal_sessions_dirty, spawn_terminal_presentation,
+        TerminalBridge, TerminalFocusState, TerminalId, TerminalManager, TerminalPresentationStore,
         TerminalRuntimeSpawner, TerminalSessionPersistenceState, TerminalViewState,
     },
 };
@@ -71,13 +71,23 @@ pub(crate) fn kill_active_terminal_session_and_remove(
     let Some(active_id) = focus_state.active_id() else {
         return Ok(None);
     };
-    let Some(session_name) = terminal_manager
-        .get(active_id)
-        .map(|terminal| terminal.session_name.clone())
-    else {
+    let Some((session_name, runtime_state)) = terminal_manager.get(active_id).map(|terminal| {
+        (
+            terminal.session_name.clone(),
+            terminal.snapshot.runtime.clone(),
+        )
+    }) else {
         return Ok(None);
     };
-    runtime_spawner.kill_session(&session_name)?;
+    if let Err(error) = runtime_spawner.kill_session(&session_name) {
+        if runtime_state.is_interactive() {
+            return Err(error);
+        }
+        append_debug_log(format!(
+            "best-effort kill failed for non-interactive terminal {}: {error}",
+            session_name
+        ));
+    }
 
     remove_terminal_with_projection(
         commands,
