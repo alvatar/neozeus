@@ -1,20 +1,35 @@
-use crate::{
-    app_config::{DEFAULT_COLS, DEFAULT_ROWS},
-    terminals::{TerminalAttachTarget, TerminalProvisionTarget},
-};
-use std::{
-    ffi::OsString,
-    time::{SystemTime, UNIX_EPOCH},
-};
+#[cfg(test)]
+use crate::app_config::{DEFAULT_COLS, DEFAULT_ROWS};
+use crate::terminals::TerminalAttachTarget;
+#[cfg(test)]
+use crate::terminals::TerminalProvisionTarget;
+use std::ffi::OsString;
+#[cfg(test)]
+use std::time::{SystemTime, UNIX_EPOCH};
 
+#[cfg(test)]
+#[allow(
+    dead_code,
+    reason = "tmux test support remains available for terminal helper tests"
+)]
 pub(crate) const PERSISTENT_TMUX_SESSION_PREFIX: &str = "neozeus-session-";
 
+#[cfg(test)]
+#[allow(
+    dead_code,
+    reason = "tmux test support remains available for terminal helper tests"
+)]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct TmuxPaneDescriptor {
     pub(crate) pane_id: String,
     pub(crate) active: bool,
 }
 
+#[cfg(test)]
+#[allow(
+    dead_code,
+    reason = "tmux test support remains available for terminal helper tests"
+)]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct TmuxPaneState {
     pub(crate) cols: usize,
@@ -24,14 +39,23 @@ pub(crate) struct TmuxPaneState {
     pub(crate) cursor_visible: bool,
 }
 
+#[cfg(test)]
+#[allow(
+    dead_code,
+    reason = "tmux test support remains available for terminal helper tests"
+)]
 pub(crate) trait TerminalSessionClient: Send + Sync {
     fn ensure_tmux_available(&self) -> Result<(), String>;
     fn create_detached_session(&self, name: &str) -> Result<(), String>;
     fn list_sessions(&self) -> Result<Vec<String>, String>;
     fn has_session(&self, name: &str) -> Result<bool, String>;
-    fn kill_session(&self, name: &str) -> Result<(), String>;
 }
 
+#[cfg(test)]
+#[allow(
+    dead_code,
+    reason = "tmux test support remains available for terminal helper tests"
+)]
 pub(crate) trait TmuxPaneClient: Send + Sync {
     fn list_panes(&self, session_name: &str) -> Result<Vec<TmuxPaneDescriptor>, String>;
     fn pane_state(&self, pane_target: &str) -> Result<TmuxPaneState, String>;
@@ -39,6 +63,7 @@ pub(crate) trait TmuxPaneClient: Send + Sync {
     fn send_bytes(&self, pane_target: &str, bytes: &[u8]) -> Result<(), String>;
 }
 
+#[cfg(test)]
 pub(crate) fn create_detached_session_tmux_commands(name: &str) -> Vec<Vec<OsString>> {
     vec![
         vec![
@@ -68,6 +93,7 @@ pub(crate) fn create_detached_session_tmux_commands(name: &str) -> Vec<Vec<OsStr
     ]
 }
 
+#[cfg(test)]
 pub(crate) fn send_bytes_tmux_commands(pane_target: &str, bytes: &[u8]) -> Vec<Vec<OsString>> {
     let mut commands = Vec::new();
     let mut start = 0usize;
@@ -101,12 +127,12 @@ pub(crate) fn send_bytes_tmux_commands(pane_target: &str, bytes: &[u8]) -> Vec<V
     commands
 }
 
+#[cfg(test)]
 pub(crate) fn provision_terminal_target(
     client: &dyn TerminalSessionClient,
     target: &TerminalProvisionTarget,
 ) -> Result<(), String> {
     match target {
-        TerminalProvisionTarget::RawShell => Ok(()),
         TerminalProvisionTarget::TmuxDetached { session_name } => {
             client.ensure_tmux_available()?;
             client.create_detached_session(session_name)
@@ -114,6 +140,7 @@ pub(crate) fn provision_terminal_target(
     }
 }
 
+#[cfg(test)]
 pub(crate) fn generate_unique_session_name(
     client: &dyn TerminalSessionClient,
     prefix: &str,

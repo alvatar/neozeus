@@ -209,10 +209,6 @@ impl TerminalSessionClient for UnavailableTmuxClient {
     fn has_session(&self, _name: &str) -> Result<bool, String> {
         Err("tmux unavailable".into())
     }
-
-    fn kill_session(&self, _name: &str) -> Result<(), String> {
-        Err("tmux unavailable".into())
-    }
 }
 
 impl TmuxPaneClient for UnavailableTmuxClient {

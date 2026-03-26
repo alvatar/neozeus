@@ -2,7 +2,7 @@ use crate::{
     app_config::{DEFAULT_CELL_HEIGHT_PX, DEFAULT_CELL_WIDTH_PX},
     hud::{HudLayoutState, HudModuleId, TerminalVisibilityPolicy, TerminalVisibilityState},
     terminals::{
-        append_debug_log, create_terminal_image, TerminalDimensions, TerminalDisplayMode,
+        append_debug_log, raster::create_terminal_image, TerminalDimensions, TerminalDisplayMode,
         TerminalFocusState, TerminalHudSurfaceMarker, TerminalId, TerminalManager, TerminalPanel,
         TerminalPanelFrame, TerminalPanelSprite, TerminalPresentation, TerminalPresentationStore,
         TerminalRuntimeSpawner, TerminalTextureState, TerminalViewState,

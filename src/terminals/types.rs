@@ -249,17 +249,13 @@ pub(crate) enum TerminalAttachTarget {
     TmuxAttach { session_name: String },
 }
 
+#[cfg(test)]
+#[allow(
+    dead_code,
+    reason = "tmux test support remains available for terminal helper tests"
+)]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum TerminalProvisionTarget {
-    #[allow(
-        dead_code,
-        reason = "raw shell provision remains part of the abstraction surface"
-    )]
-    RawShell,
-    #[allow(
-        dead_code,
-        reason = "legacy tmux detached provision target retained outside default daemon flow"
-    )]
     TmuxDetached { session_name: String },
 }
 

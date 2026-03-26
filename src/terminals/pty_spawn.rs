@@ -1,4 +1,4 @@
-use crate::terminals::{build_attach_command_argv, PtySession, TerminalAttachTarget};
+use crate::terminals::{tmux::build_attach_command_argv, PtySession, TerminalAttachTarget};
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 use std::io::Write;
 

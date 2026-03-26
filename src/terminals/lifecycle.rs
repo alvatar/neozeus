@@ -1,7 +1,7 @@
 use crate::{
     hud::{AgentDirectory, TerminalVisibilityPolicy, TerminalVisibilityState},
     terminals::{
-        append_debug_log, mark_terminal_sessions_dirty, spawn_terminal_presentation,
+        append_debug_log, mark_terminal_sessions_dirty, presentation::spawn_terminal_presentation,
         TerminalBridge, TerminalFocusState, TerminalId, TerminalManager, TerminalPresentationStore,
         TerminalRuntimeSpawner, TerminalSessionPersistenceState, TerminalViewState,
     },
