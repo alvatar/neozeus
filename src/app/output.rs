@@ -1,6 +1,7 @@
 use crate::{
     hud::{AgentListBloomAdditiveCameraMarker, HudCompositeCameraMarker, HudModalCameraMarker},
     terminals::TerminalCameraMarker,
+    verification::VerificationScenarioConfig,
 };
 use bevy::{
     app::AppExit,
@@ -236,6 +237,7 @@ pub(crate) fn sync_final_frame_output_target(
 pub(crate) fn request_final_frame_capture(
     mut commands: Commands,
     config: Option<ResMut<FinalFrameCaptureConfig>>,
+    verification_scenario: Option<Res<VerificationScenarioConfig>>,
     output_state: Res<FinalFrameOutputState>,
     images: Res<Assets<Image>>,
     mut redraws: MessageWriter<RequestRedraw>,
@@ -244,6 +246,10 @@ pub(crate) fn request_final_frame_capture(
         return;
     };
     if config.completed {
+        return;
+    }
+    if verification_scenario.is_some_and(|scenario| !scenario.applied) {
+        redraws.write(RequestRedraw);
         return;
     }
     redraws.write(RequestRedraw);
@@ -470,6 +476,32 @@ mod tests {
             requested: false,
             completed: false,
             exit_after_capture: false,
+        });
+        world.insert_resource(FinalFrameOutputState::default());
+        world.insert_resource(Assets::<Image>::default());
+        world.init_resource::<Messages<RequestRedraw>>();
+
+        world.run_system_once(request_final_frame_capture).unwrap();
+        assert_eq!(world.query::<&Readback>().iter(&world).count(), 0);
+        assert!(!world.resource::<FinalFrameCaptureConfig>().requested);
+    }
+
+    #[test]
+    fn final_frame_capture_waits_for_verification_scenario_to_finish() {
+        let mut world = World::default();
+        world.insert_resource(FinalFrameCaptureConfig {
+            path: PathBuf::from("/tmp/final-frame-test.ppm"),
+            frames_until_capture: 0,
+            requested: false,
+            completed: false,
+            exit_after_capture: false,
+        });
+        world.insert_resource(VerificationScenarioConfig {
+            scenario: crate::verification::VerificationScenario::AgentListBloom,
+            frames_until_apply: 0,
+            primed: false,
+            applied: false,
+            terminal_ids: Vec::new(),
         });
         world.insert_resource(FinalFrameOutputState::default());
         world.insert_resource(Assets::<Image>::default());

@@ -11,7 +11,7 @@ use crate::{
         TerminalPresentationStore, TerminalRuntimeSpawner, TerminalSessionPersistenceState,
         VERIFIER_SESSION_PREFIX,
     },
-    verification::{start_auto_verify_dispatcher, AutoVerifyConfig},
+    verification::{start_auto_verify_dispatcher, AutoVerifyConfig, VerificationScenarioConfig},
 };
 use bevy::{
     camera::visibility::RenderLayers, ecs::system::SystemParam, prelude::*, window::RequestRedraw,
@@ -95,7 +95,11 @@ pub(crate) fn request_redraw_while_visuals_active(
     }
 }
 
-pub(crate) fn setup_scene(mut ctx: SceneSetupContext, auto_verify: Option<Res<AutoVerifyConfig>>) {
+pub(crate) fn setup_scene(
+    mut ctx: SceneSetupContext,
+    auto_verify: Option<Res<AutoVerifyConfig>>,
+    verification_scenario: Option<Res<VerificationScenarioConfig>>,
+) {
     ctx.commands.spawn((
         Camera2d,
         VelloView,
@@ -123,6 +127,10 @@ pub(crate) fn setup_scene(mut ctx: SceneSetupContext, auto_verify: Option<Res<Au
 
     if let Some(config) = auto_verify {
         setup_verifier_terminal(&mut ctx, config.clone());
+        return;
+    }
+    if verification_scenario.is_some() {
+        append_debug_log("verification scenario startup: skipping restore/import");
         return;
     }
 

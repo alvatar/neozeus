@@ -22,6 +22,7 @@ use crate::{
         sync_active_terminal_dimensions, sync_terminal_hud_surface, sync_terminal_panel_frames,
         sync_terminal_presentations, sync_terminal_texture,
     },
+    verification::run_verification_scenario,
 };
 use bevy::prelude::*;
 
@@ -137,6 +138,7 @@ pub(crate) fn configure_app_schedule(app: &mut App) {
             apply_terminal_send_requests,
             apply_terminal_task_requests,
             apply_terminal_lifecycle_requests,
+            run_verification_scenario,
         )
             .in_set(NeoZeusSet::HudCommands),
     )

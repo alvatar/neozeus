@@ -23,7 +23,36 @@ Default development checks stay headless and cheap:
 - `cargo clippy --all-targets -- -D warnings`
 - `cargo fmt --check`
 
-Window-opening GUI verifiers are opt-in and grouped under `scripts/gui/`:
+Offscreen visual verification is now the default path for layering/composition work. In
+`NEOZEUS_OUTPUT_MODE=offscreen`, NeoZeus runs with a synthetic `PrimaryWindow`, disables Winit,
+and renders directly into image targets without creating a real OS window.
+
+Offscreen scripts live under `scripts/offscreen/`:
+
+- full offscreen suite: `./scripts/offscreen/run-suite.sh`
+- single scenario capture: `./scripts/offscreen/run-scenario.sh <scenario> <output-path> [bloom-intensity] [width] [height]`
+- message-box bloom verifier: `./scripts/offscreen/verify-message-box-bloom.sh`
+- task-dialog bloom verifier: `./scripts/offscreen/verify-task-dialog-bloom.sh`
+- agent-list bloom verifier: `./scripts/offscreen/verify-agent-list-bloom.sh`
+- inspect-switch verifier: `./scripts/offscreen/verify-inspect-switch-latency.sh`
+
+Supported built-in offscreen scenarios:
+
+- `agent-list-bloom`
+- `message-box-bloom`
+- `task-dialog-bloom`
+- `inspect-switch-latency`
+
+To add a new offscreen scenario:
+
+1. extend `VerificationScenario` in `src/verification.rs`
+2. implement the deterministic setup in `run_verification_scenario`
+3. add/update scenario tests in `src/verification.rs`
+4. add a dedicated verifier script under `scripts/offscreen/`
+5. wire it into `scripts/offscreen/run-suite.sh` if it should be part of the default regression set
+
+Window-opening GUI verifiers remain opt-in for cases the offscreen path does not yet cover and are
+kept under `scripts/gui/`:
 
 - full GUI suite: `./scripts/gui/run-suite.sh`
 - visible-output verifier only: `./scripts/gui/verify-visible-terminal.sh`
