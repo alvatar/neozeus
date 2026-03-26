@@ -8,9 +8,8 @@ use crate::{
     terminals::{
         AttachedDaemonSession, CachedTerminalGlyph, DaemonSessionInfo, TerminalBridge,
         TerminalCommand, TerminalDaemonClient, TerminalDaemonClientResource, TerminalDebugStats,
-        TerminalRuntimeSpawner, TerminalRuntimeState, TerminalSessionClient, TerminalSnapshot,
-        TerminalSurface, TerminalUpdate, TerminalUpdateMailbox, TmuxPaneClient, TmuxPaneDescriptor,
-        TmuxPaneState,
+        TerminalRuntimeSpawner, TerminalRuntimeState, TerminalSnapshot, TerminalSurface,
+        TerminalUpdate, TerminalUpdateMailbox,
     },
 };
 use bevy::{
@@ -252,72 +251,6 @@ pub(super) fn fake_daemon_resource(client: Arc<FakeDaemonClient>) -> TerminalDae
 
 pub(super) fn fake_runtime_spawner(client: Arc<FakeDaemonClient>) -> TerminalRuntimeSpawner {
     TerminalRuntimeSpawner::for_tests(fake_daemon_resource(client))
-}
-
-#[derive(Default)]
-pub(super) struct FakeTmuxClient {
-    pub(super) sessions: Mutex<BTreeSet<String>>,
-    pub(super) collision_checks_remaining: Mutex<usize>,
-}
-
-impl FakeTmuxClient {
-    pub(super) fn with_collisions(count: usize) -> Self {
-        Self {
-            collision_checks_remaining: Mutex::new(count),
-            ..Default::default()
-        }
-    }
-}
-
-impl TerminalSessionClient for FakeTmuxClient {
-    fn ensure_tmux_available(&self) -> Result<(), String> {
-        Ok(())
-    }
-
-    fn create_detached_session(&self, name: &str) -> Result<(), String> {
-        self.sessions.lock().unwrap().insert(name.to_owned());
-        Ok(())
-    }
-
-    fn list_sessions(&self) -> Result<Vec<String>, String> {
-        Ok(self.sessions.lock().unwrap().iter().cloned().collect())
-    }
-
-    fn has_session(&self, name: &str) -> Result<bool, String> {
-        let mut remaining = self.collision_checks_remaining.lock().unwrap();
-        if *remaining > 0 {
-            *remaining -= 1;
-            return Ok(true);
-        }
-        Ok(self.sessions.lock().unwrap().contains(name))
-    }
-}
-
-impl TmuxPaneClient for FakeTmuxClient {
-    fn list_panes(&self, _session_name: &str) -> Result<Vec<TmuxPaneDescriptor>, String> {
-        Ok(vec![TmuxPaneDescriptor {
-            pane_id: "%1".into(),
-            active: true,
-        }])
-    }
-
-    fn pane_state(&self, _pane_target: &str) -> Result<TmuxPaneState, String> {
-        Ok(TmuxPaneState {
-            cols: 120,
-            rows: 38,
-            cursor_x: 0,
-            cursor_y: 0,
-            cursor_visible: true,
-        })
-    }
-
-    fn capture_pane(&self, _pane_target: &str, _history_limit: usize) -> Result<String, String> {
-        Ok(String::new())
-    }
-
-    fn send_bytes(&self, _pane_target: &str, _bytes: &[u8]) -> Result<(), String> {
-        Ok(())
-    }
 }
 
 pub(super) fn surface_with_text(rows: usize, cols: usize, y: usize, text: &str) -> TerminalSurface {

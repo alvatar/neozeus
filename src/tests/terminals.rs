@@ -2,7 +2,7 @@ use super::{
     assert_glyph_has_visible_pixels, fake_runtime_spawner, insert_default_hud_resources,
     insert_terminal_manager_resources, insert_terminal_manager_resources_into_app,
     insert_test_hud_state, insert_test_hud_state_into_app, surface_with_text, temp_dir,
-    test_bridge, FakeDaemonClient, FakeTmuxClient,
+    test_bridge, FakeDaemonClient,
 };
 use crate::{
     app_config::{
@@ -13,32 +13,29 @@ use crate::{
     startup::StartupLoadingState,
     terminals::{
         active_terminal_cell_size, active_terminal_dimensions, active_terminal_layout,
-        active_terminal_viewport, blend_rgba_in_place, build_attach_command_argv, clear_done_tasks,
-        compute_terminal_damage, create_detached_session_tmux_commands, create_terminal_image,
-        extract_next_task, find_kitty_config_path_with, generate_unique_session_name,
+        active_terminal_viewport, blend_rgba_in_place, clear_done_tasks, compute_terminal_damage,
+        create_terminal_image, extract_next_task, find_kitty_config_path_with,
         initialize_terminal_text_renderer_with_locale, is_emoji_like, is_private_use_like,
         parse_kitty_config_file, parse_persisted_terminal_sessions, pixel_perfect_cell_size,
-        pixel_perfect_terminal_logical_size, poll_terminal_snapshots, provision_terminal_target,
-        rasterize_terminal_glyph, read_client_message, read_server_message,
-        reconcile_terminal_sessions, resolve_alacritty_color, resolve_daemon_socket_path_with,
+        pixel_perfect_terminal_logical_size, poll_terminal_snapshots, rasterize_terminal_glyph,
+        read_client_message, read_server_message, reconcile_terminal_sessions,
+        resolve_alacritty_color, resolve_daemon_socket_path_with,
         resolve_terminal_font_report_for_family, resolve_terminal_font_report_for_path,
         resolve_terminal_notes_path_with, resolve_terminal_sessions_path_with,
-        save_terminal_notes_if_dirty, save_terminal_sessions_if_dirty, send_bytes_tmux_commands,
-        send_command_payload_bytes, serialize_persisted_terminal_sessions,
-        serialize_terminal_notes, snap_to_pixel_grid, sync_active_terminal_dimensions,
-        sync_terminal_panel_frames, sync_terminal_presentations, sync_terminal_texture,
-        task_entry_from_text, terminal_texture_screen_size, write_client_message,
-        write_server_message, xterm_indexed_rgb, ClientMessage, DaemonEvent, DaemonRequest,
-        DaemonServerHandle, KittyFontConfig, PersistedTerminalSessions, PresentedTerminal,
-        ServerMessage, SocketTerminalDaemonClient, TerminalAttachTarget, TerminalCommand,
+        save_terminal_notes_if_dirty, save_terminal_sessions_if_dirty, send_command_payload_bytes,
+        serialize_persisted_terminal_sessions, serialize_terminal_notes, snap_to_pixel_grid,
+        sync_active_terminal_dimensions, sync_terminal_panel_frames, sync_terminal_presentations,
+        sync_terminal_texture, task_entry_from_text, terminal_texture_screen_size,
+        write_client_message, write_server_message, xterm_indexed_rgb, ClientMessage, DaemonEvent,
+        DaemonRequest, DaemonServerHandle, KittyFontConfig, PersistedTerminalSessions,
+        PresentedTerminal, ServerMessage, SocketTerminalDaemonClient, TerminalCommand,
         TerminalDaemonClient, TerminalDamage, TerminalDisplayMode, TerminalFontRole,
         TerminalFontState, TerminalFrameUpdate, TerminalGlyphCacheKey, TerminalLifecycle,
         TerminalManager, TerminalNotesState, TerminalPanel, TerminalPanelFrame,
-        TerminalPresentation, TerminalPresentationStore, TerminalProvisionTarget,
-        TerminalRuntimeState, TerminalSessionClient, TerminalSessionPersistenceState,
-        TerminalSessionRecord, TerminalSurface, TerminalTextRenderer, TerminalTextureState,
-        TerminalUpdate, TerminalViewState, TmuxPaneClient, PERSISTENT_SESSION_PREFIX,
-        PERSISTENT_TMUX_SESSION_PREFIX, VERIFIER_SESSION_PREFIX,
+        TerminalPresentation, TerminalPresentationStore, TerminalRuntimeState,
+        TerminalSessionPersistenceState, TerminalSessionRecord, TerminalSurface,
+        TerminalTextRenderer, TerminalTextureState, TerminalUpdate, TerminalViewState,
+        PERSISTENT_SESSION_PREFIX, VERIFIER_SESSION_PREFIX,
     },
 };
 use alacritty_terminal::vte::ansi::{Color as AnsiColor, NamedColor};
@@ -189,47 +186,6 @@ fn count_non_background_pixels_in_band(image: &Image, y_start: u32, y_end: u32) 
         }
     }
     count
-}
-
-struct UnavailableTmuxClient;
-
-impl TerminalSessionClient for UnavailableTmuxClient {
-    fn ensure_tmux_available(&self) -> Result<(), String> {
-        Err("tmux unavailable".into())
-    }
-
-    fn create_detached_session(&self, _name: &str) -> Result<(), String> {
-        Err("tmux unavailable".into())
-    }
-
-    fn list_sessions(&self) -> Result<Vec<String>, String> {
-        Err("tmux unavailable".into())
-    }
-
-    fn has_session(&self, _name: &str) -> Result<bool, String> {
-        Err("tmux unavailable".into())
-    }
-}
-
-impl TmuxPaneClient for UnavailableTmuxClient {
-    fn list_panes(
-        &self,
-        _session_name: &str,
-    ) -> Result<Vec<crate::terminals::TmuxPaneDescriptor>, String> {
-        Err("tmux unavailable".into())
-    }
-
-    fn pane_state(&self, _pane_target: &str) -> Result<crate::terminals::TmuxPaneState, String> {
-        Err("tmux unavailable".into())
-    }
-
-    fn capture_pane(&self, _pane_target: &str, _history_limit: usize) -> Result<String, String> {
-        Err("tmux unavailable".into())
-    }
-
-    fn send_bytes(&self, _pane_target: &str, _bytes: &[u8]) -> Result<(), String> {
-        Err("tmux unavailable".into())
-    }
 }
 
 #[test]
@@ -1828,78 +1784,6 @@ fn terminal_sessions_save_waits_for_debounce_window() {
 }
 
 #[test]
-fn create_detached_session_tmux_commands_keep_sessions_alive_when_unattached() {
-    let commands = create_detached_session_tmux_commands("neozeus-session-a");
-    assert_eq!(
-        commands,
-        vec![
-            vec![
-                std::ffi::OsString::from("new-session"),
-                std::ffi::OsString::from("-d"),
-                std::ffi::OsString::from("-x"),
-                std::ffi::OsString::from("120"),
-                std::ffi::OsString::from("-y"),
-                std::ffi::OsString::from("38"),
-                std::ffi::OsString::from("-s"),
-                std::ffi::OsString::from("neozeus-session-a"),
-            ],
-            vec![
-                std::ffi::OsString::from("set-option"),
-                std::ffi::OsString::from("-t"),
-                std::ffi::OsString::from("neozeus-session-a"),
-                std::ffi::OsString::from("destroy-unattached"),
-                std::ffi::OsString::from("off"),
-            ],
-            vec![
-                std::ffi::OsString::from("set-option"),
-                std::ffi::OsString::from("-t"),
-                std::ffi::OsString::from("neozeus-session-a"),
-                std::ffi::OsString::from("status"),
-                std::ffi::OsString::from("off"),
-            ],
-        ]
-    );
-}
-
-#[test]
-fn send_bytes_tmux_commands_split_control_and_literal_sequences() {
-    let commands = send_bytes_tmux_commands("%42", b"ab\x1b[A\r");
-    assert_eq!(
-        commands,
-        vec![
-            vec![
-                std::ffi::OsString::from("send-keys"),
-                std::ffi::OsString::from("-t"),
-                std::ffi::OsString::from("%42"),
-                std::ffi::OsString::from("-l"),
-                std::ffi::OsString::from("ab"),
-            ],
-            vec![
-                std::ffi::OsString::from("send-keys"),
-                std::ffi::OsString::from("-t"),
-                std::ffi::OsString::from("%42"),
-                std::ffi::OsString::from("-H"),
-                std::ffi::OsString::from("1b"),
-            ],
-            vec![
-                std::ffi::OsString::from("send-keys"),
-                std::ffi::OsString::from("-t"),
-                std::ffi::OsString::from("%42"),
-                std::ffi::OsString::from("-l"),
-                std::ffi::OsString::from("[A"),
-            ],
-            vec![
-                std::ffi::OsString::from("send-keys"),
-                std::ffi::OsString::from("-t"),
-                std::ffi::OsString::from("%42"),
-                std::ffi::OsString::from("-H"),
-                std::ffi::OsString::from("0d"),
-            ],
-        ]
-    );
-}
-
-#[test]
 fn send_command_payload_bytes_turn_multiline_text_into_enter_sequences() {
     assert_eq!(
         send_command_payload_bytes("echo hi\npwd"),
@@ -1909,64 +1793,6 @@ fn send_command_payload_bytes_turn_multiline_text_into_enter_sequences() {
         send_command_payload_bytes("echo hi\r\npwd"),
         b"echo hi\rpwd\r"
     );
-}
-
-#[test]
-fn build_attach_command_argv_uses_tmux_attach_for_tmux_target() {
-    let (program, args) = build_attach_command_argv(&TerminalAttachTarget::TmuxAttach {
-        session_name: "neozeus-session-a".into(),
-    });
-    assert_eq!(program, std::ffi::OsString::from("tmux"));
-    assert_eq!(
-        args,
-        vec![
-            std::ffi::OsString::from("attach-session"),
-            std::ffi::OsString::from("-t"),
-            std::ffi::OsString::from("neozeus-session-a"),
-        ]
-    );
-}
-
-#[test]
-fn build_attach_command_argv_uses_zsh_for_raw_target() {
-    let (program, args) = build_attach_command_argv(&TerminalAttachTarget::RawShell);
-    assert_eq!(program, std::ffi::OsString::from("zsh"));
-    assert!(args.is_empty());
-}
-
-#[test]
-fn provision_terminal_target_creates_detached_tmux_session() {
-    let client = FakeTmuxClient::default();
-    let target = TerminalProvisionTarget::TmuxDetached {
-        session_name: "neozeus-session-a".into(),
-    };
-    provision_terminal_target(&client, &target).expect("tmux provision should succeed");
-    assert_eq!(
-        client
-            .list_sessions()
-            .expect("list sessions should succeed"),
-        vec!["neozeus-session-a".to_owned()]
-    );
-}
-
-#[test]
-fn generate_unique_session_name_retries_collisions() {
-    let client = FakeTmuxClient::with_collisions(2);
-    let name = generate_unique_session_name(&client, PERSISTENT_TMUX_SESSION_PREFIX)
-        .expect("session name should be generated");
-    assert!(name.starts_with(PERSISTENT_TMUX_SESSION_PREFIX));
-}
-
-#[test]
-fn provision_terminal_target_reports_tmux_unavailable() {
-    let error = provision_terminal_target(
-        &UnavailableTmuxClient,
-        &TerminalProvisionTarget::TmuxDetached {
-            session_name: "neozeus-session-a".into(),
-        },
-    )
-    .expect_err("tmux provisioning should fail");
-    assert!(error.contains("tmux unavailable"));
 }
 
 #[test]
