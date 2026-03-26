@@ -15,7 +15,6 @@ mod raster;
 mod registry;
 mod runtime;
 mod session_persistence;
-mod tmux;
 mod types;
 
 pub(crate) use bridge::TerminalBridge;
@@ -59,11 +58,11 @@ pub(crate) use session_persistence::{
 };
 pub(crate) use types::TerminalLifecycle;
 pub(crate) use types::{
-    DrainedTerminalUpdates, LatestTerminalStatus, PtySession, TerminalAttachTarget, TerminalCell,
-    TerminalCellContent, TerminalCommand, TerminalCursor, TerminalCursorShape, TerminalDamage,
-    TerminalDimensions, TerminalFontFace, TerminalFontReport, TerminalFrameUpdate,
-    TerminalRuntimeState, TerminalSnapshot, TerminalSurface, TerminalUpdate,
-    PTY_OUTPUT_BATCH_BYTES, PTY_OUTPUT_BATCH_WINDOW, PTY_OUTPUT_WAIT_TIMEOUT,
+    DrainedTerminalUpdates, LatestTerminalStatus, PtySession, TerminalCell, TerminalCellContent,
+    TerminalCommand, TerminalCursor, TerminalCursorShape, TerminalDamage, TerminalDimensions,
+    TerminalFontFace, TerminalFontReport, TerminalFrameUpdate, TerminalRuntimeState,
+    TerminalSnapshot, TerminalSurface, TerminalUpdate, PTY_OUTPUT_BATCH_BYTES,
+    PTY_OUTPUT_BATCH_WINDOW, PTY_OUTPUT_WAIT_TIMEOUT,
 };
 
 #[cfg(test)]
@@ -104,13 +103,3 @@ pub(crate) use session_persistence::{
     parse_persisted_terminal_sessions, resolve_terminal_sessions_path_with,
     serialize_persisted_terminal_sessions, PersistedTerminalSessions, TerminalSessionRecord,
 };
-#[cfg(test)]
-pub(crate) use tmux::build_attach_command_argv;
-#[cfg(test)]
-pub(crate) use tmux::{
-    create_detached_session_tmux_commands, generate_unique_session_name, provision_terminal_target,
-    send_bytes_tmux_commands, TerminalSessionClient, TmuxPaneClient, TmuxPaneDescriptor,
-    TmuxPaneState, PERSISTENT_TMUX_SESSION_PREFIX,
-};
-#[cfg(test)]
-pub(crate) use types::TerminalProvisionTarget;

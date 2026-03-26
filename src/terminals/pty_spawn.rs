@@ -1,15 +1,11 @@
-use crate::terminals::{tmux::build_attach_command_argv, PtySession, TerminalAttachTarget};
+use crate::terminals::PtySession;
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};
-use std::io::Write;
+use std::{ffi::OsString, io::Write};
 
 #[cfg(test)]
 use std::fs;
 
-pub(crate) fn spawn_pty(
-    cols: u16,
-    rows: u16,
-    target: &TerminalAttachTarget,
-) -> Result<PtySession, String> {
+pub(crate) fn spawn_pty(cols: u16, rows: u16) -> Result<PtySession, String> {
     let pty_system = native_pty_system();
     let pair = pty_system
         .openpty(PtySize {
@@ -20,7 +16,7 @@ pub(crate) fn spawn_pty(
         })
         .map_err(|error| format!("openpty failed: {error}"))?;
 
-    let mut command = build_attach_command(target);
+    let mut command = build_shell_command();
     command.env("TERM", "xterm-256color");
 
     let child = pair
@@ -42,17 +38,17 @@ pub(crate) fn spawn_pty(
     })
 }
 
-fn build_attach_command(target: &TerminalAttachTarget) -> CommandBuilder {
-    let (program, args) = build_attach_command_argv(target);
-    let mut command = CommandBuilder::new(program);
-    for arg in args {
-        command.arg(arg);
-    }
+fn build_shell_command() -> CommandBuilder {
+    let command = CommandBuilder::new(raw_shell_program());
     #[cfg(test)]
-    if matches!(target, TerminalAttachTarget::RawShell) {
-        apply_test_shell_isolation(&mut command);
-    }
+    let mut command = command;
+    #[cfg(test)]
+    apply_test_shell_isolation(&mut command);
     command
+}
+
+fn raw_shell_program() -> OsString {
+    OsString::from("zsh")
 }
 
 #[cfg(test)]
@@ -82,11 +78,22 @@ fn apply_test_shell_isolation(command: &mut CommandBuilder) {
     command.env("HISTFILE", history.as_os_str());
     command.env("BASH_ENV", "/dev/null");
     command.env("ENV", "/dev/null");
-    command.env("SHELL", "/bin/sh");
+    command.env("SHELL", "/bin/zsh");
     command.env("PATH", "/usr/bin:/bin");
 }
 
 pub(crate) fn write_input(writer: &mut dyn Write, bytes: &[u8]) -> std::io::Result<()> {
     writer.write_all(bytes)?;
     writer.flush()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::raw_shell_program;
+    use std::ffi::OsString;
+
+    #[test]
+    fn raw_shell_program_is_zsh() {
+        assert_eq!(raw_shell_program(), OsString::from("zsh"));
+    }
 }

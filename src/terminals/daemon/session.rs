@@ -5,9 +5,9 @@ use crate::{
         ansi_surface::build_surface,
         backend::{compute_terminal_damage, send_command_payload_bytes},
         pty_spawn::{spawn_pty, write_input},
-        TerminalAttachTarget, TerminalCommand, TerminalDamage, TerminalFrameUpdate,
-        TerminalRuntimeState, TerminalSnapshot, TerminalSurface, TerminalUpdate,
-        PTY_OUTPUT_BATCH_BYTES, PTY_OUTPUT_BATCH_WINDOW, PTY_OUTPUT_WAIT_TIMEOUT,
+        TerminalCommand, TerminalDamage, TerminalFrameUpdate, TerminalRuntimeState,
+        TerminalSnapshot, TerminalSurface, TerminalUpdate, PTY_OUTPUT_BATCH_BYTES,
+        PTY_OUTPUT_BATCH_WINDOW, PTY_OUTPUT_WAIT_TIMEOUT,
     },
 };
 use alacritty_terminal::{
@@ -65,7 +65,7 @@ impl DaemonSession {
             master,
             writer,
             child,
-        } = spawn_pty(DEFAULT_COLS, DEFAULT_ROWS, &TerminalAttachTarget::RawShell)?;
+        } = spawn_pty(DEFAULT_COLS, DEFAULT_ROWS)?;
         let state = Arc::new(Mutex::new(DaemonSessionState {
             snapshot: TerminalSnapshot {
                 surface: Some(TerminalSurface::new(
