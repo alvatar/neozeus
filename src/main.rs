@@ -2,7 +2,6 @@ mod app;
 mod app_config;
 mod hud;
 mod input;
-mod scene;
 mod startup;
 mod terminals;
 mod verification;
@@ -11,8 +10,8 @@ mod verification;
 mod tests;
 
 use crate::{
+    app::build_app,
     app_config::DEBUG_LOG_PATH,
-    scene::build_app,
     terminals::{append_debug_log, resolve_daemon_socket_path, run_daemon_server},
 };
 use std::{env, fs, path::PathBuf};

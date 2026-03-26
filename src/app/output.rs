@@ -410,7 +410,7 @@ mod tests {
             height: 1000,
             scale_factor_override: Some(1.5),
         };
-        let window = crate::scene::primary_window_config_for(&output);
+        let window = crate::app::primary_window_config_for(&output);
         assert!(!window.visible);
         assert!(!window.decorations);
         assert!(!window.focused);
