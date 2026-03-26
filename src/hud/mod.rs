@@ -3,7 +3,6 @@ mod bloom;
 mod capture;
 mod commands;
 mod compositor;
-mod dispatcher;
 mod input;
 mod message_box;
 mod messages;
@@ -68,8 +67,6 @@ pub(crate) use compositor::{
     HudCompositeLayerId, HudCompositeLayerMarker, HUD_COMPOSITE_FOREGROUND_Z,
     HUD_COMPOSITE_RENDER_LAYER,
 };
-#[cfg(test)]
-pub(crate) use dispatcher::kill_active_terminal;
 #[cfg(test)]
 pub(crate) use modules::{
     agent_row_rect, agent_rows, debug_toolbar_buttons,
