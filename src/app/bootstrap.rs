@@ -1,5 +1,8 @@
 use crate::{
-    app::schedule::configure_app_schedule,
+    app::{
+        output::sync_final_frame_output_target, schedule::configure_app_schedule, AppOutputConfig,
+        FinalFrameCaptureConfig, FinalFrameOutputState,
+    },
     app_config::GPU_NOT_FOUND_PANIC_FRAGMENT,
     hud::{
         AgentDirectory, AgentListBloomBlurMaterial, HudBloomSettings, HudCompositeCaptureConfig,
@@ -84,31 +87,41 @@ pub(crate) fn resolve_force_fallback_adapter(raw: Option<&str>) -> bool {
         .unwrap_or(true)
 }
 
-fn primary_window_config() -> Window {
-    let resolution = if let Some(scale_factor) =
-        resolve_window_scale_factor(env::var("NEOZEUS_WINDOW_SCALE_FACTOR").ok().as_deref())
-    {
-        bevy::window::WindowResolution::new(1400, 900).with_scale_factor_override(scale_factor)
+pub(crate) fn primary_window_config_for(output: &AppOutputConfig) -> Window {
+    let resolution = if let Some(scale_factor) = output.scale_factor_override {
+        bevy::window::WindowResolution::new(output.width, output.height)
+            .with_scale_factor_override(scale_factor)
     } else {
-        (1400, 900).into()
+        (output.width, output.height).into()
     };
     Window {
         title: env::var("NEOZEUS_WINDOW_TITLE").unwrap_or_else(|_| "neozeus".to_owned()),
         name: Some(env::var("NEOZEUS_APP_ID").unwrap_or_else(|_| "neozeus".to_owned())),
-        mode: resolve_window_mode(env::var("NEOZEUS_WINDOW_MODE").ok().as_deref()),
+        mode: if output.mode.is_offscreen() {
+            WindowMode::Windowed
+        } else {
+            resolve_window_mode(env::var("NEOZEUS_WINDOW_MODE").ok().as_deref())
+        },
+        visible: !output.mode.is_offscreen(),
+        decorations: !output.mode.is_offscreen(),
+        focused: !output.mode.is_offscreen(),
         resolution,
         ..default()
     }
 }
 
 fn configure_app(app: &mut App) -> Result<(), String> {
+    let output = AppOutputConfig::from_env();
     let hud_capture = HudTextureCaptureConfig::from_env();
     let hud_composite_capture = HudCompositeCaptureConfig::from_env();
     let window_capture = WindowCaptureConfig::from_env();
+    let final_frame_capture = FinalFrameCaptureConfig::from_env();
     let auto_verify = AutoVerifyConfig::from_env();
-    let winit_settings = if hud_capture.is_some()
+    let winit_settings = if output.mode.is_offscreen()
+        || hud_capture.is_some()
         || hud_composite_capture.is_some()
         || window_capture.is_some()
+        || final_frame_capture.is_some()
         || auto_verify.is_some()
     {
         WinitSettings::game()
@@ -129,7 +142,7 @@ fn configure_app(app: &mut App) -> Result<(), String> {
                 ..default()
             })
             .set(WindowPlugin {
-                primary_window: Some(primary_window_config()),
+                primary_window: Some(primary_window_config_for(&output)),
                 ..default()
             }),
     )
@@ -153,11 +166,16 @@ fn configure_app(app: &mut App) -> Result<(), String> {
     if let Some(window_capture) = window_capture {
         app.insert_resource(window_capture);
     }
+    if let Some(final_frame_capture) = final_frame_capture {
+        app.insert_resource(final_frame_capture);
+    }
     if let Some(config) = auto_verify {
         app.insert_resource(config);
     }
 
-    app.insert_resource(ClearColor(Color::srgb(0.02, 0.02, 0.02)))
+    app.insert_resource(output)
+        .insert_resource(FinalFrameOutputState::default())
+        .insert_resource(ClearColor(Color::srgb(0.02, 0.02, 0.02)))
         .insert_resource(winit_settings)
         .insert_resource(TerminalManager::default())
         .insert_resource(crate::terminals::TerminalFocusState::default())
@@ -190,6 +208,12 @@ fn configure_app(app: &mut App) -> Result<(), String> {
         .add_message::<TerminalTaskRequest>();
 
     configure_app_schedule(app);
+    app.add_systems(
+        Update,
+        sync_final_frame_output_target
+            .before(crate::app::NeoZeusSet::PresentTerminal)
+            .before(crate::app::NeoZeusSet::HudRender),
+    );
     Ok(())
 }
 

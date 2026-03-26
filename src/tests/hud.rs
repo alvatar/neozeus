@@ -80,11 +80,24 @@ fn setup_hud_requests_initial_redraw() {
             .count(),
         1
     );
+    assert_eq!(
+        world
+            .query::<&crate::hud::HudModalVectorSceneMarker>()
+            .iter(&world)
+            .count(),
+        1
+    );
     let mut camera_query = world
         .query_filtered::<(&Camera, &RenderLayers), With<crate::hud::HudCompositeCameraMarker>>();
     let (camera, layers) = camera_query.single(&world).unwrap();
     assert_eq!(camera.order, 50);
     assert!(layers.intersects(&RenderLayers::layer(crate::hud::HUD_COMPOSITE_RENDER_LAYER,)));
+
+    let mut modal_camera_query =
+        world.query_filtered::<(&Camera, &RenderLayers), With<crate::hud::HudModalCameraMarker>>();
+    let (modal_camera, modal_layers) = modal_camera_query.single(&world).unwrap();
+    assert_eq!(modal_camera.order, crate::hud::HUD_MODAL_CAMERA_ORDER);
+    assert!(modal_layers.intersects(&RenderLayers::layer(crate::hud::HUD_MODAL_RENDER_LAYER)));
 }
 
 #[test]
@@ -394,6 +407,68 @@ fn sync_hud_offscreen_compositor_hides_vello_canvas_and_binds_texture() {
     assert_eq!(transform.translation, Vec3::ZERO);
     assert_eq!(visibility, &Visibility::Visible);
     assert!(quad_layers.intersects(&RenderLayers::layer(crate::hud::HUD_COMPOSITE_RENDER_LAYER,)));
+}
+
+#[test]
+fn sync_hud_offscreen_compositor_leaves_modal_vello_canvas_visible() {
+    let mut world = World::default();
+    world.insert_resource(HudOffscreenCompositor::default());
+    world.insert_resource(Assets::<Image>::default());
+    world.insert_resource(Assets::<VelloCanvasMaterial>::default());
+    world.insert_resource(Assets::<Mesh>::default());
+    let texture = world.resource_mut::<Assets<Image>>().add(Image::default());
+    {
+        let mut images = world.resource_mut::<Assets<Image>>();
+        let image = images.get_mut(&texture).unwrap();
+        image.resize(bevy::render::render_resource::Extent3d {
+            width: 1400,
+            height: 900,
+            depth_or_array_layers: 1,
+        });
+    }
+    let material = world
+        .resource_mut::<Assets<VelloCanvasMaterial>>()
+        .add(VelloCanvasMaterial {
+            texture: texture.clone(),
+        });
+    world.spawn((
+        Window {
+            resolution: (1400, 900).into(),
+            ..default()
+        },
+        PrimaryWindow,
+    ));
+    let modal_canvas = world
+        .spawn((
+            MeshMaterial2d::<VelloCanvasMaterial>(material),
+            Visibility::Visible,
+            crate::hud::HudModalVectorSceneMarker,
+        ))
+        .id();
+    world
+        .run_system_once(
+            |mut commands: Commands,
+             mut compositor: ResMut<HudOffscreenCompositor>,
+             mut meshes: ResMut<Assets<Mesh>>,
+             mut composite_materials: ResMut<Assets<VelloCanvasMaterial>>| {
+                crate::hud::setup_hud_offscreen_compositor(
+                    &mut commands,
+                    &mut compositor,
+                    &mut meshes,
+                    &mut composite_materials,
+                );
+            },
+        )
+        .unwrap();
+
+    world
+        .run_system_once(crate::hud::sync_hud_offscreen_compositor)
+        .unwrap();
+
+    assert_eq!(
+        world.get::<Visibility>(modal_canvas),
+        Some(&Visibility::Visible)
+    );
 }
 
 #[test]

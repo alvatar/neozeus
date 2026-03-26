@@ -97,7 +97,7 @@ pub(crate) struct AgentListBloomCompositeMarker;
 struct AgentListBloomWideCompositeMarker;
 
 #[derive(Component)]
-struct AgentListBloomAdditiveCameraMarker;
+pub(crate) struct AgentListBloomAdditiveCameraMarker;
 
 #[derive(Component)]
 struct AgentListBloomBlurSmallCameraMarker;

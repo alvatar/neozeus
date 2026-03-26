@@ -12,6 +12,8 @@ use bevy::{
 };
 use bevy_vello::render::VelloCanvasMaterial;
 
+use super::HudModalVectorSceneMarker;
+
 pub(crate) const HUD_COMPOSITE_RENDER_LAYER: usize = 28;
 const HUD_COMPOSITE_CAMERA_ORDER: isize = 50;
 
@@ -141,6 +143,7 @@ type VelloCanvasQueryItem<'a> = (
     Entity,
     &'a MeshMaterial2d<VelloCanvasMaterial>,
     Option<&'a mut Visibility>,
+    Option<&'a HudModalVectorSceneMarker>,
 );
 
 type HudCompositeQuadQueryItem<'a> = (
@@ -169,7 +172,10 @@ pub(crate) fn sync_hud_offscreen_compositor(
     );
     let mut vello_texture = None;
     let mut vello_texture_size = None;
-    for (entity, material_handle, maybe_visibility) in &mut vello_canvases {
+    for (entity, material_handle, maybe_visibility, modal_marker) in &mut vello_canvases {
+        if modal_marker.is_some() {
+            continue;
+        }
         if let Some(mut visibility) = maybe_visibility {
             *visibility = Visibility::Hidden;
         } else {

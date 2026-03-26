@@ -1,9 +1,10 @@
 use crate::{
     hud::TerminalVisibilityPolicy,
     scene::{
-        choose_startup_focus_session_name, format_startup_panic, resolve_force_fallback_adapter,
+        choose_startup_focus_session_name, format_startup_panic, primary_window_config_for,
+        resolve_force_fallback_adapter, resolve_output_dimension, resolve_output_mode,
         resolve_window_mode, resolve_window_scale_factor, should_request_visual_redraw,
-        startup_visibility_policy_for_focus,
+        startup_visibility_policy_for_focus, AppOutputConfig, OutputMode,
     },
     terminals::TerminalId,
 };
@@ -69,6 +70,42 @@ fn allows_explicit_windowed_override() {
         resolve_window_mode(Some(" WINDOWED ")),
         WindowMode::Windowed
     );
+}
+
+#[test]
+fn parses_output_mode_and_dimensions() {
+    assert_eq!(resolve_output_mode(None), OutputMode::Desktop);
+    assert_eq!(resolve_output_mode(Some("")), OutputMode::Desktop);
+    assert_eq!(
+        resolve_output_mode(Some("offscreen")),
+        OutputMode::OffscreenVerify
+    );
+    assert_eq!(
+        resolve_output_mode(Some("offscreen-verify")),
+        OutputMode::OffscreenVerify
+    );
+    assert_eq!(resolve_output_dimension(None, 42), 42);
+    assert_eq!(resolve_output_dimension(Some(""), 42), 42);
+    assert_eq!(resolve_output_dimension(Some("1600"), 42), 1600);
+    assert_eq!(resolve_output_dimension(Some("0"), 42), 42);
+    assert_eq!(resolve_output_dimension(Some("abc"), 42), 42);
+}
+
+#[test]
+fn offscreen_window_config_is_hidden_and_windowed() {
+    let window = primary_window_config_for(&AppOutputConfig {
+        mode: OutputMode::OffscreenVerify,
+        width: 1600,
+        height: 1000,
+        scale_factor_override: Some(1.5),
+    });
+    assert!(!window.visible);
+    assert!(!window.decorations);
+    assert!(!window.focused);
+    assert_eq!(window.mode, WindowMode::Windowed);
+    assert_eq!(window.physical_width(), 1600);
+    assert_eq!(window.physical_height(), 1000);
+    assert_eq!(window.resolution.scale_factor_override(), Some(1.5));
 }
 
 #[test]
