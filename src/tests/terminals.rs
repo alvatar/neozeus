@@ -18,18 +18,19 @@ use crate::{
         pixel_perfect_terminal_logical_size, poll_terminal_snapshots, provision_terminal_target,
         rasterize_terminal_glyph, read_client_message, read_server_message,
         reconcile_terminal_sessions, resolve_alacritty_color, resolve_daemon_socket_path_with,
-        resolve_terminal_font_report_for_family, resolve_terminal_notes_path_with,
-        resolve_terminal_sessions_path_with, save_terminal_notes_if_dirty,
-        save_terminal_sessions_if_dirty, send_bytes_tmux_commands, send_command_payload_bytes,
-        serialize_persisted_terminal_sessions, serialize_terminal_notes, snap_to_pixel_grid,
-        sync_active_terminal_dimensions, sync_terminal_panel_frames, sync_terminal_presentations,
-        sync_terminal_texture, task_entry_from_text, terminal_texture_screen_size,
-        write_client_message, write_server_message, xterm_indexed_rgb, ClientMessage, DaemonEvent,
-        DaemonRequest, DaemonServerHandle, KittyFontConfig, PersistedTerminalSessions,
-        PresentedTerminal, ServerMessage, SocketTerminalDaemonClient, TerminalAttachTarget,
-        TerminalCommand, TerminalDaemonClient, TerminalDamage, TerminalDisplayMode,
-        TerminalFontRole, TerminalFontState, TerminalFrameUpdate, TerminalGlyphCacheKey,
-        TerminalLifecycle, TerminalManager, TerminalNotesState, TerminalPanel, TerminalPanelFrame,
+        resolve_terminal_font_report_for_family, resolve_terminal_font_report_for_path,
+        resolve_terminal_notes_path_with, resolve_terminal_sessions_path_with,
+        save_terminal_notes_if_dirty, save_terminal_sessions_if_dirty, send_bytes_tmux_commands,
+        send_command_payload_bytes, serialize_persisted_terminal_sessions,
+        serialize_terminal_notes, snap_to_pixel_grid, sync_active_terminal_dimensions,
+        sync_terminal_panel_frames, sync_terminal_presentations, sync_terminal_texture,
+        task_entry_from_text, terminal_texture_screen_size, write_client_message,
+        write_server_message, xterm_indexed_rgb, ClientMessage, DaemonEvent, DaemonRequest,
+        DaemonServerHandle, KittyFontConfig, PersistedTerminalSessions, PresentedTerminal,
+        ServerMessage, SocketTerminalDaemonClient, TerminalAttachTarget, TerminalCommand,
+        TerminalDaemonClient, TerminalDamage, TerminalDisplayMode, TerminalFontRole,
+        TerminalFontState, TerminalFrameUpdate, TerminalGlyphCacheKey, TerminalLifecycle,
+        TerminalManager, TerminalNotesState, TerminalPanel, TerminalPanelFrame,
         TerminalPresentation, TerminalPresentationStore, TerminalProvisionTarget,
         TerminalRuntimeState, TerminalSessionClient, TerminalSessionPersistenceState,
         TerminalSessionRecord, TerminalSurface, TerminalTextRenderer, TerminalTextureState,
@@ -1120,6 +1121,22 @@ fn kitty_config_lookup_prefers_explicit_directory_over_other_locations() {
         None,
     );
     assert_eq!(found, Some(kitty_dir.join("kitty.conf")));
+}
+
+#[test]
+fn configured_terminal_font_path_resolves_exact_primary_face() {
+    let report = resolve_terminal_font_report_for_path(std::path::Path::new(
+        "/usr/share/fonts/Adwaita/AdwaitaMono-Regular.ttf",
+    ))
+    .expect("configured font path should resolve");
+
+    assert_eq!(report.primary.family, "Adwaita Mono");
+    assert_eq!(
+        report.primary.path,
+        std::path::PathBuf::from("/usr/share/fonts/Adwaita/AdwaitaMono-Regular.ttf")
+    );
+    assert_eq!(report.primary.source, "neozeus config terminal.font_path");
+    assert!(!report.fallbacks.is_empty());
 }
 
 #[test]

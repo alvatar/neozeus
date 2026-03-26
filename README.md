@@ -11,6 +11,27 @@ Window manager identity defaults to `neozeus` and can be overridden with:
 - `NEOZEUS_WINDOW_MODE` — `windowed` to disable the default borderless fullscreen startup mode
 - `NEOZEUS_WINDOW_SCALE_FACTOR` — optional scale-factor override for deterministic sizing in offscreen verification
 
+NeoZeus also reads a small TOML config from the first existing path in:
+
+- `NEOZEUS_CONFIG_PATH`
+- `$XDG_CONFIG_HOME/neozeus/config.toml`
+- `~/.config/neozeus/config.toml`
+- `./neozeus.toml`
+
+Currently supported TOML keys:
+
+```toml
+[terminal]
+font_path = "/usr/share/fonts/Adwaita/AdwaitaMono-Regular.ttf"
+
+[window]
+title = "neozeus"
+app_id = "neozeus"
+```
+
+The repo now includes a `neozeus.toml` that pins the terminal primary font to Adwaita Mono.
+Environment variables still override TOML values.
+
 Agent-list bloom verification / tuning can also override:
 
 - `NEOZEUS_AGENT_BLOOM_INTENSITY` — non-negative bloom intensity override

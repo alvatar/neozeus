@@ -1,4 +1,7 @@
-use crate::terminals::{TerminalFontFace, TerminalFontReport};
+use crate::{
+    app_config::{load_neozeus_config, resolve_terminal_font_path},
+    terminals::{TerminalFontFace, TerminalFontReport},
+};
 use bevy::prelude::{ResMut, Resource};
 use cosmic_text::{fontdb, FontSystem as CtFontSystem, SwashCache as CtSwashCache};
 use std::{
@@ -108,6 +111,11 @@ pub(crate) fn initialize_terminal_text_renderer_with_locale(
 }
 
 pub(crate) fn resolve_terminal_font_report() -> Result<TerminalFontReport, String> {
+    let config = load_neozeus_config()?;
+    if let Some(font_path) = resolve_terminal_font_path(&config) {
+        return resolve_terminal_font_stack_for_path(&font_path);
+    }
+
     let requested_family = load_kitty_font_family()?.unwrap_or_else(|| "monospace".to_owned());
     resolve_terminal_font_stack_for_family(&requested_family)
 }
@@ -117,6 +125,54 @@ pub(crate) fn resolve_terminal_font_report_for_family(
     requested_family: &str,
 ) -> Result<TerminalFontReport, String> {
     resolve_terminal_font_stack_for_family(requested_family)
+}
+
+#[cfg(test)]
+pub(crate) fn resolve_terminal_font_report_for_path(
+    path: &Path,
+) -> Result<TerminalFontReport, String> {
+    resolve_terminal_font_stack_for_path(path)
+}
+
+#[cfg_attr(test, allow(dead_code))]
+fn resolve_terminal_font_stack_for_path(path: &Path) -> Result<TerminalFontReport, String> {
+    if !path.is_file() {
+        return Err(format!(
+            "configured terminal font path does not exist: {}",
+            path.display()
+        ));
+    }
+
+    let requested_family = fc_query_family_for_path(path)?;
+    let primary = TerminalFontFace {
+        family: requested_family.clone(),
+        path: path.to_path_buf(),
+        source: "neozeus config terminal.font_path".to_owned(),
+    };
+    let mut fallbacks = Vec::new();
+    let mut seen_paths = BTreeSet::from([primary.path.clone()]);
+
+    for (query, source) in [
+        (
+            format!("{requested_family}:charset=F013"),
+            "kitty fallback for private-use symbols",
+        ),
+        (
+            format!("{requested_family}:charset=1F680"),
+            "kitty fallback for emoji",
+        ),
+    ] {
+        let candidate = fc_match_face(&query, source)?;
+        if seen_paths.insert(candidate.path.clone()) {
+            fallbacks.push(candidate);
+        }
+    }
+
+    Ok(TerminalFontReport {
+        requested_family,
+        primary,
+        fallbacks,
+    })
 }
 
 fn resolve_terminal_font_stack_for_family(
@@ -268,6 +324,60 @@ pub(crate) fn parse_kitty_config_file(
     }
 
     Ok(())
+}
+
+fn fc_query_family_for_path(path: &Path) -> Result<String, String> {
+    let output = Command::new("fc-query")
+        .arg("-f")
+        .arg("%{family}\n%{file}\n")
+        .arg(path)
+        .output()
+        .map_err(|error| {
+            format!(
+                "failed to execute fc-query for terminal font {}: {error}",
+                path.display()
+            )
+        })?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!(
+            "fc-query failed for terminal font {} with status {}: {}",
+            path.display(),
+            output.status,
+            stderr.trim()
+        ));
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut lines = stdout
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty());
+    let family = lines
+        .next()
+        .ok_or_else(|| format!("fc-query returned no family for {}", path.display()))?
+        .split(',')
+        .next()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| format!("fc-query returned invalid family for {}", path.display()))?
+        .to_owned();
+    let resolved_path = PathBuf::from(
+        lines
+            .next()
+            .ok_or_else(|| format!("fc-query returned no path for {}", path.display()))?,
+    );
+
+    if resolved_path != path {
+        return Err(format!(
+            "fc-query resolved terminal font path {} to unexpected file {}",
+            path.display(),
+            resolved_path.display()
+        ));
+    }
+
+    Ok(family)
 }
 
 fn fc_match_face(query: &str, source: &str) -> Result<TerminalFontFace, String> {
