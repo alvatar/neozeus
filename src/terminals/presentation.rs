@@ -13,6 +13,10 @@ use bevy::{prelude::*, window::PrimaryWindow};
 pub(crate) const HUD_FRAME_PADDING: Vec2 = Vec2::ZERO;
 pub(crate) const ACTIVE_TERMINAL_MARGIN: Vec2 = Vec2::splat(16.0);
 pub(crate) const DIRECT_INPUT_FRAME_OUTSET: f32 = 6.0;
+const STARTUP_PLACEHOLDER_COLS: u32 = 120;
+const STARTUP_PLACEHOLDER_ROWS: u32 = 38;
+const STARTUP_PLACEHOLDER_COLOR: Color = Color::srgb(0.10, 0.13, 0.18);
+const STARTUP_PLACEHOLDER_ACTIVE_COLOR: Color = Color::srgb(0.16, 0.18, 0.22);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct ActiveTerminalLayout {
@@ -183,6 +187,34 @@ fn active_layout_texture_state(layout: ActiveTerminalLayout) -> TerminalTextureS
     TerminalTextureState {
         texture_size: layout.texture_size,
         cell_size: layout.cell_size,
+    }
+}
+
+fn startup_placeholder_texture_state(
+    surface: Option<&crate::terminals::TerminalSurface>,
+    presented_terminal: &crate::terminals::PresentedTerminal,
+) -> TerminalTextureState {
+    if presented_terminal.desired_texture_state.texture_size != UVec2::ZERO
+        && presented_terminal.desired_texture_state.texture_size != UVec2::ONE
+        && presented_terminal.desired_texture_state.cell_size != UVec2::ZERO
+    {
+        return presented_terminal.desired_texture_state.clone();
+    }
+    if presented_terminal.texture_state.texture_size != UVec2::ZERO
+        && presented_terminal.texture_state.texture_size != UVec2::ONE
+        && presented_terminal.texture_state.cell_size != UVec2::ZERO
+    {
+        return presented_terminal.texture_state.clone();
+    }
+    let (cols, rows) = surface
+        .map(|surface| (surface.cols as u32, surface.rows as u32))
+        .unwrap_or((STARTUP_PLACEHOLDER_COLS, STARTUP_PLACEHOLDER_ROWS));
+    TerminalTextureState {
+        texture_size: UVec2::new(
+            cols.max(1) * DEFAULT_CELL_WIDTH_PX,
+            rows.max(1) * DEFAULT_CELL_HEIGHT_PX,
+        ),
+        cell_size: UVec2::new(DEFAULT_CELL_WIDTH_PX, DEFAULT_CELL_HEIGHT_PX),
     }
 }
 
@@ -374,6 +406,7 @@ pub(crate) fn sync_terminal_presentations(
     terminal_manager: Res<TerminalManager>,
     focus_state: Res<TerminalFocusState>,
     presentation_store: Res<TerminalPresentationStore>,
+    mut startup_loading: Option<ResMut<crate::startup::StartupLoadingState>>,
     visibility_state: Res<TerminalVisibilityState>,
     view_state: Res<TerminalViewState>,
     layout_state: Res<HudLayoutState>,
@@ -391,7 +424,14 @@ pub(crate) fn sync_terminal_presentations(
     )>,
 ) {
     let active_id = focus_state.active_id();
-    let visibility_policy = effective_visibility_policy(&terminal_manager, &visibility_state);
+    let startup_show_all = startup_loading
+        .as_ref()
+        .is_some_and(|startup_loading| startup_loading.active());
+    let visibility_policy = if startup_show_all {
+        TerminalVisibilityPolicy::ShowAll
+    } else {
+        effective_visibility_policy(&terminal_manager, &visibility_state)
+    };
     let background_ids = ordered_background_ids(&terminal_manager, &focus_state, active_id);
     let active_layout = active_terminal_layout(&primary_window, &layout_state, &view_state);
     let active_texture_state = active_layout_texture_state(active_layout);
@@ -431,7 +471,10 @@ pub(crate) fn sync_terminal_presentations(
             *visibility = Visibility::Hidden;
             continue;
         };
-        if terminal.snapshot.surface.is_none() {
+        let startup_placeholder = startup_loading
+            .as_ref()
+            .is_some_and(|startup_loading| startup_loading.is_pending(panel.id));
+        if terminal.snapshot.surface.is_none() && !startup_placeholder {
             *visibility = Visibility::Hidden;
             continue;
         }
@@ -439,22 +482,39 @@ pub(crate) fn sync_terminal_presentations(
             *visibility = Visibility::Hidden;
             continue;
         }
+        let terminal_presentable =
+            terminal_has_presentable_uploaded_frame(terminal, presented_terminal);
         let active_ready = Some(panel.id) != active_id
             || active_terminal_ready_for_presentation(terminal, presented_terminal, active_layout)
-            || terminal_has_presentable_uploaded_frame(terminal, presented_terminal);
-        if !active_ready {
+            || terminal_presentable;
+        if !active_ready && !startup_placeholder {
             *visibility = Visibility::Hidden;
             continue;
         }
+        if terminal_presentable {
+            if let Some(startup_loading) = startup_loading.as_mut() {
+                startup_loading.resolve(panel.id);
+            }
+        }
 
+        let placeholder_texture_state = startup_placeholder_texture_state(
+            terminal.snapshot.surface.as_ref(),
+            presented_terminal,
+        );
+        let terminal_texture_state = if startup_placeholder && !terminal_presentable {
+            &placeholder_texture_state
+        } else {
+            &presented_terminal.texture_state
+        };
         let smooth_size = smooth_terminal_screen_size(
-            &presented_terminal.texture_state,
+            terminal_texture_state,
             &view_state,
             &primary_window,
             &layout_state,
         );
         let (_, viewport_center) = active_terminal_viewport(&primary_window, &layout_state);
-        let pixel_perfect = Some(panel.id) == active_id
+        let pixel_perfect = !startup_placeholder
+            && Some(panel.id) == active_id
             && presented_terminal.display_mode == TerminalDisplayMode::PixelPerfect;
         let background_rank = background_ids
             .iter()
@@ -510,7 +570,15 @@ pub(crate) fn sync_terminal_presentations(
 
         *visibility = Visibility::Visible;
         sprite.custom_size = Some(presentation.current_size.max(Vec2::ONE));
-        sprite.color = Color::WHITE;
+        sprite.color = if startup_placeholder && !terminal_presentable {
+            if Some(panel.id) == active_id {
+                STARTUP_PLACEHOLDER_ACTIVE_COLOR
+            } else {
+                STARTUP_PLACEHOLDER_COLOR
+            }
+        } else {
+            Color::WHITE
+        };
         transform.translation = presentation.current_position.extend(presentation.current_z);
         transform.rotation = Quat::IDENTITY;
         transform.scale = Vec3::ONE;

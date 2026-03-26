@@ -7,6 +7,7 @@ use super::{
 use crate::{
     app_config::{DEFAULT_CELL_HEIGHT_PX, DEFAULT_CELL_WIDTH_PX},
     hud::{AgentDirectory, HudModuleId, HudState},
+    startup::StartupLoadingState,
     terminals::{
         active_terminal_cell_size, active_terminal_dimensions, active_terminal_layout,
         active_terminal_viewport, blend_rgba_in_place, build_attach_command_argv, clear_done_tasks,
@@ -1833,6 +1834,154 @@ fn direct_input_mode_shows_orange_terminal_frame() {
     assert_eq!(*frames[0].3, Visibility::Visible);
     assert_eq!(frames[0].1.translation, Vec3::new(30.0, -20.0, 0.48));
     assert_eq!(frames[0].2.custom_size, Some(Vec2::new(332.0, 192.0)));
+}
+
+#[test]
+fn startup_loading_shows_active_placeholder_before_first_surface_arrives() {
+    let (bridge, _) = test_bridge();
+    let mut manager = TerminalManager::default();
+    let id = manager.create_terminal(bridge);
+
+    let mut presentation_store = TerminalPresentationStore::default();
+    presentation_store.register(
+        id,
+        PresentedTerminal {
+            image: Default::default(),
+            texture_state: Default::default(),
+            desired_texture_state: Default::default(),
+            display_mode: TerminalDisplayMode::Smooth,
+            uploaded_revision: 0,
+            panel_entity: Entity::PLACEHOLDER,
+            frame_entity: Entity::PLACEHOLDER,
+        },
+    );
+
+    let mut startup_loading = StartupLoadingState::default();
+    startup_loading.register(id);
+
+    let mut world = World::default();
+    let mut time = Time::<()>::default();
+    time.advance_by(Duration::from_millis(16));
+    world.insert_resource(time);
+    insert_terminal_manager_resources(&mut world, manager);
+    world.insert_resource(presentation_store);
+    world.insert_resource(startup_loading);
+    world.insert_resource(crate::hud::TerminalVisibilityState::default());
+    world.insert_resource(TerminalViewState::default());
+    insert_test_hud_state(&mut world, HudState::default());
+    world.spawn((
+        Window {
+            resolution: (1400, 900).into(),
+            ..Default::default()
+        },
+        PrimaryWindow,
+    ));
+    world.spawn((
+        TerminalPanel { id },
+        TerminalPresentation {
+            home_position: Vec2::ZERO,
+            current_position: Vec2::ZERO,
+            target_position: Vec2::ZERO,
+            current_size: Vec2::ONE,
+            target_size: Vec2::ONE,
+            current_alpha: 1.0,
+            target_alpha: 1.0,
+            current_z: 0.0,
+            target_z: 0.0,
+        },
+        Transform::default(),
+        Sprite::default(),
+        Visibility::Hidden,
+    ));
+
+    world.run_system_once(sync_terminal_presentations).unwrap();
+
+    let mut query = world.query::<(&TerminalPanel, &Sprite, &Visibility)>();
+    let (_, sprite, visibility) = query.single(&world).unwrap();
+    assert_eq!(*visibility, Visibility::Visible);
+    assert_ne!(sprite.color, Color::WHITE);
+    assert!(sprite
+        .custom_size
+        .is_some_and(|size| size.x > 10.0 && size.y > 10.0));
+}
+
+#[test]
+fn startup_loading_temporarily_overrides_isolate_to_show_all_pending_terminals() {
+    let (bridge_one, _) = test_bridge();
+    let (bridge_two, _) = test_bridge();
+    let mut manager = TerminalManager::default();
+    let id_one = manager.create_terminal_without_focus(bridge_one);
+    let id_two = manager.create_terminal(bridge_two);
+
+    let mut presentation_store = TerminalPresentationStore::default();
+    for id in [id_one, id_two] {
+        presentation_store.register(
+            id,
+            PresentedTerminal {
+                image: Default::default(),
+                texture_state: Default::default(),
+                desired_texture_state: Default::default(),
+                display_mode: TerminalDisplayMode::Smooth,
+                uploaded_revision: 0,
+                panel_entity: Entity::PLACEHOLDER,
+                frame_entity: Entity::PLACEHOLDER,
+            },
+        );
+    }
+
+    let mut startup_loading = StartupLoadingState::default();
+    startup_loading.register(id_one);
+    startup_loading.register(id_two);
+
+    let visibility_state = crate::hud::TerminalVisibilityState {
+        policy: crate::hud::TerminalVisibilityPolicy::Isolate(id_two),
+    };
+
+    let mut world = World::default();
+    let mut time = Time::<()>::default();
+    time.advance_by(Duration::from_millis(16));
+    world.insert_resource(time);
+    insert_terminal_manager_resources(&mut world, manager);
+    world.insert_resource(presentation_store);
+    world.insert_resource(startup_loading);
+    world.insert_resource(visibility_state);
+    world.insert_resource(TerminalViewState::default());
+    insert_test_hud_state(&mut world, HudState::default());
+    world.spawn((
+        Window {
+            resolution: (1400, 900).into(),
+            ..Default::default()
+        },
+        PrimaryWindow,
+    ));
+    for id in [id_one, id_two] {
+        world.spawn((
+            TerminalPanel { id },
+            TerminalPresentation {
+                home_position: Vec2::ZERO,
+                current_position: Vec2::ZERO,
+                target_position: Vec2::ZERO,
+                current_size: Vec2::ONE,
+                target_size: Vec2::ONE,
+                current_alpha: 1.0,
+                target_alpha: 1.0,
+                current_z: 0.0,
+                target_z: 0.0,
+            },
+            Transform::default(),
+            Sprite::default(),
+            Visibility::Hidden,
+        ));
+    }
+
+    world.run_system_once(sync_terminal_presentations).unwrap();
+
+    let visible_count = world
+        .query::<(&TerminalPanel, &Visibility)>()
+        .iter(&world)
+        .filter(|(_, visibility)| **visibility == Visibility::Visible)
+        .count();
+    assert_eq!(visible_count, 2);
 }
 
 #[test]

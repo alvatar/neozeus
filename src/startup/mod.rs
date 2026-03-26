@@ -17,10 +17,34 @@ use bevy::{
     camera::visibility::RenderLayers, ecs::system::SystemParam, prelude::*, window::RequestRedraw,
 };
 use bevy_vello::prelude::VelloView;
+use std::collections::BTreeSet;
 
 const PRESENTATION_EPSILON: f32 = 0.25;
 const ALPHA_EPSILON: f32 = 0.01;
 const Z_EPSILON: f32 = 0.01;
+
+#[derive(Resource, Default, Clone, Debug)]
+pub(crate) struct StartupLoadingState {
+    pending_terminal_ids: BTreeSet<crate::terminals::TerminalId>,
+}
+
+impl StartupLoadingState {
+    pub(crate) fn register(&mut self, terminal_id: crate::terminals::TerminalId) {
+        self.pending_terminal_ids.insert(terminal_id);
+    }
+
+    pub(crate) fn resolve(&mut self, terminal_id: crate::terminals::TerminalId) {
+        self.pending_terminal_ids.remove(&terminal_id);
+    }
+
+    pub(crate) fn is_pending(&self, terminal_id: crate::terminals::TerminalId) -> bool {
+        self.pending_terminal_ids.contains(&terminal_id)
+    }
+
+    pub(crate) fn active(&self) -> bool {
+        !self.pending_terminal_ids.is_empty()
+    }
+}
 
 #[derive(SystemParam)]
 pub(crate) struct SceneSetupContext<'w, 's> {
@@ -34,6 +58,7 @@ pub(crate) struct SceneSetupContext<'w, 's> {
     session_persistence: ResMut<'w, TerminalSessionPersistenceState>,
     notes_state: ResMut<'w, crate::terminals::TerminalNotesState>,
     visibility_state: ResMut<'w, TerminalVisibilityState>,
+    startup_loading: Option<ResMut<'w, StartupLoadingState>>,
 }
 
 pub(crate) fn should_request_visual_redraw(
@@ -137,6 +162,15 @@ pub(crate) fn setup_scene(
     restore_startup_terminals(&mut ctx);
 }
 
+fn register_startup_loading_terminal(
+    ctx: &mut SceneSetupContext,
+    terminal_id: crate::terminals::TerminalId,
+) {
+    if let Some(startup_loading) = ctx.startup_loading.as_mut() {
+        startup_loading.register(terminal_id);
+    }
+}
+
 fn setup_verifier_terminal(ctx: &mut SceneSetupContext, config: AutoVerifyConfig) {
     let session_name = match ctx.runtime_spawner.create_session(VERIFIER_SESSION_PREFIX) {
         Ok(session_name) => session_name,
@@ -166,6 +200,7 @@ fn setup_verifier_terminal(ctx: &mut SceneSetupContext, config: AutoVerifyConfig
         }
     };
     ctx.visibility_state.policy = TerminalVisibilityPolicy::Isolate(terminal_id);
+    register_startup_loading_terminal(ctx, terminal_id);
     append_debug_log(format!(
         "spawned verifier terminal {} session={}",
         terminal_id.0, session_name
@@ -205,6 +240,7 @@ fn spawn_initial_terminal(ctx: &mut SceneSetupContext, reason: &str) {
         }
     };
     ctx.visibility_state.policy = TerminalVisibilityPolicy::Isolate(terminal_id);
+    register_startup_loading_terminal(ctx, terminal_id);
     mark_terminal_sessions_dirty(&mut ctx.session_persistence, None);
     append_debug_log(format!(
         "spawned initial terminal {} session={} reason={reason}",
@@ -263,6 +299,7 @@ fn restore_startup_terminals(ctx: &mut SceneSetupContext) {
                 continue;
             }
         };
+        register_startup_loading_terminal(ctx, terminal_id);
         append_debug_log(format!(
             "{} terminal {} session={}",
             if restored { "restored" } else { "imported" },
