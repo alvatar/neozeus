@@ -7,6 +7,7 @@ use bevy_vello::prelude::VelloTextAnchor;
 
 use super::debug_toolbar_buttons;
 
+// Renders content.
 pub(crate) fn render_content(
     model: &HudModuleModel,
     content_rect: HudRect,

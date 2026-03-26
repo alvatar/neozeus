@@ -6,6 +6,7 @@ use bevy::prelude::Vec2;
 
 use super::{agent_list_content_height, agent_rows};
 
+// Handles pointer click.
 pub(crate) fn handle_pointer_click(
     model: &HudModuleModel,
     shell_rect: HudRect,
@@ -34,6 +35,7 @@ pub(crate) fn handle_pointer_click(
     }
 }
 
+// Handles hover.
 pub(crate) fn handle_hover(
     model: &mut HudModuleModel,
     shell_rect: HudRect,
@@ -65,6 +67,7 @@ pub(crate) fn handle_hover(
     true
 }
 
+// Handles scroll.
 pub(crate) fn handle_scroll(
     model: &mut HudModuleModel,
     delta_y: f32,
@@ -79,6 +82,7 @@ pub(crate) fn handle_scroll(
     state.scroll_offset = (state.scroll_offset - delta_y).clamp(0.0, max_scroll);
 }
 
+// Clears hover.
 pub(crate) fn clear_hover(model: &mut HudModuleModel) -> bool {
     let HudModuleModel::AgentList(state) = model else {
         return false;

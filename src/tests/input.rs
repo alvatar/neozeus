@@ -27,6 +27,7 @@ use bevy::{
     window::{PrimaryWindow, RequestRedraw},
 };
 
+// Verifies that pressed key.
 fn pressed_key(key_code: KeyCode, logical_key: Key) -> KeyboardInput {
     KeyboardInput {
         key_code,
@@ -38,10 +39,12 @@ fn pressed_key(key_code: KeyCode, logical_key: Key) -> KeyboardInput {
     }
 }
 
+// Verifies that init HUD commands.
 fn init_hud_commands(world: &mut World) {
     world.init_resource::<Messages<HudIntent>>();
 }
 
+// Verifies that drain HUD commands.
 fn drain_hud_commands(world: &mut World) -> Vec<HudIntent> {
     world
         .run_system_once(|mut reader: bevy::prelude::MessageReader<HudIntent>| {
@@ -50,6 +53,7 @@ fn drain_hud_commands(world: &mut World) -> Vec<HudIntent> {
         .unwrap()
 }
 
+// Verifies that dispatch message box key.
 fn dispatch_message_box_key(world: &mut World, event: KeyboardInput) {
     world.insert_resource(Messages::<KeyboardInput>::default());
     world.resource_mut::<Messages<KeyboardInput>>().write(event);
@@ -58,6 +62,7 @@ fn dispatch_message_box_key(world: &mut World, event: KeyboardInput) {
         .unwrap();
 }
 
+// Verifies that dispatch terminal UI key.
 fn dispatch_terminal_ui_key(world: &mut World, event: KeyboardInput) {
     world.insert_resource(Messages::<KeyboardInput>::default());
     world.resource_mut::<Messages<KeyboardInput>>().write(event);
@@ -69,6 +74,7 @@ fn dispatch_terminal_ui_key(world: &mut World, event: KeyboardInput) {
         .unwrap();
 }
 
+// Verifies that world with active terminal and receiver.
 fn world_with_active_terminal_and_receiver(
     cursor: Vec2,
     panel_visible: bool,
@@ -121,6 +127,7 @@ fn world_with_active_terminal_and_receiver(
     (world, terminal_id, input_rx)
 }
 
+// Verifies that world with active terminal.
 fn world_with_active_terminal(
     cursor: Vec2,
     panel_visible: bool,
@@ -131,6 +138,7 @@ fn world_with_active_terminal(
     (world, terminal_id)
 }
 
+// Verifies that ctrl sequence maps common shortcuts.
 #[test]
 fn ctrl_sequence_maps_common_shortcuts() {
     assert_eq!(ctrl_sequence(KeyCode::KeyC), Some("\u{3}"));
@@ -138,6 +146,7 @@ fn ctrl_sequence_maps_common_shortcuts() {
     assert_eq!(ctrl_sequence(KeyCode::Enter), None);
 }
 
+// Verifies that plain text uses text payload.
 #[test]
 fn plain_text_uses_text_payload() {
     let keys = ButtonInput::<KeyCode>::default();
@@ -149,6 +158,7 @@ fn plain_text_uses_text_payload() {
     }
 }
 
+// Verifies that global spawn shortcut only uses plain z.
 #[test]
 fn global_spawn_shortcut_only_uses_plain_z() {
     let keys = ButtonInput::<KeyCode>::default();
@@ -160,6 +170,7 @@ fn global_spawn_shortcut_only_uses_plain_z() {
     assert!(!should_spawn_terminal_globally(&event, &ctrl_keys));
 }
 
+// Verifies that global shell spawn shortcut only uses ctrl alt z.
 #[test]
 fn global_shell_spawn_shortcut_only_uses_ctrl_alt_z() {
     let event = pressed_text(KeyCode::KeyZ, Some("z"));
@@ -177,6 +188,7 @@ fn global_shell_spawn_shortcut_only_uses_ctrl_alt_z() {
     assert!(!should_spawn_shell_terminal_globally(&event, &ctrl_keys));
 }
 
+// Verifies that global spawn shortcut enqueues spawn even with active terminal.
 #[test]
 fn global_spawn_shortcut_enqueues_spawn_even_with_active_terminal() {
     let (bridge, _) = test_bridge();
@@ -209,6 +221,7 @@ fn global_spawn_shortcut_enqueues_spawn_even_with_active_terminal() {
     );
 }
 
+// Verifies that global shell spawn shortcut enqueues shell spawn.
 #[test]
 fn global_shell_spawn_shortcut_enqueues_shell_spawn() {
     let (bridge, _) = test_bridge();
@@ -244,6 +257,7 @@ fn global_shell_spawn_shortcut_enqueues_shell_spawn() {
     );
 }
 
+// Verifies that kill active terminal shortcut only uses plain ctrl k.
 #[test]
 fn kill_active_terminal_shortcut_only_uses_plain_ctrl_k() {
     let event = pressed_text(KeyCode::KeyK, Some("k"));
@@ -260,6 +274,7 @@ fn kill_active_terminal_shortcut_only_uses_plain_ctrl_k() {
     assert!(!should_kill_active_terminal(&event, &alt_ctrl_keys));
 }
 
+// Verifies that exit application shortcut only uses plain f10.
 #[test]
 fn exit_application_shortcut_only_uses_plain_f10() {
     let event = pressed_text(KeyCode::F10, None);
@@ -275,6 +290,7 @@ fn exit_application_shortcut_only_uses_plain_f10() {
     assert!(!should_exit_application(&event, &alt_keys));
 }
 
+// Verifies that f10 enqueues app exit.
 #[test]
 fn f10_enqueues_app_exit() {
     let mut world = World::default();
@@ -296,6 +312,7 @@ fn f10_enqueues_app_exit() {
     assert!(drain_hud_commands(&mut world).is_empty());
 }
 
+// Verifies that background click hides active terminal.
 #[test]
 fn background_click_hides_active_terminal() {
     let (mut world, terminal_id) =
@@ -332,6 +349,7 @@ fn background_click_hides_active_terminal() {
     assert!(manager.get(terminal_id).is_some());
 }
 
+// Verifies that clicking visible terminal does not hide it.
 #[test]
 fn clicking_visible_terminal_does_not_hide_it() {
     let (mut world, terminal_id) =
@@ -356,6 +374,7 @@ fn clicking_visible_terminal_does_not_hide_it() {
         .is_none());
 }
 
+// Verifies that clicking shifted visible terminal does not hide it.
 #[test]
 fn clicking_shifted_visible_terminal_does_not_hide_it() {
     let panel_position = Vec2::new(180.0, 120.0);
@@ -381,6 +400,7 @@ fn clicking_shifted_visible_terminal_does_not_hide_it() {
         .is_none());
 }
 
+// Verifies that clicking terminal panel enqueues focus and isolate for topmost visible panel.
 #[test]
 fn clicking_terminal_panel_enqueues_focus_and_isolate_for_topmost_visible_panel() {
     let mut world = World::default();
@@ -445,6 +465,7 @@ fn clicking_terminal_panel_enqueues_focus_and_isolate_for_topmost_visible_panel(
     );
 }
 
+// Verifies that enter opens message box for active terminal.
 #[test]
 fn enter_opens_message_box_for_active_terminal() {
     let (mut world, terminal_id) =
@@ -466,6 +487,7 @@ fn enter_opens_message_box_for_active_terminal() {
     assert_eq!(world.resource::<Messages<RequestRedraw>>().len(), 1);
 }
 
+// Verifies that plain t opens task dialog for active terminal with saved text.
 #[test]
 fn plain_t_opens_task_dialog_for_active_terminal_with_saved_text() {
     let (mut world, terminal_id) =
@@ -496,6 +518,7 @@ fn plain_t_opens_task_dialog_for_active_terminal_with_saved_text() {
     assert_eq!(world.resource::<Messages<RequestRedraw>>().len(), 1);
 }
 
+// Verifies that plain n enqueues consume next task for active terminal.
 #[test]
 fn plain_n_enqueues_consume_next_task_for_active_terminal() {
     let (mut world, terminal_id) =
@@ -516,6 +539,7 @@ fn plain_n_enqueues_consume_next_task_for_active_terminal() {
     );
 }
 
+// Verifies that ctrl enter toggles direct input mode for active terminal.
 #[test]
 fn ctrl_enter_toggles_direct_input_mode_for_active_terminal() {
     let (mut world, terminal_id) =
@@ -540,6 +564,7 @@ fn ctrl_enter_toggles_direct_input_mode_for_active_terminal() {
     assert_eq!(world.resource::<Messages<RequestRedraw>>().len(), 2);
 }
 
+// Verifies that direct input mode sends keys to terminal without opening message box.
 #[test]
 fn direct_input_mode_sends_keys_to_terminal_without_opening_message_box() {
     let (mut world, terminal_id, input_rx) =
@@ -564,6 +589,7 @@ fn direct_input_mode_sends_keys_to_terminal_without_opening_message_box() {
     assert!(!snapshot_test_hud_state(&world).message_box.visible);
 }
 
+// Verifies that ctrl enter does not open direct input for disconnected terminal.
 #[test]
 fn ctrl_enter_does_not_open_direct_input_for_disconnected_terminal() {
     let (mut world, terminal_id) =
@@ -586,6 +612,7 @@ fn ctrl_enter_does_not_open_direct_input_for_disconnected_terminal() {
     assert_eq!(world.resource::<Messages<RequestRedraw>>().len(), 0);
 }
 
+// Verifies that direct input mode closes when terminal becomes disconnected.
 #[test]
 fn direct_input_mode_closes_when_terminal_becomes_disconnected() {
     let (mut world, terminal_id, input_rx) =
@@ -609,6 +636,7 @@ fn direct_input_mode_closes_when_terminal_becomes_disconnected() {
     assert_eq!(world.resource::<Messages<RequestRedraw>>().len(), 1);
 }
 
+// Verifies that closing message box preserves draft for reopen.
 #[test]
 fn closing_message_box_preserves_draft_for_reopen() {
     let terminal_id = crate::terminals::TerminalId(7);
@@ -627,6 +655,7 @@ fn closing_message_box_preserves_draft_for_reopen() {
     assert_eq!(hud_state.message_box.text, "draft payload");
 }
 
+// Verifies that message box keeps separate drafts per terminal.
 #[test]
 fn message_box_keeps_separate_drafts_per_terminal() {
     let terminal_one = crate::terminals::TerminalId(7);
@@ -648,6 +677,7 @@ fn message_box_keeps_separate_drafts_per_terminal() {
     assert_eq!(hud_state.message_box.text, "second draft");
 }
 
+// Verifies that message box supports multiline typing and ctrl s send.
 #[test]
 fn message_box_supports_multiline_typing_and_ctrl_s_send() {
     let (mut world, terminal_id) =
@@ -687,6 +717,7 @@ fn message_box_supports_multiline_typing_and_ctrl_s_send() {
     assert!(hud_state.message_box.text.is_empty());
 }
 
+// Verifies that ctrl t clears done tasks for active terminal when dialog is closed.
 #[test]
 fn ctrl_t_clears_done_tasks_for_active_terminal_when_dialog_is_closed() {
     let (mut world, terminal_id) =
@@ -705,6 +736,7 @@ fn ctrl_t_clears_done_tasks_for_active_terminal_when_dialog_is_closed() {
     );
 }
 
+// Verifies that task dialog ctrl t emits clear done request.
 #[test]
 fn task_dialog_ctrl_t_emits_clear_done_request() {
     let (mut world, terminal_id) =
@@ -732,6 +764,7 @@ fn task_dialog_ctrl_t_emits_clear_done_request() {
     assert!(snapshot_test_hud_state(&world).task_dialog.visible);
 }
 
+// Verifies that reopening task dialog uses persisted text not stale editor state.
 #[test]
 fn reopening_task_dialog_uses_persisted_text_not_stale_editor_state() {
     let terminal_id = crate::terminals::TerminalId(7);
@@ -746,6 +779,7 @@ fn reopening_task_dialog_uses_persisted_text_not_stale_editor_state() {
     assert_eq!(hud_state.task_dialog.text, "persisted two");
 }
 
+// Verifies that task dialog escape persists tasks and closes.
 #[test]
 fn task_dialog_escape_persists_tasks_and_closes() {
     let (mut world, terminal_id) =
@@ -771,6 +805,7 @@ fn task_dialog_escape_persists_tasks_and_closes() {
     assert!(!hud_state.task_dialog.visible);
 }
 
+// Verifies that message box ctrl t does not enqueue task shortcuts.
 #[test]
 fn message_box_ctrl_t_does_not_enqueue_task_shortcuts() {
     let (mut world, terminal_id) =
@@ -794,6 +829,7 @@ fn message_box_ctrl_t_does_not_enqueue_task_shortcuts() {
     assert_eq!(hud_state.message_box.text, "follow up\n  details");
 }
 
+// Verifies that message box ctrl bindings edit multiline text.
 #[test]
 fn message_box_ctrl_bindings_edit_multiline_text() {
     let (mut world, terminal_id) =
@@ -870,6 +906,7 @@ fn message_box_ctrl_bindings_edit_multiline_text() {
     );
 }
 
+// Verifies that message box mark region ctrl w and ctrl y work.
 #[test]
 fn message_box_mark_region_ctrl_w_and_ctrl_y_work() {
     let (mut world, terminal_id) =
@@ -924,6 +961,7 @@ fn message_box_mark_region_ctrl_w_and_ctrl_y_work() {
     );
 }
 
+// Verifies that message box meta copy kill ring history and backward kill word work.
 #[test]
 fn message_box_meta_copy_kill_ring_history_and_backward_kill_word_work() {
     let (mut world, terminal_id) =
@@ -1000,6 +1038,7 @@ fn message_box_meta_copy_kill_ring_history_and_backward_kill_word_work() {
     assert_eq!(snapshot_test_hud_state(&world).message_box.text, "one two ");
 }
 
+// Verifies that message box ctrl o and ctrl j work.
 #[test]
 fn message_box_ctrl_o_and_ctrl_j_work() {
     let (mut world, terminal_id) =
@@ -1031,6 +1070,7 @@ fn message_box_ctrl_o_and_ctrl_j_work() {
     assert_eq!(snapshot_test_hud_state(&world).message_box.cursor, 2);
 }
 
+// Verifies that message box alt word motion and ctrl d work.
 #[test]
 fn message_box_alt_word_motion_and_ctrl_d_work() {
     let (mut world, terminal_id) =
@@ -1082,6 +1122,7 @@ fn message_box_alt_word_motion_and_ctrl_d_work() {
     assert_eq!(snapshot_test_hud_state(&world).message_box.text, "one tw");
 }
 
+// Verifies that lifecycle shortcuts are suppressed while message box is open.
 #[test]
 fn lifecycle_shortcuts_are_suppressed_while_message_box_is_open() {
     let mut world = World::default();
@@ -1106,6 +1147,7 @@ fn lifecycle_shortcuts_are_suppressed_while_message_box_is_open() {
     assert_eq!(world.resource::<Messages<AppExit>>().len(), 0);
 }
 
+// Verifies that lifecycle shortcuts are suppressed while direct input is open.
 #[test]
 fn lifecycle_shortcuts_are_suppressed_while_direct_input_is_open() {
     let mut world = World::default();
@@ -1130,6 +1172,7 @@ fn lifecycle_shortcuts_are_suppressed_while_direct_input_is_open() {
     assert_eq!(world.resource::<Messages<AppExit>>().len(), 0);
 }
 
+// Verifies that clicking HUD does not hide active terminal.
 #[test]
 fn clicking_hud_does_not_hide_active_terminal() {
     let (mut world, terminal_id) =

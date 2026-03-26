@@ -17,6 +17,7 @@ pub(crate) struct TerminalBridge {
 }
 
 impl TerminalBridge {
+    // Constructs a new value.
     pub(crate) fn new(
         input_tx: Sender<TerminalCommand>,
         update_mailbox: Arc<TerminalUpdateMailbox>,
@@ -31,6 +32,7 @@ impl TerminalBridge {
         }
     }
 
+    // Implements send.
     pub(crate) fn send(&self, command: TerminalCommand) {
         let summary = summarize_terminal_command(&command).to_owned();
         match self.inner.input_tx.send(command) {
@@ -51,10 +53,12 @@ impl TerminalBridge {
         }
     }
 
+    // Drains updates.
     pub(crate) fn drain_updates(&self) -> DrainedTerminalUpdates {
         self.inner.update_mailbox.drain()
     }
 
+    // Notes dropped updates.
     pub(crate) fn note_dropped_updates(&self, dropped_frames: u64) {
         if dropped_frames == 0 {
             return;
@@ -64,16 +68,19 @@ impl TerminalBridge {
         });
     }
 
+    // Notes key event.
     pub(crate) fn note_key_event(&self, event: &KeyboardInput) {
         note_key_event(&self.inner.debug_stats, event);
     }
 
+    // Notes snapshot applied.
     pub(crate) fn note_snapshot_applied(&self) {
         with_debug_stats(&self.inner.debug_stats, |stats| {
             stats.snapshots_applied += 1;
         });
     }
 
+    // Notes compose.
     pub(crate) fn note_compose(&self, dirty_rows: usize, compose_micros: u64) {
         with_debug_stats(&self.inner.debug_stats, |stats| {
             stats.compose_micros += compose_micros;
@@ -81,6 +88,7 @@ impl TerminalBridge {
         });
     }
 
+    // Implements debug stats snapshot.
     pub(crate) fn debug_stats_snapshot(&self) -> TerminalDebugStats {
         match self.inner.debug_stats.lock() {
             Ok(stats) => stats.clone(),
@@ -89,6 +97,7 @@ impl TerminalBridge {
     }
 }
 
+// Implements summarize terminal command.
 fn summarize_terminal_command(command: &TerminalCommand) -> &str {
     match command {
         TerminalCommand::InputText(_) => "InputText",

@@ -2,6 +2,7 @@ use super::compute_terminal_damage;
 use crate::terminals::{TerminalDamage, TerminalSurface};
 use crate::tests::surface_with_text;
 
+// Verifies that compute terminal damage marks only changed rows.
 #[test]
 fn compute_terminal_damage_marks_only_changed_rows() {
     let previous = surface_with_text(3, 4, 1, "ab");
@@ -12,6 +13,7 @@ fn compute_terminal_damage_marks_only_changed_rows() {
     );
 }
 
+// Verifies that compute terminal damage marks resize as full.
 #[test]
 fn compute_terminal_damage_marks_resize_as_full() {
     let previous = TerminalSurface::new(4, 3);

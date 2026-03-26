@@ -32,6 +32,7 @@ use bevy::{
 use bevy_vello::VelloPlugin;
 use std::{any::Any, env, sync::Arc, time::Duration};
 
+// Builds app.
 pub(crate) fn build_app() -> Result<App, String> {
     let mut app = App::new();
     let previous_hook = Arc::new(std::panic::take_hook());
@@ -65,6 +66,7 @@ pub(crate) fn build_app() -> Result<App, String> {
     }
 }
 
+// Resolves window mode.
 pub(crate) fn resolve_window_mode(raw: Option<&str>) -> WindowMode {
     match raw.map(str::trim).filter(|value| !value.is_empty()) {
         Some(value) if value.eq_ignore_ascii_case("windowed") => WindowMode::Windowed,
@@ -72,6 +74,7 @@ pub(crate) fn resolve_window_mode(raw: Option<&str>) -> WindowMode {
     }
 }
 
+// Resolves window scale factor.
 pub(crate) fn resolve_window_scale_factor(raw: Option<&str>) -> Option<f32> {
     raw.map(str::trim)
         .filter(|value| !value.is_empty())
@@ -79,6 +82,7 @@ pub(crate) fn resolve_window_scale_factor(raw: Option<&str>) -> Option<f32> {
         .filter(|value| value.is_finite() && *value > 0.0)
 }
 
+// Resolves force fallback adapter.
 pub(crate) fn resolve_force_fallback_adapter(raw: Option<&str>) -> bool {
     raw.map(str::trim)
         .filter(|value| !value.is_empty())
@@ -91,6 +95,7 @@ pub(crate) fn resolve_force_fallback_adapter(raw: Option<&str>) -> bool {
         .unwrap_or(true)
 }
 
+// Resolves force fallback adapter for.
 pub(crate) fn resolve_force_fallback_adapter_for(
     raw: Option<&str>,
     output_mode: crate::app::OutputMode,
@@ -105,10 +110,12 @@ pub(crate) fn resolve_force_fallback_adapter_for(
     dead_code,
     reason = "compatibility wrapper retained for scene facade tests"
 )]
+// Implements primary window plugin config for.
 pub(crate) fn primary_window_plugin_config_for(output: &AppOutputConfig) -> Option<Window> {
     primary_window_plugin_config_for_with_config(output, &NeoZeusConfig::default())
 }
 
+// Implements primary window plugin config for with config.
 pub(crate) fn primary_window_plugin_config_for_with_config(
     output: &AppOutputConfig,
     config: &NeoZeusConfig,
@@ -116,6 +123,7 @@ pub(crate) fn primary_window_plugin_config_for_with_config(
     (!output.mode.is_offscreen()).then(|| primary_window_config_for_with_config(output, config))
 }
 
+// Returns whether headless runner.
 pub(crate) fn uses_headless_runner(output: &AppOutputConfig) -> bool {
     output.mode.is_offscreen()
 }
@@ -124,10 +132,12 @@ pub(crate) fn uses_headless_runner(output: &AppOutputConfig) -> bool {
     dead_code,
     reason = "compatibility wrapper retained for scene facade tests"
 )]
+// Implements primary window config for.
 pub(crate) fn primary_window_config_for(output: &AppOutputConfig) -> Window {
     primary_window_config_for_with_config(output, &NeoZeusConfig::default())
 }
 
+// Implements primary window config for with config.
 pub(crate) fn primary_window_config_for_with_config(
     output: &AppOutputConfig,
     config: &NeoZeusConfig,
@@ -154,6 +164,7 @@ pub(crate) fn primary_window_config_for_with_config(
     }
 }
 
+// Configures app.
 fn configure_app(app: &mut App) -> Result<(), String> {
     let neozeus_config = load_neozeus_config()?;
     let output = AppOutputConfig::from_env();
@@ -284,6 +295,7 @@ fn configure_app(app: &mut App) -> Result<(), String> {
     Ok(())
 }
 
+// Implements format startup panic.
 pub(crate) fn format_startup_panic(payload: &(dyn Any + Send)) -> Option<String> {
     let message = panic_payload_message(payload)?;
     if !is_missing_gpu_panic(message) {
@@ -298,10 +310,12 @@ Run it in a graphical session with a working GPU, or install a software renderer
     )
 }
 
+// Returns whether missing GPU panic.
 fn is_missing_gpu_panic(message: &str) -> bool {
     message.contains(GPU_NOT_FOUND_PANIC_FRAGMENT)
 }
 
+// Implements panic payload message.
 fn panic_payload_message(payload: &(dyn Any + Send)) -> Option<&str> {
     if let Some(message) = payload.downcast_ref::<String>() {
         Some(message.as_str())

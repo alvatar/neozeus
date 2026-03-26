@@ -21,6 +21,7 @@ pub(crate) enum HudModuleId {
 }
 
 impl HudModuleId {
+    // Implements number.
     pub(crate) const fn number(self) -> u8 {
         match self {
             Self::DebugToolbar => 0,
@@ -28,6 +29,7 @@ impl HudModuleId {
         }
     }
 
+    // Implements title.
     pub(crate) const fn title(self) -> &'static str {
         match self {
             Self::DebugToolbar => "Debug Toolbar",
@@ -35,6 +37,7 @@ impl HudModuleId {
         }
     }
 
+    // Implements title key.
     pub(crate) const fn title_key(self) -> &'static str {
         match self {
             Self::DebugToolbar => "DebugToolbar",
@@ -52,6 +55,7 @@ pub(crate) struct HudRect {
 }
 
 impl HudRect {
+    // Implements contains.
     pub(crate) fn contains(self, point: Vec2) -> bool {
         point.x >= self.x
             && point.x <= self.x + self.w
@@ -70,6 +74,7 @@ pub(crate) struct HudModuleShell {
 }
 
 impl HudModuleShell {
+    // Implements titlebar rect.
     pub(crate) fn titlebar_rect(&self) -> HudRect {
         HudRect {
             x: self.current_rect.x,
@@ -79,6 +84,7 @@ impl HudModuleShell {
         }
     }
 
+    // Returns whether animating.
     pub(crate) fn is_animating(&self) -> bool {
         (self.current_rect.x - self.target_rect.x).abs() > HUD_ANIMATION_EPSILON
             || (self.current_rect.y - self.target_rect.y).abs() > HUD_ANIMATION_EPSILON
@@ -124,22 +130,27 @@ pub(crate) struct HudLayoutState {
 }
 
 impl HudLayoutState {
+    // Implements get.
     pub(crate) fn get(&self, id: HudModuleId) -> Option<&HudModuleInstance> {
         self.modules.get(&id)
     }
 
+    // Implements get mut.
     pub(crate) fn get_mut(&mut self, id: HudModuleId) -> Option<&mut HudModuleInstance> {
         self.modules.get_mut(&id)
     }
 
+    // Implements iter z order.
     pub(crate) fn iter_z_order(&self) -> impl Iterator<Item = HudModuleId> + '_ {
         self.z_order.iter().copied()
     }
 
+    // Implements iter z order front to back.
     pub(crate) fn iter_z_order_front_to_back(&self) -> impl Iterator<Item = HudModuleId> + '_ {
         self.z_order.iter().rev().copied()
     }
 
+    // Inserts this value.
     pub(crate) fn insert(&mut self, id: HudModuleId, module: HudModuleInstance) {
         self.modules.insert(id, module);
         if !self.z_order.contains(&id) {
@@ -147,11 +158,13 @@ impl HudLayoutState {
         }
     }
 
+    // Implements raise to front.
     pub(crate) fn raise_to_front(&mut self, id: HudModuleId) {
         self.z_order.retain(|existing| *existing != id);
         self.z_order.push(id);
     }
 
+    // Sets module enabled.
     pub(crate) fn set_module_enabled(&mut self, id: HudModuleId, enabled: bool) {
         let Some(module) = self.modules.get_mut(&id) else {
             return;
@@ -164,6 +177,7 @@ impl HudLayoutState {
         self.dirty_layout = true;
     }
 
+    // Implements reset module.
     pub(crate) fn reset_module(&mut self, id: HudModuleId) {
         let Some(definition) = HUD_MODULE_DEFINITIONS
             .iter()
@@ -177,6 +191,7 @@ impl HudLayoutState {
         self.dirty_layout = true;
     }
 
+    // Implements topmost enabled at.
     pub(crate) fn topmost_enabled_at(&self, point: Vec2) -> Option<HudModuleId> {
         self.iter_z_order_front_to_back().find(|id| {
             self.modules.get(id).is_some_and(|module| {
@@ -185,6 +200,7 @@ impl HudLayoutState {
         })
     }
 
+    // Returns whether animating.
     pub(crate) fn is_animating(&self) -> bool {
         self.modules
             .values()
@@ -199,12 +215,14 @@ pub(crate) struct HudModalState {
 }
 
 impl HudModalState {
+    // Implements keyboard capture active.
     pub(crate) fn keyboard_capture_active(&self, input_capture: &HudInputCaptureState) -> bool {
         self.message_box.visible
             || self.task_dialog.visible
             || input_capture.direct_input_terminal.is_some()
     }
 
+    // Opens message box.
     pub(crate) fn open_message_box(
         &mut self,
         input_capture: &mut HudInputCaptureState,
@@ -215,14 +233,17 @@ impl HudModalState {
         self.message_box.reset_for_target(target_terminal);
     }
 
+    // Closes message box.
     pub(crate) fn close_message_box(&mut self) {
         self.message_box.close();
     }
 
+    // Closes message box and discard draft.
     pub(crate) fn close_message_box_and_discard_draft(&mut self) {
         self.message_box.close_and_discard_current();
     }
 
+    // Opens task dialog.
     pub(crate) fn open_task_dialog(
         &mut self,
         input_capture: &mut HudInputCaptureState,
@@ -234,6 +255,7 @@ impl HudModalState {
         self.task_dialog.open_with_text(target_terminal, text);
     }
 
+    // Closes task dialog.
     pub(crate) fn close_task_dialog(&mut self) {
         self.task_dialog.close();
     }
@@ -262,18 +284,22 @@ pub(crate) struct HudState {
     reason = "test compatibility aggregate preserves pre-split HUD helper ergonomics"
 )]
 impl HudState {
+    // Implements get.
     pub(crate) fn get(&self, id: HudModuleId) -> Option<&HudModuleInstance> {
         self.modules.get(&id)
     }
 
+    // Implements get mut.
     pub(crate) fn get_mut(&mut self, id: HudModuleId) -> Option<&mut HudModuleInstance> {
         self.modules.get_mut(&id)
     }
 
+    // Implements iter z order.
     pub(crate) fn iter_z_order(&self) -> impl Iterator<Item = HudModuleId> + '_ {
         self.z_order.iter().copied()
     }
 
+    // Inserts this value.
     pub(crate) fn insert(&mut self, id: HudModuleId, module: HudModuleInstance) {
         self.modules.insert(id, module);
         if !self.z_order.contains(&id) {
@@ -281,11 +307,13 @@ impl HudState {
         }
     }
 
+    // Implements raise to front.
     pub(crate) fn raise_to_front(&mut self, id: HudModuleId) {
         self.z_order.retain(|existing| *existing != id);
         self.z_order.push(id);
     }
 
+    // Sets module enabled.
     pub(crate) fn set_module_enabled(&mut self, id: HudModuleId, enabled: bool) {
         let Some(module) = self.modules.get_mut(&id) else {
             return;
@@ -298,6 +326,7 @@ impl HudState {
         self.dirty_layout = true;
     }
 
+    // Implements reset module.
     pub(crate) fn reset_module(&mut self, id: HudModuleId) {
         let Some(definition) = HUD_MODULE_DEFINITIONS
             .iter()
@@ -311,6 +340,7 @@ impl HudState {
         self.dirty_layout = true;
     }
 
+    // Implements topmost enabled at.
     pub(crate) fn topmost_enabled_at(&self, point: Vec2) -> Option<HudModuleId> {
         self.z_order.iter().rev().copied().find(|id| {
             self.modules.get(id).is_some_and(|module| {
@@ -319,50 +349,60 @@ impl HudState {
         })
     }
 
+    // Returns whether animating.
     pub(crate) fn is_animating(&self) -> bool {
         self.modules
             .values()
             .any(|module| module.shell.is_animating())
     }
 
+    // Implements keyboard capture active.
     pub(crate) fn keyboard_capture_active(&self) -> bool {
         self.message_box.visible || self.task_dialog.visible || self.direct_input_terminal.is_some()
     }
 
+    // Opens message box.
     pub(crate) fn open_message_box(&mut self, target_terminal: TerminalId) {
         self.task_dialog.close();
         self.direct_input_terminal = None;
         self.message_box.reset_for_target(target_terminal);
     }
 
+    // Closes message box.
     pub(crate) fn close_message_box(&mut self) {
         self.message_box.close();
     }
 
+    // Closes message box and discard draft.
     pub(crate) fn close_message_box_and_discard_draft(&mut self) {
         self.message_box.close_and_discard_current();
     }
 
+    // Opens task dialog.
     pub(crate) fn open_task_dialog(&mut self, target_terminal: TerminalId, text: &str) {
         self.close_message_box();
         self.direct_input_terminal = None;
         self.task_dialog.open_with_text(target_terminal, text);
     }
 
+    // Closes task dialog.
     pub(crate) fn close_task_dialog(&mut self) {
         self.task_dialog.close();
     }
 
+    // Opens direct terminal input.
     pub(crate) fn open_direct_terminal_input(&mut self, target_terminal: TerminalId) {
         self.close_message_box();
         self.close_task_dialog();
         self.direct_input_terminal = Some(target_terminal);
     }
 
+    // Closes direct terminal input.
     pub(crate) fn close_direct_terminal_input(&mut self) {
         self.direct_input_terminal = None;
     }
 
+    // Toggles direct terminal input.
     pub(crate) fn toggle_direct_terminal_input(&mut self, target_terminal: TerminalId) -> bool {
         if self.direct_input_terminal == Some(target_terminal) {
             self.close_direct_terminal_input();
@@ -372,6 +412,7 @@ impl HudState {
         true
     }
 
+    // Reconciles direct terminal input.
     pub(crate) fn reconcile_direct_terminal_input(&mut self, active_id: Option<TerminalId>) {
         if self
             .direct_input_terminal
@@ -381,6 +422,7 @@ impl HudState {
         }
     }
 
+    // Implements layout state.
     pub(crate) fn layout_state(&self) -> HudLayoutState {
         HudLayoutState {
             modules: self.modules.clone(),
@@ -390,6 +432,7 @@ impl HudState {
         }
     }
 
+    // Implements modal state.
     pub(crate) fn modal_state(&self) -> HudModalState {
         HudModalState {
             message_box: self.message_box.clone(),
@@ -397,12 +440,14 @@ impl HudState {
         }
     }
 
+    // Implements input capture state.
     pub(crate) fn input_capture_state(&self) -> HudInputCaptureState {
         HudInputCaptureState {
             direct_input_terminal: self.direct_input_terminal,
         }
     }
 
+    // Implements into resources.
     pub(crate) fn into_resources(self) -> (HudLayoutState, HudModalState, HudInputCaptureState) {
         (
             HudLayoutState {
@@ -421,6 +466,7 @@ impl HudState {
         )
     }
 
+    // Builds this value from resources.
     pub(crate) fn from_resources(
         layout_state: &HudLayoutState,
         modal_state: &HudModalState,
@@ -439,6 +485,7 @@ impl HudState {
 }
 
 impl HudInputCaptureState {
+    // Opens direct terminal input.
     pub(crate) fn open_direct_terminal_input(
         &mut self,
         modals: &mut HudModalState,
@@ -449,10 +496,12 @@ impl HudInputCaptureState {
         self.direct_input_terminal = Some(target_terminal);
     }
 
+    // Closes direct terminal input.
     pub(crate) fn close_direct_terminal_input(&mut self) {
         self.direct_input_terminal = None;
     }
 
+    // Toggles direct terminal input.
     pub(crate) fn toggle_direct_terminal_input(
         &mut self,
         modals: &mut HudModalState,
@@ -466,6 +515,7 @@ impl HudInputCaptureState {
         true
     }
 
+    // Reconciles direct terminal input.
     pub(crate) fn reconcile_direct_terminal_input(&mut self, active_id: Option<TerminalId>) {
         if self
             .direct_input_terminal
@@ -500,6 +550,7 @@ pub(crate) struct HudModuleDefinition {
     pub(crate) default_rect: HudRect,
 }
 
+// Implements docked agent list rect.
 pub(crate) fn docked_agent_list_rect(window: &Window) -> HudRect {
     HudRect {
         x: 0.0,
@@ -532,6 +583,7 @@ pub(crate) const HUD_MODULE_DEFINITIONS: [HudModuleDefinition; 2] = [
     },
 ];
 
+// Implements default HUD module instance.
 pub(crate) fn default_hud_module_instance(definition: &HudModuleDefinition) -> HudModuleInstance {
     let shell = HudModuleShell {
         enabled: definition.default_enabled,

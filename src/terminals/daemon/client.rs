@@ -29,15 +29,21 @@ pub(crate) struct AttachedDaemonSession {
 }
 
 pub(crate) trait TerminalDaemonClient: Send + Sync {
+    // Implements list sessions.
     fn list_sessions(&self) -> Result<Vec<DaemonSessionInfo>, String>;
+    // Creates session.
     fn create_session(&self, prefix: &str) -> Result<String, String>;
+    // Implements attach session.
     fn attach_session(&self, session_id: &str) -> Result<AttachedDaemonSession, String>;
+    // Implements send command.
     fn send_command(&self, session_id: &str, command: TerminalCommand) -> Result<(), String>;
     #[allow(
         dead_code,
         reason = "protocol includes resize even before the UI drives it"
     )]
+    // Resizes session.
     fn resize_session(&self, session_id: &str, cols: usize, rows: usize) -> Result<(), String>;
+    // Kills session.
     fn kill_session(&self, session_id: &str) -> Result<(), String>;
 }
 
@@ -47,12 +53,14 @@ pub(crate) struct TerminalDaemonClientResource {
 }
 
 impl TerminalDaemonClientResource {
+    // Implements system.
     pub(crate) fn system() -> Result<Self, String> {
         Ok(Self {
             inner: Arc::new(SocketTerminalDaemonClient::connect_or_start_default()?),
         })
     }
 
+    // Builds this value from client.
     #[cfg(test)]
     pub(crate) fn from_client<T>(client: Arc<T>) -> Self
     where
@@ -61,6 +69,7 @@ impl TerminalDaemonClientResource {
         Self { inner: client }
     }
 
+    // Implements client.
     pub(crate) fn client(&self) -> &dyn TerminalDaemonClient {
         self.inner.as_ref()
     }
@@ -75,6 +84,7 @@ pub(crate) struct SocketTerminalDaemonClient {
 }
 
 impl SocketTerminalDaemonClient {
+    // Implements connect or start default.
     pub(crate) fn connect_or_start_default() -> Result<Self, String> {
         let socket_path = resolve_daemon_socket_path()
             .ok_or_else(|| "failed to resolve daemon socket path".to_owned())?;
@@ -91,6 +101,7 @@ impl SocketTerminalDaemonClient {
         }
     }
 
+    // Implements connect.
     pub(crate) fn connect(socket_path: &Path) -> Result<Self, String> {
         let stream = UnixStream::connect(socket_path).map_err(|error| {
             format!(
@@ -156,6 +167,7 @@ impl SocketTerminalDaemonClient {
         })
     }
 
+    // Requests this value.
     fn request(&self, request: DaemonRequest) -> Result<DaemonResponse, String> {
         let request_id = {
             let mut next = lock(&self.next_request_id);
@@ -177,6 +189,7 @@ impl SocketTerminalDaemonClient {
 }
 
 impl Drop for SocketTerminalDaemonClient {
+    // Releases owned resources on drop.
     fn drop(&mut self) {
         // Shutting down the cloned socket side unblocks the reader/writer threads deterministically
         // so pending requests and routes drain to connection-closed errors instead of hanging.
@@ -187,6 +200,7 @@ impl Drop for SocketTerminalDaemonClient {
 }
 
 impl TerminalDaemonClient for SocketTerminalDaemonClient {
+    // Implements list sessions.
     fn list_sessions(&self) -> Result<Vec<DaemonSessionInfo>, String> {
         match self.request(DaemonRequest::ListSessions)? {
             DaemonResponse::SessionList { sessions } => Ok(sessions),
@@ -194,6 +208,7 @@ impl TerminalDaemonClient for SocketTerminalDaemonClient {
         }
     }
 
+    // Creates session.
     fn create_session(&self, prefix: &str) -> Result<String, String> {
         match self.request(DaemonRequest::CreateSession {
             prefix: prefix.to_owned(),
@@ -203,6 +218,7 @@ impl TerminalDaemonClient for SocketTerminalDaemonClient {
         }
     }
 
+    // Implements attach session.
     fn attach_session(&self, session_id: &str) -> Result<AttachedDaemonSession, String> {
         let (updates_tx, updates_rx) = mpsc::channel();
         {
@@ -247,6 +263,7 @@ impl TerminalDaemonClient for SocketTerminalDaemonClient {
         }
     }
 
+    // Implements send command.
     fn send_command(&self, session_id: &str, command: TerminalCommand) -> Result<(), String> {
         match self.request(DaemonRequest::SendCommand {
             session_id: session_id.to_owned(),
@@ -259,6 +276,7 @@ impl TerminalDaemonClient for SocketTerminalDaemonClient {
         }
     }
 
+    // Resizes session.
     fn resize_session(&self, session_id: &str, cols: usize, rows: usize) -> Result<(), String> {
         match self.request(DaemonRequest::ResizeSession {
             session_id: session_id.to_owned(),
@@ -270,6 +288,7 @@ impl TerminalDaemonClient for SocketTerminalDaemonClient {
         }
     }
 
+    // Kills session.
     fn kill_session(&self, session_id: &str) -> Result<(), String> {
         match self.request(DaemonRequest::KillSession {
             session_id: session_id.to_owned(),
@@ -283,6 +302,7 @@ impl TerminalDaemonClient for SocketTerminalDaemonClient {
     }
 }
 
+// Resolves daemon socket path with.
 pub(crate) fn resolve_daemon_socket_path_with(
     override_path: Option<&str>,
     xdg_runtime_dir: Option<&str>,
@@ -313,6 +333,7 @@ pub(crate) fn resolve_daemon_socket_path_with(
     None
 }
 
+// Resolves daemon socket path.
 pub(crate) fn resolve_daemon_socket_path() -> Option<PathBuf> {
     resolve_daemon_socket_path_with(
         env::var("NEOZEUS_DAEMON_SOCKET_PATH").ok().as_deref(),
@@ -322,6 +343,7 @@ pub(crate) fn resolve_daemon_socket_path() -> Option<PathBuf> {
     )
 }
 
+// Spawns daemon subprocess.
 fn spawn_daemon_subprocess(socket_path: &Path) -> Result<(), String> {
     let current_exe = env::current_exe().map_err(|error| {
         format!("failed to resolve current executable for daemon spawn: {error}")
@@ -340,6 +362,7 @@ fn spawn_daemon_subprocess(socket_path: &Path) -> Result<(), String> {
         .map_err(|error| format!("failed to spawn daemon subprocess: {error}"))
 }
 
+// Waits for for connect.
 fn wait_for_connect(
     socket_path: &Path,
     timeout: Duration,
@@ -358,6 +381,7 @@ fn wait_for_connect(
     }
 }
 
+// Dispatches event.
 fn dispatch_event(
     routes: &Arc<Mutex<HashMap<String, mpsc::Sender<TerminalUpdate>>>>,
     event: DaemonEvent,
@@ -376,6 +400,7 @@ fn dispatch_event(
     }
 }
 
+// Locks this value.
 fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     match mutex.lock() {
         Ok(guard) => guard,

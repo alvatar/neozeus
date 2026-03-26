@@ -28,6 +28,7 @@ pub(crate) struct HudPersistenceState {
     pub(crate) dirty_since_secs: Option<f32>,
 }
 
+// Resolves HUD layout path with.
 pub(crate) fn resolve_hud_layout_path_with(
     xdg_config_home: Option<&str>,
     home: Option<&str>,
@@ -43,6 +44,7 @@ pub(crate) fn resolve_hud_layout_path_with(
     })
 }
 
+// Resolves HUD layout path.
 pub(crate) fn resolve_hud_layout_path() -> Option<PathBuf> {
     resolve_hud_layout_path_with(
         env::var("XDG_CONFIG_HOME").ok().as_deref(),
@@ -50,6 +52,7 @@ pub(crate) fn resolve_hud_layout_path() -> Option<PathBuf> {
     )
 }
 
+// Parses v1 HUD state.
 fn parse_v1_hud_state(text: &str) -> PersistedHudState {
     let mut persisted = PersistedHudState::default();
     for (line_index, line) in text.lines().enumerate() {
@@ -100,6 +103,7 @@ fn parse_v1_hud_state(text: &str) -> PersistedHudState {
     persisted
 }
 
+// Parses v2 HUD state.
 fn parse_v2_hud_state(text: &str) -> PersistedHudState {
     let mut persisted = PersistedHudState::default();
     let mut module_id = None;
@@ -166,6 +170,7 @@ fn parse_v2_hud_state(text: &str) -> PersistedHudState {
     persisted
 }
 
+// Parses persisted HUD state.
 pub(crate) fn parse_persisted_hud_state(text: &str) -> PersistedHudState {
     let version_line = text
         .lines()
@@ -182,6 +187,7 @@ pub(crate) fn parse_persisted_hud_state(text: &str) -> PersistedHudState {
     }
 }
 
+// Implements serialize persisted HUD state.
 pub(crate) fn serialize_persisted_hud_state(state: &PersistedHudState) -> String {
     let mut output = String::from(HUD_LAYOUT_VERSION_V2);
     output.push('\n');
@@ -201,6 +207,7 @@ pub(crate) fn serialize_persisted_hud_state(state: &PersistedHudState) -> String
     output
 }
 
+// Parses HUD module id.
 fn parse_hud_module_id(name: &str) -> Option<HudModuleId> {
     match name {
         "DebugToolbar" => Some(HudModuleId::DebugToolbar),
@@ -209,6 +216,7 @@ fn parse_hud_module_id(name: &str) -> Option<HudModuleId> {
     }
 }
 
+// Loads persisted HUD state from.
 pub(crate) fn load_persisted_hud_state_from(path: &PathBuf) -> PersistedHudState {
     match fs::read_to_string(path) {
         Ok(text) => parse_persisted_hud_state(&text),
@@ -223,6 +231,7 @@ pub(crate) fn load_persisted_hud_state_from(path: &PathBuf) -> PersistedHudState
     }
 }
 
+// Saves HUD layout if dirty.
 pub(crate) fn save_hud_layout_if_dirty(
     time: Res<Time>,
     mut layout_state: ResMut<HudLayoutState>,
@@ -291,6 +300,7 @@ pub(crate) fn save_hud_layout_if_dirty(
     persistence_state.dirty_since_secs = None;
 }
 
+// Applies persisted layout.
 #[cfg(test)]
 pub(crate) fn apply_persisted_layout(
     definitions: &[HudModuleDefinition],

@@ -40,6 +40,7 @@ pub(crate) enum NeoZeusSet {
     Redraw,
 }
 
+// Configures app schedule.
 pub(crate) fn configure_app_schedule(app: &mut App) {
     app.configure_sets(
         Update,
