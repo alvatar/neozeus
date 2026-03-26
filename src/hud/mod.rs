@@ -14,8 +14,8 @@ mod state;
 
 pub(crate) use animation::animate_hud_modules;
 pub(crate) use bloom::{
-    setup_hud_widget_bloom, sync_hud_widget_bloom, AgentListBloomBlurMaterial, HudBloomSettings,
-    HudWidgetBloom,
+    setup_hud_widget_bloom, sync_hud_widget_bloom, AgentListBloomAdditiveCameraMarker,
+    AgentListBloomBlurMaterial, HudBloomSettings, HudWidgetBloom,
 };
 #[cfg(test)]
 pub(crate) use bloom::{
@@ -28,12 +28,13 @@ pub(crate) use capture::{
     WindowCaptureConfig,
 };
 pub(crate) use compositor::{
-    setup_hud_offscreen_compositor, sync_hud_offscreen_compositor, HudOffscreenCompositor,
+    setup_hud_offscreen_compositor, sync_hud_offscreen_compositor, HudCompositeCameraMarker,
+    HudOffscreenCompositor,
 };
 #[cfg(test)]
 pub(crate) use compositor::{
-    HudCompositeCameraMarker, HudCompositeLayerId, HudCompositeLayerMarker,
-    HUD_COMPOSITE_FOREGROUND_Z, HUD_COMPOSITE_RENDER_LAYER,
+    HudCompositeLayerId, HudCompositeLayerMarker, HUD_COMPOSITE_FOREGROUND_Z,
+    HUD_COMPOSITE_RENDER_LAYER,
 };
 #[cfg(test)]
 pub(crate) use dispatcher::kill_active_terminal;
@@ -58,7 +59,10 @@ pub(crate) use persistence::{
     serialize_persisted_hud_state, PersistedHudModuleState, PersistedHudState,
 };
 pub(crate) use persistence::{save_hud_layout_if_dirty, HudPersistenceState};
-pub(crate) use render::{render_hud_scene, HudVectorSceneMarker};
+pub(crate) use render::{
+    render_hud_modal_scene, render_hud_scene, HudModalCameraMarker, HudModalVectorSceneMarker,
+    HudVectorSceneMarker, HUD_MODAL_CAMERA_ORDER, HUD_MODAL_RENDER_LAYER,
+};
 #[cfg(test)]
 pub(crate) use state::HudState;
 pub(crate) use state::{
@@ -70,11 +74,11 @@ pub(crate) use state::{
 };
 
 use bevy::{
-    camera::visibility::NoFrustumCulling,
+    camera::{visibility::NoFrustumCulling, ClearColorConfig},
     prelude::*,
     window::{PrimaryWindow, RequestRedraw},
 };
-use bevy_vello::prelude::VelloScene2d;
+use bevy_vello::prelude::{VelloScene2d, VelloView};
 
 pub(crate) fn append_hud_log(message: impl AsRef<str>) {
     crate::terminals::append_debug_log(format!("hud: {}", message.as_ref()));
@@ -125,6 +129,24 @@ pub(crate) fn setup_hud(
         Transform::from_xyz(0.0, 0.0, 50.0),
         NoFrustumCulling,
         HudVectorSceneMarker,
+    ));
+    commands.spawn((
+        VelloScene2d::default(),
+        Transform::from_xyz(0.0, 0.0, 60.0),
+        NoFrustumCulling,
+        bevy::camera::visibility::RenderLayers::layer(HUD_MODAL_RENDER_LAYER),
+        HudModalVectorSceneMarker,
+    ));
+    commands.spawn((
+        Camera2d,
+        Camera {
+            order: HUD_MODAL_CAMERA_ORDER,
+            clear_color: ClearColorConfig::None,
+            ..default()
+        },
+        VelloView,
+        bevy::camera::visibility::RenderLayers::layer(HUD_MODAL_RENDER_LAYER),
+        HudModalCameraMarker,
     ));
     setup_hud_offscreen_compositor(
         &mut commands,

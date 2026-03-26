@@ -23,6 +23,15 @@ use std::env;
 #[derive(Component)]
 pub(crate) struct HudVectorSceneMarker;
 
+#[derive(Component)]
+pub(crate) struct HudModalVectorSceneMarker;
+
+#[derive(Component)]
+pub(crate) struct HudModalCameraMarker;
+
+pub(crate) const HUD_MODAL_RENDER_LAYER: usize = 33;
+pub(crate) const HUD_MODAL_CAMERA_ORDER: isize = 101;
+
 pub(crate) struct HudColors;
 
 impl HudColors {
@@ -579,7 +588,6 @@ fn draw_module_shell(painter: &mut HudPainter, module_id: HudModuleId, shell_rec
 pub(crate) fn render_hud_scene(
     primary_window: Single<&Window, With<PrimaryWindow>>,
     layout_state: Res<HudLayoutState>,
-    modal_state: Res<HudModalState>,
     terminal_manager: Res<TerminalManager>,
     focus_state: Res<TerminalFocusState>,
     presentation_store: Res<TerminalPresentationStore>,
@@ -632,6 +640,18 @@ pub(crate) fn render_hud_scene(
         built.pop_layer();
     }
 
+    log_hud_draw_colors_if_requested(&built);
+    **scene = VelloScene2d::from(built);
+}
+
+pub(crate) fn render_hud_modal_scene(
+    primary_window: Single<&Window, With<PrimaryWindow>>,
+    modal_state: Res<HudModalState>,
+    agent_directory: Res<AgentDirectory>,
+    fonts: Res<Assets<VelloFont>>,
+    mut scene: Single<&mut VelloScene2d, With<HudModalVectorSceneMarker>>,
+) {
+    let mut built = vello::Scene::new();
     let mut painter = HudPainter::new(&mut built, &fonts, &primary_window, 1.0);
     draw_message_box(
         &mut painter,
@@ -645,7 +665,5 @@ pub(crate) fn render_hud_scene(
         &modal_state.task_dialog,
         &agent_directory,
     );
-
-    log_hud_draw_colors_if_requested(&built);
     **scene = VelloScene2d::from(built);
 }

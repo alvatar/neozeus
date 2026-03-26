@@ -1,13 +1,14 @@
 use crate::{
+    app::request_final_frame_capture,
     hud::{
         animate_hud_modules, apply_hud_module_requests, apply_terminal_focus_requests,
         apply_terminal_lifecycle_requests, apply_terminal_send_requests,
         apply_terminal_task_requests, apply_terminal_view_requests, apply_visibility_requests,
         dispatch_hud_intents, finalize_window_capture, handle_hud_module_shortcuts,
-        handle_hud_pointer_input, render_hud_scene, request_hud_composite_capture,
-        request_hud_texture_capture, request_window_capture, save_hud_layout_if_dirty, setup_hud,
-        setup_hud_widget_bloom, sync_hud_offscreen_compositor, sync_hud_widget_bloom,
-        sync_structural_hud_layout,
+        handle_hud_pointer_input, render_hud_modal_scene, render_hud_scene,
+        request_hud_composite_capture, request_hud_texture_capture, request_window_capture,
+        save_hud_layout_if_dirty, setup_hud, setup_hud_widget_bloom, sync_hud_offscreen_compositor,
+        sync_hud_widget_bloom, sync_structural_hud_layout,
     },
     input::{
         drag_terminal_view, focus_terminal_on_panel_click, handle_global_terminal_spawn_shortcut,
@@ -162,11 +163,13 @@ pub(crate) fn configure_app_schedule(app: &mut App) {
         Update,
         (
             render_hud_scene,
+            render_hud_modal_scene,
             sync_hud_offscreen_compositor,
             request_hud_texture_capture,
             request_hud_composite_capture,
             request_window_capture,
             sync_hud_widget_bloom,
+            request_final_frame_capture,
         )
             .chain()
             .in_set(NeoZeusSet::HudRender),
