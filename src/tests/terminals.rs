@@ -2845,7 +2845,7 @@ fn isolate_visibility_policy_with_missing_terminal_degrades_to_show_all() {
 }
 
 #[test]
-fn terminal_visibility_policy_hides_only_presentation_and_show_all_restores_it() {
+fn terminal_visibility_policy_show_all_keeps_only_active_terminal_visible() {
     let (bridge_one, _) = test_bridge();
     let (bridge_two, _) = test_bridge();
     let mut manager = TerminalManager::default();
@@ -2979,7 +2979,7 @@ fn terminal_visibility_policy_hides_only_presentation_and_show_all_restores_it()
         .collect::<Vec<_>>();
     vis.sort_by_key(|(id, _)| id.0);
     assert_eq!(vis[0], (id_one, Visibility::Visible));
-    assert_eq!(vis[1], (id_two, Visibility::Visible));
+    assert_eq!(vis[1], (id_two, Visibility::Hidden));
 }
 
 fn start_test_daemon(prefix: &str) -> (DaemonServerHandle, std::path::PathBuf) {

@@ -366,26 +366,6 @@ pub(crate) fn terminal_texture_screen_size(
     terminal_logical_size(texture_state, window)
 }
 
-fn ordered_background_ids(
-    terminal_manager: &TerminalManager,
-    focus_state: &TerminalFocusState,
-    active_id: Option<TerminalId>,
-) -> Vec<TerminalId> {
-    let mut ordered = Vec::new();
-    let mut seen = std::collections::BTreeSet::new();
-    for id in focus_state.focus_order().iter().copied().rev() {
-        if Some(id) != active_id && seen.insert(id) {
-            ordered.push(id);
-        }
-    }
-    for id in terminal_manager.terminal_ids().iter().copied() {
-        if Some(id) != active_id && seen.insert(id) {
-            ordered.push(id);
-        }
-    }
-    ordered
-}
-
 fn effective_visibility_policy(
     terminal_manager: &TerminalManager,
     visibility_state: &TerminalVisibilityState,
@@ -433,7 +413,6 @@ pub(crate) fn sync_terminal_presentations(
     } else {
         effective_visibility_policy(&terminal_manager, &visibility_state)
     };
-    let background_ids = ordered_background_ids(&terminal_manager, &focus_state, active_id);
     let active_layout = active_terminal_layout(&primary_window, &layout_state, &view_state);
     let active_texture_state = active_layout_texture_state(active_layout);
     let active_ready = active_id
@@ -483,6 +462,10 @@ pub(crate) fn sync_terminal_presentations(
             *visibility = Visibility::Hidden;
             continue;
         }
+        if active_id.is_some() && !startup_show_all && Some(panel.id) != active_id {
+            *visibility = Visibility::Hidden;
+            continue;
+        }
         let terminal_presentable =
             terminal_has_presentable_uploaded_frame(terminal, presented_terminal);
         let active_ready = Some(panel.id) != active_id
@@ -517,10 +500,6 @@ pub(crate) fn sync_terminal_presentations(
         let pixel_perfect = !startup_placeholder
             && Some(panel.id) == active_id
             && presented_terminal.display_mode == TerminalDisplayMode::PixelPerfect;
-        let background_rank = background_ids
-            .iter()
-            .position(|id| *id == panel.id)
-            .unwrap_or_default() as f32;
 
         match active_id {
             Some(id) if id == panel.id => {
@@ -533,9 +512,9 @@ pub(crate) fn sync_terminal_presentations(
             _ => {
                 presentation.target_position =
                     viewport_center + view_state.offset + presentation.home_position;
-                presentation.target_size = smooth_size * 0.62;
-                presentation.target_alpha = 0.84;
-                presentation.target_z = -0.05 - background_rank * 0.02;
+                presentation.target_size = smooth_size;
+                presentation.target_alpha = 1.0;
+                presentation.target_z = 0.0;
             }
         }
 
