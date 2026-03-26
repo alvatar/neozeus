@@ -1885,6 +1885,206 @@ fn disabled_hud_module_still_requests_redraw_while_fading_out() {
 }
 
 #[test]
+fn killing_active_terminal_selects_previous_terminal_in_creation_order() {
+    let client = Arc::new(FakeDaemonClient::default());
+    client.sessions.lock().unwrap().extend([
+        "neozeus-session-a".to_owned(),
+        "neozeus-session-b".to_owned(),
+        "neozeus-session-c".to_owned(),
+    ]);
+
+    let (bridge_one, _) = test_bridge();
+    let (bridge_two, _) = test_bridge();
+    let (bridge_three, _) = test_bridge();
+    let mut manager = TerminalManager::default();
+    let id_one = manager.create_terminal_with_session(bridge_one, "neozeus-session-a".into());
+    let id_two = manager.create_terminal_with_session(bridge_two, "neozeus-session-b".into());
+    let id_three = manager.create_terminal_with_session(bridge_three, "neozeus-session-c".into());
+    manager.focus_terminal(id_two);
+
+    let mut store = TerminalPresentationStore::default();
+    for id in [id_one, id_two, id_three] {
+        store.register(
+            id,
+            crate::terminals::PresentedTerminal {
+                image: Default::default(),
+                texture_state: Default::default(),
+                desired_texture_state: Default::default(),
+                display_mode: Default::default(),
+                uploaded_revision: 0,
+                panel_entity: Entity::PLACEHOLDER,
+                frame_entity: Entity::PLACEHOLDER,
+            },
+        );
+    }
+
+    let mut directory = AgentDirectory::default();
+    directory.labels.insert(id_one, "one".into());
+    directory.labels.insert(id_two, "two".into());
+    directory.labels.insert(id_three, "three".into());
+
+    let mut world = World::default();
+    let mut time = Time::<()>::default();
+    time.advance_by(Duration::from_secs(1));
+    world.insert_resource(time);
+    insert_terminal_manager_resources(&mut world, manager);
+    world.insert_resource(store);
+    world.insert_resource(directory);
+    world.insert_resource(fake_runtime_spawner(client));
+    world.insert_resource(TerminalSessionPersistenceState::default());
+    world.insert_resource(TerminalVisibilityState {
+        policy: TerminalVisibilityPolicy::Isolate(id_two),
+    });
+    world.insert_resource(TerminalViewState::default());
+    for id in [id_one, id_two, id_three] {
+        let panel_entity = world.spawn((TerminalPanel { id },)).id();
+        let frame_entity = world.spawn((TerminalPanelFrame { id },)).id();
+        let mut store = world.resource_mut::<TerminalPresentationStore>();
+        let presented = store.get_mut(id).expect("missing presented terminal");
+        presented.panel_entity = panel_entity;
+        presented.frame_entity = frame_entity;
+    }
+
+    world
+        .run_system_once(
+            |mut commands: Commands,
+             time: Res<Time>,
+             mut terminal_manager: ResMut<TerminalManager>,
+             mut focus_state: ResMut<crate::terminals::TerminalFocusState>,
+             mut presentation_store: ResMut<TerminalPresentationStore>,
+             runtime_spawner: Res<crate::terminals::TerminalRuntimeSpawner>,
+             mut agent_directory: ResMut<AgentDirectory>,
+             mut session_persistence: ResMut<TerminalSessionPersistenceState>,
+             mut visibility_state: ResMut<TerminalVisibilityState>,
+             mut view_state: ResMut<TerminalViewState>| {
+                let _ = kill_active_terminal(
+                    &mut commands,
+                    &time,
+                    &mut terminal_manager,
+                    &mut focus_state,
+                    &mut presentation_store,
+                    &runtime_spawner,
+                    &mut agent_directory,
+                    &mut session_persistence,
+                    &mut visibility_state,
+                    &mut view_state,
+                );
+            },
+        )
+        .unwrap();
+
+    let manager = world.resource::<TerminalManager>();
+    assert_eq!(manager.terminal_ids(), &[id_one, id_three]);
+    assert_eq!(manager.active_id(), Some(id_one));
+    assert_eq!(
+        world.resource::<TerminalVisibilityState>().policy,
+        TerminalVisibilityPolicy::Isolate(id_one)
+    );
+    assert!(!world
+        .resource::<AgentDirectory>()
+        .labels
+        .contains_key(&id_two));
+}
+
+#[test]
+fn killing_first_active_terminal_selects_next_terminal() {
+    let client = Arc::new(FakeDaemonClient::default());
+    client.sessions.lock().unwrap().extend([
+        "neozeus-session-a".to_owned(),
+        "neozeus-session-b".to_owned(),
+    ]);
+
+    let (bridge_one, _) = test_bridge();
+    let (bridge_two, _) = test_bridge();
+    let mut manager = TerminalManager::default();
+    let id_one = manager.create_terminal_with_session(bridge_one, "neozeus-session-a".into());
+    let id_two = manager.create_terminal_with_session(bridge_two, "neozeus-session-b".into());
+    manager.focus_terminal(id_one);
+
+    let mut store = TerminalPresentationStore::default();
+    for id in [id_one, id_two] {
+        store.register(
+            id,
+            crate::terminals::PresentedTerminal {
+                image: Default::default(),
+                texture_state: Default::default(),
+                desired_texture_state: Default::default(),
+                display_mode: Default::default(),
+                uploaded_revision: 0,
+                panel_entity: Entity::PLACEHOLDER,
+                frame_entity: Entity::PLACEHOLDER,
+            },
+        );
+    }
+
+    let mut directory = AgentDirectory::default();
+    directory.labels.insert(id_one, "one".into());
+    directory.labels.insert(id_two, "two".into());
+
+    let mut world = World::default();
+    let mut time = Time::<()>::default();
+    time.advance_by(Duration::from_secs(1));
+    world.insert_resource(time);
+    insert_terminal_manager_resources(&mut world, manager);
+    world.insert_resource(store);
+    world.insert_resource(directory);
+    world.insert_resource(fake_runtime_spawner(client));
+    world.insert_resource(TerminalSessionPersistenceState::default());
+    world.insert_resource(TerminalVisibilityState {
+        policy: TerminalVisibilityPolicy::Isolate(id_one),
+    });
+    world.insert_resource(TerminalViewState::default());
+    for id in [id_one, id_two] {
+        let panel_entity = world.spawn((TerminalPanel { id },)).id();
+        let frame_entity = world.spawn((TerminalPanelFrame { id },)).id();
+        let mut store = world.resource_mut::<TerminalPresentationStore>();
+        let presented = store.get_mut(id).expect("missing presented terminal");
+        presented.panel_entity = panel_entity;
+        presented.frame_entity = frame_entity;
+    }
+
+    world
+        .run_system_once(
+            |mut commands: Commands,
+             time: Res<Time>,
+             mut terminal_manager: ResMut<TerminalManager>,
+             mut focus_state: ResMut<crate::terminals::TerminalFocusState>,
+             mut presentation_store: ResMut<TerminalPresentationStore>,
+             runtime_spawner: Res<crate::terminals::TerminalRuntimeSpawner>,
+             mut agent_directory: ResMut<AgentDirectory>,
+             mut session_persistence: ResMut<TerminalSessionPersistenceState>,
+             mut visibility_state: ResMut<TerminalVisibilityState>,
+             mut view_state: ResMut<TerminalViewState>| {
+                let _ = kill_active_terminal(
+                    &mut commands,
+                    &time,
+                    &mut terminal_manager,
+                    &mut focus_state,
+                    &mut presentation_store,
+                    &runtime_spawner,
+                    &mut agent_directory,
+                    &mut session_persistence,
+                    &mut visibility_state,
+                    &mut view_state,
+                );
+            },
+        )
+        .unwrap();
+
+    let manager = world.resource::<TerminalManager>();
+    assert_eq!(manager.terminal_ids(), &[id_two]);
+    assert_eq!(manager.active_id(), Some(id_two));
+    assert_eq!(
+        world.resource::<TerminalVisibilityState>().policy,
+        TerminalVisibilityPolicy::Isolate(id_two)
+    );
+    assert!(!world
+        .resource::<AgentDirectory>()
+        .labels
+        .contains_key(&id_one));
+}
+
+#[test]
 fn killing_active_terminal_removes_runtime_presentation_and_labels() {
     let client = Arc::new(FakeDaemonClient::default());
     client

@@ -34,6 +34,19 @@ pub(crate) fn spawn_attached_terminal_with_presentation(
     Ok((terminal_id, bridge))
 }
 
+fn adjacent_terminal_in_creation_order(
+    terminal_manager: &TerminalManager,
+    terminal_id: TerminalId,
+) -> Option<TerminalId> {
+    let terminal_ids = terminal_manager.terminal_ids();
+    let index = terminal_ids.iter().position(|id| *id == terminal_id)?;
+    if index > 0 {
+        terminal_ids.get(index - 1).copied()
+    } else {
+        terminal_ids.get(index + 1).copied()
+    }
+}
+
 pub(crate) fn remove_terminal_with_projection(
     commands: &mut Commands,
     terminal_manager: &mut TerminalManager,
@@ -71,6 +84,7 @@ pub(crate) fn kill_active_terminal_session_and_remove(
     let Some(active_id) = focus_state.active_id() else {
         return Ok(None);
     };
+    let replacement_id = adjacent_terminal_in_creation_order(terminal_manager, active_id);
     let Some((session_name, runtime_state)) = terminal_manager.get(active_id).map(|terminal| {
         (
             terminal.session_name.clone(),
@@ -97,9 +111,17 @@ pub(crate) fn kill_active_terminal_session_and_remove(
         active_id,
     );
     agent_directory.labels.remove(&active_id);
-    visibility_state.policy = TerminalVisibilityPolicy::ShowAll;
     view_state.forget_terminal(active_id);
-    view_state.focus_terminal(None);
+    if let Some(replacement_id) = replacement_id {
+        focus_state.focus_terminal(terminal_manager, replacement_id);
+        visibility_state.policy = TerminalVisibilityPolicy::Isolate(replacement_id);
+        view_state.focus_terminal(Some(replacement_id));
+    } else {
+        visibility_state.policy = TerminalVisibilityPolicy::ShowAll;
+        view_state.focus_terminal(None);
+    }
+    #[cfg(test)]
+    terminal_manager.replace_test_focus_state(focus_state);
     mark_terminal_sessions_dirty(session_persistence, Some(time));
     Ok(Some((active_id, session_name)))
 }
