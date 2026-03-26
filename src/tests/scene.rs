@@ -8,8 +8,10 @@ use crate::{
         startup_visibility_policy_for_focus, uses_headless_runner, AppOutputConfig, OutputMode,
     },
     terminals::TerminalId,
+    tests::fake_runtime_spawner,
 };
-use bevy::window::{MonitorSelection, WindowMode};
+use bevy::{ecs::system::RunSystemOnce, prelude::*, window::WindowMode};
+use std::sync::Arc;
 
 #[test]
 fn redraw_scheduler_stays_idle_without_visual_work() {
@@ -149,6 +151,41 @@ fn parses_force_fallback_adapter_override() {
         None,
         OutputMode::OffscreenVerify
     ));
+}
+
+#[test]
+fn startup_spawns_initial_terminal_when_no_sessions_exist() {
+    let client = Arc::new(crate::tests::FakeDaemonClient::default());
+    let mut world = World::default();
+    world.insert_resource(Assets::<Image>::default());
+    world.insert_resource(crate::terminals::TerminalManager::default());
+    world.insert_resource(crate::terminals::TerminalFocusState::default());
+    world.insert_resource(crate::terminals::TerminalPresentationStore::default());
+    world.insert_resource(crate::hud::AgentDirectory::default());
+    world.insert_resource(fake_runtime_spawner(client.clone()));
+    world.insert_resource(crate::terminals::TerminalSessionPersistenceState::default());
+    world.insert_resource(crate::terminals::TerminalNotesState::default());
+    world.insert_resource(crate::hud::TerminalVisibilityState::default());
+
+    world.run_system_once(crate::startup::setup_scene).unwrap();
+
+    let manager = world.resource::<crate::terminals::TerminalManager>();
+    let terminal_ids = manager.terminal_ids();
+    assert_eq!(terminal_ids.len(), 1);
+    let terminal_id = terminal_ids[0];
+    assert_eq!(
+        world
+            .resource::<crate::terminals::TerminalFocusState>()
+            .active_id(),
+        Some(terminal_id)
+    );
+    assert_eq!(
+        world
+            .resource::<crate::hud::TerminalVisibilityState>()
+            .policy,
+        TerminalVisibilityPolicy::Isolate(terminal_id)
+    );
+    assert_eq!(client.sessions.lock().unwrap().len(), 1);
 }
 
 #[test]

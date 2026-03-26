@@ -9,7 +9,7 @@ use crate::{
         spawn_attached_terminal_with_presentation, TerminalCameraMarker, TerminalFocusState,
         TerminalHudSurfaceMarker, TerminalManager, TerminalPanel, TerminalPresentation,
         TerminalPresentationStore, TerminalRuntimeSpawner, TerminalSessionPersistenceState,
-        VERIFIER_SESSION_PREFIX,
+        PERSISTENT_SESSION_PREFIX, VERIFIER_SESSION_PREFIX,
     },
     verification::{start_auto_verify_dispatcher, AutoVerifyConfig, VerificationScenarioConfig},
 };
@@ -173,6 +173,45 @@ fn setup_verifier_terminal(ctx: &mut SceneSetupContext, config: AutoVerifyConfig
     start_auto_verify_dispatcher(dispatcher_bridge, ctx.runtime_spawner.notifier(), config);
 }
 
+fn spawn_initial_terminal(ctx: &mut SceneSetupContext, reason: &str) {
+    let session_name = match ctx
+        .runtime_spawner
+        .create_session(PERSISTENT_SESSION_PREFIX)
+    {
+        Ok(session_name) => session_name,
+        Err(error) => {
+            append_debug_log(format!("initial terminal spawn failed ({reason}): {error}"));
+            return;
+        }
+    };
+    let (terminal_id, _) = match spawn_attached_terminal_with_presentation(
+        &mut ctx.commands,
+        &mut ctx.images,
+        &mut ctx.terminal_manager,
+        &mut ctx.focus_state,
+        &mut ctx.presentation_store,
+        &ctx.runtime_spawner,
+        session_name.clone(),
+        true,
+    ) {
+        Ok(result) => result,
+        Err(error) => {
+            append_debug_log(format!(
+                "initial terminal attach failed for {} ({reason}): {error}",
+                session_name
+            ));
+            let _ = ctx.runtime_spawner.kill_session(&session_name);
+            return;
+        }
+    };
+    ctx.visibility_state.policy = TerminalVisibilityPolicy::Isolate(terminal_id);
+    mark_terminal_sessions_dirty(&mut ctx.session_persistence, None);
+    append_debug_log(format!(
+        "spawned initial terminal {} session={} reason={reason}",
+        terminal_id.0, session_name
+    ));
+}
+
 fn restore_startup_terminals(ctx: &mut SceneSetupContext) {
     let persisted = ctx
         .session_persistence
@@ -184,6 +223,7 @@ fn restore_startup_terminals(ctx: &mut SceneSetupContext) {
         Ok(sessions) => sessions,
         Err(error) => {
             append_debug_log(format!("daemon session discovery failed: {error}"));
+            spawn_initial_terminal(ctx, "session discovery failed");
             return;
         }
     };
@@ -272,5 +312,9 @@ fn restore_startup_terminals(ctx: &mut SceneSetupContext) {
                 terminal_id.0, session_name
             ));
         }
+    }
+
+    if ctx.terminal_manager.terminal_ids().is_empty() {
+        spawn_initial_terminal(ctx, "no restored or imported sessions");
     }
 }
