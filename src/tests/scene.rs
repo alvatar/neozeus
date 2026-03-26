@@ -86,6 +86,8 @@ fn parses_neozeus_toml_config() {
         r#"
         [terminal]
         font_path = "/usr/share/fonts/Adwaita/AdwaitaMono-Regular.ttf"
+        font_size_px = 16.0
+        baseline_offset_px = -0.5
 
         [window]
         title = "NeoZeus"
@@ -100,6 +102,8 @@ fn parses_neozeus_toml_config() {
             "/usr/share/fonts/Adwaita/AdwaitaMono-Regular.ttf"
         ))
     );
+    assert_eq!(config.terminal.font_size_px, Some(16.0));
+    assert_eq!(config.terminal.baseline_offset_px, Some(-0.5));
     assert_eq!(config.window.title.as_deref(), Some("NeoZeus"));
     assert_eq!(config.window.app_id.as_deref(), Some("neozeus-dev"));
 }
@@ -266,6 +270,128 @@ fn parses_force_fallback_adapter_override() {
         None,
         OutputMode::OffscreenVerify
     ));
+}
+
+#[test]
+fn startup_focus_skips_disconnected_restored_session() {
+    let dir = temp_dir("neozeus-startup-focus-running-session");
+    let sessions_path = dir.join("terminals.v1");
+    let persisted = crate::terminals::PersistedTerminalSessions {
+        sessions: vec![
+            crate::terminals::TerminalSessionRecord {
+                session_name: "neozeus-session-dead".to_owned(),
+                label: Some("dead".to_owned()),
+                creation_index: 0,
+                last_focused: true,
+            },
+            crate::terminals::TerminalSessionRecord {
+                session_name: "neozeus-session-live".to_owned(),
+                label: Some("live".to_owned()),
+                creation_index: 1,
+                last_focused: false,
+            },
+        ],
+    };
+    std::fs::write(
+        &sessions_path,
+        crate::terminals::serialize_persisted_terminal_sessions(&persisted),
+    )
+    .expect("persisted sessions should write");
+
+    let client = Arc::new(crate::tests::FakeDaemonClient::default());
+    client.set_session_runtime(
+        "neozeus-session-dead",
+        crate::terminals::TerminalRuntimeState::disconnected("dead session"),
+    );
+    client.set_session_runtime(
+        "neozeus-session-live",
+        crate::terminals::TerminalRuntimeState::running("live session"),
+    );
+
+    let mut world = World::default();
+    world.insert_resource(Assets::<Image>::default());
+    world.insert_resource(crate::terminals::TerminalManager::default());
+    world.insert_resource(crate::terminals::TerminalFocusState::default());
+    world.insert_resource(crate::terminals::TerminalPresentationStore::default());
+    world.insert_resource(crate::hud::AgentDirectory::default());
+    world.insert_resource(fake_runtime_spawner(client.clone()));
+    world.insert_resource(crate::terminals::TerminalSessionPersistenceState {
+        path: Some(sessions_path),
+        dirty_since_secs: None,
+    });
+    world.insert_resource(crate::terminals::TerminalNotesState::default());
+    world.insert_resource(crate::hud::TerminalVisibilityState::default());
+
+    world.run_system_once(crate::startup::setup_scene).unwrap();
+
+    let focus = world.resource::<crate::terminals::TerminalFocusState>();
+    let manager = world.resource::<crate::terminals::TerminalManager>();
+    let active_id = focus
+        .active_id()
+        .expect("startup should focus a live terminal");
+    let active = manager
+        .get(active_id)
+        .expect("active terminal should exist");
+    assert_eq!(active.session_name, "neozeus-session-live");
+    assert_eq!(manager.terminal_ids().len(), 2);
+    assert_eq!(client.sessions.lock().unwrap().len(), 2);
+}
+
+#[test]
+fn startup_leaves_only_disconnected_sessions_visible_and_unfocused() {
+    let dir = temp_dir("neozeus-startup-disconnected-visible");
+    let sessions_path = dir.join("terminals.v1");
+    let persisted = crate::terminals::PersistedTerminalSessions {
+        sessions: vec![crate::terminals::TerminalSessionRecord {
+            session_name: "neozeus-session-dead".to_owned(),
+            label: Some("dead".to_owned()),
+            creation_index: 0,
+            last_focused: true,
+        }],
+    };
+    std::fs::write(
+        &sessions_path,
+        crate::terminals::serialize_persisted_terminal_sessions(&persisted),
+    )
+    .expect("persisted sessions should write");
+
+    let client = Arc::new(crate::tests::FakeDaemonClient::default());
+    client.set_session_runtime(
+        "neozeus-session-dead",
+        crate::terminals::TerminalRuntimeState::disconnected("dead session"),
+    );
+
+    let mut world = World::default();
+    world.insert_resource(Assets::<Image>::default());
+    world.insert_resource(crate::terminals::TerminalManager::default());
+    world.insert_resource(crate::terminals::TerminalFocusState::default());
+    world.insert_resource(crate::terminals::TerminalPresentationStore::default());
+    world.insert_resource(crate::hud::AgentDirectory::default());
+    world.insert_resource(fake_runtime_spawner(client.clone()));
+    world.insert_resource(crate::terminals::TerminalSessionPersistenceState {
+        path: Some(sessions_path),
+        dirty_since_secs: None,
+    });
+    world.insert_resource(crate::terminals::TerminalNotesState::default());
+    world.insert_resource(crate::hud::TerminalVisibilityState::default());
+
+    world.run_system_once(crate::startup::setup_scene).unwrap();
+
+    let focus = world.resource::<crate::terminals::TerminalFocusState>();
+    let manager = world.resource::<crate::terminals::TerminalManager>();
+    assert_eq!(focus.active_id(), None);
+    assert_eq!(manager.terminal_ids().len(), 1);
+    let only_terminal = manager
+        .get(manager.terminal_ids()[0])
+        .expect("restored terminal should exist");
+    assert_eq!(only_terminal.session_name, "neozeus-session-dead");
+    assert_eq!(
+        world
+            .resource::<crate::hud::TerminalVisibilityState>()
+            .policy,
+        TerminalVisibilityPolicy::ShowAll
+    );
+    assert_eq!(client.sessions.lock().unwrap().len(), 1);
 }
 
 #[test]

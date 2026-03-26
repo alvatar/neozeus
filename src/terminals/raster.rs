@@ -20,7 +20,7 @@ use bevy::{
 use bevy_egui::egui;
 use cosmic_text::{
     Attrs as CtAttrs, Buffer as CtBuffer, Color as CtColor, Family as CtFamily,
-    Metrics as CtMetrics, Shaping as CtShaping,
+    Shaping as CtShaping,
 };
 use std::{env, fs, path::Path};
 
@@ -400,7 +400,7 @@ pub(crate) fn rasterize_terminal_glyph(
         };
     };
 
-    let metrics = CtMetrics::new(height as f32 * 0.9, height as f32);
+    let metrics = font_state.glyph_metrics_for_cell_height(height);
     let mut buffer = CtBuffer::new_empty(metrics);
     {
         let mut borrowed = buffer.borrow_with(font_system);
@@ -412,9 +412,10 @@ pub(crate) fn rasterize_terminal_glyph(
     }
 
     let base_color = CtColor::rgb(0xFF, 0xFF, 0xFF);
+    let baseline_offset = font_state.baseline_offset_for_cell_height(height);
     for run in buffer.layout_runs() {
         for glyph in run.glyphs {
-            let physical = glyph.physical((0.0, run.line_y), 1.0);
+            let physical = glyph.physical((0.0, run.line_y + baseline_offset), 1.0);
             text_renderer.swash_cache.with_pixels(
                 font_system,
                 physical.cache_key,

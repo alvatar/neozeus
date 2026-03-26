@@ -37,6 +37,10 @@ fn is_plain_ctrl_enter(event: &KeyboardInput, ctrl: bool, alt: bool, super_key: 
         && !super_key
 }
 
+fn terminal_is_interactive(terminal: &crate::terminals::TerminalRuntimeState) -> bool {
+    terminal.is_interactive()
+}
+
 pub(crate) fn should_spawn_terminal_globally(
     event: &KeyboardInput,
     keys: &ButtonInput<KeyCode>,
@@ -334,6 +338,11 @@ pub(crate) fn handle_terminal_direct_input_keyboard(
             redraws.write(RequestRedraw);
             return;
         };
+        if !terminal_is_interactive(&terminal.snapshot.runtime) {
+            input_capture.close_direct_terminal_input();
+            redraws.write(RequestRedraw);
+            return;
+        }
         let mut mode_changed = false;
         for event in messages.read() {
             if is_plain_ctrl_enter(event, ctrl, alt, super_key) {
@@ -356,6 +365,12 @@ pub(crate) fn handle_terminal_direct_input_keyboard(
     let Some(active_id) = focus_state.active_id() else {
         return;
     };
+    let Some(active_terminal) = terminal_manager.get(active_id) else {
+        return;
+    };
+    if !terminal_is_interactive(&active_terminal.snapshot.runtime) {
+        return;
+    }
     for event in messages.read() {
         if !is_plain_ctrl_enter(event, ctrl, alt, super_key) {
             continue;

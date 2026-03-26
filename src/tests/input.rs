@@ -513,6 +513,51 @@ fn direct_input_mode_sends_keys_to_terminal_without_opening_message_box() {
 }
 
 #[test]
+fn ctrl_enter_does_not_open_direct_input_for_disconnected_terminal() {
+    let (mut world, terminal_id) =
+        world_with_active_terminal(Vec2::new(10.0, 10.0), false, Vec2::ZERO);
+    world.init_resource::<Messages<RequestRedraw>>();
+    let mut keys = ButtonInput::<KeyCode>::default();
+    keys.press(KeyCode::ControlLeft);
+    world.insert_resource(keys);
+    world
+        .resource_mut::<crate::terminals::TerminalManager>()
+        .get_mut(terminal_id)
+        .expect("terminal should exist")
+        .snapshot
+        .runtime = crate::terminals::TerminalRuntimeState::disconnected("dead session");
+
+    dispatch_terminal_ui_key(&mut world, pressed_key(KeyCode::Enter, Key::Enter));
+
+    let hud_state = snapshot_test_hud_state(&world);
+    assert_eq!(hud_state.direct_input_terminal, None);
+    assert_eq!(world.resource::<Messages<RequestRedraw>>().len(), 0);
+}
+
+#[test]
+fn direct_input_mode_closes_when_terminal_becomes_disconnected() {
+    let (mut world, terminal_id, input_rx) =
+        world_with_active_terminal_and_receiver(Vec2::new(10.0, 10.0), false, Vec2::ZERO);
+    let mut hud_state = crate::hud::HudState::default();
+    hud_state.open_direct_terminal_input(terminal_id);
+    insert_test_hud_state(&mut world, hud_state);
+    init_hud_commands(&mut world);
+    world.init_resource::<Messages<RequestRedraw>>();
+    world
+        .resource_mut::<crate::terminals::TerminalManager>()
+        .get_mut(terminal_id)
+        .expect("terminal should exist")
+        .snapshot
+        .runtime = crate::terminals::TerminalRuntimeState::disconnected("dead session");
+
+    dispatch_terminal_ui_key(&mut world, pressed_text(KeyCode::KeyA, Some("a")));
+
+    assert!(input_rx.try_recv().is_err());
+    assert_eq!(snapshot_test_hud_state(&world).direct_input_terminal, None);
+    assert_eq!(world.resource::<Messages<RequestRedraw>>().len(), 1);
+}
+
+#[test]
 fn closing_message_box_preserves_draft_for_reopen() {
     let terminal_id = crate::terminals::TerminalId(7);
     let mut hud_state = crate::hud::HudState::default();
