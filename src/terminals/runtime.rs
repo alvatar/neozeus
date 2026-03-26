@@ -22,7 +22,6 @@ impl RuntimeNotifier {
         Self { proxy: Some(proxy) }
     }
 
-    #[cfg(test)]
     pub(crate) fn noop() -> Self {
         Self { proxy: None }
     }
@@ -51,12 +50,16 @@ impl TerminalRuntimeSpawner {
         }
     }
 
-    #[cfg(test)]
-    pub(crate) fn for_tests(daemon: TerminalDaemonClientResource) -> Self {
+    pub(crate) fn headless(daemon: TerminalDaemonClientResource) -> Self {
         Self {
             notifier: RuntimeNotifier::noop(),
             daemon,
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn for_tests(daemon: TerminalDaemonClientResource) -> Self {
+        Self::headless(daemon)
     }
 
     pub(crate) fn notifier(&self) -> RuntimeNotifier {

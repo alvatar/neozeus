@@ -16,17 +16,18 @@ use crate::{
         TerminalPointerState, TerminalPresentationStore, TerminalRuntimeSpawner,
         TerminalSessionPersistenceState, TerminalViewState,
     },
-    verification::AutoVerifyConfig,
+    verification::{AutoVerifyConfig, VerificationScenarioConfig},
 };
 use bevy::{
+    app::ScheduleRunnerPlugin,
     prelude::*,
     render::{settings::WgpuSettings, RenderPlugin},
     sprite_render::Material2dPlugin,
-    window::{MonitorSelection, WindowMode},
-    winit::{EventLoopProxyWrapper, WinitSettings},
+    window::{MonitorSelection, PrimaryWindow, WindowMode},
+    winit::{EventLoopProxyWrapper, WinitPlugin, WinitSettings},
 };
 use bevy_vello::VelloPlugin;
-use std::{any::Any, env, sync::Arc};
+use std::{any::Any, env, sync::Arc, time::Duration};
 
 pub(crate) fn build_app() -> Result<App, String> {
     let mut app = App::new();
@@ -87,6 +88,24 @@ pub(crate) fn resolve_force_fallback_adapter(raw: Option<&str>) -> bool {
         .unwrap_or(true)
 }
 
+pub(crate) fn resolve_force_fallback_adapter_for(
+    raw: Option<&str>,
+    output_mode: crate::app::OutputMode,
+) -> bool {
+    raw.map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|_| resolve_force_fallback_adapter(raw))
+        .unwrap_or(!output_mode.is_offscreen())
+}
+
+pub(crate) fn primary_window_plugin_config_for(output: &AppOutputConfig) -> Option<Window> {
+    (!output.mode.is_offscreen()).then(|| primary_window_config_for(output))
+}
+
+pub(crate) fn uses_headless_runner(output: &AppOutputConfig) -> bool {
+    output.mode.is_offscreen()
+}
+
 pub(crate) fn primary_window_config_for(output: &AppOutputConfig) -> Window {
     let resolution = if let Some(scale_factor) = output.scale_factor_override {
         bevy::window::WindowResolution::new(output.width, output.height)
@@ -117,45 +136,61 @@ fn configure_app(app: &mut App) -> Result<(), String> {
     let window_capture = WindowCaptureConfig::from_env();
     let final_frame_capture = FinalFrameCaptureConfig::from_env();
     let auto_verify = AutoVerifyConfig::from_env();
+    let verification_scenario = VerificationScenarioConfig::from_env();
     let winit_settings = if output.mode.is_offscreen()
         || hud_capture.is_some()
         || hud_composite_capture.is_some()
         || window_capture.is_some()
         || final_frame_capture.is_some()
         || auto_verify.is_some()
+        || verification_scenario.is_some()
     {
         WinitSettings::game()
     } else {
         WinitSettings::desktop_app()
     };
 
-    app.add_plugins(
-        DefaultPlugins
-            .set(RenderPlugin {
-                render_creation: WgpuSettings {
-                    force_fallback_adapter: resolve_force_fallback_adapter(
-                        env::var("NEOZEUS_FORCE_FALLBACK_ADAPTER").ok().as_deref(),
-                    ),
-                    ..default()
-                }
-                .into(),
+    let default_plugins = DefaultPlugins
+        .set(RenderPlugin {
+            render_creation: WgpuSettings {
+                force_fallback_adapter: resolve_force_fallback_adapter_for(
+                    env::var("NEOZEUS_FORCE_FALLBACK_ADAPTER").ok().as_deref(),
+                    output.mode,
+                ),
                 ..default()
-            })
-            .set(WindowPlugin {
-                primary_window: Some(primary_window_config_for(&output)),
-                ..default()
-            }),
-    )
-    .add_plugins((
+            }
+            .into(),
+            ..default()
+        })
+        .set(WindowPlugin {
+            primary_window: primary_window_plugin_config_for(&output),
+            ..default()
+        });
+    if uses_headless_runner(&output) {
+        app.add_plugins(default_plugins.disable::<WinitPlugin>())
+            .add_plugins(ScheduleRunnerPlugin::run_loop(Duration::from_secs_f64(
+                1.0 / 60.0,
+            )));
+    } else {
+        app.add_plugins(default_plugins);
+    }
+    app.add_plugins((
         VelloPlugin::default(),
         Material2dPlugin::<AgentListBloomBlurMaterial>::default(),
     ));
 
-    let event_loop_proxy = {
-        let proxy = app.world().resource::<EventLoopProxyWrapper>();
-        (**proxy).clone()
-    };
+    if uses_headless_runner(&output) {
+        app.world_mut()
+            .spawn((primary_window_config_for(&output), PrimaryWindow));
+    }
+
     let daemon_client = TerminalDaemonClientResource::system()?;
+    let runtime_spawner = if uses_headless_runner(&output) {
+        TerminalRuntimeSpawner::headless(daemon_client.clone())
+    } else {
+        let proxy = app.world().resource::<EventLoopProxyWrapper>();
+        TerminalRuntimeSpawner::new((**proxy).clone(), daemon_client.clone())
+    };
 
     if let Some(hud_capture) = hud_capture {
         app.insert_resource(hud_capture);
@@ -172,6 +207,9 @@ fn configure_app(app: &mut App) -> Result<(), String> {
     if let Some(config) = auto_verify {
         app.insert_resource(config);
     }
+    if let Some(config) = verification_scenario {
+        app.insert_resource(config);
+    }
 
     app.insert_resource(output)
         .insert_resource(FinalFrameOutputState::default())
@@ -181,7 +219,7 @@ fn configure_app(app: &mut App) -> Result<(), String> {
         .insert_resource(crate::terminals::TerminalFocusState::default())
         .insert_resource(TerminalPresentationStore::default())
         .insert_resource(daemon_client.clone())
-        .insert_resource(TerminalRuntimeSpawner::new(event_loop_proxy, daemon_client))
+        .insert_resource(runtime_spawner)
         .insert_resource(TerminalSessionPersistenceState::default())
         .insert_resource(crate::terminals::TerminalNotesState::default())
         .insert_resource(TerminalFontState::default())
