@@ -1048,7 +1048,7 @@ fn sync_hud_widget_bloom_spawns_agent_list_source_sprites() {
         .into_iter()
         .next()
         .expect("agent row exists");
-        let main = agent_row_rect(row.rect, AgentListRowSection::Main);
+        let main = agent_row_rect(row.rect, AgentListRowSection::Accent);
         let marker = agent_row_rect(row.rect, AgentListRowSection::Marker);
         let target_size = {
             let mut camera_query =
@@ -1088,6 +1088,56 @@ fn sync_hud_widget_bloom_spawns_agent_list_source_sprites() {
     assert_eq!(visibility, &Visibility::Visible);
     assert_eq!(transform.translation.z, agent_list_bloom_z());
     assert_eq!(sprite.custom_size, Some(Vec2::new(1400.0, 900.0)));
+}
+
+#[test]
+fn sync_hud_widget_bloom_hides_sources_and_composite_while_modal_is_visible() {
+    let mut world = World::default();
+    let (bridge, _) = test_bridge();
+    let mut manager = TerminalManager::default();
+    manager.create_terminal(bridge);
+    let mut hud_state = HudState::default();
+    hud_state.insert(
+        HudModuleId::AgentList,
+        crate::hud::default_hud_module_instance(&crate::hud::HUD_MODULE_DEFINITIONS[1]),
+    );
+    hud_state.message_box.visible = true;
+    insert_terminal_manager_resources(&mut world, manager);
+    insert_test_hud_state(&mut world, hud_state);
+    world.insert_resource(AgentDirectory::default());
+    world.insert_resource(HudBloomSettings::default());
+    world.insert_resource(HudWidgetBloom::default());
+    world.insert_resource(Assets::<Image>::default());
+    world.insert_resource(Assets::<Mesh>::default());
+    world.insert_resource(Assets::<crate::hud::AgentListBloomBlurMaterial>::default());
+    world.spawn((
+        Window {
+            resolution: (1400, 900).into(),
+            ..default()
+        },
+        PrimaryWindow,
+    ));
+
+    world
+        .run_system_once(crate::hud::setup_hud_widget_bloom)
+        .unwrap();
+    world
+        .run_system_once(crate::hud::sync_structural_hud_layout)
+        .unwrap();
+    world
+        .run_system_once(crate::hud::sync_hud_widget_bloom)
+        .unwrap();
+
+    assert_eq!(
+        world
+            .query::<&AgentListBloomSourceSprite>()
+            .iter(&world)
+            .count(),
+        0
+    );
+    let mut composite_query = world.query::<(&Visibility, &AgentListBloomCompositeMarker)>();
+    let (visibility, _) = composite_query.single(&world).unwrap();
+    assert_eq!(visibility, &Visibility::Hidden);
 }
 
 #[test]

@@ -21,7 +21,7 @@ value=$(neozeus_offscreen_parse_metric "$metric")
 python - "$value" <<'PY'
 import sys
 value = float(sys.argv[1])
-threshold = 5000.0
+threshold = 3000.0
 print(f"inspect_switch_diff={value:.0f}")
 print(f"threshold={threshold:.0f}")
 if value <= threshold:
