@@ -1,16 +1,19 @@
 use crate::{
+    app::{
+        format_startup_panic, primary_window_config_for, primary_window_config_for_with_config,
+        primary_window_plugin_config_for, resolve_force_fallback_adapter,
+        resolve_force_fallback_adapter_for, resolve_output_dimension, resolve_output_mode,
+        resolve_window_mode, resolve_window_scale_factor, uses_headless_runner, AppOutputConfig,
+        OutputMode,
+    },
     app_config::{
         load_neozeus_config_from, parse_neozeus_config, resolve_neozeus_config_path_with,
         resolve_terminal_font_path,
     },
     hud::TerminalVisibilityPolicy,
-    scene::{
-        choose_startup_focus_session_name, format_startup_panic, primary_window_config_for,
-        primary_window_config_for_with_config, primary_window_plugin_config_for,
-        resolve_force_fallback_adapter, resolve_force_fallback_adapter_for,
-        resolve_output_dimension, resolve_output_mode, resolve_window_mode,
-        resolve_window_scale_factor, should_request_visual_redraw,
-        startup_visibility_policy_for_focus, uses_headless_runner, AppOutputConfig, OutputMode,
+    startup::{
+        choose_startup_focus_session_name, should_request_visual_redraw,
+        startup_visibility_policy_for_focus,
     },
     terminals::TerminalId,
     tests::{fake_runtime_spawner, temp_dir},
