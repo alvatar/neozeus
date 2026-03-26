@@ -34,7 +34,7 @@ use crate::{
         TerminalRuntimeState, TerminalSessionClient, TerminalSessionPersistenceState,
         TerminalSessionRecord, TerminalSurface, TerminalTextRenderer, TerminalTextureState,
         TerminalUpdate, TerminalViewState, TmuxPaneClient, PERSISTENT_SESSION_PREFIX,
-        PERSISTENT_TMUX_SESSION_PREFIX,
+        PERSISTENT_TMUX_SESSION_PREFIX, VERIFIER_SESSION_PREFIX,
     },
 };
 use alacritty_terminal::vte::ansi::{Color as AnsiColor, NamedColor};
@@ -2833,6 +2833,39 @@ fn daemon_session_listing_preserves_creation_order_not_lexical_order() {
         .map(|session| session.session_id)
         .collect::<Vec<_>>();
     assert_eq!(listed, created);
+}
+
+#[test]
+fn runtime_spawner_bootstraps_new_persistent_sessions_with_wrapped_pi() {
+    let client = Arc::new(FakeDaemonClient::default());
+    let spawner = fake_runtime_spawner(client.clone());
+
+    let session_id = spawner
+        .create_session(PERSISTENT_SESSION_PREFIX)
+        .expect("persistent session should be created");
+
+    let commands = client.sent_commands.lock().unwrap().clone();
+    assert_eq!(commands.len(), 1);
+    assert_eq!(commands[0].0, session_id);
+    assert!(matches!(
+        &commands[0].1,
+        TerminalCommand::SendCommand(command)
+            if command.contains("export ZEUS_AGENT_NAME='neozeus-session-0'")
+                && command.contains("$HOME/.local/bin/pi")
+                && command.contains("exec pi")
+    ));
+}
+
+#[test]
+fn runtime_spawner_does_not_bootstrap_verifier_sessions() {
+    let client = Arc::new(FakeDaemonClient::default());
+    let spawner = fake_runtime_spawner(client.clone());
+
+    let _ = spawner
+        .create_session(VERIFIER_SESSION_PREFIX)
+        .expect("verifier session should be created");
+
+    assert!(client.sent_commands.lock().unwrap().is_empty());
 }
 
 #[test]
