@@ -1,9 +1,3 @@
-pub(crate) use crate::hud::commands::{
-    apply_hud_module_requests, apply_terminal_focus_requests, apply_terminal_lifecycle_requests,
-    apply_terminal_send_requests, apply_terminal_task_requests, apply_terminal_view_requests,
-    apply_visibility_requests, dispatch_hud_intents,
-};
-
 #[cfg(test)]
 use crate::{
     hud::{AgentDirectory, TerminalVisibilityState},
