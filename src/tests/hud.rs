@@ -12,13 +12,13 @@ use crate::hud::{
     resolve_agent_list_bloom_debug_previews, resolve_agent_list_bloom_intensity,
     resolve_hud_layout_path_with, save_hud_layout_if_dirty, serialize_persisted_hud_state,
     task_dialog_action_buttons, AgentDirectory, AgentListBloomCameraMarker,
-    AgentListBloomCompositeMarker, AgentListBloomSourceKind, AgentListBloomSourceSprite,
-    AgentListRowSection, HudBloomSettings, HudDragState, HudIntent, HudModuleId, HudModuleModel,
-    HudOffscreenCompositor, HudPersistenceState, HudRect, HudState, HudWidgetBloom,
-    PersistedHudModuleState, PersistedHudState, TerminalFocusRequest, TerminalVisibilityPolicy,
-    TerminalVisibilityRequest, TerminalVisibilityState, AGENT_LIST_BLOOM_RED_B,
-    AGENT_LIST_BLOOM_RED_G, AGENT_LIST_BLOOM_RED_R, AGENT_LIST_BORDER_ORANGE_B,
-    AGENT_LIST_BORDER_ORANGE_G, AGENT_LIST_BORDER_ORANGE_R,
+    AgentListBloomCompositeMarker, AgentListBloomSourceKind, AgentListBloomSourceSegment,
+    AgentListBloomSourceSprite, AgentListRowSection, HudBloomSettings, HudDragState, HudIntent,
+    HudModuleId, HudModuleModel, HudOffscreenCompositor, HudPersistenceState, HudRect, HudState,
+    HudWidgetBloom, PersistedHudModuleState, PersistedHudState, TerminalFocusRequest,
+    TerminalVisibilityPolicy, TerminalVisibilityRequest, TerminalVisibilityState,
+    AGENT_LIST_BLOOM_RED_B, AGENT_LIST_BLOOM_RED_G, AGENT_LIST_BLOOM_RED_R,
+    AGENT_LIST_BORDER_ORANGE_B, AGENT_LIST_BORDER_ORANGE_G, AGENT_LIST_BORDER_ORANGE_R,
 };
 use crate::terminals::{
     TerminalManager, TerminalNotesState, TerminalPanel, TerminalPanelFrame,
@@ -1021,13 +1021,34 @@ fn sync_hud_widget_bloom_spawns_agent_list_source_sprites() {
         .iter(&world)
         .map(|(marker, sprite)| (*marker, sprite.clone()))
         .collect::<Vec<_>>();
-    assert_eq!(source_sprites.len(), 2);
-    assert!(source_sprites
-        .iter()
-        .any(|(sprite, _)| sprite.kind == AgentListBloomSourceKind::Main));
-    assert!(source_sprites
-        .iter()
-        .any(|(sprite, _)| sprite.kind == AgentListBloomSourceKind::Marker));
+    assert_eq!(source_sprites.len(), 8);
+    assert_eq!(
+        source_sprites
+            .iter()
+            .filter(|(sprite, _)| sprite.kind == AgentListBloomSourceKind::Main)
+            .count(),
+        4
+    );
+    assert_eq!(
+        source_sprites
+            .iter()
+            .filter(|(sprite, _)| sprite.kind == AgentListBloomSourceKind::Marker)
+            .count(),
+        4
+    );
+    for segment in [
+        AgentListBloomSourceSegment::Top,
+        AgentListBloomSourceSegment::Right,
+        AgentListBloomSourceSegment::Bottom,
+        AgentListBloomSourceSegment::Left,
+    ] {
+        assert!(source_sprites.iter().any(|(sprite, _)| {
+            sprite.kind == AgentListBloomSourceKind::Main && sprite.segment == segment
+        }));
+        assert!(source_sprites.iter().any(|(sprite, _)| {
+            sprite.kind == AgentListBloomSourceKind::Marker && sprite.segment == segment
+        }));
+    }
 
     let expected_sizes = {
         let manager = world.resource::<TerminalManager>();
@@ -1048,7 +1069,7 @@ fn sync_hud_widget_bloom_spawns_agent_list_source_sprites() {
         .into_iter()
         .next()
         .expect("agent row exists");
-        let main = agent_row_rect(row.rect, AgentListRowSection::Accent);
+        let main = agent_row_rect(row.rect, AgentListRowSection::Main);
         let marker = agent_row_rect(row.rect, AgentListRowSection::Marker);
         let target_size = {
             let mut camera_query =
@@ -1066,8 +1087,10 @@ fn sync_hud_widget_bloom_spawns_agent_list_source_sprites() {
         let scale_x = target_size.width as f32 / 1400.0;
         let scale_y = target_size.height as f32 / 900.0;
         [
-            Vec2::new(main.w * scale_x, main.h * scale_y),
-            Vec2::new(marker.w * scale_x, marker.h * scale_y),
+            Vec2::new(main.w * scale_x, 3.0 * scale_y),
+            Vec2::new(3.0 * scale_x, main.h * scale_y),
+            Vec2::new(marker.w * scale_x, 2.5 * scale_y),
+            Vec2::new(2.5 * scale_x, marker.h * scale_y),
         ]
     };
     let actual_sizes = source_sprites
@@ -1186,7 +1209,7 @@ fn sync_hud_widget_bloom_only_uses_active_agent_source() {
         .iter(&world)
         .copied()
         .collect::<Vec<_>>();
-    assert_eq!(source_sprites.len(), 2);
+    assert_eq!(source_sprites.len(), 8);
     assert!(source_sprites
         .iter()
         .all(|sprite| sprite.terminal_id == id_two));
