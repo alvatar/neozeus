@@ -1,8 +1,9 @@
 use crate::{
+    app::AppSessionState,
     hud::{
-        message_box_action_at, modules, task_dialog_action_at, AgentDirectory,
-        HudInputCaptureState, HudIntent, HudLayoutState, HudMessageBoxAction, HudModalState,
-        HudModuleId, HudRect, HudTaskDialogAction, HUD_TITLEBAR_HEIGHT,
+        message_box_action_at, modules, task_dialog_action_at, AgentListView, ConversationListView,
+        HudInputCaptureState, HudIntent, HudLayoutState, HudMessageBoxAction, HudRect,
+        HudTaskDialogAction, HudWidgetKey, ThreadView, HUD_TITLEBAR_HEIGHT,
     },
     terminals::{
         TerminalFocusState, TerminalId, TerminalManager, TerminalPresentationStore,
@@ -33,8 +34,8 @@ fn cursor_hud_position(window: &Window) -> Option<Vec2> {
 /// Most modules reserve their titlebar for dragging and only expose the area below it as interactive
 /// content. The agent list is the exception: its whole shell is interactive, so it keeps the full
 /// rectangle.
-fn content_hit_rect(module_id: HudModuleId, rect: HudRect) -> HudRect {
-    if module_id == HudModuleId::AgentList {
+fn content_hit_rect(module_id: HudWidgetKey, rect: HudRect) -> HudRect {
+    if module_id == HudWidgetKey::AgentList {
         return rect;
     }
     HudRect {
@@ -51,13 +52,15 @@ pub(crate) struct HudPointerContext<'w, 's> {
     mouse_buttons: Res<'w, ButtonInput<MouseButton>>,
     mouse_wheel: MessageReader<'w, 's, MouseWheel>,
     layout_state: ResMut<'w, HudLayoutState>,
-    modal_state: ResMut<'w, HudModalState>,
+    app_session: ResMut<'w, AppSessionState>,
     input_capture: Res<'w, HudInputCaptureState>,
     terminal_manager: Res<'w, TerminalManager>,
     focus_state: Res<'w, TerminalFocusState>,
     presentation_store: Res<'w, TerminalPresentationStore>,
     view_state: Res<'w, TerminalViewState>,
-    agent_directory: Res<'w, AgentDirectory>,
+    agent_list_view: Res<'w, AgentListView>,
+    conversation_list_view: Res<'w, ConversationListView>,
+    thread_view: Res<'w, ThreadView>,
     hud_commands: MessageWriter<'w, HudIntent>,
     redraws: MessageWriter<'w, RequestRedraw>,
 }
@@ -68,15 +71,15 @@ pub(crate) struct HudPointerContext<'w, 's> {
 /// conversion also closes the message box and discards its draft because the text has been consumed
 /// into a task mutation.
 fn message_box_task_intent(
-    modal_state: &mut HudModalState,
+    composer: &mut crate::ui::ComposerState,
     action: HudMessageBoxAction,
 ) -> Option<HudIntent> {
-    let target_terminal = modal_state.message_box.target_terminal?;
-    let payload = modal_state.message_box.text.trim().to_owned();
+    let target_terminal = composer.message_editor.target_terminal?;
+    let payload = composer.message_editor.text.trim().to_owned();
     if payload.is_empty() {
         return None;
     }
-    modal_state.close_message_box_and_discard_draft();
+    composer.discard_current_message();
     Some(match action {
         HudMessageBoxAction::AppendTask => HudIntent::AppendTerminalTask(target_terminal, payload),
         HudMessageBoxAction::PrependTask => {
@@ -90,12 +93,12 @@ fn message_box_task_intent(
 /// Today the only task-dialog action is `ClearDone`, which requires a bound target terminal to emit
 /// an intent.
 fn task_dialog_intent(
-    modal_state: &mut HudModalState,
+    composer: &mut crate::ui::ComposerState,
     action: HudTaskDialogAction,
 ) -> Option<HudIntent> {
     match action {
-        HudTaskDialogAction::ClearDone => modal_state
-            .task_dialog
+        HudTaskDialogAction::ClearDone => composer
+            .task_editor
             .target_terminal
             .map(HudIntent::ClearDoneTerminalTasks),
     }
@@ -109,14 +112,15 @@ fn task_dialog_intent(
 /// interaction run. Within normal interaction it handles click dispatch, titlebar dragging, scroll
 /// routing, and per-module hover updates.
 pub(crate) fn handle_hud_pointer_input(mut ctx: HudPointerContext) {
-    if ctx.modal_state.message_box.visible {
+    if ctx.app_session.composer.message_editor.visible {
         ctx.layout_state.drag = None;
         let Some(cursor) = cursor_hud_position(&ctx.primary_window) else {
             return;
         };
         if ctx.mouse_buttons.just_pressed(MouseButton::Left) {
             if let Some(action) = message_box_action_at(&ctx.primary_window, cursor) {
-                if let Some(intent) = message_box_task_intent(&mut ctx.modal_state, action) {
+                if let Some(intent) = message_box_task_intent(&mut ctx.app_session.composer, action)
+                {
                     ctx.hud_commands.write(intent);
                 }
                 ctx.redraws.write(RequestRedraw);
@@ -124,14 +128,14 @@ pub(crate) fn handle_hud_pointer_input(mut ctx: HudPointerContext) {
         }
         return;
     }
-    if ctx.modal_state.task_dialog.visible {
+    if ctx.app_session.composer.task_editor.visible {
         ctx.layout_state.drag = None;
         let Some(cursor) = cursor_hud_position(&ctx.primary_window) else {
             return;
         };
         if ctx.mouse_buttons.just_pressed(MouseButton::Left) {
             if let Some(action) = task_dialog_action_at(&ctx.primary_window, cursor) {
-                if let Some(intent) = task_dialog_intent(&mut ctx.modal_state, action) {
+                if let Some(intent) = task_dialog_intent(&mut ctx.app_session.composer, action) {
                     ctx.hud_commands.write(intent);
                 }
                 ctx.redraws.write(RequestRedraw);
@@ -160,7 +164,7 @@ pub(crate) fn handle_hud_pointer_input(mut ctx: HudPointerContext) {
                 .get(module_id)
                 .map(|module| module.shell.titlebar_rect())
                 .unwrap_or_default();
-            if titlebar_rect.contains(cursor) && module_id != HudModuleId::AgentList {
+            if titlebar_rect.contains(cursor) && module_id != HudWidgetKey::AgentList {
                 ctx.layout_state.drag = Some(crate::hud::HudDragState {
                     module_id,
                     grab_offset: Vec2::new(cursor.x - titlebar_rect.x, cursor.y - titlebar_rect.y),
@@ -177,7 +181,9 @@ pub(crate) fn handle_hud_pointer_input(mut ctx: HudPointerContext) {
                         &ctx.focus_state,
                         &ctx.presentation_store,
                         &ctx.view_state,
-                        &ctx.agent_directory,
+                        &ctx.agent_list_view,
+                        &ctx.conversation_list_view,
+                        &ctx.thread_view,
                         &ctx.layout_state,
                         &mut emitted_commands,
                     );
@@ -217,6 +223,8 @@ pub(crate) fn handle_hud_pointer_input(mut ctx: HudPointerContext) {
                         scroll_delta,
                         &ctx.terminal_manager,
                         content_rect,
+                        &ctx.agent_list_view,
+                        &ctx.conversation_list_view,
                     );
                 }
             }
@@ -251,7 +259,8 @@ pub(crate) fn handle_hud_pointer_input(mut ctx: HudPointerContext) {
                 point,
                 &ctx.terminal_manager,
                 &ctx.focus_state,
-                &ctx.agent_directory,
+                &ctx.agent_list_view,
+                &ctx.conversation_list_view,
             )
         } else {
             modules::clear_hover(module_id, &mut module.model)
@@ -307,13 +316,13 @@ fn adjacent_agent_terminal_id(
 pub(crate) fn handle_hud_module_shortcuts(
     mut messages: MessageReader<KeyboardInput>,
     keys: Res<ButtonInput<KeyCode>>,
-    modal_state: Res<HudModalState>,
+    app_session: Res<AppSessionState>,
     input_capture: Res<HudInputCaptureState>,
     terminal_manager: Res<TerminalManager>,
     focus_state: Res<TerminalFocusState>,
     mut hud_commands: MessageWriter<HudIntent>,
 ) {
-    if modal_state.keyboard_capture_active(&input_capture) {
+    if app_session.composer.keyboard_capture_active(&input_capture) {
         return;
     }
 
@@ -361,8 +370,10 @@ pub(crate) fn handle_hud_module_shortcuts(
         }
 
         let module_id = match event.key_code {
-            KeyCode::Digit0 => Some(HudModuleId::DebugToolbar),
-            KeyCode::Digit1 => Some(HudModuleId::AgentList),
+            KeyCode::Digit0 => Some(HudWidgetKey::DebugToolbar),
+            KeyCode::Digit1 => Some(HudWidgetKey::AgentList),
+            KeyCode::Digit2 => Some(HudWidgetKey::ConversationList),
+            KeyCode::Digit3 => Some(HudWidgetKey::ThreadPane),
             _ => None,
         };
         let Some(module_id) = module_id else {

@@ -1,9 +1,9 @@
 use crate::{
-    hud::{AgentDirectory, TerminalVisibilityPolicy, TerminalVisibilityState},
+    hud::{TerminalVisibilityPolicy, TerminalVisibilityState},
     terminals::{
-        append_debug_log, mark_terminal_sessions_dirty, presentation::spawn_terminal_presentation,
-        TerminalBridge, TerminalFocusState, TerminalId, TerminalManager, TerminalPresentationStore,
-        TerminalRuntimeSpawner, TerminalSessionPersistenceState, TerminalViewState,
+        append_debug_log, mark_terminal_sessions_dirty, TerminalBridge, TerminalFocusState,
+        TerminalId, TerminalManager, TerminalPresentationStore, TerminalRuntimeSpawner,
+        TerminalSessionPersistenceState, TerminalViewState,
     },
 };
 use bevy::prelude::*;
@@ -17,25 +17,21 @@ use bevy::prelude::*;
 /// The function asks the runtime spawner for an attached bridge, creates the terminal in the manager
 /// without implicitly changing creation order semantics, optionally focuses it, and then creates the
 /// panel/frame presentation projection for the returned slot.
-pub(crate) fn spawn_attached_terminal_with_presentation(
-    commands: &mut Commands,
-    images: &mut Assets<Image>,
+pub(crate) fn attach_terminal_session(
     terminal_manager: &mut TerminalManager,
     focus_state: &mut TerminalFocusState,
-    presentation_store: &mut TerminalPresentationStore,
     runtime_spawner: &TerminalRuntimeSpawner,
     session_name: String,
     focus: bool,
 ) -> Result<(TerminalId, TerminalBridge), String> {
     let bridge = runtime_spawner.spawn_attached(&session_name)?;
-    let (terminal_id, slot) = terminal_manager
+    let (terminal_id, _slot) = terminal_manager
         .create_terminal_without_focus_with_slot_and_session(bridge.clone(), session_name);
     if focus {
         focus_state.focus_terminal(terminal_manager, terminal_id);
     }
     #[cfg(test)]
     terminal_manager.replace_test_focus_state(focus_state);
-    spawn_terminal_presentation(commands, images, presentation_store, terminal_id, slot);
     Ok((terminal_id, bridge))
 }
 
@@ -57,27 +53,22 @@ fn adjacent_terminal_in_creation_order(
     }
 }
 
-/// Removes a terminal from authoritative state and despawns its presentation entities.
+/// Removes a terminal from authoritative state while leaving projection cleanup to presentation sync.
 ///
-/// This is the local cleanup half of terminal teardown: remove the terminal from the manager,
-/// forget it from focus state, drop its presentation-store entry, and despawn the panel/frame ECS
-/// entities if they existed.
+/// Terminal lifecycle mutates only the terminal/focus stores. The later projection sync pass observes
+/// the missing terminal id and despawns the now-stale panel/frame entities plus presentation-store
+/// entry.
 pub(crate) fn remove_terminal_with_projection(
-    commands: &mut Commands,
+    _commands: &mut Commands,
     terminal_manager: &mut TerminalManager,
     focus_state: &mut TerminalFocusState,
-    presentation_store: &mut TerminalPresentationStore,
+    _presentation_store: &mut TerminalPresentationStore,
     terminal_id: TerminalId,
 ) {
-    let presented_terminal = presentation_store.remove(terminal_id);
     let _ = terminal_manager.remove_terminal(terminal_id);
     focus_state.forget_terminal(terminal_id);
     #[cfg(test)]
     terminal_manager.replace_test_focus_state(focus_state);
-    if let Some(presented_terminal) = presented_terminal {
-        commands.entity(presented_terminal.panel_entity).despawn();
-        commands.entity(presented_terminal.frame_entity).despawn();
-    }
 }
 
 #[allow(
@@ -98,7 +89,6 @@ pub(crate) fn kill_active_terminal_session_and_remove(
     focus_state: &mut TerminalFocusState,
     presentation_store: &mut TerminalPresentationStore,
     runtime_spawner: &TerminalRuntimeSpawner,
-    agent_directory: &mut AgentDirectory,
     session_persistence: &mut TerminalSessionPersistenceState,
     visibility_state: &mut TerminalVisibilityState,
     view_state: &mut TerminalViewState,
@@ -132,7 +122,6 @@ pub(crate) fn kill_active_terminal_session_and_remove(
         presentation_store,
         active_id,
     );
-    agent_directory.labels.remove(&active_id);
     view_state.forget_terminal(active_id);
     if let Some(replacement_id) = replacement_id {
         focus_state.focus_terminal(terminal_manager, replacement_id);

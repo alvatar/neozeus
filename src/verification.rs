@@ -1,16 +1,16 @@
 use crate::{
-    hud::{
-        AgentDirectory, HudInputCaptureState, HudModalState, TerminalVisibilityPolicy,
-        TerminalVisibilityState,
-    },
+    agents::{AgentCapabilities, AgentCatalog, AgentKind, AgentRuntimeIndex},
+    app::AppSessionState,
+    conversations::AgentTaskStore,
+    hud::{HudInputCaptureState, TerminalVisibilityPolicy, TerminalVisibilityState},
     terminals::{
-        append_debug_log, spawn_attached_terminal_with_presentation, RuntimeNotifier,
-        TerminalBridge, TerminalCell, TerminalCellContent, TerminalCommand, TerminalFocusState,
-        TerminalId, TerminalManager, TerminalNotesState, TerminalPresentationStore,
-        TerminalRuntimeSpawner, TerminalSurface, TerminalViewState, VERIFIER_SESSION_PREFIX,
+        append_debug_log, attach_terminal_session, RuntimeNotifier, TerminalBridge, TerminalCell,
+        TerminalCellContent, TerminalCommand, TerminalFocusState, TerminalId, TerminalManager,
+        TerminalNotesState, TerminalPresentationStore, TerminalRuntimeSpawner, TerminalSurface,
+        TerminalViewState, VERIFIER_SESSION_PREFIX,
     },
 };
-use bevy::{prelude::Resource, prelude::*, window::RequestRedraw};
+use bevy::{ecs::system::SystemParam, prelude::Resource, prelude::*, window::RequestRedraw};
 use bevy_egui::egui;
 use std::{env, thread, time::Duration};
 
@@ -186,10 +186,23 @@ pub(crate) fn start_auto_verify_dispatcher(
     });
 }
 
-#[allow(
-    clippy::too_many_arguments,
-    reason = "verification scenario setup spans terminal spawn, HUD modal state, notes, and visibility"
-)]
+#[derive(SystemParam)]
+pub(crate) struct VerificationScenarioContext<'w> {
+    terminal_manager: ResMut<'w, TerminalManager>,
+    focus_state: ResMut<'w, TerminalFocusState>,
+    presentation_store: ResMut<'w, TerminalPresentationStore>,
+    runtime_spawner: Res<'w, TerminalRuntimeSpawner>,
+    input_capture: ResMut<'w, HudInputCaptureState>,
+    agent_catalog: ResMut<'w, AgentCatalog>,
+    runtime_index: ResMut<'w, AgentRuntimeIndex>,
+    app_session: ResMut<'w, AppSessionState>,
+    task_store: ResMut<'w, AgentTaskStore>,
+    visibility_state: ResMut<'w, TerminalVisibilityState>,
+    view_state: ResMut<'w, TerminalViewState>,
+    notes_state: ResMut<'w, TerminalNotesState>,
+    redraws: MessageWriter<'w, RequestRedraw>,
+}
+
 /// Advances the deterministic verification-scenario state machine during update.
 ///
 /// The system waits out the configured frame delay, spawns however many verifier terminals the
@@ -199,19 +212,7 @@ pub(crate) fn start_auto_verify_dispatcher(
 /// measures a real visual switch instead of a partially loaded one.
 pub(crate) fn run_verification_scenario(
     config: Option<ResMut<VerificationScenarioConfig>>,
-    mut commands: Commands,
-    mut images: ResMut<Assets<Image>>,
-    mut terminal_manager: ResMut<TerminalManager>,
-    mut focus_state: ResMut<TerminalFocusState>,
-    mut presentation_store: ResMut<TerminalPresentationStore>,
-    runtime_spawner: Res<TerminalRuntimeSpawner>,
-    mut modal_state: ResMut<HudModalState>,
-    mut input_capture: ResMut<HudInputCaptureState>,
-    mut agent_directory: ResMut<AgentDirectory>,
-    mut visibility_state: ResMut<TerminalVisibilityState>,
-    mut view_state: ResMut<TerminalViewState>,
-    mut notes_state: ResMut<TerminalNotesState>,
-    mut redraws: MessageWriter<RequestRedraw>,
+    mut ctx: VerificationScenarioContext,
 ) {
     let Some(mut config) = config else {
         return;
@@ -221,7 +222,7 @@ pub(crate) fn run_verification_scenario(
     }
     if config.frames_until_apply > 0 {
         config.frames_until_apply -= 1;
-        redraws.write(RequestRedraw);
+        ctx.redraws.write(RequestRedraw);
         return;
     }
 
@@ -230,20 +231,17 @@ pub(crate) fn run_verification_scenario(
         _ => 1,
     };
     while config.terminal_ids.len() < required_terminals {
-        let session_name = match runtime_spawner.create_session(VERIFIER_SESSION_PREFIX) {
+        let session_name = match ctx.runtime_spawner.create_session(VERIFIER_SESSION_PREFIX) {
             Ok(session_name) => session_name,
             Err(error) => {
                 append_debug_log(format!("verification scenario spawn failed: {error}"));
                 return;
             }
         };
-        let (terminal_id, bridge) = match spawn_attached_terminal_with_presentation(
-            &mut commands,
-            &mut images,
-            &mut terminal_manager,
-            &mut focus_state,
-            &mut presentation_store,
-            &runtime_spawner,
+        let (terminal_id, bridge) = match attach_terminal_session(
+            &mut ctx.terminal_manager,
+            &mut ctx.focus_state,
+            &ctx.runtime_spawner,
             session_name.clone(),
             true,
         ) {
@@ -253,7 +251,7 @@ pub(crate) fn run_verification_scenario(
                     "verification scenario attach failed for {}: {error}",
                     session_name
                 ));
-                let _ = runtime_spawner.kill_session(&session_name);
+                let _ = ctx.runtime_spawner.kill_session(&session_name);
                 return;
             }
         };
@@ -262,7 +260,22 @@ pub(crate) fn run_verification_scenario(
             1 => "beta",
             _ => "gamma",
         };
-        agent_directory.labels.insert(terminal_id, label.to_owned());
+        if ctx.runtime_index.agent_for_terminal(terminal_id).is_none() {
+            let agent_id = ctx.agent_catalog.create_agent(
+                Some(label.to_owned()),
+                AgentKind::Verifier,
+                AgentCapabilities::verifier_defaults(),
+            );
+            let runtime = ctx
+                .terminal_manager
+                .get(terminal_id)
+                .map(|terminal| &terminal.snapshot.runtime);
+            ctx.runtime_index
+                .link_terminal(agent_id, terminal_id, session_name.clone(), runtime);
+            ctx.app_session
+                .composer
+                .bind_agent_terminal(agent_id, terminal_id);
+        }
         bridge.send(TerminalCommand::SendCommand(format!(
             "clear; printf '__NZ_VERIFY_{}__\\n'",
             label.to_ascii_uppercase()
@@ -273,83 +286,110 @@ pub(crate) fn run_verification_scenario(
     match config.scenario {
         VerificationScenario::MessageBoxBloom => {
             let terminal_id = config.terminal_ids[0];
-            focus_state.focus_terminal(&terminal_manager, terminal_id);
-            visibility_state.policy = TerminalVisibilityPolicy::Isolate(terminal_id);
-            view_state.focus_terminal(Some(terminal_id));
-            modal_state.open_message_box(&mut input_capture, terminal_id);
-            modal_state.message_box.load_text("follow up");
+            ctx.focus_state
+                .focus_terminal(&ctx.terminal_manager, terminal_id);
+            ctx.visibility_state.policy = TerminalVisibilityPolicy::Isolate(terminal_id);
+            ctx.view_state.focus_terminal(Some(terminal_id));
+            if let Some(agent_id) = ctx.runtime_index.agent_for_terminal(terminal_id) {
+                ctx.app_session.active_agent = Some(agent_id);
+                ctx.input_capture.close_direct_terminal_input();
+                ctx.app_session.composer.open_message(agent_id, terminal_id);
+                ctx.app_session
+                    .composer
+                    .message_editor
+                    .load_text("follow up");
+            }
         }
         VerificationScenario::TaskDialogBloom => {
             let terminal_id = config.terminal_ids[0];
-            focus_state.focus_terminal(&terminal_manager, terminal_id);
-            visibility_state.policy = TerminalVisibilityPolicy::Isolate(terminal_id);
-            view_state.focus_terminal(Some(terminal_id));
-            let Some(session_name) = terminal_manager
+            ctx.focus_state
+                .focus_terminal(&ctx.terminal_manager, terminal_id);
+            ctx.visibility_state.policy = TerminalVisibilityPolicy::Isolate(terminal_id);
+            ctx.view_state.focus_terminal(Some(terminal_id));
+            let Some(session_name) = ctx
+                .terminal_manager
                 .get(terminal_id)
                 .map(|terminal| terminal.session_name.clone())
             else {
                 return;
             };
             let note_text = "- [ ] verify bloom layering\n- [ ] keep button text readable";
-            let _ = notes_state.set_note_text(&session_name, note_text);
-            modal_state.open_task_dialog(&mut input_capture, terminal_id, note_text);
+            let _ = ctx.notes_state.set_note_text(&session_name, note_text);
+            if let Some(agent_id) = ctx.runtime_index.agent_for_terminal(terminal_id) {
+                ctx.app_session.active_agent = Some(agent_id);
+                let _ = ctx.task_store.set_text(agent_id, note_text);
+                ctx.input_capture.close_direct_terminal_input();
+                ctx.app_session
+                    .composer
+                    .open_task_editor(agent_id, terminal_id, note_text);
+            }
         }
         VerificationScenario::AgentListBloom => {
             let terminal_id = config.terminal_ids[0];
-            focus_state.focus_terminal(&terminal_manager, terminal_id);
-            visibility_state.policy = TerminalVisibilityPolicy::Isolate(terminal_id);
-            view_state.focus_terminal(Some(terminal_id));
-            modal_state.close_message_box();
-            modal_state.close_task_dialog();
-            input_capture.close_direct_terminal_input();
+            ctx.focus_state
+                .focus_terminal(&ctx.terminal_manager, terminal_id);
+            ctx.visibility_state.policy = TerminalVisibilityPolicy::Isolate(terminal_id);
+            ctx.view_state.focus_terminal(Some(terminal_id));
+            ctx.app_session.composer.discard_current_message();
+            ctx.app_session.composer.close_task_editor();
+            ctx.input_capture.close_direct_terminal_input();
         }
         VerificationScenario::InspectSwitchLatency => {
             let first = config.terminal_ids[0];
             let second = config.terminal_ids[1];
-            modal_state.close_message_box();
-            modal_state.close_task_dialog();
-            input_capture.close_direct_terminal_input();
+            ctx.app_session.composer.discard_current_message();
+            ctx.app_session.composer.close_task_editor();
+            ctx.input_capture.close_direct_terminal_input();
             if !config.primed {
-                focus_state.focus_terminal(&terminal_manager, first);
-                visibility_state.policy = TerminalVisibilityPolicy::Isolate(first);
-                view_state.focus_terminal(Some(first));
+                ctx.focus_state.focus_terminal(&ctx.terminal_manager, first);
+                ctx.visibility_state.policy = TerminalVisibilityPolicy::Isolate(first);
+                ctx.view_state.focus_terminal(Some(first));
                 seed_terminal_surface(
-                    &mut terminal_manager,
+                    &mut ctx.terminal_manager,
                     first,
                     "ALPHA",
                     egui::Color32::from_rgb(132, 56, 44),
                 );
                 seed_terminal_surface(
-                    &mut terminal_manager,
+                    &mut ctx.terminal_manager,
                     second,
                     "BETA",
                     egui::Color32::from_rgb(44, 72, 140),
                 );
                 config.primed = true;
                 #[cfg(test)]
-                terminal_manager.replace_test_focus_state(&focus_state);
-                redraws.write(RequestRedraw);
+                ctx.terminal_manager
+                    .replace_test_focus_state(&ctx.focus_state);
+                ctx.redraws.write(RequestRedraw);
                 return;
             }
-            if !terminal_has_presentable_frame(first, &terminal_manager, &presentation_store)
-                || !terminal_has_presentable_frame(second, &terminal_manager, &presentation_store)
-            {
-                redraws.write(RequestRedraw);
+            if !terminal_has_presentable_frame(
+                first,
+                &ctx.terminal_manager,
+                &ctx.presentation_store,
+            ) || !terminal_has_presentable_frame(
+                second,
+                &ctx.terminal_manager,
+                &ctx.presentation_store,
+            ) {
+                ctx.redraws.write(RequestRedraw);
                 return;
             }
-            focus_state.focus_terminal(&terminal_manager, second);
-            visibility_state.policy = TerminalVisibilityPolicy::Isolate(second);
-            view_state.focus_terminal(Some(second));
+            ctx.focus_state
+                .focus_terminal(&ctx.terminal_manager, second);
+            ctx.visibility_state.policy = TerminalVisibilityPolicy::Isolate(second);
+            ctx.view_state.focus_terminal(Some(second));
         }
     }
     #[cfg(test)]
-    terminal_manager.replace_test_focus_state(&focus_state);
+    ctx.terminal_manager
+        .replace_test_focus_state(&ctx.focus_state);
     append_debug_log(format!(
         "verification scenario applied: {:?}",
         config.scenario
     ));
     config.applied = true;
-    redraws.write(RequestRedraw);
+    ctx.redraws.write(RequestRedraw);
 }
 
 #[cfg(test)]

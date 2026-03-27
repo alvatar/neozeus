@@ -1,7 +1,6 @@
 mod animation;
 mod bloom;
 mod capture;
-mod commands;
 mod compositor;
 mod input;
 mod message_box;
@@ -11,6 +10,8 @@ mod persistence;
 mod render;
 mod setup;
 mod state;
+mod view_models;
+mod widgets;
 
 pub(crate) use animation::animate_hud_modules;
 pub(crate) use bloom::{
@@ -22,11 +23,6 @@ pub(crate) use capture::{
     request_window_capture, HudCompositeCaptureConfig, HudTextureCaptureConfig,
     WindowCaptureConfig,
 };
-pub(crate) use commands::{
-    apply_hud_module_requests, apply_terminal_focus_requests, apply_terminal_lifecycle_requests,
-    apply_terminal_send_requests, apply_terminal_task_requests, apply_terminal_view_requests,
-    apply_visibility_requests, dispatch_hud_intents,
-};
 pub(crate) use compositor::{
     setup_hud_offscreen_compositor, sync_hud_offscreen_compositor, HudCompositeCameraMarker,
     HudOffscreenCompositor,
@@ -37,10 +33,7 @@ pub(crate) use message_box::{
     task_dialog_action_buttons, task_dialog_rect, HudMessageBoxAction, HudMessageBoxState,
     HudTaskDialogAction, HudTaskDialogState,
 };
-pub(crate) use messages::{
-    HudIntent, HudModuleRequest, TerminalFocusRequest, TerminalLifecycleRequest,
-    TerminalSendRequest, TerminalTaskRequest, TerminalViewRequest, TerminalVisibilityRequest,
-};
+pub(crate) use messages::HudIntent;
 pub(crate) use persistence::{save_hud_layout_if_dirty, HudPersistenceState};
 pub(crate) use render::{
     render_hud_modal_scene, render_hud_scene, HudModalCameraMarker, HudModalVectorSceneMarker,
@@ -48,23 +41,28 @@ pub(crate) use render::{
 };
 pub(crate) use setup::{append_hud_log, hud_needs_redraw, setup_hud, sync_structural_hud_layout};
 pub(crate) use state::{
-    default_hud_module_instance, docked_agent_list_rect, AgentDirectory, HudDragState,
-    HudInputCaptureState, HudLayoutState, HudModalState, HudModuleId, HudModuleModel, HudRect,
-    TerminalVisibilityPolicy, TerminalVisibilityState, HUD_BUTTON_GAP, HUD_BUTTON_HEIGHT,
-    HUD_BUTTON_MIN_WIDTH, HUD_MODULE_DEFINITIONS, HUD_MODULE_PADDING, HUD_ROW_HEIGHT,
-    HUD_TITLEBAR_HEIGHT,
+    default_hud_module_instance, docked_agent_list_rect, HudDragState, HudInputCaptureState,
+    HudLayoutState, HudModuleModel, HudRect, TerminalVisibilityPolicy, TerminalVisibilityState,
+    HUD_AGENT_LIST_WIDTH, HUD_BUTTON_GAP, HUD_BUTTON_HEIGHT, HUD_BUTTON_MIN_WIDTH,
+    HUD_MODULE_PADDING, HUD_ROW_HEIGHT, HUD_TITLEBAR_HEIGHT,
 };
+pub(crate) use view_models::{
+    sync_hud_view_models, AgentListView, ComposerView, ConversationListView, ThreadView,
+};
+pub(crate) use widgets::{HudWidgetDefinition, HudWidgetKey, HUD_WIDGET_DEFINITIONS};
 
 #[cfg(test)]
-pub(crate) use compositor::{
-    HudCompositeLayerId, HudCompositeLayerMarker, HUD_COMPOSITE_FOREGROUND_Z,
-    HUD_COMPOSITE_RENDER_LAYER,
+pub(crate) use {
+    compositor::{
+        HudCompositeLayerId, HudCompositeLayerMarker, HUD_COMPOSITE_FOREGROUND_Z,
+        HUD_COMPOSITE_RENDER_LAYER,
+    },
+    modules::{
+        agent_row_rect, agent_rows, debug_toolbar_buttons,
+        handle_pointer_click as dispatch_hud_pointer_click, handle_scroll as dispatch_hud_scroll,
+        AgentListRowSection,
+    },
+    state::{HudModalState, HudState},
+    view_models::{AgentListRowView, ConversationListRowView},
+    widgets::HUD_WIDGET_DEFINITIONS as HUD_MODULE_DEFINITIONS,
 };
-#[cfg(test)]
-pub(crate) use modules::{
-    agent_row_rect, agent_rows, debug_toolbar_buttons,
-    handle_pointer_click as dispatch_hud_pointer_click, handle_scroll as dispatch_hud_scroll,
-    resolve_agent_label, AgentListRowSection,
-};
-#[cfg(test)]
-pub(crate) use state::HudState;

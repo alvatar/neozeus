@@ -1,9 +1,11 @@
 use crate::{
     app::{
-        format_startup_panic, primary_window_config_for, primary_window_config_for_with_config,
-        primary_window_plugin_config_for, resolve_force_fallback_adapter,
-        resolve_force_fallback_adapter_for, resolve_output_dimension, resolve_output_mode,
-        resolve_window_mode, resolve_window_scale_factor, uses_headless_runner, AppOutputConfig,
+        format_startup_panic, normalize_output_for_x11_fallback, primary_window_config_for,
+        primary_window_config_for_with_config, primary_window_plugin_config_for,
+        resolve_disable_pipelined_rendering_for, resolve_force_fallback_adapter,
+        resolve_force_fallback_adapter_for, resolve_linux_window_backend, resolve_output_dimension,
+        resolve_output_mode, resolve_window_mode, resolve_window_scale_factor,
+        should_force_x11_backend, uses_headless_runner, AppOutputConfig, LinuxWindowBackend,
         OutputMode,
     },
     app_config::{
@@ -18,7 +20,11 @@ use crate::{
     terminals::TerminalId,
     tests::{fake_runtime_spawner, temp_dir},
 };
-use bevy::{ecs::system::RunSystemOnce, prelude::*, window::WindowMode};
+use bevy::{
+    ecs::system::RunSystemOnce,
+    prelude::*,
+    window::{RequestRedraw, WindowMode},
+};
 use std::sync::Arc;
 
 /// Verifies that the combined redraw predicate stays false when no terminal or HUD visual work is
@@ -277,17 +283,16 @@ fn parses_optional_window_scale_factor_override() {
     assert_eq!(resolve_window_scale_factor(Some("abc")), None);
 }
 
-/// Verifies parsing of the force-fallback-adapter override and its different defaults for desktop vs
-/// offscreen output modes.
+/// Verifies parsing of the force-fallback-adapter override and the opt-in default.
 #[test]
 fn parses_force_fallback_adapter_override() {
-    assert!(resolve_force_fallback_adapter(None));
-    assert!(resolve_force_fallback_adapter(Some("")));
+    assert!(!resolve_force_fallback_adapter(None));
+    assert!(!resolve_force_fallback_adapter(Some("")));
     assert!(resolve_force_fallback_adapter(Some("true")));
     assert!(resolve_force_fallback_adapter(Some("1")));
     assert!(!resolve_force_fallback_adapter(Some("false")));
     assert!(!resolve_force_fallback_adapter(Some("0")));
-    assert!(resolve_force_fallback_adapter_for(
+    assert!(!resolve_force_fallback_adapter_for(
         None,
         OutputMode::Desktop
     ));
@@ -295,6 +300,135 @@ fn parses_force_fallback_adapter_override() {
         None,
         OutputMode::OffscreenVerify
     ));
+    assert!(resolve_force_fallback_adapter_for(
+        Some("yes"),
+        OutputMode::Desktop
+    ));
+}
+
+/// Verifies the auto-disable policy for pipelined rendering on desktop Wayland.
+#[test]
+fn resolves_disable_pipelined_rendering_for_wayland_desktop_only() {
+    assert!(resolve_disable_pipelined_rendering_for(
+        None,
+        OutputMode::Desktop,
+        Some("wayland"),
+        Some("wayland-1")
+    ));
+    assert!(resolve_disable_pipelined_rendering_for(
+        None,
+        OutputMode::Desktop,
+        None,
+        Some("wayland-1")
+    ));
+    assert!(!resolve_disable_pipelined_rendering_for(
+        None,
+        OutputMode::Desktop,
+        Some("x11"),
+        None
+    ));
+    assert!(!resolve_disable_pipelined_rendering_for(
+        None,
+        OutputMode::OffscreenVerify,
+        Some("wayland"),
+        Some("wayland-1")
+    ));
+    assert!(resolve_disable_pipelined_rendering_for(
+        Some("true"),
+        OutputMode::Desktop,
+        Some("x11"),
+        None
+    ));
+    assert!(!resolve_disable_pipelined_rendering_for(
+        Some("false"),
+        OutputMode::Desktop,
+        Some("wayland"),
+        Some("wayland-1")
+    ));
+}
+
+#[test]
+fn resolves_linux_window_backend_policy() {
+    assert_eq!(resolve_linux_window_backend(None), LinuxWindowBackend::Auto);
+    assert_eq!(
+        resolve_linux_window_backend(Some("x11")),
+        LinuxWindowBackend::X11
+    );
+    assert_eq!(
+        resolve_linux_window_backend(Some("wayland")),
+        LinuxWindowBackend::Wayland
+    );
+    assert!(should_force_x11_backend(
+        OutputMode::Desktop,
+        LinuxWindowBackend::Auto,
+        Some("wayland"),
+        Some("wayland-1"),
+        Some(":0")
+    ));
+    assert!(should_force_x11_backend(
+        OutputMode::Desktop,
+        LinuxWindowBackend::X11,
+        Some("wayland"),
+        Some("wayland-1"),
+        Some(":0")
+    ));
+    assert!(!should_force_x11_backend(
+        OutputMode::Desktop,
+        LinuxWindowBackend::Wayland,
+        Some("wayland"),
+        Some("wayland-1"),
+        Some(":0")
+    ));
+    assert!(!should_force_x11_backend(
+        OutputMode::Desktop,
+        LinuxWindowBackend::Auto,
+        Some("wayland"),
+        Some("wayland-1"),
+        None
+    ));
+    assert!(!should_force_x11_backend(
+        OutputMode::OffscreenVerify,
+        LinuxWindowBackend::Auto,
+        Some("wayland"),
+        Some("wayland-1"),
+        Some(":0")
+    ));
+
+    let normalized = normalize_output_for_x11_fallback(
+        AppOutputConfig {
+            mode: OutputMode::Desktop,
+            width: 1400,
+            height: 900,
+            scale_factor_override: None,
+        },
+        true,
+        None,
+    );
+    assert_eq!(normalized.scale_factor_override, Some(1.0));
+
+    let preserved = normalize_output_for_x11_fallback(
+        AppOutputConfig {
+            mode: OutputMode::Desktop,
+            width: 1400,
+            height: 900,
+            scale_factor_override: Some(1.5),
+        },
+        true,
+        None,
+    );
+    assert_eq!(preserved.scale_factor_override, Some(1.5));
+
+    let explicit_env = normalize_output_for_x11_fallback(
+        AppOutputConfig {
+            mode: OutputMode::Desktop,
+            width: 1400,
+            height: 900,
+            scale_factor_override: None,
+        },
+        true,
+        Some("2.0"),
+    );
+    assert_eq!(explicit_env.scale_factor_override, None);
 }
 
 /// Verifies that startup focus restoration skips a persisted `last_focused` session if that session
@@ -340,7 +474,15 @@ fn startup_focus_skips_disconnected_restored_session() {
     world.insert_resource(crate::terminals::TerminalManager::default());
     world.insert_resource(crate::terminals::TerminalFocusState::default());
     world.insert_resource(crate::terminals::TerminalPresentationStore::default());
-    world.insert_resource(crate::hud::AgentDirectory::default());
+    world.insert_resource(crate::agents::AgentCatalog::default());
+    world.insert_resource(crate::agents::AgentRuntimeIndex::default());
+    world.insert_resource(crate::app::AppSessionState::default());
+    world.insert_resource(crate::conversations::ConversationStore::default());
+    world.insert_resource(crate::conversations::ConversationPersistenceState::default());
+    world.insert_resource(crate::hud::HudInputCaptureState::default());
+    world.insert_resource(crate::terminals::TerminalViewState::default());
+    world.init_resource::<Messages<RequestRedraw>>();
+    world.insert_resource(Time::<()>::default());
     world.insert_resource(fake_runtime_spawner(client.clone()));
     world.insert_resource(crate::terminals::TerminalSessionPersistenceState {
         path: Some(sessions_path),
@@ -395,7 +537,15 @@ fn startup_leaves_only_disconnected_sessions_visible_and_unfocused() {
     world.insert_resource(crate::terminals::TerminalManager::default());
     world.insert_resource(crate::terminals::TerminalFocusState::default());
     world.insert_resource(crate::terminals::TerminalPresentationStore::default());
-    world.insert_resource(crate::hud::AgentDirectory::default());
+    world.insert_resource(crate::agents::AgentCatalog::default());
+    world.insert_resource(crate::agents::AgentRuntimeIndex::default());
+    world.insert_resource(crate::app::AppSessionState::default());
+    world.insert_resource(crate::conversations::ConversationStore::default());
+    world.insert_resource(crate::conversations::ConversationPersistenceState::default());
+    world.insert_resource(crate::hud::HudInputCaptureState::default());
+    world.insert_resource(crate::terminals::TerminalViewState::default());
+    world.init_resource::<Messages<RequestRedraw>>();
+    world.insert_resource(Time::<()>::default());
     world.insert_resource(fake_runtime_spawner(client.clone()));
     world.insert_resource(crate::terminals::TerminalSessionPersistenceState {
         path: Some(sessions_path),
@@ -433,7 +583,15 @@ fn startup_spawns_initial_terminal_when_no_sessions_exist() {
     world.insert_resource(crate::terminals::TerminalManager::default());
     world.insert_resource(crate::terminals::TerminalFocusState::default());
     world.insert_resource(crate::terminals::TerminalPresentationStore::default());
-    world.insert_resource(crate::hud::AgentDirectory::default());
+    world.insert_resource(crate::agents::AgentCatalog::default());
+    world.insert_resource(crate::agents::AgentRuntimeIndex::default());
+    world.insert_resource(crate::app::AppSessionState::default());
+    world.insert_resource(crate::conversations::ConversationStore::default());
+    world.insert_resource(crate::conversations::ConversationPersistenceState::default());
+    world.insert_resource(crate::hud::HudInputCaptureState::default());
+    world.insert_resource(crate::terminals::TerminalViewState::default());
+    world.init_resource::<Messages<RequestRedraw>>();
+    world.insert_resource(Time::<()>::default());
     world.insert_resource(fake_runtime_spawner(client.clone()));
     world.insert_resource(crate::terminals::TerminalSessionPersistenceState::default());
     world.insert_resource(crate::terminals::TerminalNotesState::default());

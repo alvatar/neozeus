@@ -98,6 +98,7 @@ neozeus_offscreen_run_capture() {
         SHELL="$SHELL" \
         BASH_ENV="$BASH_ENV" \
         ENV="$ENV" \
+        BEVY_ASSET_ROOT="$root_dir" \
         NEOZEUS_DAEMON_SOCKET_PATH="$NEOZEUS_DAEMON_SOCKET_PATH" \
         NEOZEUS_OUTPUT_MODE=offscreen \
         NEOZEUS_OFFSCREEN_WIDTH="$width" \
@@ -109,7 +110,7 @@ neozeus_offscreen_run_capture() {
         NEOZEUS_CAPTURE_FINAL_FRAME_DELAY_FRAMES="$capture_delay" \
         NEOZEUS_EXIT_AFTER_CAPTURE=1 \
         "$@" \
-        "$app" >"$run_log" 2>&1
+        /usr/bin/taskset -c 0 "$app" >"$run_log" 2>&1
 
     if [[ ! -f "$out_path" ]]; then
         echo "offscreen capture missing: $out_path" >&2

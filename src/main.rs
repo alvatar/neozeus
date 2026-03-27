@@ -1,9 +1,12 @@
+mod agents;
 mod app;
 mod app_config;
+mod conversations;
 mod hud;
 mod input;
 mod startup;
 mod terminals;
+mod ui;
 mod verification;
 
 #[cfg(test)]

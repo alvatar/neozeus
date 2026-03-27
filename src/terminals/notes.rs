@@ -33,8 +33,9 @@ impl TerminalNotesState {
 
     /// Returns whether a session currently has non-blank note text.
     ///
-    /// Whitespace-only entries are treated as absent so the rest of the HUD can use this as a real
-    /// presence predicate.
+    /// Whitespace-only entries are treated as absent so tests and HUD projections can use this as a
+    /// real presence predicate.
+    #[cfg(test)]
     pub(crate) fn has_note_text(&self, session_name: &str) -> bool {
         self.note_text(session_name)
             .is_some_and(|text| !text.trim().is_empty())
@@ -70,6 +71,7 @@ impl TerminalNotesState {
     ///
     /// The text is first normalized through [`task_entry_from_text`]. If that yields a valid task
     /// block, it is appended after any existing trimmed note text with a separating newline.
+    #[cfg(test)]
     pub(crate) fn append_task_from_text(&mut self, session_name: &str, text: &str) -> bool {
         let Some(task_entry) = task_entry_from_text(text) else {
             return false;
@@ -94,6 +96,7 @@ impl TerminalNotesState {
     ///
     /// This is the mirror of [`append_task_from_text`], preserving the existing note text after the
     /// new task block when both exist.
+    #[cfg(test)]
     pub(crate) fn prepend_task_from_text(&mut self, session_name: &str, text: &str) -> bool {
         let Some(task_entry) = task_entry_from_text(text) else {
             return false;

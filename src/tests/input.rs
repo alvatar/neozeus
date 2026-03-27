@@ -1,8 +1,16 @@
 use super::{
-    capturing_bridge, insert_default_hud_resources, insert_terminal_manager_resources,
-    insert_test_hud_state, pressed_text, snapshot_test_hud_state, test_bridge,
+    capturing_bridge, fake_runtime_spawner, insert_default_hud_resources,
+    insert_terminal_manager_resources, insert_test_hud_state, pressed_text,
+    snapshot_test_hud_state, test_bridge, FakeDaemonClient,
 };
 use crate::{
+    agents::{AgentCatalog, AgentRuntimeIndex},
+    app::{
+        AgentCommand as AppAgentCommand, ComposerCommand,
+        ConversationCommand as AppConversationCommand,
+    },
+    app::{AppCommand, AppSessionState},
+    conversations::{AgentTaskStore, ConversationStore, MessageTransportAdapter},
     hud::{HudIntent, TerminalVisibilityState},
     input::{
         ctrl_sequence, focus_terminal_on_panel_click, handle_global_terminal_spawn_shortcut,
@@ -18,12 +26,15 @@ use crate::{
 };
 use bevy::{
     app::AppExit,
+    asset::Assets,
     ecs::system::RunSystemOnce,
     input::{
         keyboard::{Key, KeyboardInput},
         ButtonInput, ButtonState,
     },
-    prelude::{Entity, KeyCode, Messages, MouseButton, Time, Vec2, Visibility, Window, World},
+    prelude::{
+        Entity, Image, KeyCode, Messages, MouseButton, Res, Time, Vec2, Visibility, Window, World,
+    },
     window::{PrimaryWindow, RequestRedraw},
 };
 
@@ -39,32 +50,199 @@ fn pressed_key(key_code: KeyCode, logical_key: Key) -> KeyboardInput {
     }
 }
 
-/// Initializes the `HudIntent` message resource in an input-test world.
+/// Initializes the `HudIntent` and `AppCommand` message resources in an input-test world.
 fn init_hud_commands(world: &mut World) {
     world.init_resource::<Messages<HudIntent>>();
+    world.init_resource::<Messages<AppCommand>>();
 }
 
-/// Drains and collects all queued `HudIntent` messages from an input-test world.
+/// Drains and collects all queued input/output commands, projecting app commands back into the
+/// legacy `HudIntent` vocabulary used by the historical tests.
 fn drain_hud_commands(world: &mut World) -> Vec<HudIntent> {
-    world
+    let mut commands = world
         .run_system_once(|mut reader: bevy::prelude::MessageReader<HudIntent>| {
             reader.read().cloned().collect::<Vec<_>>()
         })
-        .unwrap()
+        .unwrap();
+
+    let translated = world
+        .run_system_once(
+            |mut reader: bevy::prelude::MessageReader<AppCommand>,
+             runtime_index: Option<Res<AgentRuntimeIndex>>,
+             app_session: Option<Res<AppSessionState>>| {
+                reader
+                    .read()
+                    .flat_map(|command| match command {
+                        AppCommand::Agent(AppAgentCommand::SpawnTerminal) => {
+                            vec![HudIntent::SpawnTerminal]
+                        }
+                        AppCommand::Agent(AppAgentCommand::SpawnShellTerminal) => {
+                            vec![HudIntent::SpawnShellTerminal]
+                        }
+                        AppCommand::Agent(AppAgentCommand::KillActive) => {
+                            vec![HudIntent::KillActiveTerminal]
+                        }
+                        AppCommand::Agent(AppAgentCommand::Inspect(agent_id)) => runtime_index
+                            .as_ref()
+                            .and_then(|runtime_index| runtime_index.primary_terminal(*agent_id))
+                            .map(|terminal_id| {
+                                vec![
+                                    HudIntent::FocusTerminal(terminal_id),
+                                    HudIntent::HideAllButTerminal(terminal_id),
+                                ]
+                            })
+                            .unwrap_or_default(),
+                        AppCommand::Conversation(AppConversationCommand::ConsumeNextTask {
+                            agent_id,
+                        }) => runtime_index
+                            .as_ref()
+                            .and_then(|runtime_index| runtime_index.primary_terminal(*agent_id))
+                            .map(|terminal_id| {
+                                vec![HudIntent::ConsumeNextTerminalTask(terminal_id)]
+                            })
+                            .unwrap_or_default(),
+                        AppCommand::Conversation(AppConversationCommand::ClearDoneTasks {
+                            agent_id,
+                        }) => runtime_index
+                            .as_ref()
+                            .and_then(|runtime_index| runtime_index.primary_terminal(*agent_id))
+                            .map(|terminal_id| vec![HudIntent::ClearDoneTerminalTasks(terminal_id)])
+                            .unwrap_or_default(),
+                        AppCommand::Conversation(AppConversationCommand::AppendTask {
+                            agent_id,
+                            text,
+                        }) => runtime_index
+                            .as_ref()
+                            .and_then(|runtime_index| runtime_index.primary_terminal(*agent_id))
+                            .map(|terminal_id| {
+                                vec![HudIntent::AppendTerminalTask(terminal_id, text.clone())]
+                            })
+                            .unwrap_or_default(),
+                        AppCommand::Conversation(AppConversationCommand::PrependTask {
+                            agent_id,
+                            text,
+                        }) => runtime_index
+                            .as_ref()
+                            .and_then(|runtime_index| runtime_index.primary_terminal(*agent_id))
+                            .map(|terminal_id| {
+                                vec![HudIntent::PrependTerminalTask(terminal_id, text.clone())]
+                            })
+                            .unwrap_or_default(),
+                        AppCommand::Composer(ComposerCommand::Submit) => app_session
+                            .as_ref()
+                            .map(|app_session| {
+                                if app_session.composer.message_editor.visible {
+                                    app_session
+                                        .composer
+                                        .message_editor
+                                        .target_terminal
+                                        .map(|terminal_id| {
+                                            vec![HudIntent::SendTerminalCommand(
+                                                terminal_id,
+                                                app_session.composer.message_editor.text.clone(),
+                                            )]
+                                        })
+                                        .unwrap_or_default()
+                                } else if app_session.composer.task_editor.visible {
+                                    app_session
+                                        .composer
+                                        .task_editor
+                                        .target_terminal
+                                        .map(|terminal_id| {
+                                            vec![HudIntent::SetTerminalTaskText(
+                                                terminal_id,
+                                                app_session.composer.task_editor.text.clone(),
+                                            )]
+                                        })
+                                        .unwrap_or_default()
+                                } else {
+                                    Vec::new()
+                                }
+                            })
+                            .unwrap_or_default(),
+                        _ => Vec::new(),
+                    })
+                    .collect::<Vec<_>>()
+            },
+        )
+        .unwrap();
+
+    commands.extend(translated);
+    commands
+}
+
+fn ensure_app_command_world_resources(world: &mut World) {
+    if !world.contains_resource::<Assets<Image>>() {
+        world.insert_resource(Assets::<Image>::default());
+    }
+    if !world.contains_resource::<crate::terminals::TerminalPresentationStore>() {
+        world.insert_resource(crate::terminals::TerminalPresentationStore::default());
+    }
+    if !world.contains_resource::<crate::terminals::TerminalRuntimeSpawner>() {
+        world.insert_resource(fake_runtime_spawner(std::sync::Arc::new(
+            FakeDaemonClient::default(),
+        )));
+    }
+    if !world.contains_resource::<AgentCatalog>() {
+        world.insert_resource(AgentCatalog::default());
+    }
+    if !world.contains_resource::<AgentRuntimeIndex>() {
+        world.insert_resource(AgentRuntimeIndex::default());
+    }
+    if !world.contains_resource::<AppSessionState>() {
+        world.insert_resource(AppSessionState::default());
+    }
+    if !world.contains_resource::<ConversationStore>() {
+        world.insert_resource(ConversationStore::default());
+    }
+    if !world.contains_resource::<crate::conversations::ConversationPersistenceState>() {
+        world.insert_resource(crate::conversations::ConversationPersistenceState::default());
+    }
+    if !world.contains_resource::<AgentTaskStore>() {
+        world.insert_resource(AgentTaskStore::default());
+    }
+    if !world.contains_resource::<MessageTransportAdapter>() {
+        world.insert_resource(MessageTransportAdapter);
+    }
+    if !world.contains_resource::<TerminalNotesState>() {
+        world.insert_resource(TerminalNotesState::default());
+    }
+    if !world.contains_resource::<TerminalSessionPersistenceState>() {
+        world.insert_resource(TerminalSessionPersistenceState::default());
+    }
+    if !world.contains_resource::<TerminalVisibilityState>() {
+        world.insert_resource(TerminalVisibilityState::default());
+    }
+    if !world.contains_resource::<crate::terminals::TerminalViewState>() {
+        world.insert_resource(crate::terminals::TerminalViewState::default());
+    }
+    if !world.contains_resource::<Messages<RequestRedraw>>() {
+        world.init_resource::<Messages<RequestRedraw>>();
+    }
+}
+
+fn run_app_command_cycle(world: &mut World) {
+    ensure_app_command_world_resources(world);
+    world
+        .run_system_once(crate::app::apply_app_commands)
+        .unwrap();
 }
 
 /// Injects one keyboard event into the modal-editor keyboard handler under test.
 fn dispatch_message_box_key(world: &mut World, event: KeyboardInput) {
+    ensure_app_command_world_resources(world);
     world.insert_resource(Messages::<KeyboardInput>::default());
     world.resource_mut::<Messages<KeyboardInput>>().write(event);
     world
         .run_system_once(handle_terminal_message_box_keyboard)
         .unwrap();
+    run_app_command_cycle(world);
 }
 
 /// Injects one keyboard event through the direct-input handler and then the modal keyboard handler,
 /// matching the real schedule order.
 fn dispatch_terminal_ui_key(world: &mut World, event: KeyboardInput) {
+    ensure_app_command_world_resources(world);
     world.insert_resource(Messages::<KeyboardInput>::default());
     world.resource_mut::<Messages<KeyboardInput>>().write(event);
     world
@@ -73,6 +251,7 @@ fn dispatch_terminal_ui_key(world: &mut World, event: KeyboardInput) {
     world
         .run_system_once(handle_terminal_message_box_keyboard)
         .unwrap();
+    run_app_command_cycle(world);
 }
 
 /// Builds a test world containing one focused terminal panel plus the receiver for commands sent to
@@ -89,6 +268,20 @@ fn world_with_active_terminal_and_receiver(
     let (bridge, input_rx, _) = capturing_bridge();
     let mut manager = TerminalManager::default();
     let terminal_id = manager.create_terminal(bridge);
+    let session_name = manager
+        .get(terminal_id)
+        .expect("terminal should exist")
+        .session_name
+        .clone();
+
+    let mut catalog = AgentCatalog::default();
+    let agent_id = catalog.create_agent(
+        Some("agent-1".into()),
+        crate::agents::AgentKind::Terminal,
+        crate::agents::AgentCapabilities::terminal_defaults(),
+    );
+    let mut runtime_index = AgentRuntimeIndex::default();
+    runtime_index.link_terminal(agent_id, terminal_id, session_name, None);
 
     let mut world = World::default();
     let mut window = Window::default();
@@ -100,6 +293,12 @@ fn world_with_active_terminal_and_receiver(
     world.insert_resource(Time::<()>::default());
     insert_terminal_manager_resources(&mut world, manager);
     insert_default_hud_resources(&mut world);
+    world.insert_resource(catalog);
+    world.insert_resource(runtime_index);
+    world.insert_resource(AppSessionState::default());
+    world.insert_resource(ConversationStore::default());
+    world.insert_resource(AgentTaskStore::default());
+    world.insert_resource(MessageTransportAdapter);
     world.insert_resource(TerminalNotesState::default());
     world.insert_resource(TerminalSessionPersistenceState::default());
     world.insert_resource(TerminalVisibilityState::default());
@@ -329,6 +528,7 @@ fn background_click_hides_active_terminal() {
     world
         .run_system_once(hide_terminal_on_background_click)
         .unwrap();
+    run_app_command_cycle(&mut world);
 
     assert_eq!(
         world
@@ -417,7 +617,34 @@ fn clicking_terminal_panel_enqueues_focus_and_isolate_for_topmost_visible_panel(
     };
     window.set_cursor_position(Some(Vec2::new(640.0, 360.0)));
 
+    let mut catalog = AgentCatalog::default();
+    let first_agent = catalog.create_agent(
+        Some("agent-1".into()),
+        crate::agents::AgentKind::Terminal,
+        crate::agents::AgentCapabilities::terminal_defaults(),
+    );
+    let second_agent = catalog.create_agent(
+        Some("agent-2".into()),
+        crate::agents::AgentKind::Terminal,
+        crate::agents::AgentCapabilities::terminal_defaults(),
+    );
+    let mut runtime_index = AgentRuntimeIndex::default();
+    runtime_index.link_terminal(
+        first_agent,
+        crate::terminals::TerminalId(1),
+        "session-1".into(),
+        None,
+    );
+    runtime_index.link_terminal(
+        second_agent,
+        crate::terminals::TerminalId(2),
+        "session-2".into(),
+        None,
+    );
+
     world.insert_resource(ButtonInput::<MouseButton>::default());
+    world.insert_resource(catalog);
+    world.insert_resource(runtime_index);
     insert_default_hud_resources(&mut world);
     init_hud_commands(&mut world);
     world.spawn((window, PrimaryWindow));
@@ -487,6 +714,7 @@ fn enter_opens_message_box_for_active_terminal() {
     world
         .run_system_once(handle_terminal_message_box_keyboard)
         .unwrap();
+    run_app_command_cycle(&mut world);
 
     let hud_state = snapshot_test_hud_state(&world);
     assert!(hud_state.message_box.visible);
@@ -519,6 +747,7 @@ fn plain_t_opens_task_dialog_for_active_terminal_with_saved_text() {
     world
         .run_system_once(handle_terminal_message_box_keyboard)
         .unwrap();
+    run_app_command_cycle(&mut world);
 
     let hud_state = snapshot_test_hud_state(&world);
     assert!(hud_state.task_dialog.visible);
@@ -541,6 +770,7 @@ fn plain_n_enqueues_consume_next_task_for_active_terminal() {
     world
         .run_system_once(handle_terminal_message_box_keyboard)
         .unwrap();
+    run_app_command_cycle(&mut world);
 
     assert_eq!(
         drain_hud_commands(&mut world),
@@ -693,8 +923,8 @@ fn message_box_keeps_separate_drafts_per_terminal() {
 /// and clean reopen.
 #[test]
 fn message_box_supports_multiline_typing_and_ctrl_s_send() {
-    let (mut world, terminal_id) =
-        world_with_active_terminal(Vec2::new(10.0, 10.0), false, Vec2::ZERO);
+    let (mut world, terminal_id, input_rx) =
+        world_with_active_terminal_and_receiver(Vec2::new(10.0, 10.0), false, Vec2::ZERO);
     let mut hud_state = crate::hud::HudState::default();
     hud_state.open_message_box(terminal_id);
     insert_test_hud_state(&mut world, hud_state);
@@ -714,8 +944,8 @@ fn message_box_supports_multiline_typing_and_ctrl_s_send() {
     dispatch_message_box_key(&mut world, pressed_text(KeyCode::KeyS, Some("s")));
 
     assert_eq!(
-        drain_hud_commands(&mut world),
-        vec![HudIntent::SendTerminalCommand(terminal_id, "a\nb".into())]
+        input_rx.try_recv().unwrap(),
+        TerminalCommand::SendCommand("a\nb".into())
     );
     {
         let hud_state = snapshot_test_hud_state(&world);
@@ -801,6 +1031,16 @@ fn reopening_task_dialog_uses_persisted_text_not_stale_editor_state() {
 fn task_dialog_escape_persists_tasks_and_closes() {
     let (mut world, terminal_id) =
         world_with_active_terminal(Vec2::new(10.0, 10.0), false, Vec2::ZERO);
+    let session_name = world
+        .resource::<TerminalManager>()
+        .get(terminal_id)
+        .expect("terminal should exist")
+        .session_name
+        .clone();
+    let agent_id = world
+        .resource::<AgentRuntimeIndex>()
+        .agent_for_terminal(terminal_id)
+        .expect("agent should be linked");
     let mut hud_state = crate::hud::HudState::default();
     hud_state.open_task_dialog(terminal_id, "- [ ] old");
     hud_state.task_dialog.insert_text("\n- [ ] new");
@@ -812,11 +1052,14 @@ fn task_dialog_escape_persists_tasks_and_closes() {
     dispatch_message_box_key(&mut world, pressed_key(KeyCode::Escape, Key::Escape));
 
     assert_eq!(
-        drain_hud_commands(&mut world),
-        vec![HudIntent::SetTerminalTaskText(
-            terminal_id,
-            "- [ ] old\n- [ ] new".into()
-        )]
+        world.resource::<AgentTaskStore>().text(agent_id),
+        Some("- [ ] old\n- [ ] new")
+    );
+    assert_eq!(
+        world
+            .resource::<TerminalNotesState>()
+            .note_text(&session_name),
+        Some("- [ ] old\n- [ ] new")
     );
     let hud_state = snapshot_test_hud_state(&world);
     assert!(!hud_state.task_dialog.visible);
@@ -1014,8 +1257,9 @@ fn message_box_meta_copy_kill_ring_history_and_backward_kill_word_work() {
     );
 
     world
-        .resource_mut::<crate::hud::HudModalState>()
-        .message_box
+        .resource_mut::<crate::app::AppSessionState>()
+        .composer
+        .message_editor
         .cursor = 8;
     dispatch_message_box_key(
         &mut world,
@@ -1048,11 +1292,13 @@ fn message_box_meta_copy_kill_ring_history_and_backward_kill_word_work() {
     );
 
     world
-        .resource_mut::<crate::hud::HudModalState>()
-        .message_box
+        .resource_mut::<crate::app::AppSessionState>()
+        .composer
+        .message_editor
         .cursor = world
-        .resource::<crate::hud::HudModalState>()
-        .message_box
+        .resource::<crate::app::AppSessionState>()
+        .composer
+        .message_editor
         .text
         .len();
     dispatch_message_box_key(&mut world, pressed_text(KeyCode::Backspace, None));
@@ -1211,7 +1457,7 @@ fn clicking_hud_does_not_hide_active_terminal() {
         h: 100.0,
     };
     module.shell.target_rect = module.shell.current_rect;
-    hud_state.insert(crate::hud::HudModuleId::DebugToolbar, module);
+    hud_state.insert(crate::hud::HudWidgetKey::DebugToolbar, module);
     insert_test_hud_state(&mut world, hud_state);
     world
         .resource_mut::<ButtonInput<MouseButton>>()

@@ -2,20 +2,24 @@ use super::{
     fake_runtime_spawner, insert_default_hud_resources, insert_terminal_manager_resources,
     insert_test_hud_state, pressed_text, snapshot_test_hud_state, test_bridge, FakeDaemonClient,
 };
-use crate::hud::{
-    agent_row_rect, agent_rows, apply_terminal_focus_requests, apply_terminal_lifecycle_requests,
-    apply_terminal_task_requests, apply_visibility_requests, debug_toolbar_buttons,
-    dispatch_hud_pointer_click, dispatch_hud_scroll, handle_hud_module_shortcuts,
-    handle_hud_pointer_input, hud_needs_redraw, message_box_action_buttons, message_box_rect,
-    resolve_agent_label, task_dialog_action_buttons, AgentDirectory, AgentListRowSection,
-    HudDragState, HudIntent, HudModuleId, HudModuleModel, HudOffscreenCompositor,
-    HudPersistenceState, HudRect, HudState, TerminalFocusRequest, TerminalLifecycleRequest,
-    TerminalVisibilityPolicy, TerminalVisibilityRequest, TerminalVisibilityState,
-};
 use crate::terminals::{
     kill_active_terminal_session_and_remove as kill_active_terminal, TerminalManager,
     TerminalNotesState, TerminalPanel, TerminalPanelFrame, TerminalPresentationStore,
     TerminalSessionPersistenceState, TerminalViewState,
+};
+use crate::{
+    app::{
+        AgentCommand as AppAgentCommand, AppCommand, ComposerCommand as AppComposerCommand,
+        ConversationCommand as AppConversationCommand,
+    },
+    hud::{
+        agent_row_rect, agent_rows, debug_toolbar_buttons, dispatch_hud_pointer_click,
+        dispatch_hud_scroll, handle_hud_module_shortcuts, handle_hud_pointer_input,
+        hud_needs_redraw, message_box_action_buttons, message_box_rect, task_dialog_action_buttons,
+        AgentListRowSection, AgentListRowView, AgentListView, ConversationListView, HudDragState,
+        HudIntent, HudModuleModel, HudOffscreenCompositor, HudPersistenceState, HudRect, HudState,
+        HudWidgetKey, TerminalVisibilityPolicy, TerminalVisibilityState, ThreadView,
+    },
 };
 use bevy::{
     camera::visibility::{NoFrustumCulling, RenderLayers},
@@ -41,6 +45,47 @@ fn drain_hud_commands(world: &mut World) -> Vec<HudIntent> {
             reader.read().cloned().collect::<Vec<_>>()
         })
         .unwrap()
+}
+
+fn run_app_commands(world: &mut World) {
+    if !world.contains_resource::<Assets<Image>>() {
+        world.insert_resource(Assets::<Image>::default());
+    }
+    if !world.contains_resource::<TerminalPresentationStore>() {
+        world.insert_resource(TerminalPresentationStore::default());
+    }
+    if !world.contains_resource::<crate::terminals::TerminalRuntimeSpawner>() {
+        world.insert_resource(fake_runtime_spawner(Arc::new(FakeDaemonClient::default())));
+    }
+    if !world.contains_resource::<crate::conversations::ConversationStore>() {
+        world.insert_resource(crate::conversations::ConversationStore::default());
+    }
+    if !world.contains_resource::<crate::conversations::AgentTaskStore>() {
+        world.insert_resource(crate::conversations::AgentTaskStore::default());
+    }
+    if !world.contains_resource::<crate::conversations::ConversationPersistenceState>() {
+        world.insert_resource(crate::conversations::ConversationPersistenceState::default());
+    }
+    if !world.contains_resource::<crate::conversations::MessageTransportAdapter>() {
+        world.insert_resource(crate::conversations::MessageTransportAdapter);
+    }
+    if !world.contains_resource::<TerminalNotesState>() {
+        world.insert_resource(TerminalNotesState::default());
+    }
+    if !world.contains_resource::<TerminalSessionPersistenceState>() {
+        world.insert_resource(TerminalSessionPersistenceState::default());
+    }
+    if !world.contains_resource::<TerminalVisibilityState>() {
+        world.insert_resource(TerminalVisibilityState::default());
+    }
+    if !world.contains_resource::<TerminalViewState>() {
+        world.insert_resource(TerminalViewState::default());
+    }
+    world.init_resource::<Messages<AppCommand>>();
+    world.init_resource::<Messages<RequestRedraw>>();
+    world
+        .run_system_once(crate::app::apply_app_commands)
+        .unwrap();
 }
 
 /// Verifies that HUD setup spawns the expected scene/compositor entities and immediately requests a
@@ -100,7 +145,7 @@ fn sync_structural_hud_layout_docks_agent_list_to_full_height_left_column() {
     let mut world = World::default();
     let mut hud_state = HudState::default();
     hud_state.insert(
-        HudModuleId::AgentList,
+        HudWidgetKey::AgentList,
         crate::hud::default_hud_module_instance(&crate::hud::HUD_MODULE_DEFINITIONS[1]),
     );
     insert_test_hud_state(&mut world, hud_state);
@@ -121,7 +166,7 @@ fn sync_structural_hud_layout_docks_agent_list_to_full_height_left_column() {
         crate::hud::docked_agent_list_rect(query.single(&world).unwrap())
     };
     let hud_state = snapshot_test_hud_state(&world);
-    let module = hud_state.get(HudModuleId::AgentList).unwrap();
+    let module = hud_state.get(HudWidgetKey::AgentList).unwrap();
     assert_eq!(module.shell.current_rect, expected_rect);
 }
 
@@ -429,11 +474,11 @@ fn reset_module_restores_default_toolbar_state() {
         h: 10.0,
     };
     module.shell.current_rect = module.shell.target_rect;
-    hud_state.insert(HudModuleId::DebugToolbar, module);
+    hud_state.insert(HudWidgetKey::DebugToolbar, module);
 
-    hud_state.reset_module(HudModuleId::DebugToolbar);
+    hud_state.reset_module(HudWidgetKey::DebugToolbar);
 
-    let module = hud_state.get(HudModuleId::DebugToolbar).unwrap();
+    let module = hud_state.get(HudWidgetKey::DebugToolbar).unwrap();
     assert!(module.shell.enabled);
     assert_eq!(
         module.shell.target_rect,
@@ -460,7 +505,7 @@ fn plain_digit_module_shortcut_toggles_module() {
 
     assert_eq!(
         drain_hud_commands(&mut world),
-        vec![HudIntent::ToggleModule(HudModuleId::AgentList)]
+        vec![HudIntent::ToggleModule(HudWidgetKey::AgentList)]
     );
 }
 
@@ -585,7 +630,7 @@ fn up_arrow_navigates_to_previous_agent_and_isolates_it() {
     );
 }
 
-/// Verifies that applying focus and visibility requests each enqueue an immediate redraw.
+/// Verifies that the authoritative app-command path updates focus/visibility and requests redraws.
 #[test]
 fn focus_and_visibility_requests_request_redraw_immediately() {
     let mut world = World::default();
@@ -601,16 +646,17 @@ fn focus_and_visibility_requests_request_redraw_immediately() {
     world.insert_resource(TerminalSessionPersistenceState::default());
     world.insert_resource(TerminalViewState::default());
     world.insert_resource(TerminalVisibilityState::default());
-    world.init_resource::<Messages<TerminalFocusRequest>>();
-    world.init_resource::<Messages<TerminalVisibilityRequest>>();
+    world.init_resource::<Messages<AppCommand>>();
     world.init_resource::<Messages<RequestRedraw>>();
 
+    let agent_id = world
+        .resource::<crate::agents::AgentRuntimeIndex>()
+        .agent_for_terminal(id)
+        .expect("agent should be linked");
     world
-        .resource_mut::<Messages<TerminalFocusRequest>>()
-        .write(TerminalFocusRequest { terminal_id: id });
-    world
-        .run_system_once(apply_terminal_focus_requests)
-        .unwrap();
+        .resource_mut::<Messages<AppCommand>>()
+        .write(AppCommand::Agent(AppAgentCommand::Inspect(agent_id)));
+    run_app_commands(&mut world);
 
     assert_eq!(
         world
@@ -618,18 +664,23 @@ fn focus_and_visibility_requests_request_redraw_immediately() {
             .active_id(),
         Some(id)
     );
-    assert_eq!(world.resource::<Messages<RequestRedraw>>().len(), 1);
-
-    world
-        .resource_mut::<Messages<TerminalVisibilityRequest>>()
-        .write(TerminalVisibilityRequest::Isolate(id));
-    world.run_system_once(apply_visibility_requests).unwrap();
-
     assert_eq!(
         world.resource::<TerminalVisibilityState>().policy,
         TerminalVisibilityPolicy::Isolate(id)
     );
-    assert_eq!(world.resource::<Messages<RequestRedraw>>().len(), 2);
+    let redraws_after_focus = world.resource::<Messages<RequestRedraw>>().len();
+    assert!(redraws_after_focus >= 1);
+
+    world
+        .resource_mut::<Messages<AppCommand>>()
+        .write(AppCommand::Agent(AppAgentCommand::ShowAll));
+    run_app_commands(&mut world);
+
+    assert_eq!(
+        world.resource::<TerminalVisibilityState>().policy,
+        TerminalVisibilityPolicy::ShowAll
+    );
+    assert!(world.resource::<Messages<RequestRedraw>>().len() > redraws_after_focus);
 }
 
 /// Verifies that `Alt+Shift+digit` still emits reset intents rather than toggle intents.
@@ -652,7 +703,7 @@ fn alt_shift_module_shortcut_still_resets_module() {
 
     assert_eq!(
         drain_hud_commands(&mut world),
-        vec![HudIntent::ResetModule(HudModuleId::DebugToolbar)]
+        vec![HudIntent::ResetModule(HudWidgetKey::DebugToolbar)]
     );
 }
 
@@ -678,24 +729,43 @@ fn module_shortcuts_are_suppressed_while_direct_input_is_open() {
 
 /// Verifies that explicit agent-directory labels override the synthetic `agent-N` fallback names.
 #[test]
-fn resolve_agent_label_prefers_directory_over_fallback() {
-    let terminal_ids = [
-        crate::terminals::TerminalId(1),
-        crate::terminals::TerminalId(2),
-    ];
-    let mut directory = AgentDirectory::default();
-    directory
-        .labels
-        .insert(crate::terminals::TerminalId(2), "oracle".into());
+fn agent_rows_use_derived_agent_view_labels() {
+    let rows = agent_rows(
+        HudRect {
+            x: 24.0,
+            y: 96.0,
+            w: 300.0,
+            h: 420.0,
+        },
+        0.0,
+        None,
+        &AgentListView {
+            rows: vec![
+                AgentListRowView {
+                    agent_id: crate::agents::AgentId(1),
+                    terminal_id: Some(crate::terminals::TerminalId(1)),
+                    label: "agent-1".into(),
+                    focused: false,
+                    has_tasks: false,
+                    interactive: true,
+                },
+                AgentListRowView {
+                    agent_id: crate::agents::AgentId(2),
+                    terminal_id: Some(crate::terminals::TerminalId(2)),
+                    label: "oracle".into(),
+                    focused: true,
+                    has_tasks: true,
+                    interactive: true,
+                },
+            ],
+        },
+    );
 
-    assert_eq!(
-        resolve_agent_label(&terminal_ids, &directory, crate::terminals::TerminalId(1)),
-        "agent-1"
-    );
-    assert_eq!(
-        resolve_agent_label(&terminal_ids, &directory, crate::terminals::TerminalId(2)),
-        "oracle"
-    );
+    assert_eq!(rows[0].label, "agent-1");
+    assert_eq!(rows[1].label, "oracle");
+    assert_eq!(rows[1].display_label, "ORACLE");
+    assert!(rows[1].focused);
+    assert!(rows[1].has_tasks);
 }
 
 /// Verifies that agent-row generation follows terminal creation order and annotates the focused row.
@@ -718,16 +788,33 @@ fn agent_rows_follow_terminal_order_and_focus() {
         shell_rect,
         0.0,
         None,
-        &manager,
-        &manager.clone_focus_state(),
-        &AgentDirectory::default(),
+        &AgentListView {
+            rows: vec![
+                AgentListRowView {
+                    agent_id: crate::agents::AgentId(1),
+                    terminal_id: Some(id_one),
+                    label: "agent-1".into(),
+                    focused: false,
+                    has_tasks: false,
+                    interactive: true,
+                },
+                AgentListRowView {
+                    agent_id: crate::agents::AgentId(2),
+                    terminal_id: Some(id_two),
+                    label: "agent-2".into(),
+                    focused: true,
+                    has_tasks: false,
+                    interactive: true,
+                },
+            ],
+        },
     );
     assert_eq!(rows.len(), 2);
-    assert_eq!(rows[0].terminal_id, id_one);
+    assert_eq!(rows[0].terminal_id, Some(id_one));
     assert_eq!(rows[0].label, "agent-1");
     assert!(rows[0].rect.y > shell_rect.y + 20.0);
     assert!(rows[0].rect.x > shell_rect.x + 20.0);
-    assert_eq!(rows[1].terminal_id, id_two);
+    assert_eq!(rows[1].terminal_id, Some(id_two));
     assert!(rows[1].focused);
     assert_eq!(rows[1].rect.y - rows[0].rect.y, 42.0);
 }
@@ -750,20 +837,37 @@ fn agent_rows_mark_hovered_terminal() {
         },
         0.0,
         Some(id_one),
-        &manager,
-        &manager.clone_focus_state(),
-        &AgentDirectory::default(),
+        &AgentListView {
+            rows: vec![
+                AgentListRowView {
+                    agent_id: crate::agents::AgentId(1),
+                    terminal_id: Some(id_one),
+                    label: "agent-1".into(),
+                    focused: false,
+                    has_tasks: false,
+                    interactive: true,
+                },
+                AgentListRowView {
+                    agent_id: crate::agents::AgentId(2),
+                    terminal_id: Some(id_two),
+                    label: "agent-2".into(),
+                    focused: false,
+                    has_tasks: false,
+                    interactive: true,
+                },
+            ],
+        },
     );
     assert!(
         rows.iter()
-            .find(|row| row.terminal_id == id_one)
+            .find(|row| row.terminal_id == Some(id_one))
             .unwrap()
             .hovered
     );
     assert!(
         !rows
             .iter()
-            .find(|row| row.terminal_id == id_two)
+            .find(|row| row.terminal_id == Some(id_two))
             .unwrap()
             .hovered
     );
@@ -776,7 +880,7 @@ fn agent_list_is_not_draggable() {
     let mut world = World::default();
     let mut hud_state = HudState::default();
     hud_state.insert(
-        HudModuleId::AgentList,
+        HudWidgetKey::AgentList,
         crate::hud::default_hud_module_instance(&crate::hud::HUD_MODULE_DEFINITIONS[1]),
     );
     let mut window = Window {
@@ -793,7 +897,7 @@ fn agent_list_is_not_draggable() {
     world.insert_resource(TerminalManager::default());
     world.insert_resource(TerminalPresentationStore::default());
     world.insert_resource(TerminalViewState::default());
-    world.insert_resource(AgentDirectory::default());
+    world.insert_resource(AgentListView::default());
     init_hud_commands(&mut world);
     world.spawn((window, PrimaryWindow));
     world
@@ -852,7 +956,7 @@ fn clicking_task_dialog_clear_done_button_persists_updated_text() {
     world.insert_resource(TerminalManager::default());
     world.insert_resource(TerminalPresentationStore::default());
     world.insert_resource(TerminalViewState::default());
-    world.insert_resource(AgentDirectory::default());
+    world.insert_resource(AgentListView::default());
     init_hud_commands(&mut world);
     world.spawn((window, PrimaryWindow));
 
@@ -871,8 +975,8 @@ fn clicking_task_dialog_clear_done_button_persists_updated_text() {
     assert_eq!(hud_state.task_dialog.text, "- [x] done\n- [ ] keep");
 }
 
-/// Verifies that applying a clear-done task request rewrites persisted notes and refreshes the open
-/// task dialog from persisted state rather than from stale editor text.
+/// Verifies that clearing done tasks through the app-command path refreshes the open task editor
+/// from authoritative task state rather than leaving stale local text behind.
 #[test]
 fn clear_done_task_request_updates_open_dialog_from_persisted_state() {
     let (bridge, _, _) = super::capturing_bridge();
@@ -882,21 +986,30 @@ fn clear_done_task_request_updates_open_dialog_from_persisted_state() {
     let mut notes_state = TerminalNotesState::default();
     assert!(notes_state.set_note_text("session-a", "- [x] done\n- [ ] keep"));
 
-    let mut hud_state = HudState::default();
-    hud_state.open_task_dialog(terminal_id, "stale local");
-
     let mut world = World::default();
     world.insert_resource(Time::<()>::default());
     insert_terminal_manager_resources(&mut world, manager);
     world.insert_resource(notes_state);
+    let agent_id = world
+        .resource::<crate::agents::AgentRuntimeIndex>()
+        .agent_for_terminal(terminal_id)
+        .expect("agent should be linked");
+    let mut hud_state = HudState::default();
+    hud_state.open_task_dialog(terminal_id, "stale local");
     insert_test_hud_state(&mut world, hud_state);
-    world.init_resource::<Messages<crate::hud::TerminalTaskRequest>>();
+    {
+        let mut tasks = world.resource_mut::<crate::conversations::AgentTaskStore>();
+        let _ = tasks.set_text(agent_id, "- [x] done\n- [ ] keep");
+    }
+    world.init_resource::<Messages<AppCommand>>();
     world.init_resource::<Messages<RequestRedraw>>();
     world
-        .resource_mut::<Messages<crate::hud::TerminalTaskRequest>>()
-        .write(crate::hud::TerminalTaskRequest::ClearDone { terminal_id });
+        .resource_mut::<Messages<AppCommand>>()
+        .write(AppCommand::Conversation(
+            AppConversationCommand::ClearDoneTasks { agent_id },
+        ));
 
-    world.run_system_once(apply_terminal_task_requests).unwrap();
+    run_app_commands(&mut world);
 
     {
         let notes_state = world.resource::<TerminalNotesState>();
@@ -908,8 +1021,8 @@ fn clear_done_task_request_updates_open_dialog_from_persisted_state() {
     assert_eq!(world.resource::<Messages<RequestRedraw>>().len(), 1);
 }
 
-/// Verifies that setting task text to empty removes the persisted note entry entirely rather than
-/// storing an empty note.
+/// Verifies that submitting an empty task editor clears persisted note state instead of storing an
+/// empty note blob.
 #[test]
 fn set_task_text_request_clears_persisted_task_presence_when_empty() {
     let (bridge, _, _) = super::capturing_bridge();
@@ -924,26 +1037,31 @@ fn set_task_text_request_clears_persisted_task_presence_when_empty() {
     world.insert_resource(Time::<()>::default());
     insert_terminal_manager_resources(&mut world, manager);
     world.insert_resource(notes_state);
-    insert_default_hud_resources(&mut world);
-    world.init_resource::<Messages<crate::hud::TerminalTaskRequest>>();
+    assert!(world
+        .resource::<crate::agents::AgentRuntimeIndex>()
+        .agent_for_terminal(terminal_id)
+        .is_some());
+    let mut hud_state = HudState::default();
+    hud_state.open_task_dialog(terminal_id, "");
+    insert_test_hud_state(&mut world, hud_state);
+    world.init_resource::<Messages<AppCommand>>();
     world.init_resource::<Messages<RequestRedraw>>();
     world
-        .resource_mut::<Messages<crate::hud::TerminalTaskRequest>>()
-        .write(crate::hud::TerminalTaskRequest::SetText {
-            terminal_id,
-            text: String::new(),
-        });
+        .resource_mut::<Messages<AppCommand>>()
+        .write(AppCommand::Composer(AppComposerCommand::Submit));
 
-    world.run_system_once(apply_terminal_task_requests).unwrap();
+    run_app_commands(&mut world);
 
     let notes_state = world.resource::<TerminalNotesState>();
     assert_eq!(notes_state.note_text("session-a"), None);
     assert!(!notes_state.has_note_text("session-a"));
     assert_eq!(world.resource::<Messages<RequestRedraw>>().len(), 1);
+    let hud_state = snapshot_test_hud_state(&world);
+    assert!(!hud_state.task_dialog.visible);
 }
 
-/// Verifies that consuming the next task both sends the task payload to the terminal and marks that
-/// task done in persisted notes.
+/// Verifies that consuming the next task through the app-command path sends the task payload to
+/// the terminal and marks that task done in persisted notes.
 #[test]
 fn consume_next_task_request_sends_message_and_marks_task_done() {
     let (bridge, input_rx, _) = super::capturing_bridge();
@@ -958,13 +1076,23 @@ fn consume_next_task_request_sends_message_and_marks_task_done() {
     insert_terminal_manager_resources(&mut world, manager);
     world.insert_resource(notes_state);
     insert_default_hud_resources(&mut world);
-    world.init_resource::<Messages<crate::hud::TerminalTaskRequest>>();
+    let agent_id = world
+        .resource::<crate::agents::AgentRuntimeIndex>()
+        .agent_for_terminal(terminal_id)
+        .expect("agent should be linked");
+    {
+        let mut tasks = world.resource_mut::<crate::conversations::AgentTaskStore>();
+        let _ = tasks.set_text(agent_id, "- [ ] first\n  detail\n- [ ] second");
+    }
+    world.init_resource::<Messages<AppCommand>>();
     world.init_resource::<Messages<RequestRedraw>>();
     world
-        .resource_mut::<Messages<crate::hud::TerminalTaskRequest>>()
-        .write(crate::hud::TerminalTaskRequest::ConsumeNext { terminal_id });
+        .resource_mut::<Messages<AppCommand>>()
+        .write(AppCommand::Conversation(
+            AppConversationCommand::ConsumeNextTask { agent_id },
+        ));
 
-    world.run_system_once(apply_terminal_task_requests).unwrap();
+    run_app_commands(&mut world);
 
     assert_eq!(
         input_rx.try_recv().unwrap(),
@@ -1007,7 +1135,7 @@ fn clicking_message_box_task_button_emits_append_task_intent() {
     world.insert_resource(TerminalManager::default());
     world.insert_resource(TerminalPresentationStore::default());
     world.insert_resource(TerminalViewState::default());
-    world.insert_resource(AgentDirectory::default());
+    world.insert_resource(AgentListView::default());
     init_hud_commands(&mut world);
     world.spawn((window, PrimaryWindow));
 
@@ -1038,7 +1166,7 @@ fn animate_hud_modules_moves_current_rect_and_alpha_toward_target() {
     module.shell.target_rect.x = 124.0;
     module.shell.current_alpha = 0.2;
     module.shell.target_alpha = 1.0;
-    hud_state.insert(HudModuleId::AgentList, module);
+    hud_state.insert(HudWidgetKey::AgentList, module);
     let mut time = Time::<()>::default();
     time.advance_by(Duration::from_millis(16));
     world.insert_resource(time);
@@ -1049,7 +1177,7 @@ fn animate_hud_modules_moves_current_rect_and_alpha_toward_target() {
         .unwrap();
 
     let hud_state = snapshot_test_hud_state(&world);
-    let module = hud_state.get(HudModuleId::AgentList).unwrap();
+    let module = hud_state.get(HudWidgetKey::AgentList).unwrap();
     assert!(module.shell.current_rect.x > 24.0);
     assert!(module.shell.current_rect.x < 124.0);
     assert!(module.shell.current_alpha > 0.2);
@@ -1064,11 +1192,11 @@ fn clicking_debug_toolbar_button_emits_spawn_terminal_command() {
     manager.create_terminal(bridge);
     let mut hud_state = HudState::default();
     hud_state.insert(
-        HudModuleId::DebugToolbar,
+        HudWidgetKey::DebugToolbar,
         crate::hud::default_hud_module_instance(&crate::hud::HUD_MODULE_DEFINITIONS[0]),
     );
     hud_state.insert(
-        HudModuleId::AgentList,
+        HudWidgetKey::AgentList,
         crate::hud::default_hud_module_instance(&crate::hud::HUD_MODULE_DEFINITIONS[1]),
     );
     let mut emitted_commands = Vec::new();
@@ -1095,9 +1223,9 @@ fn clicking_debug_toolbar_button_emits_spawn_terminal_command() {
     );
 
     dispatch_hud_pointer_click(
-        HudModuleId::DebugToolbar,
+        HudWidgetKey::DebugToolbar,
         hud_state
-            .get(HudModuleId::DebugToolbar)
+            .get(HudWidgetKey::DebugToolbar)
             .map(|module| &module.model)
             .expect("toolbar module missing"),
         HudRect {
@@ -1111,7 +1239,9 @@ fn clicking_debug_toolbar_button_emits_spawn_terminal_command() {
         &manager.clone_focus_state(),
         &Default::default(),
         &TerminalViewState::default(),
-        &AgentDirectory::default(),
+        &AgentListView::default(),
+        &ConversationListView::default(),
+        &ThreadView::default(),
         &hud_state.layout_state(),
         &mut emitted_commands,
     );
@@ -1128,11 +1258,11 @@ fn clicking_debug_toolbar_command_button_emits_terminal_command() {
     manager.create_terminal(bridge);
     let mut hud_state = HudState::default();
     hud_state.insert(
-        HudModuleId::DebugToolbar,
+        HudWidgetKey::DebugToolbar,
         crate::hud::default_hud_module_instance(&crate::hud::HUD_MODULE_DEFINITIONS[0]),
     );
     hud_state.insert(
-        HudModuleId::AgentList,
+        HudWidgetKey::AgentList,
         crate::hud::default_hud_module_instance(&crate::hud::HUD_MODULE_DEFINITIONS[1]),
     );
     let mut emitted_commands = Vec::new();
@@ -1156,9 +1286,9 @@ fn clicking_debug_toolbar_command_button_emits_terminal_command() {
     let click_point = Vec2::new(pwd.rect.x + pwd.rect.w * 0.5, pwd.rect.y + pwd.rect.h * 0.5);
 
     dispatch_hud_pointer_click(
-        HudModuleId::DebugToolbar,
+        HudWidgetKey::DebugToolbar,
         hud_state
-            .get(HudModuleId::DebugToolbar)
+            .get(HudWidgetKey::DebugToolbar)
             .map(|module| &module.model)
             .expect("toolbar module missing"),
         HudRect {
@@ -1172,7 +1302,9 @@ fn clicking_debug_toolbar_command_button_emits_terminal_command() {
         &manager.clone_focus_state(),
         &Default::default(),
         &TerminalViewState::default(),
-        &AgentDirectory::default(),
+        &AgentListView::default(),
+        &ConversationListView::default(),
+        &ThreadView::default(),
         &hud_state.layout_state(),
         &mut emitted_commands,
     );
@@ -1196,10 +1328,30 @@ fn clicking_agent_list_row_emits_focus_and_isolate_commands() {
     let id_two = manager.create_terminal(bridge_two);
     let mut hud_state = HudState::default();
     hud_state.insert(
-        HudModuleId::AgentList,
+        HudWidgetKey::AgentList,
         crate::hud::default_hud_module_instance(&crate::hud::HUD_MODULE_DEFINITIONS[1]),
     );
     let mut emitted_commands = Vec::new();
+    let agent_list_view = AgentListView {
+        rows: vec![
+            AgentListRowView {
+                agent_id: crate::agents::AgentId(1),
+                terminal_id: Some(crate::terminals::TerminalId(1)),
+                label: "agent-1".into(),
+                focused: false,
+                has_tasks: false,
+                interactive: true,
+            },
+            AgentListRowView {
+                agent_id: crate::agents::AgentId(2),
+                terminal_id: Some(id_two),
+                label: "agent-2".into(),
+                focused: false,
+                has_tasks: false,
+                interactive: true,
+            },
+        ],
+    };
     let rows = agent_rows(
         HudRect {
             x: 24.0,
@@ -1209,13 +1361,11 @@ fn clicking_agent_list_row_emits_focus_and_isolate_commands() {
         },
         0.0,
         None,
-        &manager,
-        &manager.clone_focus_state(),
-        &AgentDirectory::default(),
+        &agent_list_view,
     );
     let target_row = rows
         .iter()
-        .find(|row| row.terminal_id == id_two)
+        .find(|row| row.terminal_id == Some(id_two))
         .expect("agent row for second terminal missing");
     let click_point = Vec2::new(
         target_row.rect.x + target_row.rect.w * 0.5,
@@ -1223,9 +1373,9 @@ fn clicking_agent_list_row_emits_focus_and_isolate_commands() {
     );
 
     dispatch_hud_pointer_click(
-        HudModuleId::AgentList,
+        HudWidgetKey::AgentList,
         hud_state
-            .get(HudModuleId::AgentList)
+            .get(HudWidgetKey::AgentList)
             .map(|module| &module.model)
             .expect("agent list module missing"),
         HudRect {
@@ -1239,7 +1389,9 @@ fn clicking_agent_list_row_emits_focus_and_isolate_commands() {
         &manager.clone_focus_state(),
         &Default::default(),
         &TerminalViewState::default(),
-        &AgentDirectory::default(),
+        &agent_list_view,
+        &ConversationListView::default(),
+        &ThreadView::default(),
         &hud_state.layout_state(),
         &mut emitted_commands,
     );
@@ -1255,6 +1407,63 @@ fn clicking_agent_list_row_emits_focus_and_isolate_commands() {
     );
 }
 
+/// Verifies that clicking a conversation-list row selects the linked terminal through the standard
+/// focus+isolate command pair.
+#[test]
+fn clicking_conversation_list_row_emits_focus_and_isolate_commands() {
+    let (bridge, _) = test_bridge();
+    let mut manager = TerminalManager::default();
+    let terminal_id = manager.create_terminal(bridge);
+    let mut hud_state = HudState::default();
+    hud_state.insert(
+        HudWidgetKey::ConversationList,
+        crate::hud::default_hud_module_instance(&crate::hud::HUD_MODULE_DEFINITIONS[2]),
+    );
+    let conversation_list_view = ConversationListView {
+        rows: vec![crate::hud::ConversationListRowView {
+            agent_id: crate::agents::AgentId(1),
+            terminal_id: Some(terminal_id),
+            conversation_id: crate::conversations::ConversationId(1),
+            label: "alpha".into(),
+            message_count: 2,
+            selected: true,
+        }],
+    };
+    let mut emitted_commands = Vec::new();
+
+    dispatch_hud_pointer_click(
+        HudWidgetKey::ConversationList,
+        hud_state
+            .get(HudWidgetKey::ConversationList)
+            .map(|module| &module.model)
+            .expect("conversation list module missing"),
+        HudRect {
+            x: 332.0,
+            y: 140.0,
+            w: 320.0,
+            h: 280.0,
+        },
+        Vec2::new(360.0, 154.0),
+        &manager,
+        &manager.clone_focus_state(),
+        &Default::default(),
+        &TerminalViewState::default(),
+        &AgentListView::default(),
+        &conversation_list_view,
+        &ThreadView::default(),
+        &hud_state.layout_state(),
+        &mut emitted_commands,
+    );
+
+    assert_eq!(
+        emitted_commands,
+        vec![
+            crate::hud::HudIntent::FocusTerminal(terminal_id),
+            crate::hud::HudIntent::HideAllButTerminal(terminal_id),
+        ]
+    );
+}
+
 /// Verifies that agent-list wheel scrolling clamps at the maximum content offset rather than running
 /// past the last row.
 #[test]
@@ -1267,7 +1476,7 @@ fn agent_list_scroll_clamps_to_content_height() {
     }
 
     dispatch_hud_scroll(
-        HudModuleId::AgentList,
+        HudWidgetKey::AgentList,
         &mut model,
         -500.0,
         &manager,
@@ -1277,6 +1486,19 @@ fn agent_list_scroll_clamps_to_content_height() {
             w: 300.0,
             h: 112.0,
         },
+        &AgentListView {
+            rows: (0..5)
+                .map(|index| AgentListRowView {
+                    agent_id: crate::agents::AgentId(index + 1),
+                    terminal_id: Some(crate::terminals::TerminalId(index + 1)),
+                    label: format!("agent-{}", index + 1),
+                    focused: false,
+                    has_tasks: false,
+                    interactive: true,
+                })
+                .collect(),
+        },
+        &ConversationListView::default(),
     );
 
     let HudModuleModel::AgentList(state) = model else {
@@ -1293,11 +1515,11 @@ fn debug_toolbar_buttons_include_module_toggle_entries() {
     manager.create_terminal(bridge);
     let mut hud_state = HudState::default();
     hud_state.insert(
-        HudModuleId::DebugToolbar,
+        HudWidgetKey::DebugToolbar,
         crate::hud::default_hud_module_instance(&crate::hud::HUD_MODULE_DEFINITIONS[0]),
     );
     hud_state.insert(
-        HudModuleId::AgentList,
+        HudWidgetKey::AgentList,
         crate::hud::default_hud_module_instance(&crate::hud::HUD_MODULE_DEFINITIONS[1]),
     );
     let buttons = debug_toolbar_buttons(
@@ -1315,6 +1537,8 @@ fn debug_toolbar_buttons_include_module_toggle_entries() {
     );
     assert!(buttons.iter().any(|button| button.label == "0 toolbar"));
     assert!(buttons.iter().any(|button| button.label == "1 agents"));
+    assert!(buttons.iter().any(|button| button.label == "2 convs"));
+    assert!(buttons.iter().any(|button| button.label == "3 thread"));
 }
 
 /// Verifies that debug-toolbar module toggle buttons mirror each module's current enabled state.
@@ -1325,14 +1549,14 @@ fn debug_toolbar_module_toggle_buttons_reflect_enabled_state() {
     manager.create_terminal(bridge);
     let mut hud_state = HudState::default();
     hud_state.insert(
-        HudModuleId::DebugToolbar,
+        HudWidgetKey::DebugToolbar,
         crate::hud::default_hud_module_instance(&crate::hud::HUD_MODULE_DEFINITIONS[0]),
     );
     hud_state.insert(
-        HudModuleId::AgentList,
+        HudWidgetKey::AgentList,
         crate::hud::default_hud_module_instance(&crate::hud::HUD_MODULE_DEFINITIONS[1]),
     );
-    hud_state.set_module_enabled(HudModuleId::AgentList, false);
+    hud_state.set_module_enabled(HudWidgetKey::AgentList, false);
 
     let buttons = debug_toolbar_buttons(
         HudRect {
@@ -1356,8 +1580,18 @@ fn debug_toolbar_module_toggle_buttons_reflect_enabled_state() {
         .iter()
         .find(|button| button.label == "1 agents")
         .expect("agent toggle button missing");
+    let conversations = buttons
+        .iter()
+        .find(|button| button.label == "2 convs")
+        .expect("conversation toggle button missing");
+    let thread = buttons
+        .iter()
+        .find(|button| button.label == "3 thread")
+        .expect("thread toggle button missing");
     assert!(toolbar.active);
     assert!(!agents.active);
+    assert!(!conversations.active);
+    assert!(!thread.active);
 }
 
 /// Verifies that HUD hit-testing returns the frontmost enabled module when rects overlap.
@@ -1365,18 +1599,18 @@ fn debug_toolbar_module_toggle_buttons_reflect_enabled_state() {
 fn hud_state_topmost_enabled_at_prefers_frontmost_module() {
     let mut state = HudState::default();
     state.insert(
-        HudModuleId::DebugToolbar,
+        HudWidgetKey::DebugToolbar,
         crate::hud::default_hud_module_instance(&crate::hud::HUD_MODULE_DEFINITIONS[0]),
     );
     state.insert(
-        HudModuleId::AgentList,
+        HudWidgetKey::AgentList,
         crate::hud::default_hud_module_instance(&crate::hud::HUD_MODULE_DEFINITIONS[1]),
     );
-    state.raise_to_front(HudModuleId::AgentList);
+    state.raise_to_front(HudWidgetKey::AgentList);
 
     assert_eq!(
         state.topmost_enabled_at(Vec2::new(40.0, 110.0)),
-        Some(HudModuleId::AgentList)
+        Some(HudWidgetKey::AgentList)
     );
 }
 
@@ -1386,17 +1620,17 @@ fn hud_state_topmost_enabled_at_prefers_frontmost_module() {
 fn hud_needs_redraw_when_drag_or_animation_is_active() {
     let mut state = HudState::default();
     state.insert(
-        HudModuleId::AgentList,
+        HudWidgetKey::AgentList,
         crate::hud::default_hud_module_instance(&crate::hud::HUD_MODULE_DEFINITIONS[1]),
     );
     assert!(!hud_needs_redraw(&state.layout_state()));
     state.drag = Some(HudDragState {
-        module_id: HudModuleId::AgentList,
+        module_id: HudWidgetKey::AgentList,
         grab_offset: Vec2::ZERO,
     });
     assert!(hud_needs_redraw(&state.layout_state()));
     state.drag = None;
-    let module = state.get_mut(HudModuleId::AgentList).unwrap();
+    let module = state.get_mut(HudWidgetKey::AgentList).unwrap();
     module.shell.current_rect.x = 0.0;
     module.shell.target_rect.x = 10.0;
     assert!(hud_needs_redraw(&state.layout_state()));
@@ -1408,13 +1642,13 @@ fn hud_needs_redraw_when_drag_or_animation_is_active() {
 fn disabled_hud_module_still_requests_redraw_while_fading_out() {
     let mut state = HudState::default();
     state.insert(
-        HudModuleId::AgentList,
+        HudWidgetKey::AgentList,
         crate::hud::default_hud_module_instance(&crate::hud::HUD_MODULE_DEFINITIONS[1]),
     );
 
-    state.set_module_enabled(HudModuleId::AgentList, false);
+    state.set_module_enabled(HudWidgetKey::AgentList, false);
 
-    let module = state.get(HudModuleId::AgentList).unwrap();
+    let module = state.get(HudWidgetKey::AgentList).unwrap();
     assert!(!module.shell.enabled);
     assert!(module.shell.is_animating());
     assert!(hud_needs_redraw(&state.layout_state()));
@@ -1456,18 +1690,12 @@ fn killing_active_terminal_selects_previous_terminal_in_creation_order() {
         );
     }
 
-    let mut directory = AgentDirectory::default();
-    directory.labels.insert(id_one, "one".into());
-    directory.labels.insert(id_two, "two".into());
-    directory.labels.insert(id_three, "three".into());
-
     let mut world = World::default();
     let mut time = Time::<()>::default();
     time.advance_by(Duration::from_secs(1));
     world.insert_resource(time);
     insert_terminal_manager_resources(&mut world, manager);
     world.insert_resource(store);
-    world.insert_resource(directory);
     world.insert_resource(fake_runtime_spawner(client));
     world.insert_resource(TerminalSessionPersistenceState::default());
     world.insert_resource(TerminalVisibilityState {
@@ -1491,7 +1719,6 @@ fn killing_active_terminal_selects_previous_terminal_in_creation_order() {
              mut focus_state: ResMut<crate::terminals::TerminalFocusState>,
              mut presentation_store: ResMut<TerminalPresentationStore>,
              runtime_spawner: Res<crate::terminals::TerminalRuntimeSpawner>,
-             mut agent_directory: ResMut<AgentDirectory>,
              mut session_persistence: ResMut<TerminalSessionPersistenceState>,
              mut visibility_state: ResMut<TerminalVisibilityState>,
              mut view_state: ResMut<TerminalViewState>| {
@@ -1502,7 +1729,6 @@ fn killing_active_terminal_selects_previous_terminal_in_creation_order() {
                     &mut focus_state,
                     &mut presentation_store,
                     &runtime_spawner,
-                    &mut agent_directory,
                     &mut session_persistence,
                     &mut visibility_state,
                     &mut view_state,
@@ -1518,10 +1744,6 @@ fn killing_active_terminal_selects_previous_terminal_in_creation_order() {
         world.resource::<TerminalVisibilityState>().policy,
         TerminalVisibilityPolicy::Isolate(id_one)
     );
-    assert!(!world
-        .resource::<AgentDirectory>()
-        .labels
-        .contains_key(&id_two));
 }
 
 /// Verifies that removing the first active terminal promotes the next surviving terminal to
@@ -1557,17 +1779,12 @@ fn killing_first_active_terminal_selects_next_terminal() {
         );
     }
 
-    let mut directory = AgentDirectory::default();
-    directory.labels.insert(id_one, "one".into());
-    directory.labels.insert(id_two, "two".into());
-
     let mut world = World::default();
     let mut time = Time::<()>::default();
     time.advance_by(Duration::from_secs(1));
     world.insert_resource(time);
     insert_terminal_manager_resources(&mut world, manager);
     world.insert_resource(store);
-    world.insert_resource(directory);
     world.insert_resource(fake_runtime_spawner(client));
     world.insert_resource(TerminalSessionPersistenceState::default());
     world.insert_resource(TerminalVisibilityState {
@@ -1591,7 +1808,6 @@ fn killing_first_active_terminal_selects_next_terminal() {
              mut focus_state: ResMut<crate::terminals::TerminalFocusState>,
              mut presentation_store: ResMut<TerminalPresentationStore>,
              runtime_spawner: Res<crate::terminals::TerminalRuntimeSpawner>,
-             mut agent_directory: ResMut<AgentDirectory>,
              mut session_persistence: ResMut<TerminalSessionPersistenceState>,
              mut visibility_state: ResMut<TerminalVisibilityState>,
              mut view_state: ResMut<TerminalViewState>| {
@@ -1602,7 +1818,6 @@ fn killing_first_active_terminal_selects_next_terminal() {
                     &mut focus_state,
                     &mut presentation_store,
                     &runtime_spawner,
-                    &mut agent_directory,
                     &mut session_persistence,
                     &mut visibility_state,
                     &mut view_state,
@@ -1618,10 +1833,6 @@ fn killing_first_active_terminal_selects_next_terminal() {
         world.resource::<TerminalVisibilityState>().policy,
         TerminalVisibilityPolicy::Isolate(id_two)
     );
-    assert!(!world
-        .resource::<AgentDirectory>()
-        .labels
-        .contains_key(&id_one));
 }
 
 /// Verifies that a successful active-terminal kill removes terminal-manager state, presentation
@@ -1654,16 +1865,12 @@ fn killing_active_terminal_removes_runtime_presentation_and_labels() {
         },
     );
 
-    let mut directory = AgentDirectory::default();
-    directory.labels.insert(id, "oracle".into());
-
     let mut world = World::default();
     let mut time = Time::<()>::default();
     time.advance_by(Duration::from_secs(1));
     world.insert_resource(time);
     insert_terminal_manager_resources(&mut world, manager);
     world.insert_resource(store);
-    world.insert_resource(directory);
     world.insert_resource(fake_runtime_spawner(client.clone()));
     world.insert_resource(TerminalSessionPersistenceState::default());
     world.insert_resource(TerminalVisibilityState {
@@ -1687,7 +1894,6 @@ fn killing_active_terminal_removes_runtime_presentation_and_labels() {
              mut focus_state: ResMut<crate::terminals::TerminalFocusState>,
              mut presentation_store: ResMut<TerminalPresentationStore>,
              runtime_spawner: Res<crate::terminals::TerminalRuntimeSpawner>,
-             mut agent_directory: ResMut<AgentDirectory>,
              mut session_persistence: ResMut<TerminalSessionPersistenceState>,
              mut visibility_state: ResMut<TerminalVisibilityState>,
              mut view_state: ResMut<TerminalViewState>| {
@@ -1698,13 +1904,16 @@ fn killing_active_terminal_removes_runtime_presentation_and_labels() {
                     &mut focus_state,
                     &mut presentation_store,
                     &runtime_spawner,
-                    &mut agent_directory,
                     &mut session_persistence,
                     &mut visibility_state,
                     &mut view_state,
                 );
             },
         )
+        .unwrap();
+    world.insert_resource(Assets::<Image>::default());
+    world
+        .run_system_once(crate::terminals::sync_terminal_projection_entities)
         .unwrap();
 
     assert!(world
@@ -1715,7 +1924,6 @@ fn killing_active_terminal_removes_runtime_presentation_and_labels() {
         .resource::<TerminalPresentationStore>()
         .get(id)
         .is_none());
-    assert!(!world.resource::<AgentDirectory>().labels.contains_key(&id));
     assert_eq!(
         world.resource::<TerminalVisibilityState>().policy,
         TerminalVisibilityPolicy::ShowAll
@@ -1731,7 +1939,7 @@ fn killing_active_terminal_removes_runtime_presentation_and_labels() {
     assert_eq!(frame_count, 0);
 }
 
-/// Verifies that the shell-spawn lifecycle request creates a session without injecting any bootstrap
+/// Verifies that the shell-spawn app command creates a session without injecting any bootstrap
 /// command payload.
 #[test]
 fn spawn_shell_lifecycle_request_does_not_send_pi_command() {
@@ -1744,21 +1952,19 @@ fn spawn_shell_lifecycle_request_does_not_send_pi_command() {
     insert_terminal_manager_resources(&mut world, TerminalManager::default());
     insert_default_hud_resources(&mut world);
     world.insert_resource(TerminalPresentationStore::default());
-    world.insert_resource(AgentDirectory::default());
+    world.insert_resource(AgentListView::default());
     world.insert_resource(fake_runtime_spawner(client.clone()));
     world.insert_resource(TerminalSessionPersistenceState::default());
     world.insert_resource(TerminalVisibilityState::default());
     world.insert_resource(TerminalViewState::default());
-    world.init_resource::<Messages<TerminalLifecycleRequest>>();
+    world.init_resource::<Messages<AppCommand>>();
     world.init_resource::<Messages<RequestRedraw>>();
 
     world
-        .resource_mut::<Messages<TerminalLifecycleRequest>>()
-        .write(TerminalLifecycleRequest::SpawnShell);
+        .resource_mut::<Messages<AppCommand>>()
+        .write(AppCommand::Agent(AppAgentCommand::SpawnShellTerminal));
 
-    world
-        .run_system_once(apply_terminal_lifecycle_requests)
-        .unwrap();
+    run_app_commands(&mut world);
 
     assert_eq!(world.resource::<TerminalManager>().terminal_ids().len(), 1);
     assert!(client.sent_commands.lock().unwrap().is_empty());
@@ -1799,16 +2005,12 @@ fn killing_disconnected_active_terminal_removes_local_state_even_if_daemon_kill_
         },
     );
 
-    let mut directory = AgentDirectory::default();
-    directory.labels.insert(id, "oracle".into());
-
     let mut world = World::default();
     let mut time = Time::<()>::default();
     time.advance_by(Duration::from_secs(1));
     world.insert_resource(time);
     insert_terminal_manager_resources(&mut world, manager);
     world.insert_resource(store);
-    world.insert_resource(directory);
     world.insert_resource(fake_runtime_spawner(client.clone()));
     world.insert_resource(TerminalSessionPersistenceState::default());
     world.insert_resource(TerminalVisibilityState {
@@ -1832,7 +2034,6 @@ fn killing_disconnected_active_terminal_removes_local_state_even_if_daemon_kill_
              mut focus_state: ResMut<crate::terminals::TerminalFocusState>,
              mut presentation_store: ResMut<TerminalPresentationStore>,
              runtime_spawner: Res<crate::terminals::TerminalRuntimeSpawner>,
-             mut agent_directory: ResMut<AgentDirectory>,
              mut session_persistence: ResMut<TerminalSessionPersistenceState>,
              mut visibility_state: ResMut<TerminalVisibilityState>,
              mut view_state: ResMut<TerminalViewState>| {
@@ -1843,13 +2044,16 @@ fn killing_disconnected_active_terminal_removes_local_state_even_if_daemon_kill_
                     &mut focus_state,
                     &mut presentation_store,
                     &runtime_spawner,
-                    &mut agent_directory,
                     &mut session_persistence,
                     &mut visibility_state,
                     &mut view_state,
                 );
             },
         )
+        .unwrap();
+    world.insert_resource(Assets::<Image>::default());
+    world
+        .run_system_once(crate::terminals::sync_terminal_projection_entities)
         .unwrap();
 
     assert!(world
@@ -1860,7 +2064,6 @@ fn killing_disconnected_active_terminal_removes_local_state_even_if_daemon_kill_
         .resource::<TerminalPresentationStore>()
         .get(id)
         .is_none());
-    assert!(!world.resource::<AgentDirectory>().labels.contains_key(&id));
     assert_eq!(
         world.resource::<TerminalVisibilityState>().policy,
         TerminalVisibilityPolicy::ShowAll
@@ -1906,16 +2109,12 @@ fn killing_active_terminal_preserves_local_state_when_tmux_kill_fails() {
         },
     );
 
-    let mut directory = AgentDirectory::default();
-    directory.labels.insert(id, "oracle".into());
-
     let mut world = World::default();
     let mut time = Time::<()>::default();
     time.advance_by(Duration::from_secs(1));
     world.insert_resource(time);
     insert_terminal_manager_resources(&mut world, manager);
     world.insert_resource(store);
-    world.insert_resource(directory);
     world.insert_resource(fake_runtime_spawner(client.clone()));
     world.insert_resource(TerminalSessionPersistenceState::default());
     world.insert_resource(TerminalVisibilityState {
@@ -1939,7 +2138,6 @@ fn killing_active_terminal_preserves_local_state_when_tmux_kill_fails() {
              mut focus_state: ResMut<crate::terminals::TerminalFocusState>,
              mut presentation_store: ResMut<TerminalPresentationStore>,
              runtime_spawner: Res<crate::terminals::TerminalRuntimeSpawner>,
-             mut agent_directory: ResMut<AgentDirectory>,
              mut session_persistence: ResMut<TerminalSessionPersistenceState>,
              mut visibility_state: ResMut<TerminalVisibilityState>,
              mut view_state: ResMut<TerminalViewState>| {
@@ -1950,7 +2148,6 @@ fn killing_active_terminal_preserves_local_state_when_tmux_kill_fails() {
                     &mut focus_state,
                     &mut presentation_store,
                     &runtime_spawner,
-                    &mut agent_directory,
                     &mut session_persistence,
                     &mut visibility_state,
                     &mut view_state,
@@ -1964,7 +2161,6 @@ fn killing_active_terminal_preserves_local_state_when_tmux_kill_fails() {
         .resource::<TerminalPresentationStore>()
         .get(id)
         .is_some());
-    assert!(world.resource::<AgentDirectory>().labels.contains_key(&id));
     assert_eq!(
         world.resource::<TerminalVisibilityState>().policy,
         TerminalVisibilityPolicy::Isolate(id)

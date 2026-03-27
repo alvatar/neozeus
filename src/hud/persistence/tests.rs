@@ -1,5 +1,5 @@
 use super::*;
-use crate::hud::{HudModuleId, HudRect};
+use crate::hud::{HudRect, HudWidgetKey};
 use crate::tests::{insert_test_hud_state, temp_dir};
 use bevy::{
     ecs::system::RunSystemOnce,
@@ -31,7 +31,7 @@ fn hud_layout_path_prefers_xdg_then_home() {
 fn hud_layout_parse_and_serialize_roundtrip() {
     let mut persisted = PersistedHudState::default();
     persisted.modules.insert(
-        HudModuleId::AgentList,
+        HudWidgetKey::AgentList,
         PersistedHudModuleState {
             enabled: true,
             rect: HudRect {
@@ -53,7 +53,7 @@ fn hud_layout_parse_and_serialize_roundtrip() {
 fn hud_layout_v1_parser_remains_backward_compatible() {
     let persisted =
         parse_persisted_hud_state("version 1\nAgentList enabled=1 x=24 y=96 w=300 h=420\n");
-    let module = persisted.modules.get(&HudModuleId::AgentList).unwrap();
+    let module = persisted.modules.get(&HudWidgetKey::AgentList).unwrap();
     assert!(module.enabled);
     assert_eq!(module.rect.w, 300.0);
 }
@@ -66,7 +66,7 @@ fn hud_layout_v1_parser_remains_backward_compatible() {
 fn apply_persisted_layout_overrides_defaults() {
     let mut persisted = PersistedHudState::default();
     persisted.modules.insert(
-        HudModuleId::AgentList,
+        HudWidgetKey::AgentList,
         PersistedHudModuleState {
             enabled: false,
             rect: HudRect {
@@ -79,7 +79,7 @@ fn apply_persisted_layout_overrides_defaults() {
     );
     let hud_state =
         apply_persisted_layout(crate::hud::HUD_MODULE_DEFINITIONS.as_slice(), &persisted);
-    let module = hud_state.get(HudModuleId::AgentList).unwrap();
+    let module = hud_state.get(HudWidgetKey::AgentList).unwrap();
     assert!(!module.shell.enabled);
     assert_eq!(module.shell.target_rect.x, 11.0);
     assert_eq!(module.shell.target_rect.w, 333.0);
@@ -103,7 +103,7 @@ fn saving_hud_layout_persists_target_rect() {
         w: 333.0,
         h: 444.0,
     };
-    hud_state.insert(HudModuleId::AgentList, module);
+    hud_state.insert(HudWidgetKey::AgentList, module);
     hud_state.dirty_layout = true;
     let mut time = Time::<()>::default();
     time.advance_by(Duration::from_secs(1));
@@ -133,7 +133,7 @@ fn saving_hud_layout_persists_target_rect() {
     let persisted = parse_persisted_hud_state(&serialized);
     let restored =
         apply_persisted_layout(crate::hud::HUD_MODULE_DEFINITIONS.as_slice(), &persisted);
-    let restored_module = restored.get(HudModuleId::AgentList).unwrap();
+    let restored_module = restored.get(HudWidgetKey::AgentList).unwrap();
     assert_eq!(restored_module.shell.target_rect.x, 321.0);
     assert_eq!(restored_module.shell.target_rect.h, 444.0);
 }

@@ -1,0 +1,521 @@
+use crate::{
+    agents::{AgentCatalog, AgentKind, AgentRuntimeIndex},
+    app::{
+        commands::{
+            AgentCommand, AppCommand, ComposerCommand,
+            ConversationCommand as AppConversationCommand, TerminalCommand as AppTerminalCommand,
+            WidgetCommand,
+        },
+        session::AppSessionState,
+        use_cases,
+    },
+    conversations::{
+        mark_conversations_dirty, AgentTaskStore, ConversationPersistenceState, ConversationStore,
+        MessageTransportAdapter,
+    },
+    hud::{HudInputCaptureState, HudIntent, HudLayoutState, TerminalVisibilityState},
+    startup::StartupLoadingState,
+    terminals::{
+        append_debug_log, mark_terminal_sessions_dirty, TerminalFocusState, TerminalManager,
+        TerminalNotesState, TerminalPresentationStore, TerminalRuntimeSpawner,
+        TerminalSessionPersistenceState, TerminalViewState, PERSISTENT_SESSION_PREFIX,
+        VERIFIER_SESSION_PREFIX,
+    },
+};
+use bevy::{ecs::system::SystemParam, prelude::*, window::RequestRedraw};
+
+/// Reconciles the new agent domain from terminal/runtime state that may still be created through
+/// legacy startup or verifier paths.
+///
+/// The sync is intentionally conservative: missing agent records are created, stale links are
+/// removed, runtime lifecycle is refreshed, and active-agent selection is mirrored from the current
+/// terminal focus. It does not overwrite explicit catalog labels once an agent exists.
+pub(crate) fn sync_agents_from_terminals(
+    mut agent_catalog: ResMut<AgentCatalog>,
+    mut runtime_index: ResMut<AgentRuntimeIndex>,
+    mut app_session: ResMut<AppSessionState>,
+    terminal_manager: Res<TerminalManager>,
+    focus_state: Res<TerminalFocusState>,
+) {
+    let existing_terminals = terminal_manager
+        .terminal_ids()
+        .iter()
+        .copied()
+        .collect::<std::collections::BTreeSet<_>>();
+    let stale_terminals = runtime_index
+        .terminal_to_agent
+        .keys()
+        .copied()
+        .filter(|terminal_id| !existing_terminals.contains(terminal_id))
+        .collect::<Vec<_>>();
+    for terminal_id in stale_terminals {
+        if let Some(agent_id) = runtime_index.remove_terminal(terminal_id) {
+            let _ = agent_catalog.remove(agent_id);
+            app_session.composer.unbind_agent(agent_id);
+            if app_session.active_agent == Some(agent_id) {
+                app_session.active_agent = None;
+            }
+        }
+    }
+
+    for terminal_id in terminal_manager.terminal_ids().iter().copied() {
+        let Some(terminal) = terminal_manager.get(terminal_id) else {
+            continue;
+        };
+        let agent_id = runtime_index
+            .agent_for_terminal(terminal_id)
+            .unwrap_or_else(|| {
+                let kind = if terminal.session_name.starts_with(VERIFIER_SESSION_PREFIX) {
+                    AgentKind::Verifier
+                } else {
+                    AgentKind::Terminal
+                };
+                let capabilities = match kind {
+                    AgentKind::Terminal => crate::agents::AgentCapabilities::terminal_defaults(),
+                    AgentKind::Verifier => crate::agents::AgentCapabilities::verifier_defaults(),
+                };
+                let agent_id = agent_catalog.create_agent(None, kind, capabilities);
+                runtime_index.link_terminal(
+                    agent_id,
+                    terminal_id,
+                    terminal.session_name.clone(),
+                    Some(&terminal.snapshot.runtime),
+                );
+                app_session
+                    .composer
+                    .bind_agent_terminal(agent_id, terminal_id);
+                agent_id
+            });
+        runtime_index.update_runtime(terminal_id, &terminal.snapshot.runtime);
+        app_session
+            .composer
+            .bind_agent_terminal(agent_id, terminal_id);
+    }
+
+    app_session.active_agent = focus_state
+        .active_id()
+        .and_then(|terminal_id| runtime_index.agent_for_terminal(terminal_id));
+}
+
+/// Translates legacy HUD intents into the new app-level command surface.
+///
+/// This adapter exists to keep behavior stable while input/widget code is migrated away from the
+/// old `HudIntent` vocabulary. Product mutations happen only after the translated `AppCommand` is
+/// consumed by [`apply_app_commands`].
+fn refresh_open_task_editor(
+    app_session: &mut AppSessionState,
+    agent_id: crate::agents::AgentId,
+    task_store: &AgentTaskStore,
+) {
+    if !matches!(
+        app_session.composer.session.as_ref().map(|session| &session.mode),
+        Some(crate::ui::ComposerMode::TaskEdit {
+            agent_id: open_agent_id,
+        }) if *open_agent_id == agent_id
+    ) {
+        return;
+    }
+    app_session
+        .composer
+        .task_editor
+        .load_text(task_store.text(agent_id).unwrap_or_default());
+}
+
+pub(crate) fn translate_hud_intents_to_app_commands(
+    mut intents: MessageReader<HudIntent>,
+    runtime_index: Res<AgentRuntimeIndex>,
+    mut app_commands: MessageWriter<AppCommand>,
+) {
+    for intent in intents.read() {
+        match intent {
+            HudIntent::SpawnTerminal => {
+                app_commands.write(AppCommand::Agent(AgentCommand::SpawnTerminal));
+            }
+            #[cfg(test)]
+            HudIntent::SpawnShellTerminal => {
+                app_commands.write(AppCommand::Agent(AgentCommand::SpawnShellTerminal));
+            }
+            HudIntent::FocusTerminal(terminal_id) => {
+                if let Some(agent_id) = runtime_index.agent_for_terminal(*terminal_id) {
+                    app_commands.write(AppCommand::Agent(AgentCommand::Focus(agent_id)));
+                }
+            }
+            HudIntent::HideAllButTerminal(terminal_id) => {
+                if let Some(agent_id) = runtime_index.agent_for_terminal(*terminal_id) {
+                    app_commands.write(AppCommand::Agent(AgentCommand::Inspect(agent_id)));
+                }
+            }
+            HudIntent::ShowAllTerminals => {
+                app_commands.write(AppCommand::Agent(AgentCommand::ShowAll));
+            }
+            HudIntent::ToggleModule(id) => {
+                app_commands.write(AppCommand::Widget(WidgetCommand::Toggle(*id)));
+            }
+            HudIntent::ResetModule(id) => {
+                app_commands.write(AppCommand::Widget(WidgetCommand::Reset(*id)));
+            }
+            HudIntent::ToggleActiveTerminalDisplayMode => {
+                app_commands.write(AppCommand::Terminal(
+                    AppTerminalCommand::ToggleActiveDisplayMode,
+                ));
+            }
+            HudIntent::ResetTerminalView => {
+                app_commands.write(AppCommand::Terminal(AppTerminalCommand::ResetActiveView));
+            }
+            HudIntent::SendActiveTerminalCommand(command) => {
+                app_commands.write(AppCommand::Terminal(
+                    AppTerminalCommand::SendCommandToActive {
+                        command: command.clone(),
+                    },
+                ));
+            }
+            #[cfg(test)]
+            HudIntent::SendTerminalCommand(_terminal_id, command) => {
+                app_commands.write(AppCommand::Terminal(
+                    AppTerminalCommand::SendCommandToActive {
+                        command: command.clone(),
+                    },
+                ));
+            }
+            #[cfg(test)]
+            HudIntent::SetTerminalTaskText(terminal_id, text) => {
+                if let Some(agent_id) = runtime_index.agent_for_terminal(*terminal_id) {
+                    let _ = text;
+                    app_commands.write(AppCommand::Composer(ComposerCommand::Submit));
+                    app_commands.write(AppCommand::Conversation(
+                        AppConversationCommand::AppendTask {
+                            agent_id,
+                            text: String::new(),
+                        },
+                    ));
+                }
+            }
+            HudIntent::ClearDoneTerminalTasks(terminal_id) => {
+                if let Some(agent_id) = runtime_index.agent_for_terminal(*terminal_id) {
+                    app_commands.write(AppCommand::Conversation(
+                        AppConversationCommand::ClearDoneTasks { agent_id },
+                    ));
+                }
+            }
+            HudIntent::AppendTerminalTask(terminal_id, text) => {
+                if let Some(agent_id) = runtime_index.agent_for_terminal(*terminal_id) {
+                    app_commands.write(AppCommand::Conversation(
+                        AppConversationCommand::AppendTask {
+                            agent_id,
+                            text: text.clone(),
+                        },
+                    ));
+                }
+            }
+            HudIntent::PrependTerminalTask(terminal_id, text) => {
+                if let Some(agent_id) = runtime_index.agent_for_terminal(*terminal_id) {
+                    app_commands.write(AppCommand::Conversation(
+                        AppConversationCommand::PrependTask {
+                            agent_id,
+                            text: text.clone(),
+                        },
+                    ));
+                }
+            }
+            #[cfg(test)]
+            HudIntent::ConsumeNextTerminalTask(terminal_id) => {
+                if let Some(agent_id) = runtime_index.agent_for_terminal(*terminal_id) {
+                    app_commands.write(AppCommand::Conversation(
+                        AppConversationCommand::ConsumeNextTask { agent_id },
+                    ));
+                }
+            }
+            #[cfg(test)]
+            HudIntent::KillActiveTerminal => {
+                app_commands.write(AppCommand::Agent(AgentCommand::KillActive));
+            }
+        }
+    }
+}
+
+#[derive(SystemParam)]
+pub(crate) struct AppCommandContext<'w, 's> {
+    commands: Commands<'w, 's>,
+    time: Res<'w, Time>,
+    agent_catalog: ResMut<'w, AgentCatalog>,
+    runtime_index: ResMut<'w, AgentRuntimeIndex>,
+    app_session: ResMut<'w, AppSessionState>,
+    terminal_manager: ResMut<'w, TerminalManager>,
+    focus_state: ResMut<'w, TerminalFocusState>,
+    presentation_store: ResMut<'w, TerminalPresentationStore>,
+    runtime_spawner: Res<'w, TerminalRuntimeSpawner>,
+    input_capture: ResMut<'w, HudInputCaptureState>,
+    layout_state: ResMut<'w, HudLayoutState>,
+    notes_state: ResMut<'w, TerminalNotesState>,
+    task_store: ResMut<'w, AgentTaskStore>,
+    conversations: ResMut<'w, ConversationStore>,
+    conversation_persistence: ResMut<'w, ConversationPersistenceState>,
+    transport: Res<'w, MessageTransportAdapter>,
+    session_persistence: ResMut<'w, TerminalSessionPersistenceState>,
+    visibility_state: ResMut<'w, TerminalVisibilityState>,
+    view_state: ResMut<'w, TerminalViewState>,
+    startup_loading: Option<ResMut<'w, StartupLoadingState>>,
+    redraws: MessageWriter<'w, RequestRedraw>,
+}
+
+/// Applies queued app-level commands through the explicit use-case layer.
+///
+/// This is the sole UI/input mutation entrypoint after command translation. Each command is decoded
+/// into one narrow use-case call so product policy lives in named handlers instead of in HUD fanout
+/// tables or widget code.
+pub(crate) fn apply_app_commands(
+    mut app_commands: MessageReader<AppCommand>,
+    mut ctx: AppCommandContext,
+) {
+    for command in app_commands.read() {
+        match command {
+            AppCommand::Agent(command) => match command {
+                AgentCommand::SpawnTerminal => {
+                    if let Err(error) = use_cases::spawn_agent_terminal(
+                        &mut ctx.agent_catalog,
+                        &mut ctx.runtime_index,
+                        &mut ctx.app_session,
+                        &mut ctx.terminal_manager,
+                        &mut ctx.focus_state,
+                        &ctx.runtime_spawner,
+                        &mut ctx.input_capture,
+                        &mut ctx.session_persistence,
+                        &mut ctx.visibility_state,
+                        &mut ctx.view_state,
+                        ctx.startup_loading.as_deref_mut(),
+                        &ctx.time,
+                        PERSISTENT_SESSION_PREFIX,
+                        false,
+                        AgentKind::Terminal,
+                        None,
+                        &mut ctx.redraws,
+                    ) {
+                        append_debug_log(format!("spawn terminal failed: {error}"));
+                    }
+                }
+                AgentCommand::SpawnShellTerminal => {
+                    if let Err(error) = use_cases::spawn_agent_terminal(
+                        &mut ctx.agent_catalog,
+                        &mut ctx.runtime_index,
+                        &mut ctx.app_session,
+                        &mut ctx.terminal_manager,
+                        &mut ctx.focus_state,
+                        &ctx.runtime_spawner,
+                        &mut ctx.input_capture,
+                        &mut ctx.session_persistence,
+                        &mut ctx.visibility_state,
+                        &mut ctx.view_state,
+                        ctx.startup_loading.as_deref_mut(),
+                        &ctx.time,
+                        PERSISTENT_SESSION_PREFIX,
+                        true,
+                        AgentKind::Terminal,
+                        None,
+                        &mut ctx.redraws,
+                    ) {
+                        append_debug_log(format!("spawn shell terminal failed: {error}"));
+                    }
+                }
+                AgentCommand::Focus(agent_id) => {
+                    ctx.app_session.visibility_mode = crate::app::VisibilityMode::ShowAll;
+                    use_cases::focus_agent(
+                        *agent_id,
+                        &mut ctx.app_session,
+                        &ctx.runtime_index,
+                        &mut ctx.terminal_manager,
+                        &mut ctx.focus_state,
+                        &mut ctx.input_capture,
+                        &mut ctx.session_persistence,
+                        &mut ctx.view_state,
+                        &mut ctx.visibility_state,
+                        &ctx.time,
+                        &mut ctx.redraws,
+                    );
+                }
+                AgentCommand::Inspect(agent_id) => {
+                    ctx.app_session.visibility_mode = crate::app::VisibilityMode::FocusedOnly;
+                    use_cases::focus_agent(
+                        *agent_id,
+                        &mut ctx.app_session,
+                        &ctx.runtime_index,
+                        &mut ctx.terminal_manager,
+                        &mut ctx.focus_state,
+                        &mut ctx.input_capture,
+                        &mut ctx.session_persistence,
+                        &mut ctx.view_state,
+                        &mut ctx.visibility_state,
+                        &ctx.time,
+                        &mut ctx.redraws,
+                    );
+                }
+                AgentCommand::ShowAll => {
+                    ctx.app_session.visibility_mode = crate::app::VisibilityMode::ShowAll;
+                    ctx.visibility_state.policy = crate::hud::TerminalVisibilityPolicy::ShowAll;
+                    ctx.redraws.write(RequestRedraw);
+                }
+                AgentCommand::ClearFocus => {
+                    ctx.app_session.active_agent = None;
+                    let _ = ctx.focus_state.clear_active_terminal();
+                    #[cfg(test)]
+                    ctx.terminal_manager
+                        .replace_test_focus_state(&ctx.focus_state);
+                    ctx.visibility_state.policy = crate::hud::TerminalVisibilityPolicy::ShowAll;
+                    ctx.view_state.focus_terminal(None);
+                    ctx.input_capture
+                        .reconcile_direct_terminal_input(ctx.focus_state.active_id());
+                    mark_terminal_sessions_dirty(&mut ctx.session_persistence, Some(&ctx.time));
+                    ctx.redraws.write(RequestRedraw);
+                }
+                AgentCommand::KillActive => {
+                    if let Err(error) = use_cases::kill_active_agent(
+                        &mut ctx.commands,
+                        &ctx.time,
+                        &mut ctx.agent_catalog,
+                        &mut ctx.runtime_index,
+                        &mut ctx.app_session,
+                        &mut ctx.terminal_manager,
+                        &mut ctx.focus_state,
+                        &mut ctx.presentation_store,
+                        &ctx.runtime_spawner,
+                        &mut ctx.input_capture,
+                        &mut ctx.session_persistence,
+                        &mut ctx.visibility_state,
+                        &mut ctx.view_state,
+                        &mut ctx.redraws,
+                    ) {
+                        append_debug_log(format!("kill active agent failed: {error}"));
+                    }
+                }
+            },
+            AppCommand::Terminal(command) => match command {
+                AppTerminalCommand::SendCommandToActive { command } => {
+                    if let Some(active_id) = ctx.focus_state.active_id() {
+                        use_cases::send_terminal_command(active_id, command, &ctx.terminal_manager);
+                    }
+                }
+                AppTerminalCommand::ResetActiveView => {
+                    use_cases::reset_active_view(
+                        &ctx.focus_state,
+                        &mut ctx.view_state,
+                        &mut ctx.redraws,
+                    );
+                }
+                AppTerminalCommand::ToggleActiveDisplayMode => {
+                    use_cases::toggle_active_display_mode(
+                        &ctx.focus_state,
+                        &mut ctx.presentation_store,
+                        &mut ctx.redraws,
+                    );
+                }
+            },
+            AppCommand::Conversation(command) => match command {
+                AppConversationCommand::SendMessage {
+                    conversation_id,
+                    sender,
+                    body,
+                } => {
+                    use_cases::send_message(
+                        *conversation_id,
+                        *sender,
+                        body.clone(),
+                        &mut ctx.conversations,
+                        &ctx.transport,
+                        &ctx.runtime_index,
+                        &ctx.terminal_manager,
+                    );
+                    mark_conversations_dirty(&mut ctx.conversation_persistence, Some(&ctx.time));
+                    ctx.redraws.write(RequestRedraw);
+                }
+                AppConversationCommand::AppendTask { agent_id, text } => {
+                    if use_cases::append_task(
+                        *agent_id,
+                        text,
+                        &mut ctx.task_store,
+                        &mut ctx.notes_state,
+                        &ctx.runtime_index,
+                        &ctx.time,
+                    ) {
+                        refresh_open_task_editor(&mut ctx.app_session, *agent_id, &ctx.task_store);
+                        ctx.redraws.write(RequestRedraw);
+                    }
+                }
+                AppConversationCommand::PrependTask { agent_id, text } => {
+                    if use_cases::prepend_task(
+                        *agent_id,
+                        text,
+                        &mut ctx.task_store,
+                        &mut ctx.notes_state,
+                        &ctx.runtime_index,
+                        &ctx.time,
+                    ) {
+                        refresh_open_task_editor(&mut ctx.app_session, *agent_id, &ctx.task_store);
+                        ctx.redraws.write(RequestRedraw);
+                    }
+                }
+                AppConversationCommand::ClearDoneTasks { agent_id } => {
+                    if use_cases::clear_done_tasks(
+                        *agent_id,
+                        &mut ctx.task_store,
+                        &mut ctx.notes_state,
+                        &ctx.runtime_index,
+                        &ctx.time,
+                    ) {
+                        refresh_open_task_editor(&mut ctx.app_session, *agent_id, &ctx.task_store);
+                        ctx.redraws.write(RequestRedraw);
+                    }
+                }
+                AppConversationCommand::ConsumeNextTask { agent_id } => {
+                    if use_cases::consume_next_task(
+                        *agent_id,
+                        &mut ctx.task_store,
+                        &mut ctx.notes_state,
+                        &ctx.runtime_index,
+                        &ctx.terminal_manager,
+                        &ctx.time,
+                    ) {
+                        refresh_open_task_editor(&mut ctx.app_session, *agent_id, &ctx.task_store);
+                        ctx.redraws.write(RequestRedraw);
+                    }
+                }
+            },
+            AppCommand::Composer(command) => match command {
+                ComposerCommand::Open(request) => {
+                    use_cases::open_composer(
+                        request,
+                        &mut ctx.app_session,
+                        &ctx.runtime_index,
+                        &ctx.task_store,
+                        &ctx.notes_state,
+                        &mut ctx.redraws,
+                    );
+                }
+                ComposerCommand::Submit => {
+                    use_cases::submit_composer(
+                        &mut ctx.app_session,
+                        &mut ctx.conversations,
+                        &mut ctx.task_store,
+                        &mut ctx.notes_state,
+                        &ctx.runtime_index,
+                        &ctx.terminal_manager,
+                        &ctx.transport,
+                        &ctx.time,
+                        &mut ctx.redraws,
+                    );
+                }
+                ComposerCommand::Cancel => {
+                    use_cases::cancel_composer(&mut ctx.app_session, &mut ctx.redraws);
+                }
+            },
+            AppCommand::Widget(command) => match command {
+                WidgetCommand::Toggle(widget_id) => {
+                    use_cases::toggle_widget(*widget_id, &mut ctx.layout_state);
+                    ctx.redraws.write(RequestRedraw);
+                }
+                WidgetCommand::Reset(widget_id) => {
+                    use_cases::reset_widget(*widget_id, &mut ctx.layout_state);
+                    ctx.redraws.write(RequestRedraw);
+                }
+            },
+        }
+    }
+}

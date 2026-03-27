@@ -2,7 +2,7 @@ mod buttons;
 mod input;
 mod render;
 
-use crate::hud::{HudModuleId, HudRect};
+use crate::hud::{HudRect, HudWidgetKey};
 
 pub(crate) use buttons::debug_toolbar_buttons;
 pub(crate) use input::handle_pointer_click;
@@ -15,7 +15,7 @@ pub(crate) enum DebugToolbarAction {
     TogglePixelPerfect,
     ResetView,
     SendCommand(&'static str),
-    ToggleModule(HudModuleId),
+    ToggleModule(HudWidgetKey),
 }
 
 #[derive(Clone, Debug, PartialEq)]

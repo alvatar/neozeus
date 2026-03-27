@@ -1,5 +1,8 @@
 use super::*;
-use crate::tests::{insert_terminal_manager_resources, temp_dir, test_bridge};
+use crate::{
+    agents::{AgentCapabilities, AgentCatalog, AgentKind, AgentRuntimeIndex},
+    tests::{insert_terminal_manager_resources, temp_dir, test_bridge},
+};
 use bevy::{
     ecs::system::RunSystemOnce,
     prelude::{Time, World},
@@ -164,15 +167,22 @@ fn saving_terminal_sessions_persists_focus_order_and_labels() {
     let id_two = manager.create_terminal_with_session(bridge_two, "neozeus-session-b".into());
     manager.focus_terminal(id_two);
 
-    let mut directory = AgentDirectory::default();
-    directory.labels.insert(id_one, "oracle one".into());
+    let mut agent_catalog = AgentCatalog::default();
+    let mut runtime_index = AgentRuntimeIndex::default();
+    let agent_id = agent_catalog.create_agent(
+        Some("oracle one".into()),
+        AgentKind::Terminal,
+        AgentCapabilities::terminal_defaults(),
+    );
+    runtime_index.link_terminal(agent_id, id_one, "neozeus-session-a".into(), None);
 
     let mut world = World::default();
     let mut time = Time::<()>::default();
     time.advance_by(Duration::from_secs(1));
     world.insert_resource(time);
     insert_terminal_manager_resources(&mut world, manager);
-    world.insert_resource(directory);
+    world.insert_resource(agent_catalog);
+    world.insert_resource(runtime_index);
     world.insert_resource(TerminalSessionPersistenceState {
         path: Some(path.clone()),
         dirty_since_secs: Some(0.0),
@@ -208,7 +218,8 @@ fn terminal_sessions_save_waits_for_debounce_window() {
     time.advance_by(Duration::from_millis(100));
     world.insert_resource(time);
     insert_terminal_manager_resources(&mut world, manager);
-    world.insert_resource(AgentDirectory::default());
+    world.insert_resource(AgentCatalog::default());
+    world.insert_resource(AgentRuntimeIndex::default());
     world.insert_resource(TerminalSessionPersistenceState {
         path: Some(path.clone()),
         dirty_since_secs: Some(0.0),

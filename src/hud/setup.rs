@@ -1,9 +1,11 @@
-use crate::hud::{
-    default_hud_module_instance, docked_agent_list_rect, setup_hud_offscreen_compositor,
-    HudInputCaptureState, HudLayoutState, HudMessageBoxState, HudModalCameraMarker, HudModalState,
-    HudModalVectorSceneMarker, HudModuleId, HudOffscreenCompositor, HudPersistenceState,
-    HudTaskDialogState, HudVectorSceneMarker, HUD_MODAL_CAMERA_ORDER, HUD_MODAL_RENDER_LAYER,
-    HUD_MODULE_DEFINITIONS,
+use crate::{
+    app::AppSessionState,
+    hud::{
+        default_hud_module_instance, docked_agent_list_rect, setup_hud_offscreen_compositor,
+        HudInputCaptureState, HudLayoutState, HudModalCameraMarker, HudModalVectorSceneMarker,
+        HudOffscreenCompositor, HudPersistenceState, HudVectorSceneMarker, HudWidgetKey,
+        HUD_MODAL_CAMERA_ORDER, HUD_MODAL_RENDER_LAYER, HUD_WIDGET_DEFINITIONS,
+    },
 };
 use bevy::{
     camera::{visibility::NoFrustumCulling, ClearColorConfig},
@@ -32,7 +34,7 @@ pub(crate) fn append_hud_log(message: impl AsRef<str>) {
 pub(crate) fn setup_hud(
     mut commands: Commands,
     mut layout_state: ResMut<HudLayoutState>,
-    mut modal_state: ResMut<HudModalState>,
+    mut app_session: ResMut<AppSessionState>,
     mut input_capture: ResMut<HudInputCaptureState>,
     mut persistence_state: ResMut<HudPersistenceState>,
     mut compositor: ResMut<HudOffscreenCompositor>,
@@ -50,19 +52,18 @@ pub(crate) fn setup_hud(
     layout_state.z_order.clear();
     layout_state.drag = None;
     layout_state.dirty_layout = false;
-    modal_state.message_box = HudMessageBoxState::default();
-    modal_state.task_dialog = HudTaskDialogState::default();
+    app_session.composer = crate::ui::ComposerState::default();
     input_capture.direct_input_terminal = None;
-    for definition in HUD_MODULE_DEFINITIONS.iter() {
+    for definition in HUD_WIDGET_DEFINITIONS.iter() {
         let mut module = default_hud_module_instance(definition);
-        if let Some(saved) = persisted.modules.get(&definition.id) {
+        if let Some(saved) = persisted.modules.get(&definition.key) {
             module.shell.enabled = saved.enabled;
             module.shell.target_rect = saved.rect;
             module.shell.current_rect = saved.rect;
             module.shell.target_alpha = if saved.enabled { 1.0 } else { 0.0 };
             module.shell.current_alpha = module.shell.target_alpha;
         }
-        layout_state.insert(definition.id, module);
+        layout_state.insert(definition.key, module);
     }
 
     commands.spawn((
@@ -107,7 +108,7 @@ pub(crate) fn sync_structural_hud_layout(
     mut layout_state: ResMut<HudLayoutState>,
 ) {
     let rect = docked_agent_list_rect(&primary_window);
-    let Some(agent_list) = layout_state.get_mut(HudModuleId::AgentList) else {
+    let Some(agent_list) = layout_state.get_mut(HudWidgetKey::AgentList) else {
         return;
     };
     agent_list.shell.target_rect = rect;

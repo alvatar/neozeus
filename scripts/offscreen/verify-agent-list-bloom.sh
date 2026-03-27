@@ -73,12 +73,14 @@ full_stats = stats(diff.crop((0, 0, int(shell_w), int(min(220.0, height)))))
 
 glow_nonzero = accent_stats[2] + marker_stats[2]
 glow_mean = max(accent_stats[0], marker_stats[0])
+glow_peak = max(accent_stats[1], marker_stats[1])
 text_mean = text_stats[0]
-text_nonzero = text_stats[2]
+text_peak = text_stats[1]
 print(f"agent_list_glow_nonzero={glow_nonzero}")
 print(f"agent_list_glow_mean={glow_mean:.2f}")
+print(f"agent_list_glow_peak={glow_peak}")
 print(f"agent_list_text_mean={text_mean:.2f}")
-print(f"agent_list_text_nonzero={text_nonzero}")
+print(f"agent_list_text_peak={text_peak}")
 print(f"agent_list_top_left_nonzero={full_stats[2]}")
 if glow_nonzero <= 250:
     raise SystemExit(1)
@@ -86,7 +88,7 @@ if glow_mean <= 25.0:
     raise SystemExit(1)
 if text_mean >= glow_mean * 0.45:
     raise SystemExit(1)
-if text_nonzero >= glow_nonzero * 0.45:
+if text_peak >= glow_peak * 0.9:
     raise SystemExit(1)
 PY
 

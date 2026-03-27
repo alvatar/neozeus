@@ -1,6 +1,11 @@
 use super::*;
-use crate::tests::{
-    insert_terminal_manager_resources, insert_test_hud_state, snapshot_test_hud_state, test_bridge,
+use crate::{
+    hud::AgentListView,
+    terminals::TerminalManager,
+    tests::{
+        insert_terminal_manager_resources, insert_test_hud_state, snapshot_test_hud_state,
+        test_bridge,
+    },
 };
 use bevy::{
     camera::{visibility::RenderLayers, RenderTarget},
@@ -213,12 +218,18 @@ fn sync_hud_widget_bloom_spawns_agent_list_source_sprites() {
     manager.create_terminal(bridge);
     let mut hud_state = crate::hud::HudState::default();
     hud_state.insert(
-        HudModuleId::AgentList,
+        HudWidgetKey::AgentList,
         crate::hud::default_hud_module_instance(&crate::hud::HUD_MODULE_DEFINITIONS[1]),
     );
     insert_terminal_manager_resources(&mut world, manager);
+    world.insert_resource(AgentListView::default());
+    world.insert_resource(crate::hud::ConversationListView::default());
+    world.insert_resource(crate::hud::ThreadView::default());
+    world.insert_resource(crate::hud::ComposerView::default());
+    world
+        .run_system_once(crate::hud::sync_hud_view_models)
+        .unwrap();
     insert_test_hud_state(&mut world, hud_state);
-    world.insert_resource(AgentDirectory::default());
     world.insert_resource(HudBloomSettings::default());
     world.insert_resource(HudWidgetBloom::default());
     world.insert_resource(Assets::<Image>::default());
@@ -273,10 +284,9 @@ fn sync_hud_widget_bloom_spawns_agent_list_source_sprites() {
     }
 
     let expected_sizes = {
-        let manager = world.resource::<TerminalManager>();
         let hud_state = snapshot_test_hud_state(&world);
-        let directory = world.resource::<AgentDirectory>();
-        let module = hud_state.get(HudModuleId::AgentList).unwrap();
+        let agent_list_view = world.resource::<AgentListView>();
+        let module = hud_state.get(HudWidgetKey::AgentList).unwrap();
         let crate::hud::HudModuleModel::AgentList(state) = &module.model else {
             panic!("agent list module model missing")
         };
@@ -284,9 +294,7 @@ fn sync_hud_widget_bloom_spawns_agent_list_source_sprites() {
             module.shell.current_rect,
             state.scroll_offset,
             state.hovered_terminal,
-            manager,
-            &manager.clone_focus_state(),
-            directory,
+            agent_list_view,
         )
         .into_iter()
         .next()
@@ -347,13 +355,19 @@ fn sync_hud_widget_bloom_hides_sources_and_composite_while_modal_is_visible() {
     manager.create_terminal(bridge);
     let mut hud_state = crate::hud::HudState::default();
     hud_state.insert(
-        HudModuleId::AgentList,
+        HudWidgetKey::AgentList,
         crate::hud::default_hud_module_instance(&crate::hud::HUD_MODULE_DEFINITIONS[1]),
     );
     hud_state.message_box.visible = true;
     insert_terminal_manager_resources(&mut world, manager);
+    world.insert_resource(AgentListView::default());
+    world.insert_resource(crate::hud::ConversationListView::default());
+    world.insert_resource(crate::hud::ThreadView::default());
+    world.insert_resource(crate::hud::ComposerView::default());
+    world
+        .run_system_once(crate::hud::sync_hud_view_models)
+        .unwrap();
     insert_test_hud_state(&mut world, hud_state);
-    world.insert_resource(AgentDirectory::default());
     world.insert_resource(HudBloomSettings::default());
     world.insert_resource(HudWidgetBloom::default());
     world.insert_resource(Assets::<Image>::default());
@@ -401,12 +415,18 @@ fn sync_hud_widget_bloom_only_uses_active_agent_source() {
 
     let mut hud_state = crate::hud::HudState::default();
     hud_state.insert(
-        HudModuleId::AgentList,
+        HudWidgetKey::AgentList,
         crate::hud::default_hud_module_instance(&crate::hud::HUD_MODULE_DEFINITIONS[1]),
     );
     insert_terminal_manager_resources(&mut world, manager);
+    world.insert_resource(AgentListView::default());
+    world.insert_resource(crate::hud::ConversationListView::default());
+    world.insert_resource(crate::hud::ThreadView::default());
+    world.insert_resource(crate::hud::ComposerView::default());
+    world
+        .run_system_once(crate::hud::sync_hud_view_models)
+        .unwrap();
     insert_test_hud_state(&mut world, hud_state);
-    world.insert_resource(AgentDirectory::default());
     world.insert_resource(HudBloomSettings::default());
     world.insert_resource(HudWidgetBloom::default());
     world.insert_resource(Assets::<Image>::default());

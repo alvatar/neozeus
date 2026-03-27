@@ -1,18 +1,21 @@
 use crate::{
+    agents::{AgentCatalog, AgentRuntimeIndex},
     app::{
-        output::sync_final_frame_output_target, schedule::configure_app_schedule, AppOutputConfig,
-        FinalFrameCaptureConfig, FinalFrameOutputState,
+        output::sync_final_frame_output_target, schedule::configure_app_schedule, AppCommand,
+        AppOutputConfig, AppSessionState, FinalFrameCaptureConfig, FinalFrameOutputState,
     },
     app_config::{
         load_neozeus_config, resolve_app_id, resolve_window_title, NeoZeusConfig,
         GPU_NOT_FOUND_PANIC_FRAGMENT,
     },
+    conversations::{
+        AgentTaskStore, ConversationPersistenceState, ConversationStore, MessageTransportAdapter,
+    },
     hud::{
-        AgentDirectory, AgentListBloomBlurMaterial, HudBloomSettings, HudCompositeCaptureConfig,
-        HudIntent, HudModuleRequest, HudOffscreenCompositor, HudPersistenceState,
-        HudTextureCaptureConfig, HudWidgetBloom, TerminalFocusRequest, TerminalLifecycleRequest,
-        TerminalSendRequest, TerminalTaskRequest, TerminalViewRequest, TerminalVisibilityRequest,
-        TerminalVisibilityState, WindowCaptureConfig,
+        AgentListBloomBlurMaterial, AgentListView, ComposerView, ConversationListView,
+        HudBloomSettings, HudCompositeCaptureConfig, HudIntent, HudOffscreenCompositor,
+        HudPersistenceState, HudTextureCaptureConfig, HudWidgetBloom, TerminalVisibilityState,
+        ThreadView, WindowCaptureConfig,
     },
     terminals::{
         TerminalDaemonClientResource, TerminalFontState, TerminalGlyphCache, TerminalManager,
@@ -106,8 +109,8 @@ pub(crate) fn resolve_window_scale_factor(raw: Option<&str>) -> Option<f32> {
 /// Parses the explicit `force_fallback_adapter` flag from a raw string.
 ///
 /// The function accepts the usual truthy spellings (`1`, `true`, `yes`, `on`) after trimming and
-/// lowercasing the input. Missing or empty input defaults to `true`, because the application would
-/// rather prefer a software adapter than fail to start on systems with awkward GPU setups.
+/// lowercasing the input. Missing or empty input defaults to `false`: software fallback is an
+/// explicit compatibility knob, not the normal desktop startup path.
 pub(crate) fn resolve_force_fallback_adapter(raw: Option<&str>) -> bool {
     raw.map(str::trim)
         .filter(|value| !value.is_empty())
@@ -117,23 +120,125 @@ pub(crate) fn resolve_force_fallback_adapter(raw: Option<&str>) -> bool {
                 "1" | "true" | "yes" | "on"
             )
         })
-        .unwrap_or(true)
+        .unwrap_or(false)
 }
 
 /// Chooses the effective fallback-adapter policy for the current output mode.
 ///
 /// An explicit environment/config value always wins and is delegated to
-/// [`resolve_force_fallback_adapter`]. When nothing is specified, desktop mode defaults to `true`
-/// so startup is more forgiving, while offscreen verification mode defaults to `false` because it
-/// should behave closer to the actual render path unless told otherwise.
+/// [`resolve_force_fallback_adapter`]. When nothing is specified, both desktop and offscreen mode
+/// now default to `false`; forcing a software adapter is opt-in so the normal app path can use the
+/// real GPU when one is available.
 pub(crate) fn resolve_force_fallback_adapter_for(
     raw: Option<&str>,
-    output_mode: crate::app::OutputMode,
+    _output_mode: crate::app::OutputMode,
 ) -> bool {
-    raw.map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(|_| resolve_force_fallback_adapter(raw))
-        .unwrap_or(!output_mode.is_offscreen())
+    resolve_force_fallback_adapter(raw)
+}
+
+/// Chooses whether Bevy's pipelined rendering plugin should be disabled for the current runtime.
+///
+/// On this host the desktop Wayland + GL/EGL render path is unstable and panics from render-worker
+/// threads during surface creation/preparation. Disabling pipelined rendering keeps the render work
+/// on the main path and avoids that EGL threading failure. Offscreen mode keeps the normal plugin
+/// stack. `NEOZEUS_DISABLE_PIPELINED_RENDERING` can explicitly override the auto policy.
+pub(crate) fn resolve_disable_pipelined_rendering_for(
+    raw: Option<&str>,
+    output_mode: crate::app::OutputMode,
+    session_type: Option<&str>,
+    wayland_display: Option<&str>,
+) -> bool {
+    if let Some(value) = raw.map(str::trim).filter(|value| !value.is_empty()) {
+        return matches!(
+            value.to_ascii_lowercase().as_str(),
+            "1" | "true" | "yes" | "on"
+        );
+    }
+    !output_mode.is_offscreen()
+        && (session_type
+            .map(str::trim)
+            .is_some_and(|value| value.eq_ignore_ascii_case("wayland"))
+            || wayland_display
+                .map(str::trim)
+                .is_some_and(|value| !value.is_empty()))
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum LinuxWindowBackend {
+    Auto,
+    Wayland,
+    X11,
+}
+
+pub(crate) fn resolve_linux_window_backend(raw: Option<&str>) -> LinuxWindowBackend {
+    match raw.map(str::trim).filter(|value| !value.is_empty()) {
+        Some(value) if value.eq_ignore_ascii_case("wayland") => LinuxWindowBackend::Wayland,
+        Some(value) if value.eq_ignore_ascii_case("x11") => LinuxWindowBackend::X11,
+        _ => LinuxWindowBackend::Auto,
+    }
+}
+
+pub(crate) fn should_force_x11_backend(
+    output_mode: crate::app::OutputMode,
+    backend: LinuxWindowBackend,
+    session_type: Option<&str>,
+    wayland_display: Option<&str>,
+    display: Option<&str>,
+) -> bool {
+    if output_mode.is_offscreen() {
+        return false;
+    }
+    match backend {
+        LinuxWindowBackend::Wayland => false,
+        LinuxWindowBackend::X11 => display
+            .map(str::trim)
+            .is_some_and(|value| !value.is_empty()),
+        LinuxWindowBackend::Auto => {
+            display
+                .map(str::trim)
+                .is_some_and(|value| !value.is_empty())
+                && (session_type
+                    .map(str::trim)
+                    .is_some_and(|value| value.eq_ignore_ascii_case("wayland"))
+                    || wayland_display
+                        .map(str::trim)
+                        .is_some_and(|value| !value.is_empty()))
+        }
+    }
+}
+
+fn apply_linux_window_backend_policy(output_mode: crate::app::OutputMode) -> bool {
+    let force_x11 = should_force_x11_backend(
+        output_mode,
+        resolve_linux_window_backend(env::var("NEOZEUS_LINUX_WINDOW_BACKEND").ok().as_deref()),
+        env::var("XDG_SESSION_TYPE").ok().as_deref(),
+        env::var("WAYLAND_DISPLAY").ok().as_deref(),
+        env::var("DISPLAY").ok().as_deref(),
+    );
+    if !force_x11 {
+        return false;
+    }
+
+    env::set_var("WINIT_UNIX_BACKEND", "x11");
+    env::set_var("XDG_SESSION_TYPE", "x11");
+    env::remove_var("WAYLAND_DISPLAY");
+    true
+}
+
+pub(crate) fn normalize_output_for_x11_fallback(
+    mut output: AppOutputConfig,
+    forced_x11: bool,
+    explicit_scale_factor: Option<&str>,
+) -> AppOutputConfig {
+    if forced_x11
+        && output.scale_factor_override.is_none()
+        && explicit_scale_factor
+            .map(str::trim)
+            .is_none_or(|value| value.is_empty())
+    {
+        output.scale_factor_override = Some(1.0);
+    }
+    output
 }
 
 #[allow(
@@ -226,7 +331,13 @@ pub(crate) fn primary_window_config_for_with_config(
 /// headlessly.
 fn configure_app(app: &mut App) -> Result<(), String> {
     let neozeus_config = load_neozeus_config()?;
-    let output = AppOutputConfig::from_env();
+    let initial_output = AppOutputConfig::from_env();
+    let forced_x11 = apply_linux_window_backend_policy(initial_output.mode);
+    let output = normalize_output_for_x11_fallback(
+        initial_output,
+        forced_x11,
+        env::var("NEOZEUS_WINDOW_SCALE_FACTOR").ok().as_deref(),
+    );
     let hud_capture = HudTextureCaptureConfig::from_env();
     let hud_composite_capture = HudCompositeCaptureConfig::from_env();
     let window_capture = WindowCaptureConfig::from_env();
@@ -248,7 +359,17 @@ fn configure_app(app: &mut App) -> Result<(), String> {
 
     // Build the common plugin stack first, then choose between a normal Winit-driven app and a
     // headless schedule runner depending on the selected output mode.
-    let default_plugins = DefaultPlugins
+    let disable_pipelined_rendering = resolve_disable_pipelined_rendering_for(
+        env::var("NEOZEUS_DISABLE_PIPELINED_RENDERING")
+            .ok()
+            .as_deref(),
+        output.mode,
+        env::var("XDG_SESSION_TYPE").ok().as_deref(),
+        env::var("WAYLAND_DISPLAY").ok().as_deref(),
+    );
+    let mut default_plugins = DefaultPlugins
+        .build()
+        .disable::<bevy::pbr::PbrPlugin>()
         .set(RenderPlugin {
             render_creation: WgpuSettings {
                 force_fallback_adapter: resolve_force_fallback_adapter_for(
@@ -264,6 +385,10 @@ fn configure_app(app: &mut App) -> Result<(), String> {
             primary_window: primary_window_plugin_config_for_with_config(&output, &neozeus_config),
             ..default()
         });
+    if disable_pipelined_rendering {
+        default_plugins = default_plugins
+            .disable::<bevy::render::pipelined_rendering::PipelinedRenderingPlugin>();
+    }
     if uses_headless_runner(&output) {
         app.add_plugins(default_plugins.disable::<WinitPlugin>())
             .add_plugins(ScheduleRunnerPlugin::run_loop(Duration::from_secs_f64(
@@ -332,23 +457,26 @@ fn configure_app(app: &mut App) -> Result<(), String> {
         .insert_resource(TerminalGlyphCache::default())
         .insert_resource(crate::terminals::TerminalTextRenderer::default())
         .insert_resource(crate::hud::HudLayoutState::default())
-        .insert_resource(crate::hud::HudModalState::default())
         .insert_resource(crate::hud::HudInputCaptureState::default())
         .insert_resource(HudPersistenceState::default())
         .insert_resource(HudOffscreenCompositor::default())
         .insert_resource(HudBloomSettings::default())
         .insert_resource(HudWidgetBloom::default())
-        .insert_resource(AgentDirectory::default())
+        .insert_resource(AgentCatalog::default())
+        .insert_resource(AgentRuntimeIndex::default())
+        .insert_resource(AppSessionState::default())
+        .insert_resource(ConversationStore::default())
+        .insert_resource(ConversationPersistenceState::default())
+        .insert_resource(AgentTaskStore::default())
+        .insert_resource(MessageTransportAdapter)
+        .insert_resource(AgentListView::default())
+        .insert_resource(ConversationListView::default())
+        .insert_resource(ThreadView::default())
+        .insert_resource(ComposerView::default())
         .insert_resource(TerminalVisibilityState::default())
         .insert_resource(crate::startup::StartupLoadingState::default())
-        .add_message::<HudIntent>()
-        .add_message::<TerminalFocusRequest>()
-        .add_message::<TerminalVisibilityRequest>()
-        .add_message::<HudModuleRequest>()
-        .add_message::<TerminalViewRequest>()
-        .add_message::<TerminalSendRequest>()
-        .add_message::<TerminalLifecycleRequest>()
-        .add_message::<TerminalTaskRequest>();
+        .add_message::<AppCommand>()
+        .add_message::<HudIntent>();
 
     configure_app_schedule(app);
     app.add_systems(

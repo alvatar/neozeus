@@ -29,17 +29,17 @@ pub(crate) use fonts::{
     configure_terminal_fonts, is_emoji_like, is_private_use_like, TerminalFontState,
     TerminalTextRenderer,
 };
-pub(crate) use lifecycle::{
-    kill_active_terminal_session_and_remove, spawn_attached_terminal_with_presentation,
-};
+pub(crate) use lifecycle::{attach_terminal_session, kill_active_terminal_session_and_remove};
 pub(crate) use mailbox::TerminalUpdateMailbox;
 pub(crate) use notes::{
     clear_done_tasks, extract_next_task, load_terminal_notes_from, mark_terminal_notes_dirty,
-    resolve_terminal_notes_path, save_terminal_notes_if_dirty, TerminalNotesState,
+    resolve_terminal_notes_path, save_terminal_notes_if_dirty, task_entry_from_text,
+    TerminalNotesState,
 };
 pub(crate) use presentation::{
     active_terminal_layout, sync_active_terminal_dimensions, sync_terminal_hud_surface,
-    sync_terminal_panel_frames, sync_terminal_presentations, terminal_texture_screen_size,
+    sync_terminal_panel_frames, sync_terminal_presentations, sync_terminal_projection_entities,
+    terminal_texture_screen_size,
 };
 pub(crate) use presentation_state::{
     PresentedTerminal, TerminalCameraMarker, TerminalDisplayMode, TerminalHudSurfaceMarker,
