@@ -49,7 +49,10 @@ fn message_box_scenario_opens_modal_and_spawns_terminal() {
     world.insert_resource(crate::terminals::TerminalFocusState::default());
     world.insert_resource(crate::terminals::TerminalPresentationStore::default());
     world.insert_resource(fake_runtime_spawner(client));
-    world.insert_resource(crate::hud::AgentDirectory::default());
+    world.insert_resource(crate::agents::AgentCatalog::default());
+    world.insert_resource(crate::agents::AgentRuntimeIndex::default());
+    world.insert_resource(crate::app::AppSessionState::default());
+    world.insert_resource(crate::conversations::AgentTaskStore::default());
     world.insert_resource(crate::hud::TerminalVisibilityState::default());
     world.insert_resource(crate::terminals::TerminalViewState::default());
     world.insert_resource(crate::terminals::TerminalNotesState::default());
@@ -58,9 +61,9 @@ fn message_box_scenario_opens_modal_and_spawns_terminal() {
 
     world.run_system_once(run_verification_scenario).unwrap();
 
-    let modal_state = world.resource::<crate::hud::HudModalState>();
-    assert!(modal_state.message_box.visible);
-    assert_eq!(modal_state.message_box.text, "follow up");
+    let app_session = world.resource::<crate::app::AppSessionState>();
+    assert!(app_session.composer.message_editor.visible);
+    assert_eq!(app_session.composer.message_editor.text, "follow up");
     assert_eq!(world.resource::<TerminalManager>().terminal_ids().len(), 1);
     assert!(world.resource::<VerificationScenarioConfig>().applied);
 }
@@ -85,7 +88,10 @@ fn task_dialog_scenario_populates_note_text() {
     world.insert_resource(crate::terminals::TerminalFocusState::default());
     world.insert_resource(crate::terminals::TerminalPresentationStore::default());
     world.insert_resource(fake_runtime_spawner(client));
-    world.insert_resource(crate::hud::AgentDirectory::default());
+    world.insert_resource(crate::agents::AgentCatalog::default());
+    world.insert_resource(crate::agents::AgentRuntimeIndex::default());
+    world.insert_resource(crate::app::AppSessionState::default());
+    world.insert_resource(crate::conversations::AgentTaskStore::default());
     world.insert_resource(crate::hud::TerminalVisibilityState::default());
     world.insert_resource(crate::terminals::TerminalViewState::default());
     world.insert_resource(crate::terminals::TerminalNotesState::default());
@@ -94,10 +100,11 @@ fn task_dialog_scenario_populates_note_text() {
 
     world.run_system_once(run_verification_scenario).unwrap();
 
-    let modal_state = world.resource::<crate::hud::HudModalState>();
-    assert!(modal_state.task_dialog.visible);
-    assert!(modal_state
-        .task_dialog
+    let app_session = world.resource::<crate::app::AppSessionState>();
+    assert!(app_session.composer.task_editor.visible);
+    assert!(app_session
+        .composer
+        .task_editor
         .text
         .contains("verify bloom layering"));
     assert_eq!(world.resource::<TerminalManager>().terminal_ids().len(), 1);
@@ -124,7 +131,10 @@ fn inspect_switch_scenario_spawns_two_terminals_and_focuses_second() {
     world.insert_resource(crate::terminals::TerminalFocusState::default());
     world.insert_resource(crate::terminals::TerminalPresentationStore::default());
     world.insert_resource(fake_runtime_spawner(client));
-    world.insert_resource(crate::hud::AgentDirectory::default());
+    world.insert_resource(crate::agents::AgentCatalog::default());
+    world.insert_resource(crate::agents::AgentRuntimeIndex::default());
+    world.insert_resource(crate::app::AppSessionState::default());
+    world.insert_resource(crate::conversations::AgentTaskStore::default());
     world.insert_resource(crate::hud::TerminalVisibilityState::default());
     world.insert_resource(crate::terminals::TerminalViewState::default());
     world.insert_resource(crate::terminals::TerminalNotesState::default());
@@ -132,6 +142,9 @@ fn inspect_switch_scenario_spawns_two_terminals_and_focuses_second() {
     world.init_resource::<Messages<RequestRedraw>>();
 
     world.run_system_once(run_verification_scenario).unwrap();
+    world
+        .run_system_once(crate::terminals::sync_terminal_projection_entities)
+        .unwrap();
 
     let terminal_ids = world.resource::<TerminalManager>().terminal_ids().to_vec();
     assert_eq!(terminal_ids.len(), 2);

@@ -1,6 +1,6 @@
 use crate::{
     app_config::{DEFAULT_CELL_HEIGHT_PX, DEFAULT_CELL_WIDTH_PX},
-    hud::{HudLayoutState, HudModuleId, TerminalVisibilityPolicy, TerminalVisibilityState},
+    hud::{HudLayoutState, HudWidgetKey, TerminalVisibilityPolicy, TerminalVisibilityState},
     terminals::{
         append_debug_log, raster::create_terminal_image, TerminalDimensions, TerminalDisplayMode,
         TerminalFocusState, TerminalHudSurfaceMarker, TerminalId, TerminalManager, TerminalPanel,
@@ -109,6 +109,41 @@ pub(crate) fn spawn_terminal_presentation(
     );
 }
 
+/// Reconciles terminal presentation entities against the authoritative terminal registry.
+///
+/// Terminal creation/removal mutates only the terminal manager. This projection sync owns the Bevy
+/// panel/frame entities and the retained presentation-store entries, creating missing projections and
+/// removing stale ones.
+pub(crate) fn sync_terminal_projection_entities(
+    mut commands: Commands,
+    mut images: ResMut<Assets<Image>>,
+    terminal_manager: Res<TerminalManager>,
+    mut presentation_store: ResMut<TerminalPresentationStore>,
+) {
+    for terminal_id in presentation_store.terminal_ids() {
+        if terminal_manager.contains_terminal(terminal_id) {
+            continue;
+        }
+        if let Some(presented) = presentation_store.remove(terminal_id) {
+            commands.entity(presented.panel_entity).despawn();
+            commands.entity(presented.frame_entity).despawn();
+        }
+    }
+
+    for (slot, terminal_id) in terminal_manager.terminal_ids().iter().copied().enumerate() {
+        if presentation_store.get(terminal_id).is_some() {
+            continue;
+        }
+        spawn_terminal_presentation(
+            &mut commands,
+            &mut images,
+            &mut presentation_store,
+            terminal_id,
+            slot,
+        );
+    }
+}
+
 /// Returns a non-zero window scale factor for logical/physical conversions.
 ///
 /// `f32::EPSILON` is used as a defensive floor to avoid division by zero in broken environments.
@@ -135,7 +170,7 @@ pub(crate) fn active_terminal_viewport(
     layout_state: &HudLayoutState,
 ) -> (Vec2, Vec2) {
     let reserved_left = layout_state
-        .get(HudModuleId::AgentList)
+        .get(HudWidgetKey::AgentList)
         .filter(|module| module.shell.enabled)
         .map(|module| module.shell.current_rect.w)
         .unwrap_or(0.0)

@@ -1,22 +1,17 @@
-use crate::{
-    hud::{AgentDirectory, HudIntent, HudModuleModel, HudRect},
-    terminals::{TerminalFocusState, TerminalManager},
-};
+use crate::hud::{AgentListView, HudIntent, HudModuleModel, HudRect};
 use bevy::prelude::Vec2;
 
 use super::{agent_list_content_height, agent_rows};
 
 /// Converts a click on an agent-list row into focus + isolate intents for that terminal.
 ///
-/// The function rebuilds the currently visible row list from the retained module state and selects the
-/// first row whose rectangle contains the click point.
+/// The function rebuilds the currently visible row list from the retained module state and derived
+/// view-model, then selects the first row whose rectangle contains the click point.
 pub(crate) fn handle_pointer_click(
     model: &HudModuleModel,
     shell_rect: HudRect,
     point: Vec2,
-    terminal_manager: &TerminalManager,
-    focus_state: &TerminalFocusState,
-    agent_directory: &AgentDirectory,
+    agent_list_view: &AgentListView,
     emitted_commands: &mut Vec<HudIntent>,
 ) {
     let HudModuleModel::AgentList(state) = model else {
@@ -26,13 +21,14 @@ pub(crate) fn handle_pointer_click(
         shell_rect,
         state.scroll_offset,
         state.hovered_terminal,
-        terminal_manager,
-        focus_state,
-        agent_directory,
+        agent_list_view,
     ) {
         if row.rect.contains(point) {
-            emitted_commands.push(HudIntent::FocusTerminal(row.terminal_id));
-            emitted_commands.push(HudIntent::HideAllButTerminal(row.terminal_id));
+            let Some(terminal_id) = row.terminal_id else {
+                continue;
+            };
+            emitted_commands.push(HudIntent::FocusTerminal(terminal_id));
+            emitted_commands.push(HudIntent::HideAllButTerminal(terminal_id));
             break;
         }
     }
@@ -46,25 +42,16 @@ pub(crate) fn handle_hover(
     model: &mut HudModuleModel,
     shell_rect: HudRect,
     point: Option<Vec2>,
-    terminal_manager: &TerminalManager,
-    focus_state: &TerminalFocusState,
-    agent_directory: &AgentDirectory,
+    agent_list_view: &AgentListView,
 ) -> bool {
     let HudModuleModel::AgentList(state) = model else {
         return false;
     };
     let hovered_terminal = point.and_then(|point| {
-        agent_rows(
-            shell_rect,
-            state.scroll_offset,
-            None,
-            terminal_manager,
-            focus_state,
-            agent_directory,
-        )
-        .into_iter()
-        .find(|row| row.rect.contains(point))
-        .map(|row| row.terminal_id)
+        agent_rows(shell_rect, state.scroll_offset, None, agent_list_view)
+            .into_iter()
+            .find(|row| row.rect.contains(point))
+            .and_then(|row| row.terminal_id)
     });
     if state.hovered_terminal == hovered_terminal {
         return false;

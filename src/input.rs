@@ -1,13 +1,15 @@
 use crate::{
-    hud::{
-        HudInputCaptureState, HudIntent, HudLayoutState, HudModalState, TerminalVisibilityPolicy,
-        TerminalVisibilityState,
+    agents::AgentRuntimeIndex,
+    app::{
+        AgentCommand as AppAgentCommand, ComposerCommand,
+        ConversationCommand as AppConversationCommand,
     },
+    app::{AppCommand, AppSessionState, ComposerRequest},
+    hud::{HudInputCaptureState, HudLayoutState},
     terminals::{
-        mark_terminal_sessions_dirty, terminal_texture_screen_size, TerminalCommand,
-        TerminalDisplayMode, TerminalFocusState, TerminalManager, TerminalNotesState,
-        TerminalPanel, TerminalPointerState, TerminalPresentation, TerminalPresentationStore,
-        TerminalSessionPersistenceState, TerminalViewState,
+        terminal_texture_screen_size, TerminalCommand, TerminalDisplayMode, TerminalFocusState,
+        TerminalManager, TerminalNotesState, TerminalPanel, TerminalPointerState,
+        TerminalPresentation, TerminalPresentationStore, TerminalViewState,
     },
 };
 use bevy::{
@@ -125,21 +127,21 @@ pub(crate) fn handle_global_terminal_spawn_shortcut(
     mut messages: MessageReader<KeyboardInput>,
     keys: Res<ButtonInput<KeyCode>>,
     primary_window: Single<&Window, With<PrimaryWindow>>,
-    modal_state: Res<HudModalState>,
+    app_session: Res<AppSessionState>,
     input_capture: Res<HudInputCaptureState>,
-    mut hud_commands: MessageWriter<HudIntent>,
+    mut app_commands: MessageWriter<AppCommand>,
 ) {
-    if modal_state.keyboard_capture_active(&input_capture) || !primary_window.focused {
+    if app_session.composer.keyboard_capture_active(&input_capture) || !primary_window.focused {
         return;
     }
 
     for event in messages.read() {
         if should_spawn_shell_terminal_globally(event, &keys) {
-            hud_commands.write(HudIntent::SpawnShellTerminal);
+            app_commands.write(AppCommand::Agent(AppAgentCommand::SpawnShellTerminal));
             break;
         }
         if should_spawn_terminal_globally(event, &keys) {
-            hud_commands.write(HudIntent::SpawnTerminal);
+            app_commands.write(AppCommand::Agent(AppAgentCommand::SpawnTerminal));
             break;
         }
     }
@@ -154,12 +156,12 @@ pub(crate) fn handle_global_terminal_spawn_shortcut(
 pub(crate) fn handle_terminal_lifecycle_shortcuts(
     mut messages: MessageReader<KeyboardInput>,
     keys: Res<ButtonInput<KeyCode>>,
-    modal_state: Res<HudModalState>,
+    app_session: Res<AppSessionState>,
     input_capture: Res<HudInputCaptureState>,
-    mut hud_commands: MessageWriter<HudIntent>,
+    mut app_commands: MessageWriter<AppCommand>,
     mut app_exits: MessageWriter<AppExit>,
 ) {
-    if modal_state.keyboard_capture_active(&input_capture) {
+    if app_session.composer.keyboard_capture_active(&input_capture) {
         return;
     }
 
@@ -169,7 +171,7 @@ pub(crate) fn handle_terminal_lifecycle_shortcuts(
             break;
         }
         if should_kill_active_terminal(event, &keys) {
-            hud_commands.write(HudIntent::KillActiveTerminal);
+            app_commands.write(AppCommand::Agent(AppAgentCommand::KillActive));
         }
     }
 }
@@ -220,12 +222,13 @@ pub(crate) fn focus_terminal_on_panel_click(
     mouse_buttons: Res<ButtonInput<MouseButton>>,
     primary_window: Single<&Window, With<PrimaryWindow>>,
     layout_state: Res<HudLayoutState>,
-    modal_state: Res<HudModalState>,
+    app_session: Res<AppSessionState>,
     panels: Query<(&TerminalPanel, &TerminalPresentation, &Visibility)>,
-    mut hud_commands: MessageWriter<HudIntent>,
+    runtime_index: Res<AgentRuntimeIndex>,
+    mut app_commands: MessageWriter<AppCommand>,
 ) {
-    if modal_state.message_box.visible
-        || modal_state.task_dialog.visible
+    if app_session.composer.message_editor.visible
+        || app_session.composer.task_editor.visible
         || !mouse_buttons.just_pressed(MouseButton::Left)
         || !primary_window.focused
     {
@@ -240,8 +243,10 @@ pub(crate) fn focus_terminal_on_panel_click(
     let Some(panel) = topmost_terminal_panel_at_cursor(&primary_window, &panels, cursor) else {
         return;
     };
-    hud_commands.write(HudIntent::FocusTerminal(panel.id));
-    hud_commands.write(HudIntent::HideAllButTerminal(panel.id));
+    let Some(agent_id) = runtime_index.agent_for_terminal(panel.id) else {
+        return;
+    };
+    app_commands.write(AppCommand::Agent(AppAgentCommand::Inspect(agent_id)));
 }
 
 #[allow(
@@ -256,20 +261,15 @@ pub(crate) fn focus_terminal_on_panel_click(
 /// input capture, and marks session persistence dirty so the unfocused state can be saved.
 pub(crate) fn hide_terminal_on_background_click(
     mouse_buttons: Res<ButtonInput<MouseButton>>,
-    time: Res<Time>,
     primary_window: Single<&Window, With<PrimaryWindow>>,
     layout_state: Res<HudLayoutState>,
-    modal_state: Res<HudModalState>,
-    mut input_capture: ResMut<HudInputCaptureState>,
+    app_session: Res<AppSessionState>,
     panels: Query<(&TerminalPanel, &TerminalPresentation, &Visibility)>,
-    mut _terminal_manager: ResMut<TerminalManager>,
-    mut focus_state: ResMut<TerminalFocusState>,
-    mut session_persistence: ResMut<TerminalSessionPersistenceState>,
-    mut visibility_state: ResMut<TerminalVisibilityState>,
-    mut view_state: ResMut<TerminalViewState>,
+    focus_state: Res<TerminalFocusState>,
+    mut app_commands: MessageWriter<AppCommand>,
 ) {
-    if modal_state.message_box.visible
-        || modal_state.task_dialog.visible
+    if app_session.composer.message_editor.visible
+        || app_session.composer.task_editor.visible
         || !mouse_buttons.just_pressed(MouseButton::Left)
         || !primary_window.focused
     {
@@ -287,14 +287,7 @@ pub(crate) fn hide_terminal_on_background_click(
     if topmost_terminal_panel_at_cursor(&primary_window, &panels, cursor).is_some() {
         return;
     }
-    if focus_state.clear_active_terminal().is_some() {
-        #[cfg(test)]
-        _terminal_manager.replace_test_focus_state(&focus_state);
-        visibility_state.policy = TerminalVisibilityPolicy::ShowAll;
-        view_state.focus_terminal(None);
-        input_capture.reconcile_direct_terminal_input(focus_state.active_id());
-        mark_terminal_sessions_dirty(&mut session_persistence, Some(&time));
-    }
+    app_commands.write(AppCommand::Agent(AppAgentCommand::ClearFocus));
 }
 
 #[allow(
@@ -422,11 +415,13 @@ pub(crate) fn handle_terminal_direct_input_keyboard(
     primary_window: Single<&Window, With<PrimaryWindow>>,
     terminal_manager: Res<TerminalManager>,
     focus_state: Res<TerminalFocusState>,
-    mut modal_state: ResMut<HudModalState>,
+    mut app_session: ResMut<AppSessionState>,
     mut input_capture: ResMut<HudInputCaptureState>,
     mut redraws: MessageWriter<RequestRedraw>,
 ) {
-    if !primary_window.focused || modal_state.message_box.visible || modal_state.task_dialog.visible
+    if !primary_window.focused
+        || app_session.composer.message_editor.visible
+        || app_session.composer.task_editor.visible
     {
         return;
     }
@@ -454,8 +449,8 @@ pub(crate) fn handle_terminal_direct_input_keyboard(
         let mut mode_changed = false;
         for event in messages.read() {
             if is_plain_ctrl_enter(event, ctrl, alt, super_key) {
-                let _ =
-                    input_capture.toggle_direct_terminal_input(&mut modal_state, target_terminal);
+                let _ = input_capture
+                    .toggle_direct_terminal_input(&mut app_session.composer, target_terminal);
                 mode_changed = true;
                 break;
             }
@@ -483,7 +478,7 @@ pub(crate) fn handle_terminal_direct_input_keyboard(
         if !is_plain_ctrl_enter(event, ctrl, alt, super_key) {
             continue;
         }
-        let _ = input_capture.toggle_direct_terminal_input(&mut modal_state, active_id);
+        let _ = input_capture.toggle_direct_terminal_input(&mut app_session.composer, active_id);
         redraws.write(RequestRedraw);
         break;
     }
@@ -506,18 +501,6 @@ fn message_box_event_text(event: &KeyboardInput) -> Option<String> {
             Key::Space => Some(" ".to_owned()),
             _ => None,
         })
-}
-
-/// Closes the task dialog and packages its final text into the corresponding save intent.
-///
-/// The function snapshots the current dialog payload before closing the modal because closing clears
-/// the active terminal reference from the dialog state. If no terminal is associated with the dialog,
-/// nothing is emitted.
-fn close_task_dialog_intent(modal_state: &mut HudModalState) -> Option<HudIntent> {
-    let target_terminal = modal_state.task_dialog.target_terminal?;
-    let payload = modal_state.task_dialog.text.clone();
-    modal_state.close_task_dialog();
-    Some(HudIntent::SetTerminalTaskText(target_terminal, payload))
 }
 
 /// Applies one keyboard event to the Emacs-like HUD text editor state machine.
@@ -605,10 +588,11 @@ pub(crate) fn handle_terminal_message_box_keyboard(
     primary_window: Single<&Window, With<PrimaryWindow>>,
     terminal_manager: Res<TerminalManager>,
     focus_state: Res<TerminalFocusState>,
+    runtime_index: Res<AgentRuntimeIndex>,
     notes_state: Res<TerminalNotesState>,
-    mut modal_state: ResMut<HudModalState>,
-    mut input_capture: ResMut<HudInputCaptureState>,
-    mut hud_commands: MessageWriter<HudIntent>,
+    mut app_session: ResMut<AppSessionState>,
+    input_capture: Res<HudInputCaptureState>,
+    mut app_commands: MessageWriter<AppCommand>,
     mut redraws: MessageWriter<RequestRedraw>,
 ) {
     if !primary_window.focused {
@@ -621,36 +605,34 @@ pub(crate) fn handle_terminal_message_box_keyboard(
         return;
     }
 
-    if modal_state.message_box.visible {
+    if app_session.composer.message_editor.visible {
         let mut needs_redraw = false;
         for event in messages.read() {
             if event.state != ButtonState::Pressed {
                 continue;
             }
 
-            // `Ctrl+S` is treated as "send and close" for the message box instead of as a generic
+            // `Ctrl+S` is treated as "submit composer" for the message box instead of as a generic
             // editor command because this modal exists primarily to dispatch terminal commands.
             if ctrl && !alt && !super_key && event.key_code == KeyCode::KeyS {
-                if let Some(target_terminal) = modal_state.message_box.target_terminal {
-                    let payload = modal_state.message_box.text.clone();
-                    if !payload.is_empty() {
-                        hud_commands
-                            .write(HudIntent::SendTerminalCommand(target_terminal, payload));
-                    }
+                if !app_session.composer.message_editor.text.trim().is_empty() {
+                    app_commands.write(AppCommand::Composer(ComposerCommand::Submit));
                 }
-                modal_state.close_message_box_and_discard_draft();
-                needs_redraw = true;
                 break;
             }
 
             if event.key_code == KeyCode::Escape {
-                modal_state.close_message_box();
-                needs_redraw = true;
+                app_commands.write(AppCommand::Composer(ComposerCommand::Cancel));
                 break;
             }
 
-            needs_redraw |=
-                handle_text_editor_event(&mut modal_state.message_box, event, ctrl, alt, super_key);
+            needs_redraw |= handle_text_editor_event(
+                &mut app_session.composer.message_editor,
+                event,
+                ctrl,
+                alt,
+                super_key,
+            );
         }
 
         if needs_redraw {
@@ -659,7 +641,7 @@ pub(crate) fn handle_terminal_message_box_keyboard(
         return;
     }
 
-    if modal_state.task_dialog.visible {
+    if app_session.composer.task_editor.visible {
         let mut needs_redraw = false;
         for event in messages.read() {
             if event.state != ButtonState::Pressed {
@@ -669,23 +651,28 @@ pub(crate) fn handle_terminal_message_box_keyboard(
             // `Ctrl+T` stays live inside the task dialog so done items can be cleared without
             // closing the editor or forcing the caller through pointer interaction.
             if ctrl && !alt && !super_key && event.key_code == KeyCode::KeyT {
-                if let Some(target_terminal) = modal_state.task_dialog.target_terminal {
-                    hud_commands.write(HudIntent::ClearDoneTerminalTasks(target_terminal));
+                if let Some(target_terminal) = app_session.composer.task_editor.target_terminal {
+                    if let Some(agent_id) = runtime_index.agent_for_terminal(target_terminal) {
+                        app_commands.write(AppCommand::Conversation(
+                            AppConversationCommand::ClearDoneTasks { agent_id },
+                        ));
+                    }
                 }
-                needs_redraw = true;
                 continue;
             }
 
             if event.key_code == KeyCode::Escape {
-                if let Some(intent) = close_task_dialog_intent(&mut modal_state) {
-                    hud_commands.write(intent);
-                }
-                needs_redraw = true;
+                app_commands.write(AppCommand::Composer(ComposerCommand::Submit));
                 break;
             }
 
-            needs_redraw |=
-                handle_text_editor_event(&mut modal_state.task_dialog, event, ctrl, alt, super_key);
+            needs_redraw |= handle_text_editor_event(
+                &mut app_session.composer.task_editor,
+                event,
+                ctrl,
+                alt,
+                super_key,
+            );
         }
 
         if needs_redraw {
@@ -703,7 +690,11 @@ pub(crate) fn handle_terminal_message_box_keyboard(
         }
 
         if ctrl && !alt && !super_key && event.key_code == KeyCode::KeyT {
-            hud_commands.write(HudIntent::ClearDoneTerminalTasks(active_id));
+            if let Some(agent_id) = runtime_index.agent_for_terminal(active_id) {
+                app_commands.write(AppCommand::Conversation(
+                    AppConversationCommand::ClearDoneTasks { agent_id },
+                ));
+            }
             break;
         }
 
@@ -713,22 +704,36 @@ pub(crate) fn handle_terminal_message_box_keyboard(
 
         match event.key_code {
             KeyCode::Enter => {
-                modal_state.open_message_box(&mut input_capture, active_id);
-                redraws.write(RequestRedraw);
+                if let Some(agent_id) = runtime_index.agent_for_terminal(active_id) {
+                    app_commands.write(AppCommand::Composer(ComposerCommand::Open(
+                        ComposerRequest {
+                            mode: crate::ui::ComposerMode::Message { agent_id },
+                        },
+                    )));
+                }
                 break;
             }
             KeyCode::KeyT => {
-                let note_text = terminal_manager
-                    .get(active_id)
-                    .and_then(|terminal| notes_state.note_text(&terminal.session_name))
-                    .unwrap_or_default()
-                    .to_owned();
-                modal_state.open_task_dialog(&mut input_capture, active_id, &note_text);
-                redraws.write(RequestRedraw);
+                if let Some(agent_id) = runtime_index.agent_for_terminal(active_id) {
+                    let _note_text = terminal_manager
+                        .get(active_id)
+                        .and_then(|terminal| notes_state.note_text(&terminal.session_name))
+                        .unwrap_or_default()
+                        .to_owned();
+                    app_commands.write(AppCommand::Composer(ComposerCommand::Open(
+                        ComposerRequest {
+                            mode: crate::ui::ComposerMode::TaskEdit { agent_id },
+                        },
+                    )));
+                }
                 break;
             }
             KeyCode::KeyN => {
-                hud_commands.write(HudIntent::ConsumeNextTerminalTask(active_id));
+                if let Some(agent_id) = runtime_index.agent_for_terminal(active_id) {
+                    app_commands.write(AppCommand::Conversation(
+                        AppConversationCommand::ConsumeNextTask { agent_id },
+                    ));
+                }
                 break;
             }
             _ => {}

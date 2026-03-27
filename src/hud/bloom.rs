@@ -1,11 +1,14 @@
-use crate::hud::{
-    modules::{
-        agent_row_rect, agent_rows, AgentListRowSection, AGENT_LIST_BLOOM_RED_B,
-        AGENT_LIST_BLOOM_RED_G, AGENT_LIST_BLOOM_RED_R,
+use crate::{
+    app::AppSessionState,
+    hud::{
+        modules::{
+            agent_row_rect, agent_rows, AgentListRowSection, AGENT_LIST_BLOOM_RED_B,
+            AGENT_LIST_BLOOM_RED_G, AGENT_LIST_BLOOM_RED_R,
+        },
+        AgentListView, HudLayoutState, HudRect, HudWidgetKey,
     },
-    AgentDirectory, HudLayoutState, HudModalState, HudModuleId, HudRect,
+    terminals::TerminalId,
 };
-use crate::terminals::{TerminalId, TerminalManager};
 use bevy::{
     asset::RenderAssetUsages,
     camera::{visibility::RenderLayers, CameraOutputMode, ClearColorConfig, RenderTarget},
@@ -464,9 +467,8 @@ fn build_bloom_specs(
     content_rect: HudRect,
     scroll_offset: f32,
     hovered_terminal: Option<TerminalId>,
-    terminal_manager: &TerminalManager,
+    agent_list_view: &AgentListView,
     focus_state: &crate::terminals::TerminalFocusState,
-    agent_directory: &AgentDirectory,
 ) -> Vec<BloomSourceSpec> {
     let Some(active_id) = focus_state.active_id() else {
         return Vec::new();
@@ -477,11 +479,9 @@ fn build_bloom_specs(
         content_rect,
         scroll_offset,
         hovered_terminal,
-        terminal_manager,
-        focus_state,
-        agent_directory,
+        agent_list_view,
     ) {
-        if row.terminal_id != active_id
+        if row.terminal_id != Some(active_id)
             || row.rect.y + row.rect.h < content_rect.y
             || row.rect.y > content_rect.y + content_rect.h
         {
@@ -504,7 +504,9 @@ fn build_bloom_specs(
             for (segment, border_rect) in bloom_border_rects(rect, thickness) {
                 specs.push(BloomSourceSpec {
                     key: AgentListBloomSourceSprite {
-                        terminal_id: row.terminal_id,
+                        terminal_id: row
+                            .terminal_id
+                            .expect("active agent row should stay terminal-backed"),
                         kind,
                         segment,
                     },
@@ -859,10 +861,9 @@ type BloomDebugPreviewFilter = (
 pub(crate) struct HudWidgetBloomContext<'w, 's> {
     primary_window: Single<'w, 's, &'static Window, With<PrimaryWindow>>,
     layout_state: Res<'w, HudLayoutState>,
-    modal_state: Res<'w, HudModalState>,
-    terminal_manager: Res<'w, TerminalManager>,
+    app_session: Res<'w, AppSessionState>,
     focus_state: Res<'w, crate::terminals::TerminalFocusState>,
-    agent_directory: Res<'w, AgentDirectory>,
+    agent_list_view: Res<'w, AgentListView>,
     settings: Res<'w, HudBloomSettings>,
     commands: Commands<'w, 's>,
     bloom: ResMut<'w, HudWidgetBloom>,
@@ -1007,17 +1008,18 @@ pub(crate) fn sync_hud_widget_bloom(mut ctx: HudWidgetBloomContext) {
         }
     }
 
-    let modal_visible = ctx.modal_state.message_box.visible || ctx.modal_state.task_dialog.visible;
+    let modal_visible = ctx.app_session.composer.message_editor.visible
+        || ctx.app_session.composer.task_editor.visible;
     let enabled = ctx
         .layout_state
-        .get(HudModuleId::AgentList)
+        .get(HudWidgetKey::AgentList)
         .map(|module| module.shell.enabled && module.shell.current_alpha > 0.01)
         .unwrap_or(false)
         && !modal_visible;
     let specs = if enabled {
         let module = ctx
             .layout_state
-            .get(HudModuleId::AgentList)
+            .get(HudWidgetKey::AgentList)
             .expect("agent list exists when enabled");
         let crate::hud::HudModuleModel::AgentList(state) = &module.model else {
             unreachable!("agent list module must have agent-list model")
@@ -1026,9 +1028,8 @@ pub(crate) fn sync_hud_widget_bloom(mut ctx: HudWidgetBloomContext) {
             module.shell.current_rect,
             state.scroll_offset,
             state.hovered_terminal,
-            &ctx.terminal_manager,
+            &ctx.agent_list_view,
             &ctx.focus_state,
-            &ctx.agent_directory,
         )
     } else {
         Vec::new()

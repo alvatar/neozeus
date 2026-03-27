@@ -1,8 +1,8 @@
 #[cfg(test)]
 use crate::hud::default_hud_module_instance;
 #[cfg(test)]
-use crate::hud::state::HudModuleDefinition;
-use crate::hud::{append_hud_log, HudLayoutState, HudModuleId, HudRect, HUD_MODULE_DEFINITIONS};
+use crate::hud::HudWidgetDefinition;
+use crate::hud::{append_hud_log, HudLayoutState, HudRect, HudWidgetKey, HUD_WIDGET_DEFINITIONS};
 use bevy::prelude::*;
 use std::{collections::BTreeMap, env, fs, path::PathBuf};
 
@@ -19,7 +19,7 @@ pub(crate) struct PersistedHudModuleState {
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub(crate) struct PersistedHudState {
-    pub(crate) modules: BTreeMap<HudModuleId, PersistedHudModuleState>,
+    pub(crate) modules: BTreeMap<HudWidgetKey, PersistedHudModuleState>,
 }
 
 #[derive(Resource, Default)]
@@ -205,12 +205,12 @@ pub(crate) fn parse_persisted_hud_state(text: &str) -> PersistedHudState {
 pub(crate) fn serialize_persisted_hud_state(state: &PersistedHudState) -> String {
     let mut output = String::from(HUD_LAYOUT_VERSION_V2);
     output.push('\n');
-    for definition in HUD_MODULE_DEFINITIONS {
-        let Some(module) = state.modules.get(&definition.id) else {
+    for definition in HUD_WIDGET_DEFINITIONS {
+        let Some(module) = state.modules.get(&definition.key) else {
             continue;
         };
         output.push_str("[module]\n");
-        output.push_str(&format!("id=\"{}\"\n", definition.id.title_key()));
+        output.push_str(&format!("id=\"{}\"\n", definition.key.title_key()));
         output.push_str(&format!("enabled={}\n", u8::from(module.enabled)));
         output.push_str(&format!("x={}\n", module.rect.x));
         output.push_str(&format!("y={}\n", module.rect.y));
@@ -224,10 +224,10 @@ pub(crate) fn serialize_persisted_hud_state(state: &PersistedHudState) -> String
 /// Maps a persisted module name back to its enum id.
 ///
 /// The accepted names are the stable title keys, not the human-facing titles.
-fn parse_hud_module_id(name: &str) -> Option<HudModuleId> {
+fn parse_hud_module_id(name: &str) -> Option<HudWidgetKey> {
     match name {
-        "DebugToolbar" => Some(HudModuleId::DebugToolbar),
-        "AgentList" => Some(HudModuleId::AgentList),
+        "DebugToolbar" => Some(HudWidgetKey::DebugToolbar),
+        "AgentList" => Some(HudWidgetKey::AgentList),
         _ => None,
     }
 }
@@ -284,12 +284,12 @@ pub(crate) fn save_hud_layout_if_dirty(
     };
 
     let mut persisted = PersistedHudState::default();
-    for definition in HUD_MODULE_DEFINITIONS {
-        let Some(module) = layout_state.get(definition.id) else {
+    for definition in HUD_WIDGET_DEFINITIONS {
+        let Some(module) = layout_state.get(definition.key) else {
             continue;
         };
         persisted.modules.insert(
-            definition.id,
+            definition.key,
             PersistedHudModuleState {
                 enabled: module.shell.enabled,
                 rect: module.shell.target_rect,
@@ -328,20 +328,20 @@ pub(crate) fn save_hud_layout_if_dirty(
 /// real HUD resources directly.
 #[cfg(test)]
 pub(crate) fn apply_persisted_layout(
-    definitions: &[HudModuleDefinition],
+    definitions: &[HudWidgetDefinition],
     persisted: &PersistedHudState,
 ) -> HudLayoutState {
     let mut hud_state = HudLayoutState::default();
     for definition in definitions {
         let mut module = default_hud_module_instance(definition);
-        if let Some(saved) = persisted.modules.get(&definition.id) {
+        if let Some(saved) = persisted.modules.get(&definition.key) {
             module.shell.enabled = saved.enabled;
             module.shell.target_rect = saved.rect;
             module.shell.current_rect = saved.rect;
             module.shell.target_alpha = if saved.enabled { 1.0 } else { 0.0 };
             module.shell.current_alpha = module.shell.target_alpha;
         }
-        hud_state.insert(definition.id, module);
+        hud_state.insert(definition.key, module);
     }
     hud_state
 }

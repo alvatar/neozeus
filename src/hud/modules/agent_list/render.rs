@@ -45,15 +45,12 @@ const EVA_EMISSIVE_RED: peniko::Color = peniko::Color::from_rgba8(
     255,
 );
 const TASK_RED: peniko::Color = peniko::Color::from_rgba8(255, 24, 24, 255);
+const DISCONNECTED_RED: peniko::Color = peniko::Color::from_rgba8(160, 34, 24, 255);
 
 #[allow(
     clippy::too_many_arguments,
     reason = "agent-list text helper needs position/color/anchor plus non-uniform scaling"
 )]
-/// Draws scaled agent-list text through the shared HUD painter.
-///
-/// This helper exists because the agent list uses slightly non-uniform text scaling to get its HUD
-/// styling, and the call sites would be noisy if they all repeated the same painter method directly.
 fn draw_label(
     painter: &mut HudPainter,
     position: Vec2,
@@ -67,10 +64,6 @@ fn draw_label(
     painter.label_scaled(position, text, size, color, anchor, scale_x, scale_y);
 }
 
-/// Draws one outlined rectangular UI element used by the agent list.
-///
-/// The helper intentionally fills first and then strokes the border so focused/hovered state can be
-/// expressed by changing colors without duplicating the painter calls everywhere.
 fn draw_button_rect(
     painter: &mut HudPainter,
     rect: HudRect,
@@ -81,21 +74,16 @@ fn draw_button_rect(
     painter.stroke_rect_width(rect, stroke, 2.5);
 }
 
-/// Chooses the marker fill color for an agent row based on whether that terminal has saved notes.
-///
-/// The marker doubles as a tiny status light: red means notes/tasks exist, black means none.
-fn marker_fill(has_notes: bool) -> peniko::Color {
-    if has_notes {
+fn marker_fill(has_tasks: bool, interactive: bool) -> peniko::Color {
+    if !interactive {
+        DISCONNECTED_RED
+    } else if has_tasks {
         TASK_RED
     } else {
         EVA_BLACK
     }
 }
 
-/// Draws the decorative EVA-style left rail used by the agent-list module.
-///
-/// The rail is composed from repeated major and minor cyan tick marks spaced down the content area,
-/// giving the module its instrument-panel framing without involving any retained per-tick state.
 fn draw_left_rail(painter: &mut HudPainter, content_rect: HudRect) {
     let tick_x = content_rect.x + 5.0;
     let top = content_rect.y + HUD_MODULE_PADDING + 4.0;
@@ -134,11 +122,6 @@ fn draw_left_rail(painter: &mut HudPainter, content_rect: HudRect) {
     }
 }
 
-/// Renders the full agent-list module body from the retained module state and live terminal inputs.
-///
-/// The renderer draws the background, decorative header/rail, and then each visible agent row with
-/// hover/focus styling and a notes marker derived from the terminal notes state. Rows outside the
-/// visible clip region are skipped early so scrolling does not waste draw calls on off-screen items.
 pub(crate) fn render_content(
     model: &HudModuleModel,
     content_rect: HudRect,
@@ -193,9 +176,7 @@ pub(crate) fn render_content(
         content_rect,
         state.scroll_offset,
         state.hovered_terminal,
-        inputs.terminal_manager,
-        inputs.focus_state,
-        inputs.agent_directory,
+        inputs.agent_list_view,
     ) {
         if row.rect.y + row.rect.h < content_rect.y || row.rect.y > content_rect.y + content_rect.h
         {
@@ -219,13 +200,14 @@ pub(crate) fn render_content(
         } else {
             apply_alpha(EVA_BLACK, 0.90)
         };
-        let has_notes = inputs
-            .terminal_manager
-            .get(row.terminal_id)
-            .is_some_and(|terminal| inputs.notes_state.has_note_text(&terminal.session_name));
 
         draw_button_rect(painter, main_rect, stroke, fill);
-        draw_button_rect(painter, marker_rect, stroke, marker_fill(has_notes));
+        draw_button_rect(
+            painter,
+            marker_rect,
+            stroke,
+            marker_fill(row.has_tasks, row.interactive),
+        );
         if row.focused {
             painter.fill_rect(accent_rect, EVA_EMISSIVE_RED, 0.0);
         }

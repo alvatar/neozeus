@@ -9,7 +9,7 @@ use crate::{
         load_neozeus_config, resolve_terminal_baseline_offset_px, resolve_terminal_font_path,
         resolve_terminal_font_size_px, DEFAULT_BG, DEFAULT_CELL_HEIGHT_PX, DEFAULT_CELL_WIDTH_PX,
     },
-    hud::{HudModuleId, HudState},
+    hud::{HudState, HudWidgetKey},
     startup::StartupLoadingState,
     terminals::{
         active_terminal_cell_size, active_terminal_dimensions, active_terminal_layout,
@@ -21,9 +21,9 @@ use crate::{
         resolve_daemon_socket_path_with, resolve_terminal_font_report_for_family,
         resolve_terminal_font_report_for_path, send_command_payload_bytes, snap_to_pixel_grid,
         sync_active_terminal_dimensions, sync_terminal_panel_frames, sync_terminal_presentations,
-        sync_terminal_texture, terminal_texture_screen_size, write_client_message,
-        write_server_message, xterm_indexed_rgb, ClientMessage, DaemonEvent, DaemonRequest,
-        DaemonServerHandle, KittyFontConfig, PresentedTerminal, ServerMessage,
+        sync_terminal_projection_entities, sync_terminal_texture, terminal_texture_screen_size,
+        write_client_message, write_server_message, xterm_indexed_rgb, ClientMessage, DaemonEvent,
+        DaemonRequest, DaemonServerHandle, KittyFontConfig, PresentedTerminal, ServerMessage,
         SocketTerminalDaemonClient, TerminalCommand, TerminalDaemonClient, TerminalDamage,
         TerminalDisplayMode, TerminalFontRole, TerminalFontState, TerminalFrameUpdate,
         TerminalGlyphCacheKey, TerminalLifecycle, TerminalManager, TerminalPanel,
@@ -267,11 +267,11 @@ fn active_terminal_viewport_reserves_agent_list_column() {
     };
     let mut hud_state = HudState::default();
     hud_state.insert(
-        HudModuleId::AgentList,
+        HudWidgetKey::AgentList,
         crate::hud::default_hud_module_instance(&crate::hud::HUD_MODULE_DEFINITIONS[1]),
     );
     let rect = crate::hud::docked_agent_list_rect(&window);
-    let agent_list = hud_state.get_mut(HudModuleId::AgentList).unwrap();
+    let agent_list = hud_state.get_mut(HudWidgetKey::AgentList).unwrap();
     agent_list.shell.enabled = true;
     agent_list.shell.current_rect = rect;
     agent_list.shell.target_rect = rect;
@@ -296,11 +296,11 @@ fn active_terminal_presentation_uses_texture_logical_size_and_centers_in_viewpor
     };
     let mut hud_state = HudState::default();
     hud_state.insert(
-        HudModuleId::AgentList,
+        HudWidgetKey::AgentList,
         crate::hud::default_hud_module_instance(&crate::hud::HUD_MODULE_DEFINITIONS[1]),
     );
     let rect = crate::hud::docked_agent_list_rect(&window);
-    let agent_list = hud_state.get_mut(HudModuleId::AgentList).unwrap();
+    let agent_list = hud_state.get_mut(HudWidgetKey::AgentList).unwrap();
     agent_list.shell.enabled = true;
     agent_list.shell.current_rect = rect;
     agent_list.shell.target_rect = rect;
@@ -527,11 +527,11 @@ fn switching_active_terminal_snaps_immediately_without_animation() {
     };
     let mut hud_state = HudState::default();
     hud_state.insert(
-        HudModuleId::AgentList,
+        HudWidgetKey::AgentList,
         crate::hud::default_hud_module_instance(&crate::hud::HUD_MODULE_DEFINITIONS[1]),
     );
     let rect = crate::hud::docked_agent_list_rect(&window);
-    let agent_list = hud_state.get_mut(HudModuleId::AgentList).unwrap();
+    let agent_list = hud_state.get_mut(HudWidgetKey::AgentList).unwrap();
     agent_list.shell.enabled = true;
     agent_list.shell.current_rect = rect;
     agent_list.shell.target_rect = rect;
@@ -689,11 +689,11 @@ fn switching_active_terminal_keeps_cached_frame_visible_until_resized_surface_ar
     };
     let mut hud_state = HudState::default();
     hud_state.insert(
-        HudModuleId::AgentList,
+        HudWidgetKey::AgentList,
         crate::hud::default_hud_module_instance(&crate::hud::HUD_MODULE_DEFINITIONS[1]),
     );
     let rect = crate::hud::docked_agent_list_rect(&window);
-    let agent_list = hud_state.get_mut(HudModuleId::AgentList).unwrap();
+    let agent_list = hud_state.get_mut(HudWidgetKey::AgentList).unwrap();
     agent_list.shell.enabled = true;
     agent_list.shell.current_rect = rect;
     agent_list.shell.target_rect = rect;
@@ -866,11 +866,11 @@ fn sync_terminal_texture_keeps_cached_switch_frame_until_resized_surface_arrives
     };
     let mut hud_state = HudState::default();
     hud_state.insert(
-        HudModuleId::AgentList,
+        HudWidgetKey::AgentList,
         crate::hud::default_hud_module_instance(&crate::hud::HUD_MODULE_DEFINITIONS[1]),
     );
     let rect = crate::hud::docked_agent_list_rect(&window);
-    let agent_list = hud_state.get_mut(HudModuleId::AgentList).unwrap();
+    let agent_list = hud_state.get_mut(HudWidgetKey::AgentList).unwrap();
     agent_list.shell.enabled = true;
     agent_list.shell.current_rect = rect;
     agent_list.shell.target_rect = rect;
@@ -973,11 +973,11 @@ fn sync_terminal_texture_promotes_active_terminal_once_resized_surface_arrives()
     };
     let mut hud_state = HudState::default();
     hud_state.insert(
-        HudModuleId::AgentList,
+        HudWidgetKey::AgentList,
         crate::hud::default_hud_module_instance(&crate::hud::HUD_MODULE_DEFINITIONS[1]),
     );
     let rect = crate::hud::docked_agent_list_rect(&window);
-    let agent_list = hud_state.get_mut(HudModuleId::AgentList).unwrap();
+    let agent_list = hud_state.get_mut(HudWidgetKey::AgentList).unwrap();
     agent_list.shell.enabled = true;
     agent_list.shell.current_rect = rect;
     agent_list.shell.target_rect = rect;
@@ -1069,11 +1069,11 @@ fn active_terminal_resize_requests_follow_zoom_distance() {
     };
     let mut hud_state = HudState::default();
     hud_state.insert(
-        HudModuleId::AgentList,
+        HudWidgetKey::AgentList,
         crate::hud::default_hud_module_instance(&crate::hud::HUD_MODULE_DEFINITIONS[1]),
     );
     let rect = crate::hud::docked_agent_list_rect(&window);
-    let agent_list = hud_state.get_mut(HudModuleId::AgentList).unwrap();
+    let agent_list = hud_state.get_mut(HudWidgetKey::AgentList).unwrap();
     agent_list.shell.enabled = true;
     agent_list.shell.current_rect = rect;
     agent_list.shell.target_rect = rect;
@@ -3165,4 +3165,62 @@ fn daemon_session_lifecycle_churn_stays_consistent() {
         .list_sessions()
         .expect("sessions should list after churn");
     assert!(sessions.is_empty());
+}
+
+/// Verifies that projection sync creates missing panel/frame entities for terminals that exist only
+/// in authoritative terminal state.
+#[test]
+fn projection_sync_spawns_missing_terminal_entities() {
+    let (bridge, _) = test_bridge();
+    let mut manager = TerminalManager::default();
+    let terminal_id = manager.create_terminal_without_focus(bridge);
+    let mut world = World::default();
+    world.insert_resource(Assets::<Image>::default());
+    world.insert_resource(manager);
+    world.insert_resource(TerminalPresentationStore::default());
+
+    world
+        .run_system_once(sync_terminal_projection_entities)
+        .unwrap();
+
+    let store = world.resource::<TerminalPresentationStore>();
+    let presented = store
+        .get(terminal_id)
+        .expect("projection sync should register presentation state");
+    assert_ne!(presented.panel_entity, Entity::PLACEHOLDER);
+    assert_ne!(presented.frame_entity, Entity::PLACEHOLDER);
+    assert_eq!(world.query::<&TerminalPanel>().iter(&world).count(), 1);
+    assert_eq!(world.query::<&TerminalPanelFrame>().iter(&world).count(), 1);
+}
+
+/// Verifies that projection sync removes stale panel/frame entities after authoritative terminal
+/// state drops the terminal.
+#[test]
+fn projection_sync_despawns_stale_terminal_entities() {
+    let (bridge, _) = test_bridge();
+    let mut manager = TerminalManager::default();
+    let terminal_id = manager.create_terminal_without_focus(bridge);
+    let mut world = World::default();
+    world.insert_resource(Assets::<Image>::default());
+    world.insert_resource(manager);
+    world.insert_resource(TerminalPresentationStore::default());
+
+    world
+        .run_system_once(sync_terminal_projection_entities)
+        .unwrap();
+    {
+        let mut manager = world.resource_mut::<TerminalManager>();
+        let _ = manager.remove_terminal(terminal_id);
+    }
+
+    world
+        .run_system_once(sync_terminal_projection_entities)
+        .unwrap();
+
+    assert!(world
+        .resource::<TerminalPresentationStore>()
+        .get(terminal_id)
+        .is_none());
+    assert_eq!(world.query::<&TerminalPanel>().iter(&world).count(), 0);
+    assert_eq!(world.query::<&TerminalPanelFrame>().iter(&world).count(), 0);
 }

@@ -145,6 +145,11 @@ impl TerminalPresentationStore {
         self.terminals.remove(&id)
     }
 
+    /// Returns all terminal ids currently tracked by the presentation store.
+    pub(crate) fn terminal_ids(&self) -> Vec<TerminalId> {
+        self.terminals.keys().copied().collect()
+    }
+
     /// Returns the uploaded texture state of the currently active terminal, if any.
     pub(crate) fn active_texture_state(
         &self,

@@ -2,8 +2,8 @@ mod interaction;
 mod render;
 
 use crate::{
-    hud::{AgentDirectory, HudRect, HUD_MODULE_PADDING, HUD_ROW_HEIGHT},
-    terminals::{TerminalFocusState, TerminalId, TerminalManager},
+    hud::{AgentListView, HudRect, HUD_MODULE_PADDING, HUD_ROW_HEIGHT},
+    terminals::TerminalId,
 };
 
 pub(crate) const AGENT_LIST_HEADER_HEIGHT: f32 = 52.0;
@@ -30,12 +30,14 @@ pub(crate) use render::render_content;
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct AgentRow {
-    pub(crate) terminal_id: TerminalId,
+    pub(crate) terminal_id: Option<TerminalId>,
     pub(crate) label: String,
     pub(crate) display_label: String,
     pub(crate) rect: HudRect,
     pub(crate) focused: bool,
     pub(crate) hovered: bool,
+    pub(crate) has_tasks: bool,
+    pub(crate) interactive: bool,
 }
 
 /// Derives one sub-rectangle of an agent row for rendering or hit-testing.
@@ -66,26 +68,6 @@ pub(crate) fn agent_row_rect(rect: HudRect, section: AgentListRowSection) -> Hud
     }
 }
 
-/// Resolves the human-facing label shown for one terminal in the agent list.
-///
-/// Explicit directory labels win. Otherwise the function falls back to a stable `agent-N` label based
-/// on the terminal's creation-order position, with the raw terminal id only used as a last resort.
-pub(crate) fn resolve_agent_label(
-    terminal_ids: &[TerminalId],
-    agent_directory: &AgentDirectory,
-    terminal_id: TerminalId,
-) -> String {
-    if let Some(label) = agent_directory.labels.get(&terminal_id) {
-        return label.clone();
-    }
-    let index = terminal_ids
-        .iter()
-        .position(|existing| *existing == terminal_id)
-        .map(|index| index + 1)
-        .unwrap_or(terminal_id.0 as usize);
-    format!("agent-{index}")
-}
-
 /// Returns the vertical distance from one agent row origin to the next.
 ///
 /// This is row height plus the fixed inter-row gap used by the agent-list layout.
@@ -106,39 +88,38 @@ pub(crate) fn agent_list_content_height(row_count: usize) -> f32 {
 
 /// Builds the retained row descriptors needed to render and interact with the agent list.
 ///
-/// The rows are produced in terminal-manager order, positioned inside the module content area with the
-/// current scroll offset applied, and annotated with focus/hover flags plus the resolved display label.
+/// The rows are produced from the derived [`AgentListView`] in view-model order, positioned inside
+/// the module content area with the current scroll offset applied, and annotated with hover flags.
 pub(crate) fn agent_rows(
     shell_rect: HudRect,
     scroll_offset: f32,
     hovered_terminal: Option<TerminalId>,
-    terminal_manager: &TerminalManager,
-    focus_state: &TerminalFocusState,
-    agent_directory: &AgentDirectory,
+    agent_list_view: &AgentListView,
 ) -> Vec<AgentRow> {
-    let terminal_ids = terminal_manager.terminal_ids();
     let content_x = shell_rect.x + AGENT_LIST_LEFT_RAIL_WIDTH + 1.0;
     let content_y = shell_rect.y + HUD_MODULE_PADDING + AGENT_LIST_HEADER_HEIGHT;
     let content_w = (shell_rect.w - AGENT_LIST_LEFT_RAIL_WIDTH - 3.0).max(0.0);
     let row_stride = agent_row_stride();
-    terminal_ids
+    agent_list_view
+        .rows
         .iter()
         .enumerate()
-        .map(|(index, terminal_id)| {
-            let label = resolve_agent_label(terminal_ids, agent_directory, *terminal_id);
-            AgentRow {
-                terminal_id: *terminal_id,
-                display_label: label.to_uppercase(),
-                label,
-                rect: HudRect {
-                    x: content_x,
-                    y: content_y + index as f32 * row_stride - scroll_offset,
-                    w: content_w,
-                    h: HUD_ROW_HEIGHT,
-                },
-                focused: focus_state.active_id() == Some(*terminal_id),
-                hovered: hovered_terminal == Some(*terminal_id),
-            }
+        .map(|(index, row)| AgentRow {
+            terminal_id: row.terminal_id,
+            display_label: row.label.to_uppercase(),
+            label: row.label.clone(),
+            rect: HudRect {
+                x: content_x,
+                y: content_y + index as f32 * row_stride - scroll_offset,
+                w: content_w,
+                h: HUD_ROW_HEIGHT,
+            },
+            focused: row.focused,
+            hovered: row
+                .terminal_id
+                .is_some_and(|terminal_id| hovered_terminal == Some(terminal_id)),
+            has_tasks: row.has_tasks,
+            interactive: row.interactive,
         })
         .collect()
 }

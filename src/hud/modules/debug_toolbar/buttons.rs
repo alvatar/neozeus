@@ -1,6 +1,6 @@
 use crate::{
     hud::{
-        HudLayoutState, HudModuleId, HudRect, HUD_BUTTON_GAP, HUD_BUTTON_HEIGHT,
+        HudLayoutState, HudRect, HudWidgetKey, HUD_BUTTON_GAP, HUD_BUTTON_HEIGHT,
         HUD_BUTTON_MIN_WIDTH, HUD_MODULE_PADDING,
     },
     terminals::{
@@ -27,11 +27,19 @@ pub(crate) fn debug_toolbar_buttons(
         .active_display_mode(focus_state.active_id())
         .unwrap_or(TerminalDisplayMode::Smooth);
     let toolbar_enabled = layout_state
-        .get(HudModuleId::DebugToolbar)
+        .get(HudWidgetKey::DebugToolbar)
         .map(|module| module.shell.enabled)
         .unwrap_or(true);
     let agent_list_enabled = layout_state
-        .get(HudModuleId::AgentList)
+        .get(HudWidgetKey::AgentList)
+        .map(|module| module.shell.enabled)
+        .unwrap_or(false);
+    let conversation_list_enabled = layout_state
+        .get(HudWidgetKey::ConversationList)
+        .map(|module| module.shell.enabled)
+        .unwrap_or(false);
+    let thread_pane_enabled = layout_state
+        .get(HudWidgetKey::ThreadPane)
         .map(|module| module.shell.enabled)
         .unwrap_or(false);
 
@@ -79,13 +87,23 @@ pub(crate) fn debug_toolbar_buttons(
         ),
         (
             "0 toolbar".to_owned(),
-            DebugToolbarAction::ToggleModule(HudModuleId::DebugToolbar),
+            DebugToolbarAction::ToggleModule(HudWidgetKey::DebugToolbar),
             toolbar_enabled,
         ),
         (
             "1 agents".to_owned(),
-            DebugToolbarAction::ToggleModule(HudModuleId::AgentList),
+            DebugToolbarAction::ToggleModule(HudWidgetKey::AgentList),
             agent_list_enabled,
+        ),
+        (
+            "2 convs".to_owned(),
+            DebugToolbarAction::ToggleModule(HudWidgetKey::ConversationList),
+            conversation_list_enabled,
+        ),
+        (
+            "3 thread".to_owned(),
+            DebugToolbarAction::ToggleModule(HudWidgetKey::ThreadPane),
+            thread_pane_enabled,
         ),
     ];
 

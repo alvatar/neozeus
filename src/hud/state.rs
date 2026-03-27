@@ -1,5 +1,8 @@
+#[cfg(test)]
+use crate::hud::message_box::{HudMessageBoxState, HudTaskDialogState};
 use crate::{
-    hud::message_box::{HudMessageBoxState, HudTaskDialogState},
+    agents::AgentId,
+    hud::{HudWidgetDefinition, HudWidgetKey, HUD_WIDGET_DEFINITIONS},
     terminals::TerminalId,
 };
 use bevy::prelude::*;
@@ -13,45 +16,6 @@ pub(crate) const HUD_BUTTON_GAP: f32 = 8.0;
 pub(crate) const HUD_BUTTON_MIN_WIDTH: f32 = 72.0;
 pub(crate) const HUD_AGENT_LIST_WIDTH: f32 = 300.0;
 pub(crate) const HUD_ANIMATION_EPSILON: f32 = 0.25;
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub(crate) enum HudModuleId {
-    DebugToolbar,
-    AgentList,
-}
-
-impl HudModuleId {
-    /// Returns the small numeric shortcut identifier used by HUD keybindings.
-    ///
-    /// These numbers back the `Digit0`/`Digit1` module shortcuts and persistence formats that refer to
-    /// modules by stable ids rather than display titles.
-    pub(crate) const fn number(self) -> u8 {
-        match self {
-            Self::DebugToolbar => 0,
-            Self::AgentList => 1,
-        }
-    }
-
-    /// Returns the human-readable HUD title shown in module chrome.
-    ///
-    /// This string is for UI presentation, not stable serialization.
-    pub(crate) const fn title(self) -> &'static str {
-        match self {
-            Self::DebugToolbar => "Debug Toolbar",
-            Self::AgentList => "Agent List",
-        }
-    }
-
-    /// Returns the stable title key used in persisted HUD layout data.
-    ///
-    /// Unlike [`Self::title`], this avoids spaces and is intended to be machine-friendly.
-    pub(crate) const fn title_key(self) -> &'static str {
-        match self {
-            Self::DebugToolbar => "DebugToolbar",
-            Self::AgentList => "AgentList",
-        }
-    }
-}
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub(crate) struct HudRect {
@@ -115,12 +79,23 @@ pub(crate) struct AgentListState {
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
+pub(crate) struct ConversationListState {
+    pub(crate) scroll_offset: f32,
+    pub(crate) hovered_agent: Option<AgentId>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub(crate) struct ThreadPaneState;
+
+#[derive(Clone, Debug, Default, PartialEq)]
 pub(crate) struct DebugToolbarState;
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum HudModuleModel {
     DebugToolbar(DebugToolbarState),
     AgentList(AgentListState),
+    ConversationList(ConversationListState),
+    ThreadPane(ThreadPaneState),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -131,14 +106,14 @@ pub(crate) struct HudModuleInstance {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct HudDragState {
-    pub(crate) module_id: HudModuleId,
+    pub(crate) module_id: HudWidgetKey,
     pub(crate) grab_offset: Vec2,
 }
 
 #[derive(Resource, Default)]
 pub(crate) struct HudLayoutState {
-    pub(crate) modules: BTreeMap<HudModuleId, HudModuleInstance>,
-    pub(crate) z_order: Vec<HudModuleId>,
+    pub(crate) modules: BTreeMap<HudWidgetKey, HudModuleInstance>,
+    pub(crate) z_order: Vec<HudWidgetKey>,
     pub(crate) drag: Option<HudDragState>,
     pub(crate) dirty_layout: bool,
 }
@@ -147,28 +122,28 @@ impl HudLayoutState {
     /// Returns the retained module instance for a given module id.
     ///
     /// This is the read-only accessor used by most HUD systems.
-    pub(crate) fn get(&self, id: HudModuleId) -> Option<&HudModuleInstance> {
+    pub(crate) fn get(&self, id: HudWidgetKey) -> Option<&HudModuleInstance> {
         self.modules.get(&id)
     }
 
     /// Returns mutable access to one retained module instance.
     ///
     /// Systems that mutate shell/model state go through this helper.
-    pub(crate) fn get_mut(&mut self, id: HudModuleId) -> Option<&mut HudModuleInstance> {
+    pub(crate) fn get_mut(&mut self, id: HudWidgetKey) -> Option<&mut HudModuleInstance> {
         self.modules.get_mut(&id)
     }
 
     /// Iterates module ids from back to front in the stored z-order vector.
     ///
     /// The backmost module appears first; use the front-to-back helper when hit-testing.
-    pub(crate) fn iter_z_order(&self) -> impl Iterator<Item = HudModuleId> + '_ {
+    pub(crate) fn iter_z_order(&self) -> impl Iterator<Item = HudWidgetKey> + '_ {
         self.z_order.iter().copied()
     }
 
     /// Iterates module ids from frontmost to backmost.
     ///
     /// This is the ordering needed for pointer hit-testing so the visually topmost module wins.
-    pub(crate) fn iter_z_order_front_to_back(&self) -> impl Iterator<Item = HudModuleId> + '_ {
+    pub(crate) fn iter_z_order_front_to_back(&self) -> impl Iterator<Item = HudWidgetKey> + '_ {
         self.z_order.iter().rev().copied()
     }
 
@@ -176,7 +151,7 @@ impl HudLayoutState {
     ///
     /// First insert appends the module at the back; replacing an existing module preserves its current
     /// z position.
-    pub(crate) fn insert(&mut self, id: HudModuleId, module: HudModuleInstance) {
+    pub(crate) fn insert(&mut self, id: HudWidgetKey, module: HudModuleInstance) {
         self.modules.insert(id, module);
         if !self.z_order.contains(&id) {
             self.z_order.push(id);
@@ -186,7 +161,7 @@ impl HudLayoutState {
     /// Moves a module id to the front of the z-order list.
     ///
     /// Any previous occurrence is removed first so the vector stays deduplicated.
-    pub(crate) fn raise_to_front(&mut self, id: HudModuleId) {
+    pub(crate) fn raise_to_front(&mut self, id: HudWidgetKey) {
         self.z_order.retain(|existing| *existing != id);
         self.z_order.push(id);
     }
@@ -194,7 +169,7 @@ impl HudLayoutState {
     /// Enables or disables a module shell and updates its target alpha accordingly.
     ///
     /// The current alpha is left alone so animation can fade toward the new target state.
-    pub(crate) fn set_module_enabled(&mut self, id: HudModuleId, enabled: bool) {
+    pub(crate) fn set_module_enabled(&mut self, id: HudWidgetKey, enabled: bool) {
         let Some(module) = self.modules.get_mut(&id) else {
             return;
         };
@@ -210,10 +185,10 @@ impl HudLayoutState {
     ///
     /// Resetting also brings the module to the front and marks layout dirty so persistence/rendering
     /// will pick up the change.
-    pub(crate) fn reset_module(&mut self, id: HudModuleId) {
-        let Some(definition) = HUD_MODULE_DEFINITIONS
+    pub(crate) fn reset_module(&mut self, id: HudWidgetKey) {
+        let Some(definition) = HUD_WIDGET_DEFINITIONS
             .iter()
-            .find(|definition| definition.id == id)
+            .find(|definition| definition.key == id)
         else {
             return;
         };
@@ -227,7 +202,7 @@ impl HudLayoutState {
     ///
     /// Hit-testing uses current rects rather than target rects so interaction tracks what the user is
     /// actually seeing during animation.
-    pub(crate) fn topmost_enabled_at(&self, point: Vec2) -> Option<HudModuleId> {
+    pub(crate) fn topmost_enabled_at(&self, point: Vec2) -> Option<HudWidgetKey> {
         self.iter_z_order_front_to_back().find(|id| {
             self.modules.get(id).is_some_and(|module| {
                 module.shell.enabled && module.shell.current_rect.contains(point)
@@ -245,66 +220,11 @@ impl HudLayoutState {
     }
 }
 
+#[cfg(test)]
 #[derive(Resource, Default)]
 pub(crate) struct HudModalState {
     pub(crate) message_box: HudMessageBoxState,
     pub(crate) task_dialog: HudTaskDialogState,
-}
-
-impl HudModalState {
-    /// Returns whether any modal/editor state should own keyboard input instead of normal HUD
-    /// shortcuts.
-    ///
-    /// Either modal being visible counts, as does direct terminal input capture.
-    pub(crate) fn keyboard_capture_active(&self, input_capture: &HudInputCaptureState) -> bool {
-        self.message_box.visible
-            || self.task_dialog.visible
-            || input_capture.direct_input_terminal.is_some()
-    }
-
-    /// Opens the message box for a terminal and clears any competing capture mode.
-    ///
-    /// Task dialogs are closed first and direct terminal input is released so the message-box editor is
-    /// the sole owner of input.
-    pub(crate) fn open_message_box(
-        &mut self,
-        input_capture: &mut HudInputCaptureState,
-        target_terminal: TerminalId,
-    ) {
-        self.task_dialog.close();
-        input_capture.direct_input_terminal = None;
-        self.message_box.reset_for_target(target_terminal);
-    }
-
-    /// Closes the message box while preserving its per-terminal draft.
-    pub(crate) fn close_message_box(&mut self) {
-        self.message_box.close();
-    }
-
-    /// Closes the message box and drops the current terminal's saved draft.
-    pub(crate) fn close_message_box_and_discard_draft(&mut self) {
-        self.message_box.close_and_discard_current();
-    }
-
-    /// Opens the task dialog for a terminal and clears any competing capture mode.
-    ///
-    /// The message box is closed first and direct terminal input is released so the task dialog owns
-    /// keyboard input exclusively.
-    pub(crate) fn open_task_dialog(
-        &mut self,
-        input_capture: &mut HudInputCaptureState,
-        target_terminal: TerminalId,
-        text: &str,
-    ) {
-        self.close_message_box();
-        input_capture.direct_input_terminal = None;
-        self.task_dialog.open_with_text(target_terminal, text);
-    }
-
-    /// Closes the task dialog and clears its transient editor state.
-    pub(crate) fn close_task_dialog(&mut self) {
-        self.task_dialog.close();
-    }
 }
 
 #[derive(Resource, Default)]
@@ -315,8 +235,8 @@ pub(crate) struct HudInputCaptureState {
 #[cfg(test)]
 #[derive(Clone, Debug, Default, PartialEq)]
 pub(crate) struct HudState {
-    pub(crate) modules: BTreeMap<HudModuleId, HudModuleInstance>,
-    pub(crate) z_order: Vec<HudModuleId>,
+    pub(crate) modules: BTreeMap<HudWidgetKey, HudModuleInstance>,
+    pub(crate) z_order: Vec<HudWidgetKey>,
     pub(crate) drag: Option<HudDragState>,
     pub(crate) dirty_layout: bool,
     pub(crate) message_box: HudMessageBoxState,
@@ -333,22 +253,22 @@ impl HudState {
     /// Returns the retained test module instance for a given module id.
     ///
     /// This mirrors [`HudLayoutState::get`] on the legacy aggregate test helper.
-    pub(crate) fn get(&self, id: HudModuleId) -> Option<&HudModuleInstance> {
+    pub(crate) fn get(&self, id: HudWidgetKey) -> Option<&HudModuleInstance> {
         self.modules.get(&id)
     }
 
     /// Returns mutable access to one module inside the aggregate test HUD state.
-    pub(crate) fn get_mut(&mut self, id: HudModuleId) -> Option<&mut HudModuleInstance> {
+    pub(crate) fn get_mut(&mut self, id: HudWidgetKey) -> Option<&mut HudModuleInstance> {
         self.modules.get_mut(&id)
     }
 
     /// Iterates test HUD module ids in stored back-to-front order.
-    pub(crate) fn iter_z_order(&self) -> impl Iterator<Item = HudModuleId> + '_ {
+    pub(crate) fn iter_z_order(&self) -> impl Iterator<Item = HudWidgetKey> + '_ {
         self.z_order.iter().copied()
     }
 
     /// Inserts or replaces a module in the aggregate test HUD state and ensures z-order membership.
-    pub(crate) fn insert(&mut self, id: HudModuleId, module: HudModuleInstance) {
+    pub(crate) fn insert(&mut self, id: HudWidgetKey, module: HudModuleInstance) {
         self.modules.insert(id, module);
         if !self.z_order.contains(&id) {
             self.z_order.push(id);
@@ -356,13 +276,13 @@ impl HudState {
     }
 
     /// Moves a module id to the front of the aggregate test HUD z-order.
-    pub(crate) fn raise_to_front(&mut self, id: HudModuleId) {
+    pub(crate) fn raise_to_front(&mut self, id: HudWidgetKey) {
         self.z_order.retain(|existing| *existing != id);
         self.z_order.push(id);
     }
 
     /// Enables or disables a module in the aggregate test HUD state and updates target alpha.
-    pub(crate) fn set_module_enabled(&mut self, id: HudModuleId, enabled: bool) {
+    pub(crate) fn set_module_enabled(&mut self, id: HudWidgetKey, enabled: bool) {
         let Some(module) = self.modules.get_mut(&id) else {
             return;
         };
@@ -375,10 +295,10 @@ impl HudState {
     }
 
     /// Restores one module in the aggregate test HUD state to its default definition.
-    pub(crate) fn reset_module(&mut self, id: HudModuleId) {
-        let Some(definition) = HUD_MODULE_DEFINITIONS
+    pub(crate) fn reset_module(&mut self, id: HudWidgetKey) {
+        let Some(definition) = HUD_WIDGET_DEFINITIONS
             .iter()
-            .find(|definition| definition.id == id)
+            .find(|definition| definition.key == id)
         else {
             return;
         };
@@ -389,7 +309,7 @@ impl HudState {
     }
 
     /// Returns the frontmost enabled test module whose current rect contains the point.
-    pub(crate) fn topmost_enabled_at(&self, point: Vec2) -> Option<HudModuleId> {
+    pub(crate) fn topmost_enabled_at(&self, point: Vec2) -> Option<HudWidgetKey> {
         self.z_order.iter().rev().copied().find(|id| {
             self.modules.get(id).is_some_and(|module| {
                 module.shell.enabled && module.shell.current_rect.contains(point)
@@ -543,11 +463,11 @@ impl HudInputCaptureState {
     /// Opening direct input also closes both modal editors so only one input sink remains active.
     pub(crate) fn open_direct_terminal_input(
         &mut self,
-        modals: &mut HudModalState,
+        composer: &mut crate::ui::ComposerState,
         target_terminal: TerminalId,
     ) {
-        modals.close_message_box();
-        modals.close_task_dialog();
+        composer.discard_current_message();
+        composer.close_task_editor();
         self.direct_input_terminal = Some(target_terminal);
     }
 
@@ -561,14 +481,14 @@ impl HudInputCaptureState {
     /// Returns `true` when the requested terminal ended up capturing input.
     pub(crate) fn toggle_direct_terminal_input(
         &mut self,
-        modals: &mut HudModalState,
+        composer: &mut crate::ui::ComposerState,
         target_terminal: TerminalId,
     ) -> bool {
         if self.direct_input_terminal == Some(target_terminal) {
             self.close_direct_terminal_input();
             return false;
         }
-        self.open_direct_terminal_input(modals, target_terminal);
+        self.open_direct_terminal_input(composer, target_terminal);
         true
     }
 
@@ -583,11 +503,6 @@ impl HudInputCaptureState {
     }
 }
 
-#[derive(Resource, Default)]
-pub(crate) struct AgentDirectory {
-    pub(crate) labels: BTreeMap<TerminalId, String>,
-}
-
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) enum TerminalVisibilityPolicy {
     #[default]
@@ -598,13 +513,6 @@ pub(crate) enum TerminalVisibilityPolicy {
 #[derive(Resource, Default)]
 pub(crate) struct TerminalVisibilityState {
     pub(crate) policy: TerminalVisibilityPolicy,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub(crate) struct HudModuleDefinition {
-    pub(crate) id: HudModuleId,
-    pub(crate) default_enabled: bool,
-    pub(crate) default_rect: HudRect,
 }
 
 /// Returns the fixed docked rectangle used by the agent-list module.
@@ -620,34 +528,11 @@ pub(crate) fn docked_agent_list_rect(window: &Window) -> HudRect {
     }
 }
 
-pub(crate) const HUD_MODULE_DEFINITIONS: [HudModuleDefinition; 2] = [
-    HudModuleDefinition {
-        id: HudModuleId::DebugToolbar,
-        default_enabled: true,
-        default_rect: HudRect {
-            x: 24.0,
-            y: 24.0,
-            w: 920.0,
-            h: 64.0,
-        },
-    },
-    HudModuleDefinition {
-        id: HudModuleId::AgentList,
-        default_enabled: true,
-        default_rect: HudRect {
-            x: 0.0,
-            y: 0.0,
-            w: HUD_AGENT_LIST_WIDTH,
-            h: 720.0,
-        },
-    },
-];
-
 /// Builds the default retained instance for one HUD module definition.
 ///
 /// Both the shell and its model are initialized from the definition so startup and reset logic can
 /// share one source of truth.
-pub(crate) fn default_hud_module_instance(definition: &HudModuleDefinition) -> HudModuleInstance {
+pub(crate) fn default_hud_module_instance(definition: &HudWidgetDefinition) -> HudModuleInstance {
     let shell = HudModuleShell {
         enabled: definition.default_enabled,
         target_rect: definition.default_rect,
@@ -655,9 +540,14 @@ pub(crate) fn default_hud_module_instance(definition: &HudModuleDefinition) -> H
         target_alpha: if definition.default_enabled { 1.0 } else { 0.0 },
         current_alpha: if definition.default_enabled { 1.0 } else { 0.0 },
     };
-    let model = match definition.id {
-        HudModuleId::DebugToolbar => HudModuleModel::DebugToolbar(DebugToolbarState),
-        HudModuleId::AgentList => HudModuleModel::AgentList(AgentListState::default()),
+    let model = match definition.key {
+        HudWidgetKey::DebugToolbar => HudModuleModel::DebugToolbar(DebugToolbarState),
+        HudWidgetKey::AgentList => HudModuleModel::AgentList(AgentListState::default()),
+        HudWidgetKey::ConversationList => {
+            HudModuleModel::ConversationList(ConversationListState::default())
+        }
+        HudWidgetKey::ThreadPane => HudModuleModel::ThreadPane(ThreadPaneState),
+        _ => unreachable!("unknown widget definition key"),
     };
     HudModuleInstance { shell, model }
 }

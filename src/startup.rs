@@ -1,15 +1,20 @@
 use crate::{
+    agents::{AgentCatalog, AgentRuntimeIndex},
+    app::{restore_app, AppSessionState},
+    conversations::{
+        load_persisted_conversations_from, resolve_conversations_path,
+        restore_persisted_conversations, ConversationPersistenceState, ConversationStore,
+    },
     hud::{
-        hud_needs_redraw, AgentDirectory, HudLayoutState, TerminalVisibilityPolicy,
+        hud_needs_redraw, HudInputCaptureState, HudLayoutState, TerminalVisibilityPolicy,
         TerminalVisibilityState,
     },
     terminals::{
-        append_debug_log, load_persisted_terminal_sessions_from, mark_terminal_sessions_dirty,
-        reconcile_terminal_sessions, resolve_terminal_notes_path, resolve_terminal_sessions_path,
-        spawn_attached_terminal_with_presentation, DaemonSessionInfo, TerminalCameraMarker,
-        TerminalFocusState, TerminalHudSurfaceMarker, TerminalLifecycle, TerminalManager,
-        TerminalPanel, TerminalPresentation, TerminalPresentationStore, TerminalRuntimeSpawner,
-        TerminalSessionPersistenceState, PERSISTENT_SESSION_PREFIX, VERIFIER_SESSION_PREFIX,
+        append_debug_log, attach_terminal_session, resolve_terminal_notes_path,
+        resolve_terminal_sessions_path, TerminalCameraMarker, TerminalFocusState,
+        TerminalHudSurfaceMarker, TerminalManager, TerminalPanel, TerminalPresentation,
+        TerminalPresentationStore, TerminalRuntimeSpawner, TerminalSessionPersistenceState,
+        VERIFIER_SESSION_PREFIX,
     },
     verification::{start_auto_verify_dispatcher, AutoVerifyConfig, VerificationScenarioConfig},
 };
@@ -66,16 +71,22 @@ impl StartupLoadingState {
 #[derive(SystemParam)]
 pub(crate) struct SceneSetupContext<'w, 's> {
     commands: Commands<'w, 's>,
-    images: ResMut<'w, Assets<Image>>,
     terminal_manager: ResMut<'w, TerminalManager>,
     focus_state: ResMut<'w, TerminalFocusState>,
-    presentation_store: ResMut<'w, TerminalPresentationStore>,
-    agent_directory: ResMut<'w, AgentDirectory>,
+    agent_catalog: ResMut<'w, AgentCatalog>,
+    runtime_index: ResMut<'w, AgentRuntimeIndex>,
+    app_session: ResMut<'w, AppSessionState>,
+    conversations: ResMut<'w, ConversationStore>,
+    conversation_persistence: ResMut<'w, ConversationPersistenceState>,
     runtime_spawner: Res<'w, TerminalRuntimeSpawner>,
     session_persistence: ResMut<'w, TerminalSessionPersistenceState>,
     notes_state: ResMut<'w, crate::terminals::TerminalNotesState>,
+    input_capture: ResMut<'w, HudInputCaptureState>,
     visibility_state: ResMut<'w, TerminalVisibilityState>,
+    view_state: ResMut<'w, crate::terminals::TerminalViewState>,
     startup_loading: Option<ResMut<'w, StartupLoadingState>>,
+    redraws: MessageWriter<'w, RequestRedraw>,
+    time: Res<'w, Time>,
 }
 
 /// Collapses the three sources of visual work into a single redraw decision.
@@ -118,15 +129,6 @@ pub(crate) fn startup_visibility_policy_for_focus(
     focused_id
         .map(TerminalVisibilityPolicy::Isolate)
         .unwrap_or(TerminalVisibilityPolicy::ShowAll)
-}
-
-/// Filters startup focus candidates down to sessions that are still genuinely interactive.
-///
-/// The restore logic deliberately refuses to focus exited or disconnected sessions on boot. They may
-/// still be restored for visibility and bookkeeping, but only `Running` sessions participate in the
-/// focus selection pass.
-fn startup_focus_candidate_is_interactive(session: &DaemonSessionInfo) -> bool {
-    matches!(session.runtime.lifecycle, TerminalLifecycle::Running)
 }
 
 /// Requests another frame while any terminal or HUD visual state is still changing.
@@ -204,6 +206,7 @@ pub(crate) fn setup_scene(
 
     ctx.session_persistence.path = resolve_terminal_sessions_path();
     ctx.notes_state.path = resolve_terminal_notes_path();
+    ctx.conversation_persistence.path = resolve_conversations_path();
     if let Some(path) = ctx.notes_state.path.as_ref() {
         let notes = crate::terminals::load_terminal_notes_from(path);
         ctx.notes_state.load(notes);
@@ -251,12 +254,9 @@ fn setup_verifier_terminal(ctx: &mut SceneSetupContext, config: AutoVerifyConfig
             return;
         }
     };
-    let (terminal_id, dispatcher_bridge) = match spawn_attached_terminal_with_presentation(
-        &mut ctx.commands,
-        &mut ctx.images,
+    let (terminal_id, dispatcher_bridge) = match attach_terminal_session(
         &mut ctx.terminal_manager,
         &mut ctx.focus_state,
-        &mut ctx.presentation_store,
         &ctx.runtime_spawner,
         session_name.clone(),
         true,
@@ -280,51 +280,6 @@ fn setup_verifier_terminal(ctx: &mut SceneSetupContext, config: AutoVerifyConfig
     start_auto_verify_dispatcher(dispatcher_bridge, ctx.runtime_spawner.notifier(), config);
 }
 
-/// Spawns the fallback initial terminal when normal restore/import cannot produce one.
-///
-/// This path is used both for cold starts and for failure recovery during startup. It creates a new
-/// persistent daemon session, attaches it locally, isolates it as the visible terminal, marks session
-/// persistence dirty, and logs the reason so startup behavior is debuggable after the fact.
-fn spawn_initial_terminal(ctx: &mut SceneSetupContext, reason: &str) {
-    let session_name = match ctx
-        .runtime_spawner
-        .create_session(PERSISTENT_SESSION_PREFIX)
-    {
-        Ok(session_name) => session_name,
-        Err(error) => {
-            append_debug_log(format!("initial terminal spawn failed ({reason}): {error}"));
-            return;
-        }
-    };
-    let (terminal_id, _) = match spawn_attached_terminal_with_presentation(
-        &mut ctx.commands,
-        &mut ctx.images,
-        &mut ctx.terminal_manager,
-        &mut ctx.focus_state,
-        &mut ctx.presentation_store,
-        &ctx.runtime_spawner,
-        session_name.clone(),
-        true,
-    ) {
-        Ok(result) => result,
-        Err(error) => {
-            append_debug_log(format!(
-                "initial terminal attach failed for {} ({reason}): {error}",
-                session_name
-            ));
-            let _ = ctx.runtime_spawner.kill_session(&session_name);
-            return;
-        }
-    };
-    ctx.visibility_state.policy = TerminalVisibilityPolicy::Isolate(terminal_id);
-    register_startup_loading_terminal(ctx, terminal_id);
-    mark_terminal_sessions_dirty(&mut ctx.session_persistence, None);
-    append_debug_log(format!(
-        "spawned initial terminal {} session={} reason={reason}",
-        terminal_id.0, session_name
-    ));
-}
-
 /// Restores persisted sessions, imports any extra live daemon sessions, and reconstructs startup
 /// focus/visibility state.
 ///
@@ -340,143 +295,27 @@ fn spawn_initial_terminal(ctx: &mut SceneSetupContext, reason: &str) {
 /// visibility, but they are filtered out of focus selection so startup does not land on a dead
 /// terminal.
 fn restore_startup_terminals(ctx: &mut SceneSetupContext) {
+    restore_app(
+        &mut ctx.agent_catalog,
+        &mut ctx.runtime_index,
+        &mut ctx.app_session,
+        &mut ctx.terminal_manager,
+        &mut ctx.focus_state,
+        &ctx.runtime_spawner,
+        &mut ctx.input_capture,
+        &mut ctx.session_persistence,
+        &mut ctx.visibility_state,
+        &mut ctx.view_state,
+        ctx.startup_loading.as_deref_mut(),
+        &ctx.time,
+        &mut ctx.redraws,
+    );
+
     let persisted = ctx
-        .session_persistence
+        .conversation_persistence
         .path
         .as_ref()
-        .map(load_persisted_terminal_sessions_from)
+        .map(load_persisted_conversations_from)
         .unwrap_or_default();
-    let live_session_infos = match ctx.runtime_spawner.list_session_infos() {
-        Ok(sessions) => sessions,
-        Err(error) => {
-            append_debug_log(format!("daemon session discovery failed: {error}"));
-            spawn_initial_terminal(ctx, "session discovery failed");
-            return;
-        }
-    };
-    let live_sessions = live_session_infos
-        .iter()
-        .map(|session| session.session_id.clone())
-        .collect::<Vec<_>>();
-    let reconciled = reconcile_terminal_sessions(&persisted, &live_sessions);
-    if !reconciled.prune.is_empty() || !reconciled.import.is_empty() {
-        // Reconciliation changed what should be persisted, so schedule a save even though the actual
-        // write still happens later through the debounced persistence system.
-        mark_terminal_sessions_dirty(&mut ctx.session_persistence, None);
-    }
-
-    for record in &reconciled.prune {
-        append_debug_log(format!(
-            "pruned stale terminal session metadata {}",
-            record.session_name
-        ));
-    }
-
-    // Attach every session in the reconciled order so the restored local creation order mirrors the
-    // persisted order instead of the daemon's arbitrary listing order.
-    for record in reconciled.ordered_sessions() {
-        let restored = reconciled
-            .restore
-            .iter()
-            .any(|existing| existing.session_name == record.session_name);
-        let (terminal_id, _) = match spawn_attached_terminal_with_presentation(
-            &mut ctx.commands,
-            &mut ctx.images,
-            &mut ctx.terminal_manager,
-            &mut ctx.focus_state,
-            &mut ctx.presentation_store,
-            &ctx.runtime_spawner,
-            record.session_name.clone(),
-            false,
-        ) {
-            Ok(result) => result,
-            Err(error) => {
-                append_debug_log(format!(
-                    "startup attach failed for {}: {error}",
-                    record.session_name
-                ));
-                continue;
-            }
-        };
-        register_startup_loading_terminal(ctx, terminal_id);
-        append_debug_log(format!(
-            "{} terminal {} session={}",
-            if restored { "restored" } else { "imported" },
-            terminal_id.0,
-            record.session_name
-        ));
-        if let Some(label) = record.label {
-            ctx.agent_directory.labels.insert(terminal_id, label);
-        }
-    }
-
-    let live_session_lookup = live_session_infos
-        .iter()
-        .map(|session| (session.session_id.as_str(), session))
-        .collect::<std::collections::HashMap<_, _>>();
-    // Focus restoration is name-based first because the local terminal ids only exist after the
-    // attach loop above has recreated them.
-    let restored_focus_session = reconciled
-        .restore
-        .iter()
-        .find(|record| {
-            record.last_focused
-                && live_session_lookup
-                    .get(record.session_name.as_str())
-                    .is_some_and(|session| startup_focus_candidate_is_interactive(session))
-        })
-        .map(|record| record.session_name.as_str());
-    let restored_session_names = reconciled
-        .restore
-        .iter()
-        .filter(|record| {
-            live_session_lookup
-                .get(record.session_name.as_str())
-                .is_some_and(|session| startup_focus_candidate_is_interactive(session))
-        })
-        .map(|record| record.session_name.as_str())
-        .collect::<Vec<_>>();
-    let imported_session_names = reconciled
-        .import
-        .iter()
-        .filter(|record| {
-            live_session_lookup
-                .get(record.session_name.as_str())
-                .is_some_and(|session| startup_focus_candidate_is_interactive(session))
-        })
-        .map(|record| record.session_name.as_str())
-        .collect::<Vec<_>>();
-
-    if let Some(session_name) = choose_startup_focus_session_name(
-        restored_focus_session,
-        &restored_session_names,
-        &imported_session_names,
-    ) {
-        let focused_id = ctx
-            .terminal_manager
-            .iter()
-            .find(|(_, terminal)| terminal.session_name == session_name)
-            .map(|(terminal_id, _)| terminal_id);
-        if let Some(terminal_id) = focused_id {
-            ctx.focus_state
-                .focus_terminal(&ctx.terminal_manager, terminal_id);
-            #[cfg(test)]
-            ctx.terminal_manager
-                .replace_test_focus_state(&ctx.focus_state);
-            ctx.visibility_state.policy = startup_visibility_policy_for_focus(Some(terminal_id));
-            append_debug_log(format!(
-                "restored startup focus terminal {} session={}",
-                terminal_id.0, session_name
-            ));
-        }
-    } else if !ctx.terminal_manager.terminal_ids().is_empty() {
-        ctx.focus_state.clear_active_terminal();
-        #[cfg(test)]
-        ctx.terminal_manager
-            .replace_test_focus_state(&ctx.focus_state);
-        ctx.visibility_state.policy = TerminalVisibilityPolicy::ShowAll;
-        append_debug_log("startup restored terminals but none are interactive; leaving them visible and unfocused");
-    } else {
-        spawn_initial_terminal(ctx, "no restored or imported sessions");
-    }
+    restore_persisted_conversations(&persisted, &ctx.runtime_index, &mut ctx.conversations);
 }

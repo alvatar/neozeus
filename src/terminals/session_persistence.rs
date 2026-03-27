@@ -1,5 +1,5 @@
 use crate::{
-    hud::AgentDirectory,
+    agents::{AgentCatalog, AgentRuntimeIndex},
     terminals::{append_debug_log, daemon::is_persistent_session_name, TerminalManager},
 };
 use bevy::prelude::*;
@@ -354,7 +354,8 @@ pub(crate) fn mark_terminal_sessions_dirty(
 pub(crate) fn build_persisted_terminal_sessions(
     terminal_manager: &TerminalManager,
     focus_state: &crate::terminals::TerminalFocusState,
-    agent_directory: &AgentDirectory,
+    agent_catalog: &AgentCatalog,
+    runtime_index: &AgentRuntimeIndex,
 ) -> PersistedTerminalSessions {
     let sessions = terminal_manager
         .terminal_ids()
@@ -364,7 +365,9 @@ pub(crate) fn build_persisted_terminal_sessions(
             let terminal = terminal_manager.get(*id)?;
             Some(TerminalSessionRecord {
                 session_name: terminal.session_name.clone(),
-                label: agent_directory.labels.get(id).cloned(),
+                label: agent_catalog
+                    .label_for_terminal(runtime_index, *id)
+                    .map(str::to_owned),
                 creation_index: index as u64,
                 last_focused: focus_state.active_id() == Some(*id),
             })
@@ -382,7 +385,8 @@ pub(crate) fn save_terminal_sessions_if_dirty(
     time: Res<Time>,
     terminal_manager: Res<TerminalManager>,
     focus_state: Res<crate::terminals::TerminalFocusState>,
-    agent_directory: Res<AgentDirectory>,
+    agent_catalog: Res<AgentCatalog>,
+    runtime_index: Res<AgentRuntimeIndex>,
     mut persistence_state: ResMut<TerminalSessionPersistenceState>,
 ) {
     let Some(dirty_since) = persistence_state.dirty_since_secs else {
@@ -396,8 +400,12 @@ pub(crate) fn save_terminal_sessions_if_dirty(
         return;
     };
 
-    let persisted =
-        build_persisted_terminal_sessions(&terminal_manager, &focus_state, &agent_directory);
+    let persisted = build_persisted_terminal_sessions(
+        &terminal_manager,
+        &focus_state,
+        &agent_catalog,
+        &runtime_index,
+    );
     if let Some(parent) = path.parent() {
         if let Err(error) = fs::create_dir_all(parent) {
             append_debug_log(format!(

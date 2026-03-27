@@ -1,14 +1,15 @@
 use crate::{
-    app::request_final_frame_capture,
+    app::{
+        apply_app_commands, request_final_frame_capture, sync_agents_from_terminals,
+        translate_hud_intents_to_app_commands,
+    },
+    conversations::save_conversations_if_dirty,
     hud::{
-        animate_hud_modules, apply_hud_module_requests, apply_terminal_focus_requests,
-        apply_terminal_lifecycle_requests, apply_terminal_send_requests,
-        apply_terminal_task_requests, apply_terminal_view_requests, apply_visibility_requests,
-        dispatch_hud_intents, finalize_window_capture, handle_hud_module_shortcuts,
+        animate_hud_modules, finalize_window_capture, handle_hud_module_shortcuts,
         handle_hud_pointer_input, render_hud_modal_scene, render_hud_scene,
         request_hud_composite_capture, request_hud_texture_capture, request_window_capture,
         save_hud_layout_if_dirty, setup_hud, setup_hud_widget_bloom, sync_hud_offscreen_compositor,
-        sync_hud_widget_bloom, sync_structural_hud_layout,
+        sync_hud_view_models, sync_hud_widget_bloom, sync_structural_hud_layout,
     },
     input::{
         drag_terminal_view, focus_terminal_on_panel_click, handle_global_terminal_spawn_shortcut,
@@ -20,7 +21,7 @@ use crate::{
     terminals::{
         configure_terminal_fonts, save_terminal_notes_if_dirty, save_terminal_sessions_if_dirty,
         sync_active_terminal_dimensions, sync_terminal_hud_surface, sync_terminal_panel_frames,
-        sync_terminal_presentations, sync_terminal_texture,
+        sync_terminal_presentations, sync_terminal_projection_entities, sync_terminal_texture,
     },
     verification::run_verification_scenario,
 };
@@ -32,8 +33,8 @@ pub(crate) enum NeoZeusSet {
     RasterTerminal,
     UiInput,
     HudInput,
-    HudIntentDispatch,
-    HudCommands,
+    AppCommandDispatch,
+    UseCaseExecution,
     PresentTerminal,
     HudAnimation,
     HudRender,
@@ -60,19 +61,19 @@ pub(crate) fn configure_app_schedule(app: &mut App) {
         NeoZeusSet::UiInput
             .before(NeoZeusSet::RasterTerminal)
             .before(NeoZeusSet::PresentTerminal)
-            .before(NeoZeusSet::HudIntentDispatch),
+            .before(NeoZeusSet::AppCommandDispatch),
     )
     .configure_sets(
         Update,
-        NeoZeusSet::HudInput.before(NeoZeusSet::HudIntentDispatch),
+        NeoZeusSet::HudInput.before(NeoZeusSet::AppCommandDispatch),
     )
     .configure_sets(
         Update,
-        NeoZeusSet::HudIntentDispatch.before(NeoZeusSet::HudCommands),
+        NeoZeusSet::AppCommandDispatch.before(NeoZeusSet::UseCaseExecution),
     )
     .configure_sets(
         Update,
-        NeoZeusSet::HudCommands
+        NeoZeusSet::UseCaseExecution
             .before(NeoZeusSet::RasterTerminal)
             .before(NeoZeusSet::PresentTerminal)
             .before(NeoZeusSet::HudAnimation),
@@ -130,31 +131,31 @@ pub(crate) fn configure_app_schedule(app: &mut App) {
         Update,
         (handle_hud_pointer_input, handle_hud_module_shortcuts).in_set(NeoZeusSet::HudInput),
     )
-    .add_systems(
-        Update,
-        dispatch_hud_intents.in_set(NeoZeusSet::HudIntentDispatch),
-    )
+    .add_systems(Update, sync_hud_view_models.before(NeoZeusSet::HudRender))
     .add_systems(
         Update,
         (
-            apply_terminal_focus_requests,
-            apply_visibility_requests,
-            apply_hud_module_requests,
-            apply_terminal_view_requests,
-            apply_terminal_send_requests,
-            apply_terminal_task_requests,
-            apply_terminal_lifecycle_requests,
-            run_verification_scenario,
+            sync_agents_from_terminals,
+            translate_hud_intents_to_app_commands,
         )
-            .in_set(NeoZeusSet::HudCommands),
+            .chain()
+            .in_set(NeoZeusSet::AppCommandDispatch),
+    )
+    .add_systems(
+        Update,
+        (apply_app_commands, run_verification_scenario)
+            .chain()
+            .in_set(NeoZeusSet::UseCaseExecution),
     )
     .add_systems(
         Update,
         (
+            sync_terminal_projection_entities,
             sync_terminal_presentations,
             sync_terminal_panel_frames,
             sync_terminal_hud_surface,
         )
+            .chain()
             .in_set(NeoZeusSet::PresentTerminal),
     )
     .add_systems(
@@ -164,6 +165,7 @@ pub(crate) fn configure_app_schedule(app: &mut App) {
             save_hud_layout_if_dirty,
             save_terminal_notes_if_dirty,
             save_terminal_sessions_if_dirty,
+            save_conversations_if_dirty,
         )
             .in_set(NeoZeusSet::HudAnimation),
     )
