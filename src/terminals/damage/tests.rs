@@ -2,7 +2,10 @@ use super::compute_terminal_damage;
 use crate::terminals::{TerminalDamage, TerminalSurface};
 use crate::tests::surface_with_text;
 
-/// Verifies that compute terminal damage marks only changed rows.
+/// Verifies that row-level damage includes exactly the rows whose text changed.
+///
+/// The fixture mutates text on two different rows and expects a `Rows` damage payload listing those
+/// rows in sorted order instead of promoting the whole surface to a full repaint.
 #[test]
 fn compute_terminal_damage_marks_only_changed_rows() {
     let previous = surface_with_text(3, 4, 1, "ab");
@@ -13,7 +16,10 @@ fn compute_terminal_damage_marks_only_changed_rows() {
     );
 }
 
-/// Verifies that compute terminal damage marks resize as full.
+/// Verifies that any surface resize forces a full repaint.
+///
+/// Row diffs are only meaningful when the old and new grids share the same geometry. This test locks
+/// down the rule that changing the column count promotes the result to `TerminalDamage::Full`.
 #[test]
 fn compute_terminal_damage_marks_resize_as_full() {
     let previous = TerminalSurface::new(4, 3);

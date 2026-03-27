@@ -38,7 +38,11 @@ pub(crate) struct AgentRow {
     pub(crate) hovered: bool,
 }
 
-/// Implements agent row rect.
+/// Derives one sub-rectangle of an agent row for rendering or hit-testing.
+///
+/// A logical row is split into the main label box, the narrow status marker, and a tiny accent strip.
+/// The helper bakes in the EVA-specific padding constants and clamps dimensions so very small rows do
+/// not collapse to negative sizes.
 pub(crate) fn agent_row_rect(rect: HudRect, section: AgentListRowSection) -> HudRect {
     match section {
         AgentListRowSection::Main => HudRect {
@@ -62,7 +66,10 @@ pub(crate) fn agent_row_rect(rect: HudRect, section: AgentListRowSection) -> Hud
     }
 }
 
-/// Resolves agent label.
+/// Resolves the human-facing label shown for one terminal in the agent list.
+///
+/// Explicit directory labels win. Otherwise the function falls back to a stable `agent-N` label based
+/// on the terminal's creation-order position, with the raw terminal id only used as a last resort.
 pub(crate) fn resolve_agent_label(
     terminal_ids: &[TerminalId],
     agent_directory: &AgentDirectory,
@@ -79,12 +86,17 @@ pub(crate) fn resolve_agent_label(
     format!("agent-{index}")
 }
 
-/// Implements agent row stride.
+/// Returns the vertical distance from one agent row origin to the next.
+///
+/// This is row height plus the fixed inter-row gap used by the agent-list layout.
 pub(crate) fn agent_row_stride() -> f32 {
     HUD_ROW_HEIGHT + AGENT_LIST_ROW_GAP
 }
 
-/// Implements agent list content height.
+/// Computes the total scrollable content height for a given number of agent rows.
+///
+/// The final row does not contribute a trailing gap, so the formula subtracts one inter-row gap when
+/// at least one row exists.
 pub(crate) fn agent_list_content_height(row_count: usize) -> f32 {
     match row_count {
         0 => 0.0,
@@ -92,7 +104,10 @@ pub(crate) fn agent_list_content_height(row_count: usize) -> f32 {
     }
 }
 
-/// Implements agent rows.
+/// Builds the retained row descriptors needed to render and interact with the agent list.
+///
+/// The rows are produced in terminal-manager order, positioned inside the module content area with the
+/// current scroll offset applied, and annotated with focus/hover flags plus the resolved display label.
 pub(crate) fn agent_rows(
     shell_rect: HudRect,
     scroll_offset: f32,

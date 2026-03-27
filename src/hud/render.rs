@@ -49,14 +49,19 @@ impl HudColors {
     pub(crate) const MESSAGE_BOX: peniko::Color = peniko::Color::from_rgba8(0, 0, 0, 255);
 }
 
-/// Applies alpha.
+/// Scales a color's alpha channel by a clamped factor while leaving RGB untouched.
+///
+/// HUD rendering keeps colors in `peniko::Color`, so this helper is the common "apply module fade"
+/// operation.
 pub(crate) fn apply_alpha(color: peniko::Color, factor: f32) -> peniko::Color {
     let rgba = color.to_rgba8();
     let alpha = ((rgba.a as f32) * factor.clamp(0.0, 1.0)).round() as u8;
     peniko::Color::from_rgba8(rgba.r, rgba.g, rgba.b, alpha)
 }
 
-/// Handles to scene.
+/// Converts a HUD-space point into Vello scene coordinates centered on the window.
+///
+/// HUD layout uses a top-left origin; the vector scene is centered at window midpoint.
 fn hud_to_scene(window: &Window, point: Vec2) -> (f64, f64) {
     (
         f64::from(point.x - window.width() * 0.5),
@@ -64,7 +69,9 @@ fn hud_to_scene(window: &Window, point: Vec2) -> (f64, f64) {
     )
 }
 
-/// Handles rect to scene.
+/// Converts a HUD rectangle into a Vello `Rect` in centered scene coordinates.
+///
+/// The helper computes both corners through [`hud_to_scene`] so inverted axes are normalized safely.
 pub(crate) fn hud_rect_to_scene(window: &Window, rect: HudRect) -> Rect {
     let (x0, y0) = hud_to_scene(window, Vec2::new(rect.x, rect.y));
     let (x1, y1) = hud_to_scene(window, Vec2::new(rect.x + rect.w, rect.y + rect.h));
@@ -79,7 +86,10 @@ pub(crate) struct HudPainter<'scene, 'res> {
 }
 
 impl<'scene, 'res> HudPainter<'scene, 'res> {
-    /// Constructs a new value.
+    /// Creates a painter bound to one Vello scene, font set, window transform, and global alpha.
+    ///
+    /// The painter is a thin convenience wrapper so HUD rendering code can issue higher-level drawing
+    /// operations without repeating the same scene/window/font plumbing everywhere.
     pub(crate) fn new(
         scene: &'scene mut vello::Scene,
         fonts: &'res Assets<VelloFont>,
@@ -94,7 +104,10 @@ impl<'scene, 'res> HudPainter<'scene, 'res> {
         }
     }
 
-    /// Fills rect.
+    /// Fills a HUD rectangle in the bound scene.
+    ///
+    /// Rounded-corner radius is currently ignored; all HUD fills are emitted as square-cornered Vello
+    /// rounded rects with radius zero.
     pub(crate) fn fill_rect(&mut self, rect: HudRect, color: peniko::Color, _radius: f64) {
         self.scene.fill(
             Fill::NonZero,
@@ -105,12 +118,17 @@ impl<'scene, 'res> HudPainter<'scene, 'res> {
         );
     }
 
-    /// Implements stroke rect.
+    /// Strokes a HUD rectangle using the default border width.
+    ///
+    /// Radius is ignored for the same reason as [`Self::fill_rect`].
     pub(crate) fn stroke_rect(&mut self, rect: HudRect, color: peniko::Color, _radius: f64) {
         self.stroke_rect_width(rect, color, 1.5);
     }
 
-    /// Implements stroke rect width.
+    /// Strokes a HUD rectangle with an explicit border width.
+    ///
+    /// This is the low-level border primitive used by helpers that need heavier outlines than the HUD
+    /// default.
     pub(crate) fn stroke_rect_width(&mut self, rect: HudRect, color: peniko::Color, width: f64) {
         self.scene.stroke(
             &Stroke::new(width),
@@ -121,7 +139,10 @@ impl<'scene, 'res> HudPainter<'scene, 'res> {
         );
     }
 
-    /// Implements text size.
+    /// Measures the laid-out size of a text run using the default Vello font.
+    ///
+    /// If the default font asset has not loaded yet, the function reports zero size instead of
+    /// panicking.
     pub(crate) fn text_size(&self, text: &str, size: f32) -> Vec2 {
         let Some(font) = self.fonts.get(&Handle::<VelloFont>::default()) else {
             return Vec2::ZERO;
@@ -140,7 +161,9 @@ impl<'scene, 'res> HudPainter<'scene, 'res> {
         clippy::too_many_arguments,
         reason = "Vello text drawing needs scene/font/window/position/style inputs together"
     )]
-    /// Implements label.
+    /// Draws one text label with uniform scale.
+    ///
+    /// This is the common convenience wrapper around [`Self::label_scaled`] for ordinary HUD text.
     pub(crate) fn label(
         &mut self,
         position: Vec2,
@@ -156,7 +179,10 @@ impl<'scene, 'res> HudPainter<'scene, 'res> {
         clippy::too_many_arguments,
         reason = "scaled Vello text drawing needs scene/font/window/position/style inputs together"
     )]
-    /// Implements label scaled.
+    /// Draws one text label with explicit anchor and non-uniform scale.
+    ///
+    /// The function lays text out once, computes an anchor offset in scaled coordinates, then emits the
+    /// underlying glyph runs into the Vello scene.
     pub(crate) fn label_scaled(
         &mut self,
         position: Vec2,
@@ -245,7 +271,10 @@ pub(crate) struct HudRenderInputs<'a> {
     pub(crate) font_state: &'a TerminalFontState,
 }
 
-/// Implements log HUD draw colors if requested.
+/// Logs a low-level color-presence diagnostic for HUD draw data when explicitly requested.
+///
+/// This is a debugging hook for color-conversion issues: it inspects encoded scene words for known
+/// orange/yellow values and writes the result to the terminal debug log.
 fn log_hud_draw_colors_if_requested(scene: &vello::Scene) {
     let enabled = env::var("NEOZEUS_LOG_HUD_DRAW_COLORS")
         .ok()
@@ -267,12 +296,17 @@ fn log_hud_draw_colors_if_requested(scene: &vello::Scene) {
     ));
 }
 
-/// Slices chars.
+/// Extracts a substring by character indices rather than byte indices.
+///
+/// The editor viewport logic uses this to window UTF-8 text safely.
 fn slice_chars(text: &str, start_chars: usize, max_chars: usize) -> String {
     text.chars().skip(start_chars).take(max_chars).collect()
 }
 
-/// Implements message box lines.
+/// Splits editor text into lines while preserving byte bounds for each line.
+///
+/// Returning `(start, end, line)` triples lets selection logic translate between line-local character
+/// columns and whole-buffer byte ranges.
 fn message_box_lines(text: &str) -> Vec<(usize, usize, &str)> {
     text.split('\n')
         .scan(0usize, |start, line| {
@@ -284,7 +318,9 @@ fn message_box_lines(text: &str) -> Vec<(usize, usize, &str)> {
         .collect()
 }
 
-/// Implements editor selection status.
+/// Builds the short status string describing the editor's current selection state.
+///
+/// A real region wins, then a bare mark, then the default "no mark" message.
 fn editor_selection_status(editor: &HudMessageBoxState) -> String {
     editor
         .region_bounds()
@@ -293,7 +329,11 @@ fn editor_selection_status(editor: &HudMessageBoxState) -> String {
         .unwrap_or_else(|| "No mark".to_owned())
 }
 
-/// Draws text editor body.
+/// Draws the scroll-less modal text editor body, including visible lines, selection, and cursor.
+///
+/// The viewport is centered around the cursor line/column rather than maintaining separate scroll
+/// state. Selection rectangles are computed in character space and translated back into measured pixel
+/// widths through the painter's text measurement helper.
 fn draw_text_editor_body(
     painter: &mut HudPainter,
     window: &Window,
@@ -408,7 +448,10 @@ fn draw_text_editor_body(
     painter.scene.pop_layer();
 }
 
-/// Draws dialog button row.
+/// Draws a simple row of modal action buttons from precomputed rect/label pairs.
+///
+/// This helper is shared by both the message box and the task dialog so they keep identical button
+/// chrome.
 fn draw_dialog_button_row(
     painter: &mut HudPainter,
     buttons: impl IntoIterator<Item = (HudRect, &'static str)>,
@@ -426,7 +469,10 @@ fn draw_dialog_button_row(
     }
 }
 
-/// Implements target label.
+/// Resolves the label shown in modal titles for the editor's current target terminal.
+///
+/// Named agents win, otherwise the UI falls back to `terminal N`, and an untargeted editor reports
+/// `no target`.
 fn target_label(editor: &HudMessageBoxState, agent_directory: &AgentDirectory) -> String {
     editor
         .target_terminal
@@ -439,7 +485,9 @@ fn target_label(editor: &HudMessageBoxState, agent_directory: &AgentDirectory) -
         })
 }
 
-/// Draws message box.
+/// Draws the message-box modal, including title, editor body, buttons, and status line.
+///
+/// Rendering is skipped entirely when the modal is not visible.
 fn draw_message_box(
     painter: &mut HudPainter,
     window: &Window,
@@ -501,7 +549,10 @@ fn draw_message_box(
     );
 }
 
-/// Draws task dialog.
+/// Draws the task-dialog modal, which reuses the shared text editor body with different title and
+/// button copy.
+///
+/// Rendering is skipped entirely when the dialog is hidden.
 fn draw_task_dialog(
     painter: &mut HudPainter,
     window: &Window,
@@ -563,7 +614,10 @@ fn draw_task_dialog(
     );
 }
 
-/// Implements module content rect.
+/// Returns the drawable content rectangle inside a module shell.
+///
+/// Most modules exclude the titlebar from content rendering; the agent list is full-bleed and keeps
+/// the entire shell rect.
 fn module_content_rect(module_id: HudModuleId, shell_rect: HudRect) -> HudRect {
     if module_id == HudModuleId::AgentList {
         return shell_rect;
@@ -576,7 +630,9 @@ fn module_content_rect(module_id: HudModuleId, shell_rect: HudRect) -> HudRect {
     }
 }
 
-/// Draws module shell.
+/// Draws the shared shell chrome for a HUD module.
+///
+/// The agent list intentionally opts out because it has its own custom full-height framing.
 fn draw_module_shell(painter: &mut HudPainter, module_id: HudModuleId, shell_rect: HudRect) {
     if module_id == HudModuleId::AgentList {
         return;
@@ -606,7 +662,11 @@ fn draw_module_shell(painter: &mut HudPainter, module_id: HudModuleId, shell_rec
     clippy::too_many_arguments,
     reason = "HUD scene rebuild reads HUD, terminal, font, and Vello scene resources together"
 )]
-/// Renders HUD scene.
+/// Rebuilds the main HUD vector scene from retained module state and live terminal inputs.
+///
+/// The scene is reconstructed from scratch every frame: each visible module shell is drawn, its
+/// content is clipped to the content rect, and module-specific rendering is delegated through the HUD
+/// module dispatcher.
 pub(crate) fn render_hud_scene(
     primary_window: Single<&Window, With<PrimaryWindow>>,
     layout_state: Res<HudLayoutState>,
@@ -666,7 +726,10 @@ pub(crate) fn render_hud_scene(
     **scene = VelloScene2d::from(built);
 }
 
-/// Renders HUD modal scene.
+/// Rebuilds the separate modal HUD scene that contains the message box and task dialog overlays.
+///
+/// Modal rendering is isolated from the main HUD scene so compositor/layer logic can treat it as a
+/// separate surface.
 pub(crate) fn render_hud_modal_scene(
     primary_window: Single<&Window, With<PrimaryWindow>>,
     modal_state: Res<HudModalState>,

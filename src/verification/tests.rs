@@ -3,7 +3,10 @@ use crate::tests::{fake_runtime_spawner, insert_default_hud_resources, surface_w
 use bevy::{ecs::system::RunSystemOnce, window::RequestRedraw};
 use std::sync::Arc;
 
-/// Verifies that parses verification scenarios.
+/// Covers the string parser for the built-in verification scenarios.
+///
+/// The assertions verify that every public scenario name is accepted and that empty or missing input
+/// disables the feature by returning `None`.
 #[test]
 fn parses_verification_scenarios() {
     assert_eq!(resolve_verification_scenario(None), None);
@@ -26,7 +29,10 @@ fn parses_verification_scenarios() {
     );
 }
 
-/// Verifies that message box scenario opens modal and spawns terminal.
+/// Verifies the message-box verification scenario's first-application behavior.
+///
+/// Running the scenario should spawn one verifier terminal, focus it, open the message-box modal, and
+/// seed the modal text with the deterministic payload used by the visual test.
 #[test]
 fn message_box_scenario_opens_modal_and_spawns_terminal() {
     let client = Arc::new(crate::tests::FakeDaemonClient::default());
@@ -59,7 +65,10 @@ fn message_box_scenario_opens_modal_and_spawns_terminal() {
     assert!(world.resource::<VerificationScenarioConfig>().applied);
 }
 
-/// Verifies that task dialog scenario populates note text.
+/// Verifies the task-dialog verification scenario seeds the modal with deterministic note content.
+///
+/// The scenario should open the task dialog for one spawned terminal and preload the text that the
+/// bloom verification capture expects to see.
 #[test]
 fn task_dialog_scenario_populates_note_text() {
     let client = Arc::new(crate::tests::FakeDaemonClient::default());
@@ -94,7 +103,11 @@ fn task_dialog_scenario_populates_note_text() {
     assert_eq!(world.resource::<TerminalManager>().terminal_ids().len(), 1);
 }
 
-/// Verifies that inspect switch scenario spawns two terminals and focuses second.
+/// Verifies the two-phase behavior of the inspect-switch-latency scenario.
+///
+/// On the first run the scenario should spawn and prime two terminals but remain unapplied until both
+/// have presentable uploaded frames. Once those frames are injected, the second run should focus the
+/// second terminal and mark the scenario as applied.
 #[test]
 fn inspect_switch_scenario_spawns_two_terminals_and_focuses_second() {
     let client = Arc::new(crate::tests::FakeDaemonClient::default());

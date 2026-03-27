@@ -13,7 +13,11 @@ pub(crate) enum TerminalCellContent {
 }
 
 impl TerminalCellContent {
-    /// Builds this value from parts.
+    /// Builds the most compact `TerminalCellContent` variant that can hold the provided grapheme-ish
+    /// character sequence.
+    ///
+    /// One char stays inline as `Single`, two chars use `InlineSmall`, and longer sequences spill to
+    /// heap storage.
     pub(crate) fn from_parts(base: char, extra: Option<&[char]>) -> Self {
         let Some(extra) = extra else {
             return Self::Single(base);
@@ -32,12 +36,12 @@ impl TerminalCellContent {
         }
     }
 
-    /// Returns whether empty.
+    /// Returns whether the cell content holds no visible characters.
     pub(crate) fn is_empty(&self) -> bool {
         matches!(self, Self::Empty)
     }
 
-    /// Implements any char.
+    /// Returns whether any stored character satisfies the predicate across all storage variants.
     pub(crate) fn any_char(&self, mut predicate: impl FnMut(char) -> bool) -> bool {
         match self {
             Self::Empty => false,
@@ -50,7 +54,7 @@ impl TerminalCellContent {
         }
     }
 
-    /// Converts this value to owned string.
+    /// Materializes the stored cell content as an owned UTF-8 string regardless of storage variant.
     pub(crate) fn to_owned_string(&self) -> String {
         match self {
             Self::Empty => String::new(),
@@ -70,7 +74,7 @@ pub(crate) struct TerminalCell {
 }
 
 impl Default for TerminalCell {
-    /// Returns the default value for this type.
+    /// Creates a blank terminal cell with default foreground/background colors and width 1.
     fn default() -> Self {
         Self {
             content: TerminalCellContent::Empty,
@@ -106,7 +110,7 @@ pub(crate) struct TerminalSurface {
 }
 
 impl TerminalSurface {
-    /// Constructs a new value.
+    /// Creates a blank terminal surface grid with the requested dimensions and no cursor.
     pub(crate) fn new(cols: usize, rows: usize) -> Self {
         Self {
             cols,
@@ -116,7 +120,9 @@ impl TerminalSurface {
         }
     }
 
-    /// Sets cell.
+    /// Overwrites one cell if the coordinates are inside bounds.
+    ///
+    /// Out-of-range writes are silently ignored.
     pub(crate) fn set_cell(&mut self, x: usize, y: usize, cell: TerminalCell) {
         if x >= self.cols || y >= self.rows {
             return;
@@ -124,7 +130,8 @@ impl TerminalSurface {
         self.cells[y * self.cols + x] = cell;
     }
 
-    /// Sets text cell.
+    /// Test helper that writes a text payload into one cell using the normal compact content packing
+    /// rules.
     #[cfg(test)]
     pub(crate) fn set_text_cell(&mut self, x: usize, y: usize, text: &str) {
         let mut chars = text.chars();
@@ -143,7 +150,7 @@ impl TerminalSurface {
         );
     }
 
-    /// Implements cell.
+    /// Returns a borrowed cell reference at the given in-bounds coordinates.
     pub(crate) fn cell(&self, x: usize, y: usize) -> &TerminalCell {
         &self.cells[y * self.cols + x]
     }
@@ -176,12 +183,12 @@ pub(crate) struct TerminalRuntimeState {
 }
 
 impl TerminalRuntimeState {
-    /// Returns whether interactive.
+    /// Returns whether keyboard/input events should still be routed into the terminal runtime.
     pub(crate) fn is_interactive(&self) -> bool {
         matches!(self.lifecycle, TerminalLifecycle::Running)
     }
 
-    /// Implements running.
+    /// Constructs a running runtime state with no last-error payload.
     pub(crate) fn running(status: impl Into<String>) -> Self {
         Self {
             status: status.into(),
@@ -190,7 +197,7 @@ impl TerminalRuntimeState {
         }
     }
 
-    /// Implements failed.
+    /// Constructs a failed runtime state and mirrors the status string into `last_error`.
     pub(crate) fn failed(status: impl Into<String>) -> Self {
         let status = status.into();
         Self {
@@ -200,7 +207,7 @@ impl TerminalRuntimeState {
         }
     }
 
-    /// Implements disconnected.
+    /// Constructs a disconnected runtime state.
     pub(crate) fn disconnected(status: impl Into<String>) -> Self {
         Self {
             status: status.into(),
@@ -209,7 +216,7 @@ impl TerminalRuntimeState {
         }
     }
 
-    /// Implements exited.
+    /// Constructs an exited runtime state carrying the optional exit code and signal metadata.
     pub(crate) fn exited(
         status: impl Into<String>,
         code: Option<u32>,
@@ -267,17 +274,17 @@ pub(crate) struct TerminalDimensions {
 }
 
 impl Dimensions for TerminalDimensions {
-    /// Implements total lines.
+    /// Reports the total number of lines in the terminal grid to alacritty's `Dimensions` trait.
     fn total_lines(&self) -> usize {
         self.rows
     }
 
-    /// Implements screen lines.
+    /// Reports the visible screen-line count to alacritty's `Dimensions` trait.
     fn screen_lines(&self) -> usize {
         self.rows
     }
 
-    /// Implements columns.
+    /// Reports the terminal column count to alacritty's `Dimensions` trait.
     fn columns(&self) -> usize {
         self.cols
     }

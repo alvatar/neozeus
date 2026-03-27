@@ -29,21 +29,21 @@ pub(crate) struct AttachedDaemonSession {
 }
 
 pub(crate) trait TerminalDaemonClient: Send + Sync {
-    /// Implements list sessions.
+    /// Returns the daemon's current session list with runtime/revision metadata.
     fn list_sessions(&self) -> Result<Vec<DaemonSessionInfo>, String>;
-    /// Creates session.
+    /// Asks the daemon to create a new session id using the provided prefix.
     fn create_session(&self, prefix: &str) -> Result<String, String>;
-    /// Implements attach session.
+    /// Attaches to one daemon session and returns its current snapshot plus a live update stream.
     fn attach_session(&self, session_id: &str) -> Result<AttachedDaemonSession, String>;
-    /// Implements send command.
+    /// Sends one terminal command into the named daemon session.
     fn send_command(&self, session_id: &str, command: TerminalCommand) -> Result<(), String>;
     #[allow(
         dead_code,
         reason = "protocol includes resize even before the UI drives it"
     )]
-    /// Resizes session.
+    /// Requests a PTY resize for the named daemon session.
     fn resize_session(&self, session_id: &str, cols: usize, rows: usize) -> Result<(), String>;
-    /// Kills session.
+    /// Terminates the named daemon session and removes it from the daemon registry.
     fn kill_session(&self, session_id: &str) -> Result<(), String>;
 }
 
@@ -53,7 +53,9 @@ pub(crate) struct TerminalDaemonClientResource {
 }
 
 impl TerminalDaemonClientResource {
-    /// Implements system.
+    /// Builds the Bevy resource wrapper around the default socket-backed daemon client.
+    ///
+    /// Startup uses this to connect to an existing daemon or auto-start one if needed.
     pub(crate) fn system() -> Result<Self, String> {
         Ok(Self {
             inner: Arc::new(SocketTerminalDaemonClient::connect_or_start_default()?),
@@ -69,7 +71,7 @@ impl TerminalDaemonClientResource {
         Self { inner: client }
     }
 
-    /// Implements client.
+    /// Returns the erased daemon-client trait object stored inside the resource.
     pub(crate) fn client(&self) -> &dyn TerminalDaemonClient {
         self.inner.as_ref()
     }
@@ -84,7 +86,10 @@ pub(crate) struct SocketTerminalDaemonClient {
 }
 
 impl SocketTerminalDaemonClient {
-    /// Implements connect or start default.
+    /// Connects to the default daemon socket, spawning a background daemon process if the first
+    /// connect attempt fails.
+    ///
+    /// This is the "just make the daemon exist" entry point used by normal app startup.
     pub(crate) fn connect_or_start_default() -> Result<Self, String> {
         let socket_path = resolve_daemon_socket_path()
             .ok_or_else(|| "failed to resolve daemon socket path".to_owned())?;
@@ -101,7 +106,10 @@ impl SocketTerminalDaemonClient {
         }
     }
 
-    /// Implements connect.
+    /// Connects to an already-running daemon socket and starts the reader/writer background threads.
+    ///
+    /// Requests are sent through a writer channel, responses are matched back to waiting callers by
+    /// request id, and session update events are fanned out by session id.
     pub(crate) fn connect(socket_path: &Path) -> Result<Self, String> {
         let stream = UnixStream::connect(socket_path).map_err(|error| {
             format!(
@@ -167,7 +175,10 @@ impl SocketTerminalDaemonClient {
         })
     }
 
-    /// Requests this value.
+    /// Sends one request to the daemon and waits synchronously for the matching response.
+    ///
+    /// The call allocates a fresh request id, registers a one-shot response waiter, writes the request
+    /// onto the writer thread's channel, and then blocks with a timeout.
     fn request(&self, request: DaemonRequest) -> Result<DaemonResponse, String> {
         let request_id = {
             let mut next = lock(&self.next_request_id);
@@ -189,7 +200,9 @@ impl SocketTerminalDaemonClient {
 }
 
 impl Drop for SocketTerminalDaemonClient {
-    /// Releases owned resources on drop.
+    /// Shuts down the socket clone used to unblock the client background threads during drop.
+    ///
+    /// Without this explicit shutdown, threads waiting on socket I/O could linger until process exit.
     fn drop(&mut self) {
         // Shutting down the cloned socket side unblocks the reader/writer threads deterministically
         // so pending requests and routes drain to connection-closed errors instead of hanging.
@@ -200,7 +213,7 @@ impl Drop for SocketTerminalDaemonClient {
 }
 
 impl TerminalDaemonClient for SocketTerminalDaemonClient {
-    /// Implements list sessions.
+    /// Issues a `ListSessions` request and asserts that the daemon answered with a session list.
     fn list_sessions(&self) -> Result<Vec<DaemonSessionInfo>, String> {
         match self.request(DaemonRequest::ListSessions)? {
             DaemonResponse::SessionList { sessions } => Ok(sessions),
@@ -208,7 +221,7 @@ impl TerminalDaemonClient for SocketTerminalDaemonClient {
         }
     }
 
-    /// Creates session.
+    /// Issues a `CreateSession` request and extracts the returned session id.
     fn create_session(&self, prefix: &str) -> Result<String, String> {
         match self.request(DaemonRequest::CreateSession {
             prefix: prefix.to_owned(),
@@ -218,7 +231,11 @@ impl TerminalDaemonClient for SocketTerminalDaemonClient {
         }
     }
 
-    /// Implements attach session.
+    /// Attaches to a daemon session, installs a local update route for it, and returns its current
+    /// snapshot plus live update receiver.
+    ///
+    /// The client rejects duplicate attaches for the same session within one UI process because the
+    /// routing table only supports one live receiver per session id.
     fn attach_session(&self, session_id: &str) -> Result<AttachedDaemonSession, String> {
         let (updates_tx, updates_rx) = mpsc::channel();
         {
@@ -263,7 +280,7 @@ impl TerminalDaemonClient for SocketTerminalDaemonClient {
         }
     }
 
-    /// Implements send command.
+    /// Forwards one terminal command to the daemon and expects a plain acknowledgement.
     fn send_command(&self, session_id: &str, command: TerminalCommand) -> Result<(), String> {
         match self.request(DaemonRequest::SendCommand {
             session_id: session_id.to_owned(),
@@ -276,7 +293,7 @@ impl TerminalDaemonClient for SocketTerminalDaemonClient {
         }
     }
 
-    /// Resizes session.
+    /// Forwards a resize request to the daemon and expects a plain acknowledgement.
     fn resize_session(&self, session_id: &str, cols: usize, rows: usize) -> Result<(), String> {
         match self.request(DaemonRequest::ResizeSession {
             session_id: session_id.to_owned(),
@@ -288,7 +305,7 @@ impl TerminalDaemonClient for SocketTerminalDaemonClient {
         }
     }
 
-    /// Kills session.
+    /// Requests daemon-side session termination and drops any local update route for that session.
     fn kill_session(&self, session_id: &str) -> Result<(), String> {
         match self.request(DaemonRequest::KillSession {
             session_id: session_id.to_owned(),
@@ -302,7 +319,10 @@ impl TerminalDaemonClient for SocketTerminalDaemonClient {
     }
 }
 
-/// Resolves daemon socket path with.
+/// Resolves the daemon socket path from explicit override/runtime/home inputs.
+///
+/// The precedence is: explicit override path, then XDG runtime dir, then a per-user directory under
+/// the system temp dir when only HOME is available.
 pub(crate) fn resolve_daemon_socket_path_with(
     override_path: Option<&str>,
     xdg_runtime_dir: Option<&str>,
@@ -333,7 +353,9 @@ pub(crate) fn resolve_daemon_socket_path_with(
     None
 }
 
-/// Resolves daemon socket path.
+/// Resolves the daemon socket path from the real process environment.
+///
+/// This thin wrapper exists so the path policy can be tested separately from environment access.
 pub(crate) fn resolve_daemon_socket_path() -> Option<PathBuf> {
     resolve_daemon_socket_path_with(
         env::var("NEOZEUS_DAEMON_SOCKET_PATH").ok().as_deref(),
@@ -343,7 +365,10 @@ pub(crate) fn resolve_daemon_socket_path() -> Option<PathBuf> {
     )
 }
 
-/// Spawns daemon subprocess.
+/// Spawns a detached copy of the current executable in daemon mode bound to the chosen socket.
+///
+/// StdIO is nulled out because the daemon is meant to be background infrastructure, not an attached
+/// child process of the UI.
 fn spawn_daemon_subprocess(socket_path: &Path) -> Result<(), String> {
     let current_exe = env::current_exe().map_err(|error| {
         format!("failed to resolve current executable for daemon spawn: {error}")
@@ -362,7 +387,10 @@ fn spawn_daemon_subprocess(socket_path: &Path) -> Result<(), String> {
         .map_err(|error| format!("failed to spawn daemon subprocess: {error}"))
 }
 
-/// Waits for for connect.
+/// Polls until the daemon socket accepts a connection or the timeout expires.
+///
+/// This is used immediately after spawning the daemon subprocess to bridge the race between process
+/// spawn and socket readiness.
 fn wait_for_connect(
     socket_path: &Path,
     timeout: Duration,
@@ -381,7 +409,9 @@ fn wait_for_connect(
     }
 }
 
-/// Dispatches event.
+/// Routes one daemon event to the locally attached receiver for its session, if any.
+///
+/// If the receiver has gone away, the stale route is removed from the routing table.
 fn dispatch_event(
     routes: &Arc<Mutex<HashMap<String, mpsc::Sender<TerminalUpdate>>>>,
     event: DaemonEvent,

@@ -27,7 +27,11 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-/// Implements pressed text.
+/// Builds a pressed-key [`KeyboardInput`] event for tests that care about text payloads.
+///
+/// The helper fills in the minimal Bevy fields needed by the input systems and uses the supplied text
+/// both as `text` and as the logical character key when present, which matches how typing-like events
+/// are normally observed by the HUD editor paths.
 pub(super) fn pressed_text(key_code: KeyCode, text: Option<&str>) -> KeyboardInput {
     KeyboardInput {
         key_code,
@@ -39,7 +43,10 @@ pub(super) fn pressed_text(key_code: KeyCode, text: Option<&str>) -> KeyboardInp
     }
 }
 
-/// Implements temp dir.
+/// Creates a unique temporary directory for a test case.
+///
+/// Uniqueness comes from the current UNIX timestamp in nanoseconds appended to the caller-supplied
+/// prefix. The directory is created eagerly so tests can assume the returned path already exists.
 pub(super) fn temp_dir(prefix: &str) -> PathBuf {
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -50,7 +57,11 @@ pub(super) fn temp_dir(prefix: &str) -> PathBuf {
     dir
 }
 
-/// Implements capturing bridge.
+/// Creates a test terminal bridge together with handles that let the test inspect what was sent.
+///
+/// The returned tuple contains the bridge itself, the receiving end of the command channel, and the
+/// update mailbox so tests can drive both command emission and inbound update delivery without a real
+/// runtime worker.
 pub(super) fn capturing_bridge() -> (
     TerminalBridge,
     mpsc::Receiver<TerminalCommand>,
@@ -66,13 +77,20 @@ pub(super) fn capturing_bridge() -> (
     (bridge, input_rx, mailbox)
 }
 
-/// Implements test bridge.
+/// Convenience wrapper that returns only the bridge and mailbox for tests that do not need to inspect
+/// the outgoing command channel directly.
+///
+/// It is built on top of [`capturing_bridge`] and simply discards the receiver side of the command
+/// channel.
 pub(super) fn test_bridge() -> (TerminalBridge, Arc<TerminalUpdateMailbox>) {
     let (bridge, _input_rx, mailbox) = capturing_bridge();
     (bridge, mailbox)
 }
 
-/// Inserts default HUD resources.
+/// Seeds a test world with the minimal default HUD resources expected by HUD/input systems.
+///
+/// The helper also ensures a terminal focus resource exists, because many systems assume it is always
+/// present even in stripped-down unit-test worlds.
 pub(super) fn insert_default_hud_resources(world: &mut World) {
     world.insert_resource(HudLayoutState::default());
     world.insert_resource(HudModalState::default());
@@ -82,7 +100,10 @@ pub(super) fn insert_default_hud_resources(world: &mut World) {
     }
 }
 
-/// Inserts terminal manager resources.
+/// Inserts a prepared terminal manager into a test world, along with the mirrored test focus state
+/// when tests enable that path.
+///
+/// This keeps tests from having to know about the manager/focus dual-resource arrangement directly.
 pub(super) fn insert_terminal_manager_resources(
     world: &mut World,
     terminal_manager: crate::terminals::TerminalManager,
@@ -94,7 +115,9 @@ pub(super) fn insert_terminal_manager_resources(
     world.insert_resource(terminal_manager);
 }
 
-/// Inserts terminal manager resources into app.
+/// App-level convenience wrapper around [`insert_terminal_manager_resources`].
+///
+/// This is used by tests that build a full [`App`] rather than operating on a raw [`World`].
 pub(super) fn insert_terminal_manager_resources_into_app(
     app: &mut App,
     terminal_manager: crate::terminals::TerminalManager,
@@ -102,7 +125,10 @@ pub(super) fn insert_terminal_manager_resources_into_app(
     insert_terminal_manager_resources(app.world_mut(), terminal_manager);
 }
 
-/// Inserts HUD resources.
+/// Inserts an explicit HUD resource triple into a test world.
+///
+/// This is the lower-level helper used when a test wants exact control over layout, modal, and input
+/// capture state instead of the defaults from [`insert_default_hud_resources`].
 pub(super) fn insert_hud_resources(
     world: &mut World,
     layout_state: HudLayoutState,
@@ -114,7 +140,11 @@ pub(super) fn insert_hud_resources(
     world.insert_resource(input_capture);
 }
 
-/// Inserts test HUD state.
+/// Inserts a serialized test HUD snapshot into a world by expanding it back into live resources.
+///
+/// The helper mirrors the production split between retained HUD resources and also ensures focus
+/// state exists, because many tests snapshot only the HUD layer but still execute systems that touch
+/// terminal focus.
 #[cfg(test)]
 pub(super) fn insert_test_hud_state(world: &mut World, hud_state: crate::hud::HudState) {
     let (layout_state, modal_state, input_capture) = hud_state.into_resources();
@@ -124,7 +154,9 @@ pub(super) fn insert_test_hud_state(world: &mut World, hud_state: crate::hud::Hu
     }
 }
 
-/// Implements snapshot test HUD state.
+/// Captures the live HUD resources in a world into the compact `HudState` test snapshot type.
+///
+/// Tests use this to assert whole-HUD state transitions without comparing every resource manually.
 #[cfg(test)]
 pub(super) fn snapshot_test_hud_state(world: &World) -> crate::hud::HudState {
     crate::hud::HudState::from_resources(
@@ -134,7 +166,10 @@ pub(super) fn snapshot_test_hud_state(world: &World) -> crate::hud::HudState {
     )
 }
 
-/// Inserts test HUD state into app.
+/// App-level convenience wrapper for restoring a `HudState` snapshot into an [`App`].
+///
+/// It simply forwards to [`insert_test_hud_state`] on the app's world, which keeps App-based and
+/// World-based tests using the same setup path.
 #[cfg(test)]
 pub(super) fn insert_test_hud_state_into_app(app: &mut App, hud_state: crate::hud::HudState) {
     insert_test_hud_state(app.world_mut(), hud_state);
@@ -152,7 +187,10 @@ pub(super) struct FakeDaemonClient {
 }
 
 impl FakeDaemonClient {
-    /// Implements emit update.
+    /// Broadcasts a synthetic terminal update to every test subscriber attached to a fake session.
+    ///
+    /// The fake daemon stores one sender per attachment. Emitting clones the update to all of them so
+    /// multi-client tests can exercise fanout behavior without a real daemon server.
     pub(super) fn emit_update(&self, session_id: &str, update: TerminalUpdate) {
         let senders = self
             .updates
@@ -166,7 +204,10 @@ impl FakeDaemonClient {
         }
     }
 
-    /// Sets session runtime.
+    /// Creates or updates the stored runtime state for one fake daemon session.
+    ///
+    /// The helper also ensures the session id exists in the session set, because tests often seed a
+    /// runtime state as the act that makes a fake session "exist".
     pub(super) fn set_session_runtime(&self, session_id: &str, runtime: TerminalRuntimeState) {
         self.sessions.lock().unwrap().insert(session_id.to_owned());
         self.session_runtimes
@@ -175,7 +216,10 @@ impl FakeDaemonClient {
             .insert(session_id.to_owned(), runtime);
     }
 
-    /// Implements session runtime.
+    /// Looks up the stored runtime state for a fake session, falling back to a generic running state.
+    ///
+    /// The fallback keeps tests terse: callers only need to seed special runtime conditions when they
+    /// care about them, while ordinary sessions behave as healthy running terminals by default.
     fn session_runtime(&self, session_id: &str) -> TerminalRuntimeState {
         self.session_runtimes
             .lock()
@@ -187,7 +231,10 @@ impl FakeDaemonClient {
 }
 
 impl TerminalDaemonClient for FakeDaemonClient {
-    /// Implements list sessions.
+    /// Returns the fake daemon's current session list in deterministic creation order.
+    ///
+    /// Ordering comes from iterating the stored session ids and enumerating them into `created_order`,
+    /// which is sufficient for tests that care about stable session ordering semantics.
     fn list_sessions(&self) -> Result<Vec<DaemonSessionInfo>, String> {
         Ok(self
             .sessions
@@ -205,7 +252,10 @@ impl TerminalDaemonClient for FakeDaemonClient {
             .collect())
     }
 
-    /// Creates session.
+    /// Creates a new fake daemon session id using the requested prefix.
+    ///
+    /// The implementation just increments an in-memory counter and seeds the new session with a
+    /// default running runtime state, which is enough for tests that only need unique session names.
     fn create_session(&self, prefix: &str) -> Result<String, String> {
         let mut next = self.next_session_index.lock().unwrap();
         let session_id = format!("{prefix}{}", *next);
@@ -214,7 +264,12 @@ impl TerminalDaemonClient for FakeDaemonClient {
         Ok(session_id)
     }
 
-    /// Implements attach session.
+    /// Attaches to a fake session by registering a new update receiver and returning an initial
+    /// snapshot.
+    ///
+    /// Missing sessions produce an error just like the real daemon. Successful attaches return a
+    /// default blank surface plus the session's current runtime state so tests begin from a complete
+    /// snapshot.
     fn attach_session(&self, session_id: &str) -> Result<AttachedDaemonSession, String> {
         if !self.sessions.lock().unwrap().contains(session_id) {
             return Err(format!("daemon session `{session_id}` not found"));
@@ -235,7 +290,10 @@ impl TerminalDaemonClient for FakeDaemonClient {
         })
     }
 
-    /// Implements send command.
+    /// Records a sent command in the fake daemon without executing it.
+    ///
+    /// Tests inspect `sent_commands` afterward to verify what would have been delivered to the real
+    /// daemon/session.
     fn send_command(&self, session_id: &str, command: TerminalCommand) -> Result<(), String> {
         self.sent_commands
             .lock()
@@ -244,7 +302,10 @@ impl TerminalDaemonClient for FakeDaemonClient {
         Ok(())
     }
 
-    /// Resizes session.
+    /// Records a resize request for later inspection by the test.
+    ///
+    /// The fake client does not maintain a full PTY surface here; it just logs the resize tuple so
+    /// tests can assert the request was issued.
     fn resize_session(&self, session_id: &str, cols: usize, rows: usize) -> Result<(), String> {
         self.resize_requests
             .lock()
@@ -253,7 +314,10 @@ impl TerminalDaemonClient for FakeDaemonClient {
         Ok(())
     }
 
-    /// Kills session.
+    /// Removes a fake session unless the test has configured kill failures.
+    ///
+    /// When `fail_kill` is set, the method returns an error to let tests exercise best-effort vs
+    /// hard-failure kill paths. Otherwise it clears the session, runtime state, and subscriber list.
     fn kill_session(&self, session_id: &str) -> Result<(), String> {
         if *self.fail_kill.lock().unwrap() {
             return Err("kill failed".into());
@@ -265,17 +329,26 @@ impl TerminalDaemonClient for FakeDaemonClient {
     }
 }
 
-/// Implements fake daemon resource.
+/// Wraps a [`FakeDaemonClient`] in the same resource type production code uses for daemon access.
+///
+/// This lets tests exercise the exact same systems that the real app runs, just with a fake client
+/// behind the resource boundary.
 pub(super) fn fake_daemon_resource(client: Arc<FakeDaemonClient>) -> TerminalDaemonClientResource {
     TerminalDaemonClientResource::from_client(client)
 }
 
-/// Implements fake runtime spawner.
+/// Builds a [`TerminalRuntimeSpawner`] backed by the fake daemon resource.
+///
+/// Tests that need to go through the normal runtime-spawner API use this instead of constructing the
+/// spawner manually.
 pub(super) fn fake_runtime_spawner(client: Arc<FakeDaemonClient>) -> TerminalRuntimeSpawner {
     TerminalRuntimeSpawner::for_tests(fake_daemon_resource(client))
 }
 
-/// Implements surface with text.
+/// Builds a terminal surface with one text run written onto a single row.
+///
+/// This is the compact fixture builder used by many rendering and damage tests: start from a blank
+/// surface, then write the supplied string beginning at column zero on row `y`.
 pub(super) fn surface_with_text(rows: usize, cols: usize, y: usize, text: &str) -> TerminalSurface {
     let mut surface = TerminalSurface::new(cols, rows);
     for (x, ch) in text.chars().enumerate() {
@@ -284,7 +357,10 @@ pub(super) fn surface_with_text(rows: usize, cols: usize, y: usize, text: &str) 
     surface
 }
 
-/// Implements assert glyph has visible pixels.
+/// Asserts that a rasterized glyph produced at least one non-transparent pixel.
+///
+/// This is the minimal sanity check used by font/raster tests to ensure the glyph did not collapse to
+/// an entirely transparent bitmap.
 pub(super) fn assert_glyph_has_visible_pixels(glyph: &CachedTerminalGlyph) {
     let non_zero_alpha = glyph
         .pixels

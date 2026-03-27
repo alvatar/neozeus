@@ -9,7 +9,12 @@ use alacritty_terminal::{
 };
 use bevy_egui::egui;
 
-/// Builds surface.
+/// Converts Alacritty's renderable terminal snapshot into NeoZeus's plain [`TerminalSurface`]
+/// representation.
+///
+/// The conversion walks every visible cell, translates colors and cursor shape, handles inverse text,
+/// collapses hidden/wide spacer cells into empty content, and records a width of 0/1/2 so the later
+/// raster path can reason about wide characters without depending on Alacritty types.
 pub(crate) fn build_surface(term: &Term<VoidListener>) -> TerminalSurface {
     let content = term.renderable_content();
     let cols = term.columns();
@@ -76,7 +81,10 @@ pub(crate) fn build_surface(term: &Term<VoidListener>) -> TerminalSurface {
     surface
 }
 
-/// Maps cursor shape.
+/// Maps Alacritty cursor-shape variants onto NeoZeus's smaller cursor-shape enum.
+///
+/// Hidden and hollow-block cursors are both represented as block cursors here; visibility is carried
+/// separately on the cursor record itself.
 fn map_cursor_shape(shape: CursorShape) -> TerminalCursorShape {
     match shape {
         CursorShape::Underline => TerminalCursorShape::Underline,
@@ -87,7 +95,11 @@ fn map_cursor_shape(shape: CursorShape) -> TerminalCursorShape {
     }
 }
 
-/// Resolves Alacritty color.
+/// Resolves one Alacritty color reference into a concrete RGB color.
+///
+/// Explicit RGB values and indexed colors are handled directly; named colors first consult
+/// Alacritty's current color table and only fall back to NeoZeus defaults when the table entry is
+/// absent.
 pub(crate) fn resolve_alacritty_color(
     color: AnsiColor,
     colors: &Colors,
@@ -104,7 +116,12 @@ pub(crate) fn resolve_alacritty_color(
     egui::Color32::from_rgb(rgb.r, rgb.g, rgb.b)
 }
 
-/// Implements fallback named RGB.
+/// Supplies NeoZeus fallback RGB values for named Alacritty colors when the live color table does
+/// not define them.
+///
+/// Most names map to fixed hard-coded palette values. The `is_foreground` parameter is only needed
+/// for the default foreground/background family later in the match so callers can preserve the usual
+/// foreground/background distinction even in fallback mode.
 fn fallback_named_rgb(named: NamedColor, is_foreground: bool) -> Rgb {
     match named {
         NamedColor::Black => Rgb { r: 0, g: 0, b: 0 },
@@ -251,7 +268,10 @@ fn fallback_named_rgb(named: NamedColor, is_foreground: bool) -> Rgb {
     }
 }
 
-/// Implements xterm indexed RGB.
+/// Maps an xterm 256-color palette index to its concrete RGB triple.
+///
+/// Indices `0..16` use the ANSI base palette, `16..232` use the 6×6×6 color cube, and the tail uses
+/// the grayscale ramp.
 pub(crate) fn xterm_indexed_rgb(index: u8) -> Rgb {
     const ANSI: [(u8, u8, u8); 16] = [
         (0x00, 0x00, 0x00),

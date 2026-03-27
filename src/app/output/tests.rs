@@ -5,7 +5,11 @@ use bevy::{
     render::{gpu_readback::Readback, render_resource::TextureFormat},
 };
 
-/// Verifies that parses output mode and dimensions.
+/// Covers the permissive parsing rules for offscreen output configuration.
+///
+/// The test checks both halves of the parser surface: output mode selection and numeric dimension
+/// parsing. It verifies that recognized offscreen aliases map to `OffscreenVerify`, while empty,
+/// zero, and malformed dimension inputs fall back to the supplied defaults instead of failing.
 #[test]
 fn parses_output_mode_and_dimensions() {
     assert_eq!(resolve_output_mode(None), OutputMode::Desktop);
@@ -25,7 +29,11 @@ fn parses_output_mode_and_dimensions() {
     assert_eq!(resolve_output_dimension(Some("abc"), 12), 12);
 }
 
-/// Verifies that offscreen window config is hidden and windowed.
+/// Verifies the synthetic primary-window shape used in offscreen mode.
+///
+/// Offscreen rendering still needs a logical `PrimaryWindow`, but it must not behave like a real
+/// desktop window. The assertions check the important contract: hidden, undecorated, unfocused,
+/// forced to `Windowed`, and honoring the explicit physical size and scale-factor override.
 #[test]
 fn offscreen_window_config_is_hidden_and_windowed() {
     let output = AppOutputConfig {
@@ -44,7 +52,12 @@ fn offscreen_window_config_is_hidden_and_windowed() {
     assert_eq!(window.resolution.scale_factor_override(), Some(1.5));
 }
 
-/// Verifies that create final frame image uses renderable sRGB target.
+/// Checks that the final-frame target image is created with the exact usage flags the render path
+/// needs.
+///
+/// The offscreen capture pipeline relies on one image serving as a render attachment, a readback
+/// source, and a bindable texture. This test locks that contract down and also verifies that the
+/// helper preserves the requested dimensions and uses the expected final-frame format.
 #[test]
 fn create_final_frame_image_uses_renderable_srgb_target() {
     let image = create_final_frame_image(UVec2::new(1920, 1080));
@@ -57,7 +70,11 @@ fn create_final_frame_image_uses_renderable_srgb_target() {
     assert!(usage.contains(TextureUsages::TEXTURE_BINDING));
 }
 
-/// Verifies that sync final frame output target assigns targets only in offscreen mode.
+/// Exercises render-target routing as the app flips between offscreen and desktop modes.
+///
+/// The test first confirms that offscreen mode allocates a shared image target and attaches it to
+/// the terminal, composite, and bloom cameras. It then flips back to desktop mode and verifies that
+/// those cameras are returned to normal window rendering instead of keeping the stale image target.
 #[test]
 fn sync_final_frame_output_target_assigns_targets_only_in_offscreen_mode() {
     let mut world = World::default();
@@ -102,7 +119,11 @@ fn sync_final_frame_output_target_assigns_targets_only_in_offscreen_mode() {
     ));
 }
 
-/// Verifies that final frame capture waits for target before requesting readback.
+/// Verifies that capture does not request GPU readback before an output target exists.
+///
+/// This is an important guard because the capture system runs in the normal frame loop and can wake
+/// up before `sync_final_frame_output_target` has created the image. The expected behavior is to do
+/// nothing and leave the capture request pending.
 #[test]
 fn final_frame_capture_waits_for_target_before_requesting_readback() {
     let mut world = World::default();
@@ -122,7 +143,12 @@ fn final_frame_capture_waits_for_target_before_requesting_readback() {
     assert!(!world.resource::<FinalFrameCaptureConfig>().requested);
 }
 
-/// Verifies that final frame capture waits for verification scenario to finish.
+/// Verifies that final-frame capture stays blocked until a verification scenario finishes staging
+/// the scene.
+///
+/// Without this gate the capture path could snapshot an intermediate frame before the deterministic
+/// verification setup has been applied. The test confirms that an unapplied scenario prevents any
+/// readback request from being spawned.
 #[test]
 fn final_frame_capture_waits_for_verification_scenario_to_finish() {
     let mut world = World::default();
@@ -149,7 +175,11 @@ fn final_frame_capture_waits_for_verification_scenario_to_finish() {
     assert!(!world.resource::<FinalFrameCaptureConfig>().requested);
 }
 
-/// Verifies that texture dump skips row padding for RGBA.
+/// Verifies that RGBA texture dumps ignore GPU row padding when producing the PPM payload.
+///
+/// Readback buffers are aligned per row, so the helper must skip the padded bytes between logical
+/// rows. This test seeds a tiny 2×2 buffer with padding and checks that the output PPM contains only
+/// the logical RGB pixels in the expected order.
 #[test]
 fn texture_dump_skips_row_padding_for_rgba() {
     let width = 2;

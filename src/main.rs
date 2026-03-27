@@ -16,7 +16,10 @@ use crate::{
 };
 use std::{env, fs, path::PathBuf};
 
-/// Starts NeoZeus and dispatches app or daemon mode.
+/// Clears the debug log if requested, then dispatches NeoZeus into app mode or daemon mode.
+///
+/// The binary treats `neozeus daemon ...` as a completely separate startup path; otherwise it builds
+/// and runs the Bevy app.
 fn main() {
     if env::var("NEOZEUS_CLEAR_DEBUG_LOG")
         .map(|value| {
@@ -50,7 +53,10 @@ fn main() {
     }
 }
 
-/// Runs daemon mode.
+/// Resolves the daemon socket path and starts the standalone daemon server.
+///
+/// Command-line `--socket` wins over environment/default resolution; failure to resolve any socket
+/// path is reported as a user-facing error.
 fn run_daemon_mode(args: &[String]) -> Result<(), String> {
     let socket_path = parse_daemon_socket_path(args)
         .or_else(resolve_daemon_socket_path)
@@ -59,7 +65,9 @@ fn run_daemon_mode(args: &[String]) -> Result<(), String> {
     run_daemon_server(&socket_path)
 }
 
-/// Parses daemon socket path.
+/// Parses an explicit daemon socket path from `--socket <path>` command-line arguments.
+///
+/// Unknown flags are ignored; the function only cares about the first `--socket` occurrence.
 fn parse_daemon_socket_path(args: &[String]) -> Option<PathBuf> {
     let mut args = args.iter();
     while let Some(arg) = args.next() {

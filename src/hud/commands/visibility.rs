@@ -4,7 +4,11 @@ use crate::{
 };
 use bevy::{prelude::*, window::RequestRedraw};
 
-/// Applies visibility requests.
+/// Applies show-all and isolate visibility requests to the terminal presentation policy.
+///
+/// Isolate requests are validated against the current terminal registry so the app does not retain an
+/// impossible isolate target after a terminal disappears. Every change is logged and followed by a
+/// redraw request because visibility policy directly affects which panels are presented.
 pub(crate) fn apply_visibility_requests(
     mut requests: MessageReader<TerminalVisibilityRequest>,
     terminal_manager: Res<TerminalManager>,

@@ -12,7 +12,10 @@ use bevy::{
 };
 use bevy_vello::prelude::{VelloScene2d, VelloView};
 
-/// Appends HUD log.
+/// Prefixes a message as HUD-related and forwards it to the shared terminal debug log.
+///
+/// HUD systems use this instead of talking to the terminal logger directly so HUD-originated messages
+/// remain easy to spot.
 pub(crate) fn append_hud_log(message: impl AsRef<str>) {
     crate::terminals::append_debug_log(format!("hud: {}", message.as_ref()));
 }
@@ -21,7 +24,11 @@ pub(crate) fn append_hud_log(message: impl AsRef<str>) {
     clippy::too_many_arguments,
     reason = "HUD setup initializes retained state, persistence, compositor, and scene resources together"
 )]
-/// Sets up HUD.
+/// Initializes retained HUD resources, restores persisted layout, and spawns the HUD scene entities.
+///
+/// Startup resets any leftover modal/input state, applies persisted module rect/enablement overrides,
+/// creates the main and modal Vello scenes plus the modal camera, and then boots the offscreen
+/// compositor.
 pub(crate) fn setup_hud(
     mut commands: Commands,
     mut layout_state: ResMut<HudLayoutState>,
@@ -91,7 +98,10 @@ pub(crate) fn setup_hud(
     redraws.write(RequestRedraw);
 }
 
-/// Synchronizes structural HUD layout.
+/// Reapplies structural layout constraints that the user is not allowed to move.
+///
+/// Today this means forcing the agent list to stay docked to the window edge regardless of persisted
+/// or animated state.
 pub(crate) fn sync_structural_hud_layout(
     primary_window: Single<&Window, With<PrimaryWindow>>,
     mut layout_state: ResMut<HudLayoutState>,
@@ -104,7 +114,10 @@ pub(crate) fn sync_structural_hud_layout(
     agent_list.shell.current_rect = rect;
 }
 
-/// Handles needs redraw.
+/// Returns whether HUD animation/dragging requires another redraw.
+///
+/// Static retained HUD scenes do not need continuous redraw; dragging and animation are the two
+/// conditions that keep frames flowing.
 pub(crate) fn hud_needs_redraw(layout_state: &HudLayoutState) -> bool {
     layout_state.drag.is_some() || layout_state.is_animating()
 }

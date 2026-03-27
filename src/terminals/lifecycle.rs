@@ -12,7 +12,11 @@ use bevy::prelude::*;
     clippy::too_many_arguments,
     reason = "terminal attach joins daemon bridge creation, domain state, projection spawn, and presentation assets"
 )]
-/// Spawns attached terminal with presentation.
+/// Attaches an existing daemon session into local terminal state and spawns its presentation entities.
+///
+/// The function asks the runtime spawner for an attached bridge, creates the terminal in the manager
+/// without implicitly changing creation order semantics, optionally focuses it, and then creates the
+/// panel/frame presentation projection for the returned slot.
 pub(crate) fn spawn_attached_terminal_with_presentation(
     commands: &mut Commands,
     images: &mut Assets<Image>,
@@ -35,7 +39,11 @@ pub(crate) fn spawn_attached_terminal_with_presentation(
     Ok((terminal_id, bridge))
 }
 
-/// Implements adjacent terminal in creation order.
+/// Chooses the terminal that should become active after a given terminal is removed.
+///
+/// The policy is creation-order based rather than focus-order based: prefer the previous terminal if
+/// one exists, otherwise fall back to the next terminal. That matches the mental model that terminal
+/// slots are laid out in creation order and keeps deletion behavior predictable.
 fn adjacent_terminal_in_creation_order(
     terminal_manager: &TerminalManager,
     terminal_id: TerminalId,
@@ -49,7 +57,11 @@ fn adjacent_terminal_in_creation_order(
     }
 }
 
-/// Removes terminal with projection.
+/// Removes a terminal from authoritative state and despawns its presentation entities.
+///
+/// This is the local cleanup half of terminal teardown: remove the terminal from the manager,
+/// forget it from focus state, drop its presentation-store entry, and despawn the panel/frame ECS
+/// entities if they existed.
 pub(crate) fn remove_terminal_with_projection(
     commands: &mut Commands,
     terminal_manager: &mut TerminalManager,
@@ -72,7 +84,13 @@ pub(crate) fn remove_terminal_with_projection(
     clippy::too_many_arguments,
     reason = "kill spans daemon authority, domain state, projection cleanup, and persistence/view updates"
 )]
-/// Kills active terminal session and remove.
+/// Kills the active daemon session when possible and removes the corresponding local terminal.
+///
+/// The function first snapshots the active terminal's session name and runtime state, then asks the
+/// daemon to kill it. If daemon kill fails for an interactive terminal, the error is propagated; if
+/// the terminal was already non-interactive, the failure is downgraded to a debug log and local
+/// cleanup continues. After removal it selects a replacement focus target by creation order, updates
+/// visibility/view state, marks persistence dirty, and returns the removed terminal id + session name.
 pub(crate) fn kill_active_terminal_session_and_remove(
     commands: &mut Commands,
     time: &Time,

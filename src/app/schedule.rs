@@ -40,7 +40,12 @@ pub(crate) enum NeoZeusSet {
     Redraw,
 }
 
-/// Configures app schedule.
+/// Declares the application's update pipeline and wires every system into its stage.
+///
+/// The ordering here is architectural, not cosmetic: terminal polling must happen before raster,
+/// raster before presentation, HUD intents before HUD command application, and redraw decisions only
+/// after both terminal and HUD rendering work has had a chance to update state. The startup chain is
+/// also assembled here so scene setup, HUD setup, and bloom setup happen in a deterministic order.
 pub(crate) fn configure_app_schedule(app: &mut App) {
     app.configure_sets(
         Update,

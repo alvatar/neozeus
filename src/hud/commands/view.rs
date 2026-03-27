@@ -1,7 +1,11 @@
 use crate::terminals::{TerminalFocusState, TerminalPresentationStore, TerminalViewState};
 use bevy::{prelude::*, window::RequestRedraw};
 
-/// Applies terminal view requests.
+/// Applies HUD-originated view changes to the active terminal presentation.
+///
+/// The current request surface is intentionally small: toggle pixel-perfect mode or reset the shared
+/// view state back to its default distance and zero offset for the active terminal. Every successful
+/// request forces a redraw because both operations change visible geometry immediately.
 pub(crate) fn apply_terminal_view_requests(
     mut requests: MessageReader<crate::hud::TerminalViewRequest>,
     focus_state: Res<TerminalFocusState>,

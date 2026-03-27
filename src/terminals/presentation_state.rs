@@ -10,7 +10,7 @@ pub(crate) struct TerminalViewState {
 }
 
 impl Default for TerminalViewState {
-    /// Returns the default value for this type.
+    /// Creates the shared terminal view state with neutral zoom and zero offset.
     fn default() -> Self {
         Self {
             distance: 10.0,
@@ -21,7 +21,10 @@ impl Default for TerminalViewState {
 }
 
 impl TerminalViewState {
-    /// Focuses terminal.
+    /// Switches the shared view offset to the per-terminal offset remembered for the newly focused
+    /// terminal.
+    ///
+    /// Unfocused state falls back to zero offset.
     pub(crate) fn focus_terminal(&mut self, active_id: Option<TerminalId>) {
         self.offset = active_id
             .map(|id| {
@@ -33,7 +36,8 @@ impl TerminalViewState {
             .unwrap_or(Vec2::ZERO);
     }
 
-    /// Applies offset delta.
+    /// Applies a pan delta to the current shared offset and persists it for the active terminal if
+    /// one exists.
     pub(crate) fn apply_offset_delta(&mut self, active_id: Option<TerminalId>, delta: Vec2) {
         self.offset += delta;
         if let Some(id) = active_id {
@@ -41,7 +45,7 @@ impl TerminalViewState {
         }
     }
 
-    /// Implements reset active offset.
+    /// Resets the shared offset and, if focused, clears the stored offset for that terminal too.
     pub(crate) fn reset_active_offset(&mut self, active_id: Option<TerminalId>) {
         self.offset = Vec2::ZERO;
         if let Some(id) = active_id {
@@ -49,7 +53,7 @@ impl TerminalViewState {
         }
     }
 
-    /// Implements forget terminal.
+    /// Drops any remembered per-terminal pan offset for a terminal that is being removed.
     pub(crate) fn forget_terminal(&mut self, terminal_id: TerminalId) {
         self.offsets_by_terminal.remove(&terminal_id);
     }
@@ -121,27 +125,27 @@ pub(crate) struct TerminalPresentationStore {
 }
 
 impl TerminalPresentationStore {
-    /// Registers this item in the current state.
+    /// Inserts or replaces the presentation-store record for one terminal id.
     pub(crate) fn register(&mut self, id: TerminalId, terminal: PresentedTerminal) {
         self.terminals.insert(id, terminal);
     }
 
-    /// Implements get.
+    /// Returns the retained presentation record for one terminal id.
     pub(crate) fn get(&self, id: TerminalId) -> Option<&PresentedTerminal> {
         self.terminals.get(&id)
     }
 
-    /// Implements get mut.
+    /// Returns mutable access to one terminal's presentation-store record.
     pub(crate) fn get_mut(&mut self, id: TerminalId) -> Option<&mut PresentedTerminal> {
         self.terminals.get_mut(&id)
     }
 
-    /// Removes this value.
+    /// Removes and returns the presentation-store record for one terminal id.
     pub(crate) fn remove(&mut self, id: TerminalId) -> Option<PresentedTerminal> {
         self.terminals.remove(&id)
     }
 
-    /// Implements active texture state.
+    /// Returns the uploaded texture state of the currently active terminal, if any.
     pub(crate) fn active_texture_state(
         &self,
         active_id: Option<TerminalId>,
@@ -151,7 +155,7 @@ impl TerminalPresentationStore {
             .map(|terminal| &terminal.texture_state)
     }
 
-    /// Implements active display mode.
+    /// Returns the display mode of the currently active terminal, if any.
     pub(crate) fn active_display_mode(
         &self,
         active_id: Option<TerminalId>,
@@ -161,7 +165,7 @@ impl TerminalPresentationStore {
             .map(|terminal| terminal.display_mode)
     }
 
-    /// Toggles active display mode.
+    /// Toggles the active terminal between smooth and pixel-perfect display modes.
     pub(crate) fn toggle_active_display_mode(&mut self, active_id: Option<TerminalId>) {
         let Some(terminal) = active_id.and_then(|id| self.terminals.get_mut(&id)) else {
             return;

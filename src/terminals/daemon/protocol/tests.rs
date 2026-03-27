@@ -2,14 +2,18 @@ use super::*;
 use crate::terminals::{TerminalLifecycle, TerminalRuntimeState};
 use std::io::Cursor;
 
-/// Encodes v1 session info.
+/// Encodes the legacy v1 session-info payload that predates `created_order` on the wire.
+///
+/// The test suite uses this helper to prove current decoders still accept old daemon payloads.
 fn encode_v1_session_info(buffer: &mut Vec<u8>, info: &DaemonSessionInfo) {
     push_string(buffer, &info.session_id);
     encode_runtime_state(buffer, &info.runtime);
     push_u64(buffer, info.revision);
 }
 
-/// Verifies that decodes v1 session list payloads without created order.
+/// Verifies backward compatibility with v1 session-list payloads that omitted `created_order`.
+///
+/// Current decoders should fill `created_order` with zero rather than rejecting the payload.
 #[test]
 fn decodes_v1_session_list_payloads_without_created_order() {
     let response = DaemonResponse::SessionList {
@@ -63,7 +67,10 @@ fn decodes_v1_session_list_payloads_without_created_order() {
     assert_eq!(sessions[0].created_order, 0);
 }
 
-/// Verifies that session list wire format omits created order for v1 compatibility.
+/// Verifies that modern encoders still omit `created_order` from the session-list wire format.
+///
+/// Ordering is conveyed by server list order, so keeping the field off-wire preserves v1
+/// compatibility without losing semantics.
 #[test]
 fn session_list_wire_format_omits_created_order_for_v1_compatibility() {
     let message = ServerMessage::Response {

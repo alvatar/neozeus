@@ -21,13 +21,14 @@ use crate::{
 use bevy::{ecs::system::RunSystemOnce, prelude::*, window::WindowMode};
 use std::sync::Arc;
 
-/// Verifies that redraw scheduler stays idle without visual work.
+/// Verifies that the combined redraw predicate stays false when no terminal or HUD visual work is
+/// pending.
 #[test]
 fn redraw_scheduler_stays_idle_without_visual_work() {
     assert!(!should_request_visual_redraw(false, false, false));
 }
 
-/// Verifies that redraw scheduler runs when visual work exists.
+/// Verifies that any one of the three visual-work sources is enough to request another redraw.
 #[test]
 fn redraw_scheduler_runs_when_visual_work_exists() {
     assert!(should_request_visual_redraw(true, false, false));
@@ -35,7 +36,8 @@ fn redraw_scheduler_runs_when_visual_work_exists() {
     assert!(should_request_visual_redraw(false, false, true));
 }
 
-/// Verifies that startup focus prefers persisted focus then restored then imported.
+/// Verifies the startup focus-selection precedence: persisted focus first, then other restored
+/// sessions, then imported live sessions.
 #[test]
 fn startup_focus_prefers_persisted_focus_then_restored_then_imported() {
     assert_eq!(
@@ -53,7 +55,8 @@ fn startup_focus_prefers_persisted_focus_then_restored_then_imported() {
     assert_eq!(choose_startup_focus_session_name(None, &[], &[]), None);
 }
 
-/// Verifies that startup visibility isolate focused terminal.
+/// Verifies that startup visibility policy isolates a chosen focus target and otherwise falls back
+/// to `ShowAll`.
 #[test]
 fn startup_visibility_isolate_focused_terminal() {
     assert_eq!(
@@ -66,7 +69,7 @@ fn startup_visibility_isolate_focused_terminal() {
     );
 }
 
-/// Verifies that defaults window mode to borderless fullscreen.
+/// Verifies the default window-mode policy is borderless fullscreen unless overridden.
 #[test]
 fn defaults_window_mode_to_borderless_fullscreen() {
     assert_eq!(
@@ -79,7 +82,8 @@ fn defaults_window_mode_to_borderless_fullscreen() {
     );
 }
 
-/// Verifies that allows explicit windowed override.
+/// Verifies that explicit `windowed` configuration overrides the fullscreen default, including with
+/// surrounding whitespace.
 #[test]
 fn allows_explicit_windowed_override() {
     assert_eq!(resolve_window_mode(Some("windowed")), WindowMode::Windowed);
@@ -89,7 +93,7 @@ fn allows_explicit_windowed_override() {
     );
 }
 
-/// Verifies that parses NeoZeus TOML config.
+/// Verifies that the NeoZeus TOML parser populates terminal font and window metadata fields.
 #[test]
 fn parses_neozeus_toml_config() {
     let config = parse_neozeus_config(
@@ -118,7 +122,8 @@ fn parses_neozeus_toml_config() {
     assert_eq!(config.window.app_id.as_deref(), Some("neozeus-dev"));
 }
 
-/// Verifies that NeoZeus config path resolution prefers explicit then XDG then home then cwd.
+/// Verifies the config-file discovery precedence: explicit path, XDG config home, HOME fallback,
+/// then `neozeus.toml` in the cwd.
 #[test]
 fn neozeus_config_path_resolution_prefers_explicit_then_xdg_then_home_then_cwd() {
     let dir = temp_dir("neozeus-config-resolution");
@@ -167,7 +172,7 @@ fn neozeus_config_path_resolution_prefers_explicit_then_xdg_then_home_then_cwd()
     );
 }
 
-/// Verifies that primary window config can use loaded TOML overrides.
+/// Verifies that loaded NeoZeus config overrides are threaded through primary-window construction.
 #[test]
 fn primary_window_config_can_use_loaded_toml_overrides() {
     let dir = temp_dir("neozeus-config-load");
@@ -206,7 +211,7 @@ fn primary_window_config_can_use_loaded_toml_overrides() {
     );
 }
 
-/// Verifies that parses output mode and dimensions.
+/// Verifies environment-style parsing of output mode and output dimension overrides.
 #[test]
 fn parses_output_mode_and_dimensions() {
     assert_eq!(resolve_output_mode(None), OutputMode::Desktop);
@@ -226,7 +231,8 @@ fn parses_output_mode_and_dimensions() {
     assert_eq!(resolve_output_dimension(Some("abc"), 42), 42);
 }
 
-/// Verifies that offscreen synthetic window config is hidden and windowed.
+/// Verifies the synthetic offscreen window is hidden, undecorated, unfocused, and forced into
+/// windowed mode.
 #[test]
 fn offscreen_synthetic_window_config_is_hidden_and_windowed() {
     let window = primary_window_config_for(&AppOutputConfig {
@@ -244,7 +250,8 @@ fn offscreen_synthetic_window_config_is_hidden_and_windowed() {
     assert_eq!(window.resolution.scale_factor_override(), Some(1.5));
 }
 
-/// Verifies that offscreen mode uses headless runner and no OS primary window.
+/// Verifies that offscreen mode switches to the headless runner and suppresses the normal primary
+/// window plugin.
 #[test]
 fn offscreen_mode_uses_headless_runner_and_no_os_primary_window() {
     let output = AppOutputConfig {
@@ -257,7 +264,7 @@ fn offscreen_mode_uses_headless_runner_and_no_os_primary_window() {
     assert!(primary_window_plugin_config_for(&output).is_none());
 }
 
-/// Verifies that parses optional window scale factor override.
+/// Verifies parsing/validation of the optional window scale-factor override.
 #[test]
 fn parses_optional_window_scale_factor_override() {
     assert_eq!(resolve_window_scale_factor(None), None);
@@ -270,7 +277,8 @@ fn parses_optional_window_scale_factor_override() {
     assert_eq!(resolve_window_scale_factor(Some("abc")), None);
 }
 
-/// Verifies that parses force fallback adapter override.
+/// Verifies parsing of the force-fallback-adapter override and its different defaults for desktop vs
+/// offscreen output modes.
 #[test]
 fn parses_force_fallback_adapter_override() {
     assert!(resolve_force_fallback_adapter(None));
@@ -289,7 +297,8 @@ fn parses_force_fallback_adapter_override() {
     ));
 }
 
-/// Verifies that startup focus skips disconnected restored session.
+/// Verifies that startup focus restoration skips a persisted `last_focused` session if that session
+/// comes back disconnected and instead focuses a live restored session.
 #[test]
 fn startup_focus_skips_disconnected_restored_session() {
     let dir = temp_dir("neozeus-startup-focus-running-session");
@@ -355,7 +364,8 @@ fn startup_focus_skips_disconnected_restored_session() {
     assert_eq!(client.sessions.lock().unwrap().len(), 2);
 }
 
-/// Verifies that startup leaves only disconnected sessions visible and unfocused.
+/// Verifies that when only disconnected sessions are restored, startup leaves them visible but
+/// unfocused instead of isolating a dead session.
 #[test]
 fn startup_leaves_only_disconnected_sessions_visible_and_unfocused() {
     let dir = temp_dir("neozeus-startup-disconnected-visible");
@@ -413,7 +423,8 @@ fn startup_leaves_only_disconnected_sessions_visible_and_unfocused() {
     assert_eq!(client.sessions.lock().unwrap().len(), 1);
 }
 
-/// Verifies that startup spawns initial terminal when no sessions exist.
+/// Verifies the cold-start fallback path that spawns a brand-new initial terminal when restore/import
+/// finds nothing usable.
 #[test]
 fn startup_spawns_initial_terminal_when_no_sessions_exist() {
     let client = Arc::new(crate::tests::FakeDaemonClient::default());
@@ -449,7 +460,8 @@ fn startup_spawns_initial_terminal_when_no_sessions_exist() {
     assert_eq!(client.sessions.lock().unwrap().len(), 1);
 }
 
-/// Verifies that formats missing GPU startup panics as user facing errors.
+/// Verifies that a known missing-GPU startup panic is converted into a friendly user-facing error,
+/// while unrelated panics are ignored.
 #[test]
 fn formats_missing_gpu_startup_panics_as_user_facing_errors() {
     let error = format_startup_panic(&"Unable to find a GPU! renderer init failed")

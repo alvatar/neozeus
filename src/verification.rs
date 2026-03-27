@@ -21,7 +21,10 @@ pub(crate) struct AutoVerifyConfig {
 }
 
 impl AutoVerifyConfig {
-    /// Builds this value from environment variables.
+    /// Reads the auto-verify command configuration from the environment.
+    ///
+    /// Auto-verify is enabled only when a command string is provided. The delay defaults to 1500 ms
+    /// so the spawned verifier terminal has a short chance to settle before the command is injected.
     pub(crate) fn from_env() -> Option<Self> {
         Some(Self {
             command: env::var("NEOZEUS_AUTOVERIFY_COMMAND").ok()?,
@@ -41,7 +44,10 @@ pub(crate) enum VerificationScenario {
     InspectSwitchLatency,
 }
 
-/// Resolves verification scenario.
+/// Parses the named built-in verification scenario from an optional raw string.
+///
+/// The parser accepts the small fixed scenario vocabulary used by the offscreen verification scripts
+/// and returns `None` for missing or unknown names so callers can treat the feature as disabled.
 pub(crate) fn resolve_verification_scenario(raw: Option<&str>) -> Option<VerificationScenario> {
     match raw.map(str::trim).filter(|value| !value.is_empty()) {
         Some(value) if value.eq_ignore_ascii_case("message-box-bloom") => {
@@ -70,7 +76,11 @@ pub(crate) struct VerificationScenarioConfig {
 }
 
 impl VerificationScenarioConfig {
-    /// Builds this value from environment variables.
+    /// Reads the verification-scenario configuration from the environment.
+    ///
+    /// The scenario name is mandatory; when present, the config starts in an unapplied state with a
+    /// small default frame delay so the startup/render pipeline can settle before deterministic setup
+    /// begins.
     pub(crate) fn from_env() -> Option<Self> {
         Some(Self {
             scenario: resolve_verification_scenario(
@@ -87,7 +97,11 @@ impl VerificationScenarioConfig {
     }
 }
 
-/// Handles has presentable frame.
+/// Returns whether a terminal has a fully uploaded, non-placeholder frame ready for inspection.
+///
+/// The check deliberately combines three conditions: the terminal must own a surface snapshot, the
+/// presentation store must have uploaded the same surface revision, and the uploaded texture state
+/// must be something more meaningful than the placeholder `1x1`/zero-cell bootstrap values.
 fn terminal_has_presentable_frame(
     terminal_id: TerminalId,
     terminal_manager: &TerminalManager,
@@ -105,7 +119,10 @@ fn terminal_has_presentable_frame(
         && presented.texture_state.cell_size != UVec2::ZERO
 }
 
-/// Implements seeded inspect surface.
+/// Builds a deterministic synthetic terminal surface used by verification scenarios.
+///
+/// The surface is filled with repeated labeled bands on several rows so image captures have stable,
+/// high-contrast content that makes focus changes and bloom behavior visually obvious.
 fn seeded_inspect_surface(label: &str, accent: egui::Color32) -> TerminalSurface {
     let cols = 120;
     let rows = 38;
@@ -132,7 +149,10 @@ fn seeded_inspect_surface(label: &str, accent: egui::Color32) -> TerminalSurface
     surface
 }
 
-/// Seeds terminal surface.
+/// Overwrites one managed terminal's snapshot surface with deterministic verification content.
+///
+/// The helper mutates the terminal in place and bumps its surface revision so the raster/presentation
+/// pipeline treats the injected surface as fresh work that must be uploaded.
 fn seed_terminal_surface(
     terminal_manager: &mut TerminalManager,
     terminal_id: TerminalId,
@@ -146,7 +166,10 @@ fn seed_terminal_surface(
     terminal.surface_revision += 1;
 }
 
-/// Starts auto verify dispatcher.
+/// Starts a background worker that injects the configured auto-verify command after a delay.
+///
+/// The worker sleeps off-thread, logs the dispatch, sends the command through the terminal bridge,
+/// and then wakes the runtime notifier so the app notices the newly queued command promptly.
 pub(crate) fn start_auto_verify_dispatcher(
     bridge: TerminalBridge,
     notifier: RuntimeNotifier,
@@ -167,7 +190,13 @@ pub(crate) fn start_auto_verify_dispatcher(
     clippy::too_many_arguments,
     reason = "verification scenario setup spans terminal spawn, HUD modal state, notes, and visibility"
 )]
-/// Runs verification scenario.
+/// Advances the deterministic verification-scenario state machine during update.
+///
+/// The system waits out the configured frame delay, spawns however many verifier terminals the
+/// selected scenario needs, then mutates focus/visibility/modal/note state into the exact setup the
+/// scenario expects. The inspect-switch scenario is special: it primes two terminals first and only
+/// marks itself applied once both terminals have presentable uploaded frames, so the final capture
+/// measures a real visual switch instead of a partially loaded one.
 pub(crate) fn run_verification_scenario(
     config: Option<ResMut<VerificationScenarioConfig>>,
     mut commands: Commands,

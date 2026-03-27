@@ -28,7 +28,9 @@ pub(crate) struct HudPersistenceState {
     pub(crate) dirty_since_secs: Option<f32>,
 }
 
-/// Resolves HUD layout path with.
+/// Resolves the on-disk HUD layout path from explicit XDG/HOME inputs.
+///
+/// XDG config home wins when present; otherwise the fallback is `$HOME/.config/neozeus/...`.
 pub(crate) fn resolve_hud_layout_path_with(
     xdg_config_home: Option<&str>,
     home: Option<&str>,
@@ -44,7 +46,10 @@ pub(crate) fn resolve_hud_layout_path_with(
     })
 }
 
-/// Resolves HUD layout path.
+/// Resolves the HUD layout path from the real process environment.
+///
+/// This thin wrapper exists so the actual path policy can be tested without mutating environment
+/// variables in every test.
 pub(crate) fn resolve_hud_layout_path() -> Option<PathBuf> {
     resolve_hud_layout_path_with(
         env::var("XDG_CONFIG_HOME").ok().as_deref(),
@@ -52,7 +57,9 @@ pub(crate) fn resolve_hud_layout_path() -> Option<PathBuf> {
     )
 }
 
-/// Parses v1 HUD state.
+/// Parses the legacy line-oriented v1 HUD layout format.
+///
+/// Unknown modules or malformed numeric fields are skipped instead of aborting the whole load.
 fn parse_v1_hud_state(text: &str) -> PersistedHudState {
     let mut persisted = PersistedHudState::default();
     for (line_index, line) in text.lines().enumerate() {
@@ -103,7 +110,10 @@ fn parse_v1_hud_state(text: &str) -> PersistedHudState {
     persisted
 }
 
-/// Parses v2 HUD state.
+/// Parses the current block-oriented v2 HUD layout format.
+///
+/// Each `[module] ... [/module]` block is accumulated independently so malformed blocks are dropped
+/// without poisoning the rest of the file.
 fn parse_v2_hud_state(text: &str) -> PersistedHudState {
     let mut persisted = PersistedHudState::default();
     let mut module_id = None;
@@ -170,7 +180,9 @@ fn parse_v2_hud_state(text: &str) -> PersistedHudState {
     persisted
 }
 
-/// Parses persisted HUD state.
+/// Dispatches persisted HUD layout parsing based on the first non-empty version line.
+///
+/// Unknown versions are logged and treated as empty state rather than hard errors.
 pub(crate) fn parse_persisted_hud_state(text: &str) -> PersistedHudState {
     let version_line = text
         .lines()
@@ -187,7 +199,9 @@ pub(crate) fn parse_persisted_hud_state(text: &str) -> PersistedHudState {
     }
 }
 
-/// Implements serialize persisted HUD state.
+/// Serializes persisted HUD layout state into the current v2 text format.
+///
+/// Modules are emitted in the canonical definition order so files stay stable across saves.
 pub(crate) fn serialize_persisted_hud_state(state: &PersistedHudState) -> String {
     let mut output = String::from(HUD_LAYOUT_VERSION_V2);
     output.push('\n');
@@ -207,7 +221,9 @@ pub(crate) fn serialize_persisted_hud_state(state: &PersistedHudState) -> String
     output
 }
 
-/// Parses HUD module id.
+/// Maps a persisted module name back to its enum id.
+///
+/// The accepted names are the stable title keys, not the human-facing titles.
 fn parse_hud_module_id(name: &str) -> Option<HudModuleId> {
     match name {
         "DebugToolbar" => Some(HudModuleId::DebugToolbar),
@@ -216,7 +232,10 @@ fn parse_hud_module_id(name: &str) -> Option<HudModuleId> {
     }
 }
 
-/// Loads persisted HUD state from.
+/// Loads persisted HUD layout state from disk.
+///
+/// Missing files are treated as "no saved layout"; other I/O failures are logged and also fall back
+/// to defaults.
 pub(crate) fn load_persisted_hud_state_from(path: &PathBuf) -> PersistedHudState {
     match fs::read_to_string(path) {
         Ok(text) => parse_persisted_hud_state(&text),
@@ -231,7 +250,10 @@ pub(crate) fn load_persisted_hud_state_from(path: &PathBuf) -> PersistedHudState
     }
 }
 
-/// Saves HUD layout if dirty.
+/// Debounces and writes HUD layout changes to disk once the layout has settled.
+///
+/// Active drags defer saving, dirty timestamps start only once, and the persisted snapshot is built
+/// from module `target_rect`s so in-flight animations do not leak into the saved layout.
 pub(crate) fn save_hud_layout_if_dirty(
     time: Res<Time>,
     mut layout_state: ResMut<HudLayoutState>,
@@ -300,7 +322,10 @@ pub(crate) fn save_hud_layout_if_dirty(
     persistence_state.dirty_since_secs = None;
 }
 
-/// Applies persisted layout.
+/// Applies persisted module enablement/rect overrides onto a set of module definitions.
+///
+/// This helper is test-only because production startup applies persisted state while constructing the
+/// real HUD resources directly.
 #[cfg(test)]
 pub(crate) fn apply_persisted_layout(
     definitions: &[HudModuleDefinition],

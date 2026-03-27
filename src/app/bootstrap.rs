@@ -32,15 +32,24 @@ use bevy::{
 use bevy_vello::VelloPlugin;
 use std::{any::Any, env, sync::Arc, time::Duration};
 
-/// Builds app.
+/// Builds the top-level Bevy [`App`] and turns the ugly startup failure modes into normal
+/// `Result` errors.
+///
+/// The important detail here is that Bevy/WGPU can still report "no usable GPU" as a panic during
+/// initialization instead of as a recoverable error. This function temporarily installs a panic
+/// hook that suppresses only that known startup panic, runs [`configure_app`] inside
+/// `catch_unwind`, and then restores the previous hook before returning.
+///
+/// If the panic payload matches the missing-GPU case, the payload is converted into a user-facing
+/// error string; any other panic is rethrown unchanged so genuine bugs do not get silently hidden.
 pub(crate) fn build_app() -> Result<App, String> {
     let mut app = App::new();
     let previous_hook = Arc::new(std::panic::take_hook());
     let forwarding_hook = previous_hook.clone();
 
     // Bevy/WGPU still reports missing-adapter startup failure through a panic path in practice.
-    // We intercept only that specific startup panic so the user gets a clear error message while
-    // leaving all other panics untouched.
+    // Intercept only that one startup panic so the caller gets a normal error instead of a noisy
+    // crash, but keep forwarding every other panic to the original hook.
     std::panic::set_hook(Box::new(move |info| {
         if panic_payload_message(info.payload()).is_some_and(is_missing_gpu_panic) {
             return;
@@ -48,8 +57,12 @@ pub(crate) fn build_app() -> Result<App, String> {
         (*forwarding_hook)(info);
     }));
 
+    // Run the full app configuration inside `catch_unwind` so startup panics can be inspected and,
+    // for the known missing-GPU case, converted into a regular `Err(String)`.
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| configure_app(&mut app)));
 
+    // Always restore the previous panic hook before returning so the temporary startup policy does
+    // not leak into the rest of the process.
     let restore_hook = previous_hook.clone();
     std::panic::set_hook(Box::new(move |info| (*restore_hook)(info)));
 
@@ -66,7 +79,11 @@ pub(crate) fn build_app() -> Result<App, String> {
     }
 }
 
-/// Resolves window mode.
+/// Resolves the window mode from an optional raw configuration string.
+///
+/// Only `windowed` is treated as an explicit override. Any missing, empty, or unrecognized value
+/// falls back to borderless fullscreen on the current monitor, which is the project's default
+/// startup mode.
 pub(crate) fn resolve_window_mode(raw: Option<&str>) -> WindowMode {
     match raw.map(str::trim).filter(|value| !value.is_empty()) {
         Some(value) if value.eq_ignore_ascii_case("windowed") => WindowMode::Windowed,
@@ -74,7 +91,11 @@ pub(crate) fn resolve_window_mode(raw: Option<&str>) -> WindowMode {
     }
 }
 
-/// Resolves window scale factor.
+/// Parses an optional scale-factor override for deterministic window sizing.
+///
+/// The value is trimmed, parsed as `f32`, and rejected unless it is both finite and strictly
+/// positive. Invalid input is treated as "no override" instead of as an error so callers can keep
+/// using environment variables without hard-failing startup.
 pub(crate) fn resolve_window_scale_factor(raw: Option<&str>) -> Option<f32> {
     raw.map(str::trim)
         .filter(|value| !value.is_empty())
@@ -82,7 +103,11 @@ pub(crate) fn resolve_window_scale_factor(raw: Option<&str>) -> Option<f32> {
         .filter(|value| value.is_finite() && *value > 0.0)
 }
 
-/// Resolves force fallback adapter.
+/// Parses the explicit `force_fallback_adapter` flag from a raw string.
+///
+/// The function accepts the usual truthy spellings (`1`, `true`, `yes`, `on`) after trimming and
+/// lowercasing the input. Missing or empty input defaults to `true`, because the application would
+/// rather prefer a software adapter than fail to start on systems with awkward GPU setups.
 pub(crate) fn resolve_force_fallback_adapter(raw: Option<&str>) -> bool {
     raw.map(str::trim)
         .filter(|value| !value.is_empty())
@@ -95,7 +120,12 @@ pub(crate) fn resolve_force_fallback_adapter(raw: Option<&str>) -> bool {
         .unwrap_or(true)
 }
 
-/// Resolves force fallback adapter for.
+/// Chooses the effective fallback-adapter policy for the current output mode.
+///
+/// An explicit environment/config value always wins and is delegated to
+/// [`resolve_force_fallback_adapter`]. When nothing is specified, desktop mode defaults to `true`
+/// so startup is more forgiving, while offscreen verification mode defaults to `false` because it
+/// should behave closer to the actual render path unless told otherwise.
 pub(crate) fn resolve_force_fallback_adapter_for(
     raw: Option<&str>,
     output_mode: crate::app::OutputMode,
@@ -110,12 +140,21 @@ pub(crate) fn resolve_force_fallback_adapter_for(
     dead_code,
     reason = "compatibility wrapper retained for scene facade tests"
 )]
-/// Implements primary window plugin config for.
+/// Convenience wrapper that builds the primary-window plugin config with default application
+/// metadata.
+///
+/// This exists mainly for tests and compatibility call sites that do not care about a loaded
+/// [`NeoZeusConfig`]. The real logic lives in [`primary_window_plugin_config_for_with_config`].
 pub(crate) fn primary_window_plugin_config_for(output: &AppOutputConfig) -> Option<Window> {
     primary_window_plugin_config_for_with_config(output, &NeoZeusConfig::default())
 }
 
-/// Implements primary window plugin config for with config.
+/// Builds the `WindowPlugin` configuration for the primary window when a real OS window should
+/// exist.
+///
+/// Offscreen mode deliberately returns `None` here so Bevy does not create a native window through
+/// the plugin path. In normal mode it delegates to [`primary_window_config_for_with_config`] so the
+/// exact same window settings are used by both plugin-driven and manually spawned primary windows.
 pub(crate) fn primary_window_plugin_config_for_with_config(
     output: &AppOutputConfig,
     config: &NeoZeusConfig,
@@ -123,7 +162,11 @@ pub(crate) fn primary_window_plugin_config_for_with_config(
     (!output.mode.is_offscreen()).then(|| primary_window_config_for_with_config(output, config))
 }
 
-/// Returns whether headless runner.
+/// Returns whether the app should run through Bevy's schedule runner instead of the Winit event
+/// loop.
+///
+/// At the moment this is equivalent to "offscreen output mode is enabled". Keeping the predicate in
+/// one place avoids scattering that policy through bootstrap code and tests.
 pub(crate) fn uses_headless_runner(output: &AppOutputConfig) -> bool {
     output.mode.is_offscreen()
 }
@@ -132,12 +175,19 @@ pub(crate) fn uses_headless_runner(output: &AppOutputConfig) -> bool {
     dead_code,
     reason = "compatibility wrapper retained for scene facade tests"
 )]
-/// Implements primary window config for.
+/// Convenience wrapper that builds a concrete [`Window`] using the default application config.
+///
+/// This is mostly used by tests; production code typically calls
+/// [`primary_window_config_for_with_config`] after loading config from disk.
 pub(crate) fn primary_window_config_for(output: &AppOutputConfig) -> Window {
     primary_window_config_for_with_config(output, &NeoZeusConfig::default())
 }
 
-/// Implements primary window config for with config.
+/// Builds the concrete [`Window`] settings used for the primary render target.
+///
+/// The function folds together output-mode policy, application metadata, and the optional scale
+/// factor override. Offscreen mode forces a hidden windowed configuration because the app still
+/// needs a logical primary window resource even when no native window should be shown.
 pub(crate) fn primary_window_config_for_with_config(
     output: &AppOutputConfig,
     config: &NeoZeusConfig,
@@ -164,7 +214,16 @@ pub(crate) fn primary_window_config_for_with_config(
     }
 }
 
-/// Configures app.
+/// Fills the freshly created [`App`] with plugins, resources, messages, and schedule wiring.
+///
+/// The work is done in four stages: load configuration, decide runtime/output mode, install the
+/// correct Bevy plugin stack for that mode, and finally seed all domain resources used by the HUD,
+/// terminal runtime, persistence, and verification paths. The function is intentionally long because
+/// it is the single composition root for the application.
+///
+/// A notable quirk is the offscreen path: Winit is disabled, a synthetic primary window is spawned
+/// manually, and the runtime spawner is built without an OS event-loop proxy so verification can run
+/// headlessly.
 fn configure_app(app: &mut App) -> Result<(), String> {
     let neozeus_config = load_neozeus_config()?;
     let output = AppOutputConfig::from_env();
@@ -187,6 +246,8 @@ fn configure_app(app: &mut App) -> Result<(), String> {
         WinitSettings::desktop_app()
     };
 
+    // Build the common plugin stack first, then choose between a normal Winit-driven app and a
+    // headless schedule runner depending on the selected output mode.
     let default_plugins = DefaultPlugins
         .set(RenderPlugin {
             render_creation: WgpuSettings {
@@ -217,6 +278,8 @@ fn configure_app(app: &mut App) -> Result<(), String> {
     ));
 
     if uses_headless_runner(&output) {
+        // Without Winit there is no automatically spawned `PrimaryWindow`, but the rest of the app
+        // still expects that resource graph to exist for sizing and render-target routing.
         app.world_mut().spawn((
             primary_window_config_for_with_config(&output, &neozeus_config),
             PrimaryWindow,
@@ -250,6 +313,8 @@ fn configure_app(app: &mut App) -> Result<(), String> {
         app.insert_resource(config);
     }
 
+    // Seed every long-lived domain resource up front. Most systems assume these resources exist and
+    // mutate them directly instead of lazily creating state during update.
     app.insert_resource(output)
         .insert_resource(FinalFrameOutputState::default())
         .insert_resource(ClearColor(Color::srgb(0.02, 0.02, 0.02)))
@@ -295,7 +360,12 @@ fn configure_app(app: &mut App) -> Result<(), String> {
     Ok(())
 }
 
-/// Implements format startup panic.
+/// Converts a captured startup panic into a user-facing error string when the panic matches the
+/// known missing-GPU failure.
+///
+/// The function intentionally only recognizes one startup class: the Bevy/WGPU "no adapter found"
+/// panic. Everything else returns `None` so the caller can resume unwinding and preserve normal bug
+/// visibility.
 pub(crate) fn format_startup_panic(payload: &(dyn Any + Send)) -> Option<String> {
     let message = panic_payload_message(payload)?;
     if !is_missing_gpu_panic(message) {
@@ -310,12 +380,21 @@ Run it in a graphical session with a working GPU, or install a software renderer
     )
 }
 
-/// Returns whether missing GPU panic.
+/// Detects whether a panic message is the specific WGPU "no graphics adapter" failure we know how
+/// to recover from.
+///
+/// Matching is deliberately done by substring against the stable fragment exposed by
+/// [`GPU_NOT_FOUND_PANIC_FRAGMENT`] instead of by exact text so minor surrounding wording changes do
+/// not break the recovery path.
 fn is_missing_gpu_panic(message: &str) -> bool {
     message.contains(GPU_NOT_FOUND_PANIC_FRAGMENT)
 }
 
-/// Implements panic payload message.
+/// Extracts a string view from the two panic payload shapes this code cares about.
+///
+/// Rust panics commonly carry either an owned `String` or a `&'static str`. Any other payload type
+/// is ignored and returns `None`, which is fine here because the startup recovery path only needs to
+/// inspect text panics emitted by upstream libraries.
 fn panic_payload_message(payload: &(dyn Any + Send)) -> Option<&str> {
     if let Some(message) = payload.downcast_ref::<String>() {
         Some(message.as_str())

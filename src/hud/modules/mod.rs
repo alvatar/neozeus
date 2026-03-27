@@ -29,7 +29,10 @@ pub(crate) use debug_toolbar::debug_toolbar_buttons;
     clippy::too_many_arguments,
     reason = "module click routing needs shell geometry, terminal state, agent data, and command output together"
 )]
-/// Handles pointer click.
+/// Dispatches a HUD pointer click to the currently addressed module implementation.
+///
+/// This module-level router keeps module-specific click logic out of the generic HUD input system and
+/// preserves a single call site regardless of which module type is active.
 pub(crate) fn handle_pointer_click(
     module_id: HudModuleId,
     model: &HudModuleModel,
@@ -67,7 +70,10 @@ pub(crate) fn handle_pointer_click(
     }
 }
 
-/// Handles hover.
+/// Dispatches hover updates to the addressed HUD module and returns whether its hover state changed.
+///
+/// Debug toolbar currently ignores hover, while agent-list hover is delegated to its own retained
+/// interaction logic.
 pub(crate) fn handle_hover(
     module_id: HudModuleId,
     model: &mut HudModuleModel,
@@ -90,7 +96,10 @@ pub(crate) fn handle_hover(
     }
 }
 
-/// Clears hover.
+/// Clears retained hover state for the addressed HUD module.
+///
+/// This is the counterpart to [`handle_hover`] and again only matters for modules that track hover
+/// internally.
 pub(crate) fn clear_hover(module_id: HudModuleId, model: &mut HudModuleModel) -> bool {
     match module_id {
         HudModuleId::DebugToolbar => false,
@@ -98,7 +107,10 @@ pub(crate) fn clear_hover(module_id: HudModuleId, model: &mut HudModuleModel) ->
     }
 }
 
-/// Renders module content.
+/// Dispatches module-body rendering to the addressed module implementation.
+///
+/// The generic HUD renderer only needs to know which module is being drawn; the module-specific body
+/// drawing stays encapsulated behind this router.
 pub(crate) fn render_module_content(
     module_id: HudModuleId,
     model: &HudModuleModel,
@@ -114,7 +126,10 @@ pub(crate) fn render_module_content(
     }
 }
 
-/// Handles scroll.
+/// Dispatches scroll input to the addressed HUD module.
+///
+/// Only the agent list currently consumes scroll deltas; the debug toolbar intentionally ignores
+/// them.
 pub(crate) fn handle_scroll(
     module_id: HudModuleId,
     model: &mut HudModuleModel,

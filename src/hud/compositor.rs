@@ -52,7 +52,10 @@ pub(crate) struct HudOffscreenCompositor {
 }
 
 impl Default for HudOffscreenCompositor {
-    /// Returns the default value for this type.
+    /// Creates the default compositor state with one main-HUD layer and no spawned entities yet.
+    ///
+    /// Entity handles are left empty because setup is responsible for actually spawning the cameras and
+    /// quads later.
     fn default() -> Self {
         Self {
             layers: vec![HudCompositeLayer {
@@ -67,13 +70,19 @@ impl Default for HudOffscreenCompositor {
 }
 
 impl HudOffscreenCompositor {
-    /// Implements layer.
+    /// Looks up one compositor layer definition by id.
+    ///
+    /// The compositor keeps a tiny vector of layers, so a linear search is sufficient and keeps the
+    /// data structure simple.
     fn layer(&self, id: HudCompositeLayerId) -> Option<&HudCompositeLayer> {
         self.layers.iter().find(|layer| layer.id == id)
     }
 }
 
-/// Implements fullscreen clip mesh.
+/// Builds the fullscreen quad mesh used to display offscreen HUD textures.
+///
+/// The mesh is authored directly in clip-like space and then rendered by a dedicated compositor
+/// camera, which avoids needing per-frame geometry generation.
 fn fullscreen_clip_mesh() -> Mesh {
     let mut mesh = Mesh::new(
         PrimitiveTopology::TriangleList,
@@ -96,7 +105,10 @@ fn fullscreen_clip_mesh() -> Mesh {
     mesh
 }
 
-/// Sets up HUD offscreen compositor.
+/// Spawns the compositor camera and one fullscreen quad per configured HUD composite layer.
+///
+/// The setup is idempotent: if the camera or a layer quad already exists, it is left alone. New quads
+/// start hidden and with an empty Vello canvas material until sync wires real textures into them.
 pub(crate) fn setup_hud_offscreen_compositor(
     commands: &mut Commands,
     compositor: &mut HudOffscreenCompositor,
@@ -161,7 +173,11 @@ type HudCompositeQuadQueryItem<'a> = (
     clippy::too_many_arguments,
     reason = "compositor sync needs window, image assets, materials, and visibility queries together"
 )]
-/// Synchronizes HUD offscreen compositor.
+/// Synchronizes the compositor quads with the latest Vello canvas texture and window size.
+///
+/// The system hides the original Vello canvas entities, captures the first non-modal canvas texture,
+/// assigns that texture to the compositor layer(s), and only makes the composite quad visible once the
+/// texture size matches the expected primary-window size.
 pub(crate) fn sync_hud_offscreen_compositor(
     mut compositor: ResMut<HudOffscreenCompositor>,
     images: Res<Assets<Image>>,

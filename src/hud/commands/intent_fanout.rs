@@ -8,7 +8,11 @@ use bevy::prelude::*;
     clippy::too_many_arguments,
     reason = "intent fanout is intentionally explicit across narrow request channels"
 )]
-/// Dispatches HUD intents.
+/// Fans high-level HUD intents out into the narrower request channels consumed by later systems.
+///
+/// The HUD input layer produces a single `HudIntent` stream, but the mutation layer is split by
+/// concern: focus, visibility, modules, view, sending commands, lifecycle, and task editing each have
+/// their own request type. This function is the explicit translation table between those two layers.
 pub(crate) fn dispatch_hud_intents(
     mut intents: MessageReader<HudIntent>,
     mut focus_requests: MessageWriter<TerminalFocusRequest>,

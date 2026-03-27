@@ -79,7 +79,9 @@ pub(crate) enum DaemonEvent {
     },
 }
 
-/// Writes client message.
+/// Serializes and writes one client message as a length-prefixed protocol frame.
+///
+/// This is the public entry point used by daemon clients before bytes hit the socket.
 pub(crate) fn write_client_message(
     writer: &mut impl Write,
     message: &ClientMessage,
@@ -89,7 +91,9 @@ pub(crate) fn write_client_message(
     write_frame(writer, &payload)
 }
 
-/// Reads client message.
+/// Reads, decodes, and validates one length-prefixed client message frame.
+///
+/// Decoding rejects truncated payloads and trailing bytes after a valid message.
 pub(crate) fn read_client_message(reader: &mut impl Read) -> Result<ClientMessage, String> {
     let payload = read_frame(reader)?;
     let mut decoder = Decoder::new(&payload);
@@ -98,7 +102,9 @@ pub(crate) fn read_client_message(reader: &mut impl Read) -> Result<ClientMessag
     Ok(message)
 }
 
-/// Writes server message.
+/// Serializes and writes one server message as a length-prefixed protocol frame.
+///
+/// Both daemon responses and async events go through this framing helper.
 pub(crate) fn write_server_message(
     writer: &mut impl Write,
     message: &ServerMessage,
@@ -108,7 +114,9 @@ pub(crate) fn write_server_message(
     write_frame(writer, &payload)
 }
 
-/// Reads server message.
+/// Reads, decodes, and validates one length-prefixed server message frame.
+///
+/// This is shared by real clients and compatibility tests.
 pub(crate) fn read_server_message(reader: &mut impl Read) -> Result<ServerMessage, String> {
     let payload = read_frame(reader)?;
     let mut decoder = Decoder::new(&payload);
@@ -117,7 +125,10 @@ pub(crate) fn read_server_message(reader: &mut impl Read) -> Result<ServerMessag
     Ok(message)
 }
 
-/// Writes frame.
+/// Writes one raw protocol frame as `<u32 little-endian length><payload>`.
+///
+/// The writer is flushed before returning so request/response round-trips are not delayed in socket
+/// buffers.
 fn write_frame(writer: &mut impl Write, payload: &[u8]) -> Result<(), String> {
     let len = u32::try_from(payload.len()).map_err(|_| "protocol frame too large".to_owned())?;
     writer
@@ -131,7 +142,9 @@ fn write_frame(writer: &mut impl Write, payload: &[u8]) -> Result<(), String> {
         .map_err(|error| format!("failed to flush frame payload: {error}"))
 }
 
-/// Reads frame.
+/// Reads one raw length-prefixed protocol frame into memory.
+///
+/// The whole payload is buffered because higher-level decoders work over byte slices.
 fn read_frame(reader: &mut impl Read) -> Result<Vec<u8>, String> {
     let mut len_buf = [0_u8; 4];
     reader
@@ -145,7 +158,9 @@ fn read_frame(reader: &mut impl Read) -> Result<Vec<u8>, String> {
     Ok(payload)
 }
 
-/// Encodes client message.
+/// Encodes one client message into the protocol payload format.
+///
+/// The first byte is a message tag; the rest is message-specific data.
 fn encode_client_message(buffer: &mut Vec<u8>, message: &ClientMessage) {
     match message {
         ClientMessage::Request {
@@ -159,7 +174,9 @@ fn encode_client_message(buffer: &mut Vec<u8>, message: &ClientMessage) {
     }
 }
 
-/// Decodes client message.
+/// Decodes one client message from the protocol payload stream.
+///
+/// Unknown tags are rejected immediately.
 fn decode_client_message(decoder: &mut Decoder<'_>) -> Result<ClientMessage, String> {
     match decoder.read_u8()? {
         0 => Ok(ClientMessage::Request {
@@ -170,7 +187,7 @@ fn decode_client_message(decoder: &mut Decoder<'_>) -> Result<ClientMessage, Str
     }
 }
 
-/// Encodes request.
+/// Encodes one daemon request variant into its tagged wire representation.
 fn encode_request(buffer: &mut Vec<u8>, request: &DaemonRequest) {
     match request {
         DaemonRequest::ListSessions => push_u8(buffer, 1),
@@ -207,7 +224,7 @@ fn encode_request(buffer: &mut Vec<u8>, request: &DaemonRequest) {
     }
 }
 
-/// Decodes request.
+/// Decodes one daemon request variant from the payload stream.
 fn decode_request(decoder: &mut Decoder<'_>) -> Result<DaemonRequest, String> {
     match decoder.read_u8()? {
         1 => Ok(DaemonRequest::ListSessions),
@@ -233,7 +250,9 @@ fn decode_request(decoder: &mut Decoder<'_>) -> Result<DaemonRequest, String> {
     }
 }
 
-/// Encodes server message.
+/// Encodes one server message into the protocol payload format.
+///
+/// Responses and events share the same outer tagged envelope.
 fn encode_server_message(buffer: &mut Vec<u8>, message: &ServerMessage) {
     match message {
         ServerMessage::Response {
@@ -251,7 +270,7 @@ fn encode_server_message(buffer: &mut Vec<u8>, message: &ServerMessage) {
     }
 }
 
-/// Decodes server message.
+/// Decodes one server message from the payload stream.
 fn decode_server_message(decoder: &mut Decoder<'_>) -> Result<ServerMessage, String> {
     match decoder.read_u8()? {
         0 => Ok(ServerMessage::Response {
@@ -263,7 +282,7 @@ fn decode_server_message(decoder: &mut Decoder<'_>) -> Result<ServerMessage, Str
     }
 }
 
-/// Encodes response.
+/// Encodes one daemon response variant into its tagged wire representation.
 fn encode_response(buffer: &mut Vec<u8>, response: &DaemonResponse) {
     match response {
         DaemonResponse::SessionList { sessions } => {
@@ -288,7 +307,7 @@ fn encode_response(buffer: &mut Vec<u8>, response: &DaemonResponse) {
     }
 }
 
-/// Decodes response.
+/// Decodes one daemon response variant from the payload stream.
 fn decode_response(decoder: &mut Decoder<'_>) -> Result<DaemonResponse, String> {
     match decoder.read_u8()? {
         1 => Ok(DaemonResponse::SessionList {
@@ -307,7 +326,9 @@ fn decode_response(decoder: &mut Decoder<'_>) -> Result<DaemonResponse, String> 
     }
 }
 
-/// Encodes session info.
+/// Encodes the subset of session metadata that belongs on the daemon wire format.
+///
+/// `created_order` intentionally stays off-wire for protocol v1 compatibility.
 fn encode_session_info(buffer: &mut Vec<u8>, info: &DaemonSessionInfo) {
     push_string(buffer, &info.session_id);
     encode_runtime_state(buffer, &info.runtime);
@@ -316,7 +337,7 @@ fn encode_session_info(buffer: &mut Vec<u8>, info: &DaemonSessionInfo) {
     push_u64(buffer, info.revision);
 }
 
-/// Decodes session info.
+/// Decodes session metadata from the wire format, defaulting missing legacy `created_order` to 0.
 fn decode_session_info(decoder: &mut Decoder<'_>) -> Result<DaemonSessionInfo, String> {
     Ok(DaemonSessionInfo {
         session_id: decoder.read_string()?,
@@ -326,7 +347,7 @@ fn decode_session_info(decoder: &mut Decoder<'_>) -> Result<DaemonSessionInfo, S
     })
 }
 
-/// Encodes event.
+/// Encodes one async daemon event into its tagged wire representation.
 fn encode_event(buffer: &mut Vec<u8>, event: &DaemonEvent) {
     match event {
         DaemonEvent::SessionUpdated {
@@ -342,7 +363,7 @@ fn encode_event(buffer: &mut Vec<u8>, event: &DaemonEvent) {
     }
 }
 
-/// Decodes event.
+/// Decodes one async daemon event from the payload stream.
 fn decode_event(decoder: &mut Decoder<'_>) -> Result<DaemonEvent, String> {
     match decoder.read_u8()? {
         0 => Ok(DaemonEvent::SessionUpdated {
@@ -354,7 +375,7 @@ fn decode_event(decoder: &mut Decoder<'_>) -> Result<DaemonEvent, String> {
     }
 }
 
-/// Encodes command.
+/// Encodes one terminal command into its tagged wire representation.
 fn encode_command(buffer: &mut Vec<u8>, command: &TerminalCommand) {
     match command {
         TerminalCommand::InputText(text) => {
@@ -376,7 +397,7 @@ fn encode_command(buffer: &mut Vec<u8>, command: &TerminalCommand) {
     }
 }
 
-/// Decodes command.
+/// Decodes one terminal command from the payload stream.
 fn decode_command(decoder: &mut Decoder<'_>) -> Result<TerminalCommand, String> {
     match decoder.read_u8()? {
         0 => Ok(TerminalCommand::InputText(decoder.read_string()?)),
@@ -387,13 +408,13 @@ fn decode_command(decoder: &mut Decoder<'_>) -> Result<TerminalCommand, String> 
     }
 }
 
-/// Encodes snapshot.
+/// Encodes a full terminal snapshot consisting of optional surface plus runtime state.
 fn encode_snapshot(buffer: &mut Vec<u8>, snapshot: &TerminalSnapshot) {
     push_option(buffer, snapshot.surface.as_ref(), encode_surface);
     encode_runtime_state(buffer, &snapshot.runtime);
 }
 
-/// Decodes snapshot.
+/// Decodes a full terminal snapshot from the payload stream.
 fn decode_snapshot(decoder: &mut Decoder<'_>) -> Result<TerminalSnapshot, String> {
     Ok(TerminalSnapshot {
         surface: decoder.read_option(decode_surface)?,
@@ -401,7 +422,7 @@ fn decode_snapshot(decoder: &mut Decoder<'_>) -> Result<TerminalSnapshot, String
     })
 }
 
-/// Encodes update.
+/// Encodes either a frame update or a status update into the wire format.
 fn encode_update(buffer: &mut Vec<u8>, update: &TerminalUpdate) {
     match update {
         TerminalUpdate::Frame(frame) => {
@@ -416,7 +437,7 @@ fn encode_update(buffer: &mut Vec<u8>, update: &TerminalUpdate) {
     }
 }
 
-/// Decodes update.
+/// Decodes either a frame update or a status update from the payload stream.
 fn decode_update(decoder: &mut Decoder<'_>) -> Result<TerminalUpdate, String> {
     match decoder.read_u8()? {
         0 => Ok(TerminalUpdate::Frame(decode_frame_update(decoder)?)),
@@ -428,14 +449,14 @@ fn decode_update(decoder: &mut Decoder<'_>) -> Result<TerminalUpdate, String> {
     }
 }
 
-/// Encodes frame update.
+/// Encodes the full payload of a frame update: surface, damage, and runtime.
 fn encode_frame_update(buffer: &mut Vec<u8>, frame: &TerminalFrameUpdate) {
     encode_surface(buffer, &frame.surface);
     encode_damage(buffer, &frame.damage);
     encode_runtime_state(buffer, &frame.runtime);
 }
 
-/// Decodes frame update.
+/// Decodes the full payload of a frame update from the payload stream.
 fn decode_frame_update(decoder: &mut Decoder<'_>) -> Result<TerminalFrameUpdate, String> {
     Ok(TerminalFrameUpdate {
         surface: decode_surface(decoder)?,
@@ -444,7 +465,7 @@ fn decode_frame_update(decoder: &mut Decoder<'_>) -> Result<TerminalFrameUpdate,
     })
 }
 
-/// Encodes damage.
+/// Encodes terminal damage either as full redraw or as an explicit row list.
 fn encode_damage(buffer: &mut Vec<u8>, damage: &TerminalDamage) {
     match damage {
         TerminalDamage::Full => push_u8(buffer, 0),
@@ -455,7 +476,7 @@ fn encode_damage(buffer: &mut Vec<u8>, damage: &TerminalDamage) {
     }
 }
 
-/// Decodes damage.
+/// Decodes terminal damage from the payload stream.
 fn decode_damage(decoder: &mut Decoder<'_>) -> Result<TerminalDamage, String> {
     match decoder.read_u8()? {
         0 => Ok(TerminalDamage::Full),
@@ -466,7 +487,7 @@ fn decode_damage(decoder: &mut Decoder<'_>) -> Result<TerminalDamage, String> {
     }
 }
 
-/// Encodes surface.
+/// Encodes a full terminal surface grid including dimensions, cells, and optional cursor.
 fn encode_surface(buffer: &mut Vec<u8>, surface: &TerminalSurface) {
     push_usize(buffer, surface.cols);
     push_usize(buffer, surface.rows);
@@ -474,7 +495,7 @@ fn encode_surface(buffer: &mut Vec<u8>, surface: &TerminalSurface) {
     push_option(buffer, surface.cursor.as_ref(), encode_cursor);
 }
 
-/// Decodes surface.
+/// Decodes a full terminal surface grid from the payload stream.
 fn decode_surface(decoder: &mut Decoder<'_>) -> Result<TerminalSurface, String> {
     Ok(TerminalSurface {
         cols: decoder.read_usize()?,
@@ -484,7 +505,7 @@ fn decode_surface(decoder: &mut Decoder<'_>) -> Result<TerminalSurface, String> 
     })
 }
 
-/// Encodes cell.
+/// Encodes one terminal cell's content, colors, and width metadata.
 fn encode_cell(buffer: &mut Vec<u8>, cell: &TerminalCell) {
     encode_cell_content(buffer, &cell.content);
     encode_color(buffer, cell.fg);
@@ -492,7 +513,7 @@ fn encode_cell(buffer: &mut Vec<u8>, cell: &TerminalCell) {
     push_u8(buffer, cell.width);
 }
 
-/// Decodes cell.
+/// Decodes one terminal cell from the payload stream.
 fn decode_cell(decoder: &mut Decoder<'_>) -> Result<TerminalCell, String> {
     Ok(TerminalCell {
         content: decode_cell_content(decoder)?,
@@ -502,7 +523,10 @@ fn decode_cell(decoder: &mut Decoder<'_>) -> Result<TerminalCell, String> {
     })
 }
 
-/// Encodes cell content.
+/// Encodes the compact terminal cell-content enum used by the surface grid.
+///
+/// Small inline grapheme storage and heap-backed text use different tags so common single/small-cell
+/// cases stay cheap on the wire.
 fn encode_cell_content(buffer: &mut Vec<u8>, content: &TerminalCellContent) {
     match content {
         TerminalCellContent::Empty => push_u8(buffer, 0),
@@ -524,7 +548,7 @@ fn encode_cell_content(buffer: &mut Vec<u8>, content: &TerminalCellContent) {
     }
 }
 
-/// Decodes cell content.
+/// Decodes the compact terminal cell-content enum from the payload stream.
 fn decode_cell_content(decoder: &mut Decoder<'_>) -> Result<TerminalCellContent, String> {
     match decoder.read_u8()? {
         0 => Ok(TerminalCellContent::Empty),
@@ -540,7 +564,7 @@ fn decode_cell_content(decoder: &mut Decoder<'_>) -> Result<TerminalCellContent,
     }
 }
 
-/// Encodes cursor.
+/// Encodes cursor position, shape, visibility, and color.
 fn encode_cursor(buffer: &mut Vec<u8>, cursor: &TerminalCursor) {
     push_usize(buffer, cursor.x);
     push_usize(buffer, cursor.y);
@@ -549,7 +573,7 @@ fn encode_cursor(buffer: &mut Vec<u8>, cursor: &TerminalCursor) {
     encode_color(buffer, cursor.color);
 }
 
-/// Decodes cursor.
+/// Decodes cursor metadata from the payload stream.
 fn decode_cursor(decoder: &mut Decoder<'_>) -> Result<TerminalCursor, String> {
     Ok(TerminalCursor {
         x: decoder.read_usize()?,
@@ -560,7 +584,7 @@ fn decode_cursor(decoder: &mut Decoder<'_>) -> Result<TerminalCursor, String> {
     })
 }
 
-/// Encodes cursor shape.
+/// Encodes the cursor-shape enum as a tiny tag.
 fn encode_cursor_shape(buffer: &mut Vec<u8>, shape: TerminalCursorShape) {
     match shape {
         TerminalCursorShape::Block => push_u8(buffer, 0),
@@ -569,7 +593,7 @@ fn encode_cursor_shape(buffer: &mut Vec<u8>, shape: TerminalCursorShape) {
     }
 }
 
-/// Decodes cursor shape.
+/// Decodes the cursor-shape enum from its wire tag.
 fn decode_cursor_shape(decoder: &mut Decoder<'_>) -> Result<TerminalCursorShape, String> {
     match decoder.read_u8()? {
         0 => Ok(TerminalCursorShape::Block),
@@ -579,7 +603,7 @@ fn decode_cursor_shape(decoder: &mut Decoder<'_>) -> Result<TerminalCursorShape,
     }
 }
 
-/// Encodes runtime state.
+/// Encodes the runtime status string, lifecycle enum, and optional last-error text.
 fn encode_runtime_state(buffer: &mut Vec<u8>, state: &TerminalRuntimeState) {
     push_string(buffer, &state.status);
     encode_lifecycle(buffer, &state.lifecycle);
@@ -588,7 +612,7 @@ fn encode_runtime_state(buffer: &mut Vec<u8>, state: &TerminalRuntimeState) {
     });
 }
 
-/// Decodes runtime state.
+/// Decodes runtime status metadata from the payload stream.
 fn decode_runtime_state(decoder: &mut Decoder<'_>) -> Result<TerminalRuntimeState, String> {
     Ok(TerminalRuntimeState {
         status: decoder.read_string()?,
@@ -597,7 +621,7 @@ fn decode_runtime_state(decoder: &mut Decoder<'_>) -> Result<TerminalRuntimeStat
     })
 }
 
-/// Encodes lifecycle.
+/// Encodes the terminal lifecycle enum, including optional exit code and signal payloads.
 fn encode_lifecycle(buffer: &mut Vec<u8>, lifecycle: &TerminalLifecycle) {
     match lifecycle {
         TerminalLifecycle::Running => push_u8(buffer, 0),
@@ -615,7 +639,7 @@ fn encode_lifecycle(buffer: &mut Vec<u8>, lifecycle: &TerminalLifecycle) {
     }
 }
 
-/// Decodes lifecycle.
+/// Decodes the terminal lifecycle enum from the payload stream.
 fn decode_lifecycle(decoder: &mut Decoder<'_>) -> Result<TerminalLifecycle, String> {
     match decoder.read_u8()? {
         0 => Ok(TerminalLifecycle::Running),
@@ -629,7 +653,7 @@ fn decode_lifecycle(decoder: &mut Decoder<'_>) -> Result<TerminalLifecycle, Stri
     }
 }
 
-/// Encodes color.
+/// Encodes an `egui::Color32` as four raw RGBA bytes.
 fn encode_color(buffer: &mut Vec<u8>, color: egui::Color32) {
     let [r, g, b, a] = color.to_array();
     push_u8(buffer, r);
@@ -638,7 +662,7 @@ fn encode_color(buffer: &mut Vec<u8>, color: egui::Color32) {
     push_u8(buffer, a);
 }
 
-/// Decodes color.
+/// Decodes an `egui::Color32` from four raw RGBA bytes.
 fn decode_color(decoder: &mut Decoder<'_>) -> Result<egui::Color32, String> {
     Ok(egui::Color32::from_rgba_unmultiplied(
         decoder.read_u8()?,
@@ -697,42 +721,42 @@ fn push_option<T>(buffer: &mut Vec<u8>, value: Option<&T>, encode: impl Fn(&mut 
     }
 }
 
-/// Pushes bool.
+/// Appends a boolean as `0` or `1` to the payload buffer.
 fn push_bool(buffer: &mut Vec<u8>, value: bool) {
     push_u8(buffer, u8::from(value));
 }
 
-/// Pushes u8.
+/// Appends one raw byte to the payload buffer.
 fn push_u8(buffer: &mut Vec<u8>, value: u8) {
     buffer.push(value);
 }
 
-/// Pushes u32.
+/// Appends a little-endian `u32` to the payload buffer.
 fn push_u32(buffer: &mut Vec<u8>, value: u32) {
     buffer.extend_from_slice(&value.to_le_bytes());
 }
 
-/// Pushes u64.
+/// Appends a little-endian `u64` to the payload buffer.
 fn push_u64(buffer: &mut Vec<u8>, value: u64) {
     buffer.extend_from_slice(&value.to_le_bytes());
 }
 
-/// Pushes i32.
+/// Appends a little-endian `i32` to the payload buffer.
 fn push_i32(buffer: &mut Vec<u8>, value: i32) {
     buffer.extend_from_slice(&value.to_le_bytes());
 }
 
-/// Pushes usize.
+/// Encodes `usize` through the protocol's fixed `u64` representation.
 fn push_usize(buffer: &mut Vec<u8>, value: usize) {
     push_u64(buffer, value as u64);
 }
 
-/// Pushes char.
+/// Encodes a Rust `char` as its Unicode scalar value in little-endian `u32` form.
 fn push_char(buffer: &mut Vec<u8>, value: char) {
     push_u32(buffer, value as u32);
 }
 
-/// Pushes string.
+/// Encodes a UTF-8 string as `<u32 byte length><raw bytes>`.
 fn push_string(buffer: &mut Vec<u8>, value: &str) {
     let bytes = value.as_bytes();
     push_u32(buffer, u32::try_from(bytes.len()).unwrap_or(u32::MAX));
@@ -745,12 +769,12 @@ struct Decoder<'a> {
 }
 
 impl<'a> Decoder<'a> {
-    /// Constructs a new value.
+    /// Creates a payload decoder over a borrowed byte slice with cursor positioned at the start.
     fn new(bytes: &'a [u8]) -> Self {
         Self { bytes, cursor: 0 }
     }
 
-    /// Implements finish.
+    /// Verifies that the decoder consumed the payload exactly with no trailing garbage.
     fn finish(&self) -> Result<(), String> {
         if self.cursor == self.bytes.len() {
             Ok(())
@@ -759,7 +783,9 @@ impl<'a> Decoder<'a> {
         }
     }
 
-    /// Implements take.
+    /// Borrows the next `len` bytes from the payload and advances the cursor.
+    ///
+    /// Overflow and truncation are reported as protocol errors instead of panicking.
     fn take(&mut self, len: usize) -> Result<&'a [u8], String> {
         let end = self
             .cursor
@@ -773,48 +799,48 @@ impl<'a> Decoder<'a> {
         Ok(bytes)
     }
 
-    /// Reads bool.
+    /// Reads a protocol boolean encoded as one byte.
     fn read_bool(&mut self) -> Result<bool, String> {
         Ok(self.read_u8()? != 0)
     }
 
-    /// Reads u8.
+    /// Reads one raw byte from the payload.
     fn read_u8(&mut self) -> Result<u8, String> {
         Ok(self.take(1)?[0])
     }
 
-    /// Reads u32.
+    /// Reads a little-endian `u32` from the payload.
     fn read_u32(&mut self) -> Result<u32, String> {
         let mut buf = [0_u8; 4];
         buf.copy_from_slice(self.take(4)?);
         Ok(u32::from_le_bytes(buf))
     }
 
-    /// Reads u64.
+    /// Reads a little-endian `u64` from the payload.
     fn read_u64(&mut self) -> Result<u64, String> {
         let mut buf = [0_u8; 8];
         buf.copy_from_slice(self.take(8)?);
         Ok(u64::from_le_bytes(buf))
     }
 
-    /// Reads i32.
+    /// Reads a little-endian `i32` from the payload.
     fn read_i32(&mut self) -> Result<i32, String> {
         let mut buf = [0_u8; 4];
         buf.copy_from_slice(self.take(4)?);
         Ok(i32::from_le_bytes(buf))
     }
 
-    /// Reads usize.
+    /// Reads a protocol `usize`, which is encoded on the wire as `u64`.
     fn read_usize(&mut self) -> Result<usize, String> {
         usize::try_from(self.read_u64()?).map_err(|_| "usize decode overflow".to_owned())
     }
 
-    /// Reads char.
+    /// Reads a Unicode scalar value encoded as `u32` and converts it back into `char`.
     fn read_char(&mut self) -> Result<char, String> {
         char::from_u32(self.read_u32()?).ok_or_else(|| "invalid char codepoint".to_owned())
     }
 
-    /// Reads string.
+    /// Reads a length-prefixed UTF-8 string from the payload.
     fn read_string(&mut self) -> Result<String, String> {
         let len = self.read_u32()? as usize;
         let bytes = self.take(len)?;

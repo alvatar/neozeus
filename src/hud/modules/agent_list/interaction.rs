@@ -6,7 +6,10 @@ use bevy::prelude::Vec2;
 
 use super::{agent_list_content_height, agent_rows};
 
-/// Handles pointer click.
+/// Converts a click on an agent-list row into focus + isolate intents for that terminal.
+///
+/// The function rebuilds the currently visible row list from the retained module state and selects the
+/// first row whose rectangle contains the click point.
 pub(crate) fn handle_pointer_click(
     model: &HudModuleModel,
     shell_rect: HudRect,
@@ -35,7 +38,10 @@ pub(crate) fn handle_pointer_click(
     }
 }
 
-/// Handles hover.
+/// Updates the retained hovered-terminal id for the agent list and reports whether it changed.
+///
+/// Hover is recomputed from the current pointer position against the currently visible rows. Returning
+/// a boolean lets the caller request redraw only when hover state actually changed.
 pub(crate) fn handle_hover(
     model: &mut HudModuleModel,
     shell_rect: HudRect,
@@ -67,7 +73,10 @@ pub(crate) fn handle_hover(
     true
 }
 
-/// Handles scroll.
+/// Applies vertical scrolling to the agent-list module.
+///
+/// Scroll offset is clamped against the current content height so the list can never scroll past its
+/// real bounds even as the row count changes.
 pub(crate) fn handle_scroll(
     model: &mut HudModuleModel,
     delta_y: f32,
@@ -82,7 +91,9 @@ pub(crate) fn handle_scroll(
     state.scroll_offset = (state.scroll_offset - delta_y).clamp(0.0, max_scroll);
 }
 
-/// Clears hover.
+/// Clears any retained hover target from the agent list and reports whether that changed state.
+///
+/// This lets the caller avoid unnecessary redraws when the list was already in a non-hovered state.
 pub(crate) fn clear_hover(model: &mut HudModuleModel) -> bool {
     let HudModuleModel::AgentList(state) = model else {
         return false;

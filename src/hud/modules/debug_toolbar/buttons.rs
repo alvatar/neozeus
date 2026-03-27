@@ -11,7 +11,10 @@ use crate::{
 
 use super::{DebugToolbarAction, DebugToolbarButton};
 
-/// Implements debug toolbar buttons.
+/// Builds the retained button list for the debug toolbar module.
+///
+/// The function derives button active state from live terminal/HUD state, assigns each button a
+/// width based on its label, and lays the buttons out left-to-right within the toolbar shell.
 pub(crate) fn debug_toolbar_buttons(
     shell_rect: HudRect,
     _terminal_manager: &TerminalManager,

@@ -30,7 +30,9 @@ pub(crate) const PERSISTENT_SESSION_PREFIX: &str = "neozeus-session-";
 pub(crate) const VERIFIER_SESSION_PREFIX: &str = "neozeus-verifier-";
 const DAEMON_BACKEND_STATUS: &str = "backend: neozeus daemon pty";
 
-/// Returns whether persistent session name.
+/// Returns whether a daemon session name belongs to the ordinary persisted-session namespace.
+///
+/// Verifier sessions deliberately use a separate prefix and therefore do not match here.
 pub(crate) fn is_persistent_session_name(session_name: &str) -> bool {
     session_name.starts_with(PERSISTENT_SESSION_PREFIX)
 }
@@ -61,7 +63,10 @@ enum DaemonSessionCommand {
 }
 
 impl DaemonSession {
-    /// Starts this value.
+    /// Starts a new daemon-backed PTY session together with its worker thread.
+    ///
+    /// The initial snapshot is seeded with a blank surface at the default terminal size so attaches
+    /// have something coherent to render before the PTY produces output.
     pub(crate) fn start(session_id: String, created_order: u64) -> Result<Arc<Self>, String> {
         let crate::terminals::PtySession {
             master,
@@ -95,12 +100,12 @@ impl DaemonSession {
         Ok(session)
     }
 
-    /// Implements session id.
+    /// Returns this daemon session's stable string id.
     pub(crate) fn session_id(&self) -> &str {
         &self.session_id
     }
 
-    /// Implements info.
+    /// Snapshots the daemon session metadata currently exposed through `ListSessions`.
     pub(crate) fn info(&self) -> DaemonSessionInfo {
         let state = lock(&self.state);
         DaemonSessionInfo {
@@ -111,7 +116,10 @@ impl DaemonSession {
         }
     }
 
-    /// Implements subscribe.
+    /// Adds one subscriber to the session's update fan-out set and returns the current snapshot.
+    ///
+    /// Attach semantics are snapshot-then-stream, so the caller needs both the current snapshot and the
+    /// subscriber id used for later unsubscribe.
     pub(crate) fn subscribe(
         &self,
         subscriber_id: u64,
@@ -126,13 +134,13 @@ impl DaemonSession {
         }
     }
 
-    /// Implements unsubscribe.
+    /// Removes one subscriber from the session's update fan-out set.
     pub(crate) fn unsubscribe(&self, subscriber_id: u64) {
         let mut state = lock(&self.state);
         state.subscribers.remove(&subscriber_id);
     }
 
-    /// Implements send command.
+    /// Queues one terminal command for the daemon session worker thread.
     pub(crate) fn send_command(&self, command: TerminalCommand) -> Result<(), String> {
         self.command_tx
             .send(DaemonSessionCommand::Terminal(command))
@@ -144,7 +152,7 @@ impl DaemonSession {
             })
     }
 
-    /// Resizes this value.
+    /// Queues a PTY resize request for the daemon session worker thread.
     pub(crate) fn resize(&self, cols: usize, rows: usize) -> Result<(), String> {
         self.command_tx
             .send(DaemonSessionCommand::Resize { cols, rows })
@@ -156,7 +164,7 @@ impl DaemonSession {
             })
     }
 
-    /// Kills this value.
+    /// Asks the daemon session worker thread to terminate the PTY session.
     pub(crate) fn kill(&self) -> Result<(), String> {
         let _ = self.command_tx.send(DaemonSessionCommand::Kill);
         Ok(())
@@ -168,7 +176,7 @@ pub(crate) struct SubscriberIdAllocator {
 }
 
 impl Default for SubscriberIdAllocator {
-    /// Returns the default value for this type.
+    /// Creates a subscriber-id allocator starting at 1.
     fn default() -> Self {
         Self {
             next_id: AtomicU64::new(1),
@@ -177,7 +185,7 @@ impl Default for SubscriberIdAllocator {
 }
 
 impl SubscriberIdAllocator {
-    /// Implements next.
+    /// Returns the next unique subscriber id for daemon event fan-out.
     pub(crate) fn next(&self) -> u64 {
         self.next_id.fetch_add(1, Ordering::Relaxed)
     }
@@ -187,7 +195,11 @@ impl SubscriberIdAllocator {
     clippy::too_many_arguments,
     reason = "daemon session worker owns PTY, parser, child lifecycle, and subscriber broadcast"
 )]
-/// Runs session worker.
+/// Owns the daemon session PTY loop: read PTY output, apply queued commands, rebuild surfaces, and
+/// publish updates to subscribers.
+///
+/// Output is batched for a short window so bursts of PTY bytes coalesce into fewer surface rebuilds
+/// and fewer daemon events.
 fn run_session_worker(
     session_id: String,
     state: Arc<Mutex<DaemonSessionState>>,
@@ -456,7 +468,10 @@ fn run_session_worker(
     let _ = reader_thread.join();
 }
 
-/// Applies terminal command.
+/// Applies one queued terminal command to the daemon PTY session.
+///
+/// Text/event/command payloads are written to the PTY, while scrollback is handled locally against the
+/// in-memory terminal model because it is a view-only operation.
 fn apply_terminal_command(
     master: &(dyn portable_pty::MasterPty + Send),
     writer: &mut Box<dyn std::io::Write + Send>,
@@ -488,7 +503,9 @@ fn apply_terminal_command(
     }
 }
 
-/// Resizes terminal.
+/// Applies a PTY resize to both the real PTY master and the in-memory terminal model.
+///
+/// Dimensions are clamped to at least 1x1 so bad callers cannot request zero-sized terminals.
 fn resize_terminal(
     master: &(dyn portable_pty::MasterPty + Send),
     terminal: &mut Term<VoidListener>,
@@ -510,7 +527,10 @@ fn resize_terminal(
     Ok(())
 }
 
-/// Publishes frame update.
+/// Computes visual damage from the previous surface and publishes a frame update when anything
+/// changed.
+///
+/// Empty row-damage updates are suppressed so idle redraws do not spam subscribers.
 fn publish_frame_update(
     state: &Arc<Mutex<DaemonSessionState>>,
     session_id: &str,
@@ -532,7 +552,9 @@ fn publish_frame_update(
     );
 }
 
-/// Publishes update.
+/// Updates the session snapshot/revision and broadcasts one daemon event to all subscribers.
+///
+/// Dead subscriber channels are pruned opportunistically during broadcast.
 fn publish_update(
     state: &Arc<Mutex<DaemonSessionState>>,
     session_id: &str,
@@ -563,7 +585,10 @@ fn publish_update(
         .retain(|_, subscriber| subscriber.send(event.clone()).is_ok());
 }
 
-/// Sets reader runtime state.
+/// Stores the reader thread's terminal runtime outcome for pickup by the main worker loop.
+///
+/// The separate reader thread cannot publish directly because the main worker owns surface building
+/// and subscriber broadcast policy.
 fn set_reader_runtime_state(
     reader_state: &Arc<Mutex<Option<TerminalRuntimeState>>>,
     runtime: TerminalRuntimeState,

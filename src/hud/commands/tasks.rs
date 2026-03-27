@@ -4,7 +4,12 @@ use crate::{
 };
 use bevy::{prelude::*, window::RequestRedraw};
 
-/// Applies terminal task requests.
+/// Applies task-note mutations and task-consumption actions for a terminal.
+///
+/// Each request variant is resolved through the terminal's session name, because notes are persisted
+/// per session rather than per transient terminal id. After a successful change, the system marks the
+/// notes state dirty, refreshes the open task dialog if it is showing that same terminal, and asks
+/// for a redraw so the HUD reflects the updated task text immediately.
 pub(crate) fn apply_terminal_task_requests(
     mut requests: MessageReader<crate::hud::TerminalTaskRequest>,
     time: Res<Time>,

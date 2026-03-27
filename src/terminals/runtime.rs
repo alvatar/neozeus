@@ -19,17 +19,25 @@ pub(crate) struct RuntimeNotifier {
 }
 
 impl RuntimeNotifier {
-    /// Constructs a new value.
+    /// Builds a notifier backed by Bevy's Winit event-loop proxy.
+    ///
+    /// In windowed mode this is how background runtime threads poke the main loop to wake up and poll
+    /// newly arrived terminal updates.
     pub(crate) fn new(proxy: EventLoopProxy<WinitUserEvent>) -> Self {
         Self { proxy: Some(proxy) }
     }
 
-    /// Implements noop.
+    /// Builds a notifier that intentionally does nothing when woken.
+    ///
+    /// Headless/offscreen execution uses this because there is no Winit event loop to notify.
     pub(crate) fn noop() -> Self {
         Self { proxy: None }
     }
 
-    /// Implements wake.
+    /// Requests that the main application loop wake up and process terminal work.
+    ///
+    /// The call is best-effort: if no proxy exists or sending fails, nothing is propagated because the
+    /// next normal frame/update will eventually observe the pending state anyway.
     pub(crate) fn wake(&self) {
         if let Some(proxy) = &self.proxy {
             let _ = proxy.send_event(WinitUserEvent::WakeUp);
@@ -43,13 +51,19 @@ pub(crate) struct TerminalRuntimeSpawner {
     daemon: TerminalDaemonClientResource,
 }
 
-/// Returns whether bootstrap spawned agent.
+/// Returns whether a newly created session should be bootstrapped by sending the `pi` command.
+///
+/// Only persistent user-facing sessions get this behavior; verifier or other special-purpose session
+/// prefixes should stay plain shells.
 fn should_bootstrap_spawned_agent(prefix: &str) -> bool {
     prefix == PERSISTENT_SESSION_PREFIX
 }
 
 impl TerminalRuntimeSpawner {
-    /// Constructs a new value.
+    /// Builds the runtime spawner used in normal windowed mode.
+    ///
+    /// It combines a real wake notifier with the daemon client resource so later spawn/attach calls
+    /// can both talk to the daemon and wake the app when background work arrives.
     pub(crate) fn new(
         proxy: EventLoopProxy<WinitUserEvent>,
         daemon: TerminalDaemonClientResource,
@@ -60,7 +74,10 @@ impl TerminalRuntimeSpawner {
         }
     }
 
-    /// Implements headless.
+    /// Builds the runtime spawner used in headless/offscreen mode.
+    ///
+    /// The only difference from [`new`] is that the notifier is a no-op because there is no Winit
+    /// event loop to wake.
     pub(crate) fn headless(daemon: TerminalDaemonClientResource) -> Self {
         Self {
             notifier: RuntimeNotifier::noop(),
@@ -68,23 +85,35 @@ impl TerminalRuntimeSpawner {
         }
     }
 
-    /// Implements for tests.
+    /// Test-only constructor that aliases to the headless runtime spawner.
+    ///
+    /// Unit tests do not need a real OS event loop, so they always use the headless behavior.
     #[cfg(test)]
     pub(crate) fn for_tests(daemon: TerminalDaemonClientResource) -> Self {
         Self::headless(daemon)
     }
 
-    /// Implements notifier.
+    /// Returns a clone of the runtime notifier used by this spawner.
+    ///
+    /// Callers use this when background helpers need wake-up access without also needing full daemon
+    /// spawning authority.
     pub(crate) fn notifier(&self) -> RuntimeNotifier {
         self.notifier.clone()
     }
 
-    /// Implements list session infos.
+    /// Lists the daemon's current sessions through the underlying daemon client.
+    ///
+    /// The spawner is the app's authority for session creation/attachment, so it also exposes session
+    /// discovery instead of forcing callers to reach around it to the daemon resource.
     pub(crate) fn list_session_infos(&self) -> Result<Vec<DaemonSessionInfo>, String> {
         self.daemon.client().list_sessions()
     }
 
-    /// Creates session.
+    /// Creates a new session and optionally bootstraps it into a `pi` session.
+    ///
+    /// The method first creates a plain shell session, then conditionally sends an initial `pi`
+    /// command when the prefix says this is a normal persistent terminal. If bootstrapping fails, the
+    /// just-created daemon session is killed so the caller does not inherit a half-initialized shell.
     pub(crate) fn create_session(&self, prefix: &str) -> Result<String, String> {
         let session_id = self.create_shell_session(prefix)?;
         if should_bootstrap_spawned_agent(prefix) {
@@ -103,17 +132,26 @@ impl TerminalRuntimeSpawner {
         Ok(session_id)
     }
 
-    /// Creates shell session.
+    /// Creates a raw shell session without any NeoZeus bootstrapping command.
+    ///
+    /// This is the low-level creation path used both directly and as the first step of
+    /// [`create_session`].
     pub(crate) fn create_shell_session(&self, prefix: &str) -> Result<String, String> {
         self.daemon.client().create_session(prefix)
     }
 
-    /// Kills session.
+    /// Asks the daemon to kill one named session.
+    ///
+    /// This is a thin delegation method kept on the spawner so the rest of the app can treat the
+    /// spawner as the single runtime/session façade.
     pub(crate) fn kill_session(&self, session_id: &str) -> Result<(), String> {
         self.daemon.client().kill_session(session_id)
     }
 
-    /// Resizes session.
+    /// Forwards a terminal-resize request to the daemon for one session.
+    ///
+    /// The daemon remains the authority for PTY sizing; the app only computes and forwards the target
+    /// column/row counts.
     pub(crate) fn resize_session(
         &self,
         session_id: &str,
@@ -123,7 +161,10 @@ impl TerminalRuntimeSpawner {
         self.daemon.client().resize_session(session_id, cols, rows)
     }
 
-    /// Spawns attached.
+    /// Attaches to an existing daemon session and launches the local runtime bridge threads for it.
+    ///
+    /// The daemon supplies the initial snapshot plus the streamed update receiver; this method wraps
+    /// both in the app-side [`TerminalBridge`] abstraction.
     pub(crate) fn spawn_attached(&self, session_id: &str) -> Result<TerminalBridge, String> {
         let attached = self.daemon.client().attach_session(session_id)?;
         Ok(spawn_daemon_terminal_runtime(
@@ -135,7 +176,12 @@ impl TerminalRuntimeSpawner {
     }
 }
 
-/// Spawns daemon terminal runtime.
+/// Creates the app-side runtime bridge for one attached daemon session.
+///
+/// The function sets up the command channel, the coalescing update mailbox, and the debug stats, then
+/// spawns two background threads: one forwards outgoing commands to the daemon, and the other drains
+/// streamed daemon updates into the mailbox. The returned [`TerminalBridge`] is what the rest of the
+/// app talks to.
 pub(crate) fn spawn_daemon_terminal_runtime(
     notifier: RuntimeNotifier,
     daemon: TerminalDaemonClientResource,
@@ -147,6 +193,8 @@ pub(crate) fn spawn_daemon_terminal_runtime(
     let debug_stats = Arc::new(Mutex::new(TerminalDebugStats::default()));
     let bridge = TerminalBridge::new(input_tx, update_mailbox.clone(), debug_stats.clone());
 
+    // Seed the mailbox with the daemon's initial snapshot before the background threads start so the
+    // app can present something immediately after attachment.
     push_initial_snapshot(
         &update_mailbox,
         &debug_stats,
@@ -202,7 +250,11 @@ pub(crate) fn spawn_daemon_terminal_runtime(
     bridge
 }
 
-/// Pushes initial snapshot.
+/// Pushes the daemon's initial snapshot into the update mailbox and wakes the app if needed.
+///
+/// The snapshot is converted into a `Status` update because it contains both runtime state and an
+/// optional full surface. Debug stats track it as one sent snapshot so startup attachment has the same
+/// accounting shape as streamed updates.
 fn push_initial_snapshot(
     update_mailbox: &Arc<TerminalUpdateMailbox>,
     debug_stats: &Arc<Mutex<TerminalDebugStats>>,
@@ -221,7 +273,11 @@ fn push_initial_snapshot(
     }
 }
 
-/// Publishes runtime status.
+/// Publishes a status-only runtime update into the mailbox and wakes the app if necessary.
+///
+/// This is used for important runtime state transitions such as command-send failure or daemon-stream
+/// disconnection, where there may be no new surface but the UI still needs to reflect a new runtime
+/// status immediately.
 fn publish_runtime_status(
     update_mailbox: &Arc<TerminalUpdateMailbox>,
     debug_stats: &Arc<Mutex<TerminalDebugStats>>,

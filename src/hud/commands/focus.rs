@@ -12,7 +12,12 @@ use bevy::{prelude::*, window::RequestRedraw};
     unused_mut,
     reason = "focus requests update focus state, input capture, persistence, and redraw together"
 )]
-/// Applies terminal focus requests.
+/// Applies focus changes requested by the HUD to the authoritative terminal state.
+///
+/// For each request the system moves focus in [`TerminalFocusState`], mirrors that into the test-only
+/// focus copy when tests are enabled, reconciles direct-input capture, updates the shared view focus,
+/// marks session persistence dirty, and requests a redraw so the new active terminal is presented
+/// immediately.
 pub(crate) fn apply_terminal_focus_requests(
     mut requests: MessageReader<crate::hud::TerminalFocusRequest>,
     time: Res<Time>,
