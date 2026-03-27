@@ -37,13 +37,14 @@ use bevy::{ecs::system::RunSystemOnce, prelude::*, window::PrimaryWindow};
 use bevy_egui::egui;
 use std::{collections::BTreeSet, fs, sync::Arc, time::Duration};
 
-/// Verifies that test terminal font report.
+/// Resolves the host's effective monospace terminal font stack for test use.
 fn test_terminal_font_report() -> crate::terminals::TerminalFontReport {
     resolve_terminal_font_report_for_family("monospace")
         .expect("failed to resolve terminal fonts for test family")
 }
 
-/// Verifies that configured terminal font report.
+/// Resolves the configured terminal font report when one is explicitly configured, otherwise falling
+/// back to the generic test font report.
 fn configured_terminal_font_report() -> crate::terminals::TerminalFontReport {
     let config = load_neozeus_config().unwrap_or_default();
     if let Some(path) = resolve_terminal_font_path(&config) {
@@ -54,7 +55,7 @@ fn configured_terminal_font_report() -> crate::terminals::TerminalFontReport {
     }
 }
 
-/// Verifies that initialize test terminal text renderer.
+/// Initializes a `TerminalTextRenderer` for tests using a known locale and a resolved font report.
 fn initialize_test_terminal_text_renderer(
     report: &crate::terminals::TerminalFontReport,
     renderer: &mut TerminalTextRenderer,
@@ -63,7 +64,8 @@ fn initialize_test_terminal_text_renderer(
         .expect("failed to initialize terminal text renderer");
 }
 
-/// Verifies that configured test font raster.
+/// Computes the raster font sizing config that tests should use after applying any loaded NeoZeus
+/// config overrides.
 fn configured_test_font_raster() -> crate::terminals::TerminalFontRasterConfig {
     let config = load_neozeus_config().unwrap_or_default();
     let defaults = crate::terminals::TerminalFontRasterConfig::default();
@@ -76,7 +78,7 @@ fn configured_test_font_raster() -> crate::terminals::TerminalFontRasterConfig {
     }
 }
 
-/// Verifies that set colored text.
+/// Writes colored single-width text into a terminal surface row for rasterization tests.
 fn set_colored_text(
     surface: &mut TerminalSurface,
     row: usize,
@@ -101,7 +103,8 @@ fn set_colored_text(
     }
 }
 
-/// Verifies that render surface to terminal image.
+/// Runs the normal terminal-texture sync pipeline on a supplied surface and returns the rendered
+/// image plus the texture state it ended up using.
 fn render_surface_to_terminal_image(surface: TerminalSurface) -> (Image, TerminalTextureState) {
     let report = configured_terminal_font_report();
     let mut renderer = TerminalTextRenderer::default();
@@ -168,7 +171,8 @@ fn render_surface_to_terminal_image(surface: TerminalSurface) -> (Image, Termina
     (image, texture_state)
 }
 
-/// Verifies that count non background pixels in band.
+/// Counts how many pixels inside a horizontal image band differ from the terminal default background
+/// color.
 fn count_non_background_pixels_in_band(image: &Image, y_start: u32, y_end: u32) -> usize {
     let width = image.texture_descriptor.size.width as usize;
     let data = image.data.as_ref().expect("image data should exist");
@@ -189,14 +193,16 @@ fn count_non_background_pixels_in_band(image: &Image, y_start: u32, y_end: u32) 
     count
 }
 
-/// Verifies that indexed color has expected blue cube entry.
+/// Verifies one representative xterm indexed-color cube entry so palette math regressions show up
+/// quickly.
 #[test]
 fn indexed_color_has_expected_blue_cube_entry() {
     let rgb = xterm_indexed_rgb(21);
     assert_eq!((rgb.r, rgb.g, rgb.b), (0, 0, 255));
 }
 
-/// Verifies that alpha blend preserves transparent glyph background.
+/// Verifies the alpha blender leaves fully transparent glyph pixels untouched and accumulates alpha
+/// for partially transparent pixels.
 #[test]
 fn alpha_blend_preserves_transparent_glyph_background() {
     let mut pixel = [0, 0, 0, 0];
@@ -207,7 +213,8 @@ fn alpha_blend_preserves_transparent_glyph_background() {
     assert_eq!(pixel[3], 128);
 }
 
-/// Verifies that pixel perfect cell size stays positive and scales uniformly.
+/// Verifies that pixel-perfect cell sizing never collapses to zero and keeps width/height scaling
+/// roughly uniform.
 #[test]
 fn pixel_perfect_cell_size_stays_positive_and_scales_uniformly() {
     let window = Window {
@@ -224,7 +231,8 @@ fn pixel_perfect_cell_size_stays_positive_and_scales_uniformly() {
     assert!((width_scale - height_scale).abs() < 0.1);
 }
 
-/// Verifies that snap to pixel grid respects window scale factor.
+/// Verifies that pixel-grid snapping is performed in physical pixels and then mapped back to logical
+/// coordinates via the window scale factor.
 #[test]
 fn snap_to_pixel_grid_respects_window_scale_factor() {
     let mut window = Window::default();
@@ -233,7 +241,8 @@ fn snap_to_pixel_grid_respects_window_scale_factor() {
     assert_eq!(snapped, Vec2::new(10.0, -10.0 / 3.0));
 }
 
-/// Verifies that pixel perfect terminal logical size uses scale factor.
+/// Verifies that pixel-perfect logical sizing divides physical texture size by the window scale
+/// factor.
 #[test]
 fn pixel_perfect_terminal_logical_size_uses_scale_factor() {
     let mut window = Window::default();
@@ -248,7 +257,8 @@ fn pixel_perfect_terminal_logical_size_uses_scale_factor() {
     );
 }
 
-/// Verifies that active terminal viewport reserves agent list column.
+/// Verifies that the active-terminal viewport shrinks horizontally when the docked agent list is
+/// enabled.
 #[test]
 fn active_terminal_viewport_reserves_agent_list_column() {
     let window = Window {
@@ -272,7 +282,8 @@ fn active_terminal_viewport_reserves_agent_list_column() {
     );
 }
 
-/// Verifies that active terminal presentation uses texture logical size and centers in viewport.
+/// Verifies that the active terminal presentation uses the texture's logical size and snaps to the
+/// center of the usable viewport.
 #[test]
 fn active_terminal_presentation_uses_texture_logical_size_and_centers_in_viewport() {
     let (bridge, _) = test_bridge();
@@ -375,7 +386,8 @@ fn active_terminal_presentation_uses_texture_logical_size_and_centers_in_viewpor
     assert!(expected_size.y <= 868.0);
 }
 
-/// Verifies that active terminal snaps immediately when active layout changes.
+/// Verifies that changing the active terminal layout contract causes immediate presentation snapping
+/// instead of animating through stale geometry.
 #[test]
 fn active_terminal_snaps_immediately_when_active_layout_changes() {
     let (bridge, _) = test_bridge();
@@ -498,7 +510,8 @@ fn active_terminal_snaps_immediately_when_active_layout_changes() {
     assert_eq!(presentation.target_size, expected_size);
 }
 
-/// Verifies that switching active terminal snaps immediately without animation.
+/// Verifies that changing active focus/isolation snaps the new active terminal immediately instead of
+/// blending from its old background presentation.
 #[test]
 fn switching_active_terminal_snaps_immediately_without_animation() {
     let (bridge_one, _) = test_bridge();
@@ -660,7 +673,8 @@ fn switching_active_terminal_snaps_immediately_without_animation() {
     assert_eq!(second.1.current_z, 0.3);
 }
 
-/// Verifies that switching active terminal keeps cached frame visible until resized surface arrives.
+/// Verifies that when focus switches to a terminal whose active-layout upload is not ready yet, the
+/// cached frame stays visible rather than disappearing.
 #[test]
 fn switching_active_terminal_keeps_cached_frame_visible_until_resized_surface_arrives() {
     let (bridge_one, _) = test_bridge();
@@ -828,7 +842,8 @@ fn switching_active_terminal_keeps_cached_frame_visible_until_resized_surface_ar
     assert_eq!(second.1.current_z, 0.3);
 }
 
-/// Verifies that sync terminal texture keeps cached switch frame until resized surface arrives.
+/// Verifies the raster path preserves the cached active texture for a switched-to terminal until a
+/// surface matching the new active layout arrives.
 #[test]
 fn sync_terminal_texture_keeps_cached_switch_frame_until_resized_surface_arrives() {
     let report = test_terminal_font_report();
@@ -936,7 +951,8 @@ fn sync_terminal_texture_keeps_cached_switch_frame_until_resized_surface_arrives
     assert_eq!(active.desired_texture_state, active_texture_state);
 }
 
-/// Verifies that sync terminal texture promotes active terminal once resized surface arrives.
+/// Verifies that once the resized active-layout surface finally arrives, texture sync promotes the
+/// active terminal to the new texture contract and revision.
 #[test]
 fn sync_terminal_texture_promotes_active_terminal_once_resized_surface_arrives() {
     let report = test_terminal_font_report();
@@ -1030,7 +1046,8 @@ fn sync_terminal_texture_promotes_active_terminal_once_resized_surface_arrives()
     assert_eq!(presented.uploaded_revision, 2);
 }
 
-/// Verifies that active terminal resize requests follow zoom distance.
+/// Verifies that active-terminal resize requests are derived from the current zoom-dependent active
+/// layout dimensions.
 #[test]
 fn active_terminal_resize_requests_follow_zoom_distance() {
     let client = Arc::new(FakeDaemonClient::default());
@@ -1083,7 +1100,8 @@ fn active_terminal_resize_requests_follow_zoom_distance() {
     );
 }
 
-/// Verifies that drain terminal updates keeps latest frame and status.
+/// Verifies the mailbox coalescing rule that draining returns only the newest frame and newest status
+/// plus the dropped-frame count.
 #[test]
 fn drain_terminal_updates_keeps_latest_frame_and_status() {
     let mailbox = crate::terminals::TerminalUpdateMailbox::default();
@@ -1121,7 +1139,8 @@ fn drain_terminal_updates_keeps_latest_frame_and_status() {
     assert_eq!(status.unwrap().0.status, "done");
 }
 
-/// Verifies that poll terminal snapshots keeps latest status over latest frame runtime.
+/// Verifies that when both a frame and a later status update are drained, polling leaves the newer
+/// status runtime in the retained terminal snapshot.
 #[test]
 fn poll_terminal_snapshots_keeps_latest_status_over_latest_frame_runtime() {
     let (bridge, mailbox) = test_bridge();
@@ -1150,7 +1169,7 @@ fn poll_terminal_snapshots_keeps_latest_status_over_latest_frame_runtime() {
     ));
 }
 
-/// Verifies that named cursor color resolves.
+/// Verifies one representative named-color resolution for the terminal cursor color path.
 #[test]
 fn named_cursor_color_resolves() {
     let color = resolve_alacritty_color(
@@ -1161,7 +1180,7 @@ fn named_cursor_color_resolves() {
     assert_eq!((color.r(), color.g(), color.b()), (82, 173, 112));
 }
 
-/// Verifies that parses font family from included kitty config.
+/// Verifies that Kitty config parsing follows `include` directives when resolving `font_family`.
 #[test]
 fn parses_font_family_from_included_kitty_config() {
     let dir = temp_dir("neozeus-kitty-font-test");
@@ -1182,7 +1201,8 @@ fn parses_font_family_from_included_kitty_config() {
     );
 }
 
-/// Verifies that kitty config lookup prefers explicit directory over other locations.
+/// Verifies Kitty config discovery precedence prefers an explicit config directory over XDG and HOME
+/// fallbacks.
 #[test]
 fn kitty_config_lookup_prefers_explicit_directory_over_other_locations() {
     let dir = temp_dir("neozeus-kitty-config-path");
@@ -1212,7 +1232,8 @@ fn kitty_config_lookup_prefers_explicit_directory_over_other_locations() {
     assert_eq!(found, Some(kitty_dir.join("kitty.conf")));
 }
 
-/// Verifies that configured terminal font path resolves exact primary face.
+/// Verifies that resolving a configured terminal font path preserves the exact primary face path and
+/// source metadata.
 #[test]
 fn configured_terminal_font_path_resolves_exact_primary_face() {
     let report = resolve_terminal_font_report_for_path(std::path::Path::new(
@@ -1229,7 +1250,8 @@ fn configured_terminal_font_path_resolves_exact_primary_face() {
     assert!(!report.fallbacks.is_empty());
 }
 
-/// Verifies that dump terminal font reference sample.
+/// Manual verifier that dumps a rendered terminal font reference sample to a PPM file for visual
+/// inspection.
 #[test]
 #[ignore = "manual offscreen font-reference verifier"]
 fn dump_terminal_font_reference_sample() {
@@ -1347,7 +1369,7 @@ fn dump_terminal_font_reference_sample() {
     std::fs::write("/tmp/neozeus-terminal-font-reference.ppm", ppm).expect("ppm should write");
 }
 
-/// Verifies that resolves effective terminal font stack on host.
+/// Verifies the host font-resolution path yields a usable primary face plus at least one fallback.
 #[test]
 fn resolves_effective_terminal_font_stack_on_host() {
     let report = test_terminal_font_report();
@@ -1358,7 +1380,7 @@ fn resolves_effective_terminal_font_stack_on_host() {
     assert!(report.fallbacks.iter().all(|face| face.path.is_file()));
 }
 
-/// Verifies that detects special font ranges.
+/// Verifies the Unicode range heuristics used for private-use and emoji fallback selection.
 #[test]
 fn detects_special_font_ranges() {
     assert!(is_private_use_like('\u{e0b0}'));
@@ -1366,7 +1388,8 @@ fn detects_special_font_ranges() {
     assert!(!is_private_use_like('a'));
 }
 
-/// Verifies that standalone text renderer rasterizes ASCII glyph.
+/// Verifies that the standalone text renderer can rasterize a simple ASCII glyph into visible
+/// pixels.
 #[test]
 fn standalone_text_renderer_rasterizes_ascii_glyph() {
     let report = test_terminal_font_report();
@@ -1392,7 +1415,8 @@ fn standalone_text_renderer_rasterizes_ascii_glyph() {
     assert_glyph_has_visible_pixels(&glyph);
 }
 
-/// Verifies that sync terminal texture renders visible text on last row.
+/// Verifies that texture sync paints visible glyph pixels on the last terminal row, which is a
+/// common active-input case.
 #[test]
 fn sync_terminal_texture_renders_visible_text_on_last_row() {
     let window = Window {
@@ -1423,7 +1447,8 @@ fn sync_terminal_texture_renders_visible_text_on_last_row() {
     );
 }
 
-/// Verifies that sync terminal texture updates pixels when last row text changes.
+/// Verifies that changing text on the last row produces different texture pixels and strictly more
+/// visible ink when the text gets longer.
 #[test]
 fn sync_terminal_texture_updates_pixels_when_last_row_text_changes() {
     let window = Window {
@@ -1486,7 +1511,8 @@ fn sync_terminal_texture_updates_pixels_when_last_row_text_changes() {
     );
 }
 
-/// Verifies that send command payload bytes turn multiline text into enter sequences.
+/// Verifies that multiline command payload normalization turns newline variants into carriage-return
+/// PTY send sequences.
 #[test]
 fn send_command_payload_bytes_turn_multiline_text_into_enter_sequences() {
     assert_eq!(
@@ -1499,7 +1525,7 @@ fn send_command_payload_bytes_turn_multiline_text_into_enter_sequences() {
     );
 }
 
-/// Verifies that terminal view state restores offsets per terminal.
+/// Verifies that terminal view offsets are remembered per terminal and restored on focus changes.
 #[test]
 fn terminal_view_state_restores_offsets_per_terminal() {
     let id_one = crate::terminals::TerminalId(1);
@@ -1522,7 +1548,8 @@ fn terminal_view_state_restores_offsets_per_terminal() {
     assert_eq!(view_state.offset, Vec2::new(-48.0, 64.0));
 }
 
-/// Verifies that terminal creation order stays stable when focus changes.
+/// Verifies that changing focus mutates focus order without perturbing stable terminal creation
+/// order.
 #[test]
 fn terminal_creation_order_stays_stable_when_focus_changes() {
     let (bridge_one, _) = test_bridge();
@@ -1537,7 +1564,7 @@ fn terminal_creation_order_stays_stable_when_focus_changes() {
     assert_eq!(manager.focus_order(), &[id_two, id_one]);
 }
 
-/// Verifies that terminal can be created without becoming active.
+/// Verifies the helper path that creates a terminal without implicitly making it active.
 #[test]
 fn terminal_can_be_created_without_becoming_active() {
     let (bridge, _) = test_bridge();
@@ -1549,7 +1576,8 @@ fn terminal_can_be_created_without_becoming_active() {
     assert!(manager.focus_order().is_empty());
 }
 
-/// Verifies that terminal with session name is retained in manager state.
+/// Verifies that creating a terminal with an explicit session name stores that session name in the
+/// manager state unchanged.
 #[test]
 fn terminal_with_session_name_is_retained_in_manager_state() {
     let (bridge, _) = test_bridge();
@@ -1559,7 +1587,8 @@ fn terminal_with_session_name_is_retained_in_manager_state() {
     assert_eq!(manager.get(id).unwrap().session_name, "neozeus-session-a");
 }
 
-/// Verifies that remove terminal clears orders and active state.
+/// Verifies that removing a terminal updates creation order, active focus, and focus order
+/// consistently.
 #[test]
 fn remove_terminal_clears_orders_and_active_state() {
     let (bridge_one, _) = test_bridge();
@@ -1579,7 +1608,8 @@ fn remove_terminal_clears_orders_and_active_state() {
     assert_eq!(manager.focus_order(), &[id_two]);
 }
 
-/// Verifies that show all presentations remain visible when no terminal is active.
+/// Verifies that in `ShowAll` mode with no active terminal, background terminal presentations remain
+/// visible instead of all being hidden.
 #[test]
 fn show_all_presentations_remain_visible_when_no_terminal_is_active() {
     let (bridge, _) = test_bridge();
@@ -1653,7 +1683,8 @@ fn show_all_presentations_remain_visible_when_no_terminal_is_active() {
     assert_eq!(vis, vec![(id, Visibility::Visible)]);
 }
 
-/// Verifies that terminal panel frames are hidden without direct input mode.
+/// Verifies that panel frame sprites default to hidden when no direct-input or runtime-status frame
+/// should be shown.
 #[test]
 fn terminal_panel_frames_are_hidden_without_direct_input_mode() {
     let mut world = World::default();
@@ -1677,7 +1708,7 @@ fn terminal_panel_frames_are_hidden_without_direct_input_mode() {
     assert_eq!(*vis[0].1, Visibility::Hidden);
 }
 
-/// Verifies that direct input mode shows orange terminal frame.
+/// Verifies that direct-input mode shows the orange focus frame around the active terminal panel.
 #[test]
 fn direct_input_mode_shows_orange_terminal_frame() {
     let (bridge, _) = test_bridge();
@@ -1741,7 +1772,8 @@ fn direct_input_mode_shows_orange_terminal_frame() {
     assert_eq!(frames[0].2.color, Color::srgba(1.0, 0.48, 0.08, 0.96));
 }
 
-/// Verifies that disconnected terminal shows red status frame.
+/// Verifies that a disconnected terminal shows the red runtime-status frame instead of the direct
+/// input frame styling.
 #[test]
 fn disconnected_terminal_shows_red_status_frame() {
     let mut world = World::default();
@@ -1806,7 +1838,8 @@ fn disconnected_terminal_shows_red_status_frame() {
     assert_eq!(frames[0].2.color, Color::srgba(0.86, 0.20, 0.20, 0.92));
 }
 
-/// Verifies that startup loading shows active placeholder before first surface arrives.
+/// Verifies that startup-loading terminals remain visible as non-white placeholders before their
+/// first real surface upload arrives.
 #[test]
 fn startup_loading_shows_active_placeholder_before_first_surface_arrives() {
     let (bridge, _) = test_bridge();
@@ -1876,7 +1909,8 @@ fn startup_loading_shows_active_placeholder_before_first_surface_arrives() {
         .is_some_and(|size| size.x > 10.0 && size.y > 10.0));
 }
 
-/// Verifies that startup loading temporarily overrides isolate to show all pending terminals.
+/// Verifies that startup-loading state temporarily overrides isolate visibility so all pending
+/// terminals stay visible until they are ready.
 #[test]
 fn startup_loading_temporarily_overrides_isolate_to_show_all_pending_terminals() {
     let (bridge_one, _) = test_bridge();
@@ -1956,7 +1990,8 @@ fn startup_loading_temporarily_overrides_isolate_to_show_all_pending_terminals()
     assert_eq!(visible_count, 2);
 }
 
-/// Verifies that active terminal presentation keeps cached frame visible until active layout upload is ready.
+/// Verifies that the active terminal does not disappear while its desired active-layout upload is
+/// still pending; the cached frame stays visible.
 #[test]
 fn active_terminal_presentation_keeps_cached_frame_visible_until_active_layout_upload_is_ready() {
     let (bridge, _) = test_bridge();
@@ -2029,7 +2064,8 @@ fn active_terminal_presentation_keeps_cached_frame_visible_until_active_layout_u
     assert_eq!(*vis[0].1, Visibility::Visible);
 }
 
-/// Verifies that active terminal reappears snapped after becoming ready for new layout.
+/// Verifies that once a terminal becomes ready for the new active layout, it reappears already
+/// snapped to the final geometry rather than animating in.
 #[test]
 fn active_terminal_reappears_snapped_after_becoming_ready_for_new_layout() {
     let (bridge, _) = test_bridge();
@@ -2156,7 +2192,8 @@ fn active_terminal_reappears_snapped_after_becoming_ready_for_new_layout() {
     assert_eq!(presentation.target_size, expected_size);
 }
 
-/// Verifies that active terminal presentation becomes visible once active layout upload is ready.
+/// Verifies that an active terminal presentation becomes visible as soon as its uploaded texture
+/// contract matches the active layout.
 #[test]
 fn active_terminal_presentation_becomes_visible_once_active_layout_upload_is_ready() {
     let (bridge, _) = test_bridge();
@@ -2233,7 +2270,7 @@ fn active_terminal_presentation_becomes_visible_once_active_layout_upload_is_rea
     assert_eq!(*vis[0].1, Visibility::Visible);
 }
 
-/// Verifies that message box keeps terminal presentations visible.
+/// Verifies that opening the message box does not itself hide the underlying terminal presentation.
 #[test]
 fn message_box_keeps_terminal_presentations_visible() {
     let (bridge, _) = test_bridge();
@@ -2312,7 +2349,8 @@ fn message_box_keeps_terminal_presentations_visible() {
     assert_eq!(*vis[0].1, Visibility::Visible);
 }
 
-/// Verifies that isolate visibility policy with missing terminal degrades to show all.
+/// Verifies that a stale isolate target degrades to `ShowAll` behavior instead of hiding every
+/// terminal panel.
 #[test]
 fn isolate_visibility_policy_with_missing_terminal_degrades_to_show_all() {
     let (bridge, _) = test_bridge();
@@ -2386,7 +2424,8 @@ fn isolate_visibility_policy_with_missing_terminal_degrades_to_show_all() {
     assert_eq!(*vis[0].1, Visibility::Visible);
 }
 
-/// Verifies that terminal visibility policy show all keeps only active terminal visible.
+/// Verifies the current presentation policy in `ShowAll`: even then, only the active terminal panel
+/// remains visible once focus exists.
 #[test]
 fn terminal_visibility_policy_show_all_keeps_only_active_terminal_visible() {
     let (bridge_one, _) = test_bridge();
@@ -2525,7 +2564,8 @@ fn terminal_visibility_policy_show_all_keeps_only_active_terminal_visible() {
     assert_eq!(vis[1], (id_two, Visibility::Hidden));
 }
 
-/// Verifies that start test daemon.
+/// Starts a dedicated daemon server for an integration test and returns both the handle and socket
+/// path.
 fn start_test_daemon(prefix: &str) -> (DaemonServerHandle, std::path::PathBuf) {
     let dir = temp_dir(prefix);
     let socket_path = dir.join("daemon.sock");
@@ -2533,7 +2573,7 @@ fn start_test_daemon(prefix: &str) -> (DaemonServerHandle, std::path::PathBuf) {
     (handle, socket_path)
 }
 
-/// Verifies that surface to text.
+/// Flattens a terminal surface into newline-separated text for daemon integration assertions.
 fn surface_to_text(surface: &TerminalSurface) -> String {
     let mut text = String::new();
     for y in 0..surface.rows {
@@ -2547,7 +2587,8 @@ fn surface_to_text(surface: &TerminalSurface) -> String {
     text
 }
 
-/// Verifies that wait for surface containing.
+/// Waits until the daemon update stream yields a surface whose rendered text contains the requested
+/// substring.
 fn wait_for_surface_containing(
     updates: &std::sync::mpsc::Receiver<TerminalUpdate>,
     needle: &str,
@@ -2574,7 +2615,8 @@ fn wait_for_surface_containing(
     }
 }
 
-/// Verifies that wait for lifecycle.
+/// Waits until the daemon update stream yields a runtime state whose lifecycle matches the supplied
+/// predicate.
 fn wait_for_lifecycle(
     updates: &std::sync::mpsc::Receiver<TerminalUpdate>,
     predicate: impl Fn(&TerminalLifecycle) -> bool,
@@ -2597,7 +2639,8 @@ fn wait_for_lifecycle(
     }
 }
 
-/// Verifies that daemon socket path prefers override then XDG runtime then tmp user.
+/// Verifies daemon socket-path resolution precedence: explicit override, then XDG runtime, then the
+/// per-user temp-dir fallback.
 #[test]
 fn daemon_socket_path_prefers_override_then_xdg_runtime_then_tmp_user() {
     let override_path = resolve_daemon_socket_path_with(
@@ -2630,7 +2673,8 @@ fn daemon_socket_path_prefers_override_then_xdg_runtime_then_tmp_user() {
     assert!(fallback.ends_with("neozeus-oracle/daemon.sock"));
 }
 
-/// Verifies that daemon protocol roundtrip preserves terminal messages.
+/// Verifies representative client and server daemon protocol messages round-trip through the binary
+/// wire format unchanged.
 #[test]
 fn daemon_protocol_roundtrip_preserves_terminal_messages() {
     let message = ClientMessage::Request {
@@ -2663,7 +2707,8 @@ fn daemon_protocol_roundtrip_preserves_terminal_messages() {
     assert_eq!(decoded, response);
 }
 
-/// Verifies that daemon server cleans up stale socket file.
+/// Verifies that daemon startup replaces an orphaned stale socket file and still accepts client
+/// connections afterwards.
 #[test]
 fn daemon_server_cleans_up_stale_socket_file() {
     let dir = temp_dir("neozeus-daemon-stale-socket");
@@ -2676,7 +2721,8 @@ fn daemon_server_cleans_up_stale_socket_file() {
         .expect("client should connect after stale cleanup");
 }
 
-/// Verifies that daemon create attach command output and kill roundtrip.
+/// End-to-end daemon integration test covering create, list, attach, streamed output, and explicit
+/// kill removal.
 #[test]
 fn daemon_create_attach_command_output_and_kill_roundtrip() {
     let (_server, socket_path) = start_test_daemon("neozeus-daemon-roundtrip");
@@ -2715,7 +2761,8 @@ fn daemon_create_attach_command_output_and_kill_roundtrip() {
         .any(|session| session.session_id == session_id));
 }
 
-/// Verifies that daemon sessions survive client reconnect.
+/// Verifies that daemon sessions are server-owned and remain attachable after one UI client drops
+/// and another reconnects.
 #[test]
 fn daemon_sessions_survive_client_reconnect() {
     let (_server, socket_path) = start_test_daemon("neozeus-daemon-reconnect");
@@ -2754,7 +2801,8 @@ fn daemon_sessions_survive_client_reconnect() {
     assert!(surface_to_text(&snapshot).contains("persist-across-ui"));
 }
 
-/// Verifies that daemon exited sessions remain listed until explicit kill.
+/// Verifies that exited daemon sessions stay visible in session listings until the client explicitly
+/// kills/removes them.
 #[test]
 fn daemon_exited_sessions_remain_listed_until_explicit_kill() {
     let (_server, socket_path) = start_test_daemon("neozeus-daemon-exited-listed");
@@ -2799,7 +2847,8 @@ fn daemon_exited_sessions_remain_listed_until_explicit_kill() {
         .any(|session| session.session_id == session_id));
 }
 
-/// Verifies that daemon session listing preserves creation order not lexical order.
+/// Verifies that daemon session listings preserve daemon creation order rather than lexical session
+/// id order.
 #[test]
 fn daemon_session_listing_preserves_creation_order_not_lexical_order() {
     let (_server, socket_path) = start_test_daemon("neozeus-daemon-list-order");
@@ -2824,7 +2873,8 @@ fn daemon_session_listing_preserves_creation_order_not_lexical_order() {
     assert_eq!(listed, created);
 }
 
-/// Verifies that runtime spawner bootstraps persistent sessions with plain pi only.
+/// Verifies that persistent-session bootstrap sends exactly the plain `pi` bootstrap command, while
+/// verifier sessions do not get the same bootstrap.
 #[test]
 fn runtime_spawner_bootstraps_persistent_sessions_with_plain_pi_only() {
     let client = Arc::new(FakeDaemonClient::default());
@@ -2846,7 +2896,8 @@ fn runtime_spawner_bootstraps_persistent_sessions_with_plain_pi_only() {
     ));
 }
 
-/// Verifies that daemon runtime bridge pushes initial snapshot and forwards commands.
+/// Verifies that the runtime spawner's daemon bridge exposes the initial snapshot as a status update
+/// and forwards outgoing commands back to the daemon client.
 #[test]
 fn daemon_runtime_bridge_pushes_initial_snapshot_and_forwards_commands() {
     let client = Arc::new(FakeDaemonClient::default());
@@ -2872,7 +2923,7 @@ fn daemon_runtime_bridge_pushes_initial_snapshot_and_forwards_commands() {
     }));
 }
 
-/// Verifies that daemon resize session request succeeds.
+/// Verifies that the daemon accepts an explicit resize request for a live session.
 #[test]
 fn daemon_resize_session_request_succeeds() {
     let (_server, socket_path) = start_test_daemon("neozeus-daemon-resize");
@@ -2886,7 +2937,8 @@ fn daemon_resize_session_request_succeeds() {
         .expect("daemon resize should succeed");
 }
 
-/// Verifies that daemon runtime bridge applies streamed updates.
+/// Verifies that streamed daemon updates propagate through the runtime bridge into the caller's
+/// drained update stream.
 #[test]
 fn daemon_runtime_bridge_applies_streamed_updates() {
     let client = Arc::new(FakeDaemonClient::default());
@@ -2915,7 +2967,8 @@ fn daemon_runtime_bridge_applies_streamed_updates() {
     assert!(surface_to_text(&surface).contains("ok"));
 }
 
-/// Verifies that daemon attach missing session returns error.
+/// Verifies that attaching to a missing daemon session returns a not-found error instead of
+/// succeeding silently.
 #[test]
 fn daemon_attach_missing_session_returns_error() {
     let (_server, socket_path) = start_test_daemon("neozeus-daemon-missing-attach");
@@ -2927,7 +2980,7 @@ fn daemon_attach_missing_session_returns_error() {
     assert!(error.contains("not found"));
 }
 
-/// Verifies that daemon kill missing session returns error.
+/// Verifies that killing a missing daemon session returns a not-found error.
 #[test]
 fn daemon_kill_missing_session_returns_error() {
     let (_server, socket_path) = start_test_daemon("neozeus-daemon-missing-kill");
@@ -2939,7 +2992,8 @@ fn daemon_kill_missing_session_returns_error() {
     assert!(error.contains("not found"));
 }
 
-/// Verifies that daemon multiple clients receive updates for same session.
+/// Verifies that multiple attached clients each receive the same streamed updates for a shared daemon
+/// session.
 #[test]
 fn daemon_multiple_clients_receive_updates_for_same_session() {
     let (_server, socket_path) = start_test_daemon("neozeus-daemon-multi-client");
@@ -2971,7 +3025,7 @@ fn daemon_multiple_clients_receive_updates_for_same_session() {
     assert!(surface_to_text(&surface_b).contains("fanout"));
 }
 
-/// Verifies that wait for surface dimensions.
+/// Waits until the daemon update stream yields a surface with the requested dimensions.
 fn wait_for_surface_dimensions(
     updates: &std::sync::mpsc::Receiver<TerminalUpdate>,
     cols: usize,
@@ -2999,7 +3053,7 @@ fn wait_for_surface_dimensions(
     }
 }
 
-/// Verifies that daemon protocol rejects truncated frame.
+/// Verifies that daemon protocol decoding rejects a frame whose advertised payload is truncated.
 #[test]
 fn daemon_protocol_rejects_truncated_frame() {
     let bytes = vec![8, 0, 0, 0, 1, 2, 3];
@@ -3008,7 +3062,8 @@ fn daemon_protocol_rejects_truncated_frame() {
     assert!(error.contains("frame payload") || error.contains("truncated"));
 }
 
-/// Verifies that daemon protocol rejects trailing bytes in frame.
+/// Verifies that daemon protocol decoding rejects frames whose payload contains trailing garbage after
+/// a valid message.
 #[test]
 fn daemon_protocol_rejects_trailing_bytes_in_frame() {
     let message = ClientMessage::Request {
@@ -3028,7 +3083,8 @@ fn daemon_protocol_rejects_trailing_bytes_in_frame() {
     assert!(error.contains("trailing bytes"));
 }
 
-/// Verifies that daemon resize session updates attached surface dimensions.
+/// Verifies that a successful daemon resize eventually streams back a surface with the requested
+/// dimensions to attached clients.
 #[test]
 fn daemon_resize_session_updates_attached_surface_dimensions() {
     let (_server, socket_path) = start_test_daemon("neozeus-daemon-resize-surface");
@@ -3047,7 +3103,7 @@ fn daemon_resize_session_updates_attached_surface_dimensions() {
     assert_eq!((surface.cols, surface.rows), (100, 30));
 }
 
-/// Verifies that daemon duplicate attach in same client is rejected.
+/// Verifies that one client process cannot attach the same daemon session twice simultaneously.
 #[test]
 fn daemon_duplicate_attach_in_same_client_is_rejected() {
     let (_server, socket_path) = start_test_daemon("neozeus-daemon-duplicate-attach");
@@ -3065,7 +3121,7 @@ fn daemon_duplicate_attach_in_same_client_is_rejected() {
     assert!(error.contains("already attached"));
 }
 
-/// Verifies that daemon killing one session preserves other sessions.
+/// Verifies that killing one daemon session does not disturb other live daemon sessions.
 #[test]
 fn daemon_killing_one_session_preserves_other_sessions() {
     let (_server, socket_path) = start_test_daemon("neozeus-daemon-isolated-kill");
@@ -3087,7 +3143,8 @@ fn daemon_killing_one_session_preserves_other_sessions() {
     assert!(sessions.iter().any(|session| session.session_id == second));
 }
 
-/// Verifies that daemon session lifecycle churn stays consistent.
+/// Stress-smoke test that repeated daemon create/attach/kill churn leaves the daemon in a clean
+/// empty state.
 #[test]
 fn daemon_session_lifecycle_churn_stays_consistent() {
     let (_server, socket_path) = start_test_daemon("neozeus-daemon-churn");

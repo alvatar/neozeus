@@ -30,7 +30,11 @@ pub(crate) struct TerminalDebugStats {
     pub(crate) last_error: String,
 }
 
-/// Appends debug log.
+/// Appends one line to the process-wide debug log if the log file can be opened.
+///
+/// Debug logging is intentionally best-effort: failures to create or append the file are ignored so
+/// instrumentation never interferes with terminal behavior. Callers therefore use this freely in hot
+/// paths and error paths alike.
 pub(crate) fn append_debug_log(message: impl AsRef<str>) {
     let message = message.as_ref();
     if let Ok(mut file) = fs::OpenOptions::new()
@@ -42,7 +46,11 @@ pub(crate) fn append_debug_log(message: impl AsRef<str>) {
     }
 }
 
-/// Implements with debug stats.
+/// Mutates [`TerminalDebugStats`] through a poisoned-lock-tolerant helper.
+///
+/// The interesting part here is the poison handling: debug statistics are diagnostic state, so even
+/// if another thread panicked while holding the mutex, this helper still recovers the inner value and
+/// applies the update instead of cascading the failure.
 pub(crate) fn with_debug_stats(
     debug_stats: &Arc<Mutex<TerminalDebugStats>>,
     update: impl FnOnce(&mut TerminalDebugStats),
@@ -53,7 +61,11 @@ pub(crate) fn with_debug_stats(
     }
 }
 
-/// Notes terminal error.
+/// Records a terminal error both in the text log and in the in-memory debug counters.
+///
+/// The string is materialized once, appended to the debug log with a stable prefix, and then stored
+/// as `last_error` inside the shared stats object so later inspection can see the most recent failure
+/// without parsing the file.
 pub(crate) fn note_terminal_error(
     debug_stats: &Arc<Mutex<TerminalDebugStats>>,
     message: impl Into<String>,
@@ -65,7 +77,11 @@ pub(crate) fn note_terminal_error(
     });
 }
 
-/// Notes key event.
+/// Records one observed keyboard event for debugging and later inspection.
+///
+/// The event is summarized into a compact string containing key code, text payload, and logical key,
+/// then written to both the debug log and the shared debug stats. This makes it easier to diagnose
+/// mismatches between Bevy keyboard events and the terminal input translation layer.
 pub(crate) fn note_key_event(debug_stats: &Arc<Mutex<TerminalDebugStats>>, event: &KeyboardInput) {
     let summary = format!(
         "{:?} text={:?} logical={:?}",

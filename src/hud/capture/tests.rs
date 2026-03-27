@@ -1,7 +1,10 @@
 use super::{align_copy_bytes_per_row, texture_bytes_to_ppm};
 use bevy::render::render_resource::TextureFormat;
 
-/// Verifies that texture dump skips row padding for RGBA.
+/// Checks that HUD texture dump generation ignores per-row GPU padding for RGBA data.
+///
+/// The readback helper is fed a padded 2×2 buffer and must emit a tightly packed PPM payload. The
+/// assertions verify both the header and the exact RGB byte order of the two logical rows.
 #[test]
 fn texture_dump_skips_row_padding_for_rgba() {
     let width = 2;
@@ -19,7 +22,10 @@ fn texture_dump_skips_row_padding_for_rgba() {
     );
 }
 
-/// Verifies that texture dump swaps BGRA channels.
+/// Checks that BGRA HUD readback bytes are converted into RGB order before being written to PPM.
+///
+/// The helper should treat the incoming bytes as BGRA, drop alpha, and swap channels so the output
+/// image contains the expected red-green-blue ordering.
 #[test]
 fn texture_dump_swaps_bgra_channels() {
     let bytes = [10u8, 129, 225, 255];

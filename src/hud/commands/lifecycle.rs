@@ -15,7 +15,12 @@ use bevy::{prelude::*, window::RequestRedraw};
     clippy::too_many_arguments,
     reason = "terminal spawn spans tmux provisioning, runtime spawn, projection spawn, and persistence"
 )]
-/// Applies terminal lifecycle requests.
+/// Applies spawn and kill lifecycle requests to the terminal subsystem.
+///
+/// Spawn requests first create a daemon session, then attach that session into the local ECS/present-
+/// ation state, and finally update focus/visibility/persistence bookkeeping. Kill requests delegate
+/// to the lifecycle helper that tears down the active terminal and its daemon session. In both cases
+/// the system logs failures but keeps the frame alive so one bad request does not poison the app.
 pub(crate) fn apply_terminal_lifecycle_requests(
     mut requests: MessageReader<crate::hud::TerminalLifecycleRequest>,
     mut commands: Commands,

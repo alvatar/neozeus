@@ -7,7 +7,10 @@ use bevy::{
 use std::fs;
 use std::time::Duration;
 
-/// Verifies that terminal sessions path prefers state home then home state then config.
+/// Verifies the search-order logic for the terminal-session persistence file.
+///
+/// The path resolver should prefer XDG state home first, then `~/.local/state`, and only then fall
+/// back to the config directory path.
 #[test]
 fn terminal_sessions_path_prefers_state_home_then_home_state_then_config() {
     assert_eq!(
@@ -30,7 +33,10 @@ fn terminal_sessions_path_prefers_state_home_then_home_state_then_config() {
     );
 }
 
-/// Verifies that terminal sessions parse and serialize roundtrip.
+/// Verifies that the current terminal-session persistence format round-trips losslessly.
+///
+/// The test serializes a representative structure containing labels, creation order, and focus state,
+/// then reparses it and expects the original structure back unchanged.
 #[test]
 fn terminal_sessions_parse_and_serialize_roundtrip() {
     let persisted = PersistedTerminalSessions {
@@ -54,7 +60,10 @@ fn terminal_sessions_parse_and_serialize_roundtrip() {
     assert_eq!(parse_persisted_terminal_sessions(&serialized), persisted);
 }
 
-/// Verifies that terminal sessions v2 quoted labels roundtrip.
+/// Verifies that version-2 persistence handles quoted labels with escapes correctly.
+///
+/// The test uses a label containing quotes, backslashes, and a newline so both escaping and unescaping
+/// paths are exercised.
 #[test]
 fn terminal_sessions_v2_quoted_labels_roundtrip() {
     let persisted = PersistedTerminalSessions {
@@ -71,7 +80,10 @@ fn terminal_sessions_v2_quoted_labels_roundtrip() {
     assert_eq!(parse_persisted_terminal_sessions(&serialized), persisted);
 }
 
-/// Verifies that terminal sessions v1 parser remains backward compatible.
+/// Verifies backward compatibility with the legacy version-1 terminal-session format.
+///
+/// Old persisted files should still parse, including the historical escaped-space encoding for
+/// labels.
 #[test]
 fn terminal_sessions_v1_parser_remains_backward_compatible() {
     let persisted = parse_persisted_terminal_sessions(
@@ -81,7 +93,10 @@ fn terminal_sessions_v1_parser_remains_backward_compatible() {
     assert_eq!(persisted.sessions[0].label.as_deref(), Some("agent 1"));
 }
 
-/// Verifies that malformed terminal sessions version falls back to default.
+/// Verifies that unsupported persistence versions are rejected by falling back to an empty default.
+///
+/// This protects the app from partially misparsing unknown future formats as if they were current
+/// data.
 #[test]
 fn malformed_terminal_sessions_version_falls_back_to_default() {
     assert_eq!(
@@ -92,7 +107,11 @@ fn malformed_terminal_sessions_version_falls_back_to_default() {
     );
 }
 
-/// Verifies that reconcile terminal sessions restores prunes and imports.
+/// Verifies the reconciliation split between restored, pruned, and newly imported sessions.
+///
+/// The fixture mixes one persisted-live match, one stale persisted session, one fresh live session,
+/// and one verifier session that should be ignored. The resulting buckets and imported creation index
+/// are then asserted explicitly.
 #[test]
 fn reconcile_terminal_sessions_restores_prunes_and_imports() {
     let persisted = PersistedTerminalSessions {
@@ -130,7 +149,10 @@ fn reconcile_terminal_sessions_restores_prunes_and_imports() {
     assert_eq!(reconciled.import[0].creation_index, 2);
 }
 
-/// Verifies that saving terminal sessions persists focus order and labels.
+/// Verifies that saving terminal sessions preserves creation order, labels, and the focused session.
+///
+/// The test builds a small manager, focuses the second session, adds one agent label, runs the save
+/// system, and then reparses the written file to ensure those semantics survived serialization.
 #[test]
 fn saving_terminal_sessions_persists_focus_order_and_labels() {
     let dir = temp_dir("neozeus-terminal-sessions-save");
@@ -169,7 +191,10 @@ fn saving_terminal_sessions_persists_focus_order_and_labels() {
     assert!(persisted.sessions[1].last_focused);
 }
 
-/// Verifies that terminal sessions save waits for debounce window.
+/// Verifies the debounce behavior of the session-persistence save system.
+///
+/// A dirty resource should not be written immediately; the first run before the debounce window ends
+/// must do nothing, while a later run after enough simulated time has elapsed must create the file.
 #[test]
 fn terminal_sessions_save_waits_for_debounce_window() {
     let dir = temp_dir("neozeus-terminal-sessions-save-debounce");

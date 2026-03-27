@@ -26,7 +26,10 @@ pub(crate) struct ActiveTerminalLayout {
     pub(crate) texture_size: UVec2,
 }
 
-/// Handles home position.
+/// Returns the default grid position used for a terminal's background/home slot.
+///
+/// The layout is a simple 3-column staging grid used before a terminal becomes the active focused
+/// presentation.
 fn terminal_home_position(slot: usize) -> Vec2 {
     const COLUMNS: usize = 3;
     const STEP_X: f32 = 360.0;
@@ -36,7 +39,10 @@ fn terminal_home_position(slot: usize) -> Vec2 {
     Vec2::new(-360.0 + column as f32 * STEP_X, 120.0 - row as f32 * STEP_Y)
 }
 
-/// Spawns terminal presentation.
+/// Spawns the Bevy entities and retained presentation record for a newly created terminal.
+///
+/// Each terminal gets both a panel sprite and a frame sprite, plus an initial placeholder image in the
+/// presentation store.
 pub(crate) fn spawn_terminal_presentation(
     commands: &mut Commands,
     images: &mut Assets<Image>,
@@ -103,22 +109,27 @@ pub(crate) fn spawn_terminal_presentation(
     );
 }
 
-/// Implements window scale factor.
+/// Returns a non-zero window scale factor for logical/physical conversions.
+///
+/// `f32::EPSILON` is used as a defensive floor to avoid division by zero in broken environments.
 fn window_scale_factor(window: &Window) -> f32 {
     window.scale_factor().max(f32::EPSILON)
 }
 
-/// Implements logical to physical size.
+/// Converts a logical-size vector into physical pixels using the window scale factor.
 fn logical_to_physical_size(size: Vec2, window: &Window) -> Vec2 {
     size * window_scale_factor(window)
 }
 
-/// Implements physical to logical size.
+/// Converts a physical-pixel size vector back into logical window units.
 fn physical_to_logical_size(size: Vec2, window: &Window) -> Vec2 {
     size / window_scale_factor(window)
 }
 
-/// Implements active terminal viewport.
+/// Returns the logical viewport size/center available for the active terminal after reserving HUD
+/// chrome.
+///
+/// The docked agent list claims space on the left when enabled.
 pub(crate) fn active_terminal_viewport(
     window: &Window,
     layout_state: &HudLayoutState,
@@ -134,7 +145,7 @@ pub(crate) fn active_terminal_viewport(
     (usable_size, center)
 }
 
-/// Implements active terminal fit area.
+/// Shrinks the active-terminal viewport by the fixed outer margin used for focused presentation.
 fn active_terminal_fit_area(window: &Window, layout_state: &HudLayoutState) -> (Vec2, Vec2) {
     let (viewport_size, viewport_center) = active_terminal_viewport(window, layout_state);
     let fit_size = Vec2::new(
@@ -144,12 +155,14 @@ fn active_terminal_fit_area(window: &Window, layout_state: &HudLayoutState) -> (
     (fit_size, viewport_center)
 }
 
-/// Handles zoom scale.
+/// Converts the shared view distance into a scalar zoom factor.
 fn terminal_zoom_scale(view_state: &TerminalViewState) -> f32 {
     10.0 / view_state.distance.max(0.1)
 }
 
-/// Implements active terminal cell size.
+/// Computes the raster cell size that should be used for the active terminal at the current zoom.
+///
+/// Sizes are rounded to whole physical pixels and clamped to at least 1×1.
 pub(crate) fn active_terminal_cell_size(window: &Window, view_state: &TerminalViewState) -> UVec2 {
     let zoom_scale = terminal_zoom_scale(view_state);
     let cell_size = logical_to_physical_size(
@@ -162,7 +175,7 @@ pub(crate) fn active_terminal_cell_size(window: &Window, view_state: &TerminalVi
     )
 }
 
-/// Implements active terminal dimensions.
+/// Test helper that exposes only the active terminal's derived row/column dimensions.
 #[cfg(test)]
 pub(crate) fn active_terminal_dimensions(
     window: &Window,
@@ -172,7 +185,10 @@ pub(crate) fn active_terminal_dimensions(
     active_terminal_layout(window, layout_state, view_state).dimensions
 }
 
-/// Implements active terminal layout.
+/// Derives the full active-terminal layout contract: raster cell size, terminal dimensions, and
+/// resulting texture size.
+///
+/// This is the single source of truth for how large the focused terminal should be rendered.
 pub(crate) fn active_terminal_layout(
     window: &Window,
     layout_state: &HudLayoutState,
@@ -195,7 +211,7 @@ pub(crate) fn active_terminal_layout(
     }
 }
 
-/// Implements active layout texture state.
+/// Converts an `ActiveTerminalLayout` into the texture-state record used by the presentation store.
 fn active_layout_texture_state(layout: ActiveTerminalLayout) -> TerminalTextureState {
     TerminalTextureState {
         texture_size: layout.texture_size,
@@ -203,7 +219,11 @@ fn active_layout_texture_state(layout: ActiveTerminalLayout) -> TerminalTextureS
     }
 }
 
-/// Implements startup placeholder texture state.
+/// Chooses a temporary texture-state contract while a startup-loading terminal has not yet produced a
+/// presentable uploaded frame.
+///
+/// Existing desired/current texture state wins when available; otherwise the helper falls back to
+/// either the known surface size or the fixed startup placeholder dimensions.
 fn startup_placeholder_texture_state(
     surface: Option<&crate::terminals::TerminalSurface>,
     presented_terminal: &crate::terminals::PresentedTerminal,
@@ -232,7 +252,8 @@ fn startup_placeholder_texture_state(
     }
 }
 
-/// Implements active terminal ready for presentation.
+/// Returns whether the active terminal already has the exact surface and uploaded texture state the
+/// focused layout currently expects.
 fn active_terminal_ready_for_presentation(
     terminal: &crate::terminals::registry::ManagedTerminal,
     presented_terminal: &crate::terminals::PresentedTerminal,
@@ -247,7 +268,8 @@ fn active_terminal_ready_for_presentation(
         && presented_terminal.uploaded_revision == terminal.surface_revision
 }
 
-/// Handles has presentable uploaded frame.
+/// Returns whether a terminal has any uploaded frame that is coherent enough to be shown, even if it
+/// does not yet match the latest active-layout contract exactly.
 fn terminal_has_presentable_uploaded_frame(
     terminal: &crate::terminals::registry::ManagedTerminal,
     presented_terminal: &crate::terminals::PresentedTerminal,
@@ -258,7 +280,10 @@ fn terminal_has_presentable_uploaded_frame(
         && presented_terminal.texture_state.cell_size != UVec2::ZERO
 }
 
-/// Synchronizes active terminal dimensions.
+/// Keeps the active daemon session resized to the row/column dimensions implied by the current
+/// focused presentation layout.
+///
+/// Repeated identical requests are suppressed through `requested_dimensions` bookkeeping.
 pub(crate) fn sync_active_terminal_dimensions(
     mut terminal_manager: ResMut<TerminalManager>,
     focus_state: Res<TerminalFocusState>,
@@ -301,7 +326,8 @@ pub(crate) fn sync_active_terminal_dimensions(
     terminal.requested_dimensions = Some(desired_layout.dimensions);
 }
 
-/// Implements pixel perfect cell size.
+/// Test helper that computes the raster cell size chosen for pixel-perfect scaling of a fixed
+/// terminal geometry.
 #[cfg(test)]
 pub(crate) fn pixel_perfect_cell_size(
     cols: usize,
@@ -327,13 +353,15 @@ pub(crate) fn pixel_perfect_cell_size(
     )
 }
 
-/// Implements snap to pixel grid.
+/// Snaps a logical position onto the physical pixel grid implied by the window scale factor.
+///
+/// Pixel-perfect terminal presentation uses this to avoid subpixel blur.
 pub(crate) fn snap_to_pixel_grid(position: Vec2, window: &Window) -> Vec2 {
     let scale_factor = window_scale_factor(window);
     (position * scale_factor).round() / scale_factor
 }
 
-/// Handles logical size.
+/// Converts a texture-state's physical texture size into logical on-screen size.
 fn terminal_logical_size(texture_state: &TerminalTextureState, window: &Window) -> Vec2 {
     physical_to_logical_size(
         Vec2::new(
@@ -344,7 +372,8 @@ fn terminal_logical_size(texture_state: &TerminalTextureState, window: &Window) 
     )
 }
 
-/// Implements smooth terminal screen size.
+/// Computes the smooth-mode on-screen size for a terminal texture, combining fit-to-viewport scaling
+/// with the shared zoom factor.
 fn smooth_terminal_screen_size(
     texture_state: &TerminalTextureState,
     view_state: &TerminalViewState,
@@ -359,18 +388,18 @@ fn smooth_terminal_screen_size(
     Vec2::new(texture_width, texture_height) * fit_scale * zoom_scale
 }
 
-/// Handles terminal target position.
+/// Returns the snapped center position the active terminal should occupy inside the HUD viewport.
 fn hud_terminal_target_position(window: &Window, layout_state: &HudLayoutState) -> Vec2 {
     let (_, center) = active_terminal_viewport(window, layout_state);
     snap_to_pixel_grid(center, window)
 }
 
-/// Handles surface size.
+/// Expands a terminal panel's size into the matching HUD-surface backing size.
 fn hud_surface_size(terminal_size: Vec2) -> Vec2 {
     terminal_size + HUD_FRAME_PADDING * 2.0
 }
 
-/// Implements pixel perfect terminal logical size.
+/// Test helper that exposes the logical on-screen size implied by a pixel-perfect texture state.
 #[cfg(test)]
 pub(crate) fn pixel_perfect_terminal_logical_size(
     texture_state: &TerminalTextureState,
@@ -379,7 +408,9 @@ pub(crate) fn pixel_perfect_terminal_logical_size(
     terminal_logical_size(texture_state, window)
 }
 
-/// Handles texture screen size.
+/// Returns the logical on-screen size currently used for a terminal texture.
+///
+/// Today both smooth and pixel-perfect presentation paths expose the same logical size helper here.
 pub(crate) fn terminal_texture_screen_size(
     texture_state: &TerminalTextureState,
     _view_state: &TerminalViewState,
@@ -390,7 +421,10 @@ pub(crate) fn terminal_texture_screen_size(
     terminal_logical_size(texture_state, window)
 }
 
-/// Implements effective visibility policy.
+/// Returns the visibility policy that should actually be applied after checking whether the isolated
+/// terminal still exists.
+///
+/// Stale isolate targets fall back to `ShowAll`.
 fn effective_visibility_policy(
     terminal_manager: &TerminalManager,
     visibility_state: &TerminalVisibilityState,
@@ -407,7 +441,11 @@ fn effective_visibility_policy(
     clippy::too_many_arguments,
     reason = "presentation sync needs terminal/presentation/view state together"
 )]
-/// Synchronizes terminal presentations.
+/// Recomputes each terminal panel's target size/position/visibility from focus, startup-loading,
+/// uploaded-frame readiness, and display-mode state.
+///
+/// The system also decides when presentation state should snap immediately versus animate toward new
+/// targets.
 pub(crate) fn sync_terminal_presentations(
     time: Res<Time>,
     terminal_manager: Res<TerminalManager>,
@@ -600,7 +638,9 @@ pub(crate) fn sync_terminal_presentations(
     clippy::type_complexity,
     reason = "frame sync needs disjoint panel/frame queries with explicit visibility borrowing"
 )]
-/// Synchronizes terminal panel frames.
+/// Shows and styles terminal frame sprites for direct-input mode or non-interactive runtime states.
+///
+/// Interactive terminals with no special state hide their frame entirely.
 pub(crate) fn sync_terminal_panel_frames(
     input_capture: Res<crate::hud::HudInputCaptureState>,
     terminal_manager: Res<TerminalManager>,
@@ -671,7 +711,10 @@ pub(crate) fn sync_terminal_panel_frames(
     }
 }
 
-/// Synchronizes terminal HUD surface.
+/// Keeps the HUD-surface backdrop aligned behind the active pixel-perfect terminal panel.
+///
+/// The surface is hidden for non-pixel-perfect display modes or when there is no valid active
+/// terminal presentation.
 pub(crate) fn sync_terminal_hud_surface(
     terminal_manager: Res<TerminalManager>,
     focus_state: Res<TerminalFocusState>,

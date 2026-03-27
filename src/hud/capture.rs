@@ -27,7 +27,10 @@ pub(crate) struct HudTextureCaptureConfig {
 }
 
 impl HudTextureCaptureConfig {
-    /// Builds this value from environment variables.
+    /// Reads the HUD-texture capture configuration from the environment.
+    ///
+    /// The capture is enabled only when a destination path is provided; the optional frame delay lets
+    /// the caller wait a couple of frames before readback.
     pub(crate) fn from_env() -> Option<Self> {
         let path = env::var("NEOZEUS_CAPTURE_HUD_TEXTURE_PATH").ok()?;
         let frames_until_capture = env::var("NEOZEUS_CAPTURE_HUD_TEXTURE_DELAY_FRAMES")
@@ -52,7 +55,10 @@ pub(crate) struct WindowCaptureConfig {
 }
 
 impl WindowCaptureConfig {
-    /// Builds this value from environment variables.
+    /// Reads the full-window screenshot capture configuration from the environment.
+    ///
+    /// As with the other capture configs, the path opt-in enables the feature and the optional frame
+    /// delay postpones the screenshot request.
     pub(crate) fn from_env() -> Option<Self> {
         let path = env::var("NEOZEUS_CAPTURE_WINDOW_PATH").ok()?;
         let frames_until_capture = env::var("NEOZEUS_CAPTURE_WINDOW_DELAY_FRAMES")
@@ -79,7 +85,10 @@ pub(crate) struct HudCompositeCaptureConfig {
 }
 
 impl HudCompositeCaptureConfig {
-    /// Builds this value from environment variables.
+    /// Reads the HUD-composite capture configuration from the environment.
+    ///
+    /// Composite capture has a slightly richer state machine than plain HUD texture capture, but the
+    /// opt-in environment surface is still just path plus optional frame delay.
     pub(crate) fn from_env() -> Option<Self> {
         let path = env::var("NEOZEUS_CAPTURE_HUD_COMPOSITE_PATH").ok()?;
         let frames_until_capture = env::var("NEOZEUS_CAPTURE_HUD_COMPOSITE_DELAY_FRAMES")
@@ -106,7 +115,10 @@ struct HudTextureReadbackMeta {
 }
 
 impl HudTextureReadbackMeta {
-    /// Builds this value from image metadata.
+    /// Snapshots the metadata needed to turn a later GPU readback into a file on disk.
+    ///
+    /// Width, height, format, and output path are stored on the spawned readback entity because the
+    /// readback callback itself only receives raw bytes and the entity id.
     fn from_image(path: PathBuf, image: &Image) -> Self {
         Self {
             path,
@@ -117,7 +129,10 @@ impl HudTextureReadbackMeta {
     }
 }
 
-/// Implements composite capture target image.
+/// Allocates the temporary render target used when capturing the composited HUD layer.
+///
+/// Unlike the bloom pipeline's float targets, this capture target is an 8-bit RGBA image intended
+/// purely for readback and optional sampling by the compositor camera.
 fn composite_capture_target_image(size: UVec2) -> Image {
     let mut image = Image::new_fill(
         Extent3d {
@@ -138,7 +153,11 @@ fn composite_capture_target_image(size: UVec2) -> Image {
     image
 }
 
-/// Requests HUD composite capture.
+/// Advances the HUD-composite capture state machine and spawns a readback request when ready.
+///
+/// The first stage allocates and attaches a dedicated target image to the composite camera. After
+/// that, the system waits until the composite layer is actually visible, counts down the requested
+/// delay, arms itself for one more frame, and only then spawns the GPU readback entity.
 pub(crate) fn request_hud_composite_capture(
     mut commands: Commands,
     config: Option<ResMut<HudCompositeCaptureConfig>>,
@@ -226,7 +245,11 @@ pub(crate) fn request_hud_composite_capture(
     config.requested = true;
 }
 
-/// Requests HUD texture capture.
+/// Requests capture of the raw Vello HUD texture once it becomes available.
+///
+/// The system waits for the delayed frame count, finds the first non-composited Vello canvas
+/// material, and spawns a readback for its texture. If the source canvas does not exist yet, it logs
+/// the wait and retries on future frames.
 pub(crate) fn request_hud_texture_capture(
     mut commands: Commands,
     config: Option<ResMut<HudTextureCaptureConfig>>,
@@ -281,7 +304,10 @@ pub(crate) fn request_hud_texture_capture(
     }
 }
 
-/// Requests window capture.
+/// Requests an ordinary screenshot of the primary window once the configured delay has elapsed.
+///
+/// This path uses Bevy's built-in screenshot component instead of GPU readback because it wants the
+/// final window image rather than a specific intermediate texture.
 pub(crate) fn request_window_capture(
     mut commands: Commands,
     config: Option<ResMut<WindowCaptureConfig>>,
@@ -309,7 +335,10 @@ pub(crate) fn request_window_capture(
     config.requested = true;
 }
 
-/// Finalizes window capture.
+/// Completes the window-capture workflow once Bevy's screenshot system has finished writing the file.
+///
+/// The function waits until no `Capturing` component remains and the output file exists, then marks
+/// the capture complete, logs success, and exits the application.
 pub(crate) fn finalize_window_capture(
     config: Option<ResMut<WindowCaptureConfig>>,
     captures: Query<(), With<Capturing>>,
@@ -332,7 +361,10 @@ pub(crate) fn finalize_window_capture(
     exits.write(AppExit::Success);
 }
 
-/// Handles HUD texture capture complete.
+/// Handles completion of a raw HUD-texture readback.
+///
+/// The callback writes the PPM file, logs success or failure, marks the capture config completed, and
+/// exits the app so scripted capture runs terminate automatically.
 fn handle_hud_texture_capture_complete(
     event: On<ReadbackComplete>,
     metas: Query<&HudTextureReadbackMeta>,
@@ -356,7 +388,10 @@ fn handle_hud_texture_capture_complete(
     exits.write(AppExit::Success);
 }
 
-/// Handles HUD composite capture complete.
+/// Handles completion of a composited-HUD readback.
+///
+/// This is the same basic flow as raw HUD-texture capture, but it updates the composite-capture
+/// config instead of the raw HUD capture config.
 fn handle_hud_composite_capture_complete(
     event: On<ReadbackComplete>,
     metas: Query<&HudTextureReadbackMeta>,
@@ -383,14 +418,20 @@ fn handle_hud_composite_capture_complete(
     exits.write(AppExit::Success);
 }
 
-/// Writes texture dump.
+/// Serializes one HUD readback buffer into a PPM file on disk.
+///
+/// Format-aware byte conversion is delegated to [`texture_bytes_to_ppm`]; this helper is the thin I/O
+/// layer that adds the destination path to any filesystem error.
 fn write_texture_dump(meta: &HudTextureReadbackMeta, bytes: &[u8]) -> Result<(), String> {
     let ppm = texture_bytes_to_ppm(meta.width, meta.height, meta.format, bytes)?;
     fs::write(&meta.path, ppm)
         .map_err(|error| format!("failed to write {}: {error}", meta.path.display()))
 }
 
-/// Implements texture bytes to PPM.
+/// Converts HUD readback bytes into a tightly packed binary PPM image.
+///
+/// The helper understands the small RGBA/BGRA format set used by HUD capture, compensates for GPU
+/// row alignment padding, drops alpha, and reorders BGRA into RGB when needed.
 fn texture_bytes_to_ppm(
     width: u32,
     height: u32,
@@ -438,7 +479,9 @@ fn texture_bytes_to_ppm(
     Ok(ppm)
 }
 
-/// Implements align copy bytes per row.
+/// Rounds a packed row byte count up to WGPU's 256-byte copy alignment.
+///
+/// The bit-mask formula is the standard power-of-two round-up used for GPU readback buffers.
 fn align_copy_bytes_per_row(value: usize) -> usize {
     const ALIGNMENT: usize = 256;
     (value + (ALIGNMENT - 1)) & !(ALIGNMENT - 1)

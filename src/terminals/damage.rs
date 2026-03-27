@@ -1,6 +1,12 @@
 use crate::terminals::{TerminalDamage, TerminalSurface};
 
-/// Computes terminal damage.
+/// Computes the smallest useful repaint description between two terminal surfaces.
+///
+/// The function chooses `Full` repaint whenever there is no previous surface or when the terminal
+/// dimensions changed, because row-level diffs would no longer line up. Otherwise it compares each
+/// row's cell slice and records only the rows whose contents changed. Cursor motion is folded in as
+/// extra dirty rows so blinking/moved cursors repaint correctly even when the underlying text stayed
+/// the same.
 pub(crate) fn compute_terminal_damage(
     previous_surface: Option<&TerminalSurface>,
     surface: &TerminalSurface,

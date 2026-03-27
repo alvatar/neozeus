@@ -5,7 +5,11 @@ use std::{ffi::OsString, io::Write};
 #[cfg(test)]
 use std::fs;
 
-/// Spawns PTY.
+/// Allocates a new PTY pair and starts the configured shell inside it.
+///
+/// The function opens the PTY at the requested cell size, builds the shell command, forces
+/// `TERM=xterm-256color`, spawns the child on the slave side, drops the slave handle, and returns a
+/// [`PtySession`] containing the master, a writable handle, and the child process.
 pub(crate) fn spawn_pty(cols: u16, rows: u16) -> Result<PtySession, String> {
     let pty_system = native_pty_system();
     let pair = pty_system
@@ -39,7 +43,11 @@ pub(crate) fn spawn_pty(cols: u16, rows: u16) -> Result<PtySession, String> {
     })
 }
 
-/// Builds shell command.
+/// Builds the shell command used for newly spawned PTY sessions.
+///
+/// In production this is essentially just the raw shell program. In tests, the command is further
+/// rewritten by [`apply_test_shell_isolation`] so the spawned shell cannot read or pollute the real
+/// user environment.
 fn build_shell_command() -> CommandBuilder {
     let command = CommandBuilder::new(raw_shell_program());
     #[cfg(test)]
@@ -49,12 +57,20 @@ fn build_shell_command() -> CommandBuilder {
     command
 }
 
-/// Implements raw shell program.
+/// Returns the shell executable NeoZeus launches inside each PTY.
+///
+/// Today this is hard-coded to `zsh`. Keeping it behind a function makes the choice testable and
+/// centralizes the one place that would need changing if the default shell policy ever changes.
 fn raw_shell_program() -> OsString {
     OsString::from("zsh")
 }
 
-/// Applies test shell isolation.
+/// Rewrites the shell environment so tests run against an isolated temporary home/config tree.
+///
+/// This function is intentionally heavy-handed: it points HOME/XDG/ZDOTDIR/history-related variables
+/// into a per-process temp directory, empties `.zshenv`, forces a minimal PATH, and disables common
+/// shell startup hooks. The goal is deterministic test behavior regardless of the developer's real
+/// shell configuration.
 #[cfg(test)]
 fn apply_test_shell_isolation(command: &mut CommandBuilder) {
     let root = std::env::temp_dir().join(format!("neozeus-test-shell-{}", std::process::id()));
@@ -86,7 +102,10 @@ fn apply_test_shell_isolation(command: &mut CommandBuilder) {
     command.env("PATH", "/usr/bin:/bin");
 }
 
-/// Writes input.
+/// Writes a byte payload into the PTY and flushes it immediately.
+///
+/// Flushing on every write is intentional here because terminal input should be observed by the PTY
+/// as soon as the command path emits it; batching is handled at higher layers when needed.
 pub(crate) fn write_input(writer: &mut dyn Write, bytes: &[u8]) -> std::io::Result<()> {
     writer.write_all(bytes)?;
     writer.flush()
@@ -97,7 +116,10 @@ mod tests {
     use super::raw_shell_program;
     use std::ffi::OsString;
 
-    /// Verifies that raw shell program is zsh.
+    /// Locks down the current default shell choice used by [`spawn_pty`].
+    ///
+    /// This is intentionally tiny, but it protects against accidentally changing the hard-coded shell
+    /// executable without noticing the behavioral impact on spawned sessions.
     #[test]
     fn raw_shell_program_is_zsh() {
         assert_eq!(raw_shell_program(), OsString::from("zsh"));

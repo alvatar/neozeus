@@ -12,7 +12,10 @@ use super::{debug_toolbar_buttons, DebugToolbarAction};
     clippy::too_many_arguments,
     reason = "toolbar hit routing needs geometry, terminal state, HUD state, and command output together"
 )]
-/// Handles pointer click.
+/// Converts a debug-toolbar click into the corresponding HUD intent.
+///
+/// The function walks the current button layout, finds the clicked button, translates its toolbar-
+/// specific action enum into a generic `HudIntent`, and emits only the first hit.
 pub(crate) fn handle_pointer_click(
     model: &HudModuleModel,
     shell_rect: HudRect,

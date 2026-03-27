@@ -7,7 +7,10 @@ use bevy_vello::prelude::VelloTextAnchor;
 
 use super::debug_toolbar_buttons;
 
-/// Renders content.
+/// Renders the debug toolbar's status text and button strip.
+///
+/// Besides the buttons themselves, the toolbar also shows a compact live status line for active
+/// terminal/runtime/font/debug metrics so the module doubles as a lightweight diagnostics surface.
 pub(crate) fn render_content(
     model: &HudModuleModel,
     content_rect: HudRect,

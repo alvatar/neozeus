@@ -7,7 +7,10 @@ use bevy::{
 };
 use std::{fs, path::PathBuf, time::Duration};
 
-/// Verifies that HUD layout path prefers XDG then home.
+/// Verifies the config-path search order for persisted HUD layouts.
+///
+/// XDG config takes precedence when present, otherwise the code falls back to `$HOME/.config`, and
+/// with neither variable available persistence is disabled.
 #[test]
 fn hud_layout_path_prefers_xdg_then_home() {
     assert_eq!(
@@ -21,7 +24,9 @@ fn hud_layout_path_prefers_xdg_then_home() {
     assert_eq!(resolve_hud_layout_path_with(None, None), None);
 }
 
-/// Verifies that HUD layout parse and serialize roundtrip.
+/// Verifies that persisted HUD layout serialization round-trips through the current v2 format.
+///
+/// This locks down both field coverage and the parser/serializer pairing for modern layout files.
 #[test]
 fn hud_layout_parse_and_serialize_roundtrip() {
     let mut persisted = PersistedHudState::default();
@@ -41,7 +46,9 @@ fn hud_layout_parse_and_serialize_roundtrip() {
     assert_eq!(parse_persisted_hud_state(&text), persisted);
 }
 
-/// Verifies that HUD layout v1 parser remains backward compatible.
+/// Verifies backward compatibility with the legacy v1 HUD layout format.
+///
+/// Old persisted layouts should still load even though new saves use the v2 block-based format.
 #[test]
 fn hud_layout_v1_parser_remains_backward_compatible() {
     let persisted =
@@ -51,7 +58,10 @@ fn hud_layout_v1_parser_remains_backward_compatible() {
     assert_eq!(module.rect.w, 300.0);
 }
 
-/// Verifies that apply persisted layout overrides defaults.
+/// Verifies that loading persisted layout data overrides the built-in module defaults.
+///
+/// The test checks both enablement and rect replacement so defaults are not silently kept when saved
+/// data exists.
 #[test]
 fn apply_persisted_layout_overrides_defaults() {
     let mut persisted = PersistedHudState::default();
@@ -75,7 +85,10 @@ fn apply_persisted_layout_overrides_defaults() {
     assert_eq!(module.shell.target_rect.w, 333.0);
 }
 
-/// Verifies that saving HUD layout persists target rect.
+/// Verifies that saving HUD layout writes the target rect, not the transient animated rect.
+///
+/// Persistence should capture the intended stable layout, which lives in `target_rect` while animation
+/// may still be catching up.
 #[test]
 fn saving_hud_layout_persists_target_rect() {
     let dir = temp_dir("neozeus-hud-layout-save");

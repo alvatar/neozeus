@@ -1,7 +1,11 @@
 use crate::terminals::{TerminalCommand, TerminalFocusState, TerminalManager};
 use bevy::prelude::*;
 
-/// Applies terminal send requests.
+/// Delivers queued command-send requests to either the active terminal or a specific terminal.
+///
+/// The system does no command interpretation itself. It simply resolves the correct terminal bridge—
+/// from the current focus state or by direct id lookup—and forwards the string payload as a
+/// `TerminalCommand::SendCommand` when a target terminal exists.
 pub(crate) fn apply_terminal_send_requests(
     mut requests: MessageReader<crate::hud::TerminalSendRequest>,
     terminal_manager: Res<TerminalManager>,

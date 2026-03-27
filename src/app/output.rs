@@ -27,7 +27,10 @@ pub(crate) enum OutputMode {
 }
 
 impl OutputMode {
-    /// Returns whether offscreen.
+    /// Returns whether this mode renders into an offscreen image instead of a real desktop window.
+    ///
+    /// The enum currently has only one offscreen variant, but the helper keeps the rest of the code
+    /// phrased in terms of output intent rather than matching concrete variants everywhere.
     pub(crate) fn is_offscreen(self) -> bool {
         matches!(self, Self::OffscreenVerify)
     }
@@ -42,7 +45,11 @@ pub(crate) struct AppOutputConfig {
 }
 
 impl Default for AppOutputConfig {
-    /// Returns the default value for this type.
+    /// Provides the normal desktop-output defaults used when no environment overrides are present.
+    ///
+    /// The defaults intentionally bias toward an ordinary visible application window at a reasonable
+    /// verification-friendly size, while leaving the scale factor unspecified so the host platform can
+    /// choose it naturally.
     fn default() -> Self {
         Self {
             mode: OutputMode::Desktop,
@@ -54,7 +61,11 @@ impl Default for AppOutputConfig {
 }
 
 impl AppOutputConfig {
-    /// Builds this value from environment variables.
+    /// Reads the output configuration from the `NEOZEUS_*` environment surface.
+    ///
+    /// Parsing is intentionally forgiving: mode and dimensions are normalized through dedicated
+    /// helpers, and the window scale factor piggybacks on the shared bootstrap parser so offscreen and
+    /// on-screen sizing follow the same rules.
     pub(crate) fn from_env() -> Self {
         Self {
             mode: resolve_output_mode(env::var("NEOZEUS_OUTPUT_MODE").ok().as_deref()),
@@ -73,7 +84,11 @@ impl AppOutputConfig {
     }
 }
 
-/// Resolves output mode.
+/// Parses the requested output mode from an optional raw string.
+///
+/// The parser currently accepts both `offscreen` and `offscreen-verify` as aliases for the same
+/// headless verification mode. Missing, empty, or unknown values deliberately fall back to desktop
+/// mode instead of failing startup.
 pub(crate) fn resolve_output_mode(raw: Option<&str>) -> OutputMode {
     match raw.map(str::trim).filter(|value| !value.is_empty()) {
         Some(value) if value.eq_ignore_ascii_case("offscreen") => OutputMode::OffscreenVerify,
@@ -84,7 +99,11 @@ pub(crate) fn resolve_output_mode(raw: Option<&str>) -> OutputMode {
     }
 }
 
-/// Resolves output dimension.
+/// Parses a positive integer dimension while preserving a caller-supplied default on bad input.
+///
+/// The function trims the input, attempts `u32` parsing, rejects zero explicitly, and otherwise
+/// returns `default`. That keeps environment-based configuration convenient without turning typos
+/// into hard startup failures.
 pub(crate) fn resolve_output_dimension(raw: Option<&str>, default: u32) -> u32 {
     raw.map(str::trim)
         .filter(|value| !value.is_empty())
@@ -100,14 +119,21 @@ pub(crate) struct FinalFrameOutputState {
 }
 
 impl FinalFrameOutputState {
-    /// Returns whether this feature is enabled.
+    /// Test-only helper that reports whether an offscreen target image is currently allocated.
+    ///
+    /// The production code just inspects `target_image` directly, but tests use this named predicate
+    /// to assert the state transition without depending on the resource layout.
     #[cfg(test)]
     pub(crate) fn enabled(&self) -> bool {
         self.target_image.is_some()
     }
 }
 
-/// Creates final frame image.
+/// Allocates the GPU image that all offscreen cameras will render into.
+///
+/// The image is created in the final presentation format and with the exact usage flags needed by
+/// the pipeline: render attachment for drawing, copy source for readback, and texture binding so it
+/// can participate in later composition if needed.
 pub(crate) fn create_final_frame_image(size: UVec2) -> Image {
     let mut image = Image::new_fill(
         Extent3d {
@@ -135,7 +161,12 @@ pub(crate) struct FinalFrameCaptureConfig {
 }
 
 impl FinalFrameCaptureConfig {
-    /// Builds this value from environment variables.
+    /// Builds the final-frame capture request from environment variables, or returns `None` when
+    /// capture is not configured.
+    ///
+    /// The presence of `NEOZEUS_CAPTURE_FINAL_FRAME_PATH` is the feature gate. Delay frames and the
+    /// exit-after-capture behavior are parsed permissively so ad-hoc verification runs stay easy to
+    /// configure from the shell.
     pub(crate) fn from_env() -> Option<Self> {
         Some(Self {
             path: PathBuf::from(env::var("NEOZEUS_CAPTURE_FINAL_FRAME_PATH").ok()?),
@@ -167,7 +198,11 @@ pub(crate) struct FinalFrameReadbackMeta {
 }
 
 impl FinalFrameReadbackMeta {
-    /// Builds this value from image metadata.
+    /// Captures the metadata needed to write a completed GPU readback to disk later.
+    ///
+    /// The readback callback only receives the raw bytes and the observing entity, so width, height,
+    /// format, and destination path are snapshotted here at request time and carried on the spawned
+    /// entity as a component.
     pub(crate) fn from_image(path: PathBuf, image: &Image) -> Self {
         Self {
             path,
@@ -182,7 +217,12 @@ impl FinalFrameReadbackMeta {
     clippy::too_many_arguments,
     reason = "camera target routing needs output state, image assets, and multiple camera marker queries"
 )]
-/// Synchronizes final frame output target.
+/// Keeps every final-frame camera pointed at the correct render target for the current output mode.
+///
+/// In desktop mode the system removes any stale offscreen image and sends all cameras back to their
+/// default window target. In offscreen mode it allocates or resizes a shared image to match the
+/// current primary-window physical size, then assigns that image to the terminal, HUD composite,
+/// bloom, and modal cameras so the whole scene lands in one buffer.
 pub(crate) fn sync_final_frame_output_target(
     output: Res<AppOutputConfig>,
     primary_window: Single<&Window, With<PrimaryWindow>>,
@@ -195,6 +235,8 @@ pub(crate) fn sync_final_frame_output_target(
     modal_cameras: Query<Entity, With<HudModalCameraMarker>>,
 ) {
     if !output.mode.is_offscreen() {
+        // Leaving offscreen mode means any cached image target is now stale; drop it and restore all
+        // cameras to their default window-backed render target.
         if output_state.target_image.take().is_some() {
             output_state.size = UVec2::ZERO;
         }
@@ -209,6 +251,8 @@ pub(crate) fn sync_final_frame_output_target(
         return;
     }
 
+    // The synthetic/real primary window already knows the effective physical size, including any
+    // scale-factor override, so use it as the single source of truth for the offscreen image size.
     let target_size = UVec2::new(
         primary_window.physical_width().max(1),
         primary_window.physical_height().max(1),
@@ -244,7 +288,12 @@ pub(crate) fn sync_final_frame_output_target(
     }
 }
 
-/// Requests final frame capture.
+/// Drives the "capture the next finished offscreen frame" state machine.
+///
+/// The system keeps requesting redraws until capture can happen, waits for any verification scenario
+/// to finish applying, honors the configured frame delay, and then spawns a GPU readback observer on
+/// the current target image. If the image resource does not exist yet, it logs the wait and retries
+/// on later frames instead of failing.
 pub(crate) fn request_final_frame_capture(
     mut commands: Commands,
     config: Option<ResMut<FinalFrameCaptureConfig>>,
@@ -267,6 +316,8 @@ pub(crate) fn request_final_frame_capture(
     if config.requested {
         return;
     }
+    // The extra frame delay exists because some verification scenarios intentionally need a couple
+    // of frames after becoming "applied" before the rendered image is the one we actually want.
     if config.frames_until_capture > 0 {
         config.frames_until_capture -= 1;
         return;
@@ -295,7 +346,11 @@ pub(crate) fn request_final_frame_capture(
     config.requested = true;
 }
 
-/// Handles final frame capture complete.
+/// Completes a pending final-frame capture once the GPU readback bytes arrive.
+///
+/// The observer looks up the metadata stored on the spawned readback entity, writes the bytes to the
+/// requested path, logs success or failure, marks capture as completed, and optionally exits the app
+/// when the configuration says the process should terminate after producing the artifact.
 fn handle_final_frame_capture_complete(
     event: On<ReadbackComplete>,
     metas: Query<&FinalFrameReadbackMeta>,
@@ -325,14 +380,21 @@ fn handle_final_frame_capture_complete(
     }
 }
 
-/// Writes texture dump.
+/// Serializes a final-frame readback into a PPM file on disk.
+///
+/// The function delegates pixel-format handling to [`texture_bytes_to_ppm`] and keeps this layer
+/// focused on filesystem error reporting, including the destination path in any failure message.
 fn write_texture_dump(meta: &FinalFrameReadbackMeta, bytes: &[u8]) -> Result<(), String> {
     let ppm = texture_bytes_to_ppm(meta.width, meta.height, meta.format, bytes)?;
     std::fs::write(&meta.path, ppm)
         .map_err(|error| format!("failed to write {}: {error}", meta.path.display()))
 }
 
-/// Implements texture bytes to PPM.
+/// Converts raw GPU readback bytes into a simple binary PPM image.
+///
+/// The function understands the small set of 8-bit RGBA/BGRA formats used by the render path,
+/// compensates for row padding added by GPU copy alignment, and strips alpha because PPM only stores
+/// RGB data. Unsupported formats and undersized buffers are reported as explicit errors.
 fn texture_bytes_to_ppm(
     width: u32,
     height: u32,
@@ -362,6 +424,8 @@ fn texture_bytes_to_ppm(
     }
 
     let mut ppm = format!("P6\n{} {}\n255\n", width, height).into_bytes();
+    // PPM stores tightly packed RGB rows, so each aligned GPU row has to be truncated back down to
+    // the logical pixel width before the bytes are appended.
     for row in bytes.chunks_exact(aligned_row_bytes).take(height as usize) {
         for pixel in row[..packed_row_bytes].chunks_exact(pixel_size) {
             match format {
@@ -378,13 +442,19 @@ fn texture_bytes_to_ppm(
     Ok(ppm)
 }
 
-/// Implements align copy bytes per row.
+/// Rounds a byte count up to WGPU's required row-copy alignment.
+///
+/// GPU texture readbacks are aligned to 256-byte rows. The bit-mask formula is the standard power-
+/// of-two round-up used to compute the padded row stride without branches.
 fn align_copy_bytes_per_row(value: usize) -> usize {
     const ALIGNMENT: usize = 256;
     (value + (ALIGNMENT - 1)) & !(ALIGNMENT - 1)
 }
 
-/// Implements final frame format.
+/// Exposes the production final-frame texture format to tests.
+///
+/// The constant itself is private to this module, but tests need a stable way to assert the helper
+/// uses the same format the runtime capture path expects.
 #[cfg(test)]
 pub(crate) fn final_frame_format() -> TextureFormat {
     FINAL_FRAME_FORMAT

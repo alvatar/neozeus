@@ -22,7 +22,11 @@ pub(crate) struct TerminalUpdateMailbox {
 }
 
 impl TerminalUpdateMailbox {
-    /// Pushes frame.
+    /// Stores the newest frame update and reports whether the runtime should be woken.
+    ///
+    /// The mailbox coalesces frames aggressively: if an older frame was still waiting, it is dropped
+    /// and the drop counter is incremented. That keeps the consumer focused on the most recent visual
+    /// state instead of replaying stale intermediate frames.
     pub(crate) fn push_frame(&self, frame: TerminalFrameUpdate) -> MailboxPush {
         let mut pending = match self.inner.lock() {
             Ok(pending) => pending,
@@ -36,7 +40,10 @@ impl TerminalUpdateMailbox {
         }
     }
 
-    /// Pushes status.
+    /// Stores the newest runtime/status update and reports whether the consumer should be woken.
+    ///
+    /// Status updates are also coalesced, but unlike frames there is no drop counter because only the
+    /// latest status matters semantically.
     pub(crate) fn push_status(&self, status: LatestTerminalStatus) -> MailboxPush {
         let mut pending = match self.inner.lock() {
             Ok(pending) => pending,
@@ -48,7 +55,10 @@ impl TerminalUpdateMailbox {
         }
     }
 
-    /// Pushes this value.
+    /// Routes a generic terminal update into the appropriate coalescing path.
+    ///
+    /// This is just the enum-dispatch convenience wrapper around [`push_frame`] and [`push_status`],
+    /// keeping callers from having to duplicate the match themselves.
     pub(crate) fn push(&self, update: TerminalUpdate) -> MailboxPush {
         match update {
             TerminalUpdate::Frame(frame) => self.push_frame(frame),
@@ -56,7 +66,11 @@ impl TerminalUpdateMailbox {
         }
     }
 
-    /// Drains this value.
+    /// Takes the currently queued latest frame/status pair and clears the wake flag.
+    ///
+    /// Draining is destructive by design: the consumer receives the newest coalesced frame, the
+    /// newest coalesced status, and the accumulated dropped-frame count, and the mailbox returns to an
+    /// empty waiting state.
     pub(crate) fn drain(&self) -> DrainedTerminalUpdates {
         let mut pending = match self.inner.lock() {
             Ok(pending) => pending,
@@ -71,7 +85,11 @@ impl TerminalUpdateMailbox {
     }
 }
 
-/// Marks wake pending.
+/// Sets the mailbox's one-bit wake latch and tells the caller whether this push should trigger a
+/// wake-up.
+///
+/// The first update after a drain returns `true`; subsequent pushes while the latch is already set
+/// return `false` so the runtime is not spammed with redundant wake signals.
 fn mark_wake_pending(pending: &mut PendingTerminalUpdates) -> bool {
     if pending.wake_pending {
         false

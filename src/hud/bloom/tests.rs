@@ -14,7 +14,10 @@ use bevy::{
     window::{PrimaryWindow, WindowResolution},
 };
 
-/// Verifies that agent list reference colors match requested values.
+/// Locks down the exact reference RGB constants used by the agent-list border and bloom styling.
+///
+/// These values matter because the visual verification scripts compare rendered output against known
+/// color targets; accidental changes here would silently change the whole visual signature.
 #[test]
 fn agent_list_reference_colors_match_requested_values() {
     assert_eq!(
@@ -35,7 +38,10 @@ fn agent_list_reference_colors_match_requested_values() {
     );
 }
 
-/// Verifies that parses agent bloom intensity override.
+/// Verifies the permissive parser for the bloom-intensity override.
+///
+/// Valid non-negative finite numbers should be accepted, while empty, negative, or malformed values
+/// should fall back to the module default intensity.
 #[test]
 fn parses_agent_bloom_intensity_override() {
     assert_eq!(resolve_agent_list_bloom_intensity(None), 0.10);
@@ -46,7 +52,10 @@ fn parses_agent_bloom_intensity_override() {
     assert_eq!(resolve_agent_list_bloom_intensity(Some("abc")), 0.10);
 }
 
-/// Verifies that parses agent bloom debug previews override.
+/// Verifies the boolean parser for bloom debug previews.
+///
+/// The test covers the accepted truthy spellings and confirms that empty or explicit falsy values do
+/// not enable the preview overlays.
 #[test]
 fn parses_agent_bloom_debug_previews_override() {
     assert!(!resolve_agent_list_bloom_debug_previews(None));
@@ -58,7 +67,10 @@ fn parses_agent_bloom_debug_previews_override() {
     assert!(!resolve_agent_list_bloom_debug_previews(Some("false")));
 }
 
-/// Verifies that bloom blur material writes offscreen passes opaquely.
+/// Verifies that the bloom blur material renders its offscreen passes opaquely.
+///
+/// The blur passes already operate on isolated float targets, so alpha blending would only pollute
+/// the intermediate images. This test locks the material policy down.
 #[test]
 fn bloom_blur_material_writes_offscreen_passes_opaquely() {
     let material = AgentListBloomBlurMaterial {
@@ -70,7 +82,10 @@ fn bloom_blur_material_writes_offscreen_passes_opaquely() {
     assert_eq!(Material2d::alpha_mode(&material), AlphaMode2d::Opaque);
 }
 
-/// Verifies that setup HUD widget bloom spawns camera and composite sprite.
+/// Verifies the initial bloom setup graph created at startup.
+///
+/// The setup system should create the offscreen source camera, its float render target, and the
+/// hidden composite sprite that will later bring the bloom result back into the main HUD composition.
 #[test]
 fn setup_hud_widget_bloom_spawns_camera_and_composite_sprite() {
     let mut world = World::default();
@@ -137,7 +152,10 @@ fn setup_hud_widget_bloom_spawns_camera_and_composite_sprite() {
     assert_eq!(composite_image_format, TextureFormat::Rgba16Float);
 }
 
-/// Verifies that setup HUD widget bloom uses logical window size for targets.
+/// Verifies that bloom targets are sized from logical window dimensions, not physical pixels.
+///
+/// This matters when a scale-factor override is active: the bloom pipeline is intentionally tied to
+/// logical HUD layout, so its render targets should track the logical size.
 #[test]
 fn setup_hud_widget_bloom_uses_logical_window_size_for_targets() {
     let mut world = World::default();
@@ -182,7 +200,11 @@ fn setup_hud_widget_bloom_uses_logical_window_size_for_targets() {
         .all(|image| image.texture_descriptor.format == TextureFormat::Rgba16Float));
 }
 
-/// Verifies that sync HUD widget bloom spawns agent list source sprites.
+/// Verifies that bloom sync creates the expected set of source border sprites for the active agent
+/// row.
+///
+/// The test checks both the count and the per-segment breakdown so the bloom source generation keeps
+/// producing the four border strips for both the main cell and the marker cell.
 #[test]
 fn sync_hud_widget_bloom_spawns_agent_list_source_sprites() {
     let mut world = World::default();
@@ -313,7 +335,10 @@ fn sync_hud_widget_bloom_spawns_agent_list_source_sprites() {
     assert_eq!(sprite.custom_size, Some(Vec2::new(1400.0, 900.0)));
 }
 
-/// Verifies that sync HUD widget bloom hides sources and composite while modal is visible.
+/// Verifies that bloom is suppressed while a modal HUD surface is visible.
+///
+/// The bloom effect should not leak behind message/task dialogs, so the sync system must remove any
+/// source sprites and hide the composite sprite when a modal is active.
 #[test]
 fn sync_hud_widget_bloom_hides_sources_and_composite_while_modal_is_visible() {
     let mut world = World::default();
@@ -360,7 +385,10 @@ fn sync_hud_widget_bloom_hides_sources_and_composite_while_modal_is_visible() {
     assert_eq!(visibility, &Visibility::Hidden);
 }
 
-/// Verifies that sync HUD widget bloom only uses active agent source.
+/// Verifies that bloom sources are generated only for the active agent row.
+///
+/// Even if multiple rows exist, the bloom effect should track the currently focused/active terminal so
+/// the visual emphasis stays singular.
 #[test]
 fn sync_hud_widget_bloom_only_uses_active_agent_source() {
     let mut world = World::default();

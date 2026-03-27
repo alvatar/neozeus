@@ -54,7 +54,10 @@ pub(crate) struct HudBloomSettings {
 }
 
 impl Default for HudBloomSettings {
-    /// Returns the default value for this type.
+    /// Reads bloom tuning defaults from the environment and falls back to the built-in constants.
+    ///
+    /// This keeps the bloom pipeline configurable for visual verification without requiring a separate
+    /// config file path.
     fn default() -> Self {
         Self {
             agent_list_intensity: resolve_agent_list_bloom_intensity(
@@ -69,7 +72,9 @@ impl Default for HudBloomSettings {
     }
 }
 
-/// Resolves agent list bloom intensity.
+/// Parses the scalar intensity multiplier for the agent-list bloom effect.
+///
+/// Only finite, non-negative values are accepted; anything else falls back to the default intensity.
 pub(crate) fn resolve_agent_list_bloom_intensity(raw: Option<&str>) -> f32 {
     raw.map(str::trim)
         .filter(|value| !value.is_empty())
@@ -78,7 +83,9 @@ pub(crate) fn resolve_agent_list_bloom_intensity(raw: Option<&str>) -> f32 {
         .unwrap_or(DEFAULT_BLOOM_INTENSITY)
 }
 
-/// Resolves agent list bloom debug previews.
+/// Parses the boolean flag that enables on-screen debug previews for bloom intermediate stages.
+///
+/// The parser accepts a small truthy vocabulary and treats everything else as disabled.
 pub(crate) fn resolve_agent_list_bloom_debug_previews(raw: Option<&str>) -> bool {
     matches!(
         raw.map(str::trim).filter(|value| !value.is_empty()),
@@ -144,12 +151,17 @@ pub(crate) struct AgentListBloomBlurMaterial {
 }
 
 impl Material2d for AgentListBloomBlurMaterial {
-    /// Implements fragment shader.
+    /// Returns the WGSL shader used for the separable blur passes.
+    ///
+    /// The material implementation is just a small Rust wrapper around this custom shader asset.
     fn fragment_shader() -> ShaderRef {
         BLOOM_BLUR_SHADER_PATH.into()
     }
 
-    /// Implements alpha mode.
+    /// Forces the blur material to render opaquely into its offscreen targets.
+    ///
+    /// Intermediate blur passes should overwrite the target pixels instead of alpha-blending with old
+    /// data.
     fn alpha_mode(&self) -> AlphaMode2d {
         AlphaMode2d::Opaque
     }
@@ -202,7 +214,10 @@ pub(crate) struct HudWidgetBloom {
     agent_list: AgentListBloomPass,
 }
 
-/// Implements bloom target image.
+/// Allocates one float render target used by the bloom pipeline.
+///
+/// The target is transparent-initialized, marked renderable/bindable/copy-dst, and configured with a
+/// linear sampler because the blur stages sample it as a texture.
 fn bloom_target_image(size: UVec2) -> Image {
     let mut image = Image::new_fill(
         Extent3d {
@@ -221,7 +236,9 @@ fn bloom_target_image(size: UVec2) -> Image {
     image
 }
 
-/// Implements image matches size.
+/// Returns whether an existing bloom image handle already matches the required size and format.
+///
+/// This lets the sync path reuse existing images instead of reallocating every frame.
 fn image_matches_size(images: &Assets<Image>, handle: &Handle<Image>, size: UVec2) -> bool {
     images
         .get(handle)
@@ -233,7 +250,10 @@ fn image_matches_size(images: &Assets<Image>, handle: &Handle<Image>, size: UVec
         .unwrap_or(false)
 }
 
-/// Implements logical window size.
+/// Computes the logical window size used as the bloom pipeline's layout space.
+///
+/// Bloom geometry tracks HUD layout, which is expressed in logical window coordinates rather than raw
+/// physical pixels.
 fn logical_window_size(window: &Window) -> UVec2 {
     UVec2::new(
         window.width().round().max(1.0) as u32,
@@ -241,7 +261,10 @@ fn logical_window_size(window: &Window) -> UVec2 {
     )
 }
 
-/// Implements bloom target size.
+/// Computes the offscreen bloom target size from the logical window size and bloom scale divisor.
+///
+/// Keeping this in one helper makes it easy to downsample the whole bloom pipeline later by changing
+/// a single constant.
 fn bloom_target_size(window: &Window) -> UVec2 {
     let size = logical_window_size(window);
     UVec2::new(
@@ -250,7 +273,10 @@ fn bloom_target_size(window: &Window) -> UVec2 {
     )
 }
 
-/// Implements rect transform for frame.
+/// Converts a HUD-space rectangle into a centered Bevy transform inside a frame of known size.
+///
+/// HUD rectangles use top-left origin coordinates; Bevy sprites are positioned around the frame
+/// center. This helper performs that coordinate conversion.
 fn rect_transform_for_frame(frame_size: Vec2, rect: HudRect, z: f32) -> Transform {
     Transform::from_xyz(
         rect.x + rect.w * 0.5 - frame_size.x * 0.5,
@@ -259,12 +285,17 @@ fn rect_transform_for_frame(frame_size: Vec2, rect: HudRect, z: f32) -> Transfor
     )
 }
 
-/// Implements fullscreen transform for frame.
+/// Builds the centered transform for a full-frame quad at a given z layer.
+///
+/// The quad is positioned at the frame origin and scaled to the full frame size, which is what the
+/// blur/composite passes need.
 fn fullscreen_transform_for_frame(frame_size: Vec2, z: f32) -> Transform {
     Transform::from_xyz(0.0, 0.0, z).with_scale(Vec3::new(frame_size.x, frame_size.y, 1.0))
 }
 
-/// Implements scale rect into target.
+/// Scales a HUD rectangle from logical window space into bloom-target pixel space.
+///
+/// This is used when the bloom targets do not have a 1:1 correspondence with the window size.
 fn scale_rect_into_target(window: &Window, target_size: UVec2, rect: HudRect) -> HudRect {
     let scale_x = target_size.x.max(1) as f32 / window.width().max(1.0);
     let scale_y = target_size.y.max(1) as f32 / window.height().max(1.0);
@@ -276,7 +307,9 @@ fn scale_rect_into_target(window: &Window, target_size: UVec2, rect: HudRect) ->
     }
 }
 
-/// Implements bloom debug preview transform.
+/// Computes the transform for one debug-preview sprite showing an intermediate bloom stage.
+///
+/// The previews are laid out as a fixed three-panel strip near the top-right edge of the window.
 fn bloom_debug_preview_transform(
     window: &Window,
     stage: AgentListBloomDebugPreviewStage,
@@ -296,7 +329,10 @@ fn bloom_debug_preview_transform(
     Transform::from_xyz(x, y, z)
 }
 
-/// Implements bloom debug backdrop transform.
+/// Computes the transform for the background panel behind all bloom debug previews.
+///
+/// The backdrop is sized from the total preview strip width plus padding so the previews read as one
+/// grouped diagnostic widget.
 fn bloom_debug_backdrop_transform(window: &Window, z: f32) -> Transform {
     let total_width = BLOOM_DEBUG_PREVIEW_WIDTH * 3.0 + BLOOM_DEBUG_PREVIEW_GAP * 2.0;
     let panel_width = total_width + BLOOM_DEBUG_PREVIEW_BACKDROP_PADDING * 2.0;
@@ -306,14 +342,20 @@ fn bloom_debug_backdrop_transform(window: &Window, z: f32) -> Transform {
     Transform::from_xyz(x, y, z).with_scale(Vec3::new(panel_width, panel_height, 1.0))
 }
 
-/// Implements blur uniform.
+/// Packs blur shader parameters into the material uniform type.
+///
+/// The vector stores texel step, blur radius in pixels, and gain in the compact format expected by
+/// the custom WGSL shader.
 fn blur_uniform(texel_size: Vec2, radius_pixels: f32, gain: f32) -> AgentListBloomBlurUniform {
     AgentListBloomBlurUniform {
         texel_step_gain: Vec4::new(texel_size.x, texel_size.y, radius_pixels, gain),
     }
 }
 
-/// Implements bloom reference red.
+/// Builds a linear-space bloom source color from the reference emissive red constant.
+///
+/// The conversion goes through sRGB->linear once and then applies caller-controlled intensity and
+/// alpha scaling so all bloom source colors derive from the same reference hue.
 fn bloom_reference_red(scale: f32, alpha: f32) -> Color {
     let linear: LinearRgba = Srgba::rgba_u8(
         AGENT_LIST_BLOOM_RED_R,
@@ -330,7 +372,10 @@ fn bloom_reference_red(scale: f32, alpha: f32) -> Color {
     )
 }
 
-/// Implements bloom source color.
+/// Chooses the bloom source color for one border strip based on row state and source kind.
+///
+/// Focused rows glow most strongly, hovered rows get a medium boost, and idle rows still contribute a
+/// faint glow. Marker strips are slightly hotter than main strips.
 fn bloom_source_color(focused: bool, hovered: bool, kind: AgentListBloomSourceKind) -> Color {
     match (focused, hovered, kind) {
         (true, _, AgentListBloomSourceKind::Main) => bloom_reference_red(5.0, 1.0),
@@ -342,7 +387,10 @@ fn bloom_source_color(focused: bool, hovered: bool, kind: AgentListBloomSourceKi
     }
 }
 
-/// Implements bloom border rects.
+/// Splits a row rectangle into the four thin border strips used as bloom sources.
+///
+/// Thickness is clamped against the rectangle dimensions so degenerate tiny rectangles still produce
+/// valid positive-sized strips.
 fn bloom_border_rects(
     rect: HudRect,
     thickness: f32,
@@ -389,7 +437,10 @@ fn bloom_border_rects(
     ]
 }
 
-/// Implements additive blend state.
+/// Returns the additive blend state used when compositing the bloom result back into the HUD.
+///
+/// Color channels add their energy together, while alpha is preserved from the destination so the
+/// bloom layer behaves like light rather than like an opaque sprite.
 fn additive_blend_state() -> BlendState {
     BlendState {
         color: BlendComponent {
@@ -405,7 +456,10 @@ fn additive_blend_state() -> BlendState {
     }
 }
 
-/// Builds bloom specs.
+/// Builds the set of bloom source strips that should exist for the current active agent row.
+///
+/// Only the active row participates. For that row, the function derives the main and marker sub-rects,
+/// splits each into four border segments, and attaches the appropriate emissive color to each segment.
 fn build_bloom_specs(
     content_rect: HudRect,
     scroll_offset: f32,
@@ -474,7 +528,11 @@ pub(crate) struct HudWidgetBloomSetupContext<'w, 's> {
     bloom: ResMut<'w, HudWidgetBloom>,
 }
 
-/// Sets up HUD widget bloom.
+/// Creates the bloom render graph entities and offscreen images used by the agent-list bloom effect.
+///
+/// Startup allocates three float targets (source, small blur, wide blur), creates the cameras and
+/// fullscreen quads that feed the blur passes, and spawns the hidden composite sprites that will later
+/// be shown by the sync system once real bloom content exists.
 pub(crate) fn setup_hud_widget_bloom(mut ctx: HudWidgetBloomSetupContext) {
     let target_size = bloom_target_size(&ctx.primary_window);
     let target_texel_size = Vec2::new(
@@ -880,7 +938,11 @@ pub(crate) struct HudWidgetBloomContext<'w, 's> {
     >,
 }
 
-/// Synchronizes HUD widget bloom.
+/// Rebuilds the bloom source sprites and composite visibility from live HUD/terminal state.
+///
+/// The sync pass keeps bloom targets sized correctly, suppresses the whole effect while HUD modals are
+/// visible, regenerates the active row's border sprites, updates debug previews when enabled, and
+/// shows or hides the composite sprites based on whether there is any current bloom content.
 pub(crate) fn sync_hud_widget_bloom(mut ctx: HudWidgetBloomContext) {
     let target_size = bloom_target_size(&ctx.primary_window);
     let pass = &mut ctx.bloom.agent_list;
@@ -1124,13 +1186,18 @@ pub(crate) fn sync_hud_widget_bloom(mut ctx: HudWidgetBloomContext) {
     }
 }
 
-/// Implements agent list bloom layer.
+/// Exposes the bloom source render-layer id to tests.
+///
+/// The production code keeps the constant private; tests use this helper to verify setup wiring.
 #[cfg(test)]
 pub(crate) fn agent_list_bloom_layer() -> usize {
     BLOOM_SOURCE_LAYER
 }
 
-/// Implements agent list bloom z.
+/// Exposes the composite sprite's z value to tests.
+///
+/// This lets tests assert that the bloom composite sits exactly where the production pipeline expects
+/// it in the layered HUD scene.
 #[cfg(test)]
 pub(crate) fn agent_list_bloom_z() -> f32 {
     BLOOM_COMPOSITE_Z

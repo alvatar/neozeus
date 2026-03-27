@@ -20,12 +20,19 @@ use bevy::{
     window::{PrimaryWindow, RequestRedraw},
 };
 
-/// Implements cursor HUD position.
+/// Returns the cursor position in HUD space.
+///
+/// HUD space currently matches the primary window's cursor coordinate system directly, so this helper
+/// is intentionally tiny and exists mainly to keep the rest of the input code phrased in HUD terms.
 fn cursor_hud_position(window: &Window) -> Option<Vec2> {
     window.cursor_position()
 }
 
-/// Implements content hit rect.
+/// Computes the rectangle that should respond to module-content interactions.
+///
+/// Most modules reserve their titlebar for dragging and only expose the area below it as interactive
+/// content. The agent list is the exception: its whole shell is interactive, so it keeps the full
+/// rectangle.
 fn content_hit_rect(module_id: HudModuleId, rect: HudRect) -> HudRect {
     if module_id == HudModuleId::AgentList {
         return rect;
@@ -55,7 +62,11 @@ pub(crate) struct HudPointerContext<'w, 's> {
     redraws: MessageWriter<'w, RequestRedraw>,
 }
 
-/// Implements message box task intent.
+/// Converts a message-box task action button click into the corresponding task-edit intent.
+///
+/// The payload comes from the current message-box text, trimmed and rejected if empty. Successful
+/// conversion also closes the message box and discards its draft because the text has been consumed
+/// into a task mutation.
 fn message_box_task_intent(
     modal_state: &mut HudModalState,
     action: HudMessageBoxAction,
@@ -74,7 +85,10 @@ fn message_box_task_intent(
     })
 }
 
-/// Implements task dialog intent.
+/// Converts a task-dialog action button click into the corresponding HUD intent.
+///
+/// Today the only task-dialog action is `ClearDone`, which requires a bound target terminal to emit
+/// an intent.
 fn task_dialog_intent(
     modal_state: &mut HudModalState,
     action: HudTaskDialogAction,
@@ -87,7 +101,13 @@ fn task_dialog_intent(
     }
 }
 
-/// Handles HUD pointer input.
+/// Handles all pointer-driven HUD interaction: modal buttons, module clicks, dragging, scrolling,
+/// and hover state.
+///
+/// The function is ordered by capture priority. Visible modals get first chance at the pointer, then
+/// direct terminal input suppresses HUD interaction entirely, and only then does ordinary module
+/// interaction run. Within normal interaction it handles click dispatch, titlebar dragging, scroll
+/// routing, and per-module hover updates.
 pub(crate) fn handle_hud_pointer_input(mut ctx: HudPointerContext) {
     if ctx.modal_state.message_box.visible {
         ctx.layout_state.drag = None;
@@ -243,7 +263,11 @@ pub(crate) fn handle_hud_pointer_input(mut ctx: HudPointerContext) {
     }
 }
 
-/// Implements adjacent agent terminal id.
+/// Chooses the next or previous terminal id for keyboard navigation through the agent list.
+///
+/// When no terminal is active yet, the function picks the first or last terminal depending on the
+/// navigation direction. Once a terminal is active, movement is clamped to the list bounds rather than
+/// wrapping.
 fn adjacent_agent_terminal_id(
     terminal_manager: &TerminalManager,
     focus_state: &TerminalFocusState,
@@ -275,7 +299,11 @@ fn adjacent_agent_terminal_id(
     (next_index != current_index).then_some(terminal_ids[next_index])
 }
 
-/// Handles HUD module shortcuts.
+/// Handles keyboard shortcuts that toggle/reset HUD modules and navigate the agent list.
+///
+/// Plain digit keys toggle modules, `Alt+Shift+digit` resets them, and plain `j`/`k` or up/down
+/// arrows navigate between terminals by emitting focus+isolate intents. All of it is suppressed while
+/// any modal/editor state owns keyboard capture.
 pub(crate) fn handle_hud_module_shortcuts(
     mut messages: MessageReader<KeyboardInput>,
     keys: Res<ButtonInput<KeyCode>>,

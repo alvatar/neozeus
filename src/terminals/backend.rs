@@ -2,7 +2,11 @@
 pub(crate) use crate::terminals::ansi_surface::{resolve_alacritty_color, xterm_indexed_rgb};
 pub(crate) use crate::terminals::damage::compute_terminal_damage;
 
-/// Implements send command payload bytes.
+/// Converts a command string into the byte stream that should be written to the PTY.
+///
+/// The main subtlety is newline normalization: both bare `\n` and CRLF are collapsed to carriage
+/// returns because the terminal command path wants "press Enter" semantics for each logical line. A
+/// trailing carriage return is always appended so even a single-line command is submitted.
 pub(crate) fn send_command_payload_bytes(command: &str) -> Vec<u8> {
     let mut bytes = Vec::with_capacity(command.len() + 1);
     let mut chars = command.chars().peekable();

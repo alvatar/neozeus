@@ -6,7 +6,10 @@ use bevy::{
 };
 use std::time::Duration;
 
-/// Verifies that task entry from text matches zeus checkbox format.
+/// Verifies the text-to-task-entry formatter used when creating new checkbox tasks.
+///
+/// A non-empty multi-line payload should become a Zeus-style `- [ ] ...` block, while all-whitespace
+/// input should be rejected.
 #[test]
 fn task_entry_from_text_matches_zeus_checkbox_format() {
     assert_eq!(
@@ -16,7 +19,10 @@ fn task_entry_from_text_matches_zeus_checkbox_format() {
     assert_eq!(task_entry_from_text("  \n \t"), None);
 }
 
-/// Verifies that terminal notes path prefers state home then home state then config.
+/// Verifies the search-order logic for the terminal-notes persistence file.
+///
+/// Notes follow the same state-home-first policy as session persistence, falling back through home
+/// state and then config paths.
 #[test]
 fn terminal_notes_path_prefers_state_home_then_home_state_then_config() {
     assert_eq!(
@@ -39,7 +45,10 @@ fn terminal_notes_path_prefers_state_home_then_home_state_then_config() {
     );
 }
 
-/// Verifies that terminal notes parse and serialize roundtrip.
+/// Verifies that terminal notes serialize and parse back without losing content.
+///
+/// The sample includes both a checkbox-style task block and a note starting with a dot so the format
+/// handles ordinary and slightly awkward payloads alike.
 #[test]
 fn terminal_notes_parse_and_serialize_roundtrip() {
     let mut notes = std::collections::HashMap::new();
@@ -52,7 +61,10 @@ fn terminal_notes_parse_and_serialize_roundtrip() {
     assert_eq!(reparsed, notes);
 }
 
-/// Verifies that terminal notes append and prepend tasks follow zeus ordering.
+/// Verifies that appending and prepending tasks preserve the expected Zeus task ordering.
+///
+/// Prepending should place the new task block before existing tasks, appending should place it after,
+/// and the resulting stored note text should remain in checkbox-task format.
 #[test]
 fn terminal_notes_append_and_prepend_tasks_follow_zeus_ordering() {
     let mut notes_state = TerminalNotesState::default();
@@ -65,7 +77,10 @@ fn terminal_notes_append_and_prepend_tasks_follow_zeus_ordering() {
     assert!(notes_state.has_note_text("session-a"));
 }
 
-/// Verifies that clear done tasks removes done task blocks.
+/// Verifies that clearing done tasks removes entire completed task blocks and leaves pending ones.
+///
+/// The sample includes multi-line done blocks and trailing text so the helper's block-removal rules
+/// are exercised rather than just single-line checkbox deletion.
 #[test]
 fn clear_done_tasks_removes_done_task_blocks() {
     let (updated, removed) =
@@ -74,7 +89,11 @@ fn clear_done_tasks_removes_done_task_blocks() {
     assert_eq!(updated, "- [ ] keep");
 }
 
-/// Verifies that extract next task marks first pending block done.
+/// Verifies that extracting the next task returns the first pending task block and marks it done in
+/// the stored note text.
+///
+/// The test confirms both outputs: the message payload sent to the terminal and the updated notes
+/// text with the first checkbox flipped to done.
 #[test]
 fn extract_next_task_marks_first_pending_block_done() {
     let extracted = extract_next_task("- [ ] first\n  detail\n- [x] done\n- [ ] second")
@@ -86,7 +105,10 @@ fn extract_next_task_marks_first_pending_block_done() {
     );
 }
 
-/// Verifies that extract next task falls back to first non empty line without headers.
+/// Verifies the fallback behavior when notes do not contain explicit checkbox task headers.
+///
+/// In that case the extractor should use the first non-empty line as the message and remove it from
+/// the stored text.
 #[test]
 fn extract_next_task_falls_back_to_first_non_empty_line_without_headers() {
     let extracted =
@@ -95,7 +117,10 @@ fn extract_next_task_falls_back_to_first_non_empty_line_without_headers() {
     assert_eq!(extracted.1, "\nsecond line");
 }
 
-/// Verifies that terminal notes save waits for debounce window.
+/// Verifies the debounce behavior of the terminal-notes save system.
+///
+/// Like session persistence, notes should not be written immediately after becoming dirty; they are
+/// expected to save only once the debounce window has elapsed.
 #[test]
 fn terminal_notes_save_waits_for_debounce_window() {
     let dir = temp_dir("neozeus-terminal-notes-save-debounce");

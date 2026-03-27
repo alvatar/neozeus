@@ -37,7 +37,10 @@ pub(crate) struct ReconciledTerminalSessions {
 }
 
 impl ReconciledTerminalSessions {
-    /// Implements ordered sessions.
+    /// Returns the sessions that should exist after reconciliation in their effective startup order.
+    ///
+    /// The result is simply restored sessions followed by imported sessions, both already sorted by
+    /// the reconciliation step.
     pub(crate) fn ordered_sessions(&self) -> Vec<TerminalSessionRecord> {
         self.restore
             .iter()
@@ -47,7 +50,10 @@ impl ReconciledTerminalSessions {
     }
 }
 
-/// Resolves terminal sessions path with.
+/// Resolves the terminal-session persistence file path from explicit directory inputs.
+///
+/// The precedence matches the notes persistence path: XDG state home first, then `~/.local/state`,
+/// then XDG config as a fallback.
 pub(crate) fn resolve_terminal_sessions_path_with(
     xdg_state_home: Option<&str>,
     home: Option<&str>,
@@ -80,7 +86,9 @@ pub(crate) fn resolve_terminal_sessions_path_with(
     None
 }
 
-/// Resolves terminal sessions path.
+/// Resolves the live terminal-session persistence path from the current environment.
+///
+/// This is the runtime wrapper around [`resolve_terminal_sessions_path_with`].
 pub(crate) fn resolve_terminal_sessions_path() -> Option<PathBuf> {
     resolve_terminal_sessions_path_with(
         env::var("XDG_STATE_HOME").ok().as_deref(),
@@ -89,7 +97,10 @@ pub(crate) fn resolve_terminal_sessions_path() -> Option<PathBuf> {
     )
 }
 
-/// Implements escape persisted string.
+/// Escapes a string for the quoted version-2 session persistence format.
+///
+/// Only the escape sequences that the matching parser understands are emitted, keeping the format
+/// intentionally small and deterministic.
 fn escape_persisted_string(value: &str) -> String {
     let mut escaped = String::with_capacity(value.len() + 4);
     for ch in value.chars() {
@@ -105,7 +116,10 @@ fn escape_persisted_string(value: &str) -> String {
     escaped
 }
 
-/// Parses quoted string.
+/// Parses a quoted string from the version-2 session persistence format.
+///
+/// The parser accepts the same limited escape set emitted by [`escape_persisted_string`]. Returning
+/// `None` on malformed input lets the higher-level parser skip bad fields without panicking.
 fn parse_quoted_string(value: &str) -> Option<String> {
     let trimmed = value.trim();
     let inner = trimmed.strip_prefix('"')?.strip_suffix('"')?;
@@ -128,7 +142,10 @@ fn parse_quoted_string(value: &str) -> Option<String> {
     Some(parsed)
 }
 
-/// Parses v1 terminal sessions.
+/// Parses the legacy version-1 terminal-session persistence format.
+///
+/// Version 1 is a compact single-line-per-session format with escaped spaces in labels. Unknown or
+/// malformed fields are skipped so old files remain broadly recoverable.
 fn parse_v1_terminal_sessions(text: &str) -> PersistedTerminalSessions {
     let mut persisted = PersistedTerminalSessions::default();
     for (line_index, line) in text.lines().enumerate() {
@@ -184,7 +201,10 @@ fn parse_v1_terminal_sessions(text: &str) -> PersistedTerminalSessions {
     persisted
 }
 
-/// Parses v2 terminal sessions.
+/// Parses the structured version-2 terminal-session persistence format.
+///
+/// Version 2 stores each session inside explicit `[session] ... [/session]` blocks and uses quoted
+/// strings for names/labels, which avoids the escaping limitations of version 1.
 fn parse_v2_terminal_sessions(text: &str) -> PersistedTerminalSessions {
     let mut persisted = PersistedTerminalSessions::default();
     let mut session_name = None;
@@ -246,7 +266,10 @@ fn parse_v2_terminal_sessions(text: &str) -> PersistedTerminalSessions {
     persisted
 }
 
-/// Parses persisted terminal sessions.
+/// Dispatches parsing to the correct persistence-format reader based on the version header.
+///
+/// Unknown versions are logged and treated as an empty persistence file rather than as a hard error,
+/// which keeps startup resilient to corrupted or future-version files.
 pub(crate) fn parse_persisted_terminal_sessions(text: &str) -> PersistedTerminalSessions {
     let version_line = text
         .lines()
@@ -265,7 +288,10 @@ pub(crate) fn parse_persisted_terminal_sessions(text: &str) -> PersistedTerminal
     }
 }
 
-/// Implements serialize persisted terminal sessions.
+/// Serializes terminal-session metadata into the current version-2 persistence format.
+///
+/// Sessions are emitted in creation-order order, with names and optional labels escaped through
+/// [`escape_persisted_string`]. Version 2 is always written even though version 1 remains readable.
 pub(crate) fn serialize_persisted_terminal_sessions(
     sessions: &PersistedTerminalSessions,
 ) -> String {
@@ -289,7 +315,10 @@ pub(crate) fn serialize_persisted_terminal_sessions(
     output
 }
 
-/// Loads persisted terminal sessions from.
+/// Loads persisted terminal-session metadata from disk, defaulting to an empty set on failure.
+///
+/// Missing files are normal and return the default empty structure. Other read failures are logged
+/// and also degrade to the default so startup can continue.
 pub(crate) fn load_persisted_terminal_sessions_from(path: &PathBuf) -> PersistedTerminalSessions {
     match fs::read_to_string(path) {
         Ok(text) => parse_persisted_terminal_sessions(&text),
@@ -306,7 +335,9 @@ pub(crate) fn load_persisted_terminal_sessions_from(path: &PathBuf) -> Persisted
     }
 }
 
-/// Marks terminal sessions dirty.
+/// Marks session persistence dirty, recording the first dirty timestamp if needed.
+///
+/// The timestamp is used later by the debounced save system to decide when it is safe to write.
 pub(crate) fn mark_terminal_sessions_dirty(
     persistence_state: &mut TerminalSessionPersistenceState,
     time: Option<&Time>,
@@ -316,7 +347,10 @@ pub(crate) fn mark_terminal_sessions_dirty(
     }
 }
 
-/// Builds persisted terminal sessions.
+/// Builds the persistence snapshot that should be written for the current terminal state.
+///
+/// The snapshot uses terminal creation order, current focus state, and the agent label directory to
+/// produce the compact persisted record list.
 pub(crate) fn build_persisted_terminal_sessions(
     terminal_manager: &TerminalManager,
     focus_state: &crate::terminals::TerminalFocusState,
@@ -339,7 +373,11 @@ pub(crate) fn build_persisted_terminal_sessions(
     PersistedTerminalSessions { sessions }
 }
 
-/// Saves terminal sessions if dirty.
+/// Writes the terminal-session persistence file once the debounce window has elapsed.
+///
+/// The system exits early while clean or still debouncing, builds the current persistence snapshot,
+/// ensures the parent directory exists, writes the serialized file, logs success/failure, and clears
+/// the dirty marker either way.
 pub(crate) fn save_terminal_sessions_if_dirty(
     time: Res<Time>,
     terminal_manager: Res<TerminalManager>,
@@ -383,7 +421,11 @@ pub(crate) fn save_terminal_sessions_if_dirty(
     persistence_state.dirty_since_secs = None;
 }
 
-/// Reconciles terminal sessions.
+/// Reconciles persisted terminal-session metadata against the daemon's currently live sessions.
+///
+/// The result is split into three buckets: sessions to restore, stale persisted sessions to prune,
+/// and live persistent sessions to import. Imported sessions are assigned fresh creation indices after
+/// the highest persisted index so restored ordering remains stable.
 pub(crate) fn reconcile_terminal_sessions(
     persisted: &PersistedTerminalSessions,
     live_sessions: &[String],

@@ -21,7 +21,10 @@ use bevy::{
     window::{PrimaryWindow, RequestRedraw},
 };
 
-/// Returns whether plain modifiers.
+/// Reads the three modifier families that matter to NeoZeus shortcut handling.
+///
+/// The return value is `(ctrl, alt, super)` and deliberately merges left/right variants so the rest
+/// of the input code can reason about logical modifiers instead of physical keys.
 fn has_plain_modifiers(keys: &ButtonInput<KeyCode>) -> (bool, bool, bool) {
     (
         keys.pressed(KeyCode::ControlLeft) || keys.pressed(KeyCode::ControlRight),
@@ -30,7 +33,11 @@ fn has_plain_modifiers(keys: &ButtonInput<KeyCode>) -> (bool, bool, bool) {
     )
 }
 
-/// Returns whether plain ctrl enter.
+/// Recognizes the exact `Ctrl+Enter` chord used to toggle direct-input mode.
+///
+/// The check is intentionally strict: the event must be a key press for `Enter`, Ctrl must be down,
+/// and Alt/Super must both be absent so the shortcut cannot collide with terminal input or desktop
+/// bindings.
 fn is_plain_ctrl_enter(event: &KeyboardInput, ctrl: bool, alt: bool, super_key: bool) -> bool {
     event.state == ButtonState::Pressed
         && event.key_code == KeyCode::Enter
@@ -39,12 +46,21 @@ fn is_plain_ctrl_enter(event: &KeyboardInput, ctrl: bool, alt: bool, super_key: 
         && !super_key
 }
 
-/// Handles is interactive.
+/// Hides the exact runtime-state predicate used when deciding whether keyboard input may be routed
+/// into a terminal.
+///
+/// Keeping the call behind a local helper makes the intent at call sites clearer and gives this file
+/// one place to change if the project's idea of "interactive" ever becomes stricter than the raw
+/// runtime state's helper.
 fn terminal_is_interactive(terminal: &crate::terminals::TerminalRuntimeState) -> bool {
     terminal.is_interactive()
 }
 
-/// Returns whether spawn terminal globally.
+/// Decides whether a keyboard event means "spawn a normal terminal".
+///
+/// The binding is intentionally plain `z` on key press with no Ctrl/Alt/Super modifiers. The helper
+/// does not emit commands itself; it just encapsulates the binding policy so systems and tests can
+/// share the same rule.
 pub(crate) fn should_spawn_terminal_globally(
     event: &KeyboardInput,
     keys: &ButtonInput<KeyCode>,
@@ -57,7 +73,10 @@ pub(crate) fn should_spawn_terminal_globally(
     !(ctrl || alt || super_key)
 }
 
-/// Returns whether spawn shell terminal globally.
+/// Decides whether a keyboard event means "spawn a shell terminal explicitly".
+///
+/// This binding is `Ctrl+Alt+z`. It is kept separate from the plain spawn shortcut so the input
+/// layer can distinguish between the app's default spawn behavior and the explicit shell-launch path.
 pub(crate) fn should_spawn_shell_terminal_globally(
     event: &KeyboardInput,
     keys: &ButtonInput<KeyCode>,
@@ -70,7 +89,10 @@ pub(crate) fn should_spawn_shell_terminal_globally(
     ctrl && alt && !super_key
 }
 
-/// Returns whether kill active terminal.
+/// Decides whether a keyboard event should kill the currently active terminal session.
+///
+/// The shortcut is a plain `Ctrl+k` press. Like the other `should_*` helpers, this function only
+/// classifies the event; lifecycle side effects happen in the higher-level system.
 pub(crate) fn should_kill_active_terminal(
     event: &KeyboardInput,
     keys: &ButtonInput<KeyCode>,
@@ -82,7 +104,10 @@ pub(crate) fn should_kill_active_terminal(
     ctrl && !alt && !super_key
 }
 
-/// Returns whether exit application.
+/// Decides whether a keyboard event should exit the whole application.
+///
+/// NeoZeus uses plain `F10` with no modifiers for this so the exit path stays orthogonal to terminal
+/// key handling and to the modal editor shortcuts.
 pub(crate) fn should_exit_application(event: &KeyboardInput, keys: &ButtonInput<KeyCode>) -> bool {
     if event.state != ButtonState::Pressed || event.key_code != KeyCode::F10 {
         return false;
@@ -91,7 +116,11 @@ pub(crate) fn should_exit_application(event: &KeyboardInput, keys: &ButtonInput<
     !(ctrl || alt || super_key)
 }
 
-/// Handles global terminal spawn shortcut.
+/// Watches unfocused-by-modal keyboard input for the global terminal spawn shortcuts.
+///
+/// The system exits early whenever the primary window is unfocused or a HUD modal currently owns the
+/// keyboard. Otherwise it scans the frame's keyboard events and emits the first matching spawn
+/// intent, preferring the explicit shell-spawn binding over the plain spawn binding.
 pub(crate) fn handle_global_terminal_spawn_shortcut(
     mut messages: MessageReader<KeyboardInput>,
     keys: Res<ButtonInput<KeyCode>>,
@@ -116,7 +145,12 @@ pub(crate) fn handle_global_terminal_spawn_shortcut(
     }
 }
 
-/// Handles terminal lifecycle shortcuts.
+/// Applies the global lifecycle shortcuts that are allowed outside modal text entry.
+///
+/// The system is intentionally small and imperative: if a modal has keyboard capture, do nothing;
+/// otherwise scan the frame's key presses for `F10` to exit or `Ctrl+k` to kill the active terminal.
+/// Exit short-circuits the loop because the rest of the frame does not matter once shutdown is
+/// requested.
 pub(crate) fn handle_terminal_lifecycle_shortcuts(
     mut messages: MessageReader<KeyboardInput>,
     keys: Res<ButtonInput<KeyCode>>,
@@ -140,7 +174,12 @@ pub(crate) fn handle_terminal_lifecycle_shortcuts(
     }
 }
 
-/// Handles panel contains cursor.
+/// Tests whether a window-space cursor position lies inside a terminal panel's current on-screen
+/// rectangle.
+///
+/// Terminal presentations are stored around the scene center, while the cursor arrives in window
+/// coordinates with an upper-left origin. The function converts the panel's centered presentation
+/// rectangle into the same window coordinate system and then performs a simple bounds check.
 fn terminal_panel_contains_cursor(
     window: &Window,
     presentation: &TerminalPresentation,
@@ -154,7 +193,11 @@ fn terminal_panel_contains_cursor(
     cursor.x >= min.x && cursor.x <= max.x && cursor.y >= min.y && cursor.y <= max.y
 }
 
-/// Implements topmost terminal panel at cursor.
+/// Finds the frontmost visible terminal panel under the cursor.
+///
+/// The query is filtered in three steps: hidden panels are ignored, the cursor must land inside the
+/// panel rectangle, and ties are resolved by the current presentation `z` so clicking overlapping
+/// panels always targets the one visually on top.
 fn topmost_terminal_panel_at_cursor(
     window: &Window,
     panels: &Query<(&TerminalPanel, &TerminalPresentation, &Visibility)>,
@@ -168,7 +211,11 @@ fn topmost_terminal_panel_at_cursor(
         .map(|(panel, _, _)| *panel)
 }
 
-/// Focuses terminal on panel click.
+/// Turns a left-click on a visible terminal panel into focus + isolate intents.
+///
+/// The system deliberately refuses to act while a modal is open, while the window is unfocused, or
+/// when the click lands on a HUD module. Only genuine background clicks on a terminal panel are
+/// promoted into `FocusTerminal` and `HideAllButTerminal` intents.
 pub(crate) fn focus_terminal_on_panel_click(
     mouse_buttons: Res<ButtonInput<MouseButton>>,
     primary_window: Single<&Window, With<PrimaryWindow>>,
@@ -201,7 +248,12 @@ pub(crate) fn focus_terminal_on_panel_click(
     clippy::too_many_arguments,
     reason = "background-click clear needs input, focus, visibility, view, and persistence resources together"
 )]
-/// Implements hide terminal on background click.
+/// Clears terminal focus when the user clicks on empty background space.
+///
+/// This is the inverse of panel focusing: if the click is not blocked by a modal, does not hit a HUD
+/// module, and does not land on any visible terminal panel, the active terminal is cleared. The
+/// function also resets visibility to `ShowAll`, clears per-terminal view focus, reconciles direct
+/// input capture, and marks session persistence dirty so the unfocused state can be saved.
 pub(crate) fn hide_terminal_on_background_click(
     mouse_buttons: Res<ButtonInput<MouseButton>>,
     time: Res<Time>,
@@ -249,7 +301,16 @@ pub(crate) fn hide_terminal_on_background_click(
     clippy::too_many_arguments,
     reason = "mouse drag needs input, geometry, pointer state, and terminal bridge"
 )]
-/// Implements drag terminal view.
+/// Handles middle-mouse dragging for either viewport panning or terminal scrollback.
+///
+/// The mode split is deliberate:
+/// - `Shift + middle-drag` pans the presented terminal by mutating the view offset directly.
+/// - plain `middle-drag` is translated into line-based scrollback commands sent to the active
+///   terminal bridge.
+///
+/// For scrollback, the function converts pixel motion into logical terminal lines using the current
+/// presented cell height and carries sub-line remainder in [`TerminalPointerState`] so slow drags do
+/// not lose precision.
 pub(crate) fn drag_terminal_view(
     mouse_buttons: Res<ButtonInput<MouseButton>>,
     keys: Res<ButtonInput<KeyCode>>,
@@ -262,6 +323,7 @@ pub(crate) fn drag_terminal_view(
     mut view_state: ResMut<TerminalViewState>,
     mut pointer_state: ResMut<TerminalPointerState>,
 ) {
+    // Aggregate all motion events for the frame so drag behavior is framerate-independent.
     let delta = mouse_motion
         .read()
         .fold(Vec2::ZERO, |acc, event| acc + event.delta);
@@ -301,6 +363,8 @@ pub(crate) fn drag_terminal_view(
     }
     .max(1.0);
 
+    // Keep fractional drag distance between frames so one slow drag across multiple frames still
+    // eventually produces the correct number of scroll lines.
     pointer_state.scroll_drag_remainder_px += delta.y;
     let lines = (-pointer_state.scroll_drag_remainder_px / screen_cell_height).trunc() as i32;
     if lines != 0 {
@@ -311,7 +375,11 @@ pub(crate) fn drag_terminal_view(
     }
 }
 
-/// Implements zoom terminal view.
+/// Applies shift-wheel zoom to the shared terminal view distance.
+///
+/// Only focused-window `Shift + wheel` input is treated as zoom. Mouse-wheel units are normalized to
+/// a common scale and then applied to `view_state.distance`, which is clamped so the camera cannot be
+/// zoomed into nonsense or pushed arbitrarily far away.
 pub(crate) fn zoom_terminal_view(
     keys: Res<ButtonInput<KeyCode>>,
     primary_window: Single<&Window, With<PrimaryWindow>>,
@@ -341,7 +409,13 @@ pub(crate) fn zoom_terminal_view(
     clippy::too_many_arguments,
     reason = "direct terminal input needs keyboard, focus, modal capture, terminal state, and redraws together"
 )]
-/// Handles terminal direct input keyboard.
+/// Routes keyboard input into the active terminal when direct-input mode is toggled on.
+///
+/// The system has two jobs. First, it watches for the `Ctrl+Enter` toggle that opens or closes
+/// direct-input mode. Second, while the mode is active, it converts keyboard events into terminal
+/// commands and sends them through the terminal bridge. If the target terminal disappears or stops
+/// being interactive, the mode is closed immediately and the HUD is asked to redraw so the visual
+/// framing stays in sync.
 pub(crate) fn handle_terminal_direct_input_keyboard(
     mut messages: MessageReader<KeyboardInput>,
     keys: Res<ButtonInput<KeyCode>>,
@@ -365,6 +439,8 @@ pub(crate) fn handle_terminal_direct_input_keyboard(
     }
 
     if let Some(target_terminal) = input_capture.direct_input_terminal {
+        // Direct-input mode is sticky across frames, but it is not allowed to outlive the terminal
+        // it targets. Revalidate the target before forwarding any key events.
         let Some(terminal) = terminal_manager.get(target_terminal) else {
             input_capture.close_direct_terminal_input();
             redraws.write(RequestRedraw);
@@ -413,7 +489,12 @@ pub(crate) fn handle_terminal_direct_input_keyboard(
     }
 }
 
-/// Implements message box event text.
+/// Extracts printable text from a keyboard event for the HUD text editors.
+///
+/// Bevy may provide text either through `event.text` or through `logical_key` for character-like
+/// keys. This helper prefers the explicit text payload, falls back to the logical key when needed,
+/// and special-cases space so the modal editor can accept ordinary typing without reimplementing
+/// keyboard-layout details.
 fn message_box_event_text(event: &KeyboardInput) -> Option<String> {
     event
         .text
@@ -427,7 +508,11 @@ fn message_box_event_text(event: &KeyboardInput) -> Option<String> {
         })
 }
 
-/// Closes task dialog intent.
+/// Closes the task dialog and packages its final text into the corresponding save intent.
+///
+/// The function snapshots the current dialog payload before closing the modal because closing clears
+/// the active terminal reference from the dialog state. If no terminal is associated with the dialog,
+/// nothing is emitted.
 fn close_task_dialog_intent(modal_state: &mut HudModalState) -> Option<HudIntent> {
     let target_terminal = modal_state.task_dialog.target_terminal?;
     let payload = modal_state.task_dialog.text.clone();
@@ -435,7 +520,15 @@ fn close_task_dialog_intent(modal_state: &mut HudModalState) -> Option<HudIntent
     Some(HudIntent::SetTerminalTaskText(target_terminal, payload))
 }
 
-/// Handles text editor event.
+/// Applies one keyboard event to the Emacs-like HUD text editor state machine.
+///
+/// The editor supports three input bands:
+/// - plain keys for movement, insertion, and simple editing,
+/// - Ctrl bindings for line/region-oriented editing commands,
+/// - Alt bindings for word-oriented motion and kill-ring operations.
+///
+/// The function returns whether the editor state changed so the caller can request redraw only when
+/// necessary.
 fn handle_text_editor_event(
     editor: &mut crate::hud::HudMessageBoxState,
     event: &KeyboardInput,
@@ -494,7 +587,18 @@ fn handle_text_editor_event(
     clippy::too_many_arguments,
     reason = "dialog keyboard handling needs input, focus, notes, terminal state, HUD state, commands, and redraws together"
 )]
-/// Handles terminal message box keyboard.
+/// Handles keyboard input for the message box, the task dialog, and the shortcuts that open them.
+///
+/// The function is ordered as a small state machine:
+/// 1. ignore everything when the window is unfocused,
+/// 2. give direct-input mode priority and do nothing if it is active,
+/// 3. if the message box is open, treat keys as editor/send/close commands,
+/// 4. else if the task dialog is open, treat keys as editor/task-management commands,
+/// 5. else, interpret plain terminal shortcuts such as opening the message box, opening the task
+///    dialog, or consuming the next task.
+///
+/// That explicit ordering prevents global shortcuts from firing while a modal editor owns the same
+/// keystrokes.
 pub(crate) fn handle_terminal_message_box_keyboard(
     mut messages: MessageReader<KeyboardInput>,
     keys: Res<ButtonInput<KeyCode>>,
@@ -524,6 +628,8 @@ pub(crate) fn handle_terminal_message_box_keyboard(
                 continue;
             }
 
+            // `Ctrl+S` is treated as "send and close" for the message box instead of as a generic
+            // editor command because this modal exists primarily to dispatch terminal commands.
             if ctrl && !alt && !super_key && event.key_code == KeyCode::KeyS {
                 if let Some(target_terminal) = modal_state.message_box.target_terminal {
                     let payload = modal_state.message_box.text.clone();
@@ -560,6 +666,8 @@ pub(crate) fn handle_terminal_message_box_keyboard(
                 continue;
             }
 
+            // `Ctrl+T` stays live inside the task dialog so done items can be cleared without
+            // closing the editor or forcing the caller through pointer interaction.
             if ctrl && !alt && !super_key && event.key_code == KeyCode::KeyT {
                 if let Some(target_terminal) = modal_state.task_dialog.target_terminal {
                     hud_commands.write(HudIntent::ClearDoneTerminalTasks(target_terminal));
@@ -628,7 +736,12 @@ pub(crate) fn handle_terminal_message_box_keyboard(
     }
 }
 
-/// Implements keyboard input to terminal command.
+/// Converts a raw Bevy keyboard event into the terminal command NeoZeus should send to the PTY.
+///
+/// Control chords are translated first through [`ctrl_sequence`], because terminals expect the ASCII
+/// control bytes rather than the printable character. Special navigation keys are then mapped to the
+/// conventional escape sequences, and finally ordinary text input is emitted as `InputText`. Any
+/// event involving unsupported modifier combinations is dropped.
 pub(crate) fn keyboard_input_to_terminal_command(
     event: &KeyboardInput,
     keys: &ButtonInput<KeyCode>,
@@ -678,7 +791,10 @@ pub(crate) fn keyboard_input_to_terminal_command(
     }
 }
 
-/// Implements ctrl sequence.
+/// Maps letter keys to the control-byte sequences terminals conventionally expect.
+///
+/// This covers the classic ASCII control range (`Ctrl+A` through `Ctrl+Z`) and intentionally returns
+/// string slices because the rest of the input pipeline already sends terminal events as strings.
 pub(crate) fn ctrl_sequence(key_code: KeyCode) -> Option<&'static str> {
     match key_code {
         KeyCode::KeyA => Some("\u{1}"),

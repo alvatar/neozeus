@@ -31,7 +31,7 @@ struct DaemonRegistryInner {
 }
 
 impl Default for DaemonRegistry {
-    /// Returns the default value for this type.
+    /// Creates an empty daemon registry with session ids starting at 1.
     fn default() -> Self {
         Self {
             inner: Arc::new(Mutex::new(DaemonRegistryInner {
@@ -43,7 +43,9 @@ impl Default for DaemonRegistry {
 }
 
 impl DaemonRegistry {
-    /// Implements list sessions.
+    /// Returns the current daemon sessions sorted by daemon creation order.
+    ///
+    /// The registry stores sessions in a hash map, so the sort step preserves stable UI-facing order.
     fn list_sessions(&self) -> Vec<DaemonSessionInfo> {
         // Session list order follows daemon creation order, not lexical session ids. Dead sessions
         // remain listed until an explicit kill/reap so the UI can inspect final runtime state.
@@ -57,7 +59,10 @@ impl DaemonRegistry {
         sessions
     }
 
-    /// Creates session.
+    /// Allocates a fresh daemon session id, starts the session worker, and registers it.
+    ///
+    /// Prefix validation happens up front so the daemon never creates empty or whitespace-only session
+    /// names.
     fn create_session(&self, prefix: &str) -> Result<String, String> {
         if prefix.trim().is_empty() {
             return Err("daemon session prefix must not be empty".to_owned());
@@ -81,7 +86,7 @@ impl DaemonRegistry {
         Ok(session_id)
     }
 
-    /// Implements session.
+    /// Looks up one registered daemon session by id.
     fn session(&self, session_id: &str) -> Result<Arc<DaemonSession>, String> {
         let registry = lock(&self.inner);
         registry
@@ -91,7 +96,7 @@ impl DaemonRegistry {
             .ok_or_else(|| format!("daemon session `{session_id}` not found"))
     }
 
-    /// Kills session.
+    /// Removes a daemon session from the registry and asks its worker to terminate.
     fn kill_session(&self, session_id: &str) -> Result<(), String> {
         let session = {
             let mut registry = lock(&self.inner);
@@ -113,7 +118,7 @@ pub(crate) struct DaemonServerHandle {
 
 #[cfg(test)]
 impl DaemonServerHandle {
-    /// Starts this value.
+    /// Starts a test daemon server thread and waits until its socket becomes reachable.
     pub(crate) fn start(socket_path: PathBuf) -> Result<Self, String> {
         let stop = Arc::new(AtomicBool::new(false));
         let worker_stop = stop.clone();
@@ -134,7 +139,7 @@ impl DaemonServerHandle {
 
 #[cfg(test)]
 impl Drop for DaemonServerHandle {
-    /// Releases owned resources on drop.
+    /// Stops the test daemon thread, nudges `accept()` awake, joins it, and removes the socket file.
     fn drop(&mut self) {
         self.stop.store(true, Ordering::Relaxed);
         let _ = UnixStream::connect(&self.socket_path);
@@ -145,12 +150,16 @@ impl Drop for DaemonServerHandle {
     }
 }
 
-/// Runs daemon server.
+/// Runs the production daemon server until process shutdown.
+///
+/// This is the public entry point used by `neozeus daemon`.
 pub(crate) fn run_daemon_server(socket_path: &Path) -> Result<(), String> {
     run_server_loop(socket_path, Arc::new(AtomicBool::new(false)))
 }
 
-/// Runs server loop.
+/// Binds the daemon socket, accepts client connections, and spawns one handler thread per client.
+///
+/// The shared registry lives for the duration of the loop so sessions survive client reconnects.
 fn run_server_loop(socket_path: &Path, stop: Arc<AtomicBool>) -> Result<(), String> {
     let listener = bind_listener(socket_path)?;
     append_debug_log(format!("daemon server listening {}", socket_path.display()));
@@ -179,7 +188,10 @@ fn run_server_loop(socket_path: &Path, stop: Arc<AtomicBool>) -> Result<(), Stri
     Ok(())
 }
 
-/// Implements bind listener.
+/// Binds the daemon's Unix listener socket, cleaning up stale socket files when needed.
+///
+/// If an existing socket still accepts connections, it is treated as a running daemon and binding is
+/// refused.
 fn bind_listener(socket_path: &Path) -> Result<UnixListener, String> {
     if let Some(parent) = socket_path.parent() {
         fs::create_dir_all(parent).map_err(|error| {
@@ -215,7 +227,7 @@ fn bind_listener(socket_path: &Path) -> Result<UnixListener, String> {
     })
 }
 
-/// Waits for for socket.
+/// Polls until the test daemon socket both exists and accepts connections.
 #[cfg(test)]
 fn wait_for_socket(socket_path: &Path, timeout: Duration) -> Result<(), String> {
     let deadline = std::time::Instant::now() + timeout;
@@ -233,7 +245,10 @@ fn wait_for_socket(socket_path: &Path, timeout: Duration) -> Result<(), String> 
     }
 }
 
-/// Handles connection.
+/// Services one daemon client connection until the socket closes.
+///
+/// Requests are handled synchronously on the read thread, while outgoing server messages are written by
+/// a dedicated writer thread so event producers never write directly to the socket.
 fn handle_connection(
     connection_id: u64,
     registry: DaemonRegistry,
@@ -285,7 +300,10 @@ fn handle_connection(
     Ok(())
 }
 
-/// Handles request.
+/// Executes one decoded daemon request against the registry/session state.
+///
+/// Attach requests also install a subscriber so future session updates stream back over the same
+/// connection.
 fn handle_request(
     registry: &DaemonRegistry,
     subscriber_ids: &SubscriberIdAllocator,

@@ -53,7 +53,10 @@ pub(crate) struct TerminalGlyphCache {
     pub(crate) glyphs: std::collections::HashMap<TerminalGlyphCacheKey, CachedTerminalGlyph>,
 }
 
-/// Creates terminal image.
+/// Allocates the RGBA image used as a terminal texture backing store.
+///
+/// New images start filled with the default background color and use nearest sampling so glyphs stay
+/// crisp.
 pub(crate) fn create_terminal_image(size: UVec2) -> Image {
     let mut image = Image::new_fill(
         Extent3d {
@@ -75,7 +78,9 @@ pub(crate) fn create_terminal_image(size: UVec2) -> Image {
     image
 }
 
-/// Dumps terminal image PPM.
+/// Writes a terminal texture image out as a simple binary PPM for debugging.
+///
+/// Alpha is discarded because PPM is RGB-only.
 fn dump_terminal_image_ppm(image: &Image, path: &Path) -> Result<(), String> {
     let width = image.texture_descriptor.size.width;
     let height = image.texture_descriptor.size.height;
@@ -91,7 +96,7 @@ fn dump_terminal_image_ppm(image: &Image, path: &Path) -> Result<(), String> {
     fs::write(path, output).map_err(|error| format!("failed to write {}: {error}", path.display()))
 }
 
-/// Implements default texture state for surface.
+/// Derives the default texture-state contract for a surface using the built-in cell dimensions.
 fn default_texture_state_for_surface(surface: &TerminalSurface) -> TerminalTextureState {
     TerminalTextureState {
         texture_size: UVec2::new(
@@ -102,12 +107,16 @@ fn default_texture_state_for_surface(surface: &TerminalSurface) -> TerminalTextu
     }
 }
 
-/// Returns whether render active layout.
+/// Returns whether a terminal surface already matches the focused active-layout row/column contract.
 fn can_render_active_layout(surface: &TerminalSurface, dimensions: TerminalDimensions) -> bool {
     surface.cols == dimensions.cols && surface.rows == dimensions.rows
 }
 
-/// Implements cached or default texture state.
+/// Chooses between the existing uploaded texture-state contract and a conservative default one for a
+/// surface.
+///
+/// Before the first real upload, placeholder texture state is treated as untrustworthy and replaced by
+/// the surface-derived default.
 fn cached_or_default_texture_state(
     presented_terminal: &crate::terminals::PresentedTerminal,
     surface: &TerminalSurface,
@@ -126,7 +135,12 @@ fn cached_or_default_texture_state(
     clippy::too_many_arguments,
     reason = "texture sync needs terminal, presentation, font, HUD layout, window, image, and renderer state together"
 )]
-/// Synchronizes terminal texture.
+/// Re-rasterizes terminal surfaces into Bevy images when new terminal state, layout, or font state
+/// demands it.
+///
+/// The sync path picks an upload texture contract per terminal, resizes images when necessary, limits
+/// repaint work to damaged rows when possible, and clears/rebuilds the glyph cache when font state
+/// changes.
 pub(crate) fn sync_terminal_texture(
     mut terminal_manager: ResMut<TerminalManager>,
     focus_state: Res<TerminalFocusState>,
@@ -270,7 +284,7 @@ pub(crate) fn sync_terminal_texture(
     }
 }
 
-/// Clears terminal pixels.
+/// Fills the entire terminal texture buffer with the default background color.
 fn clear_terminal_pixels(buffer: &mut [u8]) {
     for pixel in buffer.chunks_exact_mut(4) {
         pixel.copy_from_slice(&[
@@ -286,7 +300,10 @@ fn clear_terminal_pixels(buffer: &mut [u8]) {
     clippy::too_many_arguments,
     reason = "terminal row repaint needs renderer/cache/font state together"
 )]
-/// Implements repaint terminal pixels.
+/// Repaints the specified terminal rows into the texture buffer.
+///
+/// Each cell redraw paints background first, then glyphs, and finally cursor overlay for rows that
+/// contain the cursor.
 fn repaint_terminal_pixels(
     buffer: &mut [u8],
     texture_width: u32,
@@ -355,7 +372,11 @@ fn repaint_terminal_pixels(
     }
 }
 
-/// Selects terminal font role.
+/// Chooses which font role should render a cell's content and whether that glyph should preserve its
+/// own color.
+///
+/// Emoji uses color-preserving rendering when an emoji fallback exists; private-use glyphs prefer the
+/// private-use fallback when available.
 fn select_terminal_font_role(
     content: &crate::terminals::TerminalCellContent,
     font_state: &TerminalFontState,
@@ -390,7 +411,10 @@ fn terminal_text_attrs<'a>(
     CtAttrs::new().family(family)
 }
 
-/// Implements rasterize terminal glyph.
+/// Rasterizes one glyph-cache entry into an RGBA pixel buffer using cosmic-text and swash.
+///
+/// The cached glyph is rendered in white alpha unless `preserve_color` is requested, in which case
+/// embedded glyph colors are kept.
 pub(crate) fn rasterize_terminal_glyph(
     cache_key: &TerminalGlyphCacheKey,
     font_role: TerminalFontRole,
@@ -461,7 +485,10 @@ pub(crate) fn rasterize_terminal_glyph(
     }
 }
 
-/// Blits cached glyph in buffer.
+/// Blends a cached glyph bitmap into the destination terminal texture buffer at the requested cell
+/// origin.
+///
+/// Non-color glyphs are tinted with the cell foreground color at blit time.
 fn blit_cached_glyph_in_buffer(
     buffer: &mut [u8],
     stride: usize,
@@ -499,7 +526,7 @@ fn blit_cached_glyph_in_buffer(
     }
 }
 
-/// Fills rect in buffer.
+/// Fills a solid rectangle inside the raw RGBA terminal texture buffer.
 fn fill_rect_in_buffer(
     buffer: &mut [u8],
     stride: usize,
@@ -524,7 +551,7 @@ fn fill_rect_in_buffer(
     }
 }
 
-/// Draws cursor in buffer.
+/// Draws the terminal cursor overlay into the raw RGBA texture buffer according to the cursor shape.
 fn draw_cursor_in_buffer(
     buffer: &mut [u8],
     stride: usize,
@@ -574,7 +601,7 @@ fn draw_cursor_in_buffer(
     }
 }
 
-/// Fills alpha rect in buffer.
+/// Alpha-blends a solid rectangle into the raw RGBA terminal texture buffer.
 fn fill_alpha_rect_in_buffer(
     buffer: &mut [u8],
     stride: usize,
@@ -598,13 +625,16 @@ fn fill_alpha_rect_in_buffer(
     }
 }
 
-/// Blends over pixel.
+/// Alpha-blends one source RGBA pixel over the destination pixel at `(x, y)` inside a tightly packed
+/// RGBA image buffer.
 fn blend_over_pixel(buffer: &mut [u8], width: u32, x: u32, y: u32, source: [u8; 4]) {
     let index = ((y * width + x) * 4) as usize;
     blend_rgba_in_place(&mut buffer[index..index + 4], source);
 }
 
-/// Blends RGBA in place.
+/// Alpha-composites one RGBA source pixel over a mutable destination pixel slice in place.
+///
+/// Both colors are treated as straight alpha.
 pub(crate) fn blend_rgba_in_place(dst: &mut [u8], source: [u8; 4]) {
     let src_alpha = source[3] as f32 / 255.0;
     let dst_alpha = dst[3] as f32 / 255.0;

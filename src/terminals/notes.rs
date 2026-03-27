@@ -14,24 +14,37 @@ pub(crate) struct TerminalNotesState {
 }
 
 impl TerminalNotesState {
-    /// Loads this value.
+    /// Replaces the entire notes map with freshly loaded persisted data and clears dirty state.
+    ///
+    /// Loading is treated as authoritative state replacement, not as a merge, because the persisted
+    /// file is the single source of truth for note text at startup.
     pub(crate) fn load(&mut self, notes_by_session: HashMap<String, String>) {
         self.notes_by_session = notes_by_session;
         self.dirty_since_secs = None;
     }
 
-    /// Notes text.
+    /// Returns the stored note text for one session, if any.
+    ///
+    /// The returned slice borrows directly from the internal map so callers can inspect notes without
+    /// allocating.
     pub(crate) fn note_text(&self, session_name: &str) -> Option<&str> {
         self.notes_by_session.get(session_name).map(String::as_str)
     }
 
-    /// Returns whether note text.
+    /// Returns whether a session currently has non-blank note text.
+    ///
+    /// Whitespace-only entries are treated as absent so the rest of the HUD can use this as a real
+    /// presence predicate.
     pub(crate) fn has_note_text(&self, session_name: &str) -> bool {
         self.note_text(session_name)
             .is_some_and(|text| !text.trim().is_empty())
     }
 
-    /// Sets note text.
+    /// Sets or clears the note text for one session and reports whether anything actually changed.
+    ///
+    /// Trailing whitespace is trimmed before storage, and a fully blank result removes the entry from
+    /// the map altogether. Existing strings are edited in place when possible to avoid replacing the
+    /// allocation unnecessarily.
     pub(crate) fn set_note_text(&mut self, session_name: &str, text: &str) -> bool {
         let trimmed = text.trim_end();
         if trimmed.is_empty() {
@@ -53,7 +66,10 @@ impl TerminalNotesState {
         }
     }
 
-    /// Appends task from text.
+    /// Appends a new checkbox task block derived from arbitrary text to the end of a session's notes.
+    ///
+    /// The text is first normalized through [`task_entry_from_text`]. If that yields a valid task
+    /// block, it is appended after any existing trimmed note text with a separating newline.
     pub(crate) fn append_task_from_text(&mut self, session_name: &str, text: &str) -> bool {
         let Some(task_entry) = task_entry_from_text(text) else {
             return false;
@@ -73,7 +89,11 @@ impl TerminalNotesState {
         true
     }
 
-    /// Implements prepend task from text.
+    /// Prepends a new checkbox task block derived from arbitrary text to the start of a session's
+    /// notes.
+    ///
+    /// This is the mirror of [`append_task_from_text`], preserving the existing note text after the
+    /// new task block when both exist.
     pub(crate) fn prepend_task_from_text(&mut self, session_name: &str, text: &str) -> bool {
         let Some(task_entry) = task_entry_from_text(text) else {
             return false;
@@ -94,7 +114,10 @@ impl TerminalNotesState {
     }
 }
 
-/// Resolves terminal notes path with.
+/// Resolves the notes persistence path from explicit directory inputs.
+///
+/// The precedence mirrors the rest of NeoZeus persistence: XDG state home first, then the legacy
+/// `~/.local/state` path, then XDG config as a final fallback.
 pub(crate) fn resolve_terminal_notes_path_with(
     xdg_state_home: Option<&str>,
     home: Option<&str>,
@@ -127,7 +150,9 @@ pub(crate) fn resolve_terminal_notes_path_with(
     None
 }
 
-/// Resolves terminal notes path.
+/// Resolves the live notes persistence path from the current process environment.
+///
+/// This is the runtime wrapper around [`resolve_terminal_notes_path_with`] used during startup.
 pub(crate) fn resolve_terminal_notes_path() -> Option<PathBuf> {
     resolve_terminal_notes_path_with(
         env::var("XDG_STATE_HOME").ok().as_deref(),
@@ -136,7 +161,10 @@ pub(crate) fn resolve_terminal_notes_path() -> Option<PathBuf> {
     )
 }
 
-/// Loads terminal notes from.
+/// Loads the notes map from disk, treating missing files as an empty note store.
+///
+/// Read failures other than `NotFound` are logged and also fall back to an empty map, because notes
+/// persistence should not block application startup.
 pub(crate) fn load_terminal_notes_from(path: &PathBuf) -> HashMap<String, String> {
     match fs::read_to_string(path) {
         Ok(text) => parse_terminal_notes(&text),
@@ -151,7 +179,11 @@ pub(crate) fn load_terminal_notes_from(path: &PathBuf) -> HashMap<String, String
     }
 }
 
-/// Parses terminal notes.
+/// Parses the line-oriented notes persistence format into a per-session map.
+///
+/// The parser first validates the version header, then reads repeated `note name=...` blocks whose
+/// bodies terminate at a lone `.` line. Leading `.` in note content is escaped by doubling it, so the
+/// parser also has to undo that escaping on load.
 pub(crate) fn parse_terminal_notes(text: &str) -> HashMap<String, String> {
     let mut lines = text.lines();
     let Some(version) = lines.next() else {
@@ -195,7 +227,11 @@ pub(crate) fn parse_terminal_notes(text: &str) -> HashMap<String, String> {
     notes
 }
 
-/// Implements serialize terminal notes.
+/// Serializes the notes map into the line-oriented persistence format.
+///
+/// Sessions are sorted by name for deterministic output. Empty session names and blank note payloads
+/// are skipped, and note lines beginning with `.` are escaped by prefixing an extra dot so block
+/// terminators remain unambiguous.
 pub(crate) fn serialize_terminal_notes(notes_by_session: &HashMap<String, String>) -> String {
     let mut sessions = notes_by_session
         .iter()
@@ -225,14 +261,21 @@ pub(crate) fn serialize_terminal_notes(notes_by_session: &HashMap<String, String
     output
 }
 
-/// Marks terminal notes dirty.
+/// Marks the notes store dirty, recording the first dirty timestamp if it was previously clean.
+///
+/// The first-write-wins timestamp is what powers the later debounce logic in
+/// [`save_terminal_notes_if_dirty`].
 pub(crate) fn mark_terminal_notes_dirty(notes_state: &mut TerminalNotesState, time: Option<&Time>) {
     if notes_state.dirty_since_secs.is_none() {
         notes_state.dirty_since_secs = Some(time.map(Time::elapsed_secs).unwrap_or(0.0));
     }
 }
 
-/// Saves terminal notes if dirty.
+/// Writes the notes file once the dirty debounce window has elapsed.
+///
+/// The system exits early while clean or still inside the debounce window, creates parent
+/// directories on demand, writes the serialized note map, logs success or failure, and finally clears
+/// the dirty marker either way so repeated failing saves do not loop forever.
 pub(crate) fn save_terminal_notes_if_dirty(
     time: Res<Time>,
     mut notes_state: ResMut<TerminalNotesState>,
@@ -276,7 +319,10 @@ struct TaskHeader<'a> {
     suffix: &'a str,
 }
 
-/// Parses task header.
+/// Parses one line as a Zeus-style checkbox task header.
+///
+/// The parser accepts `- [ ] ...` as unchecked and `- [x] ...`/`- [X] ...` as checked, returning the
+/// remainder of the line as the task suffix so callers can reconstruct or rewrite the line.
 fn parse_task_header(line: &str) -> Option<TaskHeader<'_>> {
     let trimmed = line.trim_start();
     let dash = trimmed.strip_prefix('-')?;
@@ -299,7 +345,10 @@ fn parse_task_header(line: &str) -> Option<TaskHeader<'_>> {
     })
 }
 
-/// Clears done tasks.
+/// Removes all completed checkbox task blocks from note text.
+///
+/// A "done task block" means a checked header line plus any immediately following non-header detail
+/// lines. The function returns both the updated text and the number of removed task blocks.
 pub(crate) fn clear_done_tasks(text: &str) -> (String, usize) {
     let lines = text.lines().collect::<Vec<_>>();
     if lines.is_empty() {
@@ -329,7 +378,11 @@ pub(crate) fn clear_done_tasks(text: &str) -> (String, usize) {
     (kept.join("\n").trim_end().to_owned(), removed)
 }
 
-/// Extracts next task.
+/// Extracts the next actionable task message from note text and returns the updated note text.
+///
+/// If checkbox tasks exist, the first unchecked task block is chosen, its message body is extracted,
+/// and its checkbox is flipped to done in the returned note text. If there are no checkbox headers at
+/// all, the function falls back to the first non-empty line and removes it from the notes instead.
 pub(crate) fn extract_next_task(task_text: &str) -> Option<(String, String)> {
     let mut lines = task_text.lines().map(str::to_owned).collect::<Vec<_>>();
     if lines.is_empty() {
@@ -390,7 +443,10 @@ pub(crate) fn extract_next_task(task_text: &str) -> Option<(String, String)> {
     Some((message, lines.join("\n").trim_end().to_owned()))
 }
 
-/// Implements task entry from text.
+/// Converts arbitrary text into a normalized unchecked task block.
+///
+/// The first non-empty trimmed line becomes the checkbox header, while remaining lines are preserved
+/// as task detail lines verbatim. Fully blank input is rejected.
 pub(crate) fn task_entry_from_text(text: &str) -> Option<String> {
     let clean = text.trim();
     if clean.is_empty() {
