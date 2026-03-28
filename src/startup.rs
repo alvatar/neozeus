@@ -97,7 +97,7 @@ impl Default for StartupConnectState {
     fn default() -> Self {
         Self {
             phase: StartupConnectPhase::Connecting,
-            status: "Connecting to runtime…".to_owned(),
+            status: "Connecting".to_owned(),
             receiver: None,
             restore_started: false,
             hold_frames_remaining: 8,
