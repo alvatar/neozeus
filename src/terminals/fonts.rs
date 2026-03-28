@@ -6,7 +6,10 @@ use crate::{
     terminals::{TerminalFontFace, TerminalFontReport},
 };
 use bevy::prelude::{ResMut, Resource};
-use cosmic_text::{fontdb, FontSystem as CtFontSystem, SwashCache as CtSwashCache};
+use cosmic_text::{
+    fontdb, Attrs as CtAttrs, Buffer as CtBuffer, Family as CtFamily, FontSystem as CtFontSystem,
+    Shaping as CtShaping, SwashCache as CtSwashCache,
+};
 use std::{
     collections::BTreeSet,
     env,
@@ -30,10 +33,35 @@ impl Default for TerminalFontRasterConfig {
     }
 }
 
+/// Deterministic monospace cell dimensions measured from the actual loaded font.
+///
+/// These are the ground-truth pixel dimensions for one terminal cell, derived by shaping a
+/// reference glyph at the configured font size.  Every other metric (grid cols/rows,
+/// texture size, display size) is computed from these values — nothing is hardcoded.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct TerminalCellMetrics {
+    /// Advance width of a single monospace glyph in pixels (ceiled to integer).
+    pub(crate) cell_width: u32,
+    /// Line height (ascent + descent) in pixels (ceiled to integer).
+    pub(crate) cell_height: u32,
+}
+
+impl Default for TerminalCellMetrics {
+    fn default() -> Self {
+        Self {
+            cell_width: crate::app_config::DEFAULT_CELL_WIDTH_PX,
+            cell_height: crate::app_config::DEFAULT_CELL_HEIGHT_PX,
+        }
+    }
+}
+
 #[derive(Resource, Default)]
 pub(crate) struct TerminalFontState {
     pub(crate) report: Option<Result<TerminalFontReport, String>>,
     pub(crate) raster: TerminalFontRasterConfig,
+    /// Cell dimensions measured from the font.  Populated after font init; falls back to
+    /// `DEFAULT_CELL_*_PX` before that.
+    pub(crate) cell_metrics: TerminalCellMetrics,
 }
 
 #[derive(Resource)]
@@ -63,15 +91,19 @@ impl TerminalFontState {
         self.fallback_family_name("emoji").is_some()
     }
 
-    /// Scales the configured raster font metrics to match a concrete terminal cell height.
-    pub(crate) fn glyph_metrics_for_cell_height(&self, cell_height: u32) -> cosmic_text::Metrics {
-        let scale = cell_height.max(1) as f32 / 16.0;
-        cosmic_text::Metrics::new(self.raster.font_size_px * scale, cell_height.max(1) as f32)
+    /// Returns cosmic-text metrics for rasterizing glyphs at the configured font size.
+    ///
+    /// Glyph size stays fixed; only line height follows the measured cell height.
+    pub(crate) fn glyph_metrics(&self) -> cosmic_text::Metrics {
+        cosmic_text::Metrics::new(
+            self.raster.font_size_px,
+            self.cell_metrics.cell_height as f32,
+        )
     }
 
-    /// Scales the configured baseline offset to match a concrete terminal cell height.
-    pub(crate) fn baseline_offset_for_cell_height(&self, cell_height: u32) -> f32 {
-        self.raster.baseline_offset_px * (cell_height.max(1) as f32 / 16.0)
+    /// Returns the configured baseline offset in raster pixels.
+    pub(crate) fn baseline_offset(&self) -> f32 {
+        self.raster.baseline_offset_px
     }
 
     /// Implements fallback family name.
@@ -85,10 +117,55 @@ impl TerminalFontState {
     }
 }
 
+/// Measures the monospace cell dimensions by shaping a reference glyph at the given font size.
+///
+/// This is the single source of truth for terminal cell sizing.  The advance width of "M"
+/// gives the cell width; `max_ascent + max_descent` from the layout gives the cell height.
+/// Both are ceiled to whole pixels so grid arithmetic stays integer-exact.
+pub(crate) fn measure_monospace_cell(
+    font_system: &mut CtFontSystem,
+    font_size: f32,
+) -> Option<TerminalCellMetrics> {
+    // Use a generous buffer so the glyph is never clipped during measurement.
+    let metrics = cosmic_text::Metrics::new(font_size, font_size * 2.0);
+    let mut buffer = CtBuffer::new_empty(metrics);
+    {
+        let mut borrowed = buffer.borrow_with(font_system);
+        borrowed.set_size(Some(font_size * 10.0), Some(font_size * 10.0));
+        let attrs = CtAttrs::new().family(CtFamily::Monospace);
+        borrowed.set_text("M", &attrs, CtShaping::Advanced, None);
+        borrowed.shape_until_scroll(false);
+    }
+
+    // Read advance width from the shaped glyph.
+    let advance_width = buffer
+        .layout_runs()
+        .find_map(|run| run.glyphs.iter().next().map(|glyph| glyph.w));
+
+    // Read ascent + descent from the LayoutLine for the actual glyph height.
+    let (max_ascent, max_descent) = buffer
+        .lines
+        .first()
+        .and_then(|line| line.layout_opt())
+        .and_then(|layouts| layouts.first())
+        .map(|layout_line| (layout_line.max_ascent, layout_line.max_descent))?;
+
+    let cell_width = advance_width?.ceil() as u32;
+    let cell_height = (max_ascent + max_descent).ceil() as u32;
+    if cell_width == 0 || cell_height == 0 {
+        return None;
+    }
+    Some(TerminalCellMetrics {
+        cell_width,
+        cell_height,
+    })
+}
+
 /// Resolves terminal font configuration/report data once and initializes the shared text renderer.
 ///
-/// The function is idempotent after the first successful or failed discovery because `font_state.report`
-/// becomes the one-shot guard.
+/// After the font system is loaded the monospace cell dimensions are measured deterministically
+/// from the actual font at the configured size.  The function is idempotent after the first
+/// successful or failed discovery because `font_state.report` becomes the one-shot guard.
 pub(crate) fn configure_terminal_fonts(
     mut font_state: ResMut<TerminalFontState>,
     mut text_renderer: ResMut<TerminalTextRenderer>,
@@ -116,6 +193,14 @@ pub(crate) fn configure_terminal_fonts(
     match resolve_terminal_font_report() {
         Ok(report) => match initialize_terminal_text_renderer(&report, &mut text_renderer) {
             Ok(()) => {
+                // Measure the actual monospace cell dimensions from the loaded font.
+                if let Some(font_system) = text_renderer.font_system.as_mut() {
+                    if let Some(metrics) =
+                        measure_monospace_cell(font_system, font_state.raster.font_size_px)
+                    {
+                        font_state.cell_metrics = metrics;
+                    }
+                }
                 font_state.report = Some(Ok(report));
             }
             Err(error) => {

@@ -1,13 +1,12 @@
 use crate::{
-    app_config::{
-        DEBUG_TEXTURE_DUMP_PATH, DEFAULT_BG, DEFAULT_CELL_HEIGHT_PX, DEFAULT_CELL_WIDTH_PX,
-    },
+    app_config::{DEBUG_TEXTURE_DUMP_PATH, DEFAULT_BG},
     hud::HudLayoutState,
     terminals::{
-        active_terminal_layout, append_debug_log, is_emoji_like, is_private_use_like,
-        TerminalDamage, TerminalDimensions, TerminalFocusState, TerminalFontState, TerminalManager,
-        TerminalPresentationStore, TerminalSurface, TerminalTextRenderer, TerminalTextureState,
-        TerminalViewState,
+        active_terminal_layout_for_dimensions, append_debug_log,
+        box_drawing::{is_box_drawing, rasterize_box_drawing},
+        is_emoji_like, is_private_use_like, TerminalDamage, TerminalDimensions, TerminalFocusState,
+        TerminalFontState, TerminalManager, TerminalPresentationStore, TerminalSurface,
+        TerminalTextRenderer, TerminalTextureState, TerminalViewState,
     },
 };
 use bevy::{
@@ -96,14 +95,16 @@ fn dump_terminal_image_ppm(image: &Image, path: &Path) -> Result<(), String> {
     fs::write(path, output).map_err(|error| format!("failed to write {}: {error}", path.display()))
 }
 
-/// Derives the default texture-state contract for a surface using the built-in cell dimensions.
-fn default_texture_state_for_surface(surface: &TerminalSurface) -> TerminalTextureState {
+/// Derives the default texture-state contract for a surface using the font-measured cell dimensions.
+fn default_texture_state_for_surface(
+    surface: &TerminalSurface,
+    font_state: &TerminalFontState,
+) -> TerminalTextureState {
+    let cw = font_state.cell_metrics.cell_width;
+    let ch = font_state.cell_metrics.cell_height;
     TerminalTextureState {
-        texture_size: UVec2::new(
-            surface.cols as u32 * DEFAULT_CELL_WIDTH_PX,
-            surface.rows as u32 * DEFAULT_CELL_HEIGHT_PX,
-        ),
-        cell_size: UVec2::new(DEFAULT_CELL_WIDTH_PX, DEFAULT_CELL_HEIGHT_PX),
+        texture_size: UVec2::new(surface.cols as u32 * cw, surface.rows as u32 * ch),
+        cell_size: UVec2::new(cw, ch),
     }
 }
 
@@ -120,12 +121,13 @@ fn can_render_active_layout(surface: &TerminalSurface, dimensions: TerminalDimen
 fn cached_or_default_texture_state(
     presented_terminal: &crate::terminals::PresentedTerminal,
     surface: &TerminalSurface,
+    font_state: &TerminalFontState,
 ) -> TerminalTextureState {
     if presented_terminal.uploaded_revision == 0
         || presented_terminal.texture_state.texture_size == UVec2::ONE
         || presented_terminal.texture_state.cell_size == UVec2::ZERO
     {
-        default_texture_state_for_surface(surface)
+        default_texture_state_for_surface(surface, font_state)
     } else {
         presented_terminal.texture_state.clone()
     }
@@ -164,8 +166,22 @@ pub(crate) fn sync_terminal_texture(
     }
 
     let active_id = focus_state.active_id();
-    let active_layout =
-        active_id.map(|_| active_terminal_layout(&primary_window, &layout_state, &view_state));
+    let active_layout = active_id.and_then(|id| {
+        terminal_manager.get(id).and_then(|terminal| {
+            terminal.snapshot.surface.as_ref().map(|surface| {
+                active_terminal_layout_for_dimensions(
+                    &primary_window,
+                    &layout_state,
+                    &view_state,
+                    TerminalDimensions {
+                        cols: surface.cols,
+                        rows: surface.rows,
+                    },
+                    &font_state,
+                )
+            })
+        })
+    });
     for (terminal_id, terminal) in terminal_manager.iter_mut() {
         let Some(surface) = &terminal.snapshot.surface else {
             terminal.pending_damage = None;
@@ -185,10 +201,10 @@ pub(crate) fn sync_terminal_texture(
             if can_render_active_layout(surface, active_layout.dimensions) {
                 presented_terminal.desired_texture_state.clone()
             } else {
-                cached_or_default_texture_state(presented_terminal, surface)
+                cached_or_default_texture_state(presented_terminal, surface, &font_state)
             }
         } else {
-            let cached = cached_or_default_texture_state(presented_terminal, surface);
+            let cached = cached_or_default_texture_state(presented_terminal, surface, &font_state);
             presented_terminal.desired_texture_state = cached.clone();
             cached
         };
@@ -349,13 +365,16 @@ fn repaint_terminal_pixels(
             };
 
             if !glyph_cache.glyphs.contains_key(&cache_key) {
-                let glyph = rasterize_terminal_glyph(
-                    &cache_key,
-                    font_role,
-                    preserve_color,
-                    text_renderer,
-                    font_state,
-                );
+                let glyph =
+                    try_rasterize_box_drawing(&cell.content, cell_size).unwrap_or_else(|| {
+                        rasterize_terminal_glyph(
+                            &cache_key,
+                            font_role,
+                            preserve_color,
+                            text_renderer,
+                            font_state,
+                        )
+                    });
                 glyph_cache.glyphs.insert(cache_key.clone(), glyph);
             }
 
@@ -370,6 +389,17 @@ fn repaint_terminal_pixels(
             draw_cursor_in_buffer(buffer, stride, cursor, cell_size);
         }
     }
+}
+
+fn try_rasterize_box_drawing(
+    content: &crate::terminals::TerminalCellContent,
+    cell_size: UVec2,
+) -> Option<CachedTerminalGlyph> {
+    let ch = match content {
+        crate::terminals::TerminalCellContent::Single(ch) if is_box_drawing(*ch) => *ch,
+        _ => return None,
+    };
+    rasterize_box_drawing(ch, cell_size.x, cell_size.y)
 }
 
 /// Chooses which font role should render a cell's content and whether that glyph should preserve its
@@ -435,7 +465,7 @@ pub(crate) fn rasterize_terminal_glyph(
         };
     };
 
-    let metrics = font_state.glyph_metrics_for_cell_height(height);
+    let metrics = font_state.glyph_metrics();
     let mut buffer = CtBuffer::new_empty(metrics);
     {
         let mut borrowed = buffer.borrow_with(font_system);
@@ -447,7 +477,7 @@ pub(crate) fn rasterize_terminal_glyph(
     }
 
     let base_color = CtColor::rgb(0xFF, 0xFF, 0xFF);
-    let baseline_offset = font_state.baseline_offset_for_cell_height(height);
+    let baseline_offset = font_state.baseline_offset();
     for run in buffer.layout_runs() {
         for glyph in run.glyphs {
             let physical = glyph.physical((0.0, run.line_y + baseline_offset), 1.0);

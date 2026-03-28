@@ -13,7 +13,6 @@ pub(crate) struct ManagedTerminal {
     pub(crate) snapshot: TerminalSnapshot,
     pub(crate) pending_damage: Option<TerminalDamage>,
     pub(crate) surface_revision: u64,
-    pub(crate) requested_dimensions: Option<crate::terminals::TerminalDimensions>,
 }
 
 #[derive(Resource, Default, Clone)]
@@ -130,7 +129,6 @@ impl TerminalManager {
                 snapshot: TerminalSnapshot::default(),
                 pending_damage: None,
                 surface_revision: 0,
-                requested_dimensions: None,
             },
         );
         self.creation_order.push(id);
