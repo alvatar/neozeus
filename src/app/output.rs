@@ -460,7 +460,7 @@ fn align_copy_bytes_per_row(value: usize) -> usize {
 /// The constant itself is private to this module, but tests need a stable way to assert the helper
 /// uses the same format the runtime capture path expects.
 #[cfg(test)]
-pub(crate) fn final_frame_format() -> TextureFormat {
+fn final_frame_format() -> TextureFormat {
     FINAL_FRAME_FORMAT
 }
 
