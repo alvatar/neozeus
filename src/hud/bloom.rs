@@ -171,7 +171,7 @@ impl Material2d for AgentListBloomBlurMaterial {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub(crate) enum AgentListBloomSourceKind {
+enum AgentListBloomSourceKind {
     Main,
     Marker,
 }
@@ -187,7 +187,7 @@ pub(crate) enum AgentListBloomSourceSegment {
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct AgentListBloomSourceSprite {
     pub(crate) terminal_id: TerminalId,
-    pub(crate) kind: AgentListBloomSourceKind,
+    kind: AgentListBloomSourceKind,
     pub(crate) segment: AgentListBloomSourceSegment,
 }
 
