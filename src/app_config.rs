@@ -19,7 +19,7 @@ const NEOZEUS_CWD_CONFIG_FILENAME: &str = "neozeus.toml";
 #[derive(Clone, Debug, Default, PartialEq)]
 pub(crate) struct NeoZeusConfig {
     terminal: NeoZeusTerminalConfig,
-    pub(crate) window: NeoZeusWindowConfig,
+    window: NeoZeusWindowConfig,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -30,7 +30,7 @@ struct NeoZeusTerminalConfig {
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
-pub(crate) struct NeoZeusWindowConfig {
+struct NeoZeusWindowConfig {
     pub(crate) title: Option<String>,
     pub(crate) app_id: Option<String>,
 }
@@ -49,6 +49,16 @@ impl NeoZeusConfig {
     /// Returns the configured terminal baseline offset, if any.
     pub(crate) fn terminal_baseline_offset_px(&self) -> Option<f32> {
         self.terminal.baseline_offset_px
+    }
+
+    /// Returns the configured window title, if any.
+    pub(crate) fn window_title(&self) -> Option<&str> {
+        self.window.title.as_deref()
+    }
+
+    /// Returns the configured app id, if any.
+    pub(crate) fn window_app_id(&self) -> Option<&str> {
+        self.window.app_id.as_deref()
     }
 }
 
@@ -142,7 +152,7 @@ pub(crate) fn resolve_window_title(config: &NeoZeusConfig) -> String {
     env::var("NEOZEUS_WINDOW_TITLE")
         .ok()
         .filter(|value| !value.trim().is_empty())
-        .or_else(|| config.window.title.clone())
+        .or_else(|| config.window_title().map(str::to_owned))
         .unwrap_or_else(|| "neozeus".to_owned())
 }
 
@@ -154,7 +164,7 @@ pub(crate) fn resolve_app_id(config: &NeoZeusConfig) -> String {
     env::var("NEOZEUS_APP_ID")
         .ok()
         .filter(|value| !value.trim().is_empty())
-        .or_else(|| config.window.app_id.clone())
+        .or_else(|| config.window_app_id().map(str::to_owned))
         .unwrap_or_else(|| "neozeus".to_owned())
 }
 
