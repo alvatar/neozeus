@@ -39,7 +39,7 @@ pub(crate) fn attach_terminal_session(
 /// Terminal lifecycle mutates only the terminal/focus stores. The later projection sync pass observes
 /// the missing terminal id and despawns the now-stale panel/frame entities plus presentation-store
 /// entry.
-pub(crate) fn remove_terminal_with_projection(
+fn remove_terminal_with_projection(
     terminal_manager: &mut TerminalManager,
     focus_state: &mut TerminalFocusState,
     terminal_id: TerminalId,
