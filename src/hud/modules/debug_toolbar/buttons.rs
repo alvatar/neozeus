@@ -8,7 +8,7 @@ use super::super::super::widgets::HudWidgetKey;
 use super::{DebugToolbarAction, DebugToolbarButton};
 
 /// Builds the retained button list for the debug toolbar module.
-pub(crate) fn debug_toolbar_buttons(
+pub(in crate::hud) fn debug_toolbar_buttons(
     shell_rect: HudRect,
     debug_toolbar_view: &DebugToolbarView,
     layout_state: &HudLayoutState,
@@ -114,6 +114,22 @@ pub(crate) fn debug_toolbar_buttons(
                 action,
                 active,
             }
+        })
+        .collect()
+}
+
+#[cfg(test)]
+pub(crate) fn test_debug_toolbar_buttons(
+    shell_rect: HudRect,
+    debug_toolbar_view: &DebugToolbarView,
+    layout_state: &HudLayoutState,
+) -> Vec<super::DebugToolbarButtonTestView> {
+    debug_toolbar_buttons(shell_rect, debug_toolbar_view, layout_state)
+        .into_iter()
+        .map(|button| super::DebugToolbarButtonTestView {
+            label: button.label,
+            rect: button.rect,
+            active: button.active,
         })
         .collect()
 }
