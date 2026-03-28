@@ -91,7 +91,7 @@ impl SocketTerminalDaemonClient {
     /// connect attempt fails.
     ///
     /// This is the "just make the daemon exist" entry point used by normal app startup.
-    pub(crate) fn connect_or_start_default() -> Result<Self, String> {
+    fn connect_or_start_default() -> Result<Self, String> {
         let socket_path = resolve_daemon_socket_path()
             .ok_or_else(|| "failed to resolve daemon socket path".to_owned())?;
         match Self::connect(&socket_path) {
