@@ -11,7 +11,7 @@ pub(crate) const HUD_BUTTON_HEIGHT: f32 = 28.0;
 pub(crate) const HUD_BUTTON_GAP: f32 = 8.0;
 pub(crate) const HUD_BUTTON_MIN_WIDTH: f32 = 72.0;
 pub(crate) const HUD_AGENT_LIST_WIDTH: f32 = 300.0;
-pub(crate) const HUD_ANIMATION_EPSILON: f32 = 0.25;
+const HUD_ANIMATION_EPSILON: f32 = 0.25;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub(crate) struct HudRect {
