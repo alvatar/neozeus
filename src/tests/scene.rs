@@ -14,11 +14,12 @@ use crate::{
     },
     hud::TerminalVisibilityPolicy,
     startup::{
-        choose_startup_focus_session_name, should_request_visual_redraw,
-        startup_visibility_policy_for_focus,
+        advance_startup_connecting, choose_startup_focus_session_name,
+        should_request_visual_redraw, startup_visibility_policy_for_focus, StartupConnectPhase,
+        StartupConnectState,
     },
-    terminals::TerminalId,
-    tests::{fake_runtime_spawner, temp_dir},
+    terminals::{TerminalId, TerminalRuntimeSpawner},
+    tests::{fake_daemon_resource, fake_runtime_spawner, temp_dir, FakeDaemonClient},
 };
 use bevy::{
     ecs::system::RunSystemOnce,
@@ -72,6 +73,54 @@ fn startup_visibility_isolate_focused_terminal() {
     assert_eq!(
         startup_visibility_policy_for_focus(None),
         TerminalVisibilityPolicy::ShowAll
+    );
+}
+
+#[test]
+fn pending_runtime_spawner_becomes_ready_when_daemon_is_installed() {
+    let spawner = TerminalRuntimeSpawner::pending_headless();
+    assert!(!spawner.is_ready());
+    spawner.install_daemon(fake_daemon_resource(Arc::new(FakeDaemonClient::default())));
+    assert!(spawner.is_ready());
+}
+
+#[test]
+fn startup_connecting_advances_to_restoring_when_background_connect_completes() {
+    let spawner = TerminalRuntimeSpawner::pending_headless();
+    let (tx, rx) = std::sync::mpsc::channel();
+    tx.send(Ok(fake_daemon_resource(Arc::new(
+        FakeDaemonClient::default(),
+    ))))
+    .expect("test daemon resource should send");
+
+    let mut world = World::default();
+    world.insert_resource(crate::terminals::TerminalManager::default());
+    world.insert_resource(crate::terminals::TerminalFocusState::default());
+    world.insert_resource(crate::agents::AgentCatalog::default());
+    world.insert_resource(crate::agents::AgentRuntimeIndex::default());
+    world.insert_resource(crate::app::AppSessionState::default());
+    world.insert_resource(crate::conversations::ConversationStore::default());
+    world.insert_resource(crate::conversations::ConversationPersistenceState::default());
+    world.insert_resource(spawner.clone());
+    world.insert_resource(crate::terminals::TerminalSessionPersistenceState::default());
+    world.insert_resource(crate::terminals::TerminalNotesState::default());
+    world.insert_resource(crate::hud::HudInputCaptureState::default());
+    world.insert_resource(crate::hud::TerminalVisibilityState::default());
+    world.insert_resource(crate::terminals::TerminalViewState::default());
+    world.insert_resource(crate::startup::StartupLoadingState::default());
+    world.insert_resource(StartupConnectState::with_receiver_for_test(
+        StartupConnectPhase::Connecting,
+        rx,
+    ));
+    world.insert_resource(Time::<()>::default());
+    world.init_resource::<Messages<RequestRedraw>>();
+
+    world.run_system_once(advance_startup_connecting).unwrap();
+
+    assert!(spawner.is_ready());
+    assert_eq!(
+        world.resource::<StartupConnectState>().phase(),
+        StartupConnectPhase::Restoring
     );
 }
 
@@ -490,6 +539,7 @@ fn startup_focus_skips_disconnected_restored_session() {
     });
     world.insert_resource(crate::terminals::TerminalNotesState::default());
     world.insert_resource(crate::hud::TerminalVisibilityState::default());
+    world.insert_resource(crate::startup::StartupConnectState::default());
 
     world.run_system_once(crate::startup::setup_scene).unwrap();
 
@@ -553,6 +603,7 @@ fn startup_leaves_only_disconnected_sessions_visible_and_unfocused() {
     });
     world.insert_resource(crate::terminals::TerminalNotesState::default());
     world.insert_resource(crate::hud::TerminalVisibilityState::default());
+    world.insert_resource(crate::startup::StartupConnectState::default());
 
     world.run_system_once(crate::startup::setup_scene).unwrap();
 
@@ -596,6 +647,7 @@ fn startup_spawns_initial_terminal_when_no_sessions_exist() {
     world.insert_resource(crate::terminals::TerminalSessionPersistenceState::default());
     world.insert_resource(crate::terminals::TerminalNotesState::default());
     world.insert_resource(crate::hud::TerminalVisibilityState::default());
+    world.insert_resource(crate::startup::StartupConnectState::default());
 
     world.run_system_once(crate::startup::setup_scene).unwrap();
 

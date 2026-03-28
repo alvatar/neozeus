@@ -22,7 +22,11 @@ use bevy::{
     camera::visibility::RenderLayers, ecs::system::SystemParam, prelude::*, window::RequestRedraw,
 };
 use bevy_vello::prelude::VelloView;
-use std::collections::BTreeSet;
+use std::{
+    collections::BTreeSet,
+    sync::{mpsc, Arc, Mutex},
+    thread,
+};
 
 const PRESENTATION_EPSILON: f32 = 0.25;
 const ALPHA_EPSILON: f32 = 0.01;
@@ -65,6 +69,84 @@ impl StartupLoadingState {
     /// the startup/presentation code read in terms of domain state instead of container mechanics.
     pub(crate) fn active(&self) -> bool {
         !self.pending_terminal_ids.is_empty()
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum StartupConnectPhase {
+    Connecting,
+    Restoring,
+    Ready,
+    Failed,
+}
+
+type StartupDaemonConnectResult = Result<crate::terminals::TerminalDaemonClientResource, String>;
+type StartupDaemonConnectReceiver = Arc<Mutex<mpsc::Receiver<StartupDaemonConnectResult>>>;
+
+#[derive(Resource)]
+pub(crate) struct StartupConnectState {
+    phase: StartupConnectPhase,
+    status: String,
+    receiver: Option<StartupDaemonConnectReceiver>,
+    restore_started: bool,
+    hold_frames_remaining: u32,
+}
+
+impl Default for StartupConnectState {
+    fn default() -> Self {
+        Self {
+            phase: StartupConnectPhase::Connecting,
+            status: "Connecting to runtime…".to_owned(),
+            receiver: None,
+            restore_started: false,
+            hold_frames_remaining: 8,
+        }
+    }
+}
+
+impl StartupConnectState {
+    #[cfg(test)]
+    pub(crate) fn with_receiver_for_test(
+        phase: StartupConnectPhase,
+        receiver: mpsc::Receiver<StartupDaemonConnectResult>,
+    ) -> Self {
+        Self {
+            phase,
+            status: "test".to_owned(),
+            receiver: Some(Arc::new(Mutex::new(receiver))),
+            restore_started: false,
+            hold_frames_remaining: 0,
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn phase(&self) -> StartupConnectPhase {
+        self.phase
+    }
+
+    pub(crate) fn title(&self) -> &'static str {
+        match self.phase {
+            StartupConnectPhase::Connecting => "Connecting",
+            StartupConnectPhase::Restoring => "Restoring",
+            StartupConnectPhase::Ready => "",
+            StartupConnectPhase::Failed => "Connection failed",
+        }
+    }
+
+    pub(crate) fn status(&self) -> &str {
+        &self.status
+    }
+
+    pub(crate) fn modal_visible(&self) -> bool {
+        !matches!(self.phase, StartupConnectPhase::Ready)
+    }
+
+    fn start_background_connect(&mut self) {
+        let (tx, rx) = mpsc::channel();
+        self.receiver = Some(Arc::new(Mutex::new(rx)));
+        thread::spawn(move || {
+            let _ = tx.send(crate::terminals::TerminalDaemonClientResource::system());
+        });
     }
 }
 
@@ -183,7 +265,8 @@ pub(crate) fn request_redraw_while_visuals_active(
 /// restore/import.
 pub(crate) fn setup_scene(
     mut ctx: SceneSetupContext,
-    auto_verify: Option<Res<AutoVerifyConfig>>,
+    mut startup_connect: ResMut<StartupConnectState>,
+    _auto_verify: Option<Res<AutoVerifyConfig>>,
     verification_scenario: Option<Res<VerificationScenarioConfig>>,
 ) {
     ctx.commands.spawn((
@@ -212,18 +295,87 @@ pub(crate) fn setup_scene(
         ctx.notes_state.load(notes);
     }
 
-    if let Some(config) = auto_verify {
-        setup_verifier_terminal(&mut ctx, config.clone());
-        return;
-    }
-    if verification_scenario.is_some() {
-        // Verification scenarios want a blank slate and will spawn their own deterministic terminal
-        // set later from the update loop, so normal restore/import must be skipped entirely.
-        append_debug_log("verification scenario startup: skipping restore/import");
+    if ctx.runtime_spawner.is_ready() {
+        startup_connect.phase = StartupConnectPhase::Restoring;
+        startup_connect.status = if verification_scenario.is_some() {
+            "Preparing verification scene…".to_owned()
+        } else {
+            "Restoring sessions…".to_owned()
+        };
+        if let Some(config) = _auto_verify {
+            setup_verifier_terminal(&mut ctx, config.clone());
+        } else if verification_scenario.is_none() {
+            restore_startup_terminals(&mut ctx);
+        }
+        startup_connect.phase = StartupConnectPhase::Ready;
+        startup_connect.status.clear();
+        ctx.redraws.write(RequestRedraw);
         return;
     }
 
-    restore_startup_terminals(&mut ctx);
+    if verification_scenario.is_some() {
+        append_debug_log("verification scenario startup: waiting for runtime connection");
+    }
+    startup_connect.start_background_connect();
+    ctx.redraws.write(RequestRedraw);
+}
+
+#[allow(
+    clippy::too_many_arguments,
+    reason = "startup connection advance needs the startup scene resources plus optional verification modes"
+)]
+pub(crate) fn advance_startup_connecting(
+    mut ctx: SceneSetupContext,
+    mut startup_connect: ResMut<StartupConnectState>,
+    auto_verify: Option<Res<AutoVerifyConfig>>,
+    verification_scenario: Option<Res<VerificationScenarioConfig>>,
+) {
+    match startup_connect.phase {
+        StartupConnectPhase::Connecting => {
+            if startup_connect.hold_frames_remaining > 0 {
+                startup_connect.hold_frames_remaining -= 1;
+                ctx.redraws.write(RequestRedraw);
+                return;
+            }
+            let Some(receiver) = startup_connect.receiver.as_ref() else {
+                return;
+            };
+            let result = receiver.lock().ok().and_then(|guard| guard.try_recv().ok());
+            match result {
+                Some(Ok(daemon)) => {
+                    ctx.runtime_spawner.install_daemon(daemon);
+                    startup_connect.phase = StartupConnectPhase::Restoring;
+                    startup_connect.status = if verification_scenario.is_some() {
+                        "Preparing verification scene…".to_owned()
+                    } else {
+                        "Restoring sessions…".to_owned()
+                    };
+                    ctx.redraws.write(RequestRedraw);
+                }
+                Some(Err(error)) => {
+                    startup_connect.phase = StartupConnectPhase::Failed;
+                    startup_connect.status = error;
+                    ctx.redraws.write(RequestRedraw);
+                }
+                None => {}
+            }
+        }
+        StartupConnectPhase::Restoring => {
+            if startup_connect.restore_started || !ctx.runtime_spawner.is_ready() {
+                return;
+            }
+            startup_connect.restore_started = true;
+            if let Some(config) = auto_verify {
+                setup_verifier_terminal(&mut ctx, config.clone());
+            } else if verification_scenario.is_none() {
+                restore_startup_terminals(&mut ctx);
+            }
+            startup_connect.phase = StartupConnectPhase::Ready;
+            startup_connect.status.clear();
+            ctx.redraws.write(RequestRedraw);
+        }
+        StartupConnectPhase::Ready | StartupConnectPhase::Failed => {}
+    }
 }
 
 /// Records a startup-spawned terminal in the optional loading tracker resource.
