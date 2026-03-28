@@ -166,21 +166,18 @@ pub(crate) fn sync_terminal_texture(
     }
 
     let active_id = focus_state.active_id();
-    let active_layout = active_id.and_then(|id| {
-        terminal_manager.get(id).and_then(|terminal| {
-            terminal.snapshot.surface.as_ref().map(|surface| {
-                active_terminal_layout_for_dimensions(
-                    &primary_window,
-                    &layout_state,
-                    &view_state,
-                    TerminalDimensions {
-                        cols: surface.cols,
-                        rows: surface.rows,
-                    },
-                    &font_state,
-                )
-            })
-        })
+    let active_layout = active_id.map(|_| {
+        active_terminal_layout_for_dimensions(
+            &primary_window,
+            &layout_state,
+            &view_state,
+            crate::terminals::target_active_terminal_dimensions(
+                &primary_window,
+                &layout_state,
+                &font_state,
+            ),
+            &font_state,
+        )
     });
     for (terminal_id, terminal) in terminal_manager.iter_mut() {
         let Some(surface) = &terminal.snapshot.surface else {

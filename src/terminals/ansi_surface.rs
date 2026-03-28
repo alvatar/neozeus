@@ -200,15 +200,20 @@ fn fallback_named_rgb(named: NamedColor, is_foreground: bool) -> Rgb {
             g: 255,
             b: 255,
         },
-        NamedColor::Foreground | NamedColor::BrightForeground => Rgb {
-            r: 190,
-            g: 190,
-            b: 190,
+        NamedColor::Foreground => Rgb {
+            r: 102,
+            g: 102,
+            b: 102,
+        },
+        NamedColor::BrightForeground => Rgb {
+            r: 128,
+            g: 128,
+            b: 128,
         },
         NamedColor::Background => Rgb {
-            r: 10,
-            g: 10,
-            b: 10,
+            r: 24,
+            g: 32,
+            b: 30,
         },
         NamedColor::Cursor => Rgb {
             r: 82,
@@ -253,15 +258,15 @@ fn fallback_named_rgb(named: NamedColor, is_foreground: bool) -> Rgb {
         NamedColor::DimWhite | NamedColor::DimForeground => {
             if is_foreground {
                 Rgb {
-                    r: 120,
-                    g: 120,
-                    b: 120,
+                    r: 102,
+                    g: 102,
+                    b: 102,
                 }
             } else {
                 Rgb {
-                    r: 10,
-                    g: 10,
-                    b: 10,
+                    r: 24,
+                    g: 32,
+                    b: 30,
                 }
             }
         }

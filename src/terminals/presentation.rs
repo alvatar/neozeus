@@ -196,54 +196,43 @@ fn terminal_zoom_scale(view_state: &TerminalViewState) -> f32 {
     10.0 / view_state.distance.max(0.1)
 }
 
-fn fit_cell_size_for_dimensions(
-    window: &Window,
-    layout_state: &HudLayoutState,
-    view_state: &TerminalViewState,
-    dimensions: TerminalDimensions,
-    font_state: &TerminalFontState,
-) -> UVec2 {
-    let zoom_scale = terminal_zoom_scale(view_state);
-    let (fit_size_logical, _) = active_terminal_fit_area(window, layout_state);
-    let fit_size_physical = logical_to_physical_size(fit_size_logical, window) * zoom_scale;
-    let base = font_state.cell_metrics;
-    let cols = dimensions.cols.max(1) as f32;
-    let rows = dimensions.rows.max(1) as f32;
-    let scale = (fit_size_physical.x / (cols * base.cell_width.max(1) as f32))
-        .min(fit_size_physical.y / (rows * base.cell_height.max(1) as f32))
-        .floor()
-        .max(1.0) as u32;
+fn fixed_terminal_cell_size(font_state: &TerminalFontState) -> UVec2 {
     UVec2::new(
-        base.cell_width.max(1) * scale,
-        base.cell_height.max(1) * scale,
+        font_state.cell_metrics.cell_width.max(1),
+        font_state.cell_metrics.cell_height.max(1),
     )
 }
 
+pub(crate) fn target_active_terminal_dimensions(
+    window: &Window,
+    layout_state: &HudLayoutState,
+    font_state: &TerminalFontState,
+) -> TerminalDimensions {
+    let cell_size = fixed_terminal_cell_size(font_state);
+    let (fit_size_logical, _) = active_terminal_fit_area(window, layout_state);
+    let fit_size_physical = logical_to_physical_size(fit_size_logical, window);
+    TerminalDimensions {
+        cols: ((fit_size_physical.x.floor() as u32) / cell_size.x.max(1)).max(1) as usize,
+        rows: ((fit_size_physical.y.floor() as u32) / cell_size.y.max(1)).max(1) as usize,
+    }
+}
+
 #[cfg(test)]
-pub(crate) fn active_terminal_cell_size(window: &Window, view_state: &TerminalViewState) -> UVec2 {
-    fit_cell_size_for_dimensions(
-        window,
-        &HudLayoutState::default(),
-        view_state,
-        TerminalDimensions {
-            cols: STARTUP_PLACEHOLDER_COLS as usize,
-            rows: STARTUP_PLACEHOLDER_ROWS as usize,
-        },
-        &TerminalFontState::default(),
-    )
+pub(crate) fn active_terminal_cell_size(
+    _window: &Window,
+    _view_state: &TerminalViewState,
+) -> UVec2 {
+    fixed_terminal_cell_size(&TerminalFontState::default())
 }
 
 #[cfg(test)]
 pub(crate) fn active_terminal_dimensions(
-    _window: &Window,
-    _layout_state: &HudLayoutState,
+    window: &Window,
+    layout_state: &HudLayoutState,
     _view_state: &TerminalViewState,
-    _font_state: &TerminalFontState,
+    font_state: &TerminalFontState,
 ) -> TerminalDimensions {
-    TerminalDimensions {
-        cols: STARTUP_PLACEHOLDER_COLS as usize,
-        rows: STARTUP_PLACEHOLDER_ROWS as usize,
-    }
+    target_active_terminal_dimensions(window, layout_state, font_state)
 }
 
 #[cfg(test)]
@@ -257,23 +246,19 @@ pub(crate) fn active_terminal_layout(
         window,
         layout_state,
         view_state,
-        TerminalDimensions {
-            cols: STARTUP_PLACEHOLDER_COLS as usize,
-            rows: STARTUP_PLACEHOLDER_ROWS as usize,
-        },
+        target_active_terminal_dimensions(window, layout_state, font_state),
         font_state,
     )
 }
 
 pub(crate) fn active_terminal_layout_for_dimensions(
-    window: &Window,
-    layout_state: &HudLayoutState,
-    view_state: &TerminalViewState,
+    _window: &Window,
+    _layout_state: &HudLayoutState,
+    _view_state: &TerminalViewState,
     dimensions: TerminalDimensions,
     font_state: &TerminalFontState,
 ) -> ActiveTerminalLayout {
-    let cell_size =
-        fit_cell_size_for_dimensions(window, layout_state, view_state, dimensions, font_state);
+    let cell_size = fixed_terminal_cell_size(font_state);
     ActiveTerminalLayout {
         cell_size,
         dimensions,
@@ -354,19 +339,56 @@ fn terminal_has_presentable_uploaded_frame(
         && presented_terminal.texture_state.cell_size != UVec2::ZERO
 }
 
-/// Leaves the active PTY grid untouched.
+/// Resizes the active PTY grid to the deterministic terminal dimensions implied by the available
+/// HUD viewport and the fixed measured cell size.
 ///
-/// Terminal dimensions are authoritative runtime state. Viewport fit only changes projected cell
-/// size on screen; it never resizes the daemon session.
+/// Character size is locked by the measured font metrics; the remaining space decides cols/rows.
+/// Zoom does not participate in this policy.
 pub(crate) fn sync_active_terminal_dimensions(
-    _terminal_manager: ResMut<TerminalManager>,
-    _focus_state: Res<TerminalFocusState>,
-    _font_state: Res<TerminalFontState>,
-    _runtime_spawner: Res<TerminalRuntimeSpawner>,
+    terminal_manager: ResMut<TerminalManager>,
+    focus_state: Res<TerminalFocusState>,
+    font_state: Res<TerminalFontState>,
+    runtime_spawner: Res<TerminalRuntimeSpawner>,
     _view_state: Res<TerminalViewState>,
-    _layout_state: Res<HudLayoutState>,
-    _primary_window: Single<&Window, With<PrimaryWindow>>,
+    layout_state: Res<HudLayoutState>,
+    primary_window: Single<&Window, With<PrimaryWindow>>,
+    mut pending_resize: Local<Option<(TerminalId, TerminalDimensions)>>,
 ) {
+    let Some(active_id) = focus_state.active_id() else {
+        *pending_resize = None;
+        return;
+    };
+    let Some(terminal) = terminal_manager.get(active_id) else {
+        *pending_resize = None;
+        return;
+    };
+    if !terminal.snapshot.runtime.is_interactive() {
+        *pending_resize = None;
+        return;
+    }
+
+    let target = target_active_terminal_dimensions(&primary_window, &layout_state, &font_state);
+    let current = terminal
+        .snapshot
+        .surface
+        .as_ref()
+        .map(|surface| TerminalDimensions {
+            cols: surface.cols,
+            rows: surface.rows,
+        });
+    if current == Some(target) {
+        *pending_resize = None;
+        return;
+    }
+    if *pending_resize == Some((active_id, target)) {
+        return;
+    }
+    if runtime_spawner
+        .resize_session(&terminal.session_name, target.cols, target.rows)
+        .is_ok()
+    {
+        *pending_resize = Some((active_id, target));
+    }
 }
 
 /// Test helper that computes the raster cell size chosen for pixel-perfect scaling of a fixed
@@ -426,7 +448,7 @@ fn smooth_terminal_screen_size(
     let texture_height = texture_state.texture_size.y.max(1) as f32;
     let (fit_size, _) = active_terminal_fit_area(window, layout_state);
     let fit_scale = (fit_size.x / texture_width).min(fit_size.y / texture_height);
-    let zoom_scale = 10.0 / view_state.distance.max(0.1);
+    let zoom_scale = terminal_zoom_scale(view_state);
     Vec2::new(texture_width, texture_height) * fit_scale * zoom_scale
 }
 
@@ -527,20 +549,14 @@ pub(crate) fn sync_terminal_presentations(
         rows: STARTUP_PLACEHOLDER_ROWS as usize,
     };
     let active_layout = active_id
-        .and_then(|id| terminal_manager.get(id))
-        .and_then(|terminal| {
-            terminal.snapshot.surface.as_ref().map(|surface| {
-                active_terminal_layout_for_dimensions(
-                    &primary_window,
-                    &layout_state,
-                    &view_state,
-                    TerminalDimensions {
-                        cols: surface.cols,
-                        rows: surface.rows,
-                    },
-                    font_state,
-                )
-            })
+        .map(|_| {
+            active_terminal_layout_for_dimensions(
+                &primary_window,
+                &layout_state,
+                &view_state,
+                target_active_terminal_dimensions(&primary_window, &layout_state, font_state),
+                font_state,
+            )
         })
         .unwrap_or_else(|| {
             active_terminal_layout_for_dimensions(

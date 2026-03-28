@@ -27,7 +27,7 @@ impl Default for TerminalFontRasterConfig {
     /// Returns the built-in rasterization defaults used before config/font discovery runs.
     fn default() -> Self {
         Self {
-            font_size_px: 16.0,
+            font_size_px: 21.6,
             baseline_offset_px: -0.5,
         }
     }
@@ -151,7 +151,7 @@ pub(crate) fn measure_monospace_cell(
         .map(|layout_line| (layout_line.max_ascent, layout_line.max_descent))?;
 
     let cell_width = advance_width?.ceil() as u32;
-    let cell_height = (max_ascent + max_descent).ceil() as u32;
+    let cell_height = (max_ascent + max_descent).ceil() as u32 + 1;
     if cell_width == 0 || cell_height == 0 {
         return None;
     }
