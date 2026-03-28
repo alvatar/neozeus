@@ -10,7 +10,7 @@ pub(crate) use input::handle_pointer_click;
 pub(crate) use render::render_content;
 
 #[derive(Clone, Debug, PartialEq)]
-pub(crate) enum DebugToolbarAction {
+enum DebugToolbarAction {
     SpawnTerminal,
     ShowAll,
     TogglePixelPerfect,
@@ -23,6 +23,6 @@ pub(crate) enum DebugToolbarAction {
 pub(crate) struct DebugToolbarButton {
     pub(crate) label: String,
     pub(crate) rect: HudRect,
-    pub(crate) action: DebugToolbarAction,
+    action: DebugToolbarAction,
     pub(crate) active: bool,
 }
