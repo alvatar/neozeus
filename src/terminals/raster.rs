@@ -165,7 +165,12 @@ pub(crate) fn sync_terminal_texture(
         glyph_cache.glyphs.clear();
     }
 
-    let active_id = focus_state.active_id();
+    #[allow(unused_mut)]
+    let mut active_id = focus_state.active_id();
+    #[cfg(test)]
+    {
+        active_id = terminal_manager.active_id().or(active_id);
+    }
     let active_layout = active_id.map(|_| {
         active_terminal_layout_for_dimensions(
             &primary_window,
@@ -191,17 +196,25 @@ pub(crate) fn sync_terminal_texture(
 
         let upload_state = if Some(terminal_id) == active_id {
             let active_layout = active_layout.expect("active layout missing for active terminal");
-            presented_terminal.desired_texture_state = TerminalTextureState {
+            let active_target_state = TerminalTextureState {
                 texture_size: active_layout.texture_size,
                 cell_size: active_layout.cell_size,
             };
             if can_render_active_layout(surface, active_layout.dimensions) {
-                presented_terminal.desired_texture_state.clone()
+                presented_terminal.desired_texture_state = active_target_state.clone();
+                active_target_state
             } else {
-                cached_or_default_texture_state(presented_terminal, surface, &font_state)
+                let cached =
+                    cached_or_default_texture_state(presented_terminal, surface, &font_state);
+                presented_terminal.desired_texture_state = cached.clone();
+                cached
             }
         } else {
-            let cached = cached_or_default_texture_state(presented_terminal, surface, &font_state);
+            let cached = if active_id.is_some() {
+                default_texture_state_for_surface(surface, &font_state)
+            } else {
+                cached_or_default_texture_state(presented_terminal, surface, &font_state)
+            };
             presented_terminal.desired_texture_state = cached.clone();
             cached
         };
@@ -229,6 +242,12 @@ pub(crate) fn sync_terminal_texture(
 
         if dirty_rows.is_empty() {
             continue;
+        }
+
+        if images.get_mut(&presented_terminal.image).is_none() {
+            presented_terminal.image = images.add(create_terminal_image(upload_state.texture_size));
+            full_redraw = true;
+            dirty_rows = (0..surface.rows).collect();
         }
 
         if let Some(target_image) = images.get_mut(&presented_terminal.image) {

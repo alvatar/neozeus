@@ -1,16 +1,13 @@
 use crate::{
-    agents::{AgentCatalog, AgentRuntimeIndex},
+    agents::{AgentCatalog, AgentId},
     app::AppSessionState,
     hud::{
         message_box_action_buttons, message_box_rect, modules, task_dialog_action_buttons,
-        task_dialog_rect, AgentListView, ConversationListView, HudLayoutState, HudMessageBoxState,
-        HudRect, HudTaskDialogState, HudWidgetKey, ThreadView, HUD_TITLEBAR_HEIGHT,
+        task_dialog_rect, AgentListView, ConversationListView, HudLayoutState, HudRect,
+        HudWidgetKey, ThreadView, HUD_TITLEBAR_HEIGHT,
     },
     startup::StartupConnectState,
-    terminals::{
-        TerminalFocusState, TerminalFontState, TerminalManager, TerminalNotesState,
-        TerminalPresentationStore, TerminalViewState,
-    },
+    ui::TextEditorState,
 };
 use bevy::{prelude::*, window::PrimaryWindow};
 use bevy_vello::{
@@ -264,15 +261,11 @@ impl<'scene, 'res> HudPainter<'scene, 'res> {
 }
 
 pub(crate) struct HudRenderInputs<'a> {
-    pub(crate) terminal_manager: &'a TerminalManager,
-    pub(crate) focus_state: &'a TerminalFocusState,
-    pub(crate) presentation_store: &'a TerminalPresentationStore,
-    pub(crate) view_state: &'a TerminalViewState,
     pub(crate) agent_list_view: &'a AgentListView,
     pub(crate) conversation_list_view: &'a ConversationListView,
     pub(crate) thread_view: &'a ThreadView,
+    pub(crate) debug_toolbar_view: &'a crate::hud::DebugToolbarView,
     pub(crate) layout_state: &'a HudLayoutState,
-    pub(crate) font_state: &'a TerminalFontState,
 }
 
 /// Logs a low-level color-presence diagnostic for HUD draw data when explicitly requested.
@@ -325,7 +318,7 @@ fn message_box_lines(text: &str) -> Vec<(usize, usize, &str)> {
 /// Builds the short status string describing the editor's current selection state.
 ///
 /// A real region wins, then a bare mark, then the default "no mark" message.
-fn editor_selection_status(editor: &HudMessageBoxState) -> String {
+fn editor_selection_status(editor: &TextEditorState) -> String {
     editor
         .region_bounds()
         .map(|(start, end)| format!("Region {} chars", editor.text[start..end].chars().count()))
@@ -341,7 +334,7 @@ fn editor_selection_status(editor: &HudMessageBoxState) -> String {
 fn draw_text_editor_body(
     painter: &mut HudPainter,
     window: &Window,
-    editor: &HudMessageBoxState,
+    editor: &TextEditorState,
     body_rect: HudRect,
 ) {
     painter.fill_rect(body_rect, HudColors::MESSAGE_BOX, 6.0);
@@ -473,28 +466,11 @@ fn draw_dialog_button_row(
     }
 }
 
-/// Resolves the label shown in modal titles for the editor's current target terminal.
-///
-/// Named agents win, otherwise the UI falls back to `terminal N`, and an untargeted editor reports
-/// `no target`.
-fn target_label(
-    editor: &HudMessageBoxState,
-    agent_catalog: &AgentCatalog,
-    runtime_index: &AgentRuntimeIndex,
-) -> String {
-    editor
-        .target_terminal
-        .and_then(|terminal_id| {
-            agent_catalog
-                .label_for_terminal(runtime_index, terminal_id)
-                .map(str::to_owned)
-        })
-        .unwrap_or_else(|| {
-            editor
-                .target_terminal
-                .map(|terminal_id| format!("terminal {}", terminal_id.0))
-                .unwrap_or_else(|| "no target".to_owned())
-        })
+/// Resolves the label shown in modal titles for the editor's current target agent.
+fn target_label(target_agent: Option<AgentId>, agent_catalog: &AgentCatalog) -> String {
+    target_agent
+        .and_then(|agent_id| agent_catalog.label(agent_id).map(str::to_owned))
+        .unwrap_or_else(|| "no target".to_owned())
 }
 
 /// Draws the message-box modal, including title, editor body, buttons, and status line.
@@ -503,9 +479,9 @@ fn target_label(
 fn draw_message_box(
     painter: &mut HudPainter,
     window: &Window,
-    message_box: &HudMessageBoxState,
+    message_box: &TextEditorState,
+    target_agent: Option<AgentId>,
     agent_catalog: &AgentCatalog,
-    runtime_index: &AgentRuntimeIndex,
 ) {
     if !message_box.visible {
         return;
@@ -524,10 +500,7 @@ fn draw_message_box(
     painter.fill_rect(title_rect, HudColors::MESSAGE_BOX, 12.0);
     painter.label(
         Vec2::new(rect.x + 24.0, rect.y + 12.0),
-        &format!(
-            "Message {}",
-            target_label(message_box, agent_catalog, runtime_index)
-        ),
+        &format!("Message {}", target_label(target_agent, agent_catalog)),
         18.0,
         HudColors::TEXT,
         VelloTextAnchor::TopLeft,
@@ -637,9 +610,9 @@ fn draw_startup_connect_overlay(
 fn draw_task_dialog(
     painter: &mut HudPainter,
     window: &Window,
-    task_dialog: &HudTaskDialogState,
+    task_dialog: &TextEditorState,
+    target_agent: Option<AgentId>,
     agent_catalog: &AgentCatalog,
-    runtime_index: &AgentRuntimeIndex,
 ) {
     if !task_dialog.visible {
         return;
@@ -658,10 +631,7 @@ fn draw_task_dialog(
     painter.fill_rect(title_rect, HudColors::MESSAGE_BOX, 12.0);
     painter.label(
         Vec2::new(rect.x + 24.0, rect.y + 12.0),
-        &format!(
-            "Tasks {}",
-            target_label(task_dialog, agent_catalog, runtime_index)
-        ),
+        &format!("Tasks {}", target_label(target_agent, agent_catalog)),
         18.0,
         HudColors::TEXT,
         VelloTextAnchor::TopLeft,
@@ -755,15 +725,12 @@ fn draw_module_shell(painter: &mut HudPainter, module_id: HudWidgetKey, shell_re
 pub(crate) fn render_hud_scene(
     primary_window: Single<&Window, With<PrimaryWindow>>,
     layout_state: Res<HudLayoutState>,
-    terminal_manager: Res<TerminalManager>,
-    focus_state: Res<TerminalFocusState>,
-    presentation_store: Res<TerminalPresentationStore>,
-    view_state: Res<TerminalViewState>,
+    agent_list_state: Res<crate::hud::AgentListUiState>,
+    conversation_list_state: Res<crate::hud::ConversationListUiState>,
     agent_list_view: Res<AgentListView>,
     conversation_list_view: Res<ConversationListView>,
     thread_view: Res<ThreadView>,
-    _notes_state: Res<TerminalNotesState>,
-    font_state: Res<TerminalFontState>,
+    debug_toolbar_view: Res<crate::hud::DebugToolbarView>,
     fonts: Res<Assets<VelloFont>>,
     startup_connect: Option<Res<StartupConnectState>>,
     mut scene: Single<&mut VelloScene2d, With<HudVectorSceneMarker>>,
@@ -774,15 +741,11 @@ pub(crate) fn render_hud_scene(
         return;
     }
     let inputs = HudRenderInputs {
-        terminal_manager: &terminal_manager,
-        focus_state: &focus_state,
-        presentation_store: &presentation_store,
-        view_state: &view_state,
         agent_list_view: &agent_list_view,
         conversation_list_view: &conversation_list_view,
         thread_view: &thread_view,
+        debug_toolbar_view: &debug_toolbar_view,
         layout_state: &layout_state,
-        font_state: &font_state,
     };
 
     for module_id in layout_state.iter_z_order() {
@@ -807,10 +770,11 @@ pub(crate) fn render_hud_scene(
         let mut painter = HudPainter::new(&mut built, &fonts, &primary_window, alpha);
         modules::render_module_content(
             module_id,
-            &module.model,
             content_rect,
             &mut painter,
             &inputs,
+            &agent_list_state,
+            &conversation_list_state,
         );
         built.pop_layer();
     }
@@ -827,7 +791,6 @@ pub(crate) fn render_hud_modal_scene(
     primary_window: Single<&Window, With<PrimaryWindow>>,
     app_session: Res<AppSessionState>,
     agent_catalog: Res<AgentCatalog>,
-    runtime_index: Res<AgentRuntimeIndex>,
     startup_connect: Option<Res<StartupConnectState>>,
     fonts: Res<Assets<VelloFont>>,
     mut scene: Single<&mut VelloScene2d, With<HudModalVectorSceneMarker>>,
@@ -837,19 +800,38 @@ pub(crate) fn render_hud_modal_scene(
     if let Some(startup_connect) = startup_connect.as_deref() {
         draw_startup_connect_overlay(&mut painter, &primary_window, startup_connect);
     }
+    let target_agent = app_session.composer.current_agent();
     draw_message_box(
         &mut painter,
         &primary_window,
         &app_session.composer.message_editor,
+        matches!(
+            app_session
+                .composer
+                .session
+                .as_ref()
+                .map(|session| &session.mode),
+            Some(crate::ui::ComposerMode::Message { .. })
+        )
+        .then_some(target_agent)
+        .flatten(),
         &agent_catalog,
-        &runtime_index,
     );
     draw_task_dialog(
         &mut painter,
         &primary_window,
         &app_session.composer.task_editor,
+        matches!(
+            app_session
+                .composer
+                .session
+                .as_ref()
+                .map(|session| &session.mode),
+            Some(crate::ui::ComposerMode::TaskEdit { .. })
+        )
+        .then_some(target_agent)
+        .flatten(),
         &agent_catalog,
-        &runtime_index,
     );
     **scene = VelloScene2d::from(built);
 }

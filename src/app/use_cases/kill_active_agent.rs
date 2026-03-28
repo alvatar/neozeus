@@ -1,6 +1,7 @@
 use crate::{
     agents::{AgentCatalog, AgentId, AgentRuntimeIndex},
     app::{AppSessionState, VisibilityMode},
+    conversations::AgentTaskStore,
     hud::{HudInputCaptureState, TerminalVisibilityPolicy, TerminalVisibilityState},
     terminals::{
         kill_active_terminal_session_and_remove, TerminalFocusState, TerminalManager,
@@ -32,6 +33,7 @@ pub(crate) fn kill_active_agent(
     agent_catalog: &mut AgentCatalog,
     runtime_index: &mut AgentRuntimeIndex,
     app_session: &mut AppSessionState,
+    task_store: &mut AgentTaskStore,
     terminal_manager: &mut TerminalManager,
     focus_state: &mut TerminalFocusState,
     presentation_store: &mut TerminalPresentationStore,
@@ -54,8 +56,6 @@ pub(crate) fn kill_active_agent(
         presentation_store,
         runtime_spawner,
         session_persistence,
-        visibility_state,
-        view_state,
     )?;
     let Some((terminal_id, _session_name)) = removed else {
         return Ok(None);
@@ -63,6 +63,8 @@ pub(crate) fn kill_active_agent(
 
     let _ = runtime_index.remove_terminal(terminal_id);
     let _ = agent_catalog.remove(active_agent);
+    let _ = task_store.remove_agent(active_agent);
+    view_state.forget_terminal(terminal_id);
     app_session.composer.unbind_agent(active_agent);
     app_session.active_agent = replacement_agent;
 

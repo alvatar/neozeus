@@ -1,7 +1,10 @@
 mod persistence;
 
-use crate::agents::AgentId;
-use bevy::prelude::Resource;
+use crate::{
+    agents::{AgentId, AgentRuntimeIndex},
+    terminals::{mark_terminal_notes_dirty, TerminalNotesState},
+};
+use bevy::prelude::{Res, ResMut, Resource, Time};
 use std::collections::BTreeMap;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -130,6 +133,10 @@ impl AgentTaskStore {
         self.tasks_by_agent.get(&agent_id).map(String::as_str)
     }
 
+    pub(crate) fn remove_agent(&mut self, agent_id: AgentId) -> bool {
+        self.tasks_by_agent.remove(&agent_id).is_some()
+    }
+
     pub(crate) fn set_text(&mut self, agent_id: AgentId, text: &str) -> bool {
         let trimmed = text.trim_end();
         if trimmed.is_empty() {
@@ -204,6 +211,25 @@ impl AgentTaskStore {
 
 #[derive(Resource, Default, Clone, Debug)]
 pub(crate) struct MessageTransportAdapter;
+
+pub(crate) fn sync_task_notes_projection(
+    time: Res<Time>,
+    runtime_index: Res<AgentRuntimeIndex>,
+    task_store: Res<AgentTaskStore>,
+    mut notes_state: ResMut<TerminalNotesState>,
+) {
+    let mut changed = false;
+    for (agent_id, link) in &runtime_index.agent_to_runtime {
+        let Some(session_name) = link.session_name.as_deref() else {
+            continue;
+        };
+        let next_text = task_store.text(*agent_id).unwrap_or_default();
+        changed |= notes_state.set_note_text(session_name, next_text);
+    }
+    if changed {
+        mark_terminal_notes_dirty(&mut notes_state, Some(&time));
+    }
+}
 
 #[cfg(test)]
 pub(crate) use persistence::{

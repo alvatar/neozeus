@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use crate::terminals::TerminalId;
 use bevy::prelude::Message;
 

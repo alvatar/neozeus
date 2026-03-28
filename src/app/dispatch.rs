@@ -3,8 +3,8 @@ use crate::{
     app::{
         commands::{
             AgentCommand, AppCommand, ComposerCommand,
-            ConversationCommand as AppConversationCommand, TerminalCommand as AppTerminalCommand,
-            WidgetCommand,
+            ConversationCommand as AppConversationCommand, TaskCommand as AppTaskCommand,
+            TerminalCommand as AppTerminalCommand, WidgetCommand,
         },
         session::AppSessionState,
         use_cases,
@@ -13,13 +13,12 @@ use crate::{
         mark_conversations_dirty, AgentTaskStore, ConversationPersistenceState, ConversationStore,
         MessageTransportAdapter,
     },
-    hud::{HudInputCaptureState, HudIntent, HudLayoutState, TerminalVisibilityState},
+    hud::{HudInputCaptureState, HudLayoutState, TerminalVisibilityState},
     startup::StartupLoadingState,
     terminals::{
         append_debug_log, mark_terminal_sessions_dirty, TerminalFocusState, TerminalManager,
-        TerminalNotesState, TerminalPresentationStore, TerminalRuntimeSpawner,
-        TerminalSessionPersistenceState, TerminalViewState, PERSISTENT_SESSION_PREFIX,
-        VERIFIER_SESSION_PREFIX,
+        TerminalPresentationStore, TerminalRuntimeSpawner, TerminalSessionPersistenceState,
+        TerminalViewState, PERSISTENT_SESSION_PREFIX, VERIFIER_SESSION_PREFIX,
     },
 };
 use bevy::{ecs::system::SystemParam, prelude::*, window::RequestRedraw};
@@ -62,7 +61,7 @@ pub(crate) fn sync_agents_from_terminals(
         let Some(terminal) = terminal_manager.get(terminal_id) else {
             continue;
         };
-        let agent_id = runtime_index
+        let _agent_id = runtime_index
             .agent_for_terminal(terminal_id)
             .unwrap_or_else(|| {
                 let kind = if terminal.session_name.starts_with(VERIFIER_SESSION_PREFIX) {
@@ -81,15 +80,9 @@ pub(crate) fn sync_agents_from_terminals(
                     terminal.session_name.clone(),
                     Some(&terminal.snapshot.runtime),
                 );
-                app_session
-                    .composer
-                    .bind_agent_terminal(agent_id, terminal_id);
                 agent_id
             });
         runtime_index.update_runtime(terminal_id, &terminal.snapshot.runtime);
-        app_session
-            .composer
-            .bind_agent_terminal(agent_id, terminal_id);
     }
 
     app_session.active_agent = focus_state
@@ -97,11 +90,6 @@ pub(crate) fn sync_agents_from_terminals(
         .and_then(|terminal_id| runtime_index.agent_for_terminal(terminal_id));
 }
 
-/// Translates legacy HUD intents into the new app-level command surface.
-///
-/// This adapter exists to keep behavior stable while input/widget code is migrated away from the
-/// old `HudIntent` vocabulary. Product mutations happen only after the translated `AppCommand` is
-/// consumed by [`apply_app_commands`].
 fn refresh_open_task_editor(
     app_session: &mut AppSessionState,
     agent_id: crate::agents::AgentId,
@@ -121,118 +109,6 @@ fn refresh_open_task_editor(
         .load_text(task_store.text(agent_id).unwrap_or_default());
 }
 
-pub(crate) fn translate_hud_intents_to_app_commands(
-    mut intents: MessageReader<HudIntent>,
-    runtime_index: Res<AgentRuntimeIndex>,
-    mut app_commands: MessageWriter<AppCommand>,
-) {
-    for intent in intents.read() {
-        match intent {
-            HudIntent::SpawnTerminal => {
-                app_commands.write(AppCommand::Agent(AgentCommand::SpawnTerminal));
-            }
-            #[cfg(test)]
-            HudIntent::SpawnShellTerminal => {
-                app_commands.write(AppCommand::Agent(AgentCommand::SpawnShellTerminal));
-            }
-            HudIntent::FocusTerminal(terminal_id) => {
-                if let Some(agent_id) = runtime_index.agent_for_terminal(*terminal_id) {
-                    app_commands.write(AppCommand::Agent(AgentCommand::Focus(agent_id)));
-                }
-            }
-            HudIntent::HideAllButTerminal(terminal_id) => {
-                if let Some(agent_id) = runtime_index.agent_for_terminal(*terminal_id) {
-                    app_commands.write(AppCommand::Agent(AgentCommand::Inspect(agent_id)));
-                }
-            }
-            HudIntent::ShowAllTerminals => {
-                app_commands.write(AppCommand::Agent(AgentCommand::ShowAll));
-            }
-            HudIntent::ToggleModule(id) => {
-                app_commands.write(AppCommand::Widget(WidgetCommand::Toggle(*id)));
-            }
-            HudIntent::ResetModule(id) => {
-                app_commands.write(AppCommand::Widget(WidgetCommand::Reset(*id)));
-            }
-            HudIntent::ToggleActiveTerminalDisplayMode => {
-                app_commands.write(AppCommand::Terminal(
-                    AppTerminalCommand::ToggleActiveDisplayMode,
-                ));
-            }
-            HudIntent::ResetTerminalView => {
-                app_commands.write(AppCommand::Terminal(AppTerminalCommand::ResetActiveView));
-            }
-            HudIntent::SendActiveTerminalCommand(command) => {
-                app_commands.write(AppCommand::Terminal(
-                    AppTerminalCommand::SendCommandToActive {
-                        command: command.clone(),
-                    },
-                ));
-            }
-            #[cfg(test)]
-            HudIntent::SendTerminalCommand(_terminal_id, command) => {
-                app_commands.write(AppCommand::Terminal(
-                    AppTerminalCommand::SendCommandToActive {
-                        command: command.clone(),
-                    },
-                ));
-            }
-            #[cfg(test)]
-            HudIntent::SetTerminalTaskText(terminal_id, text) => {
-                if let Some(agent_id) = runtime_index.agent_for_terminal(*terminal_id) {
-                    let _ = text;
-                    app_commands.write(AppCommand::Composer(ComposerCommand::Submit));
-                    app_commands.write(AppCommand::Conversation(
-                        AppConversationCommand::AppendTask {
-                            agent_id,
-                            text: String::new(),
-                        },
-                    ));
-                }
-            }
-            HudIntent::ClearDoneTerminalTasks(terminal_id) => {
-                if let Some(agent_id) = runtime_index.agent_for_terminal(*terminal_id) {
-                    app_commands.write(AppCommand::Conversation(
-                        AppConversationCommand::ClearDoneTasks { agent_id },
-                    ));
-                }
-            }
-            HudIntent::AppendTerminalTask(terminal_id, text) => {
-                if let Some(agent_id) = runtime_index.agent_for_terminal(*terminal_id) {
-                    app_commands.write(AppCommand::Conversation(
-                        AppConversationCommand::AppendTask {
-                            agent_id,
-                            text: text.clone(),
-                        },
-                    ));
-                }
-            }
-            HudIntent::PrependTerminalTask(terminal_id, text) => {
-                if let Some(agent_id) = runtime_index.agent_for_terminal(*terminal_id) {
-                    app_commands.write(AppCommand::Conversation(
-                        AppConversationCommand::PrependTask {
-                            agent_id,
-                            text: text.clone(),
-                        },
-                    ));
-                }
-            }
-            #[cfg(test)]
-            HudIntent::ConsumeNextTerminalTask(terminal_id) => {
-                if let Some(agent_id) = runtime_index.agent_for_terminal(*terminal_id) {
-                    app_commands.write(AppCommand::Conversation(
-                        AppConversationCommand::ConsumeNextTask { agent_id },
-                    ));
-                }
-            }
-            #[cfg(test)]
-            HudIntent::KillActiveTerminal => {
-                app_commands.write(AppCommand::Agent(AgentCommand::KillActive));
-            }
-        }
-    }
-}
-
 #[derive(SystemParam)]
 pub(crate) struct AppCommandContext<'w, 's> {
     commands: Commands<'w, 's>,
@@ -246,7 +122,6 @@ pub(crate) struct AppCommandContext<'w, 's> {
     runtime_spawner: Res<'w, TerminalRuntimeSpawner>,
     input_capture: ResMut<'w, HudInputCaptureState>,
     layout_state: ResMut<'w, HudLayoutState>,
-    notes_state: ResMut<'w, TerminalNotesState>,
     task_store: ResMut<'w, AgentTaskStore>,
     conversations: ResMut<'w, ConversationStore>,
     conversation_persistence: ResMut<'w, ConversationPersistenceState>,
@@ -373,6 +248,7 @@ pub(crate) fn apply_app_commands(
                         &mut ctx.agent_catalog,
                         &mut ctx.runtime_index,
                         &mut ctx.app_session,
+                        &mut ctx.task_store,
                         &mut ctx.terminal_manager,
                         &mut ctx.focus_state,
                         &mut ctx.presentation_store,
@@ -426,52 +302,38 @@ pub(crate) fn apply_app_commands(
                     mark_conversations_dirty(&mut ctx.conversation_persistence, Some(&ctx.time));
                     ctx.redraws.write(RequestRedraw);
                 }
-                AppConversationCommand::AppendTask { agent_id, text } => {
-                    if use_cases::append_task(
-                        *agent_id,
-                        text,
-                        &mut ctx.task_store,
-                        &mut ctx.notes_state,
-                        &ctx.runtime_index,
-                        &ctx.time,
-                    ) {
+            },
+            AppCommand::Task(command) => match command {
+                AppTaskCommand::SetText { agent_id, text } => {
+                    if use_cases::set_task_text(*agent_id, text, &mut ctx.task_store) {
                         refresh_open_task_editor(&mut ctx.app_session, *agent_id, &ctx.task_store);
                         ctx.redraws.write(RequestRedraw);
                     }
                 }
-                AppConversationCommand::PrependTask { agent_id, text } => {
-                    if use_cases::prepend_task(
-                        *agent_id,
-                        text,
-                        &mut ctx.task_store,
-                        &mut ctx.notes_state,
-                        &ctx.runtime_index,
-                        &ctx.time,
-                    ) {
+                AppTaskCommand::Append { agent_id, text } => {
+                    if use_cases::append_task(*agent_id, text, &mut ctx.task_store) {
                         refresh_open_task_editor(&mut ctx.app_session, *agent_id, &ctx.task_store);
                         ctx.redraws.write(RequestRedraw);
                     }
                 }
-                AppConversationCommand::ClearDoneTasks { agent_id } => {
-                    if use_cases::clear_done_tasks(
-                        *agent_id,
-                        &mut ctx.task_store,
-                        &mut ctx.notes_state,
-                        &ctx.runtime_index,
-                        &ctx.time,
-                    ) {
+                AppTaskCommand::Prepend { agent_id, text } => {
+                    if use_cases::prepend_task(*agent_id, text, &mut ctx.task_store) {
                         refresh_open_task_editor(&mut ctx.app_session, *agent_id, &ctx.task_store);
                         ctx.redraws.write(RequestRedraw);
                     }
                 }
-                AppConversationCommand::ConsumeNextTask { agent_id } => {
+                AppTaskCommand::ClearDone { agent_id } => {
+                    if use_cases::clear_done_tasks(*agent_id, &mut ctx.task_store) {
+                        refresh_open_task_editor(&mut ctx.app_session, *agent_id, &ctx.task_store);
+                        ctx.redraws.write(RequestRedraw);
+                    }
+                }
+                AppTaskCommand::ConsumeNext { agent_id } => {
                     if use_cases::consume_next_task(
                         *agent_id,
                         &mut ctx.task_store,
-                        &mut ctx.notes_state,
-                        &ctx.runtime_index,
+                        ctx.runtime_index.primary_terminal(*agent_id),
                         &ctx.terminal_manager,
-                        &ctx.time,
                     ) {
                         refresh_open_task_editor(&mut ctx.app_session, *agent_id, &ctx.task_store);
                         ctx.redraws.write(RequestRedraw);
@@ -485,7 +347,6 @@ pub(crate) fn apply_app_commands(
                         &mut ctx.app_session,
                         &ctx.runtime_index,
                         &ctx.task_store,
-                        &ctx.notes_state,
                         &mut ctx.redraws,
                     );
                 }
@@ -494,11 +355,9 @@ pub(crate) fn apply_app_commands(
                         &mut ctx.app_session,
                         &mut ctx.conversations,
                         &mut ctx.task_store,
-                        &mut ctx.notes_state,
                         &ctx.runtime_index,
                         &ctx.terminal_manager,
                         &ctx.transport,
-                        &ctx.time,
                         &mut ctx.redraws,
                     );
                 }

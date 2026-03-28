@@ -1,13 +1,11 @@
 use crate::{
     app::AppSessionState,
+    app::{AgentCommand, AppCommand, TaskCommand, WidgetCommand},
     hud::{
-        message_box_action_at, modules, task_dialog_action_at, AgentListView, ConversationListView,
-        HudInputCaptureState, HudIntent, HudLayoutState, HudMessageBoxAction, HudRect,
-        HudTaskDialogAction, HudWidgetKey, ThreadView, HUD_TITLEBAR_HEIGHT,
-    },
-    terminals::{
-        TerminalFocusState, TerminalId, TerminalManager, TerminalPresentationStore,
-        TerminalViewState,
+        message_box_action_at, modules, task_dialog_action_at, AgentListUiState, AgentListView,
+        ConversationListUiState, ConversationListView, DebugToolbarView, HudInputCaptureState,
+        HudLayoutState, HudMessageBoxAction, HudRect, HudTaskDialogAction, HudWidgetKey,
+        HUD_TITLEBAR_HEIGHT,
     },
 };
 use bevy::{
@@ -54,14 +52,12 @@ pub(crate) struct HudPointerContext<'w, 's> {
     layout_state: ResMut<'w, HudLayoutState>,
     app_session: ResMut<'w, AppSessionState>,
     input_capture: Res<'w, HudInputCaptureState>,
-    terminal_manager: Res<'w, TerminalManager>,
-    focus_state: Res<'w, TerminalFocusState>,
-    presentation_store: Res<'w, TerminalPresentationStore>,
-    view_state: Res<'w, TerminalViewState>,
+    agent_list_state: ResMut<'w, AgentListUiState>,
+    conversation_list_state: ResMut<'w, ConversationListUiState>,
+    debug_toolbar_view: Res<'w, DebugToolbarView>,
     agent_list_view: Res<'w, AgentListView>,
     conversation_list_view: Res<'w, ConversationListView>,
-    thread_view: Res<'w, ThreadView>,
-    hud_commands: MessageWriter<'w, HudIntent>,
+    app_commands: MessageWriter<'w, AppCommand>,
     redraws: MessageWriter<'w, RequestRedraw>,
 }
 
@@ -70,37 +66,47 @@ pub(crate) struct HudPointerContext<'w, 's> {
 /// The payload comes from the current message-box text, trimmed and rejected if empty. Successful
 /// conversion also closes the message box and discards its draft because the text has been consumed
 /// into a task mutation.
-fn message_box_task_intent(
+fn message_box_task_command(
     composer: &mut crate::ui::ComposerState,
     action: HudMessageBoxAction,
-) -> Option<HudIntent> {
-    let target_terminal = composer.message_editor.target_terminal?;
+) -> Option<AppCommand> {
+    let agent_id = match composer.session.as_ref().map(|session| &session.mode) {
+        Some(crate::ui::ComposerMode::Message { agent_id }) => *agent_id,
+        _ => return None,
+    };
     let payload = composer.message_editor.text.trim().to_owned();
     if payload.is_empty() {
         return None;
     }
     composer.discard_current_message();
-    Some(match action {
-        HudMessageBoxAction::AppendTask => HudIntent::AppendTerminalTask(target_terminal, payload),
-        HudMessageBoxAction::PrependTask => {
-            HudIntent::PrependTerminalTask(target_terminal, payload)
-        }
-    })
+    Some(AppCommand::Task(match action {
+        HudMessageBoxAction::AppendTask => TaskCommand::Append {
+            agent_id,
+            text: payload,
+        },
+        HudMessageBoxAction::PrependTask => TaskCommand::Prepend {
+            agent_id,
+            text: payload,
+        },
+    }))
 }
 
 /// Converts a task-dialog action button click into the corresponding HUD intent.
 ///
 /// Today the only task-dialog action is `ClearDone`, which requires a bound target terminal to emit
 /// an intent.
-fn task_dialog_intent(
+fn task_dialog_command(
     composer: &mut crate::ui::ComposerState,
     action: HudTaskDialogAction,
-) -> Option<HudIntent> {
+) -> Option<AppCommand> {
+    let agent_id = match composer.session.as_ref().map(|session| &session.mode) {
+        Some(crate::ui::ComposerMode::TaskEdit { agent_id }) => *agent_id,
+        _ => return None,
+    };
     match action {
-        HudTaskDialogAction::ClearDone => composer
-            .task_editor
-            .target_terminal
-            .map(HudIntent::ClearDoneTerminalTasks),
+        HudTaskDialogAction::ClearDone => {
+            Some(AppCommand::Task(TaskCommand::ClearDone { agent_id }))
+        }
     }
 }
 
@@ -119,9 +125,10 @@ pub(crate) fn handle_hud_pointer_input(mut ctx: HudPointerContext) {
         };
         if ctx.mouse_buttons.just_pressed(MouseButton::Left) {
             if let Some(action) = message_box_action_at(&ctx.primary_window, cursor) {
-                if let Some(intent) = message_box_task_intent(&mut ctx.app_session.composer, action)
+                if let Some(command) =
+                    message_box_task_command(&mut ctx.app_session.composer, action)
                 {
-                    ctx.hud_commands.write(intent);
+                    ctx.app_commands.write(command);
                 }
                 ctx.redraws.write(RequestRedraw);
             }
@@ -135,8 +142,8 @@ pub(crate) fn handle_hud_pointer_input(mut ctx: HudPointerContext) {
         };
         if ctx.mouse_buttons.just_pressed(MouseButton::Left) {
             if let Some(action) = task_dialog_action_at(&ctx.primary_window, cursor) {
-                if let Some(intent) = task_dialog_intent(&mut ctx.app_session.composer, action) {
-                    ctx.hud_commands.write(intent);
+                if let Some(command) = task_dialog_command(&mut ctx.app_session.composer, action) {
+                    ctx.app_commands.write(command);
                 }
                 ctx.redraws.write(RequestRedraw);
             }
@@ -174,16 +181,13 @@ pub(crate) fn handle_hud_pointer_input(mut ctx: HudPointerContext) {
                 if content_rect.contains(cursor) {
                     modules::handle_pointer_click(
                         module_id,
-                        &module.model,
                         content_rect,
                         cursor,
-                        &ctx.terminal_manager,
-                        &ctx.focus_state,
-                        &ctx.presentation_store,
-                        &ctx.view_state,
+                        &ctx.agent_list_state,
+                        &ctx.conversation_list_state,
                         &ctx.agent_list_view,
                         &ctx.conversation_list_view,
-                        &ctx.thread_view,
+                        &ctx.debug_toolbar_view,
                         &ctx.layout_state,
                         &mut emitted_commands,
                     );
@@ -219,10 +223,10 @@ pub(crate) fn handle_hud_pointer_input(mut ctx: HudPointerContext) {
                 if content_rect.contains(cursor) {
                     modules::handle_scroll(
                         module_id,
-                        &mut module.model,
                         scroll_delta,
-                        &ctx.terminal_manager,
                         content_rect,
+                        &mut ctx.agent_list_state,
+                        &mut ctx.conversation_list_state,
                         &ctx.agent_list_view,
                         &ctx.conversation_list_view,
                     );
@@ -242,7 +246,7 @@ pub(crate) fn handle_hud_pointer_input(mut ctx: HudPointerContext) {
         });
     let module_ids = ctx.layout_state.iter_z_order().collect::<Vec<_>>();
     for module_id in module_ids {
-        let Some(module) = ctx.layout_state.get_mut(module_id) else {
+        let Some(module) = ctx.layout_state.get(module_id) else {
             continue;
         };
         let content_rect = content_hit_rect(module_id, module.shell.current_rect);
@@ -254,46 +258,47 @@ pub(crate) fn handle_hud_pointer_input(mut ctx: HudPointerContext) {
         let _ = if point.is_some() {
             modules::handle_hover(
                 module_id,
-                &mut module.model,
                 content_rect,
                 point,
-                &ctx.terminal_manager,
-                &ctx.focus_state,
+                &mut ctx.agent_list_state,
+                &mut ctx.conversation_list_state,
                 &ctx.agent_list_view,
                 &ctx.conversation_list_view,
             )
         } else {
-            modules::clear_hover(module_id, &mut module.model)
+            modules::clear_hover(
+                module_id,
+                &mut ctx.agent_list_state,
+                &mut ctx.conversation_list_state,
+            )
         };
     }
 
     for command in emitted_commands {
-        ctx.hud_commands.write(command);
+        ctx.app_commands.write(command);
     }
 }
 
-/// Chooses the next or previous terminal id for keyboard navigation through the agent list.
-///
-/// When no terminal is active yet, the function picks the first or last terminal depending on the
-/// navigation direction. Once a terminal is active, movement is clamped to the list bounds rather than
-/// wrapping.
-fn adjacent_agent_terminal_id(
-    terminal_manager: &TerminalManager,
-    focus_state: &TerminalFocusState,
+/// Chooses the next or previous agent id for keyboard navigation through the agent list.
+fn adjacent_agent_id(
+    app_session: &AppSessionState,
+    agent_list_view: &AgentListView,
     step: isize,
-) -> Option<TerminalId> {
-    let terminal_ids = terminal_manager.terminal_ids();
-    if terminal_ids.is_empty() {
+) -> Option<crate::agents::AgentId> {
+    if agent_list_view.rows.is_empty() {
         return None;
     }
 
-    let current_index = match focus_state.active_id() {
-        Some(active_id) => terminal_ids.iter().position(|id| *id == active_id)?,
+    let current_index = match app_session.active_agent {
+        Some(active_agent) => agent_list_view
+            .rows
+            .iter()
+            .position(|row| row.agent_id == active_agent)?,
         None => {
             return Some(if step < 0 {
-                *terminal_ids.last()?
+                agent_list_view.rows.last()?.agent_id
             } else {
-                terminal_ids[0]
+                agent_list_view.rows[0].agent_id
             });
         }
     };
@@ -303,9 +308,9 @@ fn adjacent_agent_terminal_id(
     } else {
         current_index
             .saturating_add(step as usize)
-            .min(terminal_ids.len().saturating_sub(1))
+            .min(agent_list_view.rows.len().saturating_sub(1))
     };
-    (next_index != current_index).then_some(terminal_ids[next_index])
+    (next_index != current_index).then_some(agent_list_view.rows[next_index].agent_id)
 }
 
 /// Handles keyboard shortcuts that toggle/reset HUD modules and navigate the agent list.
@@ -318,9 +323,8 @@ pub(crate) fn handle_hud_module_shortcuts(
     keys: Res<ButtonInput<KeyCode>>,
     app_session: Res<AppSessionState>,
     input_capture: Res<HudInputCaptureState>,
-    terminal_manager: Res<TerminalManager>,
-    focus_state: Res<TerminalFocusState>,
-    mut hud_commands: MessageWriter<HudIntent>,
+    agent_list_view: Res<AgentListView>,
+    mut app_commands: MessageWriter<AppCommand>,
 ) {
     if app_session.composer.keyboard_capture_active(&input_capture) {
         return;
@@ -355,16 +359,16 @@ pub(crate) fn handle_hud_module_shortcuts(
         if matches!(action, ShortcutAction::Toggle) {
             let navigation_target = match event.key_code {
                 KeyCode::KeyJ | KeyCode::ArrowDown => {
-                    adjacent_agent_terminal_id(&terminal_manager, &focus_state, 1)
+                    adjacent_agent_id(&app_session, &agent_list_view, 1)
                 }
                 KeyCode::KeyK | KeyCode::ArrowUp => {
-                    adjacent_agent_terminal_id(&terminal_manager, &focus_state, -1)
+                    adjacent_agent_id(&app_session, &agent_list_view, -1)
                 }
                 _ => None,
             };
-            if let Some(terminal_id) = navigation_target {
-                hud_commands.write(HudIntent::FocusTerminal(terminal_id));
-                hud_commands.write(HudIntent::HideAllButTerminal(terminal_id));
+            if let Some(agent_id) = navigation_target {
+                app_commands.write(AppCommand::Agent(AgentCommand::Focus(agent_id)));
+                app_commands.write(AppCommand::Agent(AgentCommand::Inspect(agent_id)));
                 continue;
             }
         }
@@ -379,9 +383,9 @@ pub(crate) fn handle_hud_module_shortcuts(
         let Some(module_id) = module_id else {
             continue;
         };
-        hud_commands.write(match action {
-            ShortcutAction::Toggle => HudIntent::ToggleModule(module_id),
-            ShortcutAction::Reset => HudIntent::ResetModule(module_id),
+        app_commands.write(match action {
+            ShortcutAction::Toggle => AppCommand::Widget(WidgetCommand::Toggle(module_id)),
+            ShortcutAction::Reset => AppCommand::Widget(WidgetCommand::Reset(module_id)),
         });
     }
 }

@@ -2,6 +2,7 @@ mod interaction;
 mod render;
 
 use crate::{
+    agents::AgentId,
     hud::{AgentListView, HudRect, HUD_MODULE_PADDING, HUD_ROW_HEIGHT},
     terminals::TerminalId,
 };
@@ -30,6 +31,7 @@ pub(crate) use render::render_content;
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct AgentRow {
+    pub(crate) agent_id: AgentId,
     pub(crate) terminal_id: Option<TerminalId>,
     pub(crate) label: String,
     pub(crate) display_label: String,
@@ -93,7 +95,7 @@ pub(crate) fn agent_list_content_height(row_count: usize) -> f32 {
 pub(crate) fn agent_rows(
     shell_rect: HudRect,
     scroll_offset: f32,
-    hovered_terminal: Option<TerminalId>,
+    hovered_agent: Option<AgentId>,
     agent_list_view: &AgentListView,
 ) -> Vec<AgentRow> {
     let content_x = shell_rect.x + AGENT_LIST_LEFT_RAIL_WIDTH + 1.0;
@@ -105,6 +107,7 @@ pub(crate) fn agent_rows(
         .iter()
         .enumerate()
         .map(|(index, row)| AgentRow {
+            agent_id: row.agent_id,
             terminal_id: row.terminal_id,
             display_label: row.label.to_uppercase(),
             label: row.label.clone(),
@@ -115,9 +118,7 @@ pub(crate) fn agent_rows(
                 h: HUD_ROW_HEIGHT,
             },
             focused: row.focused,
-            hovered: row
-                .terminal_id
-                .is_some_and(|terminal_id| hovered_terminal == Some(terminal_id)),
+            hovered: hovered_agent == Some(row.agent_id),
             has_tasks: row.has_tasks,
             interactive: row.interactive,
         })

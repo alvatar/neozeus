@@ -5,10 +5,7 @@ use super::{
 };
 use crate::{
     agents::{AgentCatalog, AgentRuntimeIndex},
-    app::{
-        AgentCommand as AppAgentCommand, ComposerCommand,
-        ConversationCommand as AppConversationCommand,
-    },
+    app::{AgentCommand as AppAgentCommand, ComposerCommand, TaskCommand as AppTaskCommand},
     app::{AppCommand, AppSessionState},
     conversations::{AgentTaskStore, ConversationStore, MessageTransportAdapter},
     hud::{HudIntent, TerminalVisibilityState},
@@ -92,72 +89,85 @@ fn drain_hud_commands(world: &mut World) -> Vec<HudIntent> {
                                 ]
                             })
                             .unwrap_or_default(),
-                        AppCommand::Conversation(AppConversationCommand::ConsumeNextTask {
-                            agent_id,
-                        }) => runtime_index
+                        AppCommand::Task(AppTaskCommand::ConsumeNext { agent_id }) => runtime_index
                             .as_ref()
                             .and_then(|runtime_index| runtime_index.primary_terminal(*agent_id))
                             .map(|terminal_id| {
                                 vec![HudIntent::ConsumeNextTerminalTask(terminal_id)]
                             })
                             .unwrap_or_default(),
-                        AppCommand::Conversation(AppConversationCommand::ClearDoneTasks {
-                            agent_id,
-                        }) => runtime_index
+                        AppCommand::Task(AppTaskCommand::ClearDone { agent_id }) => runtime_index
                             .as_ref()
                             .and_then(|runtime_index| runtime_index.primary_terminal(*agent_id))
                             .map(|terminal_id| vec![HudIntent::ClearDoneTerminalTasks(terminal_id)])
                             .unwrap_or_default(),
-                        AppCommand::Conversation(AppConversationCommand::AppendTask {
-                            agent_id,
-                            text,
-                        }) => runtime_index
-                            .as_ref()
-                            .and_then(|runtime_index| runtime_index.primary_terminal(*agent_id))
-                            .map(|terminal_id| {
-                                vec![HudIntent::AppendTerminalTask(terminal_id, text.clone())]
-                            })
-                            .unwrap_or_default(),
-                        AppCommand::Conversation(AppConversationCommand::PrependTask {
-                            agent_id,
-                            text,
-                        }) => runtime_index
-                            .as_ref()
-                            .and_then(|runtime_index| runtime_index.primary_terminal(*agent_id))
-                            .map(|terminal_id| {
-                                vec![HudIntent::PrependTerminalTask(terminal_id, text.clone())]
-                            })
-                            .unwrap_or_default(),
+                        AppCommand::Task(AppTaskCommand::Append { agent_id, text }) => {
+                            runtime_index
+                                .as_ref()
+                                .and_then(|runtime_index| runtime_index.primary_terminal(*agent_id))
+                                .map(|terminal_id| {
+                                    vec![HudIntent::AppendTerminalTask(terminal_id, text.clone())]
+                                })
+                                .unwrap_or_default()
+                        }
+                        AppCommand::Task(AppTaskCommand::Prepend { agent_id, text }) => {
+                            runtime_index
+                                .as_ref()
+                                .and_then(|runtime_index| runtime_index.primary_terminal(*agent_id))
+                                .map(|terminal_id| {
+                                    vec![HudIntent::PrependTerminalTask(terminal_id, text.clone())]
+                                })
+                                .unwrap_or_default()
+                        }
+                        AppCommand::Task(AppTaskCommand::SetText { agent_id, text }) => {
+                            runtime_index
+                                .as_ref()
+                                .and_then(|runtime_index| runtime_index.primary_terminal(*agent_id))
+                                .map(|terminal_id| {
+                                    vec![HudIntent::SetTerminalTaskText(terminal_id, text.clone())]
+                                })
+                                .unwrap_or_default()
+                        }
                         AppCommand::Composer(ComposerCommand::Submit) => app_session
                             .as_ref()
-                            .map(|app_session| {
-                                if app_session.composer.message_editor.visible {
-                                    app_session
-                                        .composer
-                                        .message_editor
-                                        .target_terminal
-                                        .map(|terminal_id| {
+                            .and_then(|app_session| app_session.composer.current_agent())
+                            .and_then(|agent_id| {
+                                runtime_index
+                                    .as_ref()
+                                    .and_then(|runtime_index| {
+                                        runtime_index.primary_terminal(agent_id)
+                                    })
+                                    .map(|terminal_id| {
+                                        if app_session.as_ref().is_some_and(|app_session| {
+                                            app_session.composer.message_editor.visible
+                                        }) {
                                             vec![HudIntent::SendTerminalCommand(
                                                 terminal_id,
-                                                app_session.composer.message_editor.text.clone(),
+                                                app_session
+                                                    .as_ref()
+                                                    .unwrap()
+                                                    .composer
+                                                    .message_editor
+                                                    .text
+                                                    .clone(),
                                             )]
-                                        })
-                                        .unwrap_or_default()
-                                } else if app_session.composer.task_editor.visible {
-                                    app_session
-                                        .composer
-                                        .task_editor
-                                        .target_terminal
-                                        .map(|terminal_id| {
+                                        } else if app_session.as_ref().is_some_and(|app_session| {
+                                            app_session.composer.task_editor.visible
+                                        }) {
                                             vec![HudIntent::SetTerminalTaskText(
                                                 terminal_id,
-                                                app_session.composer.task_editor.text.clone(),
+                                                app_session
+                                                    .as_ref()
+                                                    .unwrap()
+                                                    .composer
+                                                    .task_editor
+                                                    .text
+                                                    .clone(),
                                             )]
-                                        })
-                                        .unwrap_or_default()
-                                } else {
-                                    Vec::new()
-                                }
+                                        } else {
+                                            Vec::new()
+                                        }
+                                    })
                             })
                             .unwrap_or_default(),
                         _ => Vec::new(),
@@ -729,15 +739,13 @@ fn enter_opens_message_box_for_active_terminal() {
 fn plain_t_opens_task_dialog_for_active_terminal_with_saved_text() {
     let (mut world, terminal_id) =
         world_with_active_terminal(Vec2::new(10.0, 10.0), false, Vec2::ZERO);
-    let session_name = world
-        .resource::<TerminalManager>()
-        .get(terminal_id)
-        .unwrap()
-        .session_name
-        .clone();
+    let agent_id = world
+        .resource::<crate::agents::AgentRuntimeIndex>()
+        .agent_for_terminal(terminal_id)
+        .expect("agent should be linked");
     world
-        .resource_mut::<TerminalNotesState>()
-        .set_note_text(&session_name, "- [ ] first task\n  detail");
+        .resource_mut::<AgentTaskStore>()
+        .set_text(agent_id, "- [ ] first task\n  detail");
     world.init_resource::<Messages<KeyboardInput>>();
     world.init_resource::<Messages<RequestRedraw>>();
     world
@@ -1031,12 +1039,6 @@ fn reopening_task_dialog_uses_persisted_text_not_stale_editor_state() {
 fn task_dialog_escape_persists_tasks_and_closes() {
     let (mut world, terminal_id) =
         world_with_active_terminal(Vec2::new(10.0, 10.0), false, Vec2::ZERO);
-    let session_name = world
-        .resource::<TerminalManager>()
-        .get(terminal_id)
-        .expect("terminal should exist")
-        .session_name
-        .clone();
     let agent_id = world
         .resource::<AgentRuntimeIndex>()
         .agent_for_terminal(terminal_id)
@@ -1056,9 +1058,7 @@ fn task_dialog_escape_persists_tasks_and_closes() {
         Some("- [ ] old\n- [ ] new")
     );
     assert_eq!(
-        world
-            .resource::<TerminalNotesState>()
-            .note_text(&session_name),
+        world.resource::<AgentTaskStore>().text(agent_id),
         Some("- [ ] old\n- [ ] new")
     );
     let hud_state = snapshot_test_hud_state(&world);

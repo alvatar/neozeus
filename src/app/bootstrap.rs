@@ -13,9 +13,9 @@ use crate::{
     },
     hud::{
         AgentListBloomBlurMaterial, AgentListView, ComposerView, ConversationListView,
-        HudBloomSettings, HudCompositeCaptureConfig, HudIntent, HudOffscreenCompositor,
-        HudPersistenceState, HudTextureCaptureConfig, HudWidgetBloom, TerminalVisibilityState,
-        ThreadView, WindowCaptureConfig,
+        HudBloomSettings, HudCompositeCaptureConfig, HudOffscreenCompositor, HudPersistenceState,
+        HudTextureCaptureConfig, HudWidgetBloom, TerminalVisibilityState, ThreadView,
+        WindowCaptureConfig,
     },
     terminals::{
         TerminalFontState, TerminalGlyphCache, TerminalManager, TerminalPointerState,
@@ -455,6 +455,10 @@ fn configure_app(app: &mut App) -> Result<(), String> {
         .insert_resource(TerminalGlyphCache::default())
         .insert_resource(crate::terminals::TerminalTextRenderer::default())
         .insert_resource(crate::hud::HudLayoutState::default())
+        .insert_resource(crate::hud::AgentListUiState::default())
+        .insert_resource(crate::hud::ConversationListUiState::default())
+        .insert_resource(crate::hud::DebugToolbarUiState)
+        .insert_resource(crate::hud::ThreadPaneUiState)
         .insert_resource(crate::hud::HudInputCaptureState::default())
         .insert_resource(HudPersistenceState::default())
         .insert_resource(HudOffscreenCompositor::default())
@@ -471,11 +475,11 @@ fn configure_app(app: &mut App) -> Result<(), String> {
         .insert_resource(ConversationListView::default())
         .insert_resource(ThreadView::default())
         .insert_resource(ComposerView::default())
+        .insert_resource(crate::hud::DebugToolbarView::default())
         .insert_resource(TerminalVisibilityState::default())
         .insert_resource(crate::startup::StartupLoadingState::default())
         .insert_resource(crate::startup::StartupConnectState::default())
-        .add_message::<AppCommand>()
-        .add_message::<HudIntent>();
+        .add_message::<AppCommand>();
 
     configure_app_schedule(app);
     app.add_systems(

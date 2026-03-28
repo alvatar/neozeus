@@ -30,9 +30,9 @@ pub(crate) use compositor::{
 pub(crate) use input::{handle_hud_module_shortcuts, handle_hud_pointer_input};
 pub(crate) use message_box::{
     message_box_action_at, message_box_action_buttons, message_box_rect, task_dialog_action_at,
-    task_dialog_action_buttons, task_dialog_rect, HudMessageBoxAction, HudMessageBoxState,
-    HudTaskDialogAction, HudTaskDialogState,
+    task_dialog_action_buttons, task_dialog_rect, HudMessageBoxAction, HudTaskDialogAction,
 };
+#[cfg(test)]
 pub(crate) use messages::HudIntent;
 pub(crate) use persistence::{save_hud_layout_if_dirty, HudPersistenceState};
 pub(crate) use render::{
@@ -40,14 +40,18 @@ pub(crate) use render::{
     HudVectorSceneMarker, HUD_MODAL_CAMERA_ORDER, HUD_MODAL_RENDER_LAYER,
 };
 pub(crate) use setup::{append_hud_log, hud_needs_redraw, setup_hud, sync_structural_hud_layout};
+#[cfg(test)]
+pub(crate) use state::HudModuleModel;
 pub(crate) use state::{
-    default_hud_module_instance, docked_agent_list_rect, HudDragState, HudInputCaptureState,
-    HudLayoutState, HudModuleModel, HudRect, TerminalVisibilityPolicy, TerminalVisibilityState,
-    HUD_AGENT_LIST_WIDTH, HUD_BUTTON_GAP, HUD_BUTTON_HEIGHT, HUD_BUTTON_MIN_WIDTH,
-    HUD_MODULE_PADDING, HUD_ROW_HEIGHT, HUD_TITLEBAR_HEIGHT,
+    default_hud_module_instance, docked_agent_list_rect, AgentListUiState, ConversationListUiState,
+    DebugToolbarUiState, HudDragState, HudInputCaptureState, HudLayoutState, HudRect,
+    TerminalVisibilityPolicy, TerminalVisibilityState, ThreadPaneUiState, HUD_AGENT_LIST_WIDTH,
+    HUD_BUTTON_GAP, HUD_BUTTON_HEIGHT, HUD_BUTTON_MIN_WIDTH, HUD_MODULE_PADDING, HUD_ROW_HEIGHT,
+    HUD_TITLEBAR_HEIGHT,
 };
 pub(crate) use view_models::{
-    sync_hud_view_models, AgentListView, ComposerView, ConversationListView, ThreadView,
+    sync_hud_view_models, AgentListView, ComposerView, ConversationListView, DebugToolbarView,
+    ThreadView,
 };
 pub(crate) use widgets::{HudWidgetDefinition, HudWidgetKey, HUD_WIDGET_DEFINITIONS};
 
@@ -59,8 +63,8 @@ pub(crate) use {
     },
     modules::{
         agent_row_rect, agent_rows, debug_toolbar_buttons,
-        handle_pointer_click as dispatch_hud_pointer_click, handle_scroll as dispatch_hud_scroll,
-        AgentListRowSection,
+        handle_pointer_click_legacy as dispatch_hud_pointer_click,
+        handle_scroll_legacy as dispatch_hud_scroll, AgentListRowSection,
     },
     state::{HudModalState, HudState},
     view_models::{AgentListRowView, ConversationListRowView},

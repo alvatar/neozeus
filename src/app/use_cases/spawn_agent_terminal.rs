@@ -56,9 +56,6 @@ pub(crate) fn spawn_agent_terminal(
         .get(terminal_id)
         .map(|terminal| &terminal.snapshot.runtime);
     runtime_index.link_terminal(agent_id, terminal_id, session_name.clone(), runtime);
-    app_session
-        .composer
-        .bind_agent_terminal(agent_id, terminal_id);
     app_session.active_agent = Some(agent_id);
     input_capture.reconcile_direct_terminal_input(focus_state.active_id());
     view_state.focus_terminal(Some(terminal_id));
@@ -83,7 +80,7 @@ pub(crate) fn spawn_agent_terminal(
 pub(crate) fn attach_restored_terminal(
     agent_catalog: &mut AgentCatalog,
     runtime_index: &mut AgentRuntimeIndex,
-    app_session: &mut AppSessionState,
+    _app_session: &mut AppSessionState,
     terminal_manager: &mut TerminalManager,
     focus_state: &mut TerminalFocusState,
     runtime_spawner: &TerminalRuntimeSpawner,
@@ -109,9 +106,6 @@ pub(crate) fn attach_restored_terminal(
         .get(terminal_id)
         .map(|terminal| &terminal.snapshot.runtime);
     runtime_index.link_terminal(agent_id, terminal_id, session_name, runtime);
-    app_session
-        .composer
-        .bind_agent_terminal(agent_id, terminal_id);
     if let Some(startup_loading) = startup_loading {
         startup_loading.register(terminal_id);
     }

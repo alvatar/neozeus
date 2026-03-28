@@ -1,5 +1,5 @@
 #[cfg(test)]
-use crate::hud::message_box::{HudMessageBoxState, HudTaskDialogState};
+use crate::ui::TextEditorState;
 use crate::{
     agents::AgentId,
     hud::{HudWidgetDefinition, HudWidgetKey, HUD_WIDGET_DEFINITIONS},
@@ -72,35 +72,38 @@ impl HudModuleShell {
     }
 }
 
-#[derive(Clone, Debug, Default, PartialEq)]
-pub(crate) struct AgentListState {
-    pub(crate) scroll_offset: f32,
-    pub(crate) hovered_terminal: Option<TerminalId>,
-}
-
-#[derive(Clone, Debug, Default, PartialEq)]
-pub(crate) struct ConversationListState {
+#[derive(Resource, Clone, Debug, Default, PartialEq)]
+pub(crate) struct AgentListUiState {
     pub(crate) scroll_offset: f32,
     pub(crate) hovered_agent: Option<AgentId>,
 }
 
-#[derive(Clone, Debug, Default, PartialEq)]
-pub(crate) struct ThreadPaneState;
+#[derive(Resource, Clone, Debug, Default, PartialEq)]
+pub(crate) struct ConversationListUiState {
+    pub(crate) scroll_offset: f32,
+    pub(crate) hovered_agent: Option<AgentId>,
+}
 
-#[derive(Clone, Debug, Default, PartialEq)]
-pub(crate) struct DebugToolbarState;
+#[derive(Resource, Clone, Debug, Default, PartialEq)]
+pub(crate) struct ThreadPaneUiState;
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Resource, Clone, Debug, Default, PartialEq)]
+pub(crate) struct DebugToolbarUiState;
+
+#[cfg(test)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub(crate) enum HudModuleModel {
-    DebugToolbar(DebugToolbarState),
-    AgentList(AgentListState),
-    ConversationList(ConversationListState),
-    ThreadPane(ThreadPaneState),
+    #[default]
+    DebugToolbar,
+    AgentList(AgentListUiState),
+    ConversationList(ConversationListUiState),
+    ThreadPane,
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct HudModuleInstance {
     pub(crate) shell: HudModuleShell,
+    #[cfg(test)]
     pub(crate) model: HudModuleModel,
 }
 
@@ -223,8 +226,8 @@ impl HudLayoutState {
 #[cfg(test)]
 #[derive(Resource, Default)]
 pub(crate) struct HudModalState {
-    pub(crate) message_box: HudMessageBoxState,
-    pub(crate) task_dialog: HudTaskDialogState,
+    pub(crate) message_box: TextEditorState,
+    pub(crate) task_dialog: TextEditorState,
 }
 
 #[derive(Resource, Default)]
@@ -239,9 +242,10 @@ pub(crate) struct HudState {
     pub(crate) z_order: Vec<HudWidgetKey>,
     pub(crate) drag: Option<HudDragState>,
     pub(crate) dirty_layout: bool,
-    pub(crate) message_box: HudMessageBoxState,
-    pub(crate) task_dialog: HudTaskDialogState,
+    pub(crate) message_box: TextEditorState,
+    pub(crate) task_dialog: TextEditorState,
     pub(crate) direct_input_terminal: Option<TerminalId>,
+    message_box_drafts: BTreeMap<TerminalId, String>,
 }
 
 #[cfg(test)]
@@ -333,24 +337,40 @@ impl HudState {
     pub(crate) fn open_message_box(&mut self, target_terminal: TerminalId) {
         self.task_dialog.close();
         self.direct_input_terminal = None;
-        self.message_box.reset_for_target(target_terminal);
+        self.message_box.visible = true;
+        self.message_box.load_text(
+            self.message_box_drafts
+                .get(&target_terminal)
+                .map(String::as_str)
+                .unwrap_or_default(),
+        );
+        self.message_box.target_terminal = Some(target_terminal);
     }
 
     /// Closes the message box in the aggregate test HUD state while preserving drafts.
     pub(crate) fn close_message_box(&mut self) {
+        if let Some(target_terminal) = self.message_box.target_terminal {
+            self.message_box_drafts
+                .insert(target_terminal, self.message_box.text.clone());
+        }
         self.message_box.close();
     }
 
     /// Closes the message box in the aggregate test HUD state and discards the current draft.
     pub(crate) fn close_message_box_and_discard_draft(&mut self) {
-        self.message_box.close_and_discard_current();
+        if let Some(target_terminal) = self.message_box.target_terminal {
+            self.message_box_drafts.remove(&target_terminal);
+        }
+        self.message_box.close_and_discard();
     }
 
     /// Opens the task dialog in the aggregate test HUD state and clears competing capture modes.
     pub(crate) fn open_task_dialog(&mut self, target_terminal: TerminalId, text: &str) {
         self.close_message_box();
         self.direct_input_terminal = None;
-        self.task_dialog.open_with_text(target_terminal, text);
+        self.task_dialog.visible = true;
+        self.task_dialog.load_text(text);
+        self.task_dialog.target_terminal = Some(target_terminal);
     }
 
     /// Closes the task dialog in the aggregate test HUD state.
@@ -453,6 +473,7 @@ impl HudState {
             message_box: modal_state.message_box.clone(),
             task_dialog: modal_state.task_dialog.clone(),
             direct_input_terminal: input_capture.direct_input_terminal,
+            message_box_drafts: BTreeMap::new(),
         }
     }
 }
@@ -530,24 +551,26 @@ pub(crate) fn docked_agent_list_rect(window: &Window) -> HudRect {
 
 /// Builds the default retained instance for one HUD module definition.
 ///
-/// Both the shell and its model are initialized from the definition so startup and reset logic can
-/// share one source of truth.
+/// Only generic shell/layout state lives here; widget-local retained state is stored separately in
+/// per-widget resources.
 pub(crate) fn default_hud_module_instance(definition: &HudWidgetDefinition) -> HudModuleInstance {
-    let shell = HudModuleShell {
-        enabled: definition.default_enabled,
-        target_rect: definition.default_rect,
-        current_rect: definition.default_rect,
-        target_alpha: if definition.default_enabled { 1.0 } else { 0.0 },
-        current_alpha: if definition.default_enabled { 1.0 } else { 0.0 },
-    };
-    let model = match definition.key {
-        HudWidgetKey::DebugToolbar => HudModuleModel::DebugToolbar(DebugToolbarState),
-        HudWidgetKey::AgentList => HudModuleModel::AgentList(AgentListState::default()),
-        HudWidgetKey::ConversationList => {
-            HudModuleModel::ConversationList(ConversationListState::default())
-        }
-        HudWidgetKey::ThreadPane => HudModuleModel::ThreadPane(ThreadPaneState),
-        _ => unreachable!("unknown widget definition key"),
-    };
-    HudModuleInstance { shell, model }
+    HudModuleInstance {
+        shell: HudModuleShell {
+            enabled: definition.default_enabled,
+            target_rect: definition.default_rect,
+            current_rect: definition.default_rect,
+            target_alpha: if definition.default_enabled { 1.0 } else { 0.0 },
+            current_alpha: if definition.default_enabled { 1.0 } else { 0.0 },
+        },
+        #[cfg(test)]
+        model: match definition.key {
+            HudWidgetKey::DebugToolbar => HudModuleModel::DebugToolbar,
+            HudWidgetKey::AgentList => HudModuleModel::AgentList(AgentListUiState::default()),
+            HudWidgetKey::ConversationList => {
+                HudModuleModel::ConversationList(ConversationListUiState::default())
+            }
+            HudWidgetKey::ThreadPane => HudModuleModel::ThreadPane,
+            _ => unreachable!("unknown widget definition key"),
+        },
+    }
 }

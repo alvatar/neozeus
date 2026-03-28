@@ -1,8 +1,9 @@
 use crate::{
     agents::AgentId,
+    app::{AgentCommand, AppCommand},
     hud::{
         render::{HudColors, HudPainter, HudRenderInputs},
-        HudIntent, HudModuleModel, HudRect, HUD_ROW_HEIGHT,
+        ConversationListUiState, HudRect, HUD_ROW_HEIGHT,
     },
 };
 use bevy::prelude::Vec2;
@@ -13,7 +14,6 @@ const ROW_GAP: f32 = 10.0;
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct ConversationRow {
     pub(crate) agent_id: AgentId,
-    pub(crate) terminal_id: Option<crate::terminals::TerminalId>,
     pub(crate) rect: HudRect,
     pub(crate) label: String,
     pub(crate) message_count: usize,
@@ -37,7 +37,6 @@ pub(crate) fn rows(
         .enumerate()
         .map(|(index, row)| ConversationRow {
             agent_id: row.agent_id,
-            terminal_id: row.terminal_id,
             rect: HudRect {
                 x: shell_rect.x,
                 y: shell_rect.y + index as f32 * row_stride() - scroll_offset,
@@ -53,15 +52,12 @@ pub(crate) fn rows(
 }
 
 pub(crate) fn handle_pointer_click(
-    model: &HudModuleModel,
+    state: &ConversationListUiState,
     shell_rect: HudRect,
     point: Vec2,
     conversation_list_view: &crate::hud::ConversationListView,
-    emitted_commands: &mut Vec<HudIntent>,
+    emitted_commands: &mut Vec<AppCommand>,
 ) {
-    let HudModuleModel::ConversationList(state) = model else {
-        return;
-    };
     for row in rows(
         shell_rect,
         state.scroll_offset,
@@ -71,24 +67,18 @@ pub(crate) fn handle_pointer_click(
         if !row.rect.contains(point) {
             continue;
         }
-        let Some(terminal_id) = row.terminal_id else {
-            continue;
-        };
-        emitted_commands.push(HudIntent::FocusTerminal(terminal_id));
-        emitted_commands.push(HudIntent::HideAllButTerminal(terminal_id));
+        emitted_commands.push(AppCommand::Agent(AgentCommand::Focus(row.agent_id)));
+        emitted_commands.push(AppCommand::Agent(AgentCommand::Inspect(row.agent_id)));
         break;
     }
 }
 
 pub(crate) fn handle_hover(
-    model: &mut HudModuleModel,
+    state: &mut ConversationListUiState,
     shell_rect: HudRect,
     point: Option<Vec2>,
     conversation_list_view: &crate::hud::ConversationListView,
 ) -> bool {
-    let HudModuleModel::ConversationList(state) = model else {
-        return false;
-    };
     let hovered_agent = point.and_then(|point| {
         rows(
             shell_rect,
@@ -107,10 +97,7 @@ pub(crate) fn handle_hover(
     true
 }
 
-pub(crate) fn clear_hover(model: &mut HudModuleModel) -> bool {
-    let HudModuleModel::ConversationList(state) = model else {
-        return false;
-    };
+pub(crate) fn clear_hover(state: &mut ConversationListUiState) -> bool {
     if state.hovered_agent.is_none() {
         return false;
     }
@@ -119,14 +106,11 @@ pub(crate) fn clear_hover(model: &mut HudModuleModel) -> bool {
 }
 
 pub(crate) fn handle_scroll(
-    model: &mut HudModuleModel,
+    state: &mut ConversationListUiState,
     delta_y: f32,
     row_count: usize,
     height: f32,
 ) {
-    let HudModuleModel::ConversationList(state) = model else {
-        return;
-    };
     let content_height = match row_count {
         0 => 0.0,
         _ => row_count as f32 * row_stride() - ROW_GAP,
@@ -137,15 +121,11 @@ pub(crate) fn handle_scroll(
 }
 
 pub(crate) fn render_content(
-    model: &HudModuleModel,
+    state: &ConversationListUiState,
     content_rect: HudRect,
     painter: &mut HudPainter,
     inputs: &HudRenderInputs,
 ) {
-    let HudModuleModel::ConversationList(state) = model else {
-        return;
-    };
-
     painter.label(
         Vec2::new(content_rect.x + 8.0, content_rect.y + 6.0),
         "Recent conversations",
@@ -178,17 +158,10 @@ pub(crate) fn render_content(
         painter.stroke_rect(row.rect, HudColors::BORDER, 4.0);
         painter.label(
             Vec2::new(row.rect.x + 10.0, row.rect.y + 6.0),
-            &row.label,
-            15.0,
+            &format!("{} · {}", row.label, row.message_count),
+            14.0,
             HudColors::TEXT,
             VelloTextAnchor::TopLeft,
-        );
-        painter.label(
-            Vec2::new(row.rect.x + row.rect.w - 10.0, row.rect.y + 6.0),
-            &format!("{} msgs", row.message_count),
-            13.0,
-            HudColors::TEXT_MUTED,
-            VelloTextAnchor::TopRight,
         );
     }
 }

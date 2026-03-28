@@ -1,31 +1,16 @@
-use crate::{
-    hud::{
-        HudLayoutState, HudRect, HudWidgetKey, HUD_BUTTON_GAP, HUD_BUTTON_HEIGHT,
-        HUD_BUTTON_MIN_WIDTH, HUD_MODULE_PADDING,
-    },
-    terminals::{
-        TerminalDisplayMode, TerminalFocusState, TerminalManager, TerminalPresentationStore,
-        TerminalViewState,
-    },
+use crate::hud::{
+    DebugToolbarView, HudLayoutState, HudRect, HudWidgetKey, HUD_BUTTON_GAP, HUD_BUTTON_HEIGHT,
+    HUD_BUTTON_MIN_WIDTH, HUD_MODULE_PADDING,
 };
 
 use super::{DebugToolbarAction, DebugToolbarButton};
 
 /// Builds the retained button list for the debug toolbar module.
-///
-/// The function derives button active state from live terminal/HUD state, assigns each button a
-/// width based on its label, and lays the buttons out left-to-right within the toolbar shell.
 pub(crate) fn debug_toolbar_buttons(
     shell_rect: HudRect,
-    _terminal_manager: &TerminalManager,
-    focus_state: &TerminalFocusState,
-    presentation_store: &TerminalPresentationStore,
-    _view_state: &TerminalViewState,
+    debug_toolbar_view: &DebugToolbarView,
     layout_state: &HudLayoutState,
 ) -> Vec<DebugToolbarButton> {
-    let active_display_mode = presentation_store
-        .active_display_mode(focus_state.active_id())
-        .unwrap_or(TerminalDisplayMode::Smooth);
     let toolbar_enabled = layout_state
         .get(HudWidgetKey::DebugToolbar)
         .map(|module| module.shell.enabled)
@@ -53,7 +38,7 @@ pub(crate) fn debug_toolbar_buttons(
         (
             "pixel perfect".to_owned(),
             DebugToolbarAction::TogglePixelPerfect,
-            active_display_mode == TerminalDisplayMode::PixelPerfect,
+            debug_toolbar_view.pixel_perfect_active,
         ),
         (
             "reset view".to_owned(),
@@ -128,4 +113,16 @@ pub(crate) fn debug_toolbar_buttons(
             }
         })
         .collect()
+}
+
+#[cfg(test)]
+pub(crate) fn legacy_debug_toolbar_buttons(
+    shell_rect: HudRect,
+    _terminal_manager: &crate::terminals::TerminalManager,
+    _focus_state: &crate::terminals::TerminalFocusState,
+    _presentation_store: &crate::terminals::TerminalPresentationStore,
+    _view_state: &crate::terminals::TerminalViewState,
+    layout_state: &HudLayoutState,
+) -> Vec<DebugToolbarButton> {
+    debug_toolbar_buttons(shell_rect, &DebugToolbarView::default(), layout_state)
 }

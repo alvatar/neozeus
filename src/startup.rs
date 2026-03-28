@@ -158,6 +158,7 @@ pub(crate) struct SceneSetupContext<'w, 's> {
     agent_catalog: ResMut<'w, AgentCatalog>,
     runtime_index: ResMut<'w, AgentRuntimeIndex>,
     app_session: ResMut<'w, AppSessionState>,
+    task_store: Option<ResMut<'w, crate::conversations::AgentTaskStore>>,
     conversations: ResMut<'w, ConversationStore>,
     conversation_persistence: ResMut<'w, ConversationPersistenceState>,
     runtime_spawner: Res<'w, TerminalRuntimeSpawner>,
@@ -462,6 +463,17 @@ fn restore_startup_terminals(ctx: &mut SceneSetupContext) {
         &ctx.time,
         &mut ctx.redraws,
     );
+
+    if let Some(task_store) = ctx.task_store.as_deref_mut() {
+        for (agent_id, link) in &ctx.runtime_index.agent_to_runtime {
+            let Some(session_name) = link.session_name.as_deref() else {
+                continue;
+            };
+            if let Some(text) = ctx.notes_state.note_text(session_name) {
+                let _ = task_store.set_text(*agent_id, text);
+            }
+        }
+    }
 
     let persisted = ctx
         .conversation_persistence
