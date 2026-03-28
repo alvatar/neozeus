@@ -3,13 +3,13 @@ mod conversation_list;
 mod debug_toolbar;
 mod thread_pane;
 
-use crate::{
-    app::AppCommand,
-    hud::{
-        render::{HudPainter, HudRenderInputs},
-        AgentListUiState, AgentListView, ConversationListUiState, ConversationListView,
-        DebugToolbarView, HudLayoutState, HudRect, HudWidgetKey,
-    },
+use crate::app::AppCommand;
+
+use super::{
+    render::{HudPainter, HudRenderInputs},
+    state::{AgentListUiState, ConversationListUiState, HudLayoutState, HudRect},
+    view_models::{AgentListView, ConversationListView, DebugToolbarView},
+    widgets::HudWidgetKey,
 };
 use bevy::prelude::Vec2;
 

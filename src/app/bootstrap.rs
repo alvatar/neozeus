@@ -1,9 +1,5 @@
 use crate::{
     agents::{AgentCatalog, AgentRuntimeIndex},
-    app::{
-        output::sync_final_frame_output_target, schedule::configure_app_schedule, AppCommand,
-        AppOutputConfig, AppSessionState, FinalFrameCaptureConfig, FinalFrameOutputState,
-    },
     app_config::{
         load_neozeus_config, resolve_app_id, resolve_window_title, NeoZeusConfig,
         GPU_NOT_FOUND_PANIC_FRAGMENT,
@@ -23,6 +19,16 @@ use crate::{
         TerminalViewState,
     },
     verification::{AutoVerifyConfig, VerificationScenarioConfig},
+};
+
+use super::{
+    commands::AppCommand,
+    output::{
+        sync_final_frame_output_target, AppOutputConfig, FinalFrameCaptureConfig,
+        FinalFrameOutputState,
+    },
+    schedule::configure_app_schedule,
+    session::AppSessionState,
 };
 use bevy::{
     app::ScheduleRunnerPlugin,

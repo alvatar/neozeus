@@ -21,28 +21,31 @@ pub(crate) use capture::{
     request_window_capture, HudCompositeCaptureConfig, HudTextureCaptureConfig,
     WindowCaptureConfig,
 };
+#[cfg(test)]
+pub(crate) use compositor::setup_hud_offscreen_compositor;
 pub(crate) use compositor::{
-    setup_hud_offscreen_compositor, sync_hud_offscreen_compositor, HudCompositeCameraMarker,
-    HudOffscreenCompositor,
+    sync_hud_offscreen_compositor, HudCompositeCameraMarker, HudOffscreenCompositor,
 };
 pub(crate) use input::{handle_hud_module_shortcuts, handle_hud_pointer_input};
 pub(crate) use persistence::{save_hud_layout_if_dirty, HudPersistenceState};
 pub(crate) use render::{
     render_hud_modal_scene, render_hud_scene, HudModalCameraMarker, HudModalVectorSceneMarker,
-    HudVectorSceneMarker, HUD_MODAL_CAMERA_ORDER, HUD_MODAL_RENDER_LAYER,
 };
+#[cfg(test)]
+pub(crate) use render::{HudVectorSceneMarker, HUD_MODAL_CAMERA_ORDER, HUD_MODAL_RENDER_LAYER};
 pub(crate) use setup::{hud_needs_redraw, setup_hud, sync_structural_hud_layout};
+#[cfg(test)]
+pub(crate) use state::{default_hud_module_instance, docked_agent_list_rect};
 pub(crate) use state::{
-    default_hud_module_instance, docked_agent_list_rect, AgentListUiState, ConversationListUiState,
-    DebugToolbarUiState, HudDragState, HudInputCaptureState, HudLayoutState, HudRect,
-    TerminalVisibilityPolicy, TerminalVisibilityState, ThreadPaneUiState, HUD_MODULE_PADDING,
-    HUD_ROW_HEIGHT, HUD_TITLEBAR_HEIGHT,
+    AgentListUiState, ConversationListUiState, DebugToolbarUiState, HudDragState,
+    HudInputCaptureState, HudLayoutState, HudRect, TerminalVisibilityPolicy,
+    TerminalVisibilityState, ThreadPaneUiState,
 };
 pub(crate) use view_models::{
     sync_hud_view_models, AgentListView, ComposerView, ConversationListView, DebugToolbarView,
     ThreadView,
 };
-pub(crate) use widgets::{HudWidgetDefinition, HudWidgetKey, HUD_WIDGET_DEFINITIONS};
+pub(crate) use widgets::HudWidgetKey;
 
 #[cfg(test)]
 pub(crate) use {

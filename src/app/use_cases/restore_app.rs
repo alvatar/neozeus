@@ -1,6 +1,5 @@
 use crate::{
     agents::{AgentCatalog, AgentKind, AgentRuntimeIndex},
-    app::{AppSessionState, VisibilityMode},
     startup::{
         choose_startup_focus_session_name, startup_visibility_policy_for_focus, StartupLoadingState,
     },
@@ -11,9 +10,10 @@ use crate::{
         TerminalViewState, PERSISTENT_SESSION_PREFIX,
     },
 };
-use bevy::prelude::*;
 
+use super::super::session::{AppSessionState, VisibilityMode};
 use super::{attach_restored_terminal, spawn_agent_terminal};
+use bevy::prelude::*;
 
 /// Handles startup focus candidate is interactive.
 fn startup_focus_candidate_is_interactive(session: &DaemonSessionInfo) -> bool {

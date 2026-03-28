@@ -1,6 +1,8 @@
-use crate::{
-    app::{AgentCommand, AppCommand, TerminalCommand, WidgetCommand},
-    hud::{DebugToolbarView, HudLayoutState, HudRect},
+use crate::app::{AgentCommand, AppCommand, TerminalCommand, WidgetCommand};
+
+use super::super::super::{
+    state::{HudLayoutState, HudRect},
+    view_models::DebugToolbarView,
 };
 use bevy::prelude::Vec2;
 

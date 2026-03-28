@@ -1,12 +1,17 @@
 use crate::{
     app::AppSessionState,
     app::{AgentCommand, AppCommand, TaskCommand, WidgetCommand},
-    hud::{
-        modules, AgentListUiState, AgentListView, ConversationListUiState, ConversationListView,
-        DebugToolbarView, HudInputCaptureState, HudLayoutState, HudRect, HudWidgetKey,
+    ui::{message_box_action_at, task_dialog_action_at, MessageBoxAction, TaskDialogAction},
+};
+
+use super::{
+    modules,
+    state::{
+        AgentListUiState, ConversationListUiState, HudInputCaptureState, HudLayoutState, HudRect,
         HUD_TITLEBAR_HEIGHT,
     },
-    ui::{message_box_action_at, task_dialog_action_at, MessageBoxAction, TaskDialogAction},
+    view_models::{AgentListView, ConversationListView, DebugToolbarView},
+    widgets::HudWidgetKey,
 };
 use bevy::{
     ecs::system::SystemParam,

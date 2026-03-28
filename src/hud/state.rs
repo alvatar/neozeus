@@ -1,10 +1,8 @@
 #[cfg(test)]
 use crate::ui::TextEditorState;
-use crate::{
-    agents::AgentId,
-    hud::{HudWidgetDefinition, HudWidgetKey, HUD_WIDGET_DEFINITIONS},
-    terminals::TerminalId,
-};
+use crate::{agents::AgentId, terminals::TerminalId};
+
+use super::widgets::{HudWidgetDefinition, HudWidgetKey, HUD_WIDGET_DEFINITIONS};
 use bevy::prelude::*;
 use std::collections::BTreeMap;
 

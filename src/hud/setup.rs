@@ -1,12 +1,18 @@
-use crate::{
-    app::AppSessionState,
-    hud::{
-        default_hud_module_instance, docked_agent_list_rect, setup_hud_offscreen_compositor,
-        AgentListUiState, ConversationListUiState, DebugToolbarUiState, HudInputCaptureState,
-        HudLayoutState, HudModalCameraMarker, HudModalVectorSceneMarker, HudOffscreenCompositor,
-        HudPersistenceState, HudVectorSceneMarker, HudWidgetKey, ThreadPaneUiState,
-        HUD_MODAL_CAMERA_ORDER, HUD_MODAL_RENDER_LAYER, HUD_WIDGET_DEFINITIONS,
+use crate::app::AppSessionState;
+
+use super::{
+    compositor::{setup_hud_offscreen_compositor, HudOffscreenCompositor},
+    persistence::HudPersistenceState,
+    render::{
+        HudModalCameraMarker, HudModalVectorSceneMarker, HudVectorSceneMarker,
+        HUD_MODAL_CAMERA_ORDER, HUD_MODAL_RENDER_LAYER,
     },
+    state::{
+        default_hud_module_instance, docked_agent_list_rect, AgentListUiState,
+        ConversationListUiState, DebugToolbarUiState, HudInputCaptureState, HudLayoutState,
+        ThreadPaneUiState,
+    },
+    widgets::{HudWidgetKey, HUD_WIDGET_DEFINITIONS},
 };
 use bevy::{
     camera::{visibility::NoFrustumCulling, ClearColorConfig},

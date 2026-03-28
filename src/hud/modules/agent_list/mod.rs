@@ -1,10 +1,11 @@
 mod interaction;
 mod render;
 
-use crate::{
-    agents::AgentId,
-    hud::{AgentListView, HudRect, HUD_MODULE_PADDING, HUD_ROW_HEIGHT},
-    terminals::TerminalId,
+use crate::{agents::AgentId, terminals::TerminalId};
+
+use super::super::{
+    state::{HudRect, HUD_MODULE_PADDING, HUD_ROW_HEIGHT},
+    view_models::AgentListView,
 };
 
 pub(crate) const AGENT_LIST_HEADER_HEIGHT: f32 = 52.0;

@@ -1,6 +1,5 @@
 use crate::{
     agents::{AgentCapabilities, AgentCatalog, AgentId, AgentKind, AgentRuntimeIndex},
-    app::{AppSessionState, VisibilityMode},
     hud::{HudInputCaptureState, TerminalVisibilityPolicy, TerminalVisibilityState},
     startup::StartupLoadingState,
     terminals::{
@@ -9,6 +8,8 @@ use crate::{
         TerminalSessionPersistenceState, TerminalViewState,
     },
 };
+
+use super::super::session::{AppSessionState, VisibilityMode};
 use bevy::{prelude::*, window::RequestRedraw};
 
 #[allow(

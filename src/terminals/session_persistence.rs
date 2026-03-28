@@ -1,6 +1,7 @@
-use crate::{
-    agents::{AgentCatalog, AgentRuntimeIndex},
-    terminals::{append_debug_log, daemon::is_persistent_session_name, TerminalManager},
+use crate::agents::{AgentCatalog, AgentRuntimeIndex};
+
+use super::{
+    daemon::is_persistent_session_name, debug::append_debug_log, registry::TerminalManager,
 };
 use bevy::prelude::*;
 use std::{collections::BTreeSet, env, fs, path::PathBuf};
