@@ -1,4 +1,4 @@
-use crate::terminals::types::{
+use super::super::types::{
     TerminalCell, TerminalCellContent, TerminalCommand, TerminalCursor, TerminalCursorShape,
     TerminalDamage, TerminalFrameUpdate, TerminalLifecycle, TerminalRuntimeState, TerminalSnapshot,
     TerminalSurface, TerminalUpdate,
