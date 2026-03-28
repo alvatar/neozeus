@@ -203,7 +203,7 @@ impl TerminalRuntimeSpawner {
 /// spawns two background threads: one forwards outgoing commands to the daemon, and the other drains
 /// streamed daemon updates into the mailbox. The returned [`TerminalBridge`] is what the rest of the
 /// app talks to.
-pub(crate) fn spawn_daemon_terminal_runtime(
+fn spawn_daemon_terminal_runtime(
     notifier: RuntimeNotifier,
     daemon: TerminalDaemonClientResource,
     session_id: String,
