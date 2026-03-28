@@ -21,6 +21,8 @@ pub(crate) use agent_list::{
 
 #[cfg(test)]
 pub(crate) use agent_list::test_agent_rows;
+#[cfg(test)]
+pub(crate) use debug_toolbar::test_debug_toolbar_buttons;
 
 #[allow(
     clippy::too_many_arguments,
@@ -168,8 +170,7 @@ pub(crate) fn handle_scroll(
 
 #[cfg(test)]
 pub(crate) use tests::{
-    debug_toolbar_buttons, AGENT_LIST_BORDER_ORANGE_B, AGENT_LIST_BORDER_ORANGE_G,
-    AGENT_LIST_BORDER_ORANGE_R,
+    AGENT_LIST_BORDER_ORANGE_B, AGENT_LIST_BORDER_ORANGE_G, AGENT_LIST_BORDER_ORANGE_R,
 };
 
 #[cfg(test)]
