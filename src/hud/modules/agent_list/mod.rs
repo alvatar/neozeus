@@ -97,7 +97,7 @@ fn agent_row_stride() -> f32 {
 ///
 /// The final row does not contribute a trailing gap, so the formula subtracts one inter-row gap when
 /// at least one row exists.
-pub(crate) fn agent_list_content_height(row_count: usize) -> f32 {
+fn agent_list_content_height(row_count: usize) -> f32 {
     match row_count {
         0 => 0.0,
         _ => row_count as f32 * agent_row_stride() - AGENT_LIST_ROW_GAP,
