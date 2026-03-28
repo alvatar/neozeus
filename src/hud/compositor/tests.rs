@@ -238,6 +238,7 @@ fn hud_composite_quad_matches_upstream_vello_canvas_contract() {
 /// Verifies the color-space roundtrip assumption behind the HUD orange byte-preservation check.
 #[test]
 fn upstream_vello_present_contract_preserves_target_orange_bytes() {
+    /// Converts one sRGB byte channel into linear space using the standard IEC transfer curve.
     fn srgb_to_linear_channel(value: u8) -> f32 {
         let srgb = value as f32 / 255.0;
         if srgb <= 0.04045 {
@@ -247,6 +248,7 @@ fn upstream_vello_present_contract_preserves_target_orange_bytes() {
         }
     }
 
+    /// Converts one linear-space channel back into an sRGB byte using the inverse transfer curve.
     fn linear_to_srgb_channel(value: f32) -> u8 {
         let srgb = if value <= 0.0031308 {
             value * 12.92

@@ -118,6 +118,7 @@ pub(in crate::hud) fn debug_toolbar_buttons(
         .collect()
 }
 
+/// Test-only wrapper that builds toolbar buttons and maps them into the simplified test view type.
 #[cfg(test)]
 pub(crate) fn test_debug_toolbar_buttons(
     shell_rect: HudRect,

@@ -126,6 +126,7 @@ pub(in crate::hud) fn agent_rows(
         .collect()
 }
 
+/// Test-only wrapper that builds agent rows and maps them into the simplified test view type.
 #[cfg(test)]
 pub(crate) fn test_agent_rows(
     shell_rect: HudRect,
