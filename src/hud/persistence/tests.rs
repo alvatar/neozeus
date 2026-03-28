@@ -1,6 +1,6 @@
 use super::super::{
-    state::{default_hud_module_instance, HudRect, HudState},
-    widgets::{HudWidgetKey, HUD_WIDGET_DEFINITIONS},
+    state::{default_hud_module_instance, HudLayoutState, HudRect, HudState},
+    widgets::{HudWidgetDefinition, HudWidgetKey, HUD_WIDGET_DEFINITIONS},
 };
 use super::*;
 use crate::tests::{insert_test_hud_state, temp_dir};
@@ -9,6 +9,26 @@ use bevy::{
     prelude::{Time, World},
 };
 use std::{fs, path::PathBuf, time::Duration};
+
+/// Applies persisted module enablement/rect overrides onto a set of module definitions.
+fn apply_persisted_layout(
+    definitions: &[HudWidgetDefinition],
+    persisted: &PersistedHudState,
+) -> HudLayoutState {
+    let mut hud_state = HudLayoutState::default();
+    for definition in definitions {
+        let mut module = default_hud_module_instance(definition);
+        if let Some(saved) = persisted.modules.get(&definition.key) {
+            module.shell.enabled = saved.enabled;
+            module.shell.target_rect = saved.rect;
+            module.shell.current_rect = saved.rect;
+            module.shell.target_alpha = if saved.enabled { 1.0 } else { 0.0 };
+            module.shell.current_alpha = module.shell.target_alpha;
+        }
+        hud_state.insert(definition.key, module);
+    }
+    hud_state
+}
 
 /// Verifies the config-path search order for persisted HUD layouts.
 ///
