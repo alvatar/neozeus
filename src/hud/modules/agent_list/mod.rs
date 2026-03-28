@@ -89,7 +89,7 @@ pub(crate) fn agent_row_rect(rect: HudRect, section: AgentListRowSection) -> Hud
 /// Returns the vertical distance from one agent row origin to the next.
 ///
 /// This is row height plus the fixed inter-row gap used by the agent-list layout.
-pub(crate) fn agent_row_stride() -> f32 {
+fn agent_row_stride() -> f32 {
     HUD_ROW_HEIGHT + AGENT_LIST_ROW_GAP
 }
 
