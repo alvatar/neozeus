@@ -1,12 +1,16 @@
-use crate::{
-    hud::{HudLayoutState, HudWidgetKey, TerminalVisibilityPolicy, TerminalVisibilityState},
-    terminals::{
-        raster::create_terminal_image, TerminalCellMetrics, TerminalDimensions,
-        TerminalDisplayMode, TerminalFocusState, TerminalFontState, TerminalHudSurfaceMarker,
-        TerminalId, TerminalManager, TerminalPanel, TerminalPanelFrame, TerminalPanelSprite,
-        TerminalPresentation, TerminalPresentationStore, TerminalRuntimeSpawner,
-        TerminalTextureState, TerminalViewState,
+use crate::hud::{HudLayoutState, HudWidgetKey, TerminalVisibilityPolicy, TerminalVisibilityState};
+
+use super::{
+    fonts::{TerminalCellMetrics, TerminalFontState},
+    presentation_state::{
+        TerminalDisplayMode, TerminalHudSurfaceMarker, TerminalPanel, TerminalPanelFrame,
+        TerminalPanelSprite, TerminalPresentation, TerminalPresentationStore, TerminalTextureState,
+        TerminalViewState,
     },
+    raster::create_terminal_image,
+    registry::{TerminalFocusState, TerminalId, TerminalManager},
+    runtime::TerminalRuntimeSpawner,
+    types::TerminalDimensions,
 };
 use bevy::{prelude::*, window::PrimaryWindow};
 

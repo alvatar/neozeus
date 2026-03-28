@@ -28,10 +28,9 @@ pub(crate) use daemon::{
 pub(crate) use debug::append_debug_log;
 #[cfg(test)]
 pub(crate) use debug::TerminalDebugStats;
-pub(crate) use fonts::{
-    configure_terminal_fonts, is_emoji_like, is_private_use_like, TerminalCellMetrics,
-    TerminalFontState, TerminalTextRenderer,
-};
+pub(crate) use fonts::{configure_terminal_fonts, TerminalFontState, TerminalTextRenderer};
+#[cfg(test)]
+pub(crate) use fonts::{is_emoji_like, is_private_use_like};
 pub(crate) use lifecycle::{attach_terminal_session, kill_active_terminal_session_and_remove};
 #[cfg(test)]
 pub(crate) use mailbox::TerminalUpdateMailbox;
@@ -41,16 +40,17 @@ pub(crate) use notes::{
     TerminalNotesState,
 };
 pub(crate) use presentation::{
-    active_terminal_layout_for_dimensions, sync_active_terminal_dimensions,
-    sync_terminal_hud_surface, sync_terminal_panel_frames, sync_terminal_presentations,
-    sync_terminal_projection_entities, target_active_terminal_dimensions,
-    terminal_texture_screen_size,
+    sync_active_terminal_dimensions, sync_terminal_hud_surface, sync_terminal_panel_frames,
+    sync_terminal_presentations, sync_terminal_projection_entities,
+    target_active_terminal_dimensions, terminal_texture_screen_size,
 };
 pub(crate) use presentation_state::{
     PresentedTerminal, TerminalCameraMarker, TerminalDisplayMode, TerminalHudSurfaceMarker,
-    TerminalPanel, TerminalPanelFrame, TerminalPanelSprite, TerminalPointerState,
-    TerminalPresentation, TerminalPresentationStore, TerminalTextureState, TerminalViewState,
+    TerminalPanel, TerminalPointerState, TerminalPresentation, TerminalPresentationStore,
+    TerminalViewState,
 };
+#[cfg(test)]
+pub(crate) use presentation_state::{TerminalPanelFrame, TerminalTextureState};
 pub(crate) use raster::{sync_terminal_texture, TerminalGlyphCache};
 pub(crate) use registry::{
     poll_terminal_snapshots, TerminalFocusState, TerminalId, TerminalManager,
@@ -64,10 +64,11 @@ pub(crate) use session_persistence::{
 pub(crate) use types::TerminalLifecycle;
 pub(crate) use types::{
     PtySession, TerminalCell, TerminalCellContent, TerminalCommand, TerminalCursor,
-    TerminalCursorShape, TerminalDamage, TerminalDimensions, TerminalFontFace, TerminalFontReport,
-    TerminalFrameUpdate, TerminalRuntimeState, TerminalSnapshot, TerminalSurface, TerminalUpdate,
-    PTY_OUTPUT_BATCH_BYTES, PTY_OUTPUT_BATCH_WINDOW, PTY_OUTPUT_WAIT_TIMEOUT,
+    TerminalCursorShape, TerminalDimensions, TerminalRuntimeState, TerminalSnapshot,
+    TerminalSurface,
 };
+#[cfg(test)]
+pub(crate) use types::{TerminalDamage, TerminalFontReport, TerminalFrameUpdate, TerminalUpdate};
 
 #[cfg(test)]
 pub(crate) use ansi_surface::build_surface;

@@ -1,14 +1,13 @@
-use crate::{
-    app::AppSessionState,
-    hud::{
-        modules::{
-            agent_row_rect, agent_rows, AgentListRowSection, AGENT_LIST_BLOOM_RED_B,
-            AGENT_LIST_BLOOM_RED_G, AGENT_LIST_BLOOM_RED_R,
-        },
-        AgentListUiState, AgentListView, HudLayoutState, HudRect, HudWidgetKey,
+use crate::{app::AppSessionState, startup::StartupConnectState, terminals::TerminalId};
+
+use super::{
+    modules::{
+        agent_row_rect, agent_rows, AgentListRowSection, AGENT_LIST_BLOOM_RED_B,
+        AGENT_LIST_BLOOM_RED_G, AGENT_LIST_BLOOM_RED_R,
     },
-    startup::StartupConnectState,
-    terminals::TerminalId,
+    state::{AgentListUiState, HudLayoutState, HudRect},
+    view_models::AgentListView,
+    widgets::HudWidgetKey,
 };
 use bevy::{
     asset::RenderAssetUsages,

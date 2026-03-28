@@ -1,10 +1,11 @@
 use crate::{
     agents::AgentId,
     app::{AgentCommand, AppCommand},
-    hud::{
-        render::{HudColors, HudPainter, HudRenderInputs},
-        ConversationListUiState, HudRect, HUD_ROW_HEIGHT,
-    },
+};
+
+use super::super::{
+    render::{HudColors, HudPainter, HudRenderInputs},
+    state::{ConversationListUiState, HudRect, HUD_ROW_HEIGHT},
 };
 use bevy::prelude::Vec2;
 use bevy_vello::prelude::VelloTextAnchor;

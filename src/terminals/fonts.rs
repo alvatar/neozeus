@@ -1,10 +1,9 @@
-use crate::{
-    app_config::{
-        load_neozeus_config, resolve_terminal_baseline_offset_px, resolve_terminal_font_path,
-        resolve_terminal_font_size_px,
-    },
-    terminals::{TerminalFontFace, TerminalFontReport},
+use crate::app_config::{
+    load_neozeus_config, resolve_terminal_baseline_offset_px, resolve_terminal_font_path,
+    resolve_terminal_font_size_px,
 };
+
+use super::types::{TerminalFontFace, TerminalFontReport};
 use bevy::prelude::{ResMut, Resource};
 use cosmic_text::{
     fontdb, Attrs as CtAttrs, Buffer as CtBuffer, Family as CtFamily, FontSystem as CtFontSystem,

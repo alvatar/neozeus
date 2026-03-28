@@ -1,13 +1,5 @@
 use crate::{
     agents::{AgentCatalog, AgentKind, AgentRuntimeIndex},
-    app::{
-        commands::{
-            AgentCommand, AppCommand, ComposerCommand, TaskCommand as AppTaskCommand,
-            TerminalCommand as AppTerminalCommand, WidgetCommand,
-        },
-        session::AppSessionState,
-        use_cases,
-    },
     conversations::{
         AgentTaskStore, ConversationPersistenceState, ConversationStore, MessageTransportAdapter,
     },
@@ -18,6 +10,15 @@ use crate::{
         TerminalPresentationStore, TerminalRuntimeSpawner, TerminalSessionPersistenceState,
         TerminalViewState, PERSISTENT_SESSION_PREFIX, VERIFIER_SESSION_PREFIX,
     },
+};
+
+use super::{
+    commands::{
+        AgentCommand, AppCommand, ComposerCommand, TaskCommand as AppTaskCommand,
+        TerminalCommand as AppTerminalCommand, WidgetCommand,
+    },
+    session::AppSessionState,
+    use_cases,
 };
 use bevy::{ecs::system::SystemParam, prelude::*, window::RequestRedraw};
 

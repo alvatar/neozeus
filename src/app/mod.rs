@@ -10,16 +10,16 @@ pub(crate) use commands::{
     AgentCommand, AppCommand, ComposerCommand, ComposerRequest, TaskCommand, TerminalCommand,
     WidgetCommand,
 };
-pub(crate) use dispatch::{apply_app_commands, sync_agents_from_terminals};
+#[cfg(test)]
+pub(crate) use dispatch::apply_app_commands;
 pub(crate) use schedule::NeoZeusSet;
 pub(crate) use session::{AppSessionState, VisibilityMode};
 pub(crate) use use_cases::restore_app;
 
 pub(crate) use bootstrap::{build_app, resolve_window_scale_factor};
-pub(crate) use output::{
-    request_final_frame_capture, AppOutputConfig, FinalFrameCaptureConfig, FinalFrameOutputState,
-    OutputMode,
-};
+#[cfg(test)]
+pub(crate) use output::AppOutputConfig;
+pub(crate) use output::OutputMode;
 
 #[cfg(test)]
 pub(crate) use {

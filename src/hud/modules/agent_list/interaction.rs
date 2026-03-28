@@ -1,6 +1,8 @@
-use crate::{
-    app::{AgentCommand, AppCommand},
-    hud::{AgentListUiState, AgentListView, HudRect},
+use crate::app::{AgentCommand, AppCommand};
+
+use super::super::super::{
+    state::{AgentListUiState, HudRect},
+    view_models::AgentListView,
 };
 use bevy::prelude::Vec2;
 

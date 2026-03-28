@@ -1,5 +1,4 @@
 use crate::{
-    app::{apply_app_commands, request_final_frame_capture, sync_agents_from_terminals},
     conversations::{save_conversations_if_dirty, sync_task_notes_projection},
     hud::{
         animate_hud_modules, finalize_window_capture, handle_hud_module_shortcuts,
@@ -21,6 +20,11 @@ use crate::{
         sync_terminal_presentations, sync_terminal_projection_entities, sync_terminal_texture,
     },
     verification::run_verification_scenario,
+};
+
+use super::{
+    dispatch::{apply_app_commands, sync_agents_from_terminals},
+    output::request_final_frame_capture,
 };
 use bevy::prelude::*;
 

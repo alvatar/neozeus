@@ -1,14 +1,17 @@
 use crate::{
     app::AppSessionState,
-    hud::{
-        modules, AgentListView, ComposerView, ConversationListView, HudLayoutState, HudRect,
-        HudWidgetKey, ThreadView, HUD_TITLEBAR_HEIGHT,
-    },
     startup::StartupConnectState,
     ui::{
         message_box_action_buttons, message_box_rect, task_dialog_action_buttons, task_dialog_rect,
         TextEditorState,
     },
+};
+
+use super::{
+    modules,
+    state::{HudLayoutState, HudRect, HUD_TITLEBAR_HEIGHT},
+    view_models::{AgentListView, ComposerView, ConversationListView, ThreadView},
+    widgets::HudWidgetKey,
 };
 use bevy::{prelude::*, window::PrimaryWindow};
 use bevy_vello::{

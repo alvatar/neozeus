@@ -1,13 +1,16 @@
 use crate::{
     app_config::{DEBUG_TEXTURE_DUMP_PATH, DEFAULT_BG},
     hud::HudLayoutState,
-    terminals::{
-        active_terminal_layout_for_dimensions, append_debug_log,
-        box_drawing::{is_box_drawing, rasterize_box_drawing},
-        is_emoji_like, is_private_use_like, TerminalDamage, TerminalDimensions, TerminalFocusState,
-        TerminalFontState, TerminalManager, TerminalPresentationStore, TerminalSurface,
-        TerminalTextRenderer, TerminalTextureState, TerminalViewState,
-    },
+};
+
+use super::{
+    box_drawing::{is_box_drawing, rasterize_box_drawing},
+    debug::append_debug_log,
+    fonts::{is_emoji_like, is_private_use_like, TerminalFontState, TerminalTextRenderer},
+    presentation::active_terminal_layout_for_dimensions,
+    presentation_state::{TerminalPresentationStore, TerminalTextureState, TerminalViewState},
+    registry::{TerminalFocusState, TerminalManager},
+    types::{TerminalDamage, TerminalDimensions, TerminalSurface},
 };
 use bevy::{
     asset::RenderAssetUsages,
@@ -32,7 +35,7 @@ pub(crate) enum TerminalFontRole {
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct TerminalGlyphCacheKey {
-    pub(crate) content: crate::terminals::TerminalCellContent,
+    pub(crate) content: super::types::TerminalCellContent,
     pub(crate) font_role: TerminalFontRole,
     pub(crate) width_cells: u8,
     pub(crate) cell_width: u32,

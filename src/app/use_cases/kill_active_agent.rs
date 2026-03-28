@@ -1,6 +1,5 @@
 use crate::{
     agents::{AgentCatalog, AgentId, AgentRuntimeIndex},
-    app::{AppSessionState, VisibilityMode},
     conversations::AgentTaskStore,
     hud::{HudInputCaptureState, TerminalVisibilityPolicy, TerminalVisibilityState},
     terminals::{
@@ -8,6 +7,8 @@ use crate::{
         TerminalRuntimeSpawner, TerminalSessionPersistenceState, TerminalViewState,
     },
 };
+
+use super::super::session::{AppSessionState, VisibilityMode};
 use bevy::{prelude::*, window::RequestRedraw};
 
 /// Handles adjacent agent in catalog.

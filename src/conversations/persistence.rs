@@ -1,7 +1,6 @@
-use crate::{
-    agents::AgentRuntimeIndex,
-    conversations::{ConversationStore, MessageAuthor, MessageDeliveryState},
-};
+use crate::agents::AgentRuntimeIndex;
+
+use super::{ConversationStore, MessageAuthor, MessageDeliveryState};
 use bevy::prelude::*;
 use std::{env, fs, path::PathBuf};
 
