@@ -25,6 +25,7 @@ fn task_entry_from_text_matches_zeus_checkbox_format() {
 /// state and then config paths.
 #[test]
 fn terminal_notes_path_prefers_state_home_then_home_state_then_config() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     assert_eq!(
         resolve_terminal_notes_path_with(
             Some("/tmp/state"),
@@ -123,6 +124,7 @@ fn extract_next_task_falls_back_to_first_non_empty_line_without_headers() {
 /// expected to save only once the debounce window has elapsed.
 #[test]
 fn terminal_notes_save_waits_for_debounce_window() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let dir = temp_dir("neozeus-terminal-notes-save-debounce");
     let path = dir.join("notes.v1");
     let mut notes_state = TerminalNotesState {

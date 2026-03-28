@@ -167,6 +167,7 @@ pub(crate) fn request_hud_composite_capture(
     composite_layers: Query<&Visibility, With<HudCompositeLayerMarker>>,
     mut redraws: MessageWriter<RequestRedraw>,
 ) {
+    // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
     let Some(mut config) = config else {
         return;
     };
@@ -258,6 +259,7 @@ pub(crate) fn request_hud_texture_capture(
     vello_canvases: Query<&MeshMaterial2d<VelloCanvasMaterial>, Without<HudCompositeLayerMarker>>,
     mut redraws: MessageWriter<RequestRedraw>,
 ) {
+    // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
     let Some(mut config) = config else {
         return;
     };
@@ -313,6 +315,7 @@ pub(crate) fn request_window_capture(
     config: Option<ResMut<WindowCaptureConfig>>,
     mut redraws: MessageWriter<RequestRedraw>,
 ) {
+    // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
     let Some(mut config) = config else {
         return;
     };
@@ -344,6 +347,7 @@ pub(crate) fn finalize_window_capture(
     captures: Query<(), With<Capturing>>,
     mut exits: MessageWriter<AppExit>,
 ) {
+    // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
     let Some(mut config) = config else {
         return;
     };
@@ -371,6 +375,7 @@ fn handle_hud_texture_capture_complete(
     mut exits: MessageWriter<AppExit>,
     config: Option<ResMut<HudTextureCaptureConfig>>,
 ) {
+    // Keep the control flow staged so each branch owns one behavior path and later branches only run when earlier capture rules do not apply.
     let Ok(meta) = metas.get(event.entity) else {
         return;
     };
@@ -398,6 +403,7 @@ fn handle_hud_composite_capture_complete(
     mut exits: MessageWriter<AppExit>,
     config: Option<ResMut<HudCompositeCaptureConfig>>,
 ) {
+    // Keep the control flow staged so each branch owns one behavior path and later branches only run when earlier capture rules do not apply.
     let Ok(meta) = metas.get(event.entity) else {
         return;
     };
@@ -438,6 +444,7 @@ fn texture_bytes_to_ppm(
     format: TextureFormat,
     bytes: &[u8],
 ) -> Result<Vec<u8>, String> {
+    // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
     let pixel_size = match format {
         TextureFormat::Rgba8Unorm
         | TextureFormat::Rgba8UnormSrgb

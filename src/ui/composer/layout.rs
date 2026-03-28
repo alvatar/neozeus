@@ -51,6 +51,7 @@ pub(crate) fn message_box_rect(window: &Window) -> HudRect {
 
 /// Lays out the two task action buttons shown at the bottom of the message box.
 pub(crate) fn message_box_action_buttons(window: &Window) -> [MessageBoxActionButton; 2] {
+    // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
     let rect = message_box_rect(window);
     let base_y = rect.y + rect.h - 36.0;
     let prepend_x = rect.x + rect.w - 24.0 - ACTION_BUTTON_W;

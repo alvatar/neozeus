@@ -189,6 +189,7 @@ fn decode_client_message(decoder: &mut Decoder<'_>) -> Result<ClientMessage, Str
 
 /// Encodes one daemon request variant into its tagged wire representation.
 fn encode_request(buffer: &mut Vec<u8>, request: &DaemonRequest) {
+    // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
     match request {
         DaemonRequest::ListSessions => push_u8(buffer, 1),
         DaemonRequest::CreateSession { prefix } => {
@@ -226,6 +227,7 @@ fn encode_request(buffer: &mut Vec<u8>, request: &DaemonRequest) {
 
 /// Decodes one daemon request variant from the payload stream.
 fn decode_request(decoder: &mut Decoder<'_>) -> Result<DaemonRequest, String> {
+    // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
     match decoder.read_u8()? {
         1 => Ok(DaemonRequest::ListSessions),
         2 => Ok(DaemonRequest::CreateSession {
@@ -284,6 +286,7 @@ fn decode_server_message(decoder: &mut Decoder<'_>) -> Result<ServerMessage, Str
 
 /// Encodes one daemon response variant into its tagged wire representation.
 fn encode_response(buffer: &mut Vec<u8>, response: &DaemonResponse) {
+    // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
     match response {
         DaemonResponse::SessionList { sessions } => {
             push_u8(buffer, 1);
@@ -377,6 +380,7 @@ fn decode_event(decoder: &mut Decoder<'_>) -> Result<DaemonEvent, String> {
 
 /// Encodes one terminal command into its tagged wire representation.
 fn encode_command(buffer: &mut Vec<u8>, command: &TerminalCommand) {
+    // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
     match command {
         TerminalCommand::InputText(text) => {
             push_u8(buffer, 0);
@@ -528,6 +532,7 @@ fn decode_cell(decoder: &mut Decoder<'_>) -> Result<TerminalCell, String> {
 /// Small inline grapheme storage and heap-backed text use different tags so common single/small-cell
 /// cases stay cheap on the wire.
 fn encode_cell_content(buffer: &mut Vec<u8>, content: &TerminalCellContent) {
+    // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
     match content {
         TerminalCellContent::Empty => push_u8(buffer, 0),
         TerminalCellContent::Single(ch) => {

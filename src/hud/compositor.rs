@@ -84,6 +84,7 @@ impl HudOffscreenCompositor {
 /// The mesh is authored directly in clip-like space and then rendered by a dedicated compositor
 /// camera, which avoids needing per-frame geometry generation.
 fn fullscreen_clip_mesh() -> Mesh {
+    // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
     let mut mesh = Mesh::new(
         PrimitiveTopology::TriangleList,
         RenderAssetUsages::default(),
@@ -115,6 +116,7 @@ pub(crate) fn setup_hud_offscreen_compositor(
     meshes: &mut Assets<Mesh>,
     materials: &mut Assets<VelloCanvasMaterial>,
 ) {
+    // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
     if compositor.camera_entity.is_none() {
         compositor.camera_entity = Some(
             commands
@@ -187,6 +189,7 @@ pub(crate) fn sync_hud_offscreen_compositor(
     mut vello_canvases: Query<VelloCanvasQueryItem<'_>, Without<HudCompositeLayerMarker>>,
     mut quads: Query<HudCompositeQuadQueryItem<'_>>,
 ) {
+    // Rebuild the derived or projected state from the authoritative resources in one pass so partial updates cannot drift.
     let expected_size = UVec2::new(
         primary_window.physical_width().max(1),
         primary_window.physical_height().max(1),

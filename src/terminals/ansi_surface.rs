@@ -16,6 +16,7 @@ use bevy_egui::egui;
 /// collapses hidden/wide spacer cells into empty content, and records a width of 0/1/2 so the later
 /// raster path can reason about wide characters without depending on Alacritty types.
 pub(crate) fn build_surface(term: &Term<VoidListener>) -> TerminalSurface {
+    // Process the input incrementally so each transformation stays local and malformed data fails at the narrowest point.
     let content = term.renderable_content();
     let cols = term.columns();
     let rows = term.screen_lines();
@@ -123,6 +124,7 @@ pub(crate) fn resolve_alacritty_color(
 /// for the default foreground/background family later in the match so callers can preserve the usual
 /// foreground/background distinction even in fallback mode.
 fn fallback_named_rgb(named: NamedColor, is_foreground: bool) -> Rgb {
+    // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
     match named {
         NamedColor::Black => Rgb { r: 0, g: 0, b: 0 },
         NamedColor::Red => Rgb {
@@ -278,6 +280,7 @@ fn fallback_named_rgb(named: NamedColor, is_foreground: bool) -> Rgb {
 /// Indices `0..16` use the ANSI base palette, `16..232` use the 6×6×6 color cube, and the tail uses
 /// the grayscale ramp.
 pub(crate) fn xterm_indexed_rgb(index: u8) -> Rgb {
+    // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
     const ANSI: [(u8, u8, u8); 16] = [
         (0x00, 0x00, 0x00),
         (0xcc, 0x55, 0x55),

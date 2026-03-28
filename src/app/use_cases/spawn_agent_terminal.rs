@@ -15,6 +15,7 @@ use bevy::{prelude::*, window::RequestRedraw};
     clippy::too_many_arguments,
     reason = "spawn crosses daemon, agent, session, and presentation state"
 )]
+/// Spawns agent terminal.
 pub(crate) fn spawn_agent_terminal(
     agent_catalog: &mut AgentCatalog,
     runtime_index: &mut AgentRuntimeIndex,
@@ -34,6 +35,7 @@ pub(crate) fn spawn_agent_terminal(
     label: Option<String>,
     redraws: &mut MessageWriter<RequestRedraw>,
 ) -> Result<AgentId, String> {
+    // Walk the lifecycle in explicit stages so each side effect happens only after its prerequisites have been established.
     let session_name = if spawn_shell_only {
         runtime_spawner.create_shell_session(prefix)
     } else {
@@ -77,6 +79,7 @@ pub(crate) fn spawn_agent_terminal(
     clippy::too_many_arguments,
     reason = "restore attach crosses daemon, agent, and presentation state"
 )]
+/// Attaches restored terminal.
 pub(crate) fn attach_restored_terminal(
     agent_catalog: &mut AgentCatalog,
     runtime_index: &mut AgentRuntimeIndex,
@@ -90,6 +93,7 @@ pub(crate) fn attach_restored_terminal(
     kind: AgentKind,
     label: Option<String>,
 ) -> Result<(AgentId, crate::terminals::TerminalId), String> {
+    // Walk the lifecycle in explicit stages so each side effect happens only after its prerequisites have been established.
     let (terminal_id, _) = attach_terminal_session(
         terminal_manager,
         focus_state,

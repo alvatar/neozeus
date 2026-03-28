@@ -18,6 +18,7 @@ pub(crate) fn handle_pointer_click(
     layout_state: &HudLayoutState,
     emitted_commands: &mut Vec<AppCommand>,
 ) {
+    // Keep the control flow staged so each branch owns one behavior path and later branches only run when earlier capture rules do not apply.
     for button in debug_toolbar_buttons(shell_rect, debug_toolbar_view, layout_state) {
         if !button.rect.contains(point) {
             continue;

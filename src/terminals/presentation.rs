@@ -50,6 +50,7 @@ pub(crate) fn spawn_terminal_presentation(
     id: TerminalId,
     slot: usize,
 ) {
+    // Walk the lifecycle in explicit stages so each side effect happens only after its prerequisites have been established.
     let home_position = terminal_home_position(slot);
     let presentation = TerminalPresentation {
         home_position,
@@ -121,6 +122,7 @@ pub(crate) fn sync_terminal_projection_entities(
     terminal_manager: Res<TerminalManager>,
     mut presentation_store: ResMut<TerminalPresentationStore>,
 ) {
+    // Rebuild the derived or projected state from the authoritative resources in one pass so partial updates cannot drift.
     for terminal_id in presentation_store.terminal_ids() {
         if terminal_manager.contains_terminal(terminal_id) {
             continue;
@@ -196,6 +198,7 @@ fn terminal_zoom_scale(view_state: &TerminalViewState) -> f32 {
     10.0 / view_state.distance.max(0.1)
 }
 
+/// Returns the fixed terminal cell size.
 fn fixed_terminal_cell_size(font_state: &TerminalFontState) -> UVec2 {
     UVec2::new(
         font_state.cell_metrics.cell_width.max(1),
@@ -203,6 +206,7 @@ fn fixed_terminal_cell_size(font_state: &TerminalFontState) -> UVec2 {
     )
 }
 
+/// Returns the target active terminal dimensions.
 pub(crate) fn target_active_terminal_dimensions(
     window: &Window,
     layout_state: &HudLayoutState,
@@ -217,6 +221,7 @@ pub(crate) fn target_active_terminal_dimensions(
     }
 }
 
+/// Returns the active terminal cell size.
 #[cfg(test)]
 pub(crate) fn active_terminal_cell_size(
     _window: &Window,
@@ -225,6 +230,7 @@ pub(crate) fn active_terminal_cell_size(
     fixed_terminal_cell_size(&TerminalFontState::default())
 }
 
+/// Returns the active terminal dimensions.
 #[cfg(test)]
 pub(crate) fn active_terminal_dimensions(
     window: &Window,
@@ -235,6 +241,7 @@ pub(crate) fn active_terminal_dimensions(
     target_active_terminal_dimensions(window, layout_state, font_state)
 }
 
+/// Returns the active terminal layout.
 #[cfg(test)]
 pub(crate) fn active_terminal_layout(
     window: &Window,
@@ -251,6 +258,7 @@ pub(crate) fn active_terminal_layout(
     )
 }
 
+/// Returns the active terminal layout for dimensions.
 pub(crate) fn active_terminal_layout_for_dimensions(
     _window: &Window,
     _layout_state: &HudLayoutState,
@@ -286,6 +294,7 @@ fn startup_placeholder_texture_state(
     surface: Option<&crate::terminals::TerminalSurface>,
     presented_terminal: &crate::terminals::PresentedTerminal,
 ) -> TerminalTextureState {
+    // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
     if presented_terminal.desired_texture_state.texture_size != UVec2::ZERO
         && presented_terminal.desired_texture_state.texture_size != UVec2::ONE
         && presented_terminal.desired_texture_state.cell_size != UVec2::ZERO
@@ -358,6 +367,7 @@ pub(crate) fn sync_active_terminal_dimensions(
     primary_window: Single<&Window, With<PrimaryWindow>>,
     mut pending_resize: Local<Option<(TerminalId, TerminalDimensions)>>,
 ) {
+    // Rebuild the derived or projected state from the authoritative resources in one pass so partial updates cannot drift.
     let Some(active_id) = focus_state.active_id() else {
         *pending_resize = None;
         return;
@@ -405,6 +415,7 @@ pub(crate) fn pixel_perfect_cell_size(
     layout_state: &HudLayoutState,
     font_state: &TerminalFontState,
 ) -> UVec2 {
+    // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
     let base_w = font_state.cell_metrics.cell_width;
     let base_h = font_state.cell_metrics.cell_height;
     let base_texture_width = (cols as u32).max(1) as f32 * base_w as f32;
@@ -457,6 +468,7 @@ fn smooth_terminal_screen_size(
     Vec2::new(texture_width, texture_height) * fit_scale * zoom_scale
 }
 
+/// Snaps axis for texture center.
 fn snap_axis_for_texture_center(center: f32, physical_size: u32, window: &Window) -> f32 {
     let scale_factor = window_scale_factor(window);
     let center_physical = center * scale_factor;
@@ -772,6 +784,7 @@ pub(crate) fn sync_terminal_panel_frames(
         (With<TerminalPanelFrame>, Without<TerminalPanel>),
     >,
 ) {
+    // Rebuild the derived or projected state from the authoritative resources in one pass so partial updates cannot drift.
     for (_, _, mut frame_visibility) in &mut frames {
         *frame_visibility = Visibility::Hidden;
     }
@@ -844,6 +857,7 @@ pub(crate) fn sync_terminal_hud_surface(
         With<TerminalHudSurfaceMarker>,
     >,
 ) {
+    // Rebuild the derived or projected state from the authoritative resources in one pass so partial updates cannot drift.
     let (transform, sprite, visibility) = &mut *hud_surface;
     let visibility_policy = effective_visibility_policy(&terminal_manager, &visibility_state);
     let Some(active_id) = focus_state.active_id() else {

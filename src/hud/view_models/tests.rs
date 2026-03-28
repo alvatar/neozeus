@@ -7,8 +7,10 @@ use crate::{
 };
 use bevy::{ecs::system::RunSystemOnce, prelude::*};
 
+/// Verifies that sync hud view models derives agent rows and threads.
 #[test]
 fn sync_hud_view_models_derives_agent_rows_and_threads() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let (bridge, _) = test_bridge();
     let mut manager = crate::terminals::TerminalManager::default();
     let terminal_id = manager.create_terminal(bridge);

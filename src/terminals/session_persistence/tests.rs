@@ -16,6 +16,7 @@ use std::time::Duration;
 /// back to the config directory path.
 #[test]
 fn terminal_sessions_path_prefers_state_home_then_home_state_then_config() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     assert_eq!(
         resolve_terminal_sessions_path_with(
             Some("/tmp/state"),
@@ -42,6 +43,7 @@ fn terminal_sessions_path_prefers_state_home_then_home_state_then_config() {
 /// then reparses it and expects the original structure back unchanged.
 #[test]
 fn terminal_sessions_parse_and_serialize_roundtrip() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let persisted = PersistedTerminalSessions {
         sessions: vec![
             TerminalSessionRecord {
@@ -117,6 +119,7 @@ fn malformed_terminal_sessions_version_falls_back_to_default() {
 /// are then asserted explicitly.
 #[test]
 fn reconcile_terminal_sessions_restores_prunes_and_imports() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let persisted = PersistedTerminalSessions {
         sessions: vec![
             TerminalSessionRecord {
@@ -158,6 +161,7 @@ fn reconcile_terminal_sessions_restores_prunes_and_imports() {
 /// system, and then reparses the written file to ensure those semantics survived serialization.
 #[test]
 fn saving_terminal_sessions_persists_focus_order_and_labels() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let dir = temp_dir("neozeus-terminal-sessions-save");
     let path = dir.join("terminals.v1");
     let (bridge_one, _) = test_bridge();
@@ -207,6 +211,7 @@ fn saving_terminal_sessions_persists_focus_order_and_labels() {
 /// must do nothing, while a later run after enough simulated time has elapsed must create the file.
 #[test]
 fn terminal_sessions_save_waits_for_debounce_window() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let dir = temp_dir("neozeus-terminal-sessions-save-debounce");
     let path = dir.join("terminals.v1");
     let (bridge, _) = test_bridge();

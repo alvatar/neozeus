@@ -399,6 +399,7 @@ fn bloom_border_rects(
     rect: HudRect,
     thickness: f32,
 ) -> [(AgentListBloomSourceSegment, HudRect); 4] {
+    // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
     let horizontal = thickness.min((rect.h * 0.5).max(1.0));
     let vertical = thickness.min((rect.w * 0.5).max(1.0));
     [
@@ -471,6 +472,7 @@ fn build_bloom_specs(
     agent_list_view: &AgentListView,
     focus_state: &crate::terminals::TerminalFocusState,
 ) -> Vec<BloomSourceSpec> {
+    // Process the input incrementally so each transformation stays local and malformed data fails at the narrowest point.
     let Some(active_id) = focus_state.active_id() else {
         return Vec::new();
     };
@@ -532,6 +534,7 @@ pub(crate) struct HudWidgetBloomSetupContext<'w, 's> {
 /// fullscreen quads that feed the blur passes, and spawns the hidden composite sprites that will later
 /// be shown by the sync system once real bloom content exists.
 pub(crate) fn setup_hud_widget_bloom(mut ctx: HudWidgetBloomSetupContext) {
+    // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
     let target_size = bloom_target_size(&ctx.primary_window);
     let target_texel_size = Vec2::new(
         1.0 / target_size.x.max(1) as f32,
@@ -943,6 +946,7 @@ pub(crate) struct HudWidgetBloomContext<'w, 's> {
 /// visible, regenerates the active row's border sprites, updates debug previews when enabled, and
 /// shows or hides the composite sprites based on whether there is any current bloom content.
 pub(crate) fn sync_hud_widget_bloom(mut ctx: HudWidgetBloomContext) {
+    // Rebuild the derived or projected state from the authoritative resources in one pass so partial updates cannot drift.
     let target_size = bloom_target_size(&ctx.primary_window);
     let pass = &mut ctx.bloom.agent_list;
 

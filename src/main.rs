@@ -24,6 +24,7 @@ use std::{env, fs, path::PathBuf};
 /// The binary treats `neozeus daemon ...` as a completely separate startup path; otherwise it builds
 /// and runs the Bevy app.
 fn main() {
+    // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
     if env::var("NEOZEUS_CLEAR_DEBUG_LOG")
         .map(|value| {
             !matches!(

@@ -8,6 +8,7 @@ pub(crate) use crate::terminals::damage::compute_terminal_damage;
 /// returns because the terminal command path wants "press Enter" semantics for each logical line. A
 /// trailing carriage return is always appended so even a single-line command is submitted.
 pub(crate) fn send_command_payload_bytes(command: &str) -> Vec<u8> {
+    // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
     let mut bytes = Vec::with_capacity(command.len() + 1);
     let mut chars = command.chars().peekable();
     while let Some(ch) = chars.next() {

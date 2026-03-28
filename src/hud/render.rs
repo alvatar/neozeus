@@ -194,6 +194,7 @@ impl<'scene, 'res> HudPainter<'scene, 'res> {
         scale_x: f32,
         scale_y: f32,
     ) {
+        // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
         let Some(font) = self.fonts.get(&Handle::<VelloFont>::default()) else {
             return;
         };
@@ -274,6 +275,7 @@ pub(crate) struct HudRenderInputs<'a> {
 /// This is a debugging hook for color-conversion issues: it inspects encoded scene words for known
 /// orange/yellow values and writes the result to the terminal debug log.
 fn log_hud_draw_colors_if_requested(scene: &vello::Scene) {
+    // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
     let enabled = env::var("NEOZEUS_LOG_HUD_DRAW_COLORS")
         .ok()
         .is_some_and(|value| value == "1");
@@ -338,6 +340,7 @@ fn draw_text_editor_body(
     editor: &TextEditorState,
     body_rect: HudRect,
 ) {
+    // Build the geometry or layout decisions first, then emit the matching draw operations against the prepared state.
     painter.fill_rect(body_rect, HudColors::MESSAGE_BOX, 6.0);
     painter.stroke_rect(body_rect, HudColors::TEXT_MUTED, 4.0);
 
@@ -476,6 +479,7 @@ fn draw_message_box(
     message_box: &TextEditorState,
     title: &str,
 ) {
+    // Build the geometry or layout decisions first, then emit the matching draw operations against the prepared state.
     if !message_box.visible {
         return;
     }
@@ -548,11 +552,13 @@ fn startup_connect_rect(window: &Window) -> HudRect {
     }
 }
 
+/// Draws startup connect overlay.
 fn draw_startup_connect_overlay(
     painter: &mut HudPainter,
     window: &Window,
     startup_connect: &StartupConnectState,
 ) {
+    // Build the geometry or layout decisions first, then emit the matching draw operations against the prepared state.
     if !startup_connect.modal_visible() {
         return;
     }
@@ -600,12 +606,14 @@ fn draw_startup_connect_overlay(
     );
 }
 
+/// Draws task dialog.
 fn draw_task_dialog(
     painter: &mut HudPainter,
     window: &Window,
     task_dialog: &TextEditorState,
     title: &str,
 ) {
+    // Build the geometry or layout decisions first, then emit the matching draw operations against the prepared state.
     if !task_dialog.visible {
         return;
     }
@@ -681,6 +689,7 @@ fn module_content_rect(module_id: HudWidgetKey, shell_rect: HudRect) -> HudRect 
 ///
 /// The agent list intentionally opts out because it has its own custom full-height framing.
 fn draw_module_shell(painter: &mut HudPainter, module_id: HudWidgetKey, shell_rect: HudRect) {
+    // Build the geometry or layout decisions first, then emit the matching draw operations against the prepared state.
     if module_id == HudWidgetKey::AgentList {
         return;
     }
@@ -727,6 +736,7 @@ pub(crate) fn render_hud_scene(
     startup_connect: Option<Res<StartupConnectState>>,
     mut scene: Single<&mut VelloScene2d, With<HudVectorSceneMarker>>,
 ) {
+    // Build the geometry or layout decisions first, then emit the matching draw operations against the prepared state.
     let mut built = vello::Scene::new();
     if startup_connect.is_some_and(|state| state.modal_visible()) {
         **scene = VelloScene2d::from(built);
@@ -787,6 +797,7 @@ pub(crate) fn render_hud_modal_scene(
     fonts: Res<Assets<VelloFont>>,
     mut scene: Single<&mut VelloScene2d, With<HudModalVectorSceneMarker>>,
 ) {
+    // Build the geometry or layout decisions first, then emit the matching draw operations against the prepared state.
     let mut built = vello::Scene::new();
     let mut painter = HudPainter::new(&mut built, &fonts, &primary_window, 1.0);
     if let Some(startup_connect) = startup_connect.as_deref() {

@@ -5,6 +5,7 @@ use super::{
 };
 use crate::agents::{AgentId, AgentRuntimeIndex};
 
+/// Verifies that ensure conversation is stable per agent.
 #[test]
 fn ensure_conversation_is_stable_per_agent() {
     let mut store = ConversationStore::default();
@@ -13,6 +14,7 @@ fn ensure_conversation_is_stable_per_agent() {
     assert_eq!(first, second);
 }
 
+/// Verifies that push message appends to conversation history.
 #[test]
 fn push_message_appends_to_conversation_history() {
     let mut store = ConversationStore::default();
@@ -27,6 +29,7 @@ fn push_message_appends_to_conversation_history() {
     assert_eq!(store.messages.get(&message_id).unwrap().body, "hello");
 }
 
+/// Verifies that task store clear done and consume next update text.
 #[test]
 fn task_store_clear_done_and_consume_next_update_text() {
     let mut tasks = AgentTaskStore::default();
@@ -42,8 +45,10 @@ fn task_store_clear_done_and_consume_next_update_text() {
     assert_eq!(tasks.text(agent_id), Some("- [x] next"));
 }
 
+/// Verifies that conversation persistence roundtrips messages by session name.
 #[test]
 fn conversation_persistence_roundtrips_messages_by_session_name() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let mut store = ConversationStore::default();
     let conversation_id = store.ensure_conversation(AgentId(1));
     let _ = store.push_message(
@@ -72,8 +77,10 @@ fn conversation_persistence_roundtrips_messages_by_session_name() {
     assert_eq!(parsed, persisted);
 }
 
+/// Verifies that restore persisted conversations reattaches to restored agents.
 #[test]
 fn restore_persisted_conversations_reattaches_to_restored_agents() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let mut source = ConversationStore::default();
     let conversation_id = source.ensure_conversation(AgentId(1));
     let _ = source.push_message(
@@ -109,8 +116,10 @@ fn restore_persisted_conversations_reattaches_to_restored_agents() {
     assert_eq!(messages[0].body, "hello");
 }
 
+/// Verifies that conversations path prefers state home then home state then config.
 #[test]
 fn conversations_path_prefers_state_home_then_home_state_then_config() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     assert_eq!(
         resolve_conversations_path_with(Some("/tmp/state"), Some("/tmp/home"), Some("/tmp/config")),
         Some(std::path::PathBuf::from(

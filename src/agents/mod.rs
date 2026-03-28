@@ -52,12 +52,14 @@ pub(crate) struct AgentCatalog {
 }
 
 impl AgentCatalog {
+    /// Creates agent.
     pub(crate) fn create_agent(
         &mut self,
         label: Option<String>,
         kind: AgentKind,
         capabilities: AgentCapabilities,
     ) -> AgentId {
+        // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
         let id = AgentId(self.next_id.max(1));
         self.next_id = id.0 + 1;
         let display_index = self.order.len() + 1;
@@ -73,18 +75,21 @@ impl AgentCatalog {
         id
     }
 
+    /// Handles remove.
     pub(crate) fn remove(&mut self, agent_id: AgentId) -> Option<AgentRecord> {
         let removed = self.agents.remove(&agent_id)?;
         self.order.retain(|existing| *existing != agent_id);
         Some(removed)
     }
 
+    /// Returns the label.
     pub(crate) fn label(&self, agent_id: AgentId) -> Option<&str> {
         self.agents
             .get(&agent_id)
             .map(|record| record.label.as_str())
     }
 
+    /// Returns the label for terminal.
     pub(crate) fn label_for_terminal(
         &self,
         runtime_index: &AgentRuntimeIndex,
@@ -95,6 +100,7 @@ impl AgentCatalog {
             .and_then(|agent_id| self.label(agent_id))
     }
 
+    /// Iterates iter.
     pub(crate) fn iter(&self) -> impl Iterator<Item = (AgentId, &AgentRecord)> {
         self.order
             .iter()
@@ -114,6 +120,7 @@ pub(crate) enum AgentRuntimeLifecycle {
 }
 
 impl AgentRuntimeLifecycle {
+    /// Builds runtime from the supplied source data.
     pub(crate) fn from_runtime(runtime: &TerminalRuntimeState) -> Self {
         match runtime.lifecycle {
             TerminalLifecycle::Running => Self::Running,
@@ -139,6 +146,7 @@ pub(crate) struct AgentRuntimeIndex {
 }
 
 impl AgentRuntimeIndex {
+    /// Links terminal.
     pub(crate) fn link_terminal(
         &mut self,
         agent_id: AgentId,
@@ -146,6 +154,7 @@ impl AgentRuntimeIndex {
         session_name: String,
         runtime: Option<&TerminalRuntimeState>,
     ) {
+        // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
         let lifecycle = runtime
             .map(AgentRuntimeLifecycle::from_runtime)
             .unwrap_or_default();
@@ -161,6 +170,7 @@ impl AgentRuntimeIndex {
         );
     }
 
+    /// Updates runtime.
     pub(crate) fn update_runtime(
         &mut self,
         terminal_id: TerminalId,
@@ -174,6 +184,7 @@ impl AgentRuntimeIndex {
         }
     }
 
+    /// Removes terminal.
     pub(crate) fn remove_terminal(&mut self, terminal_id: TerminalId) -> Option<AgentId> {
         let agent_id = self.terminal_to_agent.remove(&terminal_id)?;
         if let Some(link) = self.agent_to_runtime.remove(&agent_id) {
@@ -184,26 +195,31 @@ impl AgentRuntimeIndex {
         Some(agent_id)
     }
 
+    /// Returns the agent for terminal.
     pub(crate) fn agent_for_terminal(&self, terminal_id: TerminalId) -> Option<AgentId> {
         self.terminal_to_agent.get(&terminal_id).copied()
     }
 
+    /// Returns the agent for session.
     pub(crate) fn agent_for_session(&self, session_name: &str) -> Option<AgentId> {
         self.session_to_agent.get(session_name).copied()
     }
 
+    /// Handles primary terminal.
     pub(crate) fn primary_terminal(&self, agent_id: AgentId) -> Option<TerminalId> {
         self.agent_to_runtime
             .get(&agent_id)
             .and_then(|link| link.primary_terminal)
     }
 
+    /// Returns the session name.
     pub(crate) fn session_name(&self, agent_id: AgentId) -> Option<&str> {
         self.agent_to_runtime
             .get(&agent_id)
             .and_then(|link| link.session_name.as_deref())
     }
 
+    /// Returns the runtime lifecycle state.
     #[cfg(test)]
     pub(crate) fn lifecycle(&self, agent_id: AgentId) -> Option<&AgentRuntimeLifecycle> {
         self.agent_to_runtime

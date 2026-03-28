@@ -100,6 +100,7 @@ pub(super) fn test_bridge() -> (TerminalBridge, Arc<TerminalUpdateMailbox>) {
 /// The helper also ensures a terminal focus resource exists, because many systems assume it is always
 /// present even in stripped-down unit-test worlds.
 pub(super) fn insert_default_hud_resources(world: &mut World) {
+    // Keep the editor or collection mutation explicit so cursor state and stored data stay synchronized after each change.
     world.insert_resource(HudLayoutState::default());
     world.insert_resource(crate::hud::AgentListUiState::default());
     world.insert_resource(crate::hud::ConversationListUiState::default());
@@ -137,6 +138,7 @@ pub(super) fn insert_terminal_manager_resources(
     world: &mut World,
     terminal_manager: crate::terminals::TerminalManager,
 ) {
+    // Keep the editor or collection mutation explicit so cursor state and stored data stay synchronized after each change.
     #[cfg(test)]
     {
         world.insert_resource(terminal_manager.clone_focus_state());
@@ -224,6 +226,7 @@ pub(super) fn insert_hud_resources(
     modal_state: HudModalState,
     input_capture: HudInputCaptureState,
 ) {
+    // Keep the editor or collection mutation explicit so cursor state and stored data stay synchronized after each change.
     if !world.contains_resource::<crate::hud::AgentListUiState>() {
         world.insert_resource(crate::hud::AgentListUiState::default());
     }
@@ -276,6 +279,7 @@ pub(super) fn insert_hud_resources(
 /// terminal focus.
 #[cfg(test)]
 pub(super) fn insert_test_hud_state(world: &mut World, hud_state: crate::hud::HudState) {
+    // Keep the editor or collection mutation explicit so cursor state and stored data stay synchronized after each change.
     let (layout_state, modal_state, input_capture) = hud_state.into_resources();
     insert_hud_resources(world, layout_state, modal_state, input_capture);
     if !world.contains_resource::<AgentListView>() {
@@ -303,6 +307,7 @@ pub(super) fn insert_test_hud_state(world: &mut World, hud_state: crate::hud::Hu
 /// Tests use this to assert whole-HUD state transitions without comparing every resource manually.
 #[cfg(test)]
 pub(super) fn snapshot_test_hud_state(world: &World) -> crate::hud::HudState {
+    // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
     let app_session = world.resource::<AppSessionState>();
     let runtime_index = world.get_resource::<AgentRuntimeIndex>();
     let mut message_box = app_session.composer.message_editor.clone();

@@ -15,6 +15,7 @@ use bevy::prelude::*;
 
 use super::{attach_restored_terminal, spawn_agent_terminal};
 
+/// Handles startup focus candidate is interactive.
 fn startup_focus_candidate_is_interactive(session: &DaemonSessionInfo) -> bool {
     matches!(session.runtime.lifecycle, TerminalLifecycle::Running)
 }
@@ -23,6 +24,7 @@ fn startup_focus_candidate_is_interactive(session: &DaemonSessionInfo) -> bool {
     clippy::too_many_arguments,
     reason = "restore spans persistence, daemon discovery, agent state, and presentation state"
 )]
+/// Restores app.
 pub(crate) fn restore_app(
     agent_catalog: &mut AgentCatalog,
     runtime_index: &mut AgentRuntimeIndex,
@@ -38,6 +40,7 @@ pub(crate) fn restore_app(
     time: &Time,
     redraws: &mut MessageWriter<bevy::window::RequestRedraw>,
 ) {
+    // Walk the lifecycle in explicit stages so each side effect happens only after its prerequisites have been established.
     let mut startup_loading = startup_loading;
     let persisted = session_persistence
         .path

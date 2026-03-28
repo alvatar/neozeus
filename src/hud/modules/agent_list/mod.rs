@@ -48,6 +48,7 @@ pub(crate) struct AgentRow {
 /// The helper bakes in the EVA-specific padding constants and clamps dimensions so very small rows do
 /// not collapse to negative sizes.
 pub(crate) fn agent_row_rect(rect: HudRect, section: AgentListRowSection) -> HudRect {
+    // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
     match section {
         AgentListRowSection::Main => HudRect {
             x: rect.x,
@@ -98,6 +99,7 @@ pub(crate) fn agent_rows(
     hovered_agent: Option<AgentId>,
     agent_list_view: &AgentListView,
 ) -> Vec<AgentRow> {
+    // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
     let content_x = shell_rect.x + AGENT_LIST_LEFT_RAIL_WIDTH + 1.0;
     let content_y = shell_rect.y + HUD_MODULE_PADDING + AGENT_LIST_HEADER_HEIGHT;
     let content_w = (shell_rect.w - AGENT_LIST_LEFT_RAIL_WIDTH - 3.0).max(0.0);

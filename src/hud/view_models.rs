@@ -72,6 +72,7 @@ pub(crate) struct DebugToolbarView {
 }
 
 impl DebugToolbarView {
+    /// Returns the current zoom distance in logical units.
     pub(crate) fn zoom_distance(&self) -> f32 {
         self.zoom_distance_milli as f32 / 1000.0
     }
@@ -81,6 +82,7 @@ impl DebugToolbarView {
     clippy::too_many_arguments,
     reason = "view-model derivation reads the authoritative stores and writes the derived UI projections"
 )]
+/// Handles sync hud view models.
 pub(crate) fn sync_hud_view_models(
     agent_catalog: Res<AgentCatalog>,
     runtime_index: Res<AgentRuntimeIndex>,
@@ -98,6 +100,7 @@ pub(crate) fn sync_hud_view_models(
     mut composer_view: ResMut<ComposerView>,
     debug_toolbar_view: Option<ResMut<DebugToolbarView>>,
 ) {
+    // Rebuild the derived or projected state from the authoritative resources in one pass so partial updates cannot drift.
     agent_list.rows = agent_catalog
         .iter()
         .map(|(agent_id, record)| {

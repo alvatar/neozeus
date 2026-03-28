@@ -93,6 +93,7 @@ pub(crate) struct StartupConnectState {
 }
 
 impl Default for StartupConnectState {
+    /// Returns the default value for this type.
     fn default() -> Self {
         Self {
             phase: StartupConnectPhase::Connecting,
@@ -105,6 +106,7 @@ impl Default for StartupConnectState {
 }
 
 impl StartupConnectState {
+    /// Builds a startup-connect state wired to a caller-supplied test receiver.
     #[cfg(test)]
     pub(crate) fn with_receiver_for_test(
         phase: StartupConnectPhase,
@@ -119,11 +121,13 @@ impl StartupConnectState {
         }
     }
 
+    /// Returns the current startup-connect phase.
     #[cfg(test)]
     pub(crate) fn phase(&self) -> StartupConnectPhase {
         self.phase
     }
 
+    /// Returns the user-facing title for the current startup-connect phase.
     pub(crate) fn title(&self) -> &'static str {
         match self.phase {
             StartupConnectPhase::Connecting => "Connecting",
@@ -133,14 +137,17 @@ impl StartupConnectState {
         }
     }
 
+    /// Returns the user-facing status text for the current startup-connect phase.
     pub(crate) fn status(&self) -> &str {
         &self.status
     }
 
+    /// Returns whether the startup-connect overlay should be visible.
     pub(crate) fn modal_visible(&self) -> bool {
         !matches!(self.phase, StartupConnectPhase::Ready)
     }
 
+    /// Starts the background runtime-connect work if it has not started yet.
     fn start_background_connect(&mut self) {
         let (tx, rx) = mpsc::channel();
         self.receiver = Some(Arc::new(Mutex::new(rx)));
@@ -270,6 +277,7 @@ pub(crate) fn setup_scene(
     _auto_verify: Option<Res<AutoVerifyConfig>>,
     verification_scenario: Option<Res<VerificationScenarioConfig>>,
 ) {
+    // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
     ctx.commands.spawn((
         Camera2d,
         VelloView,
@@ -325,12 +333,14 @@ pub(crate) fn setup_scene(
     clippy::too_many_arguments,
     reason = "startup connection advance needs the startup scene resources plus optional verification modes"
 )]
+/// Advances startup connecting.
 pub(crate) fn advance_startup_connecting(
     mut ctx: SceneSetupContext,
     mut startup_connect: ResMut<StartupConnectState>,
     auto_verify: Option<Res<AutoVerifyConfig>>,
     verification_scenario: Option<Res<VerificationScenarioConfig>>,
 ) {
+    // Walk the lifecycle in explicit stages so each side effect happens only after its prerequisites have been established.
     match startup_connect.phase {
         StartupConnectPhase::Connecting => {
             if startup_connect.hold_frames_remaining > 0 {
@@ -400,6 +410,7 @@ fn register_startup_loading_terminal(
 /// fails after the daemon session is created, the session is killed immediately so startup does not
 /// leak orphan sessions.
 fn setup_verifier_terminal(ctx: &mut SceneSetupContext, config: AutoVerifyConfig) {
+    // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
     let session_name = match ctx.runtime_spawner.create_session(VERIFIER_SESSION_PREFIX) {
         Ok(session_name) => session_name,
         Err(error) => {
@@ -448,6 +459,7 @@ fn setup_verifier_terminal(ctx: &mut SceneSetupContext, config: AutoVerifyConfig
 /// visibility, but they are filtered out of focus selection so startup does not land on a dead
 /// terminal.
 fn restore_startup_terminals(ctx: &mut SceneSetupContext) {
+    // Walk the lifecycle in explicit stages so each side effect happens only after its prerequisites have been established.
     restore_app(
         &mut ctx.agent_catalog,
         &mut ctx.runtime_index,

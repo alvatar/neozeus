@@ -64,6 +64,7 @@ fn hud_layout_v1_parser_remains_backward_compatible() {
 /// data exists.
 #[test]
 fn apply_persisted_layout_overrides_defaults() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let mut persisted = PersistedHudState::default();
     persisted.modules.insert(
         HudWidgetKey::AgentList,
@@ -91,6 +92,7 @@ fn apply_persisted_layout_overrides_defaults() {
 /// may still be catching up.
 #[test]
 fn saving_hud_layout_persists_target_rect() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let dir = temp_dir("neozeus-hud-layout-save");
     let path = dir.join("hud-layout.v1");
     let mut world = World::default();

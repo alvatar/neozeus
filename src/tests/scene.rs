@@ -76,6 +76,7 @@ fn startup_visibility_isolate_focused_terminal() {
     );
 }
 
+/// Verifies that pending runtime spawner becomes ready when daemon is installed.
 #[test]
 fn pending_runtime_spawner_becomes_ready_when_daemon_is_installed() {
     let spawner = TerminalRuntimeSpawner::pending_headless();
@@ -84,8 +85,10 @@ fn pending_runtime_spawner_becomes_ready_when_daemon_is_installed() {
     assert!(spawner.is_ready());
 }
 
+/// Verifies that startup connecting advances to restoring when background connect completes.
 #[test]
 fn startup_connecting_advances_to_restoring_when_background_connect_completes() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let spawner = TerminalRuntimeSpawner::pending_headless();
     let (tx, rx) = std::sync::mpsc::channel();
     tx.send(Ok(fake_daemon_resource(Arc::new(
@@ -151,6 +154,7 @@ fn allows_explicit_windowed_override() {
 /// Verifies that the NeoZeus TOML parser populates terminal font and window metadata fields.
 #[test]
 fn parses_neozeus_toml_config() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let config = parse_neozeus_config(
         r#"
         [terminal]
@@ -181,6 +185,7 @@ fn parses_neozeus_toml_config() {
 /// then `neozeus.toml` in the cwd.
 #[test]
 fn neozeus_config_path_resolution_prefers_explicit_then_xdg_then_home_then_cwd() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let dir = temp_dir("neozeus-config-resolution");
     let explicit = dir.join("explicit.toml");
     let xdg = dir.join("xdg/neozeus/config.toml");
@@ -230,6 +235,7 @@ fn neozeus_config_path_resolution_prefers_explicit_then_xdg_then_home_then_cwd()
 /// Verifies that loaded NeoZeus config overrides are threaded through primary-window construction.
 #[test]
 fn primary_window_config_can_use_loaded_toml_overrides() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let dir = temp_dir("neozeus-config-load");
     let path = dir.join("neozeus.toml");
     std::fs::write(
@@ -335,6 +341,7 @@ fn parses_optional_window_scale_factor_override() {
 /// Verifies parsing of the force-fallback-adapter override and the opt-in default.
 #[test]
 fn parses_force_fallback_adapter_override() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     assert!(!resolve_force_fallback_adapter(None));
     assert!(!resolve_force_fallback_adapter(Some("")));
     assert!(resolve_force_fallback_adapter(Some("true")));
@@ -358,6 +365,7 @@ fn parses_force_fallback_adapter_override() {
 /// Verifies the auto-disable policy for pipelined rendering on desktop Wayland.
 #[test]
 fn resolves_disable_pipelined_rendering_for_wayland_desktop_only() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     assert!(resolve_disable_pipelined_rendering_for(
         None,
         OutputMode::Desktop,
@@ -396,8 +404,10 @@ fn resolves_disable_pipelined_rendering_for_wayland_desktop_only() {
     ));
 }
 
+/// Verifies that resolves linux window backend policy.
 #[test]
 fn resolves_linux_window_backend_policy() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     assert_eq!(resolve_linux_window_backend(None), LinuxWindowBackend::Auto);
     assert_eq!(
         resolve_linux_window_backend(Some("x11")),
@@ -484,6 +494,7 @@ fn resolves_linux_window_backend_policy() {
 /// comes back disconnected and instead focuses a live restored session.
 #[test]
 fn startup_focus_skips_disconnected_restored_session() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let dir = temp_dir("neozeus-startup-focus-running-session");
     let sessions_path = dir.join("terminals.v1");
     let persisted = crate::terminals::PersistedTerminalSessions {
@@ -560,6 +571,7 @@ fn startup_focus_skips_disconnected_restored_session() {
 /// unfocused instead of isolating a dead session.
 #[test]
 fn startup_leaves_only_disconnected_sessions_visible_and_unfocused() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let dir = temp_dir("neozeus-startup-disconnected-visible");
     let sessions_path = dir.join("terminals.v1");
     let persisted = crate::terminals::PersistedTerminalSessions {
@@ -628,6 +640,7 @@ fn startup_leaves_only_disconnected_sessions_visible_and_unfocused() {
 /// finds nothing usable.
 #[test]
 fn startup_spawns_initial_terminal_when_no_sessions_exist() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let client = Arc::new(crate::tests::FakeDaemonClient::default());
     let mut world = World::default();
     world.insert_resource(Assets::<Image>::default());

@@ -51,6 +51,7 @@ const DISCONNECTED_RED: peniko::Color = peniko::Color::from_rgba8(160, 34, 24, 2
     clippy::too_many_arguments,
     reason = "agent-list text helper needs position/color/anchor plus non-uniform scaling"
 )]
+/// Draws label.
 fn draw_label(
     painter: &mut HudPainter,
     position: Vec2,
@@ -64,6 +65,7 @@ fn draw_label(
     painter.label_scaled(position, text, size, color, anchor, scale_x, scale_y);
 }
 
+/// Draws button rect.
 fn draw_button_rect(
     painter: &mut HudPainter,
     rect: HudRect,
@@ -74,6 +76,7 @@ fn draw_button_rect(
     painter.stroke_rect_width(rect, stroke, 2.5);
 }
 
+/// Handles marker fill.
 fn marker_fill(has_tasks: bool, interactive: bool) -> peniko::Color {
     if !interactive {
         DISCONNECTED_RED
@@ -84,7 +87,9 @@ fn marker_fill(has_tasks: bool, interactive: bool) -> peniko::Color {
     }
 }
 
+/// Draws left rail.
 fn draw_left_rail(painter: &mut HudPainter, content_rect: HudRect) {
+    // Build the geometry or layout decisions first, then emit the matching draw operations against the prepared state.
     let tick_x = content_rect.x + 5.0;
     let top = content_rect.y + HUD_MODULE_PADDING + 4.0;
     let bottom = content_rect.y + content_rect.h - HUD_MODULE_PADDING;
@@ -122,12 +127,14 @@ fn draw_left_rail(painter: &mut HudPainter, content_rect: HudRect) {
     }
 }
 
+/// Renders content.
 pub(crate) fn render_content(
     state: &AgentListUiState,
     content_rect: HudRect,
     painter: &mut HudPainter,
     inputs: &HudRenderInputs,
 ) {
+    // Build the geometry or layout decisions first, then emit the matching draw operations against the prepared state.
     painter.fill_rect(content_rect, apply_alpha(EVA_BLACK, 0.98), 0.0);
     draw_left_rail(painter, content_rect);
 

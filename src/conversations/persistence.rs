@@ -32,11 +32,13 @@ pub(crate) struct ConversationPersistenceState {
     pub(crate) dirty_since_secs: Option<f32>,
 }
 
+/// Resolves conversations path with.
 pub(crate) fn resolve_conversations_path_with(
     xdg_state_home: Option<&str>,
     home: Option<&str>,
     xdg_config_home: Option<&str>,
 ) -> Option<PathBuf> {
+    // Process the input incrementally so each transformation stays local and malformed data fails at the narrowest point.
     if let Some(xdg) = xdg_state_home.filter(|value| !value.is_empty()) {
         return Some(
             PathBuf::from(xdg)
@@ -60,6 +62,7 @@ pub(crate) fn resolve_conversations_path_with(
         })
 }
 
+/// Resolves conversations path.
 pub(crate) fn resolve_conversations_path() -> Option<PathBuf> {
     resolve_conversations_path_with(
         env::var("XDG_STATE_HOME").ok().as_deref(),
@@ -68,6 +71,7 @@ pub(crate) fn resolve_conversations_path() -> Option<PathBuf> {
     )
 }
 
+/// Escapes one persisted conversation field for serialization.
 fn quote(value: &str) -> String {
     let mut output = String::with_capacity(value.len() + 2);
     output.push('"');
@@ -83,7 +87,9 @@ fn quote(value: &str) -> String {
     output
 }
 
+/// Unescapes one persisted conversation field after parsing.
 fn unquote(value: &str) -> Option<String> {
+    // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
     let inner = value.strip_prefix('"')?.strip_suffix('"')?;
     let mut output = String::with_capacity(inner.len());
     let mut escaped = false;
@@ -107,6 +113,7 @@ fn unquote(value: &str) -> Option<String> {
     (!escaped).then_some(output)
 }
 
+/// Returns the persisted single-field code for a delivery state.
 fn delivery_code(delivery: &MessageDeliveryState) -> &'static str {
     match delivery {
         MessageDeliveryState::Pending => "pending",
@@ -115,6 +122,7 @@ fn delivery_code(delivery: &MessageDeliveryState) -> &'static str {
     }
 }
 
+/// Parses one persisted delivery code back into a delivery state.
 fn parse_delivery(code: &str, error: Option<String>) -> Option<MessageDeliveryState> {
     match code {
         "pending" => Some(MessageDeliveryState::Pending),
@@ -124,7 +132,9 @@ fn parse_delivery(code: &str, error: Option<String>) -> Option<MessageDeliverySt
     }
 }
 
+/// Serializes persisted conversations.
 pub(crate) fn serialize_persisted_conversations(persisted: &PersistedConversations) -> String {
+    // Process the input incrementally so each transformation stays local and malformed data fails at the narrowest point.
     let mut output = String::from(CONVERSATIONS_VERSION);
     output.push('\n');
     for conversation in &persisted.conversations {
@@ -150,7 +160,9 @@ pub(crate) fn serialize_persisted_conversations(persisted: &PersistedConversatio
     output
 }
 
+/// Parses persisted conversations.
 pub(crate) fn parse_persisted_conversations(text: &str) -> PersistedConversations {
+    // Process the input incrementally so each transformation stays local and malformed data fails at the narrowest point.
     let mut persisted = PersistedConversations::default();
     let mut current: Option<PersistedConversationRecord> = None;
     let mut pending_delivery: Option<String> = None;
@@ -224,6 +236,7 @@ pub(crate) fn parse_persisted_conversations(text: &str) -> PersistedConversation
     persisted
 }
 
+/// Loads persisted conversations from.
 pub(crate) fn load_persisted_conversations_from(path: &PathBuf) -> PersistedConversations {
     match fs::read_to_string(path) {
         Ok(text) => parse_persisted_conversations(&text),
@@ -240,10 +253,12 @@ pub(crate) fn load_persisted_conversations_from(path: &PathBuf) -> PersistedConv
     }
 }
 
+/// Builds persisted conversations.
 pub(crate) fn build_persisted_conversations(
     conversations: &ConversationStore,
     runtime_index: &AgentRuntimeIndex,
 ) -> PersistedConversations {
+    // Process the input incrementally so each transformation stays local and malformed data fails at the narrowest point.
     PersistedConversations {
         conversations: conversations
             .conversations
@@ -270,11 +285,13 @@ pub(crate) fn build_persisted_conversations(
     }
 }
 
+/// Restores persisted conversations.
 pub(crate) fn restore_persisted_conversations(
     persisted: &PersistedConversations,
     runtime_index: &AgentRuntimeIndex,
     conversations: &mut ConversationStore,
 ) {
+    // Walk the lifecycle in explicit stages so each side effect happens only after its prerequisites have been established.
     *conversations = ConversationStore::default();
     for conversation in &persisted.conversations {
         let Some(agent_id) = runtime_index.agent_for_session(&conversation.session_name) else {
@@ -292,6 +309,7 @@ pub(crate) fn restore_persisted_conversations(
     }
 }
 
+/// Marks conversations dirty.
 pub(crate) fn mark_conversations_dirty(
     persistence_state: &mut ConversationPersistenceState,
     time: Option<&Time>,
@@ -301,12 +319,14 @@ pub(crate) fn mark_conversations_dirty(
     }
 }
 
+/// Saves conversations if dirty.
 pub(crate) fn save_conversations_if_dirty(
     time: Res<Time>,
     conversations: Res<ConversationStore>,
     runtime_index: Res<AgentRuntimeIndex>,
     mut persistence_state: ResMut<ConversationPersistenceState>,
 ) {
+    // Process the input incrementally so each transformation stays local and malformed data fails at the narrowest point.
     let Some(dirty_since) = persistence_state.dirty_since_secs else {
         return;
     };

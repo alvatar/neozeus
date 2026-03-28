@@ -271,6 +271,7 @@ impl TerminalManager {
 ///
 /// Dropped intermediate frames upgrade damage to `Full` so renderers do not miss changes.
 pub(crate) fn poll_terminal_snapshots(mut terminal_manager: ResMut<TerminalManager>) {
+    // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
     for (_, terminal) in terminal_manager.iter_mut() {
         let (latest_frame, latest_status, dropped_frames) = terminal.bridge.drain_updates();
         terminal.bridge.note_dropped_updates(dropped_frames);

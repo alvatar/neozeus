@@ -77,6 +77,7 @@ fn create_final_frame_image_uses_renderable_srgb_target() {
 /// those cameras are returned to normal window rendering instead of keeping the stale image target.
 #[test]
 fn sync_final_frame_output_target_assigns_targets_only_in_offscreen_mode() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let mut world = World::default();
     world.insert_resource(AppOutputConfig {
         mode: OutputMode::OffscreenVerify,
@@ -151,6 +152,7 @@ fn final_frame_capture_waits_for_target_before_requesting_readback() {
 /// readback request from being spawned.
 #[test]
 fn final_frame_capture_waits_for_verification_scenario_to_finish() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let mut world = World::default();
     world.insert_resource(FinalFrameCaptureConfig {
         path: PathBuf::from("/tmp/final-frame-test.ppm"),

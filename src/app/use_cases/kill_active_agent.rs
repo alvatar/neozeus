@@ -10,6 +10,7 @@ use crate::{
 };
 use bevy::{prelude::*, window::RequestRedraw};
 
+/// Handles adjacent agent in catalog.
 fn adjacent_agent_in_catalog(catalog: &AgentCatalog, agent_id: AgentId) -> Option<AgentId> {
     let index = catalog
         .order
@@ -26,6 +27,7 @@ fn adjacent_agent_in_catalog(catalog: &AgentCatalog, agent_id: AgentId) -> Optio
     clippy::too_many_arguments,
     reason = "kill spans daemon, agent, session, and projection state"
 )]
+/// Deletes active agent and updates the kill-ring state.
 pub(crate) fn kill_active_agent(
     time: &Time,
     agent_catalog: &mut AgentCatalog,
@@ -41,6 +43,7 @@ pub(crate) fn kill_active_agent(
     view_state: &mut TerminalViewState,
     redraws: &mut MessageWriter<RequestRedraw>,
 ) -> Result<Option<AgentId>, String> {
+    // Walk the lifecycle in explicit stages so each side effect happens only after its prerequisites have been established.
     let Some(active_agent) = app_session.active_agent else {
         return Ok(None);
     };

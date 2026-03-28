@@ -45,6 +45,7 @@ pub(crate) enum NeoZeusSet {
 /// after both terminal and HUD rendering work has had a chance to update state. The startup chain is
 /// also assembled here so scene setup, HUD setup, and bloom setup happen in a deterministic order.
 pub(crate) fn configure_app_schedule(app: &mut App) {
+    // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
     app.configure_sets(
         Update,
         NeoZeusSet::PollTerminal.before(NeoZeusSet::RasterTerminal),

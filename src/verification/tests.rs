@@ -9,6 +9,7 @@ use std::sync::Arc;
 /// disables the feature by returning `None`.
 #[test]
 fn parses_verification_scenarios() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     assert_eq!(resolve_verification_scenario(None), None);
     assert_eq!(resolve_verification_scenario(Some("")), None);
     assert_eq!(
@@ -35,6 +36,7 @@ fn parses_verification_scenarios() {
 /// seed the modal text with the deterministic payload used by the visual test.
 #[test]
 fn message_box_scenario_opens_modal_and_spawns_terminal() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let client = Arc::new(crate::tests::FakeDaemonClient::default());
     let mut world = World::default();
     world.insert_resource(VerificationScenarioConfig {
@@ -74,6 +76,7 @@ fn message_box_scenario_opens_modal_and_spawns_terminal() {
 /// bloom verification capture expects to see.
 #[test]
 fn task_dialog_scenario_populates_note_text() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let client = Arc::new(crate::tests::FakeDaemonClient::default());
     let mut world = World::default();
     world.insert_resource(VerificationScenarioConfig {
@@ -117,6 +120,7 @@ fn task_dialog_scenario_populates_note_text() {
 /// second terminal and mark the scenario as applied.
 #[test]
 fn inspect_switch_scenario_spawns_two_terminals_and_focuses_second() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let client = Arc::new(crate::tests::FakeDaemonClient::default());
     let mut world = World::default();
     world.insert_resource(VerificationScenarioConfig {

@@ -5,11 +5,13 @@ use crate::hud::{
 use bevy::prelude::Vec2;
 use bevy_vello::prelude::VelloTextAnchor;
 
+/// Renders content.
 pub(crate) fn render_content(
     content_rect: HudRect,
     painter: &mut HudPainter,
     inputs: &HudRenderInputs,
 ) {
+    // Build the geometry or layout decisions first, then emit the matching draw operations against the prepared state.
     let header = inputs
         .thread_view
         .agent_id

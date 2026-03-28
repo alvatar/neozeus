@@ -70,8 +70,6 @@ pub(crate) use types::{
 #[cfg(test)]
 pub(crate) use ansi_surface::build_surface;
 #[cfg(test)]
-pub(crate) use presentation::hud_terminal_target_position;
-#[cfg(test)]
 pub(crate) use backend::{resolve_alacritty_color, send_command_payload_bytes, xterm_indexed_rgb};
 #[cfg(test)]
 pub(crate) use daemon::{
@@ -87,6 +85,8 @@ pub(crate) use fonts::{
     measure_monospace_cell, parse_kitty_config_file, resolve_terminal_font_report_for_family,
     resolve_terminal_font_report_for_path, KittyFontConfig,
 };
+#[cfg(test)]
+pub(crate) use presentation::hud_terminal_target_position;
 #[cfg(test)]
 pub(crate) use presentation::{
     active_terminal_cell_size, active_terminal_dimensions, active_terminal_layout,

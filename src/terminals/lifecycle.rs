@@ -63,6 +63,7 @@ pub(crate) fn kill_active_terminal_session_and_remove(
     runtime_spawner: &TerminalRuntimeSpawner,
     session_persistence: &mut TerminalSessionPersistenceState,
 ) -> Result<Option<(TerminalId, String)>, String> {
+    // Walk the lifecycle in explicit stages so each side effect happens only after its prerequisites have been established.
     let Some(active_id) = focus_state.active_id() else {
         return Ok(None);
     };
