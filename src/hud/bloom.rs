@@ -101,7 +101,7 @@ fn resolve_agent_list_bloom_debug_previews(raw: Option<&str>) -> bool {
 }
 
 #[derive(Component)]
-pub(crate) struct AgentListBloomCameraMarker;
+struct AgentListBloomCameraMarker;
 
 #[derive(Component)]
 pub(crate) struct AgentListBloomCompositeMarker;
