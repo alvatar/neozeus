@@ -6,6 +6,7 @@ use bevy::{
 };
 use std::time::Duration;
 
+/// Appends one checkbox task parsed from raw text into the named session note.
 fn append_task_from_text(
     notes_state: &mut TerminalNotesState,
     session_name: &str,
