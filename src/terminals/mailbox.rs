@@ -1,4 +1,4 @@
-use crate::terminals::{
+use super::types::{
     DrainedTerminalUpdates, LatestTerminalStatus, TerminalFrameUpdate, TerminalUpdate,
 };
 use std::sync::Mutex;

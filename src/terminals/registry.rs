@@ -1,5 +1,7 @@
-use crate::terminals::{
-    append_debug_log, TerminalBridge, TerminalDamage, TerminalDebugStats, TerminalSnapshot,
+use super::{
+    bridge::TerminalBridge,
+    debug::{append_debug_log, TerminalDebugStats},
+    types::{TerminalDamage, TerminalSnapshot},
 };
 use bevy::prelude::{ResMut, Resource};
 use std::collections::HashMap;

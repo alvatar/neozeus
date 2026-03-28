@@ -1,4 +1,4 @@
-use crate::hud::{HudRect, HUD_AGENT_LIST_WIDTH};
+use super::state::{HudRect, HUD_AGENT_LIST_WIDTH};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub(crate) struct HudWidgetKey(&'static str);

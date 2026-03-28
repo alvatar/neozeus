@@ -1,4 +1,4 @@
-use crate::terminals::{
+use super::types::{
     TerminalCell, TerminalCellContent, TerminalCursor, TerminalCursorShape, TerminalSurface,
 };
 use alacritty_terminal::{

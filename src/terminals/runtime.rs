@@ -1,8 +1,12 @@
-use crate::terminals::{
-    append_debug_log, note_terminal_error, with_debug_stats, AttachedDaemonSession,
-    DaemonSessionInfo, TerminalBridge, TerminalCommand, TerminalDaemonClientResource,
-    TerminalDebugStats, TerminalRuntimeState, TerminalUpdate, TerminalUpdateMailbox,
-    PERSISTENT_SESSION_PREFIX,
+use super::{
+    bridge::TerminalBridge,
+    daemon::{
+        AttachedDaemonSession, DaemonSessionInfo, TerminalDaemonClientResource,
+        PERSISTENT_SESSION_PREFIX,
+    },
+    debug::{append_debug_log, note_terminal_error, with_debug_stats, TerminalDebugStats},
+    mailbox::TerminalUpdateMailbox,
+    types::{TerminalCommand, TerminalRuntimeState, TerminalUpdate},
 };
 use bevy::{
     prelude::Resource,

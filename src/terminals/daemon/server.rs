@@ -5,7 +5,7 @@ use super::{
     },
     session::{DaemonSession, SubscriberIdAllocator},
 };
-use crate::terminals::append_debug_log;
+use crate::terminals::debug::append_debug_log;
 use std::{
     collections::HashMap,
     fs,

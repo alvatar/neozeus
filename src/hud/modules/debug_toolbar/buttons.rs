@@ -1,7 +1,9 @@
-use crate::hud::{
-    DebugToolbarView, HudLayoutState, HudRect, HudWidgetKey, HUD_BUTTON_GAP, HUD_BUTTON_HEIGHT,
-    HUD_BUTTON_MIN_WIDTH, HUD_MODULE_PADDING,
+use crate::hud::state::{
+    HudLayoutState, HudRect, HUD_BUTTON_GAP, HUD_BUTTON_HEIGHT, HUD_BUTTON_MIN_WIDTH,
+    HUD_MODULE_PADDING,
 };
+use crate::hud::view_models::DebugToolbarView;
+use crate::hud::widgets::HudWidgetKey;
 
 use super::{DebugToolbarAction, DebugToolbarButton};
 

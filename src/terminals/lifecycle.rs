@@ -1,6 +1,9 @@
-use crate::terminals::{
-    append_debug_log, mark_terminal_sessions_dirty, TerminalBridge, TerminalFocusState, TerminalId,
-    TerminalManager, TerminalRuntimeSpawner, TerminalSessionPersistenceState,
+use super::{
+    bridge::TerminalBridge,
+    debug::append_debug_log,
+    registry::{TerminalFocusState, TerminalId, TerminalManager},
+    runtime::TerminalRuntimeSpawner,
+    session_persistence::{mark_terminal_sessions_dirty, TerminalSessionPersistenceState},
 };
 use bevy::prelude::*;
 

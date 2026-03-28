@@ -1,6 +1,7 @@
-use crate::terminals::{
-    append_debug_log, note_key_event, with_debug_stats, DrainedTerminalUpdates, TerminalCommand,
-    TerminalDebugStats, TerminalUpdateMailbox,
+use super::{
+    debug::{append_debug_log, note_key_event, with_debug_stats, TerminalDebugStats},
+    mailbox::TerminalUpdateMailbox,
+    types::{DrainedTerminalUpdates, TerminalCommand},
 };
 use bevy::input::keyboard::KeyboardInput;
 use std::sync::{mpsc::Sender, Arc, Mutex};

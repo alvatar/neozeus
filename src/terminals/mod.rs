@@ -19,18 +19,21 @@ mod session_persistence;
 mod types;
 
 pub(crate) use bridge::TerminalBridge;
+#[cfg(test)]
+pub(crate) use daemon::AttachedDaemonSession;
 pub(crate) use daemon::{
-    resolve_daemon_socket_path, run_daemon_server, AttachedDaemonSession, DaemonSessionInfo,
-    TerminalDaemonClientResource, PERSISTENT_SESSION_PREFIX, VERIFIER_SESSION_PREFIX,
+    resolve_daemon_socket_path, run_daemon_server, DaemonSessionInfo, TerminalDaemonClientResource,
+    PERSISTENT_SESSION_PREFIX, VERIFIER_SESSION_PREFIX,
 };
-pub(crate) use debug::{
-    append_debug_log, note_key_event, note_terminal_error, with_debug_stats, TerminalDebugStats,
-};
+pub(crate) use debug::append_debug_log;
+#[cfg(test)]
+pub(crate) use debug::TerminalDebugStats;
 pub(crate) use fonts::{
     configure_terminal_fonts, is_emoji_like, is_private_use_like, TerminalCellMetrics,
     TerminalFontState, TerminalTextRenderer,
 };
 pub(crate) use lifecycle::{attach_terminal_session, kill_active_terminal_session_and_remove};
+#[cfg(test)]
 pub(crate) use mailbox::TerminalUpdateMailbox;
 pub(crate) use notes::{
     clear_done_tasks, extract_next_task, load_terminal_notes_from, mark_terminal_notes_dirty,
@@ -60,11 +63,10 @@ pub(crate) use session_persistence::{
 };
 pub(crate) use types::TerminalLifecycle;
 pub(crate) use types::{
-    DrainedTerminalUpdates, LatestTerminalStatus, PtySession, TerminalCell, TerminalCellContent,
-    TerminalCommand, TerminalCursor, TerminalCursorShape, TerminalDamage, TerminalDimensions,
-    TerminalFontFace, TerminalFontReport, TerminalFrameUpdate, TerminalRuntimeState,
-    TerminalSnapshot, TerminalSurface, TerminalUpdate, PTY_OUTPUT_BATCH_BYTES,
-    PTY_OUTPUT_BATCH_WINDOW, PTY_OUTPUT_WAIT_TIMEOUT,
+    PtySession, TerminalCell, TerminalCellContent, TerminalCommand, TerminalCursor,
+    TerminalCursorShape, TerminalDamage, TerminalDimensions, TerminalFontFace, TerminalFontReport,
+    TerminalFrameUpdate, TerminalRuntimeState, TerminalSnapshot, TerminalSurface, TerminalUpdate,
+    PTY_OUTPUT_BATCH_BYTES, PTY_OUTPUT_BATCH_WINDOW, PTY_OUTPUT_WAIT_TIMEOUT,
 };
 
 #[cfg(test)]
