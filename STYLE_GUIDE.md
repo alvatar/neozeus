@@ -1,5 +1,9 @@
 # STYLE_GUIDE
 
+## Documentation
+- All functions should have canonical Rust doc, explaining in detail what the function does and how it should be used.
+- Explanatory comments inside functions should be added in all non-obvious pieces and particularly hairy parts.
+
 ## Modules
 - Root = one role: namespace, curated API, or impl; not mixed.
 - Prefer small curated root exports; avoid barrel/facade roots.
