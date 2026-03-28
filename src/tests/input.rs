@@ -5,10 +5,10 @@ use super::{
 };
 use crate::{
     agents::{AgentCatalog, AgentRuntimeIndex},
-    app::{AgentCommand as AppAgentCommand, ComposerCommand, TaskCommand as AppTaskCommand},
+    app::{AgentCommand as AppAgentCommand, TaskCommand as AppTaskCommand},
     app::{AppCommand, AppSessionState},
     conversations::{AgentTaskStore, ConversationStore, MessageTransportAdapter},
-    hud::{HudIntent, TerminalVisibilityState},
+    hud::TerminalVisibilityState,
     input::{
         ctrl_sequence, focus_terminal_on_panel_click, handle_global_terminal_spawn_shortcut,
         handle_terminal_direct_input_keyboard, handle_terminal_lifecycle_shortcuts,
@@ -30,7 +30,7 @@ use bevy::{
         ButtonInput, ButtonState,
     },
     prelude::{
-        Entity, Image, KeyCode, Messages, MouseButton, Res, Time, Vec2, Visibility, Window, World,
+        Entity, Image, KeyCode, Messages, MouseButton, Time, Vec2, Visibility, Window, World,
     },
     window::{PrimaryWindow, RequestRedraw},
 };
@@ -47,138 +47,18 @@ fn pressed_key(key_code: KeyCode, logical_key: Key) -> KeyboardInput {
     }
 }
 
-/// Initializes the `HudIntent` and `AppCommand` message resources in an input-test world.
+/// Initializes the app-command message resource in an input-test world.
 fn init_hud_commands(world: &mut World) {
-    world.init_resource::<Messages<HudIntent>>();
     world.init_resource::<Messages<AppCommand>>();
 }
 
-/// Drains and collects all queued input/output commands, projecting app commands back into the
-/// legacy `HudIntent` vocabulary used by the historical tests.
-fn drain_hud_commands(world: &mut World) -> Vec<HudIntent> {
-    let mut commands = world
-        .run_system_once(|mut reader: bevy::prelude::MessageReader<HudIntent>| {
+/// Drains and collects queued app commands.
+fn drain_hud_commands(world: &mut World) -> Vec<AppCommand> {
+    world
+        .run_system_once(|mut reader: bevy::prelude::MessageReader<AppCommand>| {
             reader.read().cloned().collect::<Vec<_>>()
         })
-        .unwrap();
-
-    let translated = world
-        .run_system_once(
-            |mut reader: bevy::prelude::MessageReader<AppCommand>,
-             runtime_index: Option<Res<AgentRuntimeIndex>>,
-             app_session: Option<Res<AppSessionState>>| {
-                reader
-                    .read()
-                    .flat_map(|command| match command {
-                        AppCommand::Agent(AppAgentCommand::SpawnTerminal) => {
-                            vec![HudIntent::SpawnTerminal]
-                        }
-                        AppCommand::Agent(AppAgentCommand::SpawnShellTerminal) => {
-                            vec![HudIntent::SpawnShellTerminal]
-                        }
-                        AppCommand::Agent(AppAgentCommand::KillActive) => {
-                            vec![HudIntent::KillActiveTerminal]
-                        }
-                        AppCommand::Agent(AppAgentCommand::Inspect(agent_id)) => runtime_index
-                            .as_ref()
-                            .and_then(|runtime_index| runtime_index.primary_terminal(*agent_id))
-                            .map(|terminal_id| {
-                                vec![
-                                    HudIntent::FocusTerminal(terminal_id),
-                                    HudIntent::HideAllButTerminal(terminal_id),
-                                ]
-                            })
-                            .unwrap_or_default(),
-                        AppCommand::Task(AppTaskCommand::ConsumeNext { agent_id }) => runtime_index
-                            .as_ref()
-                            .and_then(|runtime_index| runtime_index.primary_terminal(*agent_id))
-                            .map(|terminal_id| {
-                                vec![HudIntent::ConsumeNextTerminalTask(terminal_id)]
-                            })
-                            .unwrap_or_default(),
-                        AppCommand::Task(AppTaskCommand::ClearDone { agent_id }) => runtime_index
-                            .as_ref()
-                            .and_then(|runtime_index| runtime_index.primary_terminal(*agent_id))
-                            .map(|terminal_id| vec![HudIntent::ClearDoneTerminalTasks(terminal_id)])
-                            .unwrap_or_default(),
-                        AppCommand::Task(AppTaskCommand::Append { agent_id, text }) => {
-                            runtime_index
-                                .as_ref()
-                                .and_then(|runtime_index| runtime_index.primary_terminal(*agent_id))
-                                .map(|terminal_id| {
-                                    vec![HudIntent::AppendTerminalTask(terminal_id, text.clone())]
-                                })
-                                .unwrap_or_default()
-                        }
-                        AppCommand::Task(AppTaskCommand::Prepend { agent_id, text }) => {
-                            runtime_index
-                                .as_ref()
-                                .and_then(|runtime_index| runtime_index.primary_terminal(*agent_id))
-                                .map(|terminal_id| {
-                                    vec![HudIntent::PrependTerminalTask(terminal_id, text.clone())]
-                                })
-                                .unwrap_or_default()
-                        }
-                        AppCommand::Task(AppTaskCommand::SetText { agent_id, text }) => {
-                            runtime_index
-                                .as_ref()
-                                .and_then(|runtime_index| runtime_index.primary_terminal(*agent_id))
-                                .map(|terminal_id| {
-                                    vec![HudIntent::SetTerminalTaskText(terminal_id, text.clone())]
-                                })
-                                .unwrap_or_default()
-                        }
-                        AppCommand::Composer(ComposerCommand::Submit) => app_session
-                            .as_ref()
-                            .and_then(|app_session| app_session.composer.current_agent())
-                            .and_then(|agent_id| {
-                                runtime_index
-                                    .as_ref()
-                                    .and_then(|runtime_index| {
-                                        runtime_index.primary_terminal(agent_id)
-                                    })
-                                    .map(|terminal_id| {
-                                        if app_session.as_ref().is_some_and(|app_session| {
-                                            app_session.composer.message_editor.visible
-                                        }) {
-                                            vec![HudIntent::SendTerminalCommand(
-                                                terminal_id,
-                                                app_session
-                                                    .as_ref()
-                                                    .unwrap()
-                                                    .composer
-                                                    .message_editor
-                                                    .text
-                                                    .clone(),
-                                            )]
-                                        } else if app_session.as_ref().is_some_and(|app_session| {
-                                            app_session.composer.task_editor.visible
-                                        }) {
-                                            vec![HudIntent::SetTerminalTaskText(
-                                                terminal_id,
-                                                app_session
-                                                    .as_ref()
-                                                    .unwrap()
-                                                    .composer
-                                                    .task_editor
-                                                    .text
-                                                    .clone(),
-                                            )]
-                                        } else {
-                                            Vec::new()
-                                        }
-                                    })
-                            })
-                            .unwrap_or_default(),
-                        _ => Vec::new(),
-                    })
-                    .collect::<Vec<_>>()
-            },
-        )
-        .unwrap();
-
-    commands.extend(translated);
-    commands
+        .unwrap()
 }
 
 fn ensure_app_command_world_resources(world: &mut World) {
@@ -430,7 +310,7 @@ fn global_spawn_shortcut_enqueues_spawn_even_with_active_terminal() {
 
     assert_eq!(
         drain_hud_commands(&mut world),
-        vec![HudIntent::SpawnTerminal]
+        vec![AppCommand::Agent(AppAgentCommand::SpawnTerminal)]
     );
 }
 
@@ -466,7 +346,7 @@ fn global_shell_spawn_shortcut_enqueues_shell_spawn() {
 
     assert_eq!(
         drain_hud_commands(&mut world),
-        vec![HudIntent::SpawnShellTerminal]
+        vec![AppCommand::Agent(AppAgentCommand::SpawnShellTerminal)]
     );
 }
 
@@ -702,10 +582,7 @@ fn clicking_terminal_panel_enqueues_focus_and_isolate_for_topmost_visible_panel(
 
     assert_eq!(
         drain_hud_commands(&mut world),
-        vec![
-            HudIntent::FocusTerminal(crate::terminals::TerminalId(2)),
-            HudIntent::HideAllButTerminal(crate::terminals::TerminalId(2)),
-        ]
+        vec![AppCommand::Agent(AppAgentCommand::Inspect(second_agent))]
     );
 }
 
@@ -769,6 +646,10 @@ fn plain_t_opens_task_dialog_for_active_terminal_with_saved_text() {
 fn plain_n_enqueues_consume_next_task_for_active_terminal() {
     let (mut world, terminal_id) =
         world_with_active_terminal(Vec2::new(10.0, 10.0), false, Vec2::ZERO);
+    let agent_id = world
+        .resource::<AgentRuntimeIndex>()
+        .agent_for_terminal(terminal_id)
+        .expect("agent should be linked");
     world.init_resource::<Messages<KeyboardInput>>();
     world.init_resource::<Messages<RequestRedraw>>();
     world
@@ -782,7 +663,7 @@ fn plain_n_enqueues_consume_next_task_for_active_terminal() {
 
     assert_eq!(
         drain_hud_commands(&mut world),
-        vec![HudIntent::ConsumeNextTerminalTask(terminal_id)]
+        vec![AppCommand::Task(AppTaskCommand::ConsumeNext { agent_id })]
     );
 }
 
@@ -974,6 +855,10 @@ fn message_box_supports_multiline_typing_and_ctrl_s_send() {
 fn ctrl_t_clears_done_tasks_for_active_terminal_when_dialog_is_closed() {
     let (mut world, terminal_id) =
         world_with_active_terminal(Vec2::new(10.0, 10.0), false, Vec2::ZERO);
+    let agent_id = world
+        .resource::<AgentRuntimeIndex>()
+        .agent_for_terminal(terminal_id)
+        .expect("agent should be linked");
     world.init_resource::<Messages<KeyboardInput>>();
     world.init_resource::<Messages<RequestRedraw>>();
 
@@ -984,7 +869,7 @@ fn ctrl_t_clears_done_tasks_for_active_terminal_when_dialog_is_closed() {
 
     assert_eq!(
         drain_hud_commands(&mut world),
-        vec![HudIntent::ClearDoneTerminalTasks(terminal_id)]
+        vec![AppCommand::Task(AppTaskCommand::ClearDone { agent_id })]
     );
 }
 
@@ -994,6 +879,10 @@ fn ctrl_t_clears_done_tasks_for_active_terminal_when_dialog_is_closed() {
 fn task_dialog_ctrl_t_emits_clear_done_request() {
     let (mut world, terminal_id) =
         world_with_active_terminal(Vec2::new(10.0, 10.0), false, Vec2::ZERO);
+    let agent_id = world
+        .resource::<AgentRuntimeIndex>()
+        .agent_for_terminal(terminal_id)
+        .expect("agent should be linked");
     let mut hud_state = crate::hud::HudState::default();
     hud_state.open_task_dialog(terminal_id, "- [x] done\n  detail\n- [ ] keep");
     insert_test_hud_state(&mut world, hud_state);
@@ -1008,7 +897,7 @@ fn task_dialog_ctrl_t_emits_clear_done_request() {
 
     assert_eq!(
         drain_hud_commands(&mut world),
-        vec![HudIntent::ClearDoneTerminalTasks(terminal_id)]
+        vec![AppCommand::Task(AppTaskCommand::ClearDone { agent_id })]
     );
     assert_eq!(
         snapshot_test_hud_state(&world).task_dialog.text,

@@ -2,16 +2,14 @@ use crate::{
     agents::{AgentCatalog, AgentKind, AgentRuntimeIndex},
     app::{
         commands::{
-            AgentCommand, AppCommand, ComposerCommand,
-            ConversationCommand as AppConversationCommand, TaskCommand as AppTaskCommand,
+            AgentCommand, AppCommand, ComposerCommand, TaskCommand as AppTaskCommand,
             TerminalCommand as AppTerminalCommand, WidgetCommand,
         },
         session::AppSessionState,
         use_cases,
     },
     conversations::{
-        mark_conversations_dirty, AgentTaskStore, ConversationPersistenceState, ConversationStore,
-        MessageTransportAdapter,
+        AgentTaskStore, ConversationPersistenceState, ConversationStore, MessageTransportAdapter,
     },
     hud::{HudInputCaptureState, HudLayoutState, TerminalVisibilityState},
     startup::StartupLoadingState,
@@ -110,8 +108,7 @@ fn refresh_open_task_editor(
 }
 
 #[derive(SystemParam)]
-pub(crate) struct AppCommandContext<'w, 's> {
-    commands: Commands<'w, 's>,
+pub(crate) struct AppCommandContext<'w> {
     time: Res<'w, Time>,
     agent_catalog: ResMut<'w, AgentCatalog>,
     runtime_index: ResMut<'w, AgentRuntimeIndex>,
@@ -243,7 +240,6 @@ pub(crate) fn apply_app_commands(
                 }
                 AgentCommand::KillActive => {
                     if let Err(error) = use_cases::kill_active_agent(
-                        &mut ctx.commands,
                         &ctx.time,
                         &mut ctx.agent_catalog,
                         &mut ctx.runtime_index,
@@ -251,7 +247,6 @@ pub(crate) fn apply_app_commands(
                         &mut ctx.task_store,
                         &mut ctx.terminal_manager,
                         &mut ctx.focus_state,
-                        &mut ctx.presentation_store,
                         &ctx.runtime_spawner,
                         &mut ctx.input_capture,
                         &mut ctx.session_persistence,
@@ -284,32 +279,7 @@ pub(crate) fn apply_app_commands(
                     );
                 }
             },
-            AppCommand::Conversation(command) => match command {
-                AppConversationCommand::SendMessage {
-                    conversation_id,
-                    sender,
-                    body,
-                } => {
-                    use_cases::send_message(
-                        *conversation_id,
-                        *sender,
-                        body.clone(),
-                        &mut ctx.conversations,
-                        &ctx.transport,
-                        &ctx.runtime_index,
-                        &ctx.terminal_manager,
-                    );
-                    mark_conversations_dirty(&mut ctx.conversation_persistence, Some(&ctx.time));
-                    ctx.redraws.write(RequestRedraw);
-                }
-            },
             AppCommand::Task(command) => match command {
-                AppTaskCommand::SetText { agent_id, text } => {
-                    if use_cases::set_task_text(*agent_id, text, &mut ctx.task_store) {
-                        refresh_open_task_editor(&mut ctx.app_session, *agent_id, &ctx.task_store);
-                        ctx.redraws.write(RequestRedraw);
-                    }
-                }
                 AppTaskCommand::Append { agent_id, text } => {
                     if use_cases::append_task(*agent_id, text, &mut ctx.task_store) {
                         refresh_open_task_editor(&mut ctx.app_session, *agent_id, &ctx.task_store);
@@ -354,10 +324,12 @@ pub(crate) fn apply_app_commands(
                     use_cases::submit_composer(
                         &mut ctx.app_session,
                         &mut ctx.conversations,
+                        &mut ctx.conversation_persistence,
                         &mut ctx.task_store,
                         &ctx.runtime_index,
                         &ctx.terminal_manager,
                         &ctx.transport,
+                        &ctx.time,
                         &mut ctx.redraws,
                     );
                 }

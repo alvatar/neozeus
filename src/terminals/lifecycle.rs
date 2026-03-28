@@ -1,7 +1,6 @@
 use crate::terminals::{
     append_debug_log, mark_terminal_sessions_dirty, TerminalBridge, TerminalFocusState, TerminalId,
-    TerminalManager, TerminalPresentationStore, TerminalRuntimeSpawner,
-    TerminalSessionPersistenceState,
+    TerminalManager, TerminalRuntimeSpawner, TerminalSessionPersistenceState,
 };
 use bevy::prelude::*;
 
@@ -38,10 +37,8 @@ pub(crate) fn attach_terminal_session(
 /// the missing terminal id and despawns the now-stale panel/frame entities plus presentation-store
 /// entry.
 pub(crate) fn remove_terminal_with_projection(
-    _commands: &mut Commands,
     terminal_manager: &mut TerminalManager,
     focus_state: &mut TerminalFocusState,
-    _presentation_store: &mut TerminalPresentationStore,
     terminal_id: TerminalId,
 ) {
     let _ = terminal_manager.remove_terminal(terminal_id);
@@ -60,11 +57,9 @@ pub(crate) fn remove_terminal_with_projection(
 /// does not choose replacement focus or mutate visibility/view policy; that policy belongs to the
 /// app-layer use case that called it.
 pub(crate) fn kill_active_terminal_session_and_remove(
-    commands: &mut Commands,
     time: &Time,
     terminal_manager: &mut TerminalManager,
     focus_state: &mut TerminalFocusState,
-    presentation_store: &mut TerminalPresentationStore,
     runtime_spawner: &TerminalRuntimeSpawner,
     session_persistence: &mut TerminalSessionPersistenceState,
 ) -> Result<Option<(TerminalId, String)>, String> {
@@ -89,13 +84,7 @@ pub(crate) fn kill_active_terminal_session_and_remove(
         ));
     }
 
-    remove_terminal_with_projection(
-        commands,
-        terminal_manager,
-        focus_state,
-        presentation_store,
-        active_id,
-    );
+    remove_terminal_with_projection(terminal_manager, focus_state, active_id);
     #[cfg(test)]
     terminal_manager.replace_test_focus_state(focus_state);
     mark_terminal_sessions_dirty(session_persistence, Some(time));

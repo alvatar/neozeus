@@ -90,21 +90,9 @@ pub(crate) struct ThreadPaneUiState;
 #[derive(Resource, Clone, Debug, Default, PartialEq)]
 pub(crate) struct DebugToolbarUiState;
 
-#[cfg(test)]
-#[derive(Clone, Debug, Default, PartialEq)]
-pub(crate) enum HudModuleModel {
-    #[default]
-    DebugToolbar,
-    AgentList(AgentListUiState),
-    ConversationList(ConversationListUiState),
-    ThreadPane,
-}
-
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct HudModuleInstance {
     pub(crate) shell: HudModuleShell,
-    #[cfg(test)]
-    pub(crate) model: HudModuleModel,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -131,7 +119,7 @@ impl HudLayoutState {
 
     /// Returns mutable access to one retained module instance.
     ///
-    /// Systems that mutate shell/model state go through this helper.
+    /// Systems that mutate shell state go through this helper.
     pub(crate) fn get_mut(&mut self, id: HudWidgetKey) -> Option<&mut HudModuleInstance> {
         self.modules.get_mut(&id)
     }
@@ -184,7 +172,7 @@ impl HudLayoutState {
         self.dirty_layout = true;
     }
 
-    /// Restores a module to its baked-in default shell/model state.
+    /// Restores a module to its baked-in default shell state.
     ///
     /// Resetting also brings the module to the front and marks layout dirty so persistence/rendering
     /// will pick up the change.
@@ -561,16 +549,6 @@ pub(crate) fn default_hud_module_instance(definition: &HudWidgetDefinition) -> H
             current_rect: definition.default_rect,
             target_alpha: if definition.default_enabled { 1.0 } else { 0.0 },
             current_alpha: if definition.default_enabled { 1.0 } else { 0.0 },
-        },
-        #[cfg(test)]
-        model: match definition.key {
-            HudWidgetKey::DebugToolbar => HudModuleModel::DebugToolbar,
-            HudWidgetKey::AgentList => HudModuleModel::AgentList(AgentListUiState::default()),
-            HudWidgetKey::ConversationList => {
-                HudModuleModel::ConversationList(ConversationListUiState::default())
-            }
-            HudWidgetKey::ThreadPane => HudModuleModel::ThreadPane,
-            _ => unreachable!("unknown widget definition key"),
         },
     }
 }

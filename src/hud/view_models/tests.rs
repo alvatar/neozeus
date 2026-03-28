@@ -70,5 +70,6 @@ fn sync_hud_view_models_derives_agent_rows_and_threads() {
 
     let composer = world.resource::<ComposerView>();
     assert!(composer.visible);
+    assert_eq!(composer.title.as_deref(), Some("Message alpha"));
     assert_eq!(composer.text, "hello");
 }

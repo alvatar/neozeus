@@ -1,5 +1,12 @@
+mod layout;
+
 use crate::agents::AgentId;
 use std::collections::BTreeMap;
+
+pub(crate) use layout::{
+    message_box_action_at, message_box_action_buttons, message_box_rect, task_dialog_action_at,
+    task_dialog_action_buttons, task_dialog_rect, MessageBoxAction, TaskDialogAction,
+};
 
 const TEXT_EDITOR_KILL_RING_LIMIT: usize = 32;
 

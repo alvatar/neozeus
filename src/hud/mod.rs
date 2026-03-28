@@ -3,8 +3,6 @@ mod bloom;
 mod capture;
 mod compositor;
 mod input;
-mod message_box;
-mod messages;
 mod modules;
 mod persistence;
 mod render;
@@ -28,20 +26,12 @@ pub(crate) use compositor::{
     HudOffscreenCompositor,
 };
 pub(crate) use input::{handle_hud_module_shortcuts, handle_hud_pointer_input};
-pub(crate) use message_box::{
-    message_box_action_at, message_box_action_buttons, message_box_rect, task_dialog_action_at,
-    task_dialog_action_buttons, task_dialog_rect, HudMessageBoxAction, HudTaskDialogAction,
-};
-#[cfg(test)]
-pub(crate) use messages::HudIntent;
 pub(crate) use persistence::{save_hud_layout_if_dirty, HudPersistenceState};
 pub(crate) use render::{
     render_hud_modal_scene, render_hud_scene, HudModalCameraMarker, HudModalVectorSceneMarker,
     HudVectorSceneMarker, HUD_MODAL_CAMERA_ORDER, HUD_MODAL_RENDER_LAYER,
 };
 pub(crate) use setup::{append_hud_log, hud_needs_redraw, setup_hud, sync_structural_hud_layout};
-#[cfg(test)]
-pub(crate) use state::HudModuleModel;
 pub(crate) use state::{
     default_hud_module_instance, docked_agent_list_rect, AgentListUiState, ConversationListUiState,
     DebugToolbarUiState, HudDragState, HudInputCaptureState, HudLayoutState, HudRect,
@@ -62,9 +52,8 @@ pub(crate) use {
         HUD_COMPOSITE_RENDER_LAYER,
     },
     modules::{
-        agent_row_rect, agent_rows, debug_toolbar_buttons,
-        handle_pointer_click_legacy as dispatch_hud_pointer_click,
-        handle_scroll_legacy as dispatch_hud_scroll, AgentListRowSection,
+        agent_row_rect, agent_rows, debug_toolbar_buttons, handle_pointer_click, handle_scroll,
+        AgentListRowSection,
     },
     state::{HudModalState, HudState},
     view_models::{AgentListRowView, ConversationListRowView},
