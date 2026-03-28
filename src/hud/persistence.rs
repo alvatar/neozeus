@@ -1,7 +1,3 @@
-#[cfg(test)]
-use super::state::default_hud_module_instance;
-#[cfg(test)]
-use super::widgets::HudWidgetDefinition;
 use super::{
     setup::append_hud_log,
     state::{HudLayoutState, HudRect},
@@ -329,30 +325,6 @@ pub(crate) fn save_hud_layout_if_dirty(
     }
     layout_state.dirty_layout = false;
     persistence_state.dirty_since_secs = None;
-}
-
-/// Applies persisted module enablement/rect overrides onto a set of module definitions.
-///
-/// This helper is test-only because production startup applies persisted state while constructing the
-/// real HUD resources directly.
-#[cfg(test)]
-pub(crate) fn apply_persisted_layout(
-    definitions: &[HudWidgetDefinition],
-    persisted: &PersistedHudState,
-) -> HudLayoutState {
-    let mut hud_state = HudLayoutState::default();
-    for definition in definitions {
-        let mut module = default_hud_module_instance(definition);
-        if let Some(saved) = persisted.modules.get(&definition.key) {
-            module.shell.enabled = saved.enabled;
-            module.shell.target_rect = saved.rect;
-            module.shell.current_rect = saved.rect;
-            module.shell.target_alpha = if saved.enabled { 1.0 } else { 0.0 };
-            module.shell.current_alpha = module.shell.target_alpha;
-        }
-        hud_state.insert(definition.key, module);
-    }
-    hud_state
 }
 
 #[cfg(test)]
