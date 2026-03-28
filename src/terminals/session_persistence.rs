@@ -277,7 +277,7 @@ fn parse_v2_terminal_sessions(text: &str) -> PersistedTerminalSessions {
 ///
 /// Unknown versions are logged and treated as an empty persistence file rather than as a hard error,
 /// which keeps startup resilient to corrupted or future-version files.
-pub(crate) fn parse_persisted_terminal_sessions(text: &str) -> PersistedTerminalSessions {
+fn parse_persisted_terminal_sessions(text: &str) -> PersistedTerminalSessions {
     let version_line = text
         .lines()
         .find(|line| !line.trim().is_empty())
