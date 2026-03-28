@@ -1,4 +1,4 @@
-use crate::{agents::AgentId, hud::HudWidgetKey, ui::ComposerMode};
+use crate::{agents::AgentId, composer::ComposerMode, hud::HudWidgetKey};
 use bevy::prelude::Message;
 
 #[derive(Clone, Debug, PartialEq, Eq)]

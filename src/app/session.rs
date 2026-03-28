@@ -1,4 +1,4 @@
-use crate::{agents::AgentId, terminals::TerminalId, ui::ComposerState};
+use crate::{agents::AgentId, composer::ComposerState, terminals::TerminalId};
 use bevy::prelude::Resource;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

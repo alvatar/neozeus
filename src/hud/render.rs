@@ -1,10 +1,10 @@
 use crate::{
     app::AppSessionState,
-    startup::StartupConnectState,
-    ui::{
+    composer::{
         message_box_action_buttons, message_box_rect, task_dialog_action_buttons, task_dialog_rect,
         TextEditorState,
     },
+    startup::StartupConnectState,
 };
 
 use super::{

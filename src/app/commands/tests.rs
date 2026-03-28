@@ -1,5 +1,5 @@
 use super::{AppCommand, ComposerCommand, ComposerRequest};
-use crate::{agents::AgentId, ui::ComposerMode};
+use crate::{agents::AgentId, composer::ComposerMode};
 
 /// Verifies that app command can wrap composer request.
 #[test]

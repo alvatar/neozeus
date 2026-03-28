@@ -252,12 +252,12 @@ pub(super) fn insert_hud_resources(
             (message_box_visible || task_dialog_visible).then_some(crate::agents::AgentId(1))
         });
     app_session.composer.session = if app_session.composer.message_editor.visible {
-        default_agent.map(|agent_id| crate::ui::ComposerSession {
-            mode: crate::ui::ComposerMode::Message { agent_id },
+        default_agent.map(|agent_id| crate::composer::ComposerSession {
+            mode: crate::composer::ComposerMode::Message { agent_id },
         })
     } else if app_session.composer.task_editor.visible {
-        default_agent.map(|agent_id| crate::ui::ComposerSession {
-            mode: crate::ui::ComposerMode::TaskEdit { agent_id },
+        default_agent.map(|agent_id| crate::composer::ComposerSession {
+            mode: crate::composer::ComposerMode::TaskEdit { agent_id },
         })
     } else {
         None
