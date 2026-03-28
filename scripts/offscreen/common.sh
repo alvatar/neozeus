@@ -27,7 +27,7 @@ neozeus_offscreen_detect_resolution() {
             fi
         fi
     fi
-    printf '1400 900\n'
+    printf '1920 1200\n'
 }
 
 neozeus_offscreen_prepare_env() {

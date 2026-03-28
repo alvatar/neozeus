@@ -16,8 +16,8 @@ use bevy::{
 };
 use std::{env, path::PathBuf};
 
-const DEFAULT_OUTPUT_WIDTH: u32 = 1400;
-const DEFAULT_OUTPUT_HEIGHT: u32 = 900;
+const DEFAULT_OUTPUT_WIDTH: u32 = 1920;
+const DEFAULT_OUTPUT_HEIGHT: u32 = 1200;
 const FINAL_FRAME_FORMAT: TextureFormat = TextureFormat::Rgba8UnormSrgb;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

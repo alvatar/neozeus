@@ -40,7 +40,8 @@ pub(crate) use notes::{
 pub(crate) use presentation::{
     active_terminal_layout_for_dimensions, sync_active_terminal_dimensions,
     sync_terminal_hud_surface, sync_terminal_panel_frames, sync_terminal_presentations,
-    sync_terminal_projection_entities, terminal_texture_screen_size,
+    sync_terminal_projection_entities, target_active_terminal_dimensions,
+    terminal_texture_screen_size,
 };
 pub(crate) use presentation_state::{
     PresentedTerminal, TerminalCameraMarker, TerminalDisplayMode, TerminalHudSurfaceMarker,
@@ -66,6 +67,8 @@ pub(crate) use types::{
     PTY_OUTPUT_BATCH_WINDOW, PTY_OUTPUT_WAIT_TIMEOUT,
 };
 
+#[cfg(test)]
+pub(crate) use ansi_surface::build_surface;
 #[cfg(test)]
 pub(crate) use backend::{resolve_alacritty_color, send_command_payload_bytes, xterm_indexed_rgb};
 #[cfg(test)]

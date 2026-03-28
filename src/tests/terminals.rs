@@ -13,7 +13,7 @@ use crate::{
     startup::StartupLoadingState,
     terminals::{
         active_terminal_cell_size, active_terminal_dimensions, active_terminal_layout,
-        active_terminal_viewport, blend_rgba_in_place, create_terminal_image,
+        active_terminal_viewport, blend_rgba_in_place, build_surface, create_terminal_image,
         find_kitty_config_path_with, initialize_terminal_text_renderer_with_locale, is_emoji_like,
         is_private_use_like, parse_kitty_config_file, pixel_perfect_cell_size,
         pixel_perfect_terminal_logical_size, poll_terminal_snapshots, rasterize_terminal_glyph,
@@ -32,7 +32,11 @@ use crate::{
         TerminalViewState, PERSISTENT_SESSION_PREFIX, VERIFIER_SESSION_PREFIX,
     },
 };
-use alacritty_terminal::vte::ansi::{Color as AnsiColor, NamedColor};
+use alacritty_terminal::{
+    event::VoidListener,
+    term::{Config as TermConfig, Term},
+    vte::ansi::{Color as AnsiColor, NamedColor, Processor as AnsiProcessor, StdSyncHandler},
+};
 use bevy::{ecs::system::RunSystemOnce, prelude::*, window::PrimaryWindow};
 use bevy_egui::egui;
 use std::{collections::BTreeSet, fs, sync::Arc, time::Duration};
@@ -202,6 +206,73 @@ fn render_surface_to_terminal_image(surface: TerminalSurface) -> (Image, Termina
     (image, texture_state)
 }
 
+fn render_surface_to_terminal_image_with_presentation_state(
+    surface: TerminalSurface,
+    presentation_state: TerminalTextureState,
+) -> (Image, TerminalTextureState) {
+    let report = configured_terminal_font_report();
+    let mut renderer = TerminalTextRenderer::default();
+    initialize_test_terminal_text_renderer(&report, &mut renderer);
+    let font_state = configured_test_font_state(report, &mut renderer);
+
+    let window = Window {
+        resolution: (1400, 900).into(),
+        ..Default::default()
+    };
+    let hud_state = HudState::default();
+    let view_state = TerminalViewState::default();
+
+    let (bridge, _) = test_bridge();
+    let mut manager = TerminalManager::default();
+    let id = manager.create_terminal(bridge);
+    manager.clear_active_terminal();
+    let terminal = manager.get_mut(id).expect("terminal should exist");
+    terminal.snapshot.surface = Some(surface);
+    terminal.surface_revision = 1;
+    terminal.pending_damage = Some(TerminalDamage::Full);
+
+    let mut images = Assets::<Image>::default();
+    let image = images.add(create_terminal_image(presentation_state.texture_size));
+    let mut presentation_store = TerminalPresentationStore::default();
+    presentation_store.register(
+        id,
+        PresentedTerminal {
+            image: image.clone(),
+            texture_state: presentation_state.clone(),
+            desired_texture_state: presentation_state.clone(),
+            display_mode: TerminalDisplayMode::Smooth,
+            uploaded_revision: 1,
+            panel_entity: Entity::PLACEHOLDER,
+            frame_entity: Entity::PLACEHOLDER,
+        },
+    );
+
+    let mut world = World::default();
+    insert_terminal_manager_resources(&mut world, manager);
+    world.insert_resource(presentation_store);
+    world.insert_resource(font_state);
+    world.insert_resource(view_state);
+    insert_test_hud_state(&mut world, hud_state);
+    world.insert_resource(crate::terminals::TerminalGlyphCache::default());
+    world.insert_resource(renderer);
+    world.insert_resource(images);
+    world.spawn((window, PrimaryWindow));
+
+    world
+        .run_system_once(sync_terminal_texture)
+        .expect("texture sync should succeed");
+
+    let store = world.resource::<TerminalPresentationStore>();
+    let presented = store.get(id).expect("missing presented terminal");
+    let texture_state = presented.texture_state.clone();
+    let images = world.resource::<Assets<Image>>();
+    let image = images
+        .get(&presented.image)
+        .expect("rendered image should exist")
+        .clone();
+    (image, texture_state)
+}
+
 /// Counts how many pixels inside a horizontal image band differ from the terminal default background
 /// color.
 fn count_non_background_pixels_in_band(image: &Image, y_start: u32, y_end: u32) -> usize {
@@ -222,6 +293,83 @@ fn count_non_background_pixels_in_band(image: &Image, y_start: u32, y_end: u32) 
         }
     }
     count
+}
+
+fn read_binary_ppm(path: &std::path::Path) -> (u32, u32, Vec<u8>) {
+    let bytes = fs::read(path).expect("ppm should read");
+    let mut idx = 0usize;
+    let mut tokens = Vec::new();
+    while tokens.len() < 4 {
+        while idx < bytes.len() && bytes[idx].is_ascii_whitespace() {
+            idx += 1;
+        }
+        if idx >= bytes.len() {
+            break;
+        }
+        if bytes[idx] == b'#' {
+            while idx < bytes.len() && bytes[idx] != b'\n' {
+                idx += 1;
+            }
+            continue;
+        }
+        let start = idx;
+        while idx < bytes.len() && !bytes[idx].is_ascii_whitespace() {
+            idx += 1;
+        }
+        tokens.push(String::from_utf8(bytes[start..idx].to_vec()).expect("ppm token utf8"));
+    }
+    assert_eq!(tokens.first().map(String::as_str), Some("P6"));
+    let width = tokens[1].parse::<u32>().expect("ppm width");
+    let height = tokens[2].parse::<u32>().expect("ppm height");
+    assert_eq!(tokens[3].parse::<u32>().expect("ppm max value"), 255);
+    while idx < bytes.len() && bytes[idx].is_ascii_whitespace() {
+        idx += 1;
+    }
+    (width, height, bytes[idx..].to_vec())
+}
+
+fn crop_rgb_rows(data: &[u8], width: u32, x: u32, y: u32, crop_w: u32, crop_h: u32) -> Vec<u8> {
+    let stride = width as usize * 3;
+    let mut out = Vec::with_capacity((crop_w * crop_h * 3) as usize);
+    for row in y..y + crop_h {
+        let start = row as usize * stride + x as usize * 3;
+        let end = start + crop_w as usize * 3;
+        out.extend_from_slice(&data[start..end]);
+    }
+    out
+}
+
+fn crop_image_rgb(image: &Image, x: u32, y: u32, crop_w: u32, crop_h: u32) -> Vec<u8> {
+    let width = image.texture_descriptor.size.width as usize;
+    let data = image.data.as_ref().expect("image data should exist");
+    let stride = width * 4;
+    let mut out = Vec::with_capacity((crop_w * crop_h * 3) as usize);
+    for row in y..y + crop_h {
+        let start = row as usize * stride + x as usize * 4;
+        let end = start + crop_w as usize * 4;
+        for pixel in data[start..end].chunks_exact(4) {
+            out.extend_from_slice(&pixel[..3]);
+        }
+    }
+    out
+}
+
+fn surface_from_pi_screen_reference_ansi() -> TerminalSurface {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/assets/pi-screen-reference-20260328.ansi");
+    let bytes = fs::read(path).expect("pi screen ansi should exist");
+    let dimensions = crate::terminals::TerminalDimensions {
+        cols: 106,
+        rows: 38,
+    };
+    let config = TermConfig {
+        scrolling_history: 5000,
+        ..TermConfig::default()
+    };
+    let mut terminal = Term::new(config, &dimensions, VoidListener);
+    let mut parser = AnsiProcessor::<StdSyncHandler>::new();
+    parser.advance(&mut terminal, &bytes);
+    build_surface(&terminal)
 }
 
 /// Verifies one representative xterm indexed-color cube entry so palette math regressions show up
@@ -1091,9 +1239,10 @@ fn sync_terminal_texture_promotes_active_terminal_once_resized_surface_arrives()
     assert_eq!(presented.uploaded_revision, 2);
 }
 
-/// Verifies that viewport changes no longer trigger active-terminal PTY resize requests.
+/// Verifies that the active PTY is resized to the fixed-cell grid that fits the remaining HUD
+/// viewport, independent of zoom distance.
 #[test]
-fn active_terminal_resize_requests_follow_zoom_distance() {
+fn active_terminal_resize_requests_follow_viewport_grid_policy() {
     let client = Arc::new(FakeDaemonClient::default());
     client
         .sessions
@@ -1138,7 +1287,7 @@ fn active_terminal_resize_requests_follow_zoom_distance() {
         .unwrap();
 
     let requests = client.resize_requests.lock().unwrap().clone();
-    assert!(requests.is_empty());
+    assert_eq!(requests, vec![("neozeus-session-1".into(), 118, 54)]);
 }
 
 /// Verifies the mailbox coalescing rule that draining returns only the newest frame and newest status
@@ -1452,6 +1601,52 @@ fn standalone_text_renderer_rasterizes_ascii_glyph() {
         &font_state,
     );
     assert_glyph_has_visible_pixels(&glyph);
+}
+
+/// Verifies every non-empty character cell in the provided `pi` screenshot crop exactly.
+#[test]
+fn rendered_pi_screen_matches_reference_per_character_pixels() {
+    let reference_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/assets/pi-screen-reference-20260328.ppm");
+    let (width, height, reference) = read_binary_ppm(&reference_path);
+    assert_eq!((width, height), (1378, 1064));
+
+    let cell_size = UVec2::new(13, 28);
+    let surface = surface_from_pi_screen_reference_ansi();
+    let (image, texture_state) = render_surface_to_terminal_image_with_presentation_state(
+        surface,
+        TerminalTextureState {
+            texture_size: UVec2::new(width, height),
+            cell_size,
+        },
+    );
+    assert_eq!(texture_state.cell_size, cell_size);
+    let actual = crop_image_rgb(&image, 0, 0, width, height);
+    let reference_bg = [reference[0], reference[1], reference[2]];
+
+    let mut ppm = Vec::with_capacity(actual.len() + 64);
+    ppm.extend_from_slice(format!("P6\n{} {}\n255\n", width, height).as_bytes());
+    ppm.extend_from_slice(&actual);
+    fs::write("/tmp/neozeus-pi-screen-actual.ppm", ppm).expect("actual ppm should write");
+
+    for row in 0..(height / cell_size.y) {
+        for col in 0..(width / cell_size.x) {
+            let x = col * cell_size.x;
+            let y = row * cell_size.y;
+            let expected = crop_rgb_rows(&reference, width, x, y, cell_size.x, cell_size.y);
+            if expected
+                .chunks_exact(3)
+                .all(|pixel| [pixel[0], pixel[1], pixel[2]] == reference_bg)
+            {
+                continue;
+            }
+            let actual_cell = crop_rgb_rows(&actual, width, x, y, cell_size.x, cell_size.y);
+            assert_eq!(
+                actual_cell, expected,
+                "pixel mismatch for screenshot cell row={row} col={col}"
+            );
+        }
+    }
 }
 
 /// Verifies that texture sync paints visible glyph pixels on the last terminal row, which is a

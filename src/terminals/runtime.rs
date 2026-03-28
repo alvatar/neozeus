@@ -140,6 +140,16 @@ impl TerminalRuntimeSpawner {
         self.daemon.client().create_session(prefix)
     }
 
+    /// Asks the daemon to resize one named session to the requested terminal grid.
+    pub(crate) fn resize_session(
+        &self,
+        session_id: &str,
+        cols: usize,
+        rows: usize,
+    ) -> Result<(), String> {
+        self.daemon.client().resize_session(session_id, cols, rows)
+    }
+
     /// Asks the daemon to kill one named session.
     ///
     /// This is a thin delegation method kept on the spawner so the rest of the app can treat the
