@@ -21,9 +21,10 @@ use crate::{
         resolve_daemon_socket_path_with, resolve_terminal_font_report_for_family,
         resolve_terminal_font_report_for_path, send_command_payload_bytes, snap_to_pixel_grid,
         sync_active_terminal_dimensions, sync_terminal_panel_frames, sync_terminal_presentations,
-        sync_terminal_projection_entities, sync_terminal_texture, terminal_texture_screen_size,
-        write_client_message, write_server_message, xterm_indexed_rgb, ClientMessage, DaemonEvent,
-        DaemonRequest, DaemonServerHandle, KittyFontConfig, PresentedTerminal, ServerMessage,
+        sync_terminal_projection_entities, sync_terminal_texture,
+        target_active_terminal_dimensions, terminal_texture_screen_size, write_client_message,
+        write_server_message, xterm_indexed_rgb, ClientMessage, DaemonEvent, DaemonRequest,
+        DaemonServerHandle, KittyFontConfig, PresentedTerminal, ServerMessage,
         SocketTerminalDaemonClient, TerminalCommand, TerminalDaemonClient, TerminalDamage,
         TerminalDisplayMode, TerminalFontRole, TerminalFontState, TerminalFrameUpdate,
         TerminalGlyphCacheKey, TerminalLifecycle, TerminalManager, TerminalPanel,
@@ -101,19 +102,61 @@ fn configured_test_font_state(
     }
 }
 
-#[test]
-fn print_configured_test_font_metrics() {
+fn measured_font_state_for_size(font_size_px: f32) -> TerminalFontState {
     let report = configured_terminal_font_report();
     let mut renderer = TerminalTextRenderer::default();
     initialize_test_terminal_text_renderer(&report, &mut renderer);
-    let font_state = configured_test_font_state(report, &mut renderer);
-    println!(
-        "font_size={} baseline={} cell={}x{}",
-        font_state.raster.font_size_px,
-        font_state.raster.baseline_offset_px,
-        font_state.cell_metrics.cell_width,
-        font_state.cell_metrics.cell_height
+    let cell_metrics = renderer
+        .font_system
+        .as_mut()
+        .and_then(|fs| crate::terminals::measure_monospace_cell(fs, font_size_px))
+        .expect("font metrics should be measurable");
+    TerminalFontState {
+        report: Some(Ok(report)),
+        raster: crate::terminals::TerminalFontRasterConfig {
+            font_size_px,
+            baseline_offset_px: configured_test_font_raster().baseline_offset_px,
+        },
+        cell_metrics,
+    }
+}
+
+#[test]
+fn measured_cell_metrics_grow_with_font_size() {
+    let smaller = measured_font_state_for_size(16.0);
+    let larger = measured_font_state_for_size(21.6);
+
+    assert!(larger.cell_metrics.cell_width > smaller.cell_metrics.cell_width);
+    assert!(larger.cell_metrics.cell_height > smaller.cell_metrics.cell_height);
+}
+
+#[test]
+fn larger_measured_cells_reduce_terminal_grid_in_same_viewport() {
+    let window = Window {
+        resolution: (1400, 900).into(),
+        ..Default::default()
+    };
+    let mut hud_state = HudState::default();
+    hud_state.insert(
+        HudWidgetKey::AgentList,
+        crate::hud::default_hud_module_instance(&crate::hud::HUD_MODULE_DEFINITIONS[1]),
     );
+    let rect = crate::hud::docked_agent_list_rect(&window);
+    let agent_list = hud_state.get_mut(HudWidgetKey::AgentList).unwrap();
+    agent_list.shell.enabled = true;
+    agent_list.shell.current_rect = rect;
+    agent_list.shell.target_rect = rect;
+
+    let smaller = measured_font_state_for_size(16.0);
+    let larger = measured_font_state_for_size(21.6);
+
+    let smaller_grid =
+        target_active_terminal_dimensions(&window, &hud_state.layout_state(), &smaller);
+    let larger_grid =
+        target_active_terminal_dimensions(&window, &hud_state.layout_state(), &larger);
+
+    assert!(larger_grid.cols < smaller_grid.cols);
+    assert!(larger_grid.rows < smaller_grid.rows);
 }
 
 /// Writes colored single-width text into a terminal surface row for rasterization tests.
