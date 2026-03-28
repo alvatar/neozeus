@@ -3,6 +3,8 @@ use crate::{
     terminals::TerminalCameraMarker,
     verification::VerificationScenarioConfig,
 };
+
+use super::bootstrap::resolve_window_scale_factor;
 use bevy::{
     app::AppExit,
     asset::RenderAssetUsages,
@@ -77,7 +79,7 @@ impl AppOutputConfig {
                 env::var("NEOZEUS_OFFSCREEN_HEIGHT").ok().as_deref(),
                 DEFAULT_OUTPUT_HEIGHT,
             ),
-            scale_factor_override: crate::app::resolve_window_scale_factor(
+            scale_factor_override: resolve_window_scale_factor(
                 env::var("NEOZEUS_WINDOW_SCALE_FACTOR").ok().as_deref(),
             ),
         }

@@ -6,7 +6,7 @@ use super::{
     },
     debug::{append_debug_log, note_terminal_error, with_debug_stats, TerminalDebugStats},
     mailbox::TerminalUpdateMailbox,
-    types::{TerminalCommand, TerminalRuntimeState, TerminalUpdate},
+    types::{TerminalCommand, TerminalRuntimeState, TerminalSnapshot, TerminalUpdate},
 };
 use bevy::{
     prelude::Resource,
@@ -280,7 +280,7 @@ fn push_initial_snapshot(
     update_mailbox: &Arc<TerminalUpdateMailbox>,
     debug_stats: &Arc<Mutex<TerminalDebugStats>>,
     notifier: &RuntimeNotifier,
-    snapshot: crate::terminals::TerminalSnapshot,
+    snapshot: TerminalSnapshot,
 ) {
     let push = update_mailbox.push(TerminalUpdate::Status {
         runtime: snapshot.runtime,

@@ -3,14 +3,14 @@ use crate::hud::{HudLayoutState, HudWidgetKey, TerminalVisibilityPolicy, Termina
 use super::{
     fonts::{TerminalCellMetrics, TerminalFontState},
     presentation_state::{
-        TerminalDisplayMode, TerminalHudSurfaceMarker, TerminalPanel, TerminalPanelFrame,
-        TerminalPanelSprite, TerminalPresentation, TerminalPresentationStore, TerminalTextureState,
-        TerminalViewState,
+        PresentedTerminal, TerminalDisplayMode, TerminalHudSurfaceMarker, TerminalPanel,
+        TerminalPanelFrame, TerminalPanelSprite, TerminalPresentation, TerminalPresentationStore,
+        TerminalTextureState, TerminalViewState,
     },
     raster::create_terminal_image,
-    registry::{TerminalFocusState, TerminalId, TerminalManager},
+    registry::{ManagedTerminal, TerminalFocusState, TerminalId, TerminalManager},
     runtime::TerminalRuntimeSpawner,
-    types::TerminalDimensions,
+    types::{TerminalDimensions, TerminalLifecycle, TerminalSurface},
 };
 use bevy::{prelude::*, window::PrimaryWindow};
 
@@ -97,7 +97,7 @@ pub(crate) fn spawn_terminal_presentation(
     let fallback = TerminalCellMetrics::default();
     presentation_store.register(
         id,
-        crate::terminals::PresentedTerminal {
+        PresentedTerminal {
             image: image_handle,
             texture_state: TerminalTextureState {
                 texture_size: UVec2::ONE,
@@ -295,8 +295,8 @@ fn active_layout_texture_state(layout: ActiveTerminalLayout) -> TerminalTextureS
 /// Existing desired/current texture state wins when available; otherwise the helper falls back to
 /// either the known surface size or the fixed startup placeholder dimensions.
 fn startup_placeholder_texture_state(
-    surface: Option<&crate::terminals::TerminalSurface>,
-    presented_terminal: &crate::terminals::PresentedTerminal,
+    surface: Option<&TerminalSurface>,
+    presented_terminal: &PresentedTerminal,
 ) -> TerminalTextureState {
     // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
     if presented_terminal.desired_texture_state.texture_size != UVec2::ZERO
@@ -327,8 +327,8 @@ fn startup_placeholder_texture_state(
 /// Returns whether the active terminal already has the exact surface and uploaded texture state the
 /// focused layout currently expects.
 fn active_terminal_ready_for_presentation(
-    terminal: &crate::terminals::registry::ManagedTerminal,
-    presented_terminal: &crate::terminals::PresentedTerminal,
+    terminal: &ManagedTerminal,
+    presented_terminal: &PresentedTerminal,
     layout: ActiveTerminalLayout,
 ) -> bool {
     let Some(surface) = terminal.snapshot.surface.as_ref() else {
@@ -343,8 +343,8 @@ fn active_terminal_ready_for_presentation(
 /// Returns whether a terminal has any uploaded frame that is coherent enough to be shown, even if it
 /// does not yet match the latest active-layout contract exactly.
 fn terminal_has_presentable_uploaded_frame(
-    terminal: &crate::terminals::registry::ManagedTerminal,
-    presented_terminal: &crate::terminals::PresentedTerminal,
+    terminal: &ManagedTerminal,
+    presented_terminal: &PresentedTerminal,
 ) -> bool {
     terminal.snapshot.surface.is_some()
         && presented_terminal.uploaded_revision == terminal.surface_revision
@@ -822,14 +822,10 @@ pub(crate) fn sync_terminal_panel_frames(
             )
         } else {
             let color = match terminal.snapshot.runtime.lifecycle {
-                crate::terminals::TerminalLifecycle::Exited { .. } => {
-                    Color::srgba(0.90, 0.72, 0.18, 0.92)
-                }
-                crate::terminals::TerminalLifecycle::Disconnected => {
-                    Color::srgba(0.86, 0.20, 0.20, 0.92)
-                }
-                crate::terminals::TerminalLifecycle::Failed => Color::srgba(0.96, 0.10, 0.10, 0.94),
-                crate::terminals::TerminalLifecycle::Running => unreachable!(),
+                TerminalLifecycle::Exited { .. } => Color::srgba(0.90, 0.72, 0.18, 0.92),
+                TerminalLifecycle::Disconnected => Color::srgba(0.86, 0.20, 0.20, 0.92),
+                TerminalLifecycle::Failed => Color::srgba(0.96, 0.10, 0.10, 0.94),
+                TerminalLifecycle::Running => unreachable!(),
             };
             (INACTIVE_RUNTIME_FRAME_OUTSET, color)
         };

@@ -7,10 +7,15 @@ use super::{
     box_drawing::{is_box_drawing, rasterize_box_drawing},
     debug::append_debug_log,
     fonts::{is_emoji_like, is_private_use_like, TerminalFontState, TerminalTextRenderer},
-    presentation::active_terminal_layout_for_dimensions,
-    presentation_state::{TerminalPresentationStore, TerminalTextureState, TerminalViewState},
+    presentation::{active_terminal_layout_for_dimensions, target_active_terminal_dimensions},
+    presentation_state::{
+        PresentedTerminal, TerminalPresentationStore, TerminalTextureState, TerminalViewState,
+    },
     registry::{TerminalFocusState, TerminalManager},
-    types::{TerminalDamage, TerminalDimensions, TerminalSurface},
+    types::{
+        TerminalCellContent, TerminalCursor, TerminalCursorShape, TerminalDamage,
+        TerminalDimensions, TerminalSurface,
+    },
 };
 use bevy::{
     asset::RenderAssetUsages,
@@ -123,7 +128,7 @@ fn can_render_active_layout(surface: &TerminalSurface, dimensions: TerminalDimen
 /// Before the first real upload, placeholder texture state is treated as untrustworthy and replaced by
 /// the surface-derived default.
 fn cached_or_default_texture_state(
-    presented_terminal: &crate::terminals::PresentedTerminal,
+    presented_terminal: &PresentedTerminal,
     surface: &TerminalSurface,
     font_state: &TerminalFontState,
 ) -> TerminalTextureState {
@@ -181,11 +186,7 @@ pub(crate) fn sync_terminal_texture(
             &primary_window,
             &layout_state,
             &view_state,
-            crate::terminals::target_active_terminal_dimensions(
-                &primary_window,
-                &layout_state,
-                &font_state,
-            ),
+            target_active_terminal_dimensions(&primary_window, &layout_state, &font_state),
             &font_state,
         )
     });
@@ -415,11 +416,11 @@ fn repaint_terminal_pixels(
 
 /// Attempts to rasterize a box-drawing glyph without going through font shaping.
 fn try_rasterize_box_drawing(
-    content: &crate::terminals::TerminalCellContent,
+    content: &TerminalCellContent,
     cell_size: UVec2,
 ) -> Option<CachedTerminalGlyph> {
     let ch = match content {
-        crate::terminals::TerminalCellContent::Single(ch) if is_box_drawing(*ch) => *ch,
+        TerminalCellContent::Single(ch) if is_box_drawing(*ch) => *ch,
         _ => return None,
     };
     rasterize_box_drawing(ch, cell_size.x, cell_size.y)
@@ -431,7 +432,7 @@ fn try_rasterize_box_drawing(
 /// Emoji uses color-preserving rendering when an emoji fallback exists; private-use glyphs prefer the
 /// private-use fallback when available.
 fn select_terminal_font_role(
-    content: &crate::terminals::TerminalCellContent,
+    content: &TerminalCellContent,
     font_state: &TerminalFontState,
 ) -> (TerminalFontRole, bool) {
     if content.any_char(is_emoji_like) && font_state.has_emoji_font() {
@@ -612,7 +613,7 @@ fn fill_rect_in_buffer(
 fn draw_cursor_in_buffer(
     buffer: &mut [u8],
     stride: usize,
-    cursor: &crate::terminals::TerminalCursor,
+    cursor: &TerminalCursor,
     cell_size: UVec2,
 ) {
     // Build the geometry or layout decisions first, then emit the matching draw operations against the prepared state.
@@ -621,7 +622,7 @@ fn draw_cursor_in_buffer(
     let color = [cursor.color.r(), cursor.color.g(), cursor.color.b(), 160];
 
     match cursor.shape {
-        crate::terminals::TerminalCursorShape::Block => {
+        TerminalCursorShape::Block => {
             fill_alpha_rect_in_buffer(
                 buffer,
                 stride,
@@ -632,7 +633,7 @@ fn draw_cursor_in_buffer(
                 color,
             );
         }
-        crate::terminals::TerminalCursorShape::Underline => {
+        TerminalCursorShape::Underline => {
             let height = (cell_size.y / 8).max(1);
             fill_alpha_rect_in_buffer(
                 buffer,
@@ -644,7 +645,7 @@ fn draw_cursor_in_buffer(
                 [cursor.color.r(), cursor.color.g(), cursor.color.b(), 255],
             );
         }
-        crate::terminals::TerminalCursorShape::Beam => {
+        TerminalCursorShape::Beam => {
             let width = (cell_size.x / 10).max(1);
             fill_alpha_rect_in_buffer(
                 buffer,

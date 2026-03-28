@@ -25,9 +25,9 @@ use super::{
     commands::AppCommand,
     output::{
         sync_final_frame_output_target, AppOutputConfig, FinalFrameCaptureConfig,
-        FinalFrameOutputState,
+        FinalFrameOutputState, OutputMode,
     },
-    schedule::configure_app_schedule,
+    schedule::{configure_app_schedule, NeoZeusSet},
     session::AppSessionState,
 };
 use bevy::{
@@ -137,7 +137,7 @@ pub(crate) fn resolve_force_fallback_adapter(raw: Option<&str>) -> bool {
 /// real GPU when one is available.
 pub(crate) fn resolve_force_fallback_adapter_for(
     raw: Option<&str>,
-    _output_mode: crate::app::OutputMode,
+    _output_mode: OutputMode,
 ) -> bool {
     resolve_force_fallback_adapter(raw)
 }
@@ -150,7 +150,7 @@ pub(crate) fn resolve_force_fallback_adapter_for(
 /// stack. `NEOZEUS_DISABLE_PIPELINED_RENDERING` can explicitly override the auto policy.
 pub(crate) fn resolve_disable_pipelined_rendering_for(
     raw: Option<&str>,
-    output_mode: crate::app::OutputMode,
+    output_mode: OutputMode,
     session_type: Option<&str>,
     wayland_display: Option<&str>,
 ) -> bool {
@@ -188,7 +188,7 @@ pub(crate) fn resolve_linux_window_backend(raw: Option<&str>) -> LinuxWindowBack
 
 /// Returns whether force x11 backend.
 pub(crate) fn should_force_x11_backend(
-    output_mode: crate::app::OutputMode,
+    output_mode: OutputMode,
     backend: LinuxWindowBackend,
     session_type: Option<&str>,
     wayland_display: Option<&str>,
@@ -218,7 +218,7 @@ pub(crate) fn should_force_x11_backend(
 }
 
 /// Handles apply linux window backend policy.
-fn apply_linux_window_backend_policy(output_mode: crate::app::OutputMode) -> bool {
+fn apply_linux_window_backend_policy(output_mode: OutputMode) -> bool {
     let force_x11 = should_force_x11_backend(
         output_mode,
         resolve_linux_window_backend(env::var("NEOZEUS_LINUX_WINDOW_BACKEND").ok().as_deref()),
@@ -498,8 +498,8 @@ fn configure_app(app: &mut App) -> Result<(), String> {
     app.add_systems(
         Update,
         sync_final_frame_output_target
-            .before(crate::app::NeoZeusSet::PresentTerminal)
-            .before(crate::app::NeoZeusSet::HudRender),
+            .before(NeoZeusSet::PresentTerminal)
+            .before(NeoZeusSet::HudRender),
     );
     Ok(())
 }

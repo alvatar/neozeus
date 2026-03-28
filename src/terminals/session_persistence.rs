@@ -1,7 +1,9 @@
 use crate::agents::{AgentCatalog, AgentRuntimeIndex};
 
 use super::{
-    daemon::is_persistent_session_name, debug::append_debug_log, registry::TerminalManager,
+    daemon::is_persistent_session_name,
+    debug::append_debug_log,
+    registry::{TerminalFocusState, TerminalManager},
 };
 use bevy::prelude::*;
 use std::{collections::BTreeSet, env, fs, path::PathBuf};
@@ -359,7 +361,7 @@ pub(crate) fn mark_terminal_sessions_dirty(
 /// produce the compact persisted record list.
 pub(crate) fn build_persisted_terminal_sessions(
     terminal_manager: &TerminalManager,
-    focus_state: &crate::terminals::TerminalFocusState,
+    focus_state: &TerminalFocusState,
     agent_catalog: &AgentCatalog,
     runtime_index: &AgentRuntimeIndex,
 ) -> PersistedTerminalSessions {
@@ -391,7 +393,7 @@ pub(crate) fn build_persisted_terminal_sessions(
 pub(crate) fn save_terminal_sessions_if_dirty(
     time: Res<Time>,
     terminal_manager: Res<TerminalManager>,
-    focus_state: Res<crate::terminals::TerminalFocusState>,
+    focus_state: Res<TerminalFocusState>,
     agent_catalog: Res<AgentCatalog>,
     runtime_index: Res<AgentRuntimeIndex>,
     mut persistence_state: ResMut<TerminalSessionPersistenceState>,

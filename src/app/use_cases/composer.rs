@@ -1,11 +1,12 @@
 use crate::{
-    app::AppSessionState,
     conversations::{
         mark_conversations_dirty, AgentTaskStore, ConversationPersistenceState, ConversationStore,
         MessageTransportAdapter,
     },
     ui::ComposerMode,
 };
+
+use super::super::{commands::ComposerRequest, session::AppSessionState};
 use bevy::window::RequestRedraw;
 
 use super::{send_message, set_task_text};
@@ -67,7 +68,7 @@ pub(crate) fn cancel_composer(
 
 /// Opens composer.
 pub(crate) fn open_composer(
-    request: &crate::app::ComposerRequest,
+    request: &ComposerRequest,
     app_session: &mut AppSessionState,
     runtime_index: &crate::agents::AgentRuntimeIndex,
     tasks: &AgentTaskStore,

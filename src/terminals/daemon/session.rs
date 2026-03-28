@@ -6,9 +6,9 @@ use super::super::{
     backend::{compute_terminal_damage, send_command_payload_bytes},
     pty_spawn::{spawn_pty, write_input},
     types::{
-        TerminalCommand, TerminalDamage, TerminalFrameUpdate, TerminalRuntimeState,
-        TerminalSnapshot, TerminalSurface, TerminalUpdate, PTY_OUTPUT_BATCH_BYTES,
-        PTY_OUTPUT_BATCH_WINDOW, PTY_OUTPUT_WAIT_TIMEOUT,
+        PtySession, TerminalCommand, TerminalDamage, TerminalDimensions, TerminalFrameUpdate,
+        TerminalRuntimeState, TerminalSnapshot, TerminalSurface, TerminalUpdate,
+        PTY_OUTPUT_BATCH_BYTES, PTY_OUTPUT_BATCH_WINDOW, PTY_OUTPUT_WAIT_TIMEOUT,
     },
 };
 use alacritty_terminal::{
@@ -70,7 +70,7 @@ impl DaemonSession {
     /// have something coherent to render before the PTY produces output.
     pub(crate) fn start(session_id: String, created_order: u64) -> Result<Arc<Self>, String> {
         // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
-        let crate::terminals::PtySession {
+        let PtySession {
             master,
             writer,
             child,
@@ -259,7 +259,7 @@ fn run_session_worker(
         }
     });
 
-    let dimensions = crate::terminals::TerminalDimensions {
+    let dimensions = TerminalDimensions {
         cols: usize::from(DEFAULT_COLS),
         rows: usize::from(DEFAULT_ROWS),
     };
@@ -527,7 +527,7 @@ fn resize_terminal(
             pixel_height: 0,
         })
         .map_err(|error| format!("daemon PTY resize failed: {error}"))?;
-    let dimensions = crate::terminals::TerminalDimensions { cols, rows };
+    let dimensions = TerminalDimensions { cols, rows };
     terminal.resize(dimensions);
     Ok(())
 }
