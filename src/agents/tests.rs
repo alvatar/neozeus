@@ -20,8 +20,8 @@ fn catalog_assigns_stable_default_labels_in_creation_order() {
 
     assert_eq!(alpha, AgentId(1));
     assert_eq!(beta, AgentId(2));
-    assert_eq!(catalog.agents.get(&alpha).unwrap().label, "agent-1");
-    assert_eq!(catalog.agents.get(&beta).unwrap().label, "agent-2");
+    assert_eq!(catalog.label(alpha), Some("agent-1"));
+    assert_eq!(catalog.label(beta), Some("agent-2"));
 }
 
 /// Verifies that runtime index links terminal session and runtime state.
