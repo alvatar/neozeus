@@ -175,8 +175,8 @@ fn parses_neozeus_toml_config() {
             "/usr/share/fonts/Adwaita/AdwaitaMono-Regular.ttf"
         ))
     );
-    assert_eq!(config.terminal.font_size_px, Some(16.0));
-    assert_eq!(config.terminal.baseline_offset_px, Some(-0.5));
+    assert_eq!(config.terminal_font_size_px(), Some(16.0));
+    assert_eq!(config.terminal_baseline_offset_px(), Some(-0.5));
     assert_eq!(config.window.title.as_deref(), Some("NeoZeus"));
     assert_eq!(config.window.app_id.as_deref(), Some("neozeus-dev"));
 }

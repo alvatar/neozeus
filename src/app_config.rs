@@ -18,12 +18,12 @@ const NEOZEUS_CWD_CONFIG_FILENAME: &str = "neozeus.toml";
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub(crate) struct NeoZeusConfig {
-    pub(crate) terminal: NeoZeusTerminalConfig,
+    terminal: NeoZeusTerminalConfig,
     pub(crate) window: NeoZeusWindowConfig,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
-pub(crate) struct NeoZeusTerminalConfig {
+struct NeoZeusTerminalConfig {
     pub(crate) font_path: Option<PathBuf>,
     pub(crate) font_size_px: Option<f32>,
     pub(crate) baseline_offset_px: Option<f32>,
@@ -33,6 +33,23 @@ pub(crate) struct NeoZeusTerminalConfig {
 pub(crate) struct NeoZeusWindowConfig {
     pub(crate) title: Option<String>,
     pub(crate) app_id: Option<String>,
+}
+
+impl NeoZeusConfig {
+    /// Returns the configured terminal font path, if any.
+    pub(crate) fn terminal_font_path(&self) -> Option<&Path> {
+        self.terminal.font_path.as_deref()
+    }
+
+    /// Returns the configured terminal font size, if any.
+    pub(crate) fn terminal_font_size_px(&self) -> Option<f32> {
+        self.terminal.font_size_px
+    }
+
+    /// Returns the configured terminal baseline offset, if any.
+    pub(crate) fn terminal_baseline_offset_px(&self) -> Option<f32> {
+        self.terminal.baseline_offset_px
+    }
 }
 
 /// Loads the first NeoZeus config file that exists, or returns the all-default config when none is
@@ -150,7 +167,7 @@ pub(crate) fn resolve_terminal_font_path(config: &NeoZeusConfig) -> Option<PathB
     env::var_os("NEOZEUS_TERMINAL_FONT_PATH")
         .filter(|value| !value.is_empty())
         .map(PathBuf::from)
-        .or_else(|| config.terminal.font_path.clone())
+        .or_else(|| config.terminal_font_path().map(PathBuf::from))
 }
 
 /// Resolves the terminal font size in pixels with validation and fallback.
@@ -163,7 +180,7 @@ pub(crate) fn resolve_terminal_font_size_px(config: &NeoZeusConfig, default: f32
         .ok()
         .and_then(|value| value.trim().parse::<f32>().ok())
         .filter(|value| value.is_finite() && *value > 0.0)
-        .or(config.terminal.font_size_px)
+        .or(config.terminal_font_size_px())
         .filter(|value| value.is_finite() && *value > 0.0)
         .unwrap_or(default)
 }
@@ -178,7 +195,7 @@ pub(crate) fn resolve_terminal_baseline_offset_px(config: &NeoZeusConfig, defaul
         .ok()
         .and_then(|value| value.trim().parse::<f32>().ok())
         .filter(|value| value.is_finite())
-        .or(config.terminal.baseline_offset_px)
+        .or(config.terminal_baseline_offset_px())
         .filter(|value| value.is_finite())
         .unwrap_or(default)
 }
