@@ -63,7 +63,7 @@ impl TerminalNotesState {
 ///
 /// The precedence mirrors the rest of NeoZeus persistence: XDG state home first, then the legacy
 /// `~/.local/state` path, then XDG config as a final fallback.
-pub(crate) fn resolve_terminal_notes_path_with(
+fn resolve_terminal_notes_path_with(
     xdg_state_home: Option<&str>,
     home: Option<&str>,
     xdg_config_home: Option<&str>,
