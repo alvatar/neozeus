@@ -48,6 +48,7 @@ fn prepend_task_from_text(
     notes_state.set_note_text(session_name, &updated)
 }
 
+/// Returns whether the named session currently has any non-blank note text.
 fn has_note_text(notes_state: &TerminalNotesState, session_name: &str) -> bool {
     notes_state
         .note_text(session_name)
