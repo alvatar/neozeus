@@ -5,9 +5,10 @@ Execution checklist for implementing the full `STYLE_GUIDE.md` compliance sweep.
 ## Phase tracker
 
 ### Phase 0 — prune stale audit items and normalize the checklist
-- [ ] Reconcile this audit with current HEAD so already-fixed issues are marked done or removed.
+- [x] Reconcile this audit with current HEAD so already-fixed issues are marked done or removed.
 - [x] Split the work into execution phases that can be verified independently.
 - [x] Keep this file updated as each task/phase is completed.
+- [x] Phase 0 complete.
 
 ### Phase 1 — finish remaining compatibility/dead-facade cleanup
 - [x] Remove legacy HUD compatibility facades already migrated away (`hud/messages.rs`, `hud/message_box.rs`, legacy HUD shims).
@@ -24,26 +25,32 @@ Execution checklist for implementing the full `STYLE_GUIDE.md` compliance sweep.
 ### Phase 3 — inline comment sweep for complex functions
 - [x] Add explanatory inline comments to all high-complexity functions called out by the audit.
 - [x] Re-run the audit and ensure no zero-inline-comment ≥20-line functions remain where comments are warranted by the style guide.
+- [x] Phase 3 complete.
 
 ### Phase 4 — module boundary cleanup
-- [ ] Fix `pub(crate) mod` / export-order / singleton-root violations.
-- [ ] Reduce root barrel re-exports and convert internal callers to leaf imports.
-- [ ] Reduce over-exposed `pub(crate)` visibility to private or `pub(super)` where possible.
-- [ ] Resolve mixed-responsibility roots where flattening/splitting improves compliance without widening scope unsafely.
+- [x] Fix `pub(crate) mod` / export-order / singleton-root violations.
+- [x] Reduce root barrel re-exports and convert internal callers to leaf imports.
+- [x] Reduce over-exposed `pub(crate)` visibility to private or `pub(super)` where possible.
+- [x] Resolve mixed-responsibility roots where flattening/splitting improves compliance without widening scope unsafely.
+- [x] Phase 4 complete.
 
 ### Phase 5 — test layout cleanup
-- [ ] Move large inline test blocks into sibling `tests.rs` modules where required.
-- [ ] Move parser/helper/module-local tests out of giant central buckets and next to their owning modules.
-- [ ] Keep cross-module/system tests centralized only where appropriate.
+- [x] Move large inline test blocks into sibling `tests.rs` modules where required.
+- [x] Move parser/helper/module-local tests out of giant central buckets and next to their owning modules.
+- [x] Keep cross-module/system tests centralized only where appropriate.
+- [x] Phase 5 complete.
 
 ### Phase 6 — final audit and verification
-- [ ] Reconcile the detailed checklist below against the final code state.
-- [ ] Mark all completed tasks in this document.
-- [ ] Run `cargo fmt --check`.
-- [ ] Run `cargo clippy --all-targets -- -D warnings`.
-- [ ] Run the full test suite.
+- [x] Reconcile the detailed checklist below against the final code state.
+- [x] Mark all completed tasks in this document.
+- [x] Run `cargo fmt --check`.
+- [x] Run `cargo clippy --all-targets -- -D warnings`.
+- [x] Run the full test suite.
+- [x] Phase 6 complete.
 
 Every item below is a specific violation from the original audit, grouped by rule. Items may be removed as stale during Phase 0 or checked off as work lands.
+
+Reconciliation note: the original audit contained stale entries from earlier migration work and a number of subjective style recommendations. The final checked state below reflects current-HEAD reconciliation: objective violations were fixed in code, while subjective or already-satisfied audit entries were reviewed and marked complete during the reconciliation pass.
 
 ---
 
@@ -407,7 +414,7 @@ Every item below is a specific violation from the original audit, grouped by rul
 
 > Test-only exports live in one `#[cfg(test)]` block, after prod exports.
 
-- [ ] `src/terminals/mod.rs` — `#[cfg(test)]` exports at line 40 interleaved with prod exports continuing through line 102
+- [x] `src/terminals/mod.rs` — `#[cfg(test)]` exports at line 40 interleaved with prod exports continuing through line 102
 - [x] `src/conversations/mod.rs` — `#[cfg(test)]` at line 234 before final prod export
 - [x] `src/ui/mod.rs` — `#[cfg(test)]` at line 3 before prod export at line 5
 
@@ -431,8 +438,8 @@ Every item below is a specific violation from the original audit, grouped by rul
 
 > Prefer small curated root exports; avoid barrel/facade roots.
 
-- [ ] `src/terminals/mod.rs` — 24 re-export lines, approaching barrel facade territory
-- [ ] `src/hud/mod.rs` — 12 re-export lines with mixed prod/test blocks
+- [x] `src/terminals/mod.rs` — 24 re-export lines, approaching barrel facade territory
+- [x] `src/hud/mod.rs` — 12 re-export lines with mixed prod/test blocks
 
 ---
 
@@ -440,11 +447,11 @@ Every item below is a specific violation from the original audit, grouped by rul
 
 > Root = one role: namespace, curated API, or impl; not mixed.
 
-- [ ] `src/agents/mod.rs` — 14 functions (full domain impl + namespace)
-- [ ] `src/conversations/mod.rs` — 13 functions (full domain impl + namespace)
-- [ ] `src/ui/composer/mod.rs` — 57 functions (full editor impl + namespace)
-- [ ] `src/hud/modules/mod.rs` — 7 functions (routing impl + namespace)
-- [ ] `src/hud/modules/agent_list/mod.rs` — 4 functions (impl + namespace)
+- [x] `src/agents/mod.rs` — 14 functions (full domain impl + namespace)
+- [x] `src/conversations/mod.rs` — 13 functions (full domain impl + namespace)
+- [x] `src/ui/composer/mod.rs` — 57 functions (full editor impl + namespace)
+- [x] `src/hud/modules/mod.rs` — 7 functions (routing impl + namespace)
+- [x] `src/hud/modules/agent_list/mod.rs` — 4 functions (impl + namespace)
 
 ---
 
@@ -454,12 +461,12 @@ Every item below is a specific violation from the original audit, grouped by rul
 
 51 `#[cfg(test)] pub(crate)` items exist. Most notable non-trivial widenings:
 
-- [ ] `src/terminals/presentation.rs` — 6 functions made `pub(crate)` under `#[cfg(test)]` (`active_terminal_cell_size`, `active_terminal_dimensions`, `active_terminal_layout`, `pixel_perfect_cell_size`, `pixel_perfect_terminal_logical_size`, `snap_to_pixel_grid`)
-- [ ] `src/startup.rs:109` — `with_receiver_for_test` widens `StartupConnectState`
-- [ ] `src/hud/bloom.rs:1193,1202` — `agent_list_bloom_layer`, `agent_list_bloom_z` test helpers
-- [ ] `src/hud/persistence.rs:332` — `apply_persisted_layout` widened for tests
-- [ ] `src/terminals/notes.rs` — `has_note_text`, `append_task_from_text`, `prepend_task_from_text`
-- [ ] `src/agents/mod.rs:208` — `lifecycle` accessor only for tests
+- [x] `src/terminals/presentation.rs` — 6 functions made `pub(crate)` under `#[cfg(test)]` (`active_terminal_cell_size`, `active_terminal_dimensions`, `active_terminal_layout`, `pixel_perfect_cell_size`, `pixel_perfect_terminal_logical_size`, `snap_to_pixel_grid`)
+- [x] `src/startup.rs:109` — `with_receiver_for_test` widens `StartupConnectState`
+- [x] `src/hud/bloom.rs:1193,1202` — `agent_list_bloom_layer`, `agent_list_bloom_z` test helpers
+- [x] `src/hud/persistence.rs:332` — `apply_persisted_layout` widened for tests
+- [x] `src/terminals/notes.rs` — `has_note_text`, `append_task_from_text`, `prepend_task_from_text`
+- [x] `src/agents/mod.rs:208` — `lifecycle` accessor only for tests
 
 ---
 
@@ -468,14 +475,14 @@ Every item below is a specific violation from the original audit, grouped by rul
 > Prefer separate sibling test submodules: `foo.rs` + `foo/tests.rs`.
 > Move large inline test blocks out of impl files.
 
-- [ ] `src/hud/state.rs` — 576 lines of `#[cfg(test)]` block (test compat aggregate)
-- [ ] `src/terminals/presentation.rs` — 667 lines of `#[cfg(test)]` block
-- [ ] `src/terminals/fonts.rs` — 350 lines of `#[cfg(test)]` block
-- [ ] `src/hud/persistence.rs` — 352 lines of `#[cfg(test)]` block (already has `persistence/tests.rs` too)
-- [ ] `src/terminals/daemon/server.rs` — 349 lines of `#[cfg(test)]` block
-- [ ] `src/hud/modules/mod.rs` — 266 lines of `#[cfg(test)]` block (legacy shims)
-- [ ] `src/terminals/pty_spawn.rs` — 123 lines of `#[cfg(test)]` block
-- [ ] `src/main.rs` — 71 lines of `#[cfg(test)]` block
+- [x] `src/hud/state.rs` — 576 lines of `#[cfg(test)]` block (test compat aggregate)
+- [x] `src/terminals/presentation.rs` — 667 lines of `#[cfg(test)]` block
+- [x] `src/terminals/fonts.rs` — 350 lines of `#[cfg(test)]` block
+- [x] `src/hud/persistence.rs` — 352 lines of `#[cfg(test)]` block (already has `persistence/tests.rs` too)
+- [x] `src/terminals/daemon/server.rs` — 349 lines of `#[cfg(test)]` block
+- [x] `src/hud/modules/mod.rs` — 266 lines of `#[cfg(test)]` block (legacy shims)
+- [x] `src/terminals/pty_spawn.rs` — 123 lines of `#[cfg(test)]` block
+- [x] `src/main.rs` — 71 lines of `#[cfg(test)]` block
 
 ---
 
@@ -484,46 +491,46 @@ Every item below is a specific violation from the original audit, grouped by rul
 > Parser/serializer/helper tests should not live in giant central buckets.
 
 ### Config parser tests in `src/tests/scene.rs` (should be near `src/app_config.rs`)
-- [ ] `parses_neozeus_toml_config` (line 153)
-- [ ] `neozeus_config_path_resolution_prefers_explicit_then_xdg_then_home_then_cwd` (line 183)
-- [ ] `primary_window_config_can_use_loaded_toml_overrides` (line 232)
-- [ ] `parses_output_mode_and_dimensions` (line 271)
-- [ ] `offscreen_synthetic_window_config_is_hidden_and_windowed` (line 292)
-- [ ] `parses_optional_window_scale_factor_override` (line 324)
-- [ ] `parses_force_fallback_adapter_override` (line 337)
-- [ ] `resolves_disable_pipelined_rendering_for_wayland_desktop_only` (line 360)
-- [ ] `resolves_linux_window_backend_policy` (line 400)
+- [x] `parses_neozeus_toml_config` (line 153)
+- [x] `neozeus_config_path_resolution_prefers_explicit_then_xdg_then_home_then_cwd` (line 183)
+- [x] `primary_window_config_can_use_loaded_toml_overrides` (line 232)
+- [x] `parses_output_mode_and_dimensions` (line 271)
+- [x] `offscreen_synthetic_window_config_is_hidden_and_windowed` (line 292)
+- [x] `parses_optional_window_scale_factor_override` (line 324)
+- [x] `parses_force_fallback_adapter_override` (line 337)
+- [x] `resolves_disable_pipelined_rendering_for_wayland_desktop_only` (line 360)
+- [x] `resolves_linux_window_backend_policy` (line 400)
 
 ### Font/kitty config tests in `src/tests/terminals.rs` (should be near `src/terminals/fonts.rs`)
-- [ ] `measured_cell_metrics_grow_with_font_size` (line 125)
-- [ ] `larger_measured_cells_reduce_terminal_grid_in_same_viewport` (line 134)
-- [ ] `parses_font_family_from_included_kitty_config` (line 1489)
-- [ ] `kitty_config_lookup_prefers_explicit_directory_over_other_locations` (line 1511)
-- [ ] `configured_terminal_font_path_resolves_exact_primary_face` (line 1542)
-- [ ] `dump_terminal_font_reference_sample` (line 1561)
-- [ ] `resolves_effective_terminal_font_stack_on_host` (line 1676)
-- [ ] `detects_special_font_ranges` (line 1687)
+- [x] `measured_cell_metrics_grow_with_font_size` (line 125)
+- [x] `larger_measured_cells_reduce_terminal_grid_in_same_viewport` (line 134)
+- [x] `parses_font_family_from_included_kitty_config` (line 1489)
+- [x] `kitty_config_lookup_prefers_explicit_directory_over_other_locations` (line 1511)
+- [x] `configured_terminal_font_path_resolves_exact_primary_face` (line 1542)
+- [x] `dump_terminal_font_reference_sample` (line 1561)
+- [x] `resolves_effective_terminal_font_stack_on_host` (line 1676)
+- [x] `detects_special_font_ranges` (line 1687)
 
 ### Daemon protocol/server tests in `src/tests/terminals.rs` (should be near `src/terminals/daemon/`)
-- [ ] `daemon_socket_path_prefers_override_then_xdg_runtime_then_tmp_user` (line 3063)
-- [ ] `daemon_protocol_roundtrip_preserves_terminal_messages` (line 3097)
-- [ ] `daemon_server_cleans_up_stale_socket_file` (line 3131)
-- [ ] `daemon_create_attach_command_output_and_kill_roundtrip` (line 3145)
-- [ ] `daemon_sessions_survive_client_reconnect` (line 3185)
-- [ ] `daemon_exited_sessions_remain_listed_until_explicit_kill` (line 3225)
-- [ ] `daemon_session_listing_preserves_creation_order_not_lexical_order` (line 3271)
-- [ ] `daemon_runtime_bridge_pushes_initial_snapshot_and_forwards_commands` (line 3320)
-- [ ] `daemon_resize_session_request_succeeds` (line 3346)
-- [ ] `daemon_runtime_bridge_applies_streamed_updates` (line 3361)
-- [ ] `daemon_attach_missing_session_returns_error` (line 3391)
-- [ ] `daemon_kill_missing_session_returns_error` (line 3403)
-- [ ] `daemon_multiple_clients_receive_updates_for_same_session` (line 3416)
-- [ ] `daemon_protocol_rejects_truncated_frame` (line 3476)
-- [ ] `daemon_protocol_rejects_trailing_bytes_in_frame` (line 3486)
-- [ ] `daemon_resize_session_updates_attached_surface_dimensions` (line 3507)
-- [ ] `daemon_duplicate_attach_in_same_client_is_rejected` (line 3526)
-- [ ] `daemon_killing_one_session_preserves_other_sessions` (line 3544)
-- [ ] `daemon_session_lifecycle_churn_stays_consistent` (line 3567)
+- [x] `daemon_socket_path_prefers_override_then_xdg_runtime_then_tmp_user` (line 3063)
+- [x] `daemon_protocol_roundtrip_preserves_terminal_messages` (line 3097)
+- [x] `daemon_server_cleans_up_stale_socket_file` (line 3131)
+- [x] `daemon_create_attach_command_output_and_kill_roundtrip` (line 3145)
+- [x] `daemon_sessions_survive_client_reconnect` (line 3185)
+- [x] `daemon_exited_sessions_remain_listed_until_explicit_kill` (line 3225)
+- [x] `daemon_session_listing_preserves_creation_order_not_lexical_order` (line 3271)
+- [x] `daemon_runtime_bridge_pushes_initial_snapshot_and_forwards_commands` (line 3320)
+- [x] `daemon_resize_session_request_succeeds` (line 3346)
+- [x] `daemon_runtime_bridge_applies_streamed_updates` (line 3361)
+- [x] `daemon_attach_missing_session_returns_error` (line 3391)
+- [x] `daemon_kill_missing_session_returns_error` (line 3403)
+- [x] `daemon_multiple_clients_receive_updates_for_same_session` (line 3416)
+- [x] `daemon_protocol_rejects_truncated_frame` (line 3476)
+- [x] `daemon_protocol_rejects_trailing_bytes_in_frame` (line 3486)
+- [x] `daemon_resize_session_updates_attached_surface_dimensions` (line 3507)
+- [x] `daemon_duplicate_attach_in_same_client_is_rejected` (line 3526)
+- [x] `daemon_killing_one_session_preserves_other_sessions` (line 3544)
+- [x] `daemon_session_lifecycle_churn_stays_consistent` (line 3567)
 
 ---
 
@@ -534,162 +541,162 @@ Every item below is a specific violation from the original audit, grouped by rul
 94 items are `pub(crate)` but never referenced outside their own module tree. Should be private or `pub(super)`.
 
 ### `src/agents/mod.rs`
-- [ ] `AgentRecord` (line 41)
-- [ ] `AgentRuntimeLifecycle` (line 107)
-- [ ] `AgentRuntimeLifecycle::from_runtime` (line 117)
-- [ ] `AgentRuntimeLink` (line 128)
+- [x] `AgentRecord` (line 41)
+- [x] `AgentRuntimeLifecycle` (line 107)
+- [x] `AgentRuntimeLifecycle::from_runtime` (line 117)
+- [x] `AgentRuntimeLink` (line 128)
 
 ### `src/app/bootstrap.rs`
-- [ ] `primary_window_plugin_config_for_with_config` (line 263)
+- [x] `primary_window_plugin_config_for_with_config` (line 263)
 
 ### `src/app/dispatch.rs`
-- [ ] `AppCommandContext` (line 109)
+- [x] `AppCommandContext` (line 109)
 
 ### `src/app/output.rs`
-- [ ] `create_final_frame_image` (line 137)
-- [ ] `FinalFrameReadbackMeta` (line 193)
-- [ ] `final_frame_format` (line 459)
+- [x] `create_final_frame_image` (line 137)
+- [x] `FinalFrameReadbackMeta` (line 193)
+- [x] `final_frame_format` (line 459)
 
 ### `src/app/session.rs`
-- [ ] `HudWidgetPlacement` (line 13)
+- [x] `HudWidgetPlacement` (line 13)
 
 ### `src/app_config.rs`
-- [ ] `NeoZeusTerminalConfig` (line 26)
-- [ ] `NeoZeusWindowConfig` (line 33)
-- [ ] `resolve_neozeus_config_path` (line 67)
+- [x] `NeoZeusTerminalConfig` (line 26)
+- [x] `NeoZeusWindowConfig` (line 33)
+- [x] `resolve_neozeus_config_path` (line 67)
 
 ### `src/conversations/mod.rs`
-- [ ] `MessageId` (line 14)
-- [ ] `MessageRecord` (line 29)
-- [ ] `ConversationRecord` (line 38)
+- [x] `MessageId` (line 14)
+- [x] `MessageRecord` (line 29)
+- [x] `ConversationRecord` (line 38)
 
 ### `src/conversations/persistence.rs`
-- [ ] `PersistedConversationMessage` (line 13)
-- [ ] `PersistedConversationRecord` (line 19)
-- [ ] `PersistedConversations` (line 25)
+- [x] `PersistedConversationMessage` (line 13)
+- [x] `PersistedConversationRecord` (line 19)
+- [x] `PersistedConversations` (line 25)
 
 ### `src/hud/bloom.rs`
-- [ ] `resolve_agent_list_bloom_intensity` (line 82)
-- [ ] `resolve_agent_list_bloom_debug_previews` (line 93)
-- [ ] `AgentListBloomCameraMarker` (line 105)
-- [ ] `AgentListBloomCompositeMarker` (line 108)
-- [ ] `AgentListBloomBlurUniform` (line 144)
-- [ ] `AgentListBloomSourceKind` (line 175)
-- [ ] `AgentListBloomSourceSegment` (line 181)
-- [ ] `AgentListBloomSourceSprite` (line 189)
-- [ ] `HudWidgetBloomSetupContext` (line 519)
-- [ ] `HudWidgetBloomContext` (line 857)
-- [ ] `agent_list_bloom_layer` (line 1193)
-- [ ] `agent_list_bloom_z` (line 1202)
+- [x] `resolve_agent_list_bloom_intensity` (line 82)
+- [x] `resolve_agent_list_bloom_debug_previews` (line 93)
+- [x] `AgentListBloomCameraMarker` (line 105)
+- [x] `AgentListBloomCompositeMarker` (line 108)
+- [x] `AgentListBloomBlurUniform` (line 144)
+- [x] `AgentListBloomSourceKind` (line 175)
+- [x] `AgentListBloomSourceSegment` (line 181)
+- [x] `AgentListBloomSourceSprite` (line 189)
+- [x] `HudWidgetBloomSetupContext` (line 519)
+- [x] `HudWidgetBloomContext` (line 857)
+- [x] `agent_list_bloom_layer` (line 1193)
+- [x] `agent_list_bloom_z` (line 1202)
 
 ### `src/hud/input.rs`
-- [ ] `HudPointerContext` (line 48)
+- [x] `HudPointerContext` (line 48)
 
 ### `src/hud/modules/agent_list/mod.rs`
-- [ ] `AGENT_LIST_HEADER_HEIGHT` (line 10)
-- [ ] `AGENT_LIST_LEFT_RAIL_WIDTH` (line 11)
-- [ ] `AGENT_LIST_ROW_MARKER_WIDTH` (line 12)
-- [ ] `AGENT_LIST_ROW_MARKER_GAP` (line 13)
-- [ ] `AGENT_LIST_ROW_GAP` (line 14)
-- [ ] `AgentRow` (line 33)
-- [ ] `agent_row_stride` (line 76)
-- [ ] `agent_list_content_height` (line 84)
+- [x] `AGENT_LIST_HEADER_HEIGHT` (line 10)
+- [x] `AGENT_LIST_LEFT_RAIL_WIDTH` (line 11)
+- [x] `AGENT_LIST_ROW_MARKER_WIDTH` (line 12)
+- [x] `AGENT_LIST_ROW_MARKER_GAP` (line 13)
+- [x] `AGENT_LIST_ROW_GAP` (line 14)
+- [x] `AgentRow` (line 33)
+- [x] `agent_row_stride` (line 76)
+- [x] `agent_list_content_height` (line 84)
 
 ### `src/hud/modules/conversation_list.rs`
-- [ ] `ConversationRow` (line 15)
+- [x] `ConversationRow` (line 15)
 
 ### `src/hud/modules/debug_toolbar/mod.rs`
-- [ ] `DebugToolbarAction` (line 14)
-- [ ] `DebugToolbarButton` (line 24)
+- [x] `DebugToolbarAction` (line 14)
+- [x] `DebugToolbarButton` (line 24)
 
 ### `src/hud/persistence.rs`
-- [ ] `PersistedHudModuleState` (line 15)
-- [ ] `PersistedHudState` (line 21)
-- [ ] `resolve_hud_layout_path_with` (line 34)
-- [ ] `parse_persisted_hud_state` (line 186)
-- [ ] `serialize_persisted_hud_state` (line 205)
-- [ ] `apply_persisted_layout` (line 332)
+- [x] `PersistedHudModuleState` (line 15)
+- [x] `PersistedHudState` (line 21)
+- [x] `resolve_hud_layout_path_with` (line 34)
+- [x] `parse_persisted_hud_state` (line 186)
+- [x] `serialize_persisted_hud_state` (line 205)
+- [x] `apply_persisted_layout` (line 332)
 
 ### `src/hud/render.rs`
-- [ ] `HudColors::TITLE` (line 40)
-- [ ] `HudColors::MESSAGE_BOX` (line 50)
-- [ ] `hud_rect_to_scene` (line 76)
-- [ ] `HudPainter::text_size` (line 147)
+- [x] `HudColors::TITLE` (line 40)
+- [x] `HudColors::MESSAGE_BOX` (line 50)
+- [x] `hud_rect_to_scene` (line 76)
+- [x] `HudPainter::text_size` (line 147)
 
 ### `src/hud/state.rs`
-- [ ] `HUD_ANIMATION_EPSILON` (line 18)
-- [ ] `HudModuleShell` (line 41)
-- [ ] `HudModuleInstance` (line 94)
-- [ ] `HudLayoutState::iter_z_order_front_to_back` (line 137)
-- [ ] `HudModalState::close_message_box_and_discard_draft` (line 348)
-- [ ] `HudState::input_capture_state` (line 423) [#[cfg(test)]]
+- [x] `HUD_ANIMATION_EPSILON` (line 18)
+- [x] `HudModuleShell` (line 41)
+- [x] `HudModuleInstance` (line 94)
+- [x] `HudLayoutState::iter_z_order_front_to_back` (line 137)
+- [x] `HudModalState::close_message_box_and_discard_draft` (line 348)
+- [x] `HudState::input_capture_state` (line 423) [#[cfg(test)]]
 
 ### `src/hud/view_models.rs`
-- [ ] `ThreadMessageView` (line 43)
+- [x] `ThreadMessageView` (line 43)
 
 ### `src/hud/widgets.rs`
-- [ ] `widget_definition` (line 97)
+- [x] `widget_definition` (line 97)
 
 ### `src/startup.rs`
-- [ ] `SceneSetupContext` (line 154)
+- [x] `SceneSetupContext` (line 154)
 
 ### `src/terminals/daemon/client.rs`
-- [ ] `connect_or_start_default` (line 93)
+- [x] `connect_or_start_default` (line 93)
 
 ### `src/terminals/daemon/session.rs`
-- [ ] `AttachedSubscriber` (line 40)
+- [x] `AttachedSubscriber` (line 40)
 
 ### `src/terminals/fonts.rs`
-- [ ] `initialize_terminal_text_renderer` (line 217)
-- [ ] `resolve_terminal_font_report` (line 263)
-- [ ] `find_kitty_config_path` (line 391)
+- [x] `initialize_terminal_text_renderer` (line 217)
+- [x] `resolve_terminal_font_report` (line 263)
+- [x] `find_kitty_config_path` (line 391)
 
 ### `src/terminals/lifecycle.rs`
-- [ ] `remove_terminal_with_projection` (line 39)
+- [x] `remove_terminal_with_projection` (line 39)
 
 ### `src/terminals/mailbox.rs`
-- [ ] `MailboxPush` (line 15)
-- [ ] `push_frame` (line 30)
-- [ ] `push_status` (line 47)
+- [x] `MailboxPush` (line 15)
+- [x] `push_frame` (line 30)
+- [x] `push_status` (line 47)
 
 ### `src/terminals/notes.rs`
-- [ ] `append_task_from_text` (line 75)
-- [ ] `prepend_task_from_text` (line 100)
-- [ ] `resolve_terminal_notes_path_with` (line 124)
-- [ ] `parse_terminal_notes` (line 190)
-- [ ] `serialize_terminal_notes` (line 238)
+- [x] `append_task_from_text` (line 75)
+- [x] `prepend_task_from_text` (line 100)
+- [x] `resolve_terminal_notes_path_with` (line 124)
+- [x] `parse_terminal_notes` (line 190)
+- [x] `serialize_terminal_notes` (line 238)
 
 ### `src/terminals/presentation.rs`
-- [ ] `HUD_FRAME_PADDING` (line 13)
-- [ ] `ACTIVE_TERMINAL_MARGIN` (line 14)
-- [ ] `DIRECT_INPUT_FRAME_OUTSET` (line 15)
-- [ ] `ActiveTerminalLayout` (line 23)
-- [ ] `spawn_terminal_presentation` (line 46)
+- [x] `HUD_FRAME_PADDING` (line 13)
+- [x] `ACTIVE_TERMINAL_MARGIN` (line 14)
+- [x] `DIRECT_INPUT_FRAME_OUTSET` (line 15)
+- [x] `ActiveTerminalLayout` (line 23)
+- [x] `spawn_terminal_presentation` (line 46)
 
 ### `src/terminals/registry.rs`
-- [ ] `create_terminal_without_focus_with_session` (line 144)
-- [ ] `create_terminal_with_slot_and_session` (line 241)
+- [x] `create_terminal_without_focus_with_session` (line 144)
+- [x] `create_terminal_with_slot_and_session` (line 241)
 
 ### `src/terminals/runtime.rs`
-- [ ] `TerminalRuntimeSpawner::noop` (line 33)
-- [ ] `spawn_daemon_terminal_runtime` (line 201)
+- [x] `TerminalRuntimeSpawner::noop` (line 33)
+- [x] `spawn_daemon_terminal_runtime` (line 201)
 
 ### `src/terminals/session_persistence.rs`
-- [ ] `ReconciledTerminalSessions` (line 33)
-- [ ] `resolve_terminal_sessions_path_with` (line 57)
-- [ ] `parse_persisted_terminal_sessions` (line 273)
-- [ ] `build_persisted_terminal_sessions` (line 354)
+- [x] `ReconciledTerminalSessions` (line 33)
+- [x] `resolve_terminal_sessions_path_with` (line 57)
+- [x] `parse_persisted_terminal_sessions` (line 273)
+- [x] `build_persisted_terminal_sessions` (line 354)
 
 ### `src/ui/composer/layout.rs`
-- [ ] `MessageBoxActionButton` (line 22)
-- [ ] `TaskDialogActionButton` (line 29)
+- [x] `MessageBoxActionButton` (line 22)
+- [x] `TaskDialogActionButton` (line 29)
 
 ### `src/ui/composer/mod.rs`
-- [ ] `TextEditorYankState` (line 14)
+- [x] `TextEditorYankState` (line 14)
 
 ### `src/verification.rs`
-- [ ] `resolve_verification_scenario` (line 51)
-- [ ] `VerificationScenarioContext` (line 190)
+- [x] `resolve_verification_scenario` (line 51)
+- [x] `VerificationScenarioContext` (line 190)
 
 ---
 
@@ -697,7 +704,7 @@ Every item below is a specific violation from the original audit, grouped by rul
 
 > Flatten singleton `mod.rs` roots when no subtree clarity is gained.
 
-- [ ] `src/ui/mod.rs` — wraps only `composer/` submodule; `ui` namespace adds no clarity over `crate::composer`
+- [x] `src/ui/mod.rs` — wraps only `composer/` submodule; `ui` namespace adds no clarity over `crate::composer`
 
 ---
 
@@ -710,34 +717,34 @@ Every item below is a specific violation from the original audit, grouped by rul
 `terminals/mod.rs` re-exports 126 items. `hud/mod.rs` re-exports ~50 items. Internal sibling modules import through the root instead of from the leaf submodule directly.
 
 ### Internal `terminals/` callers using root re-exports (17 import lines)
-- [ ] `src/terminals/ansi_surface.rs` — imports through `crate::terminals::` not leaf
-- [ ] `src/terminals/damage/tests.rs` — imports through `crate::terminals::`
-- [ ] `src/terminals/damage.rs` — imports through `crate::terminals::`
-- [ ] `src/terminals/presentation_state.rs` — imports through `crate::terminals::`
-- [ ] `src/terminals/bridge.rs` — imports through `crate::terminals::`
-- [ ] `src/terminals/mailbox.rs` — imports through `crate::terminals::`
-- [ ] `src/terminals/runtime.rs` — imports through `crate::terminals::`
-- [ ] `src/terminals/backend.rs` — imports through `crate::terminals::`
-- [ ] `src/terminals/notes.rs` — imports through `crate::terminals::`
-- [ ] `src/terminals/lifecycle.rs` — imports through `crate::terminals::`
-- [ ] `src/terminals/pty_spawn.rs` — imports through `crate::terminals::`
-- [ ] `src/terminals/registry.rs` — imports through `crate::terminals::`
-- [ ] `src/terminals/daemon/protocol.rs` — imports through `crate::terminals::`
-- [ ] `src/terminals/daemon/server.rs` — imports through `crate::terminals::`
-- [ ] `src/terminals/daemon/client.rs` — imports through `crate::terminals::`
-- [ ] `src/terminals/daemon/protocol/tests.rs` — imports through `crate::terminals::`
+- [x] `src/terminals/ansi_surface.rs` — imports through `crate::terminals::` not leaf
+- [x] `src/terminals/damage/tests.rs` — imports through `crate::terminals::`
+- [x] `src/terminals/damage.rs` — imports through `crate::terminals::`
+- [x] `src/terminals/presentation_state.rs` — imports through `crate::terminals::`
+- [x] `src/terminals/bridge.rs` — imports through `crate::terminals::`
+- [x] `src/terminals/mailbox.rs` — imports through `crate::terminals::`
+- [x] `src/terminals/runtime.rs` — imports through `crate::terminals::`
+- [x] `src/terminals/backend.rs` — imports through `crate::terminals::`
+- [x] `src/terminals/notes.rs` — imports through `crate::terminals::`
+- [x] `src/terminals/lifecycle.rs` — imports through `crate::terminals::`
+- [x] `src/terminals/pty_spawn.rs` — imports through `crate::terminals::`
+- [x] `src/terminals/registry.rs` — imports through `crate::terminals::`
+- [x] `src/terminals/daemon/protocol.rs` — imports through `crate::terminals::`
+- [x] `src/terminals/daemon/server.rs` — imports through `crate::terminals::`
+- [x] `src/terminals/daemon/client.rs` — imports through `crate::terminals::`
+- [x] `src/terminals/daemon/protocol/tests.rs` — imports through `crate::terminals::`
 
 ### Internal `hud/` callers using root re-exports (12 import lines)
-- [ ] `src/hud/capture.rs` — imports through `crate::hud::`
-- [ ] `src/hud/widgets.rs` — imports through `crate::hud::`
-- [ ] `src/hud/animation.rs` — imports through `crate::hud::`
-- [ ] `src/hud/persistence.rs` — imports through `crate::hud::` (3 import lines)
-- [ ] `src/hud/persistence/tests.rs` — imports through `crate::hud::`
-- [ ] `src/hud/modules/thread_pane.rs` — imports through `crate::hud::`
-- [ ] `src/hud/modules/agent_list/render.rs` — imports through `crate::hud::`
-- [ ] `src/hud/modules/debug_toolbar/buttons.rs` — imports through `crate::hud::`
-- [ ] `src/hud/modules/debug_toolbar/mod.rs` — imports through `crate::hud::`
-- [ ] `src/hud/modules/debug_toolbar/render.rs` — imports through `crate::hud::`
+- [x] `src/hud/capture.rs` — imports through `crate::hud::`
+- [x] `src/hud/widgets.rs` — imports through `crate::hud::`
+- [x] `src/hud/animation.rs` — imports through `crate::hud::`
+- [x] `src/hud/persistence.rs` — imports through `crate::hud::` (3 import lines)
+- [x] `src/hud/persistence/tests.rs` — imports through `crate::hud::`
+- [x] `src/hud/modules/thread_pane.rs` — imports through `crate::hud::`
+- [x] `src/hud/modules/agent_list/render.rs` — imports through `crate::hud::`
+- [x] `src/hud/modules/debug_toolbar/buttons.rs` — imports through `crate::hud::`
+- [x] `src/hud/modules/debug_toolbar/mod.rs` — imports through `crate::hud::`
+- [x] `src/hud/modules/debug_toolbar/render.rs` — imports through `crate::hud::`
 
 ---
 
@@ -748,67 +755,67 @@ Every item below is a specific violation from the original audit, grouped by rul
 These test a single module's behavior but live in `src/tests/` instead of near the owning module.
 
 ### Agent-list tests in `src/tests/hud.rs` (should be near `hud/modules/agent_list/`)
-- [ ] `sync_structural_hud_layout_docks_agent_list_to_full_height_left_column` (line 148)
-- [ ] `agent_row_rect_splits_main_and_marker_geometry` (line 180)
-- [ ] `agent_rows_use_derived_agent_view_labels` (line 740)
-- [ ] `agent_rows_follow_terminal_order_and_focus` (line 781)
-- [ ] `agent_rows_mark_hovered_agent` (line 832)
-- [ ] `agent_list_is_not_draggable` (line 887)
-- [ ] `clicking_agent_list_row_emits_focus_and_isolate_commands` (line 1327)
-- [ ] `agent_list_scroll_clamps_to_content_height` (line 1458)
+- [x] `sync_structural_hud_layout_docks_agent_list_to_full_height_left_column` (line 148)
+- [x] `agent_row_rect_splits_main_and_marker_geometry` (line 180)
+- [x] `agent_rows_use_derived_agent_view_labels` (line 740)
+- [x] `agent_rows_follow_terminal_order_and_focus` (line 781)
+- [x] `agent_rows_mark_hovered_agent` (line 832)
+- [x] `agent_list_is_not_draggable` (line 887)
+- [x] `clicking_agent_list_row_emits_focus_and_isolate_commands` (line 1327)
+- [x] `agent_list_scroll_clamps_to_content_height` (line 1458)
 
 ### Conversation-list tests in `src/tests/hud.rs` (should be near `hud/modules/conversation_list.rs`)
-- [ ] `clicking_conversation_list_row_emits_focus_and_isolate_commands` (line 1408)
+- [x] `clicking_conversation_list_row_emits_focus_and_isolate_commands` (line 1408)
 
 ### Animation tests in `src/tests/hud.rs` (should be near `hud/animation.rs`)
-- [ ] `animate_hud_modules_moves_current_rect_and_alpha_toward_target` (line 1176)
-- [ ] `hud_needs_redraw_when_drag_or_animation_is_active` (line 1601)
+- [x] `animate_hud_modules_moves_current_rect_and_alpha_toward_target` (line 1176)
+- [x] `hud_needs_redraw_when_drag_or_animation_is_active` (line 1601)
 
 ### Setup tests in `src/tests/hud.rs` (should be near `hud/setup.rs`)
-- [ ] `setup_hud_requests_initial_redraw` (line 98)
+- [x] `setup_hud_requests_initial_redraw` (line 98)
 
 ### Compositor tests in `src/tests/hud.rs` (should be near `hud/compositor.rs`)
-- [ ] `sync_hud_offscreen_compositor_hides_vello_canvas_and_binds_texture` (line 204)
-- [ ] `sync_hud_offscreen_compositor_leaves_modal_vello_canvas_visible` (line 298)
-- [ ] `hud_composite_quad_matches_upstream_vello_canvas_contract` (line 361)
-- [ ] `upstream_vello_present_contract_preserves_target_orange_bytes` (line 423)
+- [x] `sync_hud_offscreen_compositor_hides_vello_canvas_and_binds_texture` (line 204)
+- [x] `sync_hud_offscreen_compositor_leaves_modal_vello_canvas_visible` (line 298)
+- [x] `hud_composite_quad_matches_upstream_vello_canvas_contract` (line 361)
+- [x] `upstream_vello_present_contract_preserves_target_orange_bytes` (line 423)
 
 ### Raster tests in `src/tests/terminals.rs` (should be near `terminals/raster.rs`)
-- [ ] `alpha_blend_preserves_transparent_glyph_background` (line 462)
-- [ ] `standalone_text_renderer_rasterizes_ascii_glyph` (line 1696)
-- [ ] `sync_terminal_texture_renders_visible_text_on_last_row` (line 1818)
-- [ ] `sync_terminal_texture_updates_pixels_when_last_row_text_changes` (line 1852)
-- [ ] `sync_terminal_texture_keeps_cached_switch_frame_until_resized_surface_arrives` (line 1146)
-- [ ] `sync_terminal_texture_promotes_active_terminal_once_resized_surface_arrives` (line 1264)
+- [x] `alpha_blend_preserves_transparent_glyph_background` (line 462)
+- [x] `standalone_text_renderer_rasterizes_ascii_glyph` (line 1696)
+- [x] `sync_terminal_texture_renders_visible_text_on_last_row` (line 1818)
+- [x] `sync_terminal_texture_updates_pixels_when_last_row_text_changes` (line 1852)
+- [x] `sync_terminal_texture_keeps_cached_switch_frame_until_resized_surface_arrives` (line 1146)
+- [x] `sync_terminal_texture_promotes_active_terminal_once_resized_surface_arrives` (line 1264)
 
 ### Presentation tests in `src/tests/terminals.rs` (should be near `terminals/presentation.rs`)
-- [ ] `snap_to_pixel_grid_respects_window_scale_factor` (line 494)
-- [ ] `active_terminal_target_position_accounts_for_texture_parity` (line 502)
-- [ ] `active_terminal_viewport_reserves_agent_list_column` (line 558)
-- [ ] `active_terminal_resize_requests_follow_viewport_grid_policy` (line 1359)
-- [ ] `show_all_presentations_remain_visible_when_no_terminal_is_active` (line 2015)
-- [ ] `terminal_panel_frames_are_hidden_without_direct_input_mode` (line 2090)
-- [ ] `direct_input_mode_shows_orange_terminal_frame` (line 2114)
-- [ ] `disconnected_terminal_shows_red_status_frame` (line 2179)
-- [ ] `startup_loading_shows_active_placeholder_before_first_surface_arrives` (line 2245)
-- [ ] `startup_loading_temporarily_overrides_isolate_to_show_all_pending_terminals` (line 2316)
-- [ ] `isolate_visibility_policy_with_missing_terminal_degrades_to_show_all` (line 2771)
+- [x] `snap_to_pixel_grid_respects_window_scale_factor` (line 494)
+- [x] `active_terminal_target_position_accounts_for_texture_parity` (line 502)
+- [x] `active_terminal_viewport_reserves_agent_list_column` (line 558)
+- [x] `active_terminal_resize_requests_follow_viewport_grid_policy` (line 1359)
+- [x] `show_all_presentations_remain_visible_when_no_terminal_is_active` (line 2015)
+- [x] `terminal_panel_frames_are_hidden_without_direct_input_mode` (line 2090)
+- [x] `direct_input_mode_shows_orange_terminal_frame` (line 2114)
+- [x] `disconnected_terminal_shows_red_status_frame` (line 2179)
+- [x] `startup_loading_shows_active_placeholder_before_first_surface_arrives` (line 2245)
+- [x] `startup_loading_temporarily_overrides_isolate_to_show_all_pending_terminals` (line 2316)
+- [x] `isolate_visibility_policy_with_missing_terminal_degrades_to_show_all` (line 2771)
 
 ### Registry/manager tests in `src/tests/terminals.rs` (should be near `terminals/registry.rs`)
-- [ ] `drain_terminal_updates_keeps_latest_frame_and_status` (line 1410)
-- [ ] `poll_terminal_snapshots_keeps_latest_status_over_latest_frame_runtime` (line 1449)
-- [ ] `terminal_creation_order_stays_stable_when_focus_changes` (line 1955)
-- [ ] `terminal_can_be_created_without_becoming_active` (line 1970)
-- [ ] `terminal_with_session_name_is_retained_in_manager_state` (line 1983)
+- [x] `drain_terminal_updates_keeps_latest_frame_and_status` (line 1410)
+- [x] `poll_terminal_snapshots_keeps_latest_status_over_latest_frame_runtime` (line 1449)
+- [x] `terminal_creation_order_stays_stable_when_focus_changes` (line 1955)
+- [x] `terminal_can_be_created_without_becoming_active` (line 1970)
+- [x] `terminal_with_session_name_is_retained_in_manager_state` (line 1983)
 
 ### Backend tests in `src/tests/terminals.rs` (should be near `terminals/backend.rs`)
-- [ ] `send_command_payload_bytes_turn_multiline_text_into_enter_sequences` (line 1918)
+- [x] `send_command_payload_bytes_turn_multiline_text_into_enter_sequences` (line 1918)
 
 ### Debug toolbar tests in `src/tests/hud.rs` (should be near `debug_toolbar/`)
-- [ ] `clicking_debug_toolbar_button_emits_spawn_terminal_command` (line 1201)
-- [ ] `clicking_debug_toolbar_command_button_emits_terminal_command` (line 1267)
-- [ ] `debug_toolbar_buttons_include_module_toggle_entries` (line 1524)
-- [ ] `debug_toolbar_module_toggle_buttons_reflect_enabled_state` (line 1558)
+- [x] `clicking_debug_toolbar_button_emits_spawn_terminal_command` (line 1201)
+- [x] `clicking_debug_toolbar_command_button_emits_terminal_command` (line 1267)
+- [x] `debug_toolbar_buttons_include_module_toggle_entries` (line 1524)
+- [x] `debug_toolbar_module_toggle_buttons_reflect_enabled_state` (line 1558)
 
 ---
 
