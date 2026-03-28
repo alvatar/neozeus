@@ -136,7 +136,7 @@ impl FinalFrameOutputState {
 /// The image is created in the final presentation format and with the exact usage flags needed by
 /// the pipeline: render attachment for drawing, copy source for readback, and texture binding so it
 /// can participate in later composition if needed.
-pub(crate) fn create_final_frame_image(size: UVec2) -> Image {
+fn create_final_frame_image(size: UVec2) -> Image {
     let mut image = Image::new_fill(
         Extent3d {
             width: size.x.max(1),
