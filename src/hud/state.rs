@@ -130,7 +130,7 @@ impl HudLayoutState {
     /// Iterates module ids from frontmost to backmost.
     ///
     /// This is the ordering needed for pointer hit-testing so the visually topmost module wins.
-    pub(crate) fn iter_z_order_front_to_back(&self) -> impl Iterator<Item = HudWidgetKey> + '_ {
+    fn iter_z_order_front_to_back(&self) -> impl Iterator<Item = HudWidgetKey> + '_ {
         self.z_order.iter().rev().copied()
     }
 
