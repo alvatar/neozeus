@@ -193,7 +193,7 @@ impl FinalFrameCaptureConfig {
 }
 
 #[derive(Component, Clone, Debug)]
-pub(crate) struct FinalFrameReadbackMeta {
+struct FinalFrameReadbackMeta {
     pub(crate) path: PathBuf,
     pub(crate) width: u32,
     pub(crate) height: u32,
@@ -206,7 +206,7 @@ impl FinalFrameReadbackMeta {
     /// The readback callback only receives the raw bytes and the observing entity, so width, height,
     /// format, and destination path are snapshotted here at request time and carried on the spawned
     /// entity as a component.
-    pub(crate) fn from_image(path: PathBuf, image: &Image) -> Self {
+    fn from_image(path: PathBuf, image: &Image) -> Self {
         Self {
             path,
             width: image.texture_descriptor.size.width,
