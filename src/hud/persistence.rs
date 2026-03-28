@@ -185,7 +185,7 @@ fn parse_v2_hud_state(text: &str) -> PersistedHudState {
 /// Dispatches persisted HUD layout parsing based on the first non-empty version line.
 ///
 /// Unknown versions are logged and treated as empty state rather than hard errors.
-pub(crate) fn parse_persisted_hud_state(text: &str) -> PersistedHudState {
+fn parse_persisted_hud_state(text: &str) -> PersistedHudState {
     let version_line = text
         .lines()
         .find(|line| !line.trim().is_empty())
