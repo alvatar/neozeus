@@ -1,6 +1,6 @@
 [terminal]
 font_path = "/usr/share/fonts/Adwaita/AdwaitaMono-Regular.ttf"
-font_size_px = 21.6
+font_size_px = 14.0
 baseline_offset_px = -0.5
 
 [window]
