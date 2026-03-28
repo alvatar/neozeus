@@ -231,14 +231,15 @@ pub(crate) fn sync_task_notes_projection(
     }
 }
 
+pub(crate) use persistence::{
+    load_persisted_conversations_from, mark_conversations_dirty, resolve_conversations_path,
+    restore_persisted_conversations, save_conversations_if_dirty, ConversationPersistenceState,
+};
+
 #[cfg(test)]
 pub(crate) use persistence::{
     build_persisted_conversations, parse_persisted_conversations, resolve_conversations_path_with,
     serialize_persisted_conversations,
-};
-pub(crate) use persistence::{
-    load_persisted_conversations_from, mark_conversations_dirty, resolve_conversations_path,
-    restore_persisted_conversations, save_conversations_if_dirty, ConversationPersistenceState,
 };
 
 #[cfg(test)]

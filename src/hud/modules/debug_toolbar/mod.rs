@@ -5,8 +5,6 @@ mod render;
 use crate::hud::{HudRect, HudWidgetKey};
 
 pub(crate) use buttons::debug_toolbar_buttons;
-#[cfg(test)]
-pub(crate) use buttons::legacy_debug_toolbar_buttons;
 pub(crate) use input::handle_pointer_click;
 pub(crate) use render::render_content;
 

@@ -1239,10 +1239,7 @@ fn clicking_debug_toolbar_button_emits_spawn_terminal_command() {
             w: 920.0,
             h: 36.0,
         },
-        &manager,
-        &manager.clone_focus_state(),
-        &Default::default(),
-        &TerminalViewState::default(),
+        &DebugToolbarView::default(),
         &hud_state.layout_state(),
     );
     let new_terminal = buttons
@@ -1302,10 +1299,7 @@ fn clicking_debug_toolbar_command_button_emits_terminal_command() {
             w: 920.0,
             h: 36.0,
         },
-        &manager,
-        &manager.clone_focus_state(),
-        &Default::default(),
-        &TerminalViewState::default(),
+        &DebugToolbarView::default(),
         &hud_state.layout_state(),
     );
     let pwd = buttons
@@ -1533,10 +1527,7 @@ fn debug_toolbar_buttons_include_module_toggle_entries() {
             w: 920.0,
             h: 64.0,
         },
-        &manager,
-        &manager.clone_focus_state(),
-        &Default::default(),
-        &TerminalViewState::default(),
+        &DebugToolbarView::default(),
         &hud_state.layout_state(),
     );
     assert!(buttons.iter().any(|button| button.label == "0 toolbar"));
@@ -1569,10 +1560,7 @@ fn debug_toolbar_module_toggle_buttons_reflect_enabled_state() {
             w: 920.0,
             h: 64.0,
         },
-        &manager,
-        &manager.clone_focus_state(),
-        &Default::default(),
-        &TerminalViewState::default(),
+        &DebugToolbarView::default(),
         &hud_state.layout_state(),
     );
 
