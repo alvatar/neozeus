@@ -185,8 +185,8 @@ enum AgentListBloomSourceSegment {
 }
 
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub(crate) struct AgentListBloomSourceSprite {
-    pub(crate) terminal_id: TerminalId,
+struct AgentListBloomSourceSprite {
+    terminal_id: TerminalId,
     kind: AgentListBloomSourceKind,
     segment: AgentListBloomSourceSegment,
 }
