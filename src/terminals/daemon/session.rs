@@ -38,10 +38,10 @@ pub(crate) fn is_persistent_session_name(session_name: &str) -> bool {
     session_name.starts_with(PERSISTENT_SESSION_PREFIX)
 }
 
-pub(crate) struct AttachedSubscriber {
-    pub(crate) snapshot: TerminalSnapshot,
-    pub(crate) revision: u64,
-    pub(crate) subscriber_id: u64,
+pub(super) struct AttachedSubscriber {
+    pub(super) snapshot: TerminalSnapshot,
+    pub(super) revision: u64,
+    pub(super) subscriber_id: u64,
 }
 
 pub(crate) struct DaemonSession {
@@ -122,7 +122,7 @@ impl DaemonSession {
     ///
     /// Attach semantics are snapshot-then-stream, so the caller needs both the current snapshot and the
     /// subscriber id used for later unsubscribe.
-    pub(crate) fn subscribe(
+    pub(super) fn subscribe(
         &self,
         subscriber_id: u64,
         sender: mpsc::Sender<ServerMessage>,
@@ -137,7 +137,7 @@ impl DaemonSession {
     }
 
     /// Removes one subscriber from the session's update fan-out set.
-    pub(crate) fn unsubscribe(&self, subscriber_id: u64) {
+    pub(super) fn unsubscribe(&self, subscriber_id: u64) {
         let mut state = lock(&self.state);
         state.subscribers.remove(&subscriber_id);
     }
