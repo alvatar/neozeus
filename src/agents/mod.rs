@@ -135,15 +135,15 @@ impl AgentRuntimeLifecycle {
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub(crate) struct AgentRuntimeLink {
-    pub(crate) primary_terminal: Option<TerminalId>,
-    pub(crate) session_name: Option<String>,
+struct AgentRuntimeLink {
+    primary_terminal: Option<TerminalId>,
+    session_name: Option<String>,
     lifecycle: AgentRuntimeLifecycle,
 }
 
 #[derive(Resource, Default, Clone, Debug, PartialEq, Eq)]
 pub(crate) struct AgentRuntimeIndex {
-    pub(crate) agent_to_runtime: BTreeMap<AgentId, AgentRuntimeLink>,
+    agent_to_runtime: BTreeMap<AgentId, AgentRuntimeLink>,
     pub(crate) terminal_to_agent: BTreeMap<TerminalId, AgentId>,
     pub(crate) session_to_agent: BTreeMap<String, AgentId>,
 }
@@ -220,6 +220,21 @@ impl AgentRuntimeIndex {
         self.agent_to_runtime
             .get(&agent_id)
             .and_then(|link| link.session_name.as_deref())
+    }
+
+    /// Iterates linked agents.
+    #[cfg(test)]
+    pub(crate) fn agent_ids(&self) -> impl Iterator<Item = AgentId> + '_ {
+        self.agent_to_runtime.keys().copied()
+    }
+
+    /// Iterates agent/session bindings.
+    pub(crate) fn session_bindings(&self) -> impl Iterator<Item = (AgentId, &str)> + '_ {
+        self.agent_to_runtime.iter().filter_map(|(agent_id, link)| {
+            link.session_name
+                .as_deref()
+                .map(|session_name| (*agent_id, session_name))
+        })
     }
 
     /// Returns the runtime lifecycle state.

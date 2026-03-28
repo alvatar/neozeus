@@ -256,7 +256,7 @@ pub(super) fn insert_hud_resources(
         .or_else(|| {
             world
                 .get_resource::<AgentRuntimeIndex>()
-                .and_then(|runtime_index| runtime_index.agent_to_runtime.keys().next().copied())
+                .and_then(|runtime_index| runtime_index.agent_ids().next())
         })
         .or_else(|| {
             (message_box_visible || task_dialog_visible).then_some(crate::agents::AgentId(1))
