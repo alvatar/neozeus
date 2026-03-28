@@ -64,7 +64,7 @@ pub(crate) fn load_neozeus_config_from(path: &Path) -> Result<NeoZeusConfig, Str
 /// This wrapper gathers the live process state and forwards it to
 /// [`resolve_neozeus_config_path_with`], which contains the actual precedence rules and is easier to
 /// test deterministically.
-pub(crate) fn resolve_neozeus_config_path() -> Option<PathBuf> {
+fn resolve_neozeus_config_path() -> Option<PathBuf> {
     let current_dir = env::current_dir().ok();
     resolve_neozeus_config_path_with(
         env::var_os("NEOZEUS_CONFIG_PATH").as_deref(),
