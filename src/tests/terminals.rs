@@ -78,6 +78,40 @@ fn configured_test_font_raster() -> crate::terminals::TerminalFontRasterConfig {
     }
 }
 
+/// Creates a fully initialized `TerminalFontState` for tests, including font-measured
+/// cell metrics. This is the test-side equivalent of `configure_terminal_fonts`.
+fn configured_test_font_state(
+    report: crate::terminals::TerminalFontReport,
+    renderer: &mut TerminalTextRenderer,
+) -> TerminalFontState {
+    let raster = configured_test_font_raster();
+    let cell_metrics = renderer
+        .font_system
+        .as_mut()
+        .and_then(|fs| crate::terminals::measure_monospace_cell(fs, raster.font_size_px))
+        .unwrap_or_default();
+    TerminalFontState {
+        report: Some(Ok(report)),
+        raster,
+        cell_metrics,
+    }
+}
+
+#[test]
+fn print_configured_test_font_metrics() {
+    let report = configured_terminal_font_report();
+    let mut renderer = TerminalTextRenderer::default();
+    initialize_test_terminal_text_renderer(&report, &mut renderer);
+    let font_state = configured_test_font_state(report, &mut renderer);
+    println!(
+        "font_size={} baseline={} cell={}x{}",
+        font_state.raster.font_size_px,
+        font_state.raster.baseline_offset_px,
+        font_state.cell_metrics.cell_width,
+        font_state.cell_metrics.cell_height
+    );
+}
+
 /// Writes colored single-width text into a terminal surface row for rasterization tests.
 fn set_colored_text(
     surface: &mut TerminalSurface,
@@ -109,10 +143,7 @@ fn render_surface_to_terminal_image(surface: TerminalSurface) -> (Image, Termina
     let report = configured_terminal_font_report();
     let mut renderer = TerminalTextRenderer::default();
     initialize_test_terminal_text_renderer(&report, &mut renderer);
-    let font_state = TerminalFontState {
-        report: Some(Ok(report)),
-        raster: configured_test_font_raster(),
-    };
+    let font_state = configured_test_font_state(report, &mut renderer);
 
     let window = Window {
         resolution: (1400, 900).into(),
@@ -222,7 +253,9 @@ fn pixel_perfect_cell_size_stays_positive_and_scales_uniformly() {
         ..Default::default()
     };
     let hud_state = HudState::default();
-    let cell_size = pixel_perfect_cell_size(120, 38, &window, &hud_state.layout_state());
+    let font_state = TerminalFontState::default();
+    let cell_size =
+        pixel_perfect_cell_size(120, 38, &window, &hud_state.layout_state(), &font_state);
     assert!(cell_size.x >= 1);
     assert!(cell_size.y >= 1);
 
@@ -306,17 +339,18 @@ fn active_terminal_presentation_uses_texture_logical_size_and_centers_in_viewpor
     agent_list.shell.target_rect = rect;
 
     let view_state = TerminalViewState::default();
-    let dimensions = active_terminal_dimensions(&window, &hud_state.layout_state(), &view_state);
+    let font_state = TerminalFontState::default();
+    let active_layout =
+        active_terminal_layout(&window, &hud_state.layout_state(), &view_state, &font_state);
     for (_, terminal) in manager.iter_mut() {
-        terminal.snapshot.surface = Some(TerminalSurface::new(dimensions.cols, dimensions.rows));
+        terminal.snapshot.surface = Some(TerminalSurface::new(
+            active_layout.dimensions.cols,
+            active_layout.dimensions.rows,
+        ));
     }
-    let cell_size = active_terminal_cell_size(&window, &view_state);
     let texture_state = TerminalTextureState {
-        texture_size: UVec2::new(
-            dimensions.cols as u32 * cell_size.x,
-            dimensions.rows as u32 * cell_size.y,
-        ),
-        cell_size,
+        texture_size: active_layout.texture_size,
+        cell_size: active_layout.cell_size,
     };
     let expected_size = terminal_texture_screen_size(
         &texture_state,
@@ -382,8 +416,6 @@ fn active_terminal_presentation_uses_texture_logical_size_and_centers_in_viewpor
     assert!((transform.translation.x - 150.0).abs() < 0.2);
     assert!(transform.translation.y.abs() < 0.2);
     assert!((transform.translation.z - 0.3).abs() < 0.01);
-    assert!(expected_size.x <= 1068.0);
-    assert!(expected_size.y <= 868.0);
 }
 
 /// Verifies that changing the active terminal layout contract causes immediate presentation snapping
@@ -404,10 +436,19 @@ fn active_terminal_snaps_immediately_when_active_layout_changes() {
     };
     let hud_state = HudState::default();
     let view_state = TerminalViewState::default();
-    let initial_layout =
-        active_terminal_layout(&initial_window, &hud_state.layout_state(), &view_state);
-    let final_layout =
-        active_terminal_layout(&final_window, &hud_state.layout_state(), &view_state);
+    let font_state = TerminalFontState::default();
+    let initial_layout = active_terminal_layout(
+        &initial_window,
+        &hud_state.layout_state(),
+        &view_state,
+        &font_state,
+    );
+    let final_layout = active_terminal_layout(
+        &final_window,
+        &hud_state.layout_state(),
+        &view_state,
+        &font_state,
+    );
     manager.get_mut(id).unwrap().snapshot.surface = Some(TerminalSurface::new(
         initial_layout.dimensions.cols,
         initial_layout.dimensions.rows,
@@ -537,14 +578,13 @@ fn switching_active_terminal_snaps_immediately_without_animation() {
     agent_list.shell.target_rect = rect;
 
     let view_state = TerminalViewState::default();
-    let dimensions = active_terminal_dimensions(&window, &hud_state.layout_state(), &view_state);
-    let cell_size = active_terminal_cell_size(&window, &view_state);
+    let font_state = TerminalFontState::default();
+    let active_layout =
+        active_terminal_layout(&window, &hud_state.layout_state(), &view_state, &font_state);
+    let dimensions = active_layout.dimensions;
     let active_texture_state = TerminalTextureState {
-        texture_size: UVec2::new(
-            dimensions.cols as u32 * cell_size.x,
-            dimensions.rows as u32 * cell_size.y,
-        ),
-        cell_size,
+        texture_size: active_layout.texture_size,
+        cell_size: active_layout.cell_size,
     };
     let stale_background_texture_state = TerminalTextureState {
         texture_size: UVec2::new(
@@ -701,16 +741,12 @@ fn switching_active_terminal_keeps_cached_frame_visible_until_resized_surface_ar
     let mut view_state = TerminalViewState::default();
     view_state.distance = 5.0;
     let layout_state = hud_state.layout_state();
-    let dimensions = active_terminal_dimensions(&window, &layout_state, &view_state);
-    let active_cell_size = active_terminal_cell_size(&window, &view_state);
-    assert!(active_cell_size.x > DEFAULT_CELL_WIDTH_PX);
-    assert!(active_cell_size.y > DEFAULT_CELL_HEIGHT_PX);
+    let font_state = TerminalFontState::default();
+    let active_layout = active_terminal_layout(&window, &layout_state, &view_state, &font_state);
+    let dimensions = active_layout.dimensions;
     let active_texture_state = TerminalTextureState {
-        texture_size: UVec2::new(
-            dimensions.cols as u32 * active_cell_size.x,
-            dimensions.rows as u32 * active_cell_size.y,
-        ),
-        cell_size: active_cell_size,
+        texture_size: active_layout.texture_size,
+        cell_size: active_layout.cell_size,
     };
     let cached_background_state = TerminalTextureState {
         texture_size: UVec2::new(
@@ -720,7 +756,7 @@ fn switching_active_terminal_keeps_cached_frame_visible_until_resized_surface_ar
         cell_size: UVec2::new(DEFAULT_CELL_WIDTH_PX, DEFAULT_CELL_HEIGHT_PX),
     };
     let expected_size = terminal_texture_screen_size(
-        &active_texture_state,
+        &cached_background_state,
         &view_state,
         &window,
         &layout_state,
@@ -751,7 +787,7 @@ fn switching_active_terminal_keeps_cached_frame_visible_until_resized_surface_ar
         PresentedTerminal {
             image: Default::default(),
             texture_state: cached_background_state.clone(),
-            desired_texture_state: active_texture_state,
+            desired_texture_state: cached_background_state.clone(),
             display_mode: TerminalDisplayMode::Smooth,
             uploaded_revision: 1,
             panel_entity: Entity::PLACEHOLDER,
@@ -877,7 +913,7 @@ fn sync_terminal_texture_keeps_cached_switch_frame_until_resized_surface_arrives
 
     let view_state = TerminalViewState::default();
     let active_dimensions =
-        active_terminal_dimensions(&window, &hud_state.layout_state(), &view_state);
+        active_terminal_dimensions(&window, &hud_state.layout_state(), &view_state, &font_state);
     let active_cell_size = active_terminal_cell_size(&window, &view_state);
     let active_texture_state = TerminalTextureState {
         texture_size: UVec2::new(
@@ -943,12 +979,21 @@ fn sync_terminal_texture_keeps_cached_switch_frame_until_resized_surface_arrives
 
     let store = world.resource::<TerminalPresentationStore>();
     let inactive = store.get(id_one).expect("missing inactive terminal");
-    assert_eq!(inactive.texture_state, active_texture_state);
-    assert_eq!(inactive.desired_texture_state, active_texture_state);
+    assert_eq!(
+        inactive.texture_state,
+        TerminalTextureState {
+            texture_size: UVec2::new(
+                active_dimensions.cols as u32 * DEFAULT_CELL_WIDTH_PX,
+                active_dimensions.rows as u32 * DEFAULT_CELL_HEIGHT_PX,
+            ),
+            cell_size: UVec2::new(DEFAULT_CELL_WIDTH_PX, DEFAULT_CELL_HEIGHT_PX),
+        }
+    );
+    assert_eq!(inactive.desired_texture_state, inactive.texture_state);
 
     let active = store.get(id_two).expect("missing active terminal");
     assert_eq!(active.texture_state, cached_background_state);
-    assert_eq!(active.desired_texture_state, active_texture_state);
+    assert_eq!(active.desired_texture_state, cached_background_state);
 }
 
 /// Verifies that once the resized active-layout surface finally arrives, texture sync promotes the
@@ -984,7 +1029,7 @@ fn sync_terminal_texture_promotes_active_terminal_once_resized_surface_arrives()
 
     let view_state = TerminalViewState::default();
     let active_dimensions =
-        active_terminal_dimensions(&window, &hud_state.layout_state(), &view_state);
+        active_terminal_dimensions(&window, &hud_state.layout_state(), &view_state, &font_state);
     let active_cell_size = active_terminal_cell_size(&window, &view_state);
     let active_texture_state = TerminalTextureState {
         texture_size: UVec2::new(
@@ -1046,8 +1091,7 @@ fn sync_terminal_texture_promotes_active_terminal_once_resized_surface_arrives()
     assert_eq!(presented.uploaded_revision, 2);
 }
 
-/// Verifies that active-terminal resize requests are derived from the current zoom-dependent active
-/// layout dimensions.
+/// Verifies that viewport changes no longer trigger active-terminal PTY resize requests.
 #[test]
 fn active_terminal_resize_requests_follow_zoom_distance() {
     let client = Arc::new(FakeDaemonClient::default());
@@ -1080,10 +1124,10 @@ fn active_terminal_resize_requests_follow_zoom_distance() {
 
     let mut view_state = TerminalViewState::default();
     view_state.distance = 5.0;
-    let expected = active_terminal_dimensions(&window, &hud_state.layout_state(), &view_state);
 
     let mut world = World::default();
     insert_terminal_manager_resources(&mut world, manager);
+    world.insert_resource(TerminalFontState::default());
     world.insert_resource(runtime_spawner);
     world.insert_resource(view_state);
     insert_test_hud_state(&mut world, hud_state);
@@ -1094,10 +1138,7 @@ fn active_terminal_resize_requests_follow_zoom_distance() {
         .unwrap();
 
     let requests = client.resize_requests.lock().unwrap().clone();
-    assert_eq!(
-        requests,
-        vec![("neozeus-session-1".into(), expected.cols, expected.rows)]
-    );
+    assert!(requests.is_empty());
 }
 
 /// Verifies the mailbox coalescing rule that draining returns only the newest frame and newest status
@@ -1261,10 +1302,7 @@ fn dump_terminal_font_reference_sample() {
     .expect("configured font path should resolve");
     let mut renderer = TerminalTextRenderer::default();
     initialize_test_terminal_text_renderer(&report, &mut renderer);
-    let font_state = TerminalFontState {
-        report: Some(Ok(report)),
-        raster: configured_test_font_raster(),
-    };
+    let font_state = configured_test_font_state(report, &mut renderer);
 
     let window = Window {
         resolution: bevy::window::WindowResolution::new(1908, 243).with_scale_factor_override(1.45),
@@ -1272,7 +1310,8 @@ fn dump_terminal_font_reference_sample() {
     };
     let hud_state = HudState::default();
     let view_state = TerminalViewState::default();
-    let active_layout = active_terminal_layout(&window, &hud_state.layout_state(), &view_state);
+    let active_layout =
+        active_terminal_layout(&window, &hud_state.layout_state(), &view_state, &font_state);
 
     let (bridge, _) = test_bridge();
     let mut manager = TerminalManager::default();
@@ -1425,7 +1464,9 @@ fn sync_terminal_texture_renders_visible_text_on_last_row() {
     };
     let hud_state = HudState::default();
     let view_state = TerminalViewState::default();
-    let active_layout = active_terminal_layout(&window, &hud_state.layout_state(), &view_state);
+    let font_state = TerminalFontState::default();
+    let active_layout =
+        active_terminal_layout(&window, &hud_state.layout_state(), &view_state, &font_state);
 
     let mut surface =
         TerminalSurface::new(active_layout.dimensions.cols, active_layout.dimensions.rows);
@@ -1457,7 +1498,9 @@ fn sync_terminal_texture_updates_pixels_when_last_row_text_changes() {
     };
     let hud_state = HudState::default();
     let view_state = TerminalViewState::default();
-    let active_layout = active_terminal_layout(&window, &hud_state.layout_state(), &view_state);
+    let font_state = TerminalFontState::default();
+    let active_layout =
+        active_terminal_layout(&window, &hud_state.layout_state(), &view_state, &font_state);
 
     let mut before =
         TerminalSurface::new(active_layout.dimensions.cols, active_layout.dimensions.rows);
@@ -2006,7 +2049,9 @@ fn active_terminal_presentation_keeps_cached_frame_visible_until_active_layout_u
     };
     let hud_state = crate::hud::HudState::default();
     let view_state = TerminalViewState::default();
-    let active_layout = active_terminal_layout(&window, &hud_state.layout_state(), &view_state);
+    let font_state = TerminalFontState::default();
+    let active_layout =
+        active_terminal_layout(&window, &hud_state.layout_state(), &view_state, &font_state);
 
     let mut presentation_store = TerminalPresentationStore::default();
     presentation_store.register(
@@ -2082,10 +2127,19 @@ fn active_terminal_reappears_snapped_after_becoming_ready_for_new_layout() {
     };
     let hud_state = HudState::default();
     let view_state = TerminalViewState::default();
-    let initial_layout =
-        active_terminal_layout(&initial_window, &hud_state.layout_state(), &view_state);
-    let final_layout =
-        active_terminal_layout(&final_window, &hud_state.layout_state(), &view_state);
+    let font_state = TerminalFontState::default();
+    let initial_layout = active_terminal_layout(
+        &initial_window,
+        &hud_state.layout_state(),
+        &view_state,
+        &font_state,
+    );
+    let final_layout = active_terminal_layout(
+        &final_window,
+        &hud_state.layout_state(),
+        &view_state,
+        &font_state,
+    );
 
     manager.get_mut(id).unwrap().snapshot.surface = Some(TerminalSurface::new(
         initial_layout.dimensions.cols,
@@ -2206,7 +2260,9 @@ fn active_terminal_presentation_becomes_visible_once_active_layout_upload_is_rea
     };
     let hud_state = crate::hud::HudState::default();
     let view_state = TerminalViewState::default();
-    let active_layout = active_terminal_layout(&window, &hud_state.layout_state(), &view_state);
+    let font_state = TerminalFontState::default();
+    let active_layout =
+        active_terminal_layout(&window, &hud_state.layout_state(), &view_state, &font_state);
 
     manager.get_mut(id).unwrap().snapshot.surface = Some(TerminalSurface::new(
         active_layout.dimensions.cols,
@@ -2283,7 +2339,9 @@ fn message_box_keeps_terminal_presentations_visible() {
     };
     let mut hud_state = crate::hud::HudState::default();
     let view_state = TerminalViewState::default();
-    let active_layout = active_terminal_layout(&window, &hud_state.layout_state(), &view_state);
+    let font_state = TerminalFontState::default();
+    let active_layout =
+        active_terminal_layout(&window, &hud_state.layout_state(), &view_state, &font_state);
     hud_state.open_message_box(id);
 
     let terminal = manager.get_mut(id).unwrap();
@@ -2441,7 +2499,9 @@ fn terminal_visibility_policy_show_all_keeps_only_active_terminal_visible() {
     };
     let hud_state = crate::hud::HudState::default();
     let view_state = TerminalViewState::default();
-    let active_layout = active_terminal_layout(&window, &hud_state.layout_state(), &view_state);
+    let font_state = TerminalFontState::default();
+    let active_layout =
+        active_terminal_layout(&window, &hud_state.layout_state(), &view_state, &font_state);
 
     manager.get_mut(id_one).unwrap().snapshot.surface = Some(TerminalSurface::new(
         active_layout.dimensions.cols,

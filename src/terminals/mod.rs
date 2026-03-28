@@ -1,5 +1,6 @@
 mod ansi_surface;
 mod backend;
+pub(crate) mod box_drawing;
 mod bridge;
 mod daemon;
 mod damage;
@@ -26,8 +27,8 @@ pub(crate) use debug::{
     append_debug_log, note_key_event, note_terminal_error, with_debug_stats, TerminalDebugStats,
 };
 pub(crate) use fonts::{
-    configure_terminal_fonts, is_emoji_like, is_private_use_like, TerminalFontState,
-    TerminalTextRenderer,
+    configure_terminal_fonts, is_emoji_like, is_private_use_like, TerminalCellMetrics,
+    TerminalFontState, TerminalTextRenderer,
 };
 pub(crate) use lifecycle::{attach_terminal_session, kill_active_terminal_session_and_remove};
 pub(crate) use mailbox::TerminalUpdateMailbox;
@@ -37,9 +38,9 @@ pub(crate) use notes::{
     TerminalNotesState,
 };
 pub(crate) use presentation::{
-    active_terminal_layout, sync_active_terminal_dimensions, sync_terminal_hud_surface,
-    sync_terminal_panel_frames, sync_terminal_presentations, sync_terminal_projection_entities,
-    terminal_texture_screen_size,
+    active_terminal_layout_for_dimensions, sync_active_terminal_dimensions,
+    sync_terminal_hud_surface, sync_terminal_panel_frames, sync_terminal_presentations,
+    sync_terminal_projection_entities, terminal_texture_screen_size,
 };
 pub(crate) use presentation_state::{
     PresentedTerminal, TerminalCameraMarker, TerminalDisplayMode, TerminalHudSurfaceMarker,
@@ -78,13 +79,14 @@ pub(crate) use fonts::TerminalFontRasterConfig;
 #[cfg(test)]
 pub(crate) use fonts::{
     find_kitty_config_path_with, initialize_terminal_text_renderer_with_locale,
-    parse_kitty_config_file, resolve_terminal_font_report_for_family,
+    measure_monospace_cell, parse_kitty_config_file, resolve_terminal_font_report_for_family,
     resolve_terminal_font_report_for_path, KittyFontConfig,
 };
 #[cfg(test)]
 pub(crate) use presentation::{
-    active_terminal_cell_size, active_terminal_dimensions, active_terminal_viewport,
-    pixel_perfect_cell_size, pixel_perfect_terminal_logical_size, snap_to_pixel_grid,
+    active_terminal_cell_size, active_terminal_dimensions, active_terminal_layout,
+    active_terminal_viewport, pixel_perfect_cell_size, pixel_perfect_terminal_logical_size,
+    snap_to_pixel_grid,
 };
 #[cfg(test)]
 pub(crate) use raster::{

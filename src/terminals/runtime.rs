@@ -148,19 +148,6 @@ impl TerminalRuntimeSpawner {
         self.daemon.client().kill_session(session_id)
     }
 
-    /// Forwards a terminal-resize request to the daemon for one session.
-    ///
-    /// The daemon remains the authority for PTY sizing; the app only computes and forwards the target
-    /// column/row counts.
-    pub(crate) fn resize_session(
-        &self,
-        session_id: &str,
-        cols: usize,
-        rows: usize,
-    ) -> Result<(), String> {
-        self.daemon.client().resize_session(session_id, cols, rows)
-    }
-
     /// Attaches to an existing daemon session and launches the local runtime bridge threads for it.
     ///
     /// The daemon supplies the initial snapshot plus the streamed update receiver; this method wraps
