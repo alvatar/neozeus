@@ -48,7 +48,7 @@ pub(crate) enum VerificationScenario {
 ///
 /// The parser accepts the small fixed scenario vocabulary used by the offscreen verification scripts
 /// and returns `None` for missing or unknown names so callers can treat the feature as disabled.
-pub(crate) fn resolve_verification_scenario(raw: Option<&str>) -> Option<VerificationScenario> {
+fn resolve_verification_scenario(raw: Option<&str>) -> Option<VerificationScenario> {
     match raw.map(str::trim).filter(|value| !value.is_empty()) {
         Some(value) if value.eq_ignore_ascii_case("message-box-bloom") => {
             Some(VerificationScenario::MessageBoxBloom)
