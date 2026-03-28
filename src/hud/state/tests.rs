@@ -128,7 +128,7 @@ impl HudState {
     }
 
     /// Closes the message box in the aggregate test HUD state and discards the current draft.
-    pub(crate) fn close_message_box_and_discard_draft(&mut self) {
+    fn close_message_box_and_discard_draft(&mut self) {
         if let Some(target_terminal) = self.message_box.target_terminal {
             self.message_box_drafts.remove(&target_terminal);
         }
@@ -203,7 +203,7 @@ impl HudState {
     }
 
     /// Extracts the split input-capture resource view from the aggregate test HUD state.
-    pub(crate) fn input_capture_state(&self) -> HudInputCaptureState {
+    fn input_capture_state(&self) -> HudInputCaptureState {
         HudInputCaptureState {
             direct_input_terminal: self.direct_input_terminal,
         }

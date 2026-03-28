@@ -98,7 +98,7 @@ pub(crate) const HUD_WIDGET_DEFINITIONS: [HudWidgetDefinition; 4] = [
 ];
 
 /// Returns the static definition for one HUD widget key.
-pub(crate) fn widget_definition(key: HudWidgetKey) -> Option<&'static HudWidgetDefinition> {
+fn widget_definition(key: HudWidgetKey) -> Option<&'static HudWidgetDefinition> {
     HUD_WIDGET_DEFINITIONS
         .iter()
         .find(|definition| definition.key == key)

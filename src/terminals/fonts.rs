@@ -389,7 +389,7 @@ fn find_kitty_config_path() -> Option<PathBuf> {
 ///
 /// The search checks explicit config dir, XDG config home, HOME fallback, XDG config dirs, then an
 /// optional system path.
-pub(crate) fn find_kitty_config_path_with(
+fn find_kitty_config_path_with(
     kitty_config_directory: Option<&std::ffi::OsStr>,
     xdg_config_home: Option<&std::ffi::OsStr>,
     home: Option<&std::ffi::OsStr>,
@@ -435,7 +435,7 @@ pub(crate) fn find_kitty_config_path_with(
 /// `font_family`.
 ///
 /// The `visited` set breaks include cycles using canonical paths.
-pub(crate) fn parse_kitty_config_file(
+fn parse_kitty_config_file(
     path: &Path,
     visited: &mut BTreeSet<PathBuf>,
     config: &mut KittyFontConfig,

@@ -698,7 +698,7 @@ fn blend_over_pixel(buffer: &mut [u8], width: u32, x: u32, y: u32, source: [u8; 
 /// Alpha-composites one RGBA source pixel over a mutable destination pixel slice in place.
 ///
 /// Both colors are treated as straight alpha.
-pub(crate) fn blend_rgba_in_place(dst: &mut [u8], source: [u8; 4]) {
+fn blend_rgba_in_place(dst: &mut [u8], source: [u8; 4]) {
     let src_alpha = source[3] as f32 / 255.0;
     let dst_alpha = dst[3] as f32 / 255.0;
     let out_alpha = src_alpha + dst_alpha * (1.0 - src_alpha);

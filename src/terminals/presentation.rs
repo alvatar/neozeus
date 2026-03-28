@@ -172,7 +172,7 @@ fn physical_to_logical_size(size: Vec2, window: &Window) -> Vec2 {
 /// chrome.
 ///
 /// The docked agent list claims space on the left when enabled.
-pub(crate) fn active_terminal_viewport(
+fn active_terminal_viewport(
     window: &Window,
     layout_state: &HudLayoutState,
 ) -> (Vec2, Vec2) {
@@ -415,7 +415,7 @@ fn snap_axis_for_texture_center(center: f32, physical_size: u32, window: &Window
 ///
 /// Snapping depends on the final physical texture size: even-sized textures center on whole pixels,
 /// odd-sized textures center on half-pixels so both edges still land on pixel boundaries.
-pub(crate) fn hud_terminal_target_position(
+fn hud_terminal_target_position(
     window: &Window,
     layout_state: &HudLayoutState,
     texture_state: &TerminalTextureState,

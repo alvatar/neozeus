@@ -27,7 +27,7 @@ impl TerminalUpdateMailbox {
     /// The mailbox coalesces frames aggressively: if an older frame was still waiting, it is dropped
     /// and the drop counter is incremented. That keeps the consumer focused on the most recent visual
     /// state instead of replaying stale intermediate frames.
-    pub(crate) fn push_frame(&self, frame: TerminalFrameUpdate) -> MailboxPush {
+    fn push_frame(&self, frame: TerminalFrameUpdate) -> MailboxPush {
         let mut pending = match self.inner.lock() {
             Ok(pending) => pending,
             Err(poisoned) => poisoned.into_inner(),
@@ -44,7 +44,7 @@ impl TerminalUpdateMailbox {
     ///
     /// Status updates are also coalesced, but unlike frames there is no drop counter because only the
     /// latest status matters semantically.
-    pub(crate) fn push_status(&self, status: LatestTerminalStatus) -> MailboxPush {
+    fn push_status(&self, status: LatestTerminalStatus) -> MailboxPush {
         let mut pending = match self.inner.lock() {
             Ok(pending) => pending,
             Err(poisoned) => poisoned.into_inner(),

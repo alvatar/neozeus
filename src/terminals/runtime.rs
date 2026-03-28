@@ -34,7 +34,7 @@ impl RuntimeNotifier {
     /// Builds a notifier that intentionally does nothing when woken.
     ///
     /// Headless/offscreen execution uses this because there is no Winit event loop to notify.
-    pub(crate) fn noop() -> Self {
+    fn noop() -> Self {
         Self { proxy: None }
     }
 
