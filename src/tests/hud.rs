@@ -13,9 +13,9 @@ use crate::{
         TaskCommand as AppTaskCommand, WidgetCommand,
     },
     hud::{
-        agent_row_rect, agent_rows, debug_toolbar_buttons, handle_hud_module_shortcuts,
+        agent_row_rect, debug_toolbar_buttons, handle_hud_module_shortcuts,
         handle_hud_pointer_input, handle_pointer_click, handle_scroll, hud_needs_redraw,
-        AgentListRowSection, AgentListRowView, AgentListUiState, AgentListView,
+        test_agent_rows, AgentListRowSection, AgentListRowView, AgentListUiState, AgentListView,
         ConversationListUiState, ConversationListView, DebugToolbarView, HudDragState,
         HudOffscreenCompositor, HudPersistenceState, HudRect, HudState, HudWidgetKey,
         TerminalVisibilityPolicy, TerminalVisibilityState,
@@ -770,7 +770,7 @@ fn module_shortcuts_are_suppressed_while_direct_input_is_open() {
 #[test]
 fn agent_rows_use_derived_agent_view_labels() {
     // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
-    let rows = agent_rows(
+    let rows = test_agent_rows(
         HudRect {
             x: 24.0,
             y: 96.0,
@@ -825,7 +825,7 @@ fn agent_rows_follow_terminal_order_and_focus() {
         w: 300.0,
         h: 420.0,
     };
-    let rows = agent_rows(
+    let rows = test_agent_rows(
         shell_rect,
         0.0,
         None,
@@ -870,7 +870,7 @@ fn agent_rows_mark_hovered_agent() {
     let id_one = manager.create_terminal(bridge_one);
     let id_two = manager.create_terminal(bridge_two);
 
-    let rows = agent_rows(
+    let rows = test_agent_rows(
         HudRect {
             x: 24.0,
             y: 96.0,
@@ -1403,7 +1403,7 @@ fn clicking_agent_list_row_emits_focus_and_isolate_commands() {
             },
         ],
     };
-    let rows = agent_rows(
+    let rows = test_agent_rows(
         HudRect {
             x: 24.0,
             y: 132.0,
