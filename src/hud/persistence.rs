@@ -204,7 +204,7 @@ fn parse_persisted_hud_state(text: &str) -> PersistedHudState {
 /// Serializes persisted HUD layout state into the current v2 text format.
 ///
 /// Modules are emitted in the canonical definition order so files stay stable across saves.
-pub(crate) fn serialize_persisted_hud_state(state: &PersistedHudState) -> String {
+fn serialize_persisted_hud_state(state: &PersistedHudState) -> String {
     let mut output = String::from(HUD_LAYOUT_VERSION_V2);
     output.push('\n');
     for definition in HUD_WIDGET_DEFINITIONS {
