@@ -1,9 +1,9 @@
 use crate::{
+    composer::ComposerMode,
     conversations::{
         mark_conversations_dirty, AgentTaskStore, ConversationPersistenceState, ConversationStore,
         MessageTransportAdapter,
     },
-    ui::ComposerMode,
 };
 
 use super::super::{commands::ComposerRequest, session::AppSessionState};

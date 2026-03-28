@@ -98,7 +98,7 @@ fn refresh_open_task_editor(
 ) {
     if !matches!(
         app_session.composer.session.as_ref().map(|session| &session.mode),
-        Some(crate::ui::ComposerMode::TaskEdit {
+        Some(crate::composer::ComposerMode::TaskEdit {
             agent_id: open_agent_id,
         }) if *open_agent_id == agent_id
     ) {

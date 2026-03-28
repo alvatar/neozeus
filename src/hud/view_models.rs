@@ -158,13 +158,13 @@ pub(crate) fn sync_hud_view_models(
         .session
         .as_ref()
         .map(|session| match session.mode {
-            crate::ui::ComposerMode::Message { agent_id } => {
+            crate::composer::ComposerMode::Message { agent_id } => {
                 format!(
                     "Message {}",
                     agent_catalog.label(agent_id).unwrap_or("agent")
                 )
             }
-            crate::ui::ComposerMode::TaskEdit { agent_id } => {
+            crate::composer::ComposerMode::TaskEdit { agent_id } => {
                 format!("Tasks {}", agent_catalog.label(agent_id).unwrap_or("agent"))
             }
         });

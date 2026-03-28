@@ -515,7 +515,7 @@ fn message_box_event_text(event: &KeyboardInput) -> Option<String> {
 /// The function returns whether the editor state changed so the caller can request redraw only when
 /// necessary.
 fn handle_text_editor_event(
-    editor: &mut crate::ui::TextEditorState,
+    editor: &mut crate::composer::TextEditorState,
     event: &KeyboardInput,
     ctrl: bool,
     alt: bool,
@@ -703,7 +703,7 @@ pub(crate) fn handle_terminal_message_box_keyboard(
                 if let Some(agent_id) = runtime_index.agent_for_terminal(active_id) {
                     app_commands.write(AppCommand::Composer(ComposerCommand::Open(
                         ComposerRequest {
-                            mode: crate::ui::ComposerMode::Message { agent_id },
+                            mode: crate::composer::ComposerMode::Message { agent_id },
                         },
                     )));
                 }
@@ -713,7 +713,7 @@ pub(crate) fn handle_terminal_message_box_keyboard(
                 if let Some(agent_id) = runtime_index.agent_for_terminal(active_id) {
                     app_commands.write(AppCommand::Composer(ComposerCommand::Open(
                         ComposerRequest {
-                            mode: crate::ui::ComposerMode::TaskEdit { agent_id },
+                            mode: crate::composer::ComposerMode::TaskEdit { agent_id },
                         },
                     )));
                 }

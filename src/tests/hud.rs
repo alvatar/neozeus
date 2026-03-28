@@ -12,11 +12,11 @@ use crate::{
         AgentCommand as AppAgentCommand, AppCommand, ComposerCommand as AppComposerCommand,
         TaskCommand as AppTaskCommand, WidgetCommand,
     },
+    composer::{message_box_action_buttons, message_box_rect, task_dialog_action_buttons},
     hud::{
         handle_hud_module_shortcuts, handle_hud_pointer_input, AgentListView, HudRect, HudState,
         HudWidgetKey, TerminalVisibilityPolicy, TerminalVisibilityState,
     },
-    ui::{message_box_action_buttons, message_box_rect, task_dialog_action_buttons},
 };
 use bevy::{
     ecs::system::RunSystemOnce,

@@ -1,7 +1,7 @@
 use crate::{
     app::AppSessionState,
     app::{AgentCommand, AppCommand, TaskCommand, WidgetCommand},
-    ui::{message_box_action_at, task_dialog_action_at, MessageBoxAction, TaskDialogAction},
+    composer::{message_box_action_at, task_dialog_action_at, MessageBoxAction, TaskDialogAction},
 };
 
 use super::{
@@ -72,12 +72,12 @@ pub(crate) struct HudPointerContext<'w, 's> {
 /// conversion also closes the message box and discards its draft because the text has been consumed
 /// into a task mutation.
 fn message_box_task_command(
-    composer: &mut crate::ui::ComposerState,
+    composer: &mut crate::composer::ComposerState,
     action: MessageBoxAction,
 ) -> Option<AppCommand> {
     // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
     let agent_id = match composer.session.as_ref().map(|session| &session.mode) {
-        Some(crate::ui::ComposerMode::Message { agent_id }) => *agent_id,
+        Some(crate::composer::ComposerMode::Message { agent_id }) => *agent_id,
         _ => return None,
     };
     let payload = composer.message_editor.text.trim().to_owned();
@@ -101,11 +101,11 @@ fn message_box_task_command(
 ///
 /// Today the only task-dialog action is `ClearDone`, which requires a bound task-edit session.
 fn task_dialog_command(
-    composer: &mut crate::ui::ComposerState,
+    composer: &mut crate::composer::ComposerState,
     action: TaskDialogAction,
 ) -> Option<AppCommand> {
     let agent_id = match composer.session.as_ref().map(|session| &session.mode) {
-        Some(crate::ui::ComposerMode::TaskEdit { agent_id }) => *agent_id,
+        Some(crate::composer::ComposerMode::TaskEdit { agent_id }) => *agent_id,
         _ => return None,
     };
     match action {

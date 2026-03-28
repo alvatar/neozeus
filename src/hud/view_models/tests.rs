@@ -28,8 +28,8 @@ fn sync_hud_view_models_derives_agent_rows_and_threads() {
         active_agent: Some(agent_id),
         ..Default::default()
     };
-    app_session.composer.session = Some(crate::ui::ComposerSession {
-        mode: crate::ui::ComposerMode::Message { agent_id },
+    app_session.composer.session = Some(crate::composer::ComposerSession {
+        mode: crate::composer::ComposerMode::Message { agent_id },
     });
     app_session.composer.message_editor.visible = true;
     app_session.composer.message_editor.text = "hello".into();

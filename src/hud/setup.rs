@@ -64,7 +64,7 @@ pub(crate) fn setup_hud(
     layout_state.z_order.clear();
     layout_state.drag = None;
     layout_state.dirty_layout = false;
-    app_session.composer = crate::ui::ComposerState::default();
+    app_session.composer = crate::composer::ComposerState::default();
     *agent_list_state = AgentListUiState::default();
     *conversation_list_state = ConversationListUiState::default();
     *_debug_toolbar_state = DebugToolbarUiState;

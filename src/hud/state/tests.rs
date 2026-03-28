@@ -1,5 +1,5 @@
 use super::*;
-use crate::ui::TextEditorState;
+use crate::composer::TextEditorState;
 use std::collections::BTreeMap;
 
 #[derive(Resource, Default)]

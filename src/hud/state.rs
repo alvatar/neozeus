@@ -218,7 +218,7 @@ impl HudInputCaptureState {
     /// Opening direct input also closes both modal editors so only one input sink remains active.
     pub(crate) fn open_direct_terminal_input(
         &mut self,
-        composer: &mut crate::ui::ComposerState,
+        composer: &mut crate::composer::ComposerState,
         target_terminal: TerminalId,
     ) {
         composer.discard_current_message();
@@ -236,7 +236,7 @@ impl HudInputCaptureState {
     /// Returns `true` when the requested terminal ended up capturing input.
     pub(crate) fn toggle_direct_terminal_input(
         &mut self,
-        composer: &mut crate::ui::ComposerState,
+        composer: &mut crate::composer::ComposerState,
         target_terminal: TerminalId,
     ) -> bool {
         if self.direct_input_terminal == Some(target_terminal) {
