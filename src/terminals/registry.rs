@@ -232,23 +232,6 @@ impl TerminalManager {
         self.insert_terminal(bridge, session_name)
     }
 
-    #[cfg(test)]
-    #[allow(
-        dead_code,
-        reason = "test compatibility API preserves pre-split focused-create helper"
-    )]
-    /// Test helper that creates and focuses a terminal, returning its creation-order slot too.
-    pub(crate) fn create_terminal_with_slot_and_session(
-        &mut self,
-        bridge: TerminalBridge,
-        session_name: String,
-    ) -> (TerminalId, usize) {
-        let id = self.create_terminal_with_session(bridge, session_name);
-        let slot = self.creation_order.len().saturating_sub(1);
-        debug_assert_eq!(self.creation_order.get(slot), Some(&id));
-        (id, slot)
-    }
-
     /// Test helper that focuses a terminal using the embedded compatibility focus state.
     #[cfg(test)]
     pub(crate) fn focus_terminal(&mut self, id: TerminalId) {
@@ -262,48 +245,6 @@ impl TerminalManager {
     #[cfg(test)]
     pub(crate) fn active_id(&self) -> Option<TerminalId> {
         self.test_focus_state.active_id()
-    }
-
-    #[cfg(test)]
-    #[allow(
-        dead_code,
-        reason = "test compatibility API preserves pre-split focus helpers"
-    )]
-    /// Test helper that clears the active terminal in the embedded compatibility focus state.
-    pub(crate) fn clear_active_terminal(&mut self) -> Option<TerminalId> {
-        self.test_focus_state.clear_active_terminal()
-    }
-
-    #[cfg(test)]
-    #[allow(
-        dead_code,
-        reason = "test compatibility API preserves pre-split focus helpers"
-    )]
-    /// Test helper that returns the active terminal bridge from the embedded compatibility focus
-    /// state.
-    pub(crate) fn active_bridge(&self) -> Option<&TerminalBridge> {
-        self.test_focus_state.active_bridge(self)
-    }
-
-    #[cfg(test)]
-    #[allow(
-        dead_code,
-        reason = "test compatibility API preserves pre-split focus helpers"
-    )]
-    /// Test helper that returns the active terminal snapshot from the embedded compatibility focus
-    /// state.
-    pub(crate) fn active_snapshot(&self) -> Option<&TerminalSnapshot> {
-        self.test_focus_state.active_snapshot(self)
-    }
-
-    #[cfg(test)]
-    #[allow(
-        dead_code,
-        reason = "test compatibility API preserves pre-split focus helpers"
-    )]
-    /// Test helper that returns active debug stats from the embedded compatibility focus state.
-    pub(crate) fn active_debug_stats(&self) -> TerminalDebugStats {
-        self.test_focus_state.active_debug_stats(self)
     }
 
     /// Test helper that exposes focus order from the embedded compatibility focus state.

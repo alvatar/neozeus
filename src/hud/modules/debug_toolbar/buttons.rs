@@ -114,15 +114,3 @@ pub(crate) fn debug_toolbar_buttons(
         })
         .collect()
 }
-
-#[cfg(test)]
-pub(crate) fn legacy_debug_toolbar_buttons(
-    shell_rect: HudRect,
-    _terminal_manager: &crate::terminals::TerminalManager,
-    _focus_state: &crate::terminals::TerminalFocusState,
-    _presentation_store: &crate::terminals::TerminalPresentationStore,
-    _view_state: &crate::terminals::TerminalViewState,
-    layout_state: &HudLayoutState,
-) -> Vec<DebugToolbarButton> {
-    debug_toolbar_buttons(shell_rect, &DebugToolbarView::default(), layout_state)
-}

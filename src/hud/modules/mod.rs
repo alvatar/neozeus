@@ -22,7 +22,7 @@ pub(crate) use agent_list::{
     AGENT_LIST_BORDER_ORANGE_B, AGENT_LIST_BORDER_ORANGE_G, AGENT_LIST_BORDER_ORANGE_R,
 };
 #[cfg(test)]
-pub(crate) use debug_toolbar::legacy_debug_toolbar_buttons as debug_toolbar_buttons;
+pub(crate) use debug_toolbar::debug_toolbar_buttons;
 
 #[allow(
     clippy::too_many_arguments,
