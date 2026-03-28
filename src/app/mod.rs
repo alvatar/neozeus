@@ -31,6 +31,7 @@ pub(crate) use {
     output::{resolve_output_dimension, resolve_output_mode},
 };
 
+/// Test harness that runs the `apply_app_commands` system exactly once against the given world.
 #[cfg(test)]
 pub(crate) fn run_apply_app_commands(world: &mut bevy::prelude::World) {
     use bevy::ecs::system::RunSystemOnce;

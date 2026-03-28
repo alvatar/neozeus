@@ -63,7 +63,7 @@ pub(crate) fn active_terminal_layout(
 }
 
 /// Computes the raster cell size chosen for pixel-perfect scaling of a fixed terminal geometry.
-pub(crate) fn pixel_perfect_cell_size(
+fn pixel_perfect_cell_size(
     cols: usize,
     rows: usize,
     window: &Window,
@@ -90,13 +90,13 @@ pub(crate) fn pixel_perfect_cell_size(
 /// Snaps a logical position onto the physical pixel grid implied by the window scale factor.
 ///
 /// Pixel-perfect terminal presentation uses this to avoid subpixel blur.
-pub(crate) fn snap_to_pixel_grid(position: Vec2, window: &Window) -> Vec2 {
+fn snap_to_pixel_grid(position: Vec2, window: &Window) -> Vec2 {
     let scale_factor = window_scale_factor(window);
     (position * scale_factor).round() / scale_factor
 }
 
 /// Exposes the logical on-screen size implied by a pixel-perfect texture state.
-pub(crate) fn pixel_perfect_terminal_logical_size(
+fn pixel_perfect_terminal_logical_size(
     texture_state: &TerminalTextureState,
     window: &Window,
 ) -> Vec2 {
@@ -157,6 +157,7 @@ struct FakeDaemonClient {
 }
 
 impl TerminalDaemonClient for FakeDaemonClient {
+    /// Returns fake session listings from the in-memory set.
     fn list_sessions(&self) -> Result<Vec<DaemonSessionInfo>, String> {
         Ok(self
             .sessions
@@ -173,12 +174,14 @@ impl TerminalDaemonClient for FakeDaemonClient {
             .collect())
     }
 
+    /// Creates a fake session with a fixed suffix and inserts it into the set.
     fn create_session(&self, prefix: &str) -> Result<String, String> {
         let session_id = format!("{prefix}1");
         self.sessions.lock().unwrap().insert(session_id.clone());
         Ok(session_id)
     }
 
+    /// Returns a dummy attached session with an empty snapshot and a disconnected update channel.
     fn attach_session(&self, _session_id: &str) -> Result<AttachedDaemonSession, String> {
         let (_tx, rx) = mpsc::channel();
         Ok(AttachedDaemonSession {
@@ -187,10 +190,12 @@ impl TerminalDaemonClient for FakeDaemonClient {
         })
     }
 
+    /// Accepts and discards the command.
     fn send_command(&self, _session_id: &str, _command: TerminalCommand) -> Result<(), String> {
         Ok(())
     }
 
+    /// Records the resize request for later assertion.
     fn resize_session(&self, session_id: &str, cols: usize, rows: usize) -> Result<(), String> {
         self.resize_requests
             .lock()
@@ -199,6 +204,7 @@ impl TerminalDaemonClient for FakeDaemonClient {
         Ok(())
     }
 
+    /// Accepts and discards the kill request.
     fn kill_session(&self, _session_id: &str) -> Result<(), String> {
         Ok(())
     }
