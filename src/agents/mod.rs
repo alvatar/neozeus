@@ -38,7 +38,7 @@ impl AgentCapabilities {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct AgentRecord {
+struct AgentRecord {
     pub(crate) label: String,
     pub(crate) kind: AgentKind,
     pub(crate) capabilities: AgentCapabilities,
@@ -47,7 +47,7 @@ pub(crate) struct AgentRecord {
 #[derive(Resource, Default, Clone, Debug, PartialEq, Eq)]
 pub(crate) struct AgentCatalog {
     next_id: u64,
-    pub(crate) agents: BTreeMap<AgentId, AgentRecord>,
+    agents: BTreeMap<AgentId, AgentRecord>,
     pub(crate) order: Vec<AgentId>,
 }
 
@@ -76,10 +76,12 @@ impl AgentCatalog {
     }
 
     /// Handles remove.
-    pub(crate) fn remove(&mut self, agent_id: AgentId) -> Option<AgentRecord> {
-        let removed = self.agents.remove(&agent_id)?;
-        self.order.retain(|existing| *existing != agent_id);
-        Some(removed)
+    pub(crate) fn remove(&mut self, agent_id: AgentId) -> bool {
+        let removed = self.agents.remove(&agent_id).is_some();
+        if removed {
+            self.order.retain(|existing| *existing != agent_id);
+        }
+        removed
     }
 
     /// Returns the label.
@@ -101,11 +103,12 @@ impl AgentCatalog {
     }
 
     /// Iterates iter.
-    pub(crate) fn iter(&self) -> impl Iterator<Item = (AgentId, &AgentRecord)> {
-        self.order
-            .iter()
-            .copied()
-            .filter_map(|agent_id| self.agents.get(&agent_id).map(|record| (agent_id, record)))
+    pub(crate) fn iter(&self) -> impl Iterator<Item = (AgentId, &str)> {
+        self.order.iter().copied().filter_map(|agent_id| {
+            self.agents
+                .get(&agent_id)
+                .map(|record| (agent_id, record.label.as_str()))
+        })
     }
 }
 

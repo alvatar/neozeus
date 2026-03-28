@@ -191,10 +191,10 @@ pub(super) fn insert_terminal_manager_resources(
                 .and_then(|terminal_id| runtime_index.agent_for_terminal(terminal_id));
             let rows = catalog
                 .iter()
-                .map(|(agent_id, record)| crate::hud::AgentListRowView {
+                .map(|(agent_id, label)| crate::hud::AgentListRowView {
                     agent_id,
                     terminal_id: runtime_index.primary_terminal(agent_id),
-                    label: record.label.clone(),
+                    label: label.to_owned(),
                     focused: active_agent == Some(agent_id),
                     has_tasks: false,
                     interactive: true,

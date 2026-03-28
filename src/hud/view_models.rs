@@ -103,7 +103,7 @@ pub(crate) fn sync_hud_view_models(
     // Rebuild the derived or projected state from the authoritative resources in one pass so partial updates cannot drift.
     agent_list.rows = agent_catalog
         .iter()
-        .map(|(agent_id, record)| {
+        .map(|(agent_id, label)| {
             let terminal_id = runtime_index.primary_terminal(agent_id);
             let interactive = terminal_id
                 .and_then(|terminal_id| terminal_manager.get(terminal_id))
@@ -111,7 +111,7 @@ pub(crate) fn sync_hud_view_models(
             AgentListRowView {
                 agent_id,
                 terminal_id,
-                label: record.label.clone(),
+                label: label.to_owned(),
                 focused: app_session.active_agent == Some(agent_id),
                 has_tasks: task_store
                     .text(agent_id)
@@ -123,13 +123,13 @@ pub(crate) fn sync_hud_view_models(
 
     conversation_list.rows = agent_catalog
         .iter()
-        .filter_map(|(agent_id, record)| {
+        .filter_map(|(agent_id, label)| {
             let conversation_id = conversations.conversation_for_agent(agent_id)?;
             Some(ConversationListRowView {
                 agent_id,
                 terminal_id: runtime_index.primary_terminal(agent_id),
                 conversation_id,
-                label: record.label.clone(),
+                label: label.to_owned(),
                 message_count: conversations.messages_for(conversation_id).len(),
                 selected: app_session.active_agent == Some(agent_id),
             })
@@ -158,22 +158,15 @@ pub(crate) fn sync_hud_view_models(
         .session
         .as_ref()
         .map(|session| match session.mode {
-            crate::ui::ComposerMode::Message { agent_id } => format!(
-                "Message {}",
-                agent_catalog
-                    .agents
-                    .get(&agent_id)
-                    .map(|record| record.label.as_str())
-                    .unwrap_or("agent")
-            ),
-            crate::ui::ComposerMode::TaskEdit { agent_id } => format!(
-                "Tasks {}",
-                agent_catalog
-                    .agents
-                    .get(&agent_id)
-                    .map(|record| record.label.as_str())
-                    .unwrap_or("agent")
-            ),
+            crate::ui::ComposerMode::Message { agent_id } => {
+                format!(
+                    "Message {}",
+                    agent_catalog.label(agent_id).unwrap_or("agent")
+                )
+            }
+            crate::ui::ComposerMode::TaskEdit { agent_id } => {
+                format!("Tasks {}", agent_catalog.label(agent_id).unwrap_or("agent"))
+            }
         });
     composer_view.text = if app_session.composer.message_editor.visible {
         app_session.composer.message_editor.text.clone()
