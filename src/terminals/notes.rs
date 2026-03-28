@@ -130,7 +130,7 @@ pub(crate) fn load_terminal_notes_from(path: &PathBuf) -> HashMap<String, String
 /// The parser first validates the version header, then reads repeated `note name=...` blocks whose
 /// bodies terminate at a lone `.` line. Leading `.` in note content is escaped by doubling it, so the
 /// parser also has to undo that escaping on load.
-pub(crate) fn parse_terminal_notes(text: &str) -> HashMap<String, String> {
+fn parse_terminal_notes(text: &str) -> HashMap<String, String> {
     // Process the input incrementally so each transformation stays local and malformed data fails at the narrowest point.
     let mut lines = text.lines();
     let Some(version) = lines.next() else {
