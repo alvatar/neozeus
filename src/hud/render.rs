@@ -80,7 +80,7 @@ fn hud_to_scene(window: &Window, point: Vec2) -> (f64, f64) {
 /// Converts a HUD rectangle into a Vello `Rect` in centered scene coordinates.
 ///
 /// The helper computes both corners through [`hud_to_scene`] so inverted axes are normalized safely.
-pub(crate) fn hud_rect_to_scene(window: &Window, rect: HudRect) -> Rect {
+fn hud_rect_to_scene(window: &Window, rect: HudRect) -> Rect {
     let (x0, y0) = hud_to_scene(window, Vec2::new(rect.x, rect.y));
     let (x1, y1) = hud_to_scene(window, Vec2::new(rect.x + rect.w, rect.y + rect.h));
     Rect::new(x0.min(x1), y0.min(y1), x0.max(x1), y0.max(y1))
