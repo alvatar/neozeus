@@ -16,7 +16,7 @@ use bevy::{
 };
 use bevy_vello::render::VelloCanvasMaterial;
 
-use crate::hud::compositor::{HudCompositeCameraMarker, HudCompositeLayerMarker};
+use super::compositor::{HudCompositeCameraMarker, HudCompositeLayerMarker};
 
 #[derive(Resource, Clone, Debug)]
 pub(crate) struct HudTextureCaptureConfig {

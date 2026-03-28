@@ -1,9 +1,9 @@
+use super::super::debug::append_debug_log;
+use super::super::types::{TerminalCommand, TerminalSnapshot, TerminalUpdate};
 use super::protocol::{
     read_server_message, write_client_message, ClientMessage, DaemonEvent, DaemonRequest,
     DaemonResponse, DaemonSessionInfo, ServerMessage,
 };
-use crate::terminals::debug::append_debug_log;
-use crate::terminals::types::{TerminalCommand, TerminalSnapshot, TerminalUpdate};
 use bevy::prelude::Resource;
 use std::{
     collections::HashMap,

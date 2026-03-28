@@ -1,5 +1,5 @@
+use super::super::super::types::{TerminalLifecycle, TerminalRuntimeState};
 use super::*;
-use crate::terminals::types::{TerminalLifecycle, TerminalRuntimeState};
 use std::io::Cursor;
 
 /// Encodes the legacy v1 session-info payload that predates `created_order` on the wire.

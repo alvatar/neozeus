@@ -1,3 +1,4 @@
+use super::super::debug::append_debug_log;
 use super::{
     protocol::{
         read_client_message, write_server_message, ClientMessage, DaemonRequest, DaemonResponse,
@@ -5,7 +6,6 @@ use super::{
     },
     session::{DaemonSession, SubscriberIdAllocator},
 };
-use crate::terminals::debug::append_debug_log;
 use std::{
     collections::HashMap,
     fs,
