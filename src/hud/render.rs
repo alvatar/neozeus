@@ -54,7 +54,7 @@ impl HudColors {
     pub(crate) const BUTTON_BORDER: peniko::Color = peniko::Color::from_rgba8(57, 26, 6, 255);
     pub(crate) const ROW_HOVERED: peniko::Color = peniko::Color::from_rgba8(44, 32, 24, 255);
     pub(crate) const ROW_FOCUSED: peniko::Color = peniko::Color::from_rgba8(44, 32, 24, 255);
-    pub(crate) const MESSAGE_BOX: peniko::Color = peniko::Color::from_rgba8(0, 0, 0, 255);
+    const MESSAGE_BOX: peniko::Color = peniko::Color::from_rgba8(0, 0, 0, 255);
 }
 
 /// Scales a color's alpha channel by a clamped factor while leaving RGB untouched.
