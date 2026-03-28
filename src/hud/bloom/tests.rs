@@ -286,14 +286,12 @@ fn sync_hud_widget_bloom_spawns_agent_list_source_sprites() {
     let expected_sizes = {
         let hud_state = snapshot_test_hud_state(&world);
         let agent_list_view = world.resource::<AgentListView>();
+        let agent_list_state = world.resource::<crate::hud::AgentListUiState>();
         let module = hud_state.get(HudWidgetKey::AgentList).unwrap();
-        let crate::hud::HudModuleModel::AgentList(state) = &module.model else {
-            panic!("agent list module model missing")
-        };
         let row = crate::hud::agent_rows(
             module.shell.current_rect,
-            state.scroll_offset,
-            state.hovered_agent,
+            agent_list_state.scroll_offset,
+            agent_list_state.hovered_agent,
             agent_list_view,
         )
         .into_iter()

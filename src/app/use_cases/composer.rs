@@ -1,6 +1,9 @@
 use crate::{
     app::AppSessionState,
-    conversations::{AgentTaskStore, ConversationStore, MessageTransportAdapter},
+    conversations::{
+        mark_conversations_dirty, AgentTaskStore, ConversationPersistenceState, ConversationStore,
+        MessageTransportAdapter,
+    },
     ui::ComposerMode,
 };
 use bevy::window::RequestRedraw;
@@ -14,10 +17,12 @@ use super::{send_message, set_task_text};
 pub(crate) fn submit_composer(
     app_session: &mut AppSessionState,
     conversations: &mut ConversationStore,
+    conversation_persistence: &mut ConversationPersistenceState,
     tasks: &mut AgentTaskStore,
     runtime_index: &crate::agents::AgentRuntimeIndex,
     terminal_manager: &crate::terminals::TerminalManager,
     transport: &MessageTransportAdapter,
+    time: &bevy::prelude::Time,
     redraws: &mut bevy::prelude::MessageWriter<RequestRedraw>,
 ) {
     let Some(session) = app_session.composer.session.clone() else {
@@ -36,6 +41,7 @@ pub(crate) fn submit_composer(
                     runtime_index,
                     terminal_manager,
                 );
+                mark_conversations_dirty(conversation_persistence, Some(time));
             }
             app_session.composer.discard_current_message();
         }

@@ -1,13 +1,14 @@
 use crate::{
-    agents::{AgentCatalog, AgentId},
     app::AppSessionState,
     hud::{
-        message_box_action_buttons, message_box_rect, modules, task_dialog_action_buttons,
-        task_dialog_rect, AgentListView, ConversationListView, HudLayoutState, HudRect,
+        modules, AgentListView, ComposerView, ConversationListView, HudLayoutState, HudRect,
         HudWidgetKey, ThreadView, HUD_TITLEBAR_HEIGHT,
     },
     startup::StartupConnectState,
-    ui::TextEditorState,
+    ui::{
+        message_box_action_buttons, message_box_rect, task_dialog_action_buttons, task_dialog_rect,
+        TextEditorState,
+    },
 };
 use bevy::{prelude::*, window::PrimaryWindow};
 use bevy_vello::{
@@ -466,13 +467,6 @@ fn draw_dialog_button_row(
     }
 }
 
-/// Resolves the label shown in modal titles for the editor's current target agent.
-fn target_label(target_agent: Option<AgentId>, agent_catalog: &AgentCatalog) -> String {
-    target_agent
-        .and_then(|agent_id| agent_catalog.label(agent_id).map(str::to_owned))
-        .unwrap_or_else(|| "no target".to_owned())
-}
-
 /// Draws the message-box modal, including title, editor body, buttons, and status line.
 ///
 /// Rendering is skipped entirely when the modal is not visible.
@@ -480,8 +474,7 @@ fn draw_message_box(
     painter: &mut HudPainter,
     window: &Window,
     message_box: &TextEditorState,
-    target_agent: Option<AgentId>,
-    agent_catalog: &AgentCatalog,
+    title: &str,
 ) {
     if !message_box.visible {
         return;
@@ -500,7 +493,7 @@ fn draw_message_box(
     painter.fill_rect(title_rect, HudColors::MESSAGE_BOX, 12.0);
     painter.label(
         Vec2::new(rect.x + 24.0, rect.y + 12.0),
-        &format!("Message {}", target_label(target_agent, agent_catalog)),
+        title,
         18.0,
         HudColors::TEXT,
         VelloTextAnchor::TopLeft,
@@ -611,8 +604,7 @@ fn draw_task_dialog(
     painter: &mut HudPainter,
     window: &Window,
     task_dialog: &TextEditorState,
-    target_agent: Option<AgentId>,
-    agent_catalog: &AgentCatalog,
+    title: &str,
 ) {
     if !task_dialog.visible {
         return;
@@ -631,7 +623,7 @@ fn draw_task_dialog(
     painter.fill_rect(title_rect, HudColors::MESSAGE_BOX, 12.0);
     painter.label(
         Vec2::new(rect.x + 24.0, rect.y + 12.0),
-        &format!("Tasks {}", target_label(target_agent, agent_catalog)),
+        title,
         18.0,
         HudColors::TEXT,
         VelloTextAnchor::TopLeft,
@@ -790,7 +782,7 @@ pub(crate) fn render_hud_scene(
 pub(crate) fn render_hud_modal_scene(
     primary_window: Single<&Window, With<PrimaryWindow>>,
     app_session: Res<AppSessionState>,
-    agent_catalog: Res<AgentCatalog>,
+    composer_view: Res<ComposerView>,
     startup_connect: Option<Res<StartupConnectState>>,
     fonts: Res<Assets<VelloFont>>,
     mut scene: Single<&mut VelloScene2d, With<HudModalVectorSceneMarker>>,
@@ -800,38 +792,17 @@ pub(crate) fn render_hud_modal_scene(
     if let Some(startup_connect) = startup_connect.as_deref() {
         draw_startup_connect_overlay(&mut painter, &primary_window, startup_connect);
     }
-    let target_agent = app_session.composer.current_agent();
     draw_message_box(
         &mut painter,
         &primary_window,
         &app_session.composer.message_editor,
-        matches!(
-            app_session
-                .composer
-                .session
-                .as_ref()
-                .map(|session| &session.mode),
-            Some(crate::ui::ComposerMode::Message { .. })
-        )
-        .then_some(target_agent)
-        .flatten(),
-        &agent_catalog,
+        composer_view.title.as_deref().unwrap_or("Message"),
     );
     draw_task_dialog(
         &mut painter,
         &primary_window,
         &app_session.composer.task_editor,
-        matches!(
-            app_session
-                .composer
-                .session
-                .as_ref()
-                .map(|session| &session.mode),
-            Some(crate::ui::ComposerMode::TaskEdit { .. })
-        )
-        .then_some(target_agent)
-        .flatten(),
-        &agent_catalog,
+        composer_view.title.as_deref().unwrap_or("Tasks"),
     );
     **scene = VelloScene2d::from(built);
 }

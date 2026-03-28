@@ -1,4 +1,4 @@
-use crate::{agents::AgentId, conversations::ConversationId, hud::HudWidgetKey, ui::ComposerMode};
+use crate::{agents::AgentId, hud::HudWidgetKey, ui::ComposerMode};
 use bevy::prelude::Message;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -6,12 +6,10 @@ pub(crate) struct ComposerRequest {
     pub(crate) mode: ComposerMode,
 }
 
-#[allow(dead_code)]
 #[derive(Clone, Debug, Message, PartialEq, Eq)]
 pub(crate) enum AppCommand {
     Agent(AgentCommand),
     Terminal(TerminalCommand),
-    Conversation(ConversationCommand),
     Task(TaskCommand),
     Composer(ComposerCommand),
     Widget(WidgetCommand),
@@ -35,20 +33,8 @@ pub(crate) enum TerminalCommand {
     ToggleActiveDisplayMode,
 }
 
-#[allow(dead_code)]
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum ConversationCommand {
-    SendMessage {
-        conversation_id: ConversationId,
-        sender: AgentId,
-        body: String,
-    },
-}
-
-#[allow(dead_code)]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum TaskCommand {
-    SetText { agent_id: AgentId, text: String },
     Append { agent_id: AgentId, text: String },
     Prepend { agent_id: AgentId, text: String },
     ClearDone { agent_id: AgentId },

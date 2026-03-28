@@ -5,8 +5,7 @@ use crate::{
     hud::{HudInputCaptureState, TerminalVisibilityPolicy, TerminalVisibilityState},
     terminals::{
         kill_active_terminal_session_and_remove, TerminalFocusState, TerminalManager,
-        TerminalPresentationStore, TerminalRuntimeSpawner, TerminalSessionPersistenceState,
-        TerminalViewState,
+        TerminalRuntimeSpawner, TerminalSessionPersistenceState, TerminalViewState,
     },
 };
 use bevy::{prelude::*, window::RequestRedraw};
@@ -28,7 +27,6 @@ fn adjacent_agent_in_catalog(catalog: &AgentCatalog, agent_id: AgentId) -> Optio
     reason = "kill spans daemon, agent, session, and projection state"
 )]
 pub(crate) fn kill_active_agent(
-    commands: &mut Commands,
     time: &Time,
     agent_catalog: &mut AgentCatalog,
     runtime_index: &mut AgentRuntimeIndex,
@@ -36,7 +34,6 @@ pub(crate) fn kill_active_agent(
     task_store: &mut AgentTaskStore,
     terminal_manager: &mut TerminalManager,
     focus_state: &mut TerminalFocusState,
-    presentation_store: &mut TerminalPresentationStore,
     runtime_spawner: &TerminalRuntimeSpawner,
     input_capture: &mut HudInputCaptureState,
     session_persistence: &mut TerminalSessionPersistenceState,
@@ -49,11 +46,9 @@ pub(crate) fn kill_active_agent(
     };
     let replacement_agent = adjacent_agent_in_catalog(agent_catalog, active_agent);
     let removed = kill_active_terminal_session_and_remove(
-        commands,
         time,
         terminal_manager,
         focus_state,
-        presentation_store,
         runtime_spawner,
         session_persistence,
     )?;

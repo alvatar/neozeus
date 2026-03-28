@@ -2,11 +2,11 @@ use crate::{
     app::AppSessionState,
     app::{AgentCommand, AppCommand, TaskCommand, WidgetCommand},
     hud::{
-        message_box_action_at, modules, task_dialog_action_at, AgentListUiState, AgentListView,
-        ConversationListUiState, ConversationListView, DebugToolbarView, HudInputCaptureState,
-        HudLayoutState, HudMessageBoxAction, HudRect, HudTaskDialogAction, HudWidgetKey,
+        modules, AgentListUiState, AgentListView, ConversationListUiState, ConversationListView,
+        DebugToolbarView, HudInputCaptureState, HudLayoutState, HudRect, HudWidgetKey,
         HUD_TITLEBAR_HEIGHT,
     },
+    ui::{message_box_action_at, task_dialog_action_at, MessageBoxAction, TaskDialogAction},
 };
 use bevy::{
     ecs::system::SystemParam,
@@ -61,14 +61,14 @@ pub(crate) struct HudPointerContext<'w, 's> {
     redraws: MessageWriter<'w, RequestRedraw>,
 }
 
-/// Converts a message-box task action button click into the corresponding task-edit intent.
+/// Converts a message-box task action button click into the corresponding task command.
 ///
 /// The payload comes from the current message-box text, trimmed and rejected if empty. Successful
 /// conversion also closes the message box and discards its draft because the text has been consumed
 /// into a task mutation.
 fn message_box_task_command(
     composer: &mut crate::ui::ComposerState,
-    action: HudMessageBoxAction,
+    action: MessageBoxAction,
 ) -> Option<AppCommand> {
     let agent_id = match composer.session.as_ref().map(|session| &session.mode) {
         Some(crate::ui::ComposerMode::Message { agent_id }) => *agent_id,
@@ -80,33 +80,30 @@ fn message_box_task_command(
     }
     composer.discard_current_message();
     Some(AppCommand::Task(match action {
-        HudMessageBoxAction::AppendTask => TaskCommand::Append {
+        MessageBoxAction::AppendTask => TaskCommand::Append {
             agent_id,
             text: payload,
         },
-        HudMessageBoxAction::PrependTask => TaskCommand::Prepend {
+        MessageBoxAction::PrependTask => TaskCommand::Prepend {
             agent_id,
             text: payload,
         },
     }))
 }
 
-/// Converts a task-dialog action button click into the corresponding HUD intent.
+/// Converts a task-dialog action button click into the corresponding task command.
 ///
-/// Today the only task-dialog action is `ClearDone`, which requires a bound target terminal to emit
-/// an intent.
+/// Today the only task-dialog action is `ClearDone`, which requires a bound task-edit session.
 fn task_dialog_command(
     composer: &mut crate::ui::ComposerState,
-    action: HudTaskDialogAction,
+    action: TaskDialogAction,
 ) -> Option<AppCommand> {
     let agent_id = match composer.session.as_ref().map(|session| &session.mode) {
         Some(crate::ui::ComposerMode::TaskEdit { agent_id }) => *agent_id,
         _ => return None,
     };
     match action {
-        HudTaskDialogAction::ClearDone => {
-            Some(AppCommand::Task(TaskCommand::ClearDone { agent_id }))
-        }
+        TaskDialogAction::ClearDone => Some(AppCommand::Task(TaskCommand::ClearDone { agent_id })),
     }
 }
 
@@ -316,8 +313,8 @@ fn adjacent_agent_id(
 /// Handles keyboard shortcuts that toggle/reset HUD modules and navigate the agent list.
 ///
 /// Plain digit keys toggle modules, `Alt+Shift+digit` resets them, and plain `j`/`k` or up/down
-/// arrows navigate between terminals by emitting focus+isolate intents. All of it is suppressed while
-/// any modal/editor state owns keyboard capture.
+/// arrows navigate between agents by emitting focus/inspect app commands. All of it is suppressed
+/// while any modal/editor state owns keyboard capture.
 pub(crate) fn handle_hud_module_shortcuts(
     mut messages: MessageReader<KeyboardInput>,
     keys: Res<ButtonInput<KeyCode>>,
