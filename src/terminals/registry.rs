@@ -83,7 +83,7 @@ impl TerminalFocusState {
 
     /// Test helper that exposes the focus-order list.
     #[cfg(test)]
-    pub(crate) fn focus_order(&self) -> &[TerminalId] {
+    fn focus_order(&self) -> &[TerminalId] {
         &self.focus_order
     }
 

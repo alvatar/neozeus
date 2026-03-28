@@ -37,27 +37,27 @@ struct NeoZeusWindowConfig {
 
 impl NeoZeusConfig {
     /// Returns the configured terminal font path, if any.
-    pub(crate) fn terminal_font_path(&self) -> Option<&Path> {
+    fn terminal_font_path(&self) -> Option<&Path> {
         self.terminal.font_path.as_deref()
     }
 
     /// Returns the configured terminal font size, if any.
-    pub(crate) fn terminal_font_size_px(&self) -> Option<f32> {
+    fn terminal_font_size_px(&self) -> Option<f32> {
         self.terminal.font_size_px
     }
 
     /// Returns the configured terminal baseline offset, if any.
-    pub(crate) fn terminal_baseline_offset_px(&self) -> Option<f32> {
+    fn terminal_baseline_offset_px(&self) -> Option<f32> {
         self.terminal.baseline_offset_px
     }
 
     /// Returns the configured window title, if any.
-    pub(crate) fn window_title(&self) -> Option<&str> {
+    fn window_title(&self) -> Option<&str> {
         self.window.title.as_deref()
     }
 
     /// Returns the configured app id, if any.
-    pub(crate) fn window_app_id(&self) -> Option<&str> {
+    fn window_app_id(&self) -> Option<&str> {
         self.window.app_id.as_deref()
     }
 }
@@ -80,7 +80,7 @@ pub(crate) fn load_neozeus_config() -> Result<NeoZeusConfig, String> {
 /// The function keeps I/O and parsing errors separate in the final message by first attaching the
 /// filesystem path to any read failure and then delegating the actual syntax handling to
 /// [`parse_neozeus_config`].
-pub(crate) fn load_neozeus_config_from(path: &Path) -> Result<NeoZeusConfig, String> {
+fn load_neozeus_config_from(path: &Path) -> Result<NeoZeusConfig, String> {
     let text = fs::read_to_string(path)
         .map_err(|error| format!("failed to read NeoZeus config {}: {error}", path.display()))?;
     parse_neozeus_config(&text)
@@ -106,7 +106,7 @@ fn resolve_neozeus_config_path() -> Option<PathBuf> {
 /// Precedence is strict and stops at the first existing file: explicit `NEOZEUS_CONFIG_PATH`, then
 /// `$XDG_CONFIG_HOME/neozeus/config.toml`, then `~/.config/neozeus/config.toml`, and finally a local
 /// `neozeus.toml` in the current directory. Non-existent candidates are skipped silently.
-pub(crate) fn resolve_neozeus_config_path_with(
+fn resolve_neozeus_config_path_with(
     explicit_path: Option<&std::ffi::OsStr>,
     xdg_config_home: Option<&std::ffi::OsStr>,
     home: Option<&std::ffi::OsStr>,
@@ -216,7 +216,7 @@ pub(crate) fn resolve_terminal_baseline_offset_px(config: &NeoZeusConfig, defaul
 /// while respecting quoted strings, tracks only the sections NeoZeus understands, and ignores all
 /// unknown keys/sections. Syntax errors that would make the supported subset ambiguous still return
 /// explicit errors with line numbers.
-pub(crate) fn parse_neozeus_config(text: &str) -> Result<NeoZeusConfig, String> {
+fn parse_neozeus_config(text: &str) -> Result<NeoZeusConfig, String> {
     // Process the input incrementally so each transformation stays local and malformed data fails at the narrowest point.
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     enum Section {
