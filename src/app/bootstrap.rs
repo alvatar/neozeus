@@ -272,7 +272,7 @@ pub(crate) fn primary_window_plugin_config_for(output: &AppOutputConfig) -> Opti
 /// Offscreen mode deliberately returns `None` here so Bevy does not create a native window through
 /// the plugin path. In normal mode it delegates to [`primary_window_config_for_with_config`] so the
 /// exact same window settings are used by both plugin-driven and manually spawned primary windows.
-pub(crate) fn primary_window_plugin_config_for_with_config(
+fn primary_window_plugin_config_for_with_config(
     output: &AppOutputConfig,
     config: &NeoZeusConfig,
 ) -> Option<Window> {
