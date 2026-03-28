@@ -13,10 +13,14 @@ use super::{
 };
 use bevy::prelude::Vec2;
 
+pub(in crate::hud) use agent_list::agent_rows;
 pub(crate) use agent_list::{
-    agent_row_rect, agent_rows, AgentListRowSection, AGENT_LIST_BLOOM_RED_B,
-    AGENT_LIST_BLOOM_RED_G, AGENT_LIST_BLOOM_RED_R,
+    agent_row_rect, AgentListRowSection, AGENT_LIST_BLOOM_RED_B, AGENT_LIST_BLOOM_RED_G,
+    AGENT_LIST_BLOOM_RED_R,
 };
+
+#[cfg(test)]
+pub(crate) use agent_list::test_agent_rows;
 
 #[allow(
     clippy::too_many_arguments,

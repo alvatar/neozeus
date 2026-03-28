@@ -4,7 +4,7 @@ pub(crate) use super::compositor::{
     HUD_COMPOSITE_RENDER_LAYER,
 };
 pub(crate) use super::modules::{
-    agent_row_rect, agent_rows, debug_toolbar_buttons, handle_pointer_click, handle_scroll,
+    agent_row_rect, debug_toolbar_buttons, handle_pointer_click, handle_scroll, test_agent_rows,
     AgentListRowSection,
 };
 pub(crate) use super::render::{
