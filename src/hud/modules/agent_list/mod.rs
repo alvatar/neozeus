@@ -9,7 +9,7 @@ use super::super::{
 };
 
 const AGENT_LIST_HEADER_HEIGHT: f32 = 52.0;
-pub(crate) const AGENT_LIST_LEFT_RAIL_WIDTH: f32 = 20.0;
+const AGENT_LIST_LEFT_RAIL_WIDTH: f32 = 20.0;
 pub(crate) const AGENT_LIST_ROW_MARKER_WIDTH: f32 = 12.0;
 pub(crate) const AGENT_LIST_ROW_MARKER_GAP: f32 = 10.0;
 pub(crate) const AGENT_LIST_ROW_GAP: f32 = 14.0;
