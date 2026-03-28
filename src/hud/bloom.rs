@@ -89,7 +89,7 @@ fn resolve_agent_list_bloom_intensity(raw: Option<&str>) -> f32 {
 /// Parses the boolean flag that enables on-screen debug previews for bloom intermediate stages.
 ///
 /// The parser accepts a small truthy vocabulary and treats everything else as disabled.
-pub(crate) fn resolve_agent_list_bloom_debug_previews(raw: Option<&str>) -> bool {
+fn resolve_agent_list_bloom_debug_previews(raw: Option<&str>) -> bool {
     matches!(
         raw.map(str::trim).filter(|value| !value.is_empty()),
         Some(value)
