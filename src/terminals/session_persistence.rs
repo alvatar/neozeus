@@ -57,7 +57,7 @@ impl ReconciledTerminalSessions {
 ///
 /// The precedence matches the notes persistence path: XDG state home first, then `~/.local/state`,
 /// then XDG config as a fallback.
-pub(crate) fn resolve_terminal_sessions_path_with(
+fn resolve_terminal_sessions_path_with(
     xdg_state_home: Option<&str>,
     home: Option<&str>,
     xdg_config_home: Option<&str>,
