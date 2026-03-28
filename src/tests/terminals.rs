@@ -1995,8 +1995,9 @@ fn terminal_creation_order_stays_stable_when_focus_changes() {
 
     manager.focus_terminal(id_one);
 
+    let focus = manager.clone_focus_state();
     assert_eq!(manager.terminal_ids(), &[id_one, id_two]);
-    assert_eq!(manager.focus_order(), &[id_two, id_one]);
+    assert_eq!(focus.focus_order(), &[id_two, id_one]);
 }
 
 /// Verifies the helper path that creates a terminal without implicitly making it active.
@@ -2006,9 +2007,10 @@ fn terminal_can_be_created_without_becoming_active() {
     let mut manager = TerminalManager::default();
     let id = manager.create_terminal_without_focus(bridge);
 
+    let focus = manager.clone_focus_state();
     assert_eq!(manager.terminal_ids(), &[id]);
-    assert_eq!(manager.active_id(), None);
-    assert!(manager.focus_order().is_empty());
+    assert_eq!(focus.active_id(), None);
+    assert!(focus.focus_order().is_empty());
 }
 
 /// Verifies that creating a terminal with an explicit session name stores that session name in the
@@ -2037,10 +2039,11 @@ fn remove_terminal_clears_orders_and_active_state() {
         .remove_terminal(id_one)
         .expect("terminal should exist");
 
+    let focus = manager.clone_focus_state();
     assert_eq!(removed.session_name, "neozeus-session-a");
-    assert_eq!(manager.active_id(), None);
+    assert_eq!(focus.active_id(), None);
     assert_eq!(manager.terminal_ids(), &[id_two]);
-    assert_eq!(manager.focus_order(), &[id_two]);
+    assert_eq!(focus.focus_order(), &[id_two]);
 }
 
 /// Verifies that in `ShowAll` mode with no active terminal, background terminal presentations remain

@@ -31,16 +31,6 @@ impl TerminalNotesState {
         self.notes_by_session.get(session_name).map(String::as_str)
     }
 
-    /// Returns whether a session currently has non-blank note text.
-    ///
-    /// Whitespace-only entries are treated as absent so tests and HUD projections can use this as a
-    /// real presence predicate.
-    #[cfg(test)]
-    pub(crate) fn has_note_text(&self, session_name: &str) -> bool {
-        self.note_text(session_name)
-            .is_some_and(|text| !text.trim().is_empty())
-    }
-
     /// Sets or clears the note text for one session and reports whether anything actually changed.
     ///
     /// Trailing whitespace is trimmed before storage, and a fully blank result removes the entry from
@@ -66,55 +56,6 @@ impl TerminalNotesState {
                 true
             }
         }
-    }
-
-    /// Appends a new checkbox task block derived from arbitrary text to the end of a session's notes.
-    ///
-    /// The text is first normalized through [`task_entry_from_text`]. If that yields a valid task
-    /// block, it is appended after any existing trimmed note text with a separating newline.
-    #[cfg(test)]
-    pub(crate) fn append_task_from_text(&mut self, session_name: &str, text: &str) -> bool {
-        let Some(task_entry) = task_entry_from_text(text) else {
-            return false;
-        };
-        let existing = self
-            .notes_by_session
-            .get(session_name)
-            .map(|text| text.trim_end().to_owned())
-            .unwrap_or_default();
-        let updated = if existing.is_empty() {
-            task_entry
-        } else {
-            format!("{existing}\n{task_entry}")
-        };
-        self.notes_by_session
-            .insert(session_name.to_owned(), updated);
-        true
-    }
-
-    /// Prepends a new checkbox task block derived from arbitrary text to the start of a session's
-    /// notes.
-    ///
-    /// This is the mirror of [`append_task_from_text`], preserving the existing note text after the
-    /// new task block when both exist.
-    #[cfg(test)]
-    pub(crate) fn prepend_task_from_text(&mut self, session_name: &str, text: &str) -> bool {
-        let Some(task_entry) = task_entry_from_text(text) else {
-            return false;
-        };
-        let existing = self
-            .notes_by_session
-            .get(session_name)
-            .map(|text| text.trim_end().to_owned())
-            .unwrap_or_default();
-        let updated = if existing.is_empty() {
-            task_entry
-        } else {
-            format!("{task_entry}\n{existing}")
-        };
-        self.notes_by_session
-            .insert(session_name.to_owned(), updated);
-        true
     }
 }
 

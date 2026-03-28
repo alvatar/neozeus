@@ -179,7 +179,10 @@ pub(crate) fn sync_terminal_texture(
     let mut active_id = focus_state.active_id();
     #[cfg(test)]
     {
-        active_id = terminal_manager.active_id().or(active_id);
+        active_id = terminal_manager
+            .clone_focus_state()
+            .active_id()
+            .or(active_id);
     }
     let active_layout = active_id.map(|_| {
         active_terminal_layout_for_dimensions(

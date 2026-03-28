@@ -6,6 +6,52 @@ use bevy::{
 };
 use std::time::Duration;
 
+fn append_task_from_text(
+    notes_state: &mut TerminalNotesState,
+    session_name: &str,
+    text: &str,
+) -> bool {
+    let Some(task_entry) = task_entry_from_text(text) else {
+        return false;
+    };
+    let existing = notes_state
+        .note_text(session_name)
+        .map(str::trim_end)
+        .unwrap_or_default();
+    let updated = if existing.is_empty() {
+        task_entry
+    } else {
+        format!("{existing}\n{task_entry}")
+    };
+    notes_state.set_note_text(session_name, &updated)
+}
+
+fn prepend_task_from_text(
+    notes_state: &mut TerminalNotesState,
+    session_name: &str,
+    text: &str,
+) -> bool {
+    let Some(task_entry) = task_entry_from_text(text) else {
+        return false;
+    };
+    let existing = notes_state
+        .note_text(session_name)
+        .map(str::trim_end)
+        .unwrap_or_default();
+    let updated = if existing.is_empty() {
+        task_entry
+    } else {
+        format!("{task_entry}\n{existing}")
+    };
+    notes_state.set_note_text(session_name, &updated)
+}
+
+fn has_note_text(notes_state: &TerminalNotesState, session_name: &str) -> bool {
+    notes_state
+        .note_text(session_name)
+        .is_some_and(|text| !text.trim().is_empty())
+}
+
 /// Verifies the text-to-task-entry formatter used when creating new checkbox tasks.
 ///
 /// A non-empty multi-line payload should become a Zeus-style `- [ ] ...` block, while all-whitespace
@@ -69,13 +115,21 @@ fn terminal_notes_parse_and_serialize_roundtrip() {
 #[test]
 fn terminal_notes_append_and_prepend_tasks_follow_zeus_ordering() {
     let mut notes_state = TerminalNotesState::default();
-    assert!(notes_state.append_task_from_text("session-a", "second task"));
-    assert!(notes_state.prepend_task_from_text("session-a", "first task\n  detail"));
+    assert!(append_task_from_text(
+        &mut notes_state,
+        "session-a",
+        "second task"
+    ));
+    assert!(prepend_task_from_text(
+        &mut notes_state,
+        "session-a",
+        "first task\n  detail",
+    ));
     assert_eq!(
         notes_state.note_text("session-a"),
         Some("- [ ] first task\n  detail\n- [ ] second task")
     );
-    assert!(notes_state.has_note_text("session-a"));
+    assert!(has_note_text(&notes_state, "session-a"));
 }
 
 /// Verifies that clearing done tasks removes entire completed task blocks and leaves pending ones.
@@ -132,7 +186,11 @@ fn terminal_notes_save_waits_for_debounce_window() {
         dirty_since_secs: Some(0.0),
         ..Default::default()
     };
-    assert!(notes_state.append_task_from_text("session-a", "first line"));
+    assert!(append_task_from_text(
+        &mut notes_state,
+        "session-a",
+        "first line"
+    ));
 
     let mut world = World::default();
     let mut time = Time::<()>::default();

@@ -243,18 +243,6 @@ impl TerminalManager {
         self.test_focus_state = focus_state;
     }
 
-    /// Test helper that returns the active terminal id from the embedded compatibility focus state.
-    #[cfg(test)]
-    pub(crate) fn active_id(&self) -> Option<TerminalId> {
-        self.test_focus_state.active_id()
-    }
-
-    /// Test helper that exposes focus order from the embedded compatibility focus state.
-    #[cfg(test)]
-    pub(crate) fn focus_order(&self) -> &[TerminalId] {
-        self.test_focus_state.focus_order()
-    }
-
     /// Test helper that clones the embedded compatibility focus state.
     #[cfg(test)]
     pub(crate) fn clone_focus_state(&self) -> TerminalFocusState {
