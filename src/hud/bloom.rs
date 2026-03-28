@@ -1202,7 +1202,7 @@ fn agent_list_bloom_layer() -> usize {
 /// This lets tests assert that the bloom composite sits exactly where the production pipeline expects
 /// it in the layered HUD scene.
 #[cfg(test)]
-pub(crate) fn agent_list_bloom_z() -> f32 {
+fn agent_list_bloom_z() -> f32 {
     BLOOM_COMPOSITE_Z
 }
 
