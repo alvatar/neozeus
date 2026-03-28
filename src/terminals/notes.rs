@@ -47,6 +47,7 @@ impl TerminalNotesState {
     /// the map altogether. Existing strings are edited in place when possible to avoid replacing the
     /// allocation unnecessarily.
     pub(crate) fn set_note_text(&mut self, session_name: &str, text: &str) -> bool {
+        // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
         let trimmed = text.trim_end();
         if trimmed.is_empty() {
             return self.notes_by_session.remove(session_name).is_some();
@@ -126,6 +127,7 @@ pub(crate) fn resolve_terminal_notes_path_with(
     home: Option<&str>,
     xdg_config_home: Option<&str>,
 ) -> Option<PathBuf> {
+    // Process the input incrementally so each transformation stays local and malformed data fails at the narrowest point.
     if let Some(xdg_state_home) = xdg_state_home.filter(|value| !value.is_empty()) {
         return Some(
             PathBuf::from(xdg_state_home)
@@ -188,6 +190,7 @@ pub(crate) fn load_terminal_notes_from(path: &PathBuf) -> HashMap<String, String
 /// bodies terminate at a lone `.` line. Leading `.` in note content is escaped by doubling it, so the
 /// parser also has to undo that escaping on load.
 pub(crate) fn parse_terminal_notes(text: &str) -> HashMap<String, String> {
+    // Process the input incrementally so each transformation stays local and malformed data fails at the narrowest point.
     let mut lines = text.lines();
     let Some(version) = lines.next() else {
         return HashMap::new();
@@ -236,6 +239,7 @@ pub(crate) fn parse_terminal_notes(text: &str) -> HashMap<String, String> {
 /// are skipped, and note lines beginning with `.` are escaped by prefixing an extra dot so block
 /// terminators remain unambiguous.
 pub(crate) fn serialize_terminal_notes(notes_by_session: &HashMap<String, String>) -> String {
+    // Process the input incrementally so each transformation stays local and malformed data fails at the narrowest point.
     let mut sessions = notes_by_session
         .iter()
         .filter_map(|(session_name, note_text)| {
@@ -283,6 +287,7 @@ pub(crate) fn save_terminal_notes_if_dirty(
     time: Res<Time>,
     mut notes_state: ResMut<TerminalNotesState>,
 ) {
+    // Process the input incrementally so each transformation stays local and malformed data fails at the narrowest point.
     let Some(dirty_since) = notes_state.dirty_since_secs else {
         return;
     };
@@ -327,6 +332,7 @@ struct TaskHeader<'a> {
 /// The parser accepts `- [ ] ...` as unchecked and `- [x] ...`/`- [X] ...` as checked, returning the
 /// remainder of the line as the task suffix so callers can reconstruct or rewrite the line.
 fn parse_task_header(line: &str) -> Option<TaskHeader<'_>> {
+    // Process the input incrementally so each transformation stays local and malformed data fails at the narrowest point.
     let trimmed = line.trim_start();
     let dash = trimmed.strip_prefix('-')?;
     let after_dash = dash.trim_start();
@@ -353,6 +359,7 @@ fn parse_task_header(line: &str) -> Option<TaskHeader<'_>> {
 /// A "done task block" means a checked header line plus any immediately following non-header detail
 /// lines. The function returns both the updated text and the number of removed task blocks.
 pub(crate) fn clear_done_tasks(text: &str) -> (String, usize) {
+    // Keep the editor or collection mutation explicit so cursor state and stored data stay synchronized after each change.
     let lines = text.lines().collect::<Vec<_>>();
     if lines.is_empty() {
         return (String::new(), 0);
@@ -387,6 +394,7 @@ pub(crate) fn clear_done_tasks(text: &str) -> (String, usize) {
 /// and its checkbox is flipped to done in the returned note text. If there are no checkbox headers at
 /// all, the function falls back to the first non-empty line and removes it from the notes instead.
 pub(crate) fn extract_next_task(task_text: &str) -> Option<(String, String)> {
+    // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
     let mut lines = task_text.lines().map(str::to_owned).collect::<Vec<_>>();
     if lines.is_empty() {
         return None;

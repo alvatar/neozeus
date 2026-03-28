@@ -59,6 +59,7 @@ pub(crate) fn resolve_terminal_sessions_path_with(
     home: Option<&str>,
     xdg_config_home: Option<&str>,
 ) -> Option<PathBuf> {
+    // Process the input incrementally so each transformation stays local and malformed data fails at the narrowest point.
     if let Some(xdg_state_home) = xdg_state_home.filter(|value| !value.is_empty()) {
         return Some(
             PathBuf::from(xdg_state_home)
@@ -121,6 +122,7 @@ fn escape_persisted_string(value: &str) -> String {
 /// The parser accepts the same limited escape set emitted by [`escape_persisted_string`]. Returning
 /// `None` on malformed input lets the higher-level parser skip bad fields without panicking.
 fn parse_quoted_string(value: &str) -> Option<String> {
+    // Process the input incrementally so each transformation stays local and malformed data fails at the narrowest point.
     let trimmed = value.trim();
     let inner = trimmed.strip_prefix('"')?.strip_suffix('"')?;
     let mut parsed = String::with_capacity(inner.len());
@@ -147,6 +149,7 @@ fn parse_quoted_string(value: &str) -> Option<String> {
 /// Version 1 is a compact single-line-per-session format with escaped spaces in labels. Unknown or
 /// malformed fields are skipped so old files remain broadly recoverable.
 fn parse_v1_terminal_sessions(text: &str) -> PersistedTerminalSessions {
+    // Process the input incrementally so each transformation stays local and malformed data fails at the narrowest point.
     let mut persisted = PersistedTerminalSessions::default();
     for (line_index, line) in text.lines().enumerate() {
         let line = line.trim();
@@ -206,6 +209,7 @@ fn parse_v1_terminal_sessions(text: &str) -> PersistedTerminalSessions {
 /// Version 2 stores each session inside explicit `[session] ... [/session]` blocks and uses quoted
 /// strings for names/labels, which avoids the escaping limitations of version 1.
 fn parse_v2_terminal_sessions(text: &str) -> PersistedTerminalSessions {
+    // Process the input incrementally so each transformation stays local and malformed data fails at the narrowest point.
     let mut persisted = PersistedTerminalSessions::default();
     let mut session_name = None;
     let mut label = None;
@@ -295,6 +299,7 @@ pub(crate) fn parse_persisted_terminal_sessions(text: &str) -> PersistedTerminal
 pub(crate) fn serialize_persisted_terminal_sessions(
     sessions: &PersistedTerminalSessions,
 ) -> String {
+    // Process the input incrementally so each transformation stays local and malformed data fails at the narrowest point.
     let mut output = String::from(TERMINAL_SESSIONS_VERSION_V2);
     output.push('\n');
     let mut ordered = sessions.sessions.clone();
@@ -357,6 +362,7 @@ pub(crate) fn build_persisted_terminal_sessions(
     agent_catalog: &AgentCatalog,
     runtime_index: &AgentRuntimeIndex,
 ) -> PersistedTerminalSessions {
+    // Process the input incrementally so each transformation stays local and malformed data fails at the narrowest point.
     let sessions = terminal_manager
         .terminal_ids()
         .iter()
@@ -389,6 +395,7 @@ pub(crate) fn save_terminal_sessions_if_dirty(
     runtime_index: Res<AgentRuntimeIndex>,
     mut persistence_state: ResMut<TerminalSessionPersistenceState>,
 ) {
+    // Process the input incrementally so each transformation stays local and malformed data fails at the narrowest point.
     let Some(dirty_since) = persistence_state.dirty_since_secs else {
         return;
     };
@@ -438,6 +445,7 @@ pub(crate) fn reconcile_terminal_sessions(
     persisted: &PersistedTerminalSessions,
     live_sessions: &[String],
 ) -> ReconciledTerminalSessions {
+    // Rebuild the derived or projected state from the authoritative resources in one pass so partial updates cannot drift.
     let live = live_sessions.iter().cloned().collect::<BTreeSet<_>>();
     let persisted_names = persisted
         .sessions

@@ -14,6 +14,7 @@ pub(crate) fn handle_pointer_click(
     agent_list_view: &AgentListView,
     emitted_commands: &mut Vec<AppCommand>,
 ) {
+    // Keep the control flow staged so each branch owns one behavior path and later branches only run when earlier capture rules do not apply.
     for row in agent_rows(
         shell_rect,
         state.scroll_offset,

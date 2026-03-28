@@ -16,6 +16,7 @@ fn encode_v1_session_info(buffer: &mut Vec<u8>, info: &DaemonSessionInfo) {
 /// Current decoders should fill `created_order` with zero rather than rejecting the payload.
 #[test]
 fn decodes_v1_session_list_payloads_without_created_order() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let response = DaemonResponse::SessionList {
         sessions: vec![DaemonSessionInfo {
             session_id: "neozeus-session-7".into(),
@@ -73,6 +74,7 @@ fn decodes_v1_session_list_payloads_without_created_order() {
 /// compatibility without losing semantics.
 #[test]
 fn session_list_wire_format_omits_created_order_for_v1_compatibility() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let message = ServerMessage::Response {
         request_id: 3,
         response: Ok(DaemonResponse::SessionList {

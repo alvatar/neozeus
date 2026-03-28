@@ -101,6 +101,7 @@ impl TerminalRuntimeSpawner {
         self.notifier.wake();
     }
 
+    /// Returns the daemon client backing this runtime spawner.
     fn daemon_client(&self) -> Result<TerminalDaemonClientResource, String> {
         self.daemon
             .lock()

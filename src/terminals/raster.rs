@@ -57,6 +57,7 @@ pub(crate) struct TerminalGlyphCache {
 /// New images start filled with the default background color and use nearest sampling so glyphs stay
 /// crisp.
 pub(crate) fn create_terminal_image(size: UVec2) -> Image {
+    // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
     let mut image = Image::new_fill(
         Extent3d {
             width: size.x.max(1),
@@ -155,6 +156,7 @@ pub(crate) fn sync_terminal_texture(
     mut images: ResMut<Assets<Image>>,
     mut text_renderer: ResMut<TerminalTextRenderer>,
 ) {
+    // Rebuild the derived or projected state from the authoritative resources in one pass so partial updates cannot drift.
     if text_renderer.font_system.is_none() {
         append_debug_log("texture sync: no font system");
         return;
@@ -346,6 +348,7 @@ fn repaint_terminal_pixels(
     glyph_cache: &mut TerminalGlyphCache,
     font_state: &TerminalFontState,
 ) {
+    // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
     let stride = texture_width as usize * 4;
 
     for &y in rows {
@@ -407,6 +410,7 @@ fn repaint_terminal_pixels(
     }
 }
 
+/// Attempts to rasterize a box-drawing glyph without going through font shaping.
 fn try_rasterize_box_drawing(
     content: &crate::terminals::TerminalCellContent,
     cell_size: UVec2,
@@ -468,6 +472,7 @@ pub(crate) fn rasterize_terminal_glyph(
     text_renderer: &mut TerminalTextRenderer,
     font_state: &TerminalFontState,
 ) -> CachedTerminalGlyph {
+    // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
     let width = cache_key.cell_width * u32::from(cache_key.width_cells.max(1));
     let height = cache_key.cell_height.max(1);
     let mut pixels = vec![0; (width * height * 4) as usize];
@@ -544,6 +549,7 @@ fn blit_cached_glyph_in_buffer(
     glyph: &CachedTerminalGlyph,
     fg: egui::Color32,
 ) {
+    // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
     let max_height = buffer.len() / stride;
     for y in 0..glyph.height as usize {
         let target_y = origin_y as usize + y;
@@ -583,6 +589,7 @@ fn fill_rect_in_buffer(
     height: u32,
     color: egui::Color32,
 ) {
+    // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
     let pixel = [color.r(), color.g(), color.b(), color.a()];
     let max_height = buffer.len() / stride;
     for row in y as usize..(y as usize).saturating_add(height as usize).min(max_height) {
@@ -605,6 +612,7 @@ fn draw_cursor_in_buffer(
     cursor: &crate::terminals::TerminalCursor,
     cell_size: UVec2,
 ) {
+    // Build the geometry or layout decisions first, then emit the matching draw operations against the prepared state.
     let origin_x = cursor.x as u32 * cell_size.x;
     let origin_y = cursor.y as u32 * cell_size.y;
     let color = [cursor.color.r(), cursor.color.g(), cursor.color.b(), 160];
@@ -658,6 +666,7 @@ fn fill_alpha_rect_in_buffer(
     height: u32,
     color: [u8; 4],
 ) {
+    // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
     let max_height = buffer.len() / stride;
     for row in y as usize..(y as usize).saturating_add(height as usize).min(max_height) {
         let row_slice = &mut buffer[row * stride..(row + 1) * stride];

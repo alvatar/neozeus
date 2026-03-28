@@ -12,6 +12,7 @@ use super::send_terminal_command;
     clippy::too_many_arguments,
     reason = "message send spans domain store, transport adapter, and runtime mapping"
 )]
+/// Handles send message.
 pub(crate) fn send_message(
     conversation_id: crate::conversations::ConversationId,
     sender: AgentId,
@@ -21,6 +22,7 @@ pub(crate) fn send_message(
     runtime_index: &AgentRuntimeIndex,
     terminal_manager: &TerminalManager,
 ) {
+    // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
     let message_id = conversations.push_message(
         conversation_id,
         MessageAuthor::User,

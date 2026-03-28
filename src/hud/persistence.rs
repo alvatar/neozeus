@@ -61,6 +61,7 @@ pub(crate) fn resolve_hud_layout_path() -> Option<PathBuf> {
 ///
 /// Unknown modules or malformed numeric fields are skipped instead of aborting the whole load.
 fn parse_v1_hud_state(text: &str) -> PersistedHudState {
+    // Process the input incrementally so each transformation stays local and malformed data fails at the narrowest point.
     let mut persisted = PersistedHudState::default();
     for (line_index, line) in text.lines().enumerate() {
         let line = line.trim();
@@ -115,6 +116,7 @@ fn parse_v1_hud_state(text: &str) -> PersistedHudState {
 /// Each `[module] ... [/module]` block is accumulated independently so malformed blocks are dropped
 /// without poisoning the rest of the file.
 fn parse_v2_hud_state(text: &str) -> PersistedHudState {
+    // Process the input incrementally so each transformation stays local and malformed data fails at the narrowest point.
     let mut persisted = PersistedHudState::default();
     let mut module_id = None;
     let mut enabled = None;
@@ -261,6 +263,7 @@ pub(crate) fn save_hud_layout_if_dirty(
     mut layout_state: ResMut<HudLayoutState>,
     mut persistence_state: ResMut<HudPersistenceState>,
 ) {
+    // Process the input incrementally so each transformation stays local and malformed data fails at the narrowest point.
     if layout_state.drag.is_some() {
         if layout_state.dirty_layout && persistence_state.dirty_since_secs.is_none() {
             persistence_state.dirty_since_secs = Some(time.elapsed_secs());

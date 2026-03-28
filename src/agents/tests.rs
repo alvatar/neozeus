@@ -3,6 +3,7 @@ use super::{
 };
 use crate::terminals::{TerminalId, TerminalRuntimeState};
 
+/// Verifies that catalog assigns stable default labels in creation order.
 #[test]
 fn catalog_assigns_stable_default_labels_in_creation_order() {
     let mut catalog = AgentCatalog::default();
@@ -23,8 +24,10 @@ fn catalog_assigns_stable_default_labels_in_creation_order() {
     assert_eq!(catalog.agents.get(&beta).unwrap().label, "agent-2");
 }
 
+/// Verifies that runtime index links terminal session and runtime state.
 #[test]
 fn runtime_index_links_terminal_session_and_runtime_state() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let mut runtime_index = AgentRuntimeIndex::default();
     let runtime = TerminalRuntimeState::running("running");
 
@@ -54,6 +57,7 @@ fn runtime_index_links_terminal_session_and_runtime_state() {
     );
 }
 
+/// Verifies that runtime index remove terminal clears reverse indexes.
 #[test]
 fn runtime_index_remove_terminal_clears_reverse_indexes() {
     let mut runtime_index = AgentRuntimeIndex::default();

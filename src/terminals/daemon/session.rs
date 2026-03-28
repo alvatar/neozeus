@@ -68,6 +68,7 @@ impl DaemonSession {
     /// The initial snapshot is seeded with a blank surface at the default terminal size so attaches
     /// have something coherent to render before the PTY produces output.
     pub(crate) fn start(session_id: String, created_order: u64) -> Result<Arc<Self>, String> {
+        // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
         let crate::terminals::PtySession {
             master,
             writer,
@@ -208,6 +209,7 @@ fn run_session_worker(
     mut writer: Box<dyn std::io::Write + Send>,
     mut child: Box<dyn portable_pty::Child + Send + Sync>,
 ) {
+    // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
     let mut reader = match master.try_clone_reader() {
         Ok(reader) => reader,
         Err(error) => {
@@ -478,6 +480,7 @@ fn apply_terminal_command(
     terminal: &mut Term<VoidListener>,
     command: TerminalCommand,
 ) -> Result<(), String> {
+    // Keep the control flow staged so each branch owns one behavior path and later branches only run when earlier capture rules do not apply.
     match command {
         TerminalCommand::InputText(text) => {
             let bytes = text.into_bytes();
@@ -512,6 +515,7 @@ fn resize_terminal(
     cols: usize,
     rows: usize,
 ) -> Result<(), String> {
+    // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
     let cols = cols.max(1);
     let rows = rows.max(1);
     master
@@ -537,6 +541,7 @@ fn publish_frame_update(
     previous_surface: Option<&TerminalSurface>,
     surface: &TerminalSurface,
 ) {
+    // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
     let damage = compute_terminal_damage(previous_surface, surface);
     if matches!(damage, TerminalDamage::Rows(ref rows) if rows.is_empty()) {
         return;
@@ -560,6 +565,7 @@ fn publish_update(
     session_id: &str,
     update: TerminalUpdate,
 ) {
+    // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
     let mut state = lock(state);
     match &update {
         TerminalUpdate::Frame(frame) => {

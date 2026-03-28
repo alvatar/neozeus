@@ -85,6 +85,7 @@ pub(crate) fn resolve_neozeus_config_path_with(
     home: Option<&std::ffi::OsStr>,
     current_dir: Option<&Path>,
 ) -> Option<PathBuf> {
+    // Process the input incrementally so each transformation stays local and malformed data fails at the narrowest point.
     if let Some(explicit_path) = explicit_path {
         let path = PathBuf::from(explicit_path);
         if path.is_file() {
@@ -189,6 +190,7 @@ pub(crate) fn resolve_terminal_baseline_offset_px(config: &NeoZeusConfig, defaul
 /// unknown keys/sections. Syntax errors that would make the supported subset ambiguous still return
 /// explicit errors with line numbers.
 pub(crate) fn parse_neozeus_config(text: &str) -> Result<NeoZeusConfig, String> {
+    // Process the input incrementally so each transformation stays local and malformed data fails at the narrowest point.
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     enum Section {
         Root,
@@ -261,6 +263,7 @@ pub(crate) fn parse_neozeus_config(text: &str) -> Result<NeoZeusConfig, String> 
 /// whether the previous character was an escape. That is the important part: `#` only starts a
 /// comment outside strings, and unterminated strings are reported as an error.
 fn strip_toml_comment(line: &str) -> Result<String, String> {
+    // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
     let mut out = String::with_capacity(line.len());
     let mut in_string = false;
     let mut escape = false;
@@ -310,6 +313,7 @@ fn parse_toml_f32(raw: &str) -> Result<f32, String> {
 /// `\t`). That limited scope is intentional: NeoZeus only needs a few string fields and does not
 /// want a full TOML dependency just for them.
 fn parse_toml_basic_string(raw: &str) -> Result<String, String> {
+    // Process the input incrementally so each transformation stays local and malformed data fails at the narrowest point.
     let Some(raw) = raw
         .strip_prefix('"')
         .and_then(|value| value.strip_suffix('"'))

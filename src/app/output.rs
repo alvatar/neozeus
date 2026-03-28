@@ -168,6 +168,7 @@ impl FinalFrameCaptureConfig {
     /// exit-after-capture behavior are parsed permissively so ad-hoc verification runs stay easy to
     /// configure from the shell.
     pub(crate) fn from_env() -> Option<Self> {
+        // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
         Some(Self {
             path: PathBuf::from(env::var("NEOZEUS_CAPTURE_FINAL_FRAME_PATH").ok()?),
             frames_until_capture: env::var("NEOZEUS_CAPTURE_FINAL_FRAME_DELAY_FRAMES")
@@ -357,6 +358,7 @@ fn handle_final_frame_capture_complete(
     mut exits: MessageWriter<AppExit>,
     config: Option<ResMut<FinalFrameCaptureConfig>>,
 ) {
+    // Keep the control flow staged so each branch owns one behavior path and later branches only run when earlier capture rules do not apply.
     let Ok(meta) = metas.get(event.entity) else {
         return;
     };

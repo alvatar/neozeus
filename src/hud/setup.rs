@@ -47,6 +47,7 @@ pub(crate) fn setup_hud(
     mut composite_materials: ResMut<Assets<bevy_vello::render::VelloCanvasMaterial>>,
     mut redraws: MessageWriter<RequestRedraw>,
 ) {
+    // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
     persistence_state.path = crate::hud::persistence::resolve_hud_layout_path();
     let persisted = persistence_state
         .path

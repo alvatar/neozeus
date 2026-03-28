@@ -28,6 +28,7 @@ pub(crate) use debug_toolbar::debug_toolbar_buttons;
     clippy::too_many_arguments,
     reason = "module click routing needs shell geometry, derived widget data, and command output together"
 )]
+/// Handles pointer click.
 pub(crate) fn handle_pointer_click(
     module_id: HudWidgetKey,
     shell_rect: HudRect,
@@ -40,6 +41,7 @@ pub(crate) fn handle_pointer_click(
     layout_state: &HudLayoutState,
     emitted_commands: &mut Vec<AppCommand>,
 ) {
+    // Keep the control flow staged so each branch owns one behavior path and later branches only run when earlier capture rules do not apply.
     match module_id {
         HudWidgetKey::DebugToolbar => debug_toolbar::handle_pointer_click(
             shell_rect,
@@ -67,6 +69,7 @@ pub(crate) fn handle_pointer_click(
     }
 }
 
+/// Handles hover.
 pub(crate) fn handle_hover(
     module_id: HudWidgetKey,
     shell_rect: HudRect,
@@ -76,6 +79,7 @@ pub(crate) fn handle_hover(
     agent_list_view: &AgentListView,
     conversation_list_view: &ConversationListView,
 ) -> bool {
+    // Keep the control flow staged so each branch owns one behavior path and later branches only run when earlier capture rules do not apply.
     match module_id {
         HudWidgetKey::DebugToolbar | HudWidgetKey::ThreadPane => false,
         HudWidgetKey::AgentList => {
@@ -91,6 +95,7 @@ pub(crate) fn handle_hover(
     }
 }
 
+/// Clears hover.
 pub(crate) fn clear_hover(
     module_id: HudWidgetKey,
     agent_list_state: &mut AgentListUiState,
@@ -104,6 +109,7 @@ pub(crate) fn clear_hover(
     }
 }
 
+/// Renders module content.
 pub(crate) fn render_module_content(
     module_id: HudWidgetKey,
     content_rect: HudRect,
@@ -112,6 +118,7 @@ pub(crate) fn render_module_content(
     agent_list_state: &AgentListUiState,
     conversation_list_state: &ConversationListUiState,
 ) {
+    // Build the geometry or layout decisions first, then emit the matching draw operations against the prepared state.
     match module_id {
         HudWidgetKey::DebugToolbar => debug_toolbar::render_content(content_rect, painter, inputs),
         HudWidgetKey::AgentList => {
@@ -128,6 +135,7 @@ pub(crate) fn render_module_content(
     }
 }
 
+/// Handles scroll.
 pub(crate) fn handle_scroll(
     module_id: HudWidgetKey,
     delta_y: f32,
@@ -137,6 +145,7 @@ pub(crate) fn handle_scroll(
     agent_list_view: &AgentListView,
     conversation_list_view: &ConversationListView,
 ) {
+    // Keep the control flow staged so each branch owns one behavior path and later branches only run when earlier capture rules do not apply.
     match module_id {
         HudWidgetKey::DebugToolbar | HudWidgetKey::ThreadPane => {}
         HudWidgetKey::AgentList => {

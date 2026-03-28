@@ -34,6 +34,7 @@ pub(crate) fn sync_agents_from_terminals(
     terminal_manager: Res<TerminalManager>,
     focus_state: Res<TerminalFocusState>,
 ) {
+    // Rebuild the derived or projected state from the authoritative resources in one pass so partial updates cannot drift.
     let existing_terminals = terminal_manager
         .terminal_ids()
         .iter()
@@ -88,6 +89,7 @@ pub(crate) fn sync_agents_from_terminals(
         .and_then(|terminal_id| runtime_index.agent_for_terminal(terminal_id));
 }
 
+/// Refreshes the open task editor text after task-store mutations.
 fn refresh_open_task_editor(
     app_session: &mut AppSessionState,
     agent_id: crate::agents::AgentId,
@@ -139,6 +141,7 @@ pub(crate) fn apply_app_commands(
     mut app_commands: MessageReader<AppCommand>,
     mut ctx: AppCommandContext,
 ) {
+    // Keep the control flow staged so each branch owns one behavior path and later branches only run when earlier capture rules do not apply.
     for command in app_commands.read() {
         match command {
             AppCommand::Agent(command) => match command {

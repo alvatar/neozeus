@@ -61,7 +61,9 @@ fn drain_hud_commands(world: &mut World) -> Vec<AppCommand> {
         .unwrap()
 }
 
+/// Ensures app command world resources exists and returns its identifier.
 fn ensure_app_command_world_resources(world: &mut World) {
+    // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
     if !world.contains_resource::<Assets<Image>>() {
         world.insert_resource(Assets::<Image>::default());
     }
@@ -111,6 +113,7 @@ fn ensure_app_command_world_resources(world: &mut World) {
     }
 }
 
+/// Handles run app command cycle.
 fn run_app_command_cycle(world: &mut World) {
     ensure_app_command_world_resources(world);
     world
@@ -155,6 +158,7 @@ fn world_with_active_terminal_and_receiver(
     crate::terminals::TerminalId,
     std::sync::mpsc::Receiver<TerminalCommand>,
 ) {
+    // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
     let (bridge, input_rx, _) = capturing_bridge();
     let mut manager = TerminalManager::default();
     let terminal_id = manager.create_terminal(bridge);
@@ -284,6 +288,7 @@ fn global_shell_spawn_shortcut_only_uses_ctrl_alt_z() {
 /// already active.
 #[test]
 fn global_spawn_shortcut_enqueues_spawn_even_with_active_terminal() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let (bridge, _) = test_bridge();
     let mut manager = TerminalManager::default();
     manager.create_terminal(bridge);
@@ -317,6 +322,7 @@ fn global_spawn_shortcut_enqueues_spawn_even_with_active_terminal() {
 /// Verifies that the explicit shell-spawn shortcut emits the shell-spawn HUD intent.
 #[test]
 fn global_shell_spawn_shortcut_enqueues_shell_spawn() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let (bridge, _) = test_bridge();
     let mut manager = TerminalManager::default();
     manager.create_terminal(bridge);
@@ -409,6 +415,7 @@ fn f10_enqueues_app_exit() {
 /// marks session persistence dirty.
 #[test]
 fn background_click_hides_active_terminal() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let (mut world, terminal_id) =
         world_with_active_terminal(Vec2::new(10.0, 10.0), true, Vec2::ZERO);
     world
@@ -448,6 +455,7 @@ fn background_click_hides_active_terminal() {
 /// background-hide path.
 #[test]
 fn clicking_visible_terminal_does_not_hide_it() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let (mut world, terminal_id) =
         world_with_active_terminal(Vec2::new(640.0, 360.0), true, Vec2::ZERO);
     world
@@ -473,6 +481,7 @@ fn clicking_visible_terminal_does_not_hide_it() {
 /// Verifies that background-hit testing still respects terminal panel translation offsets.
 #[test]
 fn clicking_shifted_visible_terminal_does_not_hide_it() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let panel_position = Vec2::new(180.0, 120.0);
     let panel_center = Vec2::new(640.0 + panel_position.x, 360.0 - panel_position.y);
     let (mut world, terminal_id) = world_with_active_terminal(panel_center, true, panel_position);
@@ -500,6 +509,7 @@ fn clicking_shifted_visible_terminal_does_not_hide_it() {
 /// intents for it.
 #[test]
 fn clicking_terminal_panel_enqueues_focus_and_isolate_for_topmost_visible_panel() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let mut world = World::default();
     let mut window = Window {
         focused: true,
@@ -590,6 +600,7 @@ fn clicking_terminal_panel_enqueues_focus_and_isolate_for_topmost_visible_panel(
 /// mode is active.
 #[test]
 fn enter_opens_message_box_for_active_terminal() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let (mut world, terminal_id) =
         world_with_active_terminal(Vec2::new(10.0, 10.0), false, Vec2::ZERO);
     world.init_resource::<Messages<KeyboardInput>>();
@@ -614,6 +625,7 @@ fn enter_opens_message_box_for_active_terminal() {
 /// active terminal.
 #[test]
 fn plain_t_opens_task_dialog_for_active_terminal_with_saved_text() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let (mut world, terminal_id) =
         world_with_active_terminal(Vec2::new(10.0, 10.0), false, Vec2::ZERO);
     let agent_id = world
@@ -644,6 +656,7 @@ fn plain_t_opens_task_dialog_for_active_terminal_with_saved_text() {
 /// Verifies that plain `n` enqueues the consume-next-task intent for the active terminal.
 #[test]
 fn plain_n_enqueues_consume_next_task_for_active_terminal() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let (mut world, terminal_id) =
         world_with_active_terminal(Vec2::new(10.0, 10.0), false, Vec2::ZERO);
     let agent_id = world
@@ -671,6 +684,7 @@ fn plain_n_enqueues_consume_next_task_for_active_terminal() {
 /// active terminal.
 #[test]
 fn ctrl_enter_toggles_direct_input_mode_for_active_terminal() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let (mut world, terminal_id) =
         world_with_active_terminal(Vec2::new(10.0, 10.0), false, Vec2::ZERO);
     world.init_resource::<Messages<RequestRedraw>>();
@@ -697,6 +711,7 @@ fn ctrl_enter_toggles_direct_input_mode_for_active_terminal() {
 /// message box.
 #[test]
 fn direct_input_mode_sends_keys_to_terminal_without_opening_message_box() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let (mut world, terminal_id, input_rx) =
         world_with_active_terminal_and_receiver(Vec2::new(10.0, 10.0), false, Vec2::ZERO);
     let mut hud_state = crate::hud::HudState::default();
@@ -722,6 +737,7 @@ fn direct_input_mode_sends_keys_to_terminal_without_opening_message_box() {
 /// Verifies that `Ctrl+Enter` refuses to open direct-input mode for a disconnected terminal.
 #[test]
 fn ctrl_enter_does_not_open_direct_input_for_disconnected_terminal() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let (mut world, terminal_id) =
         world_with_active_terminal(Vec2::new(10.0, 10.0), false, Vec2::ZERO);
     world.init_resource::<Messages<RequestRedraw>>();
@@ -746,6 +762,7 @@ fn ctrl_enter_does_not_open_direct_input_for_disconnected_terminal() {
 /// disconnected.
 #[test]
 fn direct_input_mode_closes_when_terminal_becomes_disconnected() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let (mut world, terminal_id, input_rx) =
         world_with_active_terminal_and_receiver(Vec2::new(10.0, 10.0), false, Vec2::ZERO);
     let mut hud_state = crate::hud::HudState::default();
@@ -812,6 +829,7 @@ fn message_box_keeps_separate_drafts_per_terminal() {
 /// and clean reopen.
 #[test]
 fn message_box_supports_multiline_typing_and_ctrl_s_send() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let (mut world, terminal_id, input_rx) =
         world_with_active_terminal_and_receiver(Vec2::new(10.0, 10.0), false, Vec2::ZERO);
     let mut hud_state = crate::hud::HudState::default();
@@ -853,6 +871,7 @@ fn message_box_supports_multiline_typing_and_ctrl_s_send() {
 /// active terminal.
 #[test]
 fn ctrl_t_clears_done_tasks_for_active_terminal_when_dialog_is_closed() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let (mut world, terminal_id) =
         world_with_active_terminal(Vec2::new(10.0, 10.0), false, Vec2::ZERO);
     let agent_id = world
@@ -877,6 +896,7 @@ fn ctrl_t_clears_done_tasks_for_active_terminal_when_dialog_is_closed() {
 /// closing the dialog.
 #[test]
 fn task_dialog_ctrl_t_emits_clear_done_request() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let (mut world, terminal_id) =
         world_with_active_terminal(Vec2::new(10.0, 10.0), false, Vec2::ZERO);
     let agent_id = world
@@ -926,6 +946,7 @@ fn reopening_task_dialog_uses_persisted_text_not_stale_editor_state() {
 /// `SetTerminalTaskText` and then closes the modal.
 #[test]
 fn task_dialog_escape_persists_tasks_and_closes() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let (mut world, terminal_id) =
         world_with_active_terminal(Vec2::new(10.0, 10.0), false, Vec2::ZERO);
     let agent_id = world
@@ -958,6 +979,7 @@ fn task_dialog_escape_persists_tasks_and_closes() {
 /// global clear-done task shortcut.
 #[test]
 fn message_box_ctrl_t_does_not_enqueue_task_shortcuts() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let (mut world, terminal_id) =
         world_with_active_terminal(Vec2::new(10.0, 10.0), false, Vec2::ZERO);
     let mut hud_state = crate::hud::HudState::default();
@@ -983,6 +1005,7 @@ fn message_box_ctrl_t_does_not_enqueue_task_shortcuts() {
 /// line motion, kill/yank, and vertical movement.
 #[test]
 fn message_box_ctrl_bindings_edit_multiline_text() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let (mut world, terminal_id) =
         world_with_active_terminal(Vec2::new(10.0, 10.0), false, Vec2::ZERO);
     let mut hud_state = crate::hud::HudState::default();
@@ -1061,6 +1084,7 @@ fn message_box_ctrl_bindings_edit_multiline_text() {
 /// word motion.
 #[test]
 fn message_box_mark_region_ctrl_w_and_ctrl_y_work() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let (mut world, terminal_id) =
         world_with_active_terminal(Vec2::new(10.0, 10.0), false, Vec2::ZERO);
     let mut hud_state = crate::hud::HudState::default();
@@ -1117,6 +1141,7 @@ fn message_box_mark_region_ctrl_w_and_ctrl_y_work() {
 /// behavior.
 #[test]
 fn message_box_meta_copy_kill_ring_history_and_backward_kill_word_work() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let (mut world, terminal_id) =
         world_with_active_terminal(Vec2::new(10.0, 10.0), false, Vec2::ZERO);
     let mut hud_state = crate::hud::HudState::default();
@@ -1197,6 +1222,7 @@ fn message_box_meta_copy_kill_ring_history_and_backward_kill_word_work() {
 /// Verifies the editor's `Ctrl+O` open-line and `Ctrl+J` newline-and-indent behaviors.
 #[test]
 fn message_box_ctrl_o_and_ctrl_j_work() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let (mut world, terminal_id) =
         world_with_active_terminal(Vec2::new(10.0, 10.0), false, Vec2::ZERO);
     let mut hud_state = crate::hud::HudState::default();
@@ -1230,6 +1256,7 @@ fn message_box_ctrl_o_and_ctrl_j_work() {
 /// message-box editor.
 #[test]
 fn message_box_alt_word_motion_and_ctrl_d_work() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let (mut world, terminal_id) =
         world_with_active_terminal(Vec2::new(10.0, 10.0), false, Vec2::ZERO);
     let mut hud_state = crate::hud::HudState::default();
@@ -1282,6 +1309,7 @@ fn message_box_alt_word_motion_and_ctrl_d_work() {
 /// Verifies that global lifecycle shortcuts are ignored while the message box owns keyboard capture.
 #[test]
 fn lifecycle_shortcuts_are_suppressed_while_message_box_is_open() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let mut world = World::default();
     let mut hud_state = crate::hud::HudState::default();
     hud_state.open_message_box(crate::terminals::TerminalId(1));
@@ -1308,6 +1336,7 @@ fn lifecycle_shortcuts_are_suppressed_while_message_box_is_open() {
 /// capture.
 #[test]
 fn lifecycle_shortcuts_are_suppressed_while_direct_input_is_open() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let mut world = World::default();
     let mut hud_state = crate::hud::HudState::default();
     hud_state.open_direct_terminal_input(crate::terminals::TerminalId(1));
@@ -1334,6 +1363,7 @@ fn lifecycle_shortcuts_are_suppressed_while_direct_input_is_open() {
 /// empty background.
 #[test]
 fn clicking_hud_does_not_hide_active_terminal() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let (mut world, terminal_id) =
         world_with_active_terminal(Vec2::new(10.0, 10.0), false, Vec2::ZERO);
     let mut hud_state = crate::hud::HudState::default();

@@ -13,6 +13,7 @@ pub(crate) fn render_content(
     painter: &mut HudPainter,
     inputs: &HudRenderInputs,
 ) {
+    // Build the geometry or layout decisions first, then emit the matching draw operations against the prepared state.
     let buttons =
         debug_toolbar_buttons(content_rect, inputs.debug_toolbar_view, inputs.layout_state);
     let debug = inputs.debug_toolbar_view;

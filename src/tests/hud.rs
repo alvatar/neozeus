@@ -48,7 +48,9 @@ fn drain_hud_commands(world: &mut World) -> Vec<AppCommand> {
         .unwrap()
 }
 
+/// Handles run app commands.
 fn run_app_commands(world: &mut World) {
+    // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
     if !world.contains_resource::<Assets<Image>>() {
         world.insert_resource(Assets::<Image>::default());
     }
@@ -96,6 +98,7 @@ fn run_app_commands(world: &mut World) {
 /// redraw.
 #[test]
 fn setup_hud_requests_initial_redraw() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let mut world = World::default();
     insert_default_hud_resources(&mut world);
     world.insert_resource(HudPersistenceState::default());
@@ -146,6 +149,7 @@ fn setup_hud_requests_initial_redraw() {
 /// height.
 #[test]
 fn sync_structural_hud_layout_docks_agent_list_to_full_height_left_column() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let mut world = World::default();
     let mut hud_state = HudState::default();
     hud_state.insert(
@@ -178,6 +182,7 @@ fn sync_structural_hud_layout_docks_agent_list_to_full_height_left_column() {
 /// agent-list row.
 #[test]
 fn agent_row_rect_splits_main_and_marker_geometry() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let row = HudRect {
         x: 40.0,
         y: 120.0,
@@ -202,6 +207,7 @@ fn agent_row_rect_splits_main_and_marker_geometry() {
 /// compositor quad instead.
 #[test]
 fn sync_hud_offscreen_compositor_hides_vello_canvas_and_binds_texture() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let mut world = World::default();
     world.insert_resource(HudOffscreenCompositor::default());
     world.insert_resource(Assets::<Image>::default());
@@ -296,6 +302,7 @@ fn sync_hud_offscreen_compositor_hides_vello_canvas_and_binds_texture() {
 /// main HUD canvas.
 #[test]
 fn sync_hud_offscreen_compositor_leaves_modal_vello_canvas_visible() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let mut world = World::default();
     world.insert_resource(HudOffscreenCompositor::default());
     world.insert_resource(Assets::<Image>::default());
@@ -359,6 +366,7 @@ fn sync_hud_offscreen_compositor_leaves_modal_vello_canvas_visible() {
 /// Verifies the compositor quad mesh/UV contract expected by the upstream Vello texture-present path.
 #[test]
 fn hud_composite_quad_matches_upstream_vello_canvas_contract() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     assert_eq!(crate::hud::HUD_COMPOSITE_FOREGROUND_Z, 0.0);
 
     let mut world = World::default();
@@ -421,6 +429,7 @@ fn hud_composite_quad_matches_upstream_vello_canvas_contract() {
 /// Verifies the color-space roundtrip assumption behind the HUD orange byte-preservation check.
 #[test]
 fn upstream_vello_present_contract_preserves_target_orange_bytes() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     /// Converts one 8-bit sRGB channel into linear space for the roundtrip color check.
     fn srgb_to_linear_channel(value: u8) -> f32 {
         let srgb = value as f32 / 255.0;
@@ -465,6 +474,7 @@ fn upstream_vello_present_contract_preserves_target_orange_bytes() {
 /// toggling enablement.
 #[test]
 fn reset_module_restores_default_toolbar_state() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let mut hud_state = HudState::default();
     let mut module =
         crate::hud::default_hud_module_instance(&crate::hud::HUD_MODULE_DEFINITIONS[0]);
@@ -495,6 +505,7 @@ fn reset_module_restores_default_toolbar_state() {
 /// Verifies that a plain digit key emits the expected module-toggle intent.
 #[test]
 fn plain_digit_module_shortcut_toggles_module() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let mut world = World::default();
     world.insert_resource(ButtonInput::<KeyCode>::default());
     world.insert_resource(TerminalManager::default());
@@ -518,6 +529,7 @@ fn plain_digit_module_shortcut_toggles_module() {
 /// Verifies the plain `j` agent-list navigation shortcut emits focus+isolate for the next terminal.
 #[test]
 fn plain_j_navigates_to_next_agent_and_isolates_it() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let mut world = World::default();
     let (bridge_one, _) = test_bridge();
     let (bridge_two, _) = test_bridge();
@@ -552,6 +564,7 @@ fn plain_j_navigates_to_next_agent_and_isolates_it() {
 /// Verifies that the down-arrow shortcut uses the same next-agent focus+isolate behavior as `j`.
 #[test]
 fn down_arrow_navigates_to_next_agent_and_isolates_it() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let mut world = World::default();
     let (bridge_one, _) = test_bridge();
     let (bridge_two, _) = test_bridge();
@@ -587,6 +600,7 @@ fn down_arrow_navigates_to_next_agent_and_isolates_it() {
 /// terminal.
 #[test]
 fn plain_k_navigates_to_previous_agent_and_isolates_it() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let mut world = World::default();
     let (bridge_one, _) = test_bridge();
     let (bridge_two, _) = test_bridge();
@@ -621,6 +635,7 @@ fn plain_k_navigates_to_previous_agent_and_isolates_it() {
 /// Verifies that the up-arrow shortcut uses the same previous-agent focus+isolate behavior as `k`.
 #[test]
 fn up_arrow_navigates_to_previous_agent_and_isolates_it() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let mut world = World::default();
     let (bridge_one, _) = test_bridge();
     let (bridge_two, _) = test_bridge();
@@ -655,6 +670,7 @@ fn up_arrow_navigates_to_previous_agent_and_isolates_it() {
 /// Verifies that the authoritative app-command path updates focus/visibility and requests redraws.
 #[test]
 fn focus_and_visibility_requests_request_redraw_immediately() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let mut world = World::default();
     let (bridge, _) = test_bridge();
     let mut manager = TerminalManager::default();
@@ -708,6 +724,7 @@ fn focus_and_visibility_requests_request_redraw_immediately() {
 /// Verifies that `Alt+Shift+digit` still emits reset intents rather than toggle intents.
 #[test]
 fn alt_shift_module_shortcut_still_resets_module() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let mut world = World::default();
     let mut keys = ButtonInput::<KeyCode>::default();
     keys.press(KeyCode::AltLeft);
@@ -754,6 +771,7 @@ fn module_shortcuts_are_suppressed_while_direct_input_is_open() {
 /// Verifies that explicit agent-directory labels override the synthetic `agent-N` fallback names.
 #[test]
 fn agent_rows_use_derived_agent_view_labels() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let rows = agent_rows(
         HudRect {
             x: 24.0,
@@ -795,6 +813,7 @@ fn agent_rows_use_derived_agent_view_labels() {
 /// Verifies that agent-row generation follows terminal creation order and annotates the focused row.
 #[test]
 fn agent_rows_follow_terminal_order_and_focus() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let (bridge_one, _) = test_bridge();
     let (bridge_two, _) = test_bridge();
     let mut manager = TerminalManager::default();
@@ -846,6 +865,7 @@ fn agent_rows_follow_terminal_order_and_focus() {
 /// Verifies that agent-row generation marks only the explicitly hovered agent as hovered.
 #[test]
 fn agent_rows_mark_hovered_agent() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let (bridge_one, _) = test_bridge();
     let (bridge_two, _) = test_bridge();
     let mut manager = TerminalManager::default();
@@ -901,6 +921,7 @@ fn agent_rows_mark_hovered_agent() {
 /// modules do.
 #[test]
 fn agent_list_is_not_draggable() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let mut world = World::default();
     let mut hud_state = HudState::default();
     hud_state.insert(
@@ -957,6 +978,7 @@ fn message_box_rect_is_top_aligned_and_shorter() {
 /// the dialog/editor state open for the subsequent persistence update.
 #[test]
 fn clicking_task_dialog_clear_done_button_persists_updated_text() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let mut world = World::default();
     let terminal_id = crate::terminals::TerminalId(7);
     let mut hud_state = HudState::default();
@@ -1010,6 +1032,7 @@ fn clicking_task_dialog_clear_done_button_persists_updated_text() {
 /// from authoritative task state rather than leaving stale local text behind.
 #[test]
 fn clear_done_task_request_updates_open_dialog_from_persisted_state() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let (bridge, _, _) = super::capturing_bridge();
     let mut manager = TerminalManager::default();
     let terminal_id = manager.create_terminal_with_session(bridge, "session-a".into());
@@ -1054,6 +1077,7 @@ fn clear_done_task_request_updates_open_dialog_from_persisted_state() {
 /// empty note blob.
 #[test]
 fn set_task_text_request_clears_persisted_task_presence_when_empty() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let (bridge, _, _) = super::capturing_bridge();
     let mut manager = TerminalManager::default();
     let terminal_id = manager.create_terminal_with_session(bridge, "session-a".into());
@@ -1093,6 +1117,7 @@ fn set_task_text_request_clears_persisted_task_presence_when_empty() {
 /// the terminal and marks that task done in persisted notes.
 #[test]
 fn consume_next_task_request_sends_message_and_marks_task_done() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let (bridge, input_rx, _) = super::capturing_bridge();
     let mut manager = TerminalManager::default();
     let terminal_id = manager.create_terminal_with_session(bridge, "session-a".into());
@@ -1138,6 +1163,7 @@ fn consume_next_task_request_sends_message_and_marks_task_done() {
 /// `AppendTerminalTask` intent and closes the modal.
 #[test]
 fn clicking_message_box_task_button_emits_append_task_intent() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let mut world = World::default();
     let terminal_id = crate::terminals::TerminalId(7);
     let mut hud_state = HudState::default();
@@ -1190,6 +1216,7 @@ fn clicking_message_box_task_button_emits_append_task_intent() {
 /// Verifies that one animation tick moves both HUD rect position and alpha toward their targets.
 #[test]
 fn animate_hud_modules_moves_current_rect_and_alpha_toward_target() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let mut world = World::default();
     let mut hud_state = HudState::default();
     let mut module =
@@ -1219,6 +1246,7 @@ fn animate_hud_modules_moves_current_rect_and_alpha_toward_target() {
 /// Verifies that clicking the debug-toolbar `new terminal` button emits the spawn-terminal intent.
 #[test]
 fn clicking_debug_toolbar_button_emits_spawn_terminal_command() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let (bridge, _) = test_bridge();
     let mut manager = TerminalManager::default();
     manager.create_terminal(bridge);
@@ -1279,6 +1307,7 @@ fn clicking_debug_toolbar_button_emits_spawn_terminal_command() {
 /// command intent.
 #[test]
 fn clicking_debug_toolbar_command_button_emits_terminal_command() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let (bridge, _) = test_bridge();
     let mut manager = TerminalManager::default();
     manager.create_terminal(bridge);
@@ -1340,6 +1369,7 @@ fn clicking_debug_toolbar_command_button_emits_terminal_command() {
 /// that terminal.
 #[test]
 fn clicking_agent_list_row_emits_focus_and_isolate_commands() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let (bridge_one, _) = test_bridge();
     let (bridge_two, _) = test_bridge();
     let mut manager = TerminalManager::default();
@@ -1422,6 +1452,7 @@ fn clicking_agent_list_row_emits_focus_and_isolate_commands() {
 /// focus+isolate command pair.
 #[test]
 fn clicking_conversation_list_row_emits_focus_and_isolate_commands() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let (bridge, _) = test_bridge();
     let mut manager = TerminalManager::default();
     let terminal_id = manager.create_terminal(bridge);
@@ -1473,6 +1504,7 @@ fn clicking_conversation_list_row_emits_focus_and_isolate_commands() {
 /// past the last row.
 #[test]
 fn agent_list_scroll_clamps_to_content_height() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let mut agent_list_state = AgentListUiState::default();
     let mut conversation_list_state = ConversationListUiState::default();
 
@@ -1508,6 +1540,7 @@ fn agent_list_scroll_clamps_to_content_height() {
 /// Verifies that the debug toolbar exposes explicit toggle buttons for the known HUD modules.
 #[test]
 fn debug_toolbar_buttons_include_module_toggle_entries() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let (bridge, _) = test_bridge();
     let mut manager = TerminalManager::default();
     manager.create_terminal(bridge);
@@ -1539,6 +1572,7 @@ fn debug_toolbar_buttons_include_module_toggle_entries() {
 /// Verifies that debug-toolbar module toggle buttons mirror each module's current enabled state.
 #[test]
 fn debug_toolbar_module_toggle_buttons_reflect_enabled_state() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let (bridge, _) = test_bridge();
     let mut manager = TerminalManager::default();
     manager.create_terminal(bridge);
@@ -1650,6 +1684,7 @@ fn disabled_hud_module_still_requests_redraw_while_fading_out() {
 /// creation order to active/isolate state.
 #[test]
 fn killing_active_terminal_selects_previous_terminal_in_creation_order() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let client = Arc::new(FakeDaemonClient::default());
     client.sessions.lock().unwrap().extend([
         "neozeus-session-a".to_owned(),
@@ -1736,6 +1771,7 @@ fn killing_active_terminal_selects_previous_terminal_in_creation_order() {
 /// active/isolate state.
 #[test]
 fn killing_first_active_terminal_selects_next_terminal() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let client = Arc::new(FakeDaemonClient::default());
     client.sessions.lock().unwrap().extend([
         "neozeus-session-a".to_owned(),
@@ -1819,6 +1855,7 @@ fn killing_first_active_terminal_selects_next_terminal() {
 /// state, labels, spawned panel entities, and resets visibility/persistence bookkeeping.
 #[test]
 fn killing_active_terminal_removes_runtime_presentation_and_labels() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let client = Arc::new(FakeDaemonClient::default());
     client
         .sessions
@@ -1917,6 +1954,7 @@ fn killing_active_terminal_removes_runtime_presentation_and_labels() {
 /// command payload.
 #[test]
 fn spawn_shell_lifecycle_request_does_not_send_pi_command() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let client = Arc::new(FakeDaemonClient::default());
     let mut world = World::default();
     let mut time = Time::<()>::default();
@@ -1948,6 +1986,7 @@ fn spawn_shell_lifecycle_request_does_not_send_pi_command() {
 /// daemon-side kill returns an error.
 #[test]
 fn killing_disconnected_active_terminal_removes_local_state_even_if_daemon_kill_fails() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let client = Arc::new(FakeDaemonClient::default());
     *client.fail_kill.lock().unwrap() = true;
     client.set_session_runtime(
@@ -2050,6 +2089,7 @@ fn killing_disconnected_active_terminal_removes_local_state_even_if_daemon_kill_
 /// tearing presentation/labels down prematurely.
 #[test]
 fn killing_active_terminal_preserves_local_state_when_tmux_kill_fails() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let client = Arc::new(FakeDaemonClient::default());
     *client.fail_kill.lock().unwrap() = true;
     client

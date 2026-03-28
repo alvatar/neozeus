@@ -111,6 +111,7 @@ impl SocketTerminalDaemonClient {
     /// Requests are sent through a writer channel, responses are matched back to waiting callers by
     /// request id, and session update events are fanned out by session id.
     pub(crate) fn connect(socket_path: &Path) -> Result<Self, String> {
+        // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
         let stream = UnixStream::connect(socket_path).map_err(|error| {
             format!(
                 "failed to connect daemon socket {}: {error}",
@@ -329,6 +330,7 @@ pub(crate) fn resolve_daemon_socket_path_with(
     home: Option<&str>,
     user: Option<&str>,
 ) -> Option<PathBuf> {
+    // Process the input incrementally so each transformation stays local and malformed data fails at the narrowest point.
     if let Some(override_path) = override_path.filter(|value| !value.is_empty()) {
         return Some(PathBuf::from(override_path));
     }

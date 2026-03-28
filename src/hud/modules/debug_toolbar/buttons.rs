@@ -11,6 +11,7 @@ pub(crate) fn debug_toolbar_buttons(
     debug_toolbar_view: &DebugToolbarView,
     layout_state: &HudLayoutState,
 ) -> Vec<DebugToolbarButton> {
+    // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
     let toolbar_enabled = layout_state
         .get(HudWidgetKey::DebugToolbar)
         .map(|module| module.shell.enabled)

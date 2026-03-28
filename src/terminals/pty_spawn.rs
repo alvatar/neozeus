@@ -11,6 +11,7 @@ use std::fs;
 /// `TERM=xterm-256color`, spawns the child on the slave side, drops the slave handle, and returns a
 /// [`PtySession`] containing the master, a writable handle, and the child process.
 pub(crate) fn spawn_pty(cols: u16, rows: u16) -> Result<PtySession, String> {
+    // Walk the lifecycle in explicit stages so each side effect happens only after its prerequisites have been established.
     let pty_system = native_pty_system();
     let pair = pty_system
         .openpty(PtySize {
@@ -73,6 +74,7 @@ fn raw_shell_program() -> OsString {
 /// shell configuration.
 #[cfg(test)]
 fn apply_test_shell_isolation(command: &mut CommandBuilder) {
+    // Keep the control flow staged so each branch owns one behavior path and later branches only run when earlier capture rules do not apply.
     let root = std::env::temp_dir().join(format!("neozeus-test-shell-{}", std::process::id()));
     let home = root.join("home");
     let xdg_config = root.join("xdg-config");

@@ -11,6 +11,7 @@ pub(crate) fn compute_terminal_damage(
     previous_surface: Option<&TerminalSurface>,
     surface: &TerminalSurface,
 ) -> TerminalDamage {
+    // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
     let Some(previous_surface) = previous_surface else {
         return TerminalDamage::Full;
     };

@@ -124,6 +124,7 @@ fn terminal_has_presentable_frame(
 /// The surface is filled with repeated labeled bands on several rows so image captures have stable,
 /// high-contrast content that makes focus changes and bloom behavior visually obvious.
 fn seeded_inspect_surface(label: &str, accent: egui::Color32) -> TerminalSurface {
+    // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
     let cols = 120;
     let rows = 38;
     let mut surface = TerminalSurface::new(cols, rows);
@@ -214,6 +215,7 @@ pub(crate) fn run_verification_scenario(
     config: Option<ResMut<VerificationScenarioConfig>>,
     mut ctx: VerificationScenarioContext,
 ) {
+    // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
     let Some(mut config) = config else {
         return;
     };

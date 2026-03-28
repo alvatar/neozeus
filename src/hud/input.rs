@@ -70,6 +70,7 @@ fn message_box_task_command(
     composer: &mut crate::ui::ComposerState,
     action: MessageBoxAction,
 ) -> Option<AppCommand> {
+    // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
     let agent_id = match composer.session.as_ref().map(|session| &session.mode) {
         Some(crate::ui::ComposerMode::Message { agent_id }) => *agent_id,
         _ => return None,
@@ -115,6 +116,7 @@ fn task_dialog_command(
 /// interaction run. Within normal interaction it handles click dispatch, titlebar dragging, scroll
 /// routing, and per-module hover updates.
 pub(crate) fn handle_hud_pointer_input(mut ctx: HudPointerContext) {
+    // Keep the control flow staged so each branch owns one behavior path and later branches only run when earlier capture rules do not apply.
     if ctx.app_session.composer.message_editor.visible {
         ctx.layout_state.drag = None;
         let Some(cursor) = cursor_hud_position(&ctx.primary_window) else {
@@ -282,6 +284,7 @@ fn adjacent_agent_id(
     agent_list_view: &AgentListView,
     step: isize,
 ) -> Option<crate::agents::AgentId> {
+    // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
     if agent_list_view.rows.is_empty() {
         return None;
     }
@@ -323,6 +326,7 @@ pub(crate) fn handle_hud_module_shortcuts(
     agent_list_view: Res<AgentListView>,
     mut app_commands: MessageWriter<AppCommand>,
 ) {
+    // Keep the control flow staged so each branch owns one behavior path and later branches only run when earlier capture rules do not apply.
     if app_session.composer.keyboard_capture_active(&input_capture) {
         return;
     }

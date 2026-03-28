@@ -128,6 +128,7 @@ pub(crate) fn handle_global_terminal_spawn_shortcut(
     input_capture: Res<HudInputCaptureState>,
     mut app_commands: MessageWriter<AppCommand>,
 ) {
+    // Keep the control flow staged so each branch owns one behavior path and later branches only run when earlier capture rules do not apply.
     if app_session.composer.keyboard_capture_active(&input_capture) || !primary_window.focused {
         return;
     }
@@ -158,6 +159,7 @@ pub(crate) fn handle_terminal_lifecycle_shortcuts(
     mut app_commands: MessageWriter<AppCommand>,
     mut app_exits: MessageWriter<AppExit>,
 ) {
+    // Keep the control flow staged so each branch owns one behavior path and later branches only run when earlier capture rules do not apply.
     if app_session.composer.keyboard_capture_active(&input_capture) {
         return;
     }
@@ -224,6 +226,7 @@ pub(crate) fn focus_terminal_on_panel_click(
     runtime_index: Res<AgentRuntimeIndex>,
     mut app_commands: MessageWriter<AppCommand>,
 ) {
+    // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
     if app_session.composer.message_editor.visible
         || app_session.composer.task_editor.visible
         || !mouse_buttons.just_pressed(MouseButton::Left)
@@ -265,6 +268,7 @@ pub(crate) fn hide_terminal_on_background_click(
     focus_state: Res<TerminalFocusState>,
     mut app_commands: MessageWriter<AppCommand>,
 ) {
+    // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
     if app_session.composer.message_editor.visible
         || app_session.composer.task_editor.visible
         || !mouse_buttons.just_pressed(MouseButton::Left)
@@ -376,6 +380,7 @@ pub(crate) fn zoom_terminal_view(
     mut mouse_wheel: MessageReader<MouseWheel>,
     mut view_state: ResMut<TerminalViewState>,
 ) {
+    // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
     let shift = keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight);
     if !primary_window.focused || !shift {
         return;
@@ -516,6 +521,7 @@ fn handle_text_editor_event(
     alt: bool,
     super_key: bool,
 ) -> bool {
+    // Keep the control flow staged so each branch owns one behavior path and later branches only run when earlier capture rules do not apply.
     if ctrl && !alt && !super_key {
         match event.key_code {
             KeyCode::Space => editor.set_mark(),
@@ -734,6 +740,7 @@ pub(crate) fn keyboard_input_to_terminal_command(
     event: &KeyboardInput,
     keys: &ButtonInput<KeyCode>,
 ) -> Option<TerminalCommand> {
+    // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
     if event.state != ButtonState::Pressed {
         return None;
     }
@@ -784,6 +791,7 @@ pub(crate) fn keyboard_input_to_terminal_command(
 /// This covers the classic ASCII control range (`Ctrl+A` through `Ctrl+Z`) and intentionally returns
 /// string slices because the rest of the input pipeline already sends terminal events as strings.
 pub(crate) fn ctrl_sequence(key_code: KeyCode) -> Option<&'static str> {
+    // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
     match key_code {
         KeyCode::KeyA => Some("\u{1}"),
         KeyCode::KeyB => Some("\u{2}"),

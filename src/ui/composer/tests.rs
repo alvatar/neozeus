@@ -1,6 +1,7 @@
 use super::{ComposerMode, ComposerState};
 use crate::agents::AgentId;
 
+/// Verifies that message composer preserves per agent drafts.
 #[test]
 fn message_composer_preserves_per_agent_drafts() {
     let mut composer = ComposerState::default();
@@ -22,6 +23,7 @@ fn message_composer_preserves_per_agent_drafts() {
     );
 }
 
+/// Verifies that task editor reopens from supplied text not stale buffer.
 #[test]
 fn task_editor_reopens_from_supplied_text_not_stale_buffer() {
     let mut composer = ComposerState::default();

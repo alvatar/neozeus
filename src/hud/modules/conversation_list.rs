@@ -21,16 +21,19 @@ pub(crate) struct ConversationRow {
     pub(crate) hovered: bool,
 }
 
+/// Handles row stride.
 fn row_stride() -> f32 {
     HUD_ROW_HEIGHT + ROW_GAP
 }
 
+/// Handles rows.
 pub(crate) fn rows(
     shell_rect: HudRect,
     scroll_offset: f32,
     hovered_agent: Option<AgentId>,
     conversation_list_view: &crate::hud::ConversationListView,
 ) -> Vec<ConversationRow> {
+    // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
     conversation_list_view
         .rows
         .iter()
@@ -51,6 +54,7 @@ pub(crate) fn rows(
         .collect()
 }
 
+/// Handles pointer click.
 pub(crate) fn handle_pointer_click(
     state: &ConversationListUiState,
     shell_rect: HudRect,
@@ -58,6 +62,7 @@ pub(crate) fn handle_pointer_click(
     conversation_list_view: &crate::hud::ConversationListView,
     emitted_commands: &mut Vec<AppCommand>,
 ) {
+    // Keep the control flow staged so each branch owns one behavior path and later branches only run when earlier capture rules do not apply.
     for row in rows(
         shell_rect,
         state.scroll_offset,
@@ -73,12 +78,14 @@ pub(crate) fn handle_pointer_click(
     }
 }
 
+/// Handles hover.
 pub(crate) fn handle_hover(
     state: &mut ConversationListUiState,
     shell_rect: HudRect,
     point: Option<Vec2>,
     conversation_list_view: &crate::hud::ConversationListView,
 ) -> bool {
+    // Keep the control flow staged so each branch owns one behavior path and later branches only run when earlier capture rules do not apply.
     let hovered_agent = point.and_then(|point| {
         rows(
             shell_rect,
@@ -97,6 +104,7 @@ pub(crate) fn handle_hover(
     true
 }
 
+/// Clears hover.
 pub(crate) fn clear_hover(state: &mut ConversationListUiState) -> bool {
     if state.hovered_agent.is_none() {
         return false;
@@ -105,6 +113,7 @@ pub(crate) fn clear_hover(state: &mut ConversationListUiState) -> bool {
     true
 }
 
+/// Handles scroll.
 pub(crate) fn handle_scroll(
     state: &mut ConversationListUiState,
     delta_y: f32,
@@ -120,12 +129,14 @@ pub(crate) fn handle_scroll(
     state.scroll_offset = (state.scroll_offset - delta_y).clamp(0.0, max_scroll);
 }
 
+/// Renders content.
 pub(crate) fn render_content(
     state: &ConversationListUiState,
     content_rect: HudRect,
     painter: &mut HudPainter,
     inputs: &HudRenderInputs,
 ) {
+    // Build the geometry or layout decisions first, then emit the matching draw operations against the prepared state.
     painter.label(
         Vec2::new(content_rect.x + 8.0, content_rect.y + 6.0),
         "Recent conversations",

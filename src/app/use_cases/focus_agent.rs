@@ -13,6 +13,7 @@ use bevy::{prelude::Time, window::RequestRedraw};
     clippy::too_many_arguments,
     reason = "focus fans out to runtime-facing mirrors"
 )]
+/// Focuses agent.
 pub(crate) fn focus_agent(
     agent_id: AgentId,
     session: &mut AppSessionState,
@@ -26,6 +27,7 @@ pub(crate) fn focus_agent(
     time: &Time,
     redraws: &mut bevy::prelude::MessageWriter<RequestRedraw>,
 ) {
+    // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
     let Some(terminal_id) = runtime_index.primary_terminal(agent_id) else {
         return;
     };

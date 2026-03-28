@@ -1,6 +1,7 @@
 use super::{AppCommand, ComposerCommand, ComposerRequest};
 use crate::{agents::AgentId, ui::ComposerMode};
 
+/// Verifies that app command can wrap composer request.
 #[test]
 fn app_command_can_wrap_composer_request() {
     let command = AppCommand::Composer(ComposerCommand::Open(ComposerRequest {

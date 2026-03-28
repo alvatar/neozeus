@@ -64,6 +64,7 @@ impl DaemonRegistry {
     /// Prefix validation happens up front so the daemon never creates empty or whitespace-only session
     /// names.
     fn create_session(&self, prefix: &str) -> Result<String, String> {
+        // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
         if prefix.trim().is_empty() {
             return Err("daemon session prefix must not be empty".to_owned());
         }
@@ -161,6 +162,7 @@ pub(crate) fn run_daemon_server(socket_path: &Path) -> Result<(), String> {
 ///
 /// The shared registry lives for the duration of the loop so sessions survive client reconnects.
 fn run_server_loop(socket_path: &Path, stop: Arc<AtomicBool>) -> Result<(), String> {
+    // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
     let listener = bind_listener(socket_path)?;
     append_debug_log(format!("daemon server listening {}", socket_path.display()));
     let registry = DaemonRegistry::default();
@@ -193,6 +195,7 @@ fn run_server_loop(socket_path: &Path, stop: Arc<AtomicBool>) -> Result<(), Stri
 /// If an existing socket still accepts connections, it is treated as a running daemon and binding is
 /// refused.
 fn bind_listener(socket_path: &Path) -> Result<UnixListener, String> {
+    // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
     if let Some(parent) = socket_path.parent() {
         fs::create_dir_all(parent).map_err(|error| {
             format!(
@@ -228,6 +231,7 @@ fn bind_listener(socket_path: &Path) -> Result<UnixListener, String> {
 }
 
 /// Polls until the test daemon socket both exists and accepts connections.
+/// Waits for the daemon socket path to appear.
 #[cfg(test)]
 fn wait_for_socket(socket_path: &Path, timeout: Duration) -> Result<(), String> {
     let deadline = std::time::Instant::now() + timeout;
@@ -255,6 +259,7 @@ fn handle_connection(
     subscriber_ids: Arc<SubscriberIdAllocator>,
     stream: UnixStream,
 ) -> Result<(), String> {
+    // Keep the control flow staged so each branch owns one behavior path and later branches only run when earlier capture rules do not apply.
     append_debug_log(format!("daemon client connected {connection_id}"));
     let mut reader = stream
         .try_clone()
@@ -311,6 +316,7 @@ fn handle_request(
     subscriptions: &mut Vec<(Arc<DaemonSession>, u64)>,
     request: DaemonRequest,
 ) -> Result<DaemonResponse, String> {
+    // Keep the control flow staged so each branch owns one behavior path and later branches only run when earlier capture rules do not apply.
     match request {
         DaemonRequest::ListSessions => Ok(DaemonResponse::SessionList {
             sessions: registry.list_sessions(),

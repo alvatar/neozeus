@@ -93,6 +93,7 @@ fn bloom_blur_material_writes_offscreen_passes_opaquely() {
 /// hidden composite sprite that will later bring the bloom result back into the main HUD composition.
 #[test]
 fn setup_hud_widget_bloom_spawns_camera_and_composite_sprite() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let mut world = World::default();
     world.insert_resource(HudBloomSettings::default());
     world.insert_resource(HudWidgetBloom::default());
@@ -163,6 +164,7 @@ fn setup_hud_widget_bloom_spawns_camera_and_composite_sprite() {
 /// logical HUD layout, so its render targets should track the logical size.
 #[test]
 fn setup_hud_widget_bloom_uses_logical_window_size_for_targets() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let mut world = World::default();
     world.insert_resource(HudBloomSettings::default());
     world.insert_resource(HudWidgetBloom::default());
@@ -212,6 +214,7 @@ fn setup_hud_widget_bloom_uses_logical_window_size_for_targets() {
 /// producing the four border strips for both the main cell and the marker cell.
 #[test]
 fn sync_hud_widget_bloom_spawns_agent_list_source_sprites() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let mut world = World::default();
     let (bridge, _) = test_bridge();
     let mut manager = TerminalManager::default();
@@ -347,6 +350,7 @@ fn sync_hud_widget_bloom_spawns_agent_list_source_sprites() {
 /// source sprites and hide the composite sprite when a modal is active.
 #[test]
 fn sync_hud_widget_bloom_hides_sources_and_composite_while_modal_is_visible() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let mut world = World::default();
     let (bridge, _) = test_bridge();
     let mut manager = TerminalManager::default();
@@ -403,6 +407,7 @@ fn sync_hud_widget_bloom_hides_sources_and_composite_while_modal_is_visible() {
 /// the visual emphasis stays singular.
 #[test]
 fn sync_hud_widget_bloom_only_uses_active_agent_source() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let mut world = World::default();
     let (bridge_one, _) = test_bridge();
     let (bridge_two, _) = test_bridge();

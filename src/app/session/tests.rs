@@ -1,6 +1,7 @@
 use super::{AppSessionState, VisibilityMode};
 use crate::agents::AgentId;
 
+/// Verifies that session focus and visibility update independently.
 #[test]
 fn session_focus_and_visibility_update_independently() {
     let mut session = AppSessionState {

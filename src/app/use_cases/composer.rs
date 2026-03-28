@@ -14,6 +14,7 @@ use super::{send_message, set_task_text};
     clippy::too_many_arguments,
     reason = "composer submit fans out into message or task use cases"
 )]
+/// Handles submit composer.
 pub(crate) fn submit_composer(
     app_session: &mut AppSessionState,
     conversations: &mut ConversationStore,
@@ -25,6 +26,7 @@ pub(crate) fn submit_composer(
     time: &bevy::prelude::Time,
     redraws: &mut bevy::prelude::MessageWriter<RequestRedraw>,
 ) {
+    // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
     let Some(session) = app_session.composer.session.clone() else {
         return;
     };
@@ -54,6 +56,7 @@ pub(crate) fn submit_composer(
     redraws.write(RequestRedraw);
 }
 
+/// Handles cancel composer.
 pub(crate) fn cancel_composer(
     app_session: &mut AppSessionState,
     redraws: &mut bevy::prelude::MessageWriter<RequestRedraw>,
@@ -62,6 +65,7 @@ pub(crate) fn cancel_composer(
     redraws.write(RequestRedraw);
 }
 
+/// Opens composer.
 pub(crate) fn open_composer(
     request: &crate::app::ComposerRequest,
     app_session: &mut AppSessionState,
@@ -69,6 +73,7 @@ pub(crate) fn open_composer(
     tasks: &AgentTaskStore,
     redraws: &mut bevy::prelude::MessageWriter<RequestRedraw>,
 ) {
+    // Keep the editor or collection mutation explicit so cursor state and stored data stay synchronized after each change.
     match request.mode {
         ComposerMode::Message { agent_id } => {
             if runtime_index.primary_terminal(agent_id).is_none() {

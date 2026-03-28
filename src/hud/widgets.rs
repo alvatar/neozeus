@@ -10,18 +10,21 @@ impl HudWidgetKey {
     pub(crate) const ConversationList: Self = Self("conversation-list");
     pub(crate) const ThreadPane: Self = Self("thread-pane");
 
+    /// Returns the numeric shortcut displayed for this HUD widget.
     pub(crate) fn number(self) -> u8 {
         widget_definition(self)
             .map(|definition| definition.shortcut_number)
             .unwrap_or_default()
     }
 
+    /// Returns the user-facing title for the current startup-connect phase.
     pub(crate) fn title(self) -> &'static str {
         widget_definition(self)
             .map(|definition| definition.title)
             .unwrap_or("Widget")
     }
 
+    /// Returns the persistence/title key for this HUD widget.
     pub(crate) fn title_key(self) -> &'static str {
         widget_definition(self)
             .map(|definition| definition.persistence_key)
@@ -94,6 +97,7 @@ pub(crate) const HUD_WIDGET_DEFINITIONS: [HudWidgetDefinition; 4] = [
     },
 ];
 
+/// Returns the static definition for one HUD widget key.
 pub(crate) fn widget_definition(key: HudWidgetKey) -> Option<&'static HudWidgetDefinition> {
     HUD_WIDGET_DEFINITIONS
         .iter()
@@ -104,6 +108,7 @@ pub(crate) fn widget_definition(key: HudWidgetKey) -> Option<&'static HudWidgetD
 mod tests {
     use super::*;
 
+    /// Verifies that widget registry includes conversation and thread widgets.
     #[test]
     fn widget_registry_includes_conversation_and_thread_widgets() {
         assert!(HUD_WIDGET_DEFINITIONS

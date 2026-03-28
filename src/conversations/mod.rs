@@ -51,10 +51,12 @@ pub(crate) struct ConversationStore {
 }
 
 impl ConversationStore {
+    /// Returns the conversation id for agent when one exists.
     pub(crate) fn conversation_for_agent(&self, agent_id: AgentId) -> Option<ConversationId> {
         self.agent_to_conversation.get(&agent_id).copied()
     }
 
+    /// Ensures conversation exists and returns its identifier.
     pub(crate) fn ensure_conversation(&mut self, agent_id: AgentId) -> ConversationId {
         if let Some(conversation_id) = self.agent_to_conversation.get(&agent_id).copied() {
             return conversation_id;
@@ -73,6 +75,7 @@ impl ConversationStore {
         conversation_id
     }
 
+    /// Appends message.
     pub(crate) fn push_message(
         &mut self,
         conversation_id: ConversationId,
@@ -80,6 +83,7 @@ impl ConversationStore {
         body: String,
         delivery: MessageDeliveryState,
     ) -> MessageId {
+        // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
         let message_id = MessageId(self.next_message_id.max(1));
         self.next_message_id = message_id.0 + 1;
         self.messages.insert(
@@ -98,6 +102,7 @@ impl ConversationStore {
         message_id
     }
 
+    /// Sets delivery.
     pub(crate) fn set_delivery(
         &mut self,
         message_id: MessageId,
@@ -113,6 +118,7 @@ impl ConversationStore {
         true
     }
 
+    /// Handles messages for.
     pub(crate) fn messages_for(&self, conversation_id: ConversationId) -> Vec<&MessageRecord> {
         self.conversations
             .get(&conversation_id)
@@ -129,14 +135,17 @@ pub(crate) struct AgentTaskStore {
 }
 
 impl AgentTaskStore {
+    /// Handles text.
     pub(crate) fn text(&self, agent_id: AgentId) -> Option<&str> {
         self.tasks_by_agent.get(&agent_id).map(String::as_str)
     }
 
+    /// Removes agent.
     pub(crate) fn remove_agent(&mut self, agent_id: AgentId) -> bool {
         self.tasks_by_agent.remove(&agent_id).is_some()
     }
 
+    /// Sets text.
     pub(crate) fn set_text(&mut self, agent_id: AgentId, text: &str) -> bool {
         let trimmed = text.trim_end();
         if trimmed.is_empty() {
@@ -156,6 +165,7 @@ impl AgentTaskStore {
         }
     }
 
+    /// Appends task.
     pub(crate) fn append_task(&mut self, agent_id: AgentId, text: &str) -> bool {
         let Some(task_entry) = crate::terminals::task_entry_from_text(text) else {
             return false;
@@ -173,6 +183,7 @@ impl AgentTaskStore {
         self.set_text(agent_id, &updated)
     }
 
+    /// Prepends task.
     pub(crate) fn prepend_task(&mut self, agent_id: AgentId, text: &str) -> bool {
         let Some(task_entry) = crate::terminals::task_entry_from_text(text) else {
             return false;
@@ -190,6 +201,7 @@ impl AgentTaskStore {
         self.set_text(agent_id, &updated)
     }
 
+    /// Clears done.
     pub(crate) fn clear_done(&mut self, agent_id: AgentId) -> bool {
         let Some(text) = self.text(agent_id) else {
             return false;
@@ -198,6 +210,7 @@ impl AgentTaskStore {
         removed != 0 && self.set_text(agent_id, &updated)
     }
 
+    /// Consumes next.
     pub(crate) fn consume_next(&mut self, agent_id: AgentId) -> Option<String> {
         let text = self.text(agent_id)?;
         let (message, updated) = crate::terminals::extract_next_task(text)?;
@@ -212,6 +225,7 @@ impl AgentTaskStore {
 #[derive(Resource, Default, Clone, Debug)]
 pub(crate) struct MessageTransportAdapter;
 
+/// Handles sync task notes projection.
 pub(crate) fn sync_task_notes_projection(
     time: Res<Time>,
     runtime_index: Res<AgentRuntimeIndex>,

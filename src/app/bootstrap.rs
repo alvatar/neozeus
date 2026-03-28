@@ -148,6 +148,7 @@ pub(crate) fn resolve_disable_pipelined_rendering_for(
     session_type: Option<&str>,
     wayland_display: Option<&str>,
 ) -> bool {
+    // Process the input incrementally so each transformation stays local and malformed data fails at the narrowest point.
     if let Some(value) = raw.map(str::trim).filter(|value| !value.is_empty()) {
         return matches!(
             value.to_ascii_lowercase().as_str(),
@@ -170,6 +171,7 @@ pub(crate) enum LinuxWindowBackend {
     X11,
 }
 
+/// Resolves linux window backend.
 pub(crate) fn resolve_linux_window_backend(raw: Option<&str>) -> LinuxWindowBackend {
     match raw.map(str::trim).filter(|value| !value.is_empty()) {
         Some(value) if value.eq_ignore_ascii_case("wayland") => LinuxWindowBackend::Wayland,
@@ -178,6 +180,7 @@ pub(crate) fn resolve_linux_window_backend(raw: Option<&str>) -> LinuxWindowBack
     }
 }
 
+/// Returns whether force x11 backend.
 pub(crate) fn should_force_x11_backend(
     output_mode: crate::app::OutputMode,
     backend: LinuxWindowBackend,
@@ -185,6 +188,7 @@ pub(crate) fn should_force_x11_backend(
     wayland_display: Option<&str>,
     display: Option<&str>,
 ) -> bool {
+    // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
     if output_mode.is_offscreen() {
         return false;
     }
@@ -207,6 +211,7 @@ pub(crate) fn should_force_x11_backend(
     }
 }
 
+/// Handles apply linux window backend policy.
 fn apply_linux_window_backend_policy(output_mode: crate::app::OutputMode) -> bool {
     let force_x11 = should_force_x11_backend(
         output_mode,
@@ -225,6 +230,7 @@ fn apply_linux_window_backend_policy(output_mode: crate::app::OutputMode) -> boo
     true
 }
 
+/// Handles normalize output for x11 fallback.
 pub(crate) fn normalize_output_for_x11_fallback(
     mut output: AppOutputConfig,
     forced_x11: bool,
@@ -297,6 +303,7 @@ pub(crate) fn primary_window_config_for_with_config(
     output: &AppOutputConfig,
     config: &NeoZeusConfig,
 ) -> Window {
+    // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
     let resolution = if let Some(scale_factor) = output.scale_factor_override {
         bevy::window::WindowResolution::new(output.width, output.height)
             .with_scale_factor_override(scale_factor)

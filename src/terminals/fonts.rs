@@ -47,6 +47,7 @@ pub(crate) struct TerminalCellMetrics {
 }
 
 impl Default for TerminalCellMetrics {
+    /// Returns the default value for this type.
     fn default() -> Self {
         Self {
             cell_width: crate::app_config::DEFAULT_CELL_WIDTH_PX,
@@ -232,6 +233,7 @@ pub(crate) fn initialize_terminal_text_renderer_with_locale(
     text_renderer: &mut TerminalTextRenderer,
     locale: &str,
 ) -> Result<(), String> {
+    // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
     let mut db = fontdb::Database::new();
     db.load_system_fonts();
     db.set_monospace_family(report.primary.family.clone());
@@ -292,6 +294,7 @@ pub(crate) fn resolve_terminal_font_report_for_path(
 /// private-use and emoji coverage within the same family.
 #[cfg_attr(test, allow(dead_code))]
 fn resolve_terminal_font_stack_for_path(path: &Path) -> Result<TerminalFontReport, String> {
+    // Process the input incrementally so each transformation stays local and malformed data fails at the narrowest point.
     if !path.is_file() {
         return Err(format!(
             "configured terminal font path does not exist: {}",
@@ -338,6 +341,7 @@ fn resolve_terminal_font_stack_for_path(path: &Path) -> Result<TerminalFontRepor
 fn resolve_terminal_font_stack_for_family(
     requested_family: &str,
 ) -> Result<TerminalFontReport, String> {
+    // Process the input incrementally so each transformation stays local and malformed data fails at the narrowest point.
     let primary = fc_match_face(requested_family, "kitty primary font")?;
     let mut fallbacks = Vec::new();
     let mut seen_paths = BTreeSet::from([primary.path.clone()]);
@@ -409,6 +413,7 @@ pub(crate) fn find_kitty_config_path_with(
     xdg_config_dirs: Option<&std::ffi::OsStr>,
     system_path: Option<&Path>,
 ) -> Option<PathBuf> {
+    // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
     if let Some(dir) = kitty_config_directory {
         let path = PathBuf::from(dir).join("kitty.conf");
         if path.is_file() {
@@ -452,6 +457,7 @@ pub(crate) fn parse_kitty_config_file(
     visited: &mut BTreeSet<PathBuf>,
     config: &mut KittyFontConfig,
 ) -> Result<(), String> {
+    // Process the input incrementally so each transformation stays local and malformed data fails at the narrowest point.
     let canonical = path
         .canonicalize()
         .map_err(|error| format!("failed to canonicalize {}: {error}", path.display()))?;
@@ -506,6 +512,7 @@ pub(crate) fn parse_kitty_config_file(
 /// The function also verifies that fontconfig resolved the same file path back, rather than some other
 /// substitution.
 fn fc_query_family_for_path(path: &Path) -> Result<String, String> {
+    // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
     let output = Command::new("fc-query")
         .arg("-f")
         .arg("%{family}\n%{file}\n")
@@ -564,6 +571,7 @@ fn fc_query_family_for_path(path: &Path) -> Result<String, String> {
 /// The returned record keeps the human-readable `source` string so later font reports can explain why
 /// a face was chosen.
 fn fc_match_face(query: &str, source: &str) -> Result<TerminalFontFace, String> {
+    // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
     let output = Command::new("/usr/bin/fc-match")
         .arg("-f")
         .arg("%{family}\n%{file}\n")

@@ -102,6 +102,7 @@ fn configured_test_font_state(
     }
 }
 
+/// Handles measured font state for size.
 fn measured_font_state_for_size(font_size_px: f32) -> TerminalFontState {
     let report = configured_terminal_font_report();
     let mut renderer = TerminalTextRenderer::default();
@@ -121,6 +122,7 @@ fn measured_font_state_for_size(font_size_px: f32) -> TerminalFontState {
     }
 }
 
+/// Verifies that measured cell metrics grow with font size.
 #[test]
 fn measured_cell_metrics_grow_with_font_size() {
     let smaller = measured_font_state_for_size(16.0);
@@ -130,8 +132,10 @@ fn measured_cell_metrics_grow_with_font_size() {
     assert!(larger.cell_metrics.cell_height > smaller.cell_metrics.cell_height);
 }
 
+/// Verifies that larger measured cells reduce terminal grid in same viewport.
 #[test]
 fn larger_measured_cells_reduce_terminal_grid_in_same_viewport() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let window = Window {
         resolution: (1400, 900).into(),
         ..Default::default()
@@ -167,6 +171,7 @@ fn set_colored_text(
     text: &str,
     fg: egui::Color32,
 ) {
+    // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
     for (offset, ch) in text.chars().enumerate() {
         if col + offset >= surface.cols {
             break;
@@ -187,6 +192,7 @@ fn set_colored_text(
 /// Runs the normal terminal-texture sync pipeline on a supplied surface and returns the rendered
 /// image plus the texture state it ended up using.
 fn render_surface_to_terminal_image(surface: TerminalSurface) -> (Image, TerminalTextureState) {
+    // Build the geometry or layout decisions first, then emit the matching draw operations against the prepared state.
     let report = configured_terminal_font_report();
     let mut renderer = TerminalTextRenderer::default();
     initialize_test_terminal_text_renderer(&report, &mut renderer);
@@ -249,10 +255,12 @@ fn render_surface_to_terminal_image(surface: TerminalSurface) -> (Image, Termina
     (image, texture_state)
 }
 
+/// Renders surface to terminal image with presentation state.
 fn render_surface_to_terminal_image_with_presentation_state(
     surface: TerminalSurface,
     presentation_state: TerminalTextureState,
 ) -> (Image, TerminalTextureState) {
+    // Build the geometry or layout decisions first, then emit the matching draw operations against the prepared state.
     let report = configured_terminal_font_report();
     let mut renderer = TerminalTextRenderer::default();
     initialize_test_terminal_text_renderer(&report, &mut renderer);
@@ -371,7 +379,9 @@ fn count_non_background_pixels_in_band(image: &Image, y_start: u32, y_end: u32) 
     count
 }
 
+/// Handles read binary ppm.
 fn read_binary_ppm(path: &std::path::Path) -> (u32, u32, Vec<u8>) {
+    // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
     let bytes = fs::read(path).expect("ppm should read");
     let mut idx = 0usize;
     let mut tokens = Vec::new();
@@ -404,6 +414,7 @@ fn read_binary_ppm(path: &std::path::Path) -> (u32, u32, Vec<u8>) {
     (width, height, bytes[idx..].to_vec())
 }
 
+/// Handles crop rgb rows.
 fn crop_rgb_rows(data: &[u8], width: u32, x: u32, y: u32, crop_w: u32, crop_h: u32) -> Vec<u8> {
     let stride = width as usize * 3;
     let mut out = Vec::with_capacity((crop_w * crop_h * 3) as usize);
@@ -415,6 +426,7 @@ fn crop_rgb_rows(data: &[u8], width: u32, x: u32, y: u32, crop_w: u32, crop_h: u
     out
 }
 
+/// Handles crop image rgb.
 fn crop_image_rgb(image: &Image, x: u32, y: u32, crop_w: u32, crop_h: u32) -> Vec<u8> {
     let width = image.texture_descriptor.size.width as usize;
     let data = image.data.as_ref().expect("image data should exist");
@@ -430,6 +442,7 @@ fn crop_image_rgb(image: &Image, x: u32, y: u32, crop_w: u32, crop_h: u32) -> Ve
     out
 }
 
+/// Handles surface from pi screen reference ansi.
 fn surface_from_pi_screen_reference_ansi() -> TerminalSurface {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests/assets/pi-screen-reference-20260328.ansi");
@@ -498,8 +511,10 @@ fn snap_to_pixel_grid_respects_window_scale_factor() {
     assert_eq!(snapped, Vec2::new(10.0, -10.0 / 3.0));
 }
 
+/// Verifies that active terminal target position accounts for texture parity.
 #[test]
 fn active_terminal_target_position_accounts_for_texture_parity() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let mut window = Window::default();
     window.resolution.set_scale_factor_override(Some(1.0));
     window.resolution.set(1400.0, 900.0);
@@ -556,6 +571,7 @@ fn pixel_perfect_terminal_logical_size_uses_scale_factor() {
 /// enabled.
 #[test]
 fn active_terminal_viewport_reserves_agent_list_column() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let window = Window {
         resolution: (1400, 900).into(),
         ..Default::default()
@@ -581,6 +597,7 @@ fn active_terminal_viewport_reserves_agent_list_column() {
 /// center of the usable viewport.
 #[test]
 fn active_terminal_presentation_uses_texture_logical_size_and_centers_in_viewport() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let (bridge, _) = test_bridge();
     let mut manager = TerminalManager::default();
     let id = manager.create_terminal(bridge);
@@ -684,6 +701,7 @@ fn active_terminal_presentation_uses_texture_logical_size_and_centers_in_viewpor
 /// instead of animating through stale geometry.
 #[test]
 fn active_terminal_snaps_immediately_when_active_layout_changes() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let (bridge, _) = test_bridge();
     let mut manager = TerminalManager::default();
     let id = manager.create_terminal(bridge);
@@ -817,6 +835,7 @@ fn active_terminal_snaps_immediately_when_active_layout_changes() {
 /// blending from its old background presentation.
 #[test]
 fn switching_active_terminal_snaps_immediately_without_animation() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let (bridge_one, _) = test_bridge();
     let (bridge_two, _) = test_bridge();
     let mut manager = TerminalManager::default();
@@ -979,6 +998,7 @@ fn switching_active_terminal_snaps_immediately_without_animation() {
 /// cached frame stays visible rather than disappearing.
 #[test]
 fn switching_active_terminal_keeps_cached_frame_visible_until_resized_surface_arrives() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let (bridge_one, _) = test_bridge();
     let (bridge_two, _) = test_bridge();
     let mut manager = TerminalManager::default();
@@ -1144,6 +1164,7 @@ fn switching_active_terminal_keeps_cached_frame_visible_until_resized_surface_ar
 /// surface matching the new active layout arrives.
 #[test]
 fn sync_terminal_texture_keeps_cached_switch_frame_until_resized_surface_arrives() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let report = test_terminal_font_report();
     let mut renderer = TerminalTextRenderer::default();
     initialize_test_terminal_text_renderer(&report, &mut renderer);
@@ -1262,6 +1283,7 @@ fn sync_terminal_texture_keeps_cached_switch_frame_until_resized_surface_arrives
 /// active terminal to the new texture contract and revision.
 #[test]
 fn sync_terminal_texture_promotes_active_terminal_once_resized_surface_arrives() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let report = test_terminal_font_report();
     let mut renderer = TerminalTextRenderer::default();
     initialize_test_terminal_text_renderer(&report, &mut renderer);
@@ -1357,6 +1379,7 @@ fn sync_terminal_texture_promotes_active_terminal_once_resized_surface_arrives()
 /// viewport, independent of zoom distance.
 #[test]
 fn active_terminal_resize_requests_follow_viewport_grid_policy() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let client = Arc::new(FakeDaemonClient::default());
     client
         .sessions
@@ -1408,6 +1431,7 @@ fn active_terminal_resize_requests_follow_viewport_grid_policy() {
 /// plus the dropped-frame count.
 #[test]
 fn drain_terminal_updates_keeps_latest_frame_and_status() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let mailbox = crate::terminals::TerminalUpdateMailbox::default();
 
     assert!(
@@ -1447,6 +1471,7 @@ fn drain_terminal_updates_keeps_latest_frame_and_status() {
 /// status runtime in the retained terminal snapshot.
 #[test]
 fn poll_terminal_snapshots_keeps_latest_status_over_latest_frame_runtime() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let (bridge, mailbox) = test_bridge();
     let mut manager = TerminalManager::default();
     let terminal_id = manager.create_terminal(bridge);
@@ -1509,6 +1534,7 @@ fn parses_font_family_from_included_kitty_config() {
 /// fallbacks.
 #[test]
 fn kitty_config_lookup_prefers_explicit_directory_over_other_locations() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let dir = temp_dir("neozeus-kitty-config-path");
     let kitty_dir = dir.join("kitty-dir");
     let xdg_dir = dir.join("xdg");
@@ -1559,6 +1585,7 @@ fn configured_terminal_font_path_resolves_exact_primary_face() {
 #[test]
 #[ignore = "manual offscreen font-reference verifier"]
 fn dump_terminal_font_reference_sample() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let report = resolve_terminal_font_report_for_path(std::path::Path::new(
         "/usr/share/fonts/Adwaita/AdwaitaMono-Regular.ttf",
     ))
@@ -1694,6 +1721,7 @@ fn detects_special_font_ranges() {
 /// pixels.
 #[test]
 fn standalone_text_renderer_rasterizes_ascii_glyph() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let report = test_terminal_font_report();
     let mut renderer = TerminalTextRenderer::default();
     initialize_test_terminal_text_renderer(&report, &mut renderer);
@@ -1717,8 +1745,10 @@ fn standalone_text_renderer_rasterizes_ascii_glyph() {
     assert_glyph_has_visible_pixels(&glyph);
 }
 
+/// Verifies that glyph rasterization snaps fractional baseline to same pixels.
 #[test]
 fn glyph_rasterization_snaps_fractional_baseline_to_same_pixels() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let report = configured_terminal_font_report();
     let mut renderer = TerminalTextRenderer::default();
     initialize_test_terminal_text_renderer(&report, &mut renderer);
@@ -1769,6 +1799,7 @@ fn glyph_rasterization_snaps_fractional_baseline_to_same_pixels() {
 /// Verifies every non-empty character cell in the provided `pi` screenshot crop exactly.
 #[test]
 fn rendered_pi_screen_matches_reference_per_character_pixels() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let reference_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests/assets/pi-screen-reference-20260328.ppm");
     let (width, height, reference) = read_binary_ppm(&reference_path);
@@ -1816,6 +1847,7 @@ fn rendered_pi_screen_matches_reference_per_character_pixels() {
 /// common active-input case.
 #[test]
 fn sync_terminal_texture_renders_visible_text_on_last_row() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let window = Window {
         resolution: (1400, 900).into(),
         ..Default::default()
@@ -1850,6 +1882,7 @@ fn sync_terminal_texture_renders_visible_text_on_last_row() {
 /// visible ink when the text gets longer.
 #[test]
 fn sync_terminal_texture_updates_pixels_when_last_row_text_changes() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let window = Window {
         resolution: (1400, 900).into(),
         ..Default::default()
@@ -1929,6 +1962,7 @@ fn send_command_payload_bytes_turn_multiline_text_into_enter_sequences() {
 /// Verifies that terminal view offsets are remembered per terminal and restored on focus changes.
 #[test]
 fn terminal_view_state_restores_offsets_per_terminal() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let id_one = crate::terminals::TerminalId(1);
     let id_two = crate::terminals::TerminalId(2);
     let mut view_state = TerminalViewState::default();
@@ -2013,6 +2047,7 @@ fn remove_terminal_clears_orders_and_active_state() {
 /// visible instead of all being hidden.
 #[test]
 fn show_all_presentations_remain_visible_when_no_terminal_is_active() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let (bridge, _) = test_bridge();
     let mut manager = TerminalManager::default();
     let id = manager.create_terminal_without_focus(bridge);
@@ -2088,6 +2123,7 @@ fn show_all_presentations_remain_visible_when_no_terminal_is_active() {
 /// should be shown.
 #[test]
 fn terminal_panel_frames_are_hidden_without_direct_input_mode() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let mut world = World::default();
     insert_default_hud_resources(&mut world);
     world.insert_resource(TerminalManager::default());
@@ -2112,6 +2148,7 @@ fn terminal_panel_frames_are_hidden_without_direct_input_mode() {
 /// Verifies that direct-input mode shows the orange focus frame around the active terminal panel.
 #[test]
 fn direct_input_mode_shows_orange_terminal_frame() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let (bridge, _) = test_bridge();
     let mut manager = TerminalManager::default();
     let terminal_id = manager.create_terminal(bridge);
@@ -2177,6 +2214,7 @@ fn direct_input_mode_shows_orange_terminal_frame() {
 /// input frame styling.
 #[test]
 fn disconnected_terminal_shows_red_status_frame() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let mut world = World::default();
     insert_default_hud_resources(&mut world);
     let (bridge, _) = test_bridge();
@@ -2243,6 +2281,7 @@ fn disconnected_terminal_shows_red_status_frame() {
 /// first real surface upload arrives.
 #[test]
 fn startup_loading_shows_active_placeholder_before_first_surface_arrives() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let (bridge, _) = test_bridge();
     let mut manager = TerminalManager::default();
     let id = manager.create_terminal(bridge);
@@ -2314,6 +2353,7 @@ fn startup_loading_shows_active_placeholder_before_first_surface_arrives() {
 /// terminals stay visible until they are ready.
 #[test]
 fn startup_loading_temporarily_overrides_isolate_to_show_all_pending_terminals() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let (bridge_one, _) = test_bridge();
     let (bridge_two, _) = test_bridge();
     let mut manager = TerminalManager::default();
@@ -2395,6 +2435,7 @@ fn startup_loading_temporarily_overrides_isolate_to_show_all_pending_terminals()
 /// still pending; the cached frame stays visible.
 #[test]
 fn active_terminal_presentation_keeps_cached_frame_visible_until_active_layout_upload_is_ready() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let (bridge, _) = test_bridge();
     let mut manager = TerminalManager::default();
     let id = manager.create_terminal(bridge);
@@ -2471,6 +2512,7 @@ fn active_terminal_presentation_keeps_cached_frame_visible_until_active_layout_u
 /// snapped to the final geometry rather than animating in.
 #[test]
 fn active_terminal_reappears_snapped_after_becoming_ready_for_new_layout() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let (bridge, _) = test_bridge();
     let mut manager = TerminalManager::default();
     let id = manager.create_terminal(bridge);
@@ -2608,6 +2650,7 @@ fn active_terminal_reappears_snapped_after_becoming_ready_for_new_layout() {
 /// contract matches the active layout.
 #[test]
 fn active_terminal_presentation_becomes_visible_once_active_layout_upload_is_ready() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let (bridge, _) = test_bridge();
     let mut manager = TerminalManager::default();
     let id = manager.create_terminal(bridge);
@@ -2687,6 +2730,7 @@ fn active_terminal_presentation_becomes_visible_once_active_layout_upload_is_rea
 /// Verifies that opening the message box does not itself hide the underlying terminal presentation.
 #[test]
 fn message_box_keeps_terminal_presentations_visible() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let (bridge, _) = test_bridge();
     let mut manager = TerminalManager::default();
     let id = manager.create_terminal(bridge);
@@ -2769,6 +2813,7 @@ fn message_box_keeps_terminal_presentations_visible() {
 /// terminal panel.
 #[test]
 fn isolate_visibility_policy_with_missing_terminal_degrades_to_show_all() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let (bridge, _) = test_bridge();
     let mut manager = TerminalManager::default();
     let id = manager.create_terminal_without_focus(bridge);
@@ -2844,6 +2889,7 @@ fn isolate_visibility_policy_with_missing_terminal_degrades_to_show_all() {
 /// remains visible once focus exists.
 #[test]
 fn terminal_visibility_policy_show_all_keeps_only_active_terminal_visible() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let (bridge_one, _) = test_bridge();
     let (bridge_two, _) = test_bridge();
     let mut manager = TerminalManager::default();
@@ -3011,6 +3057,7 @@ fn wait_for_surface_containing(
     updates: &std::sync::mpsc::Receiver<TerminalUpdate>,
     needle: &str,
 ) -> TerminalSurface {
+    // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
     let deadline = std::time::Instant::now() + Duration::from_secs(3);
     loop {
         let remaining = deadline
@@ -3039,6 +3086,7 @@ fn wait_for_lifecycle(
     updates: &std::sync::mpsc::Receiver<TerminalUpdate>,
     predicate: impl Fn(&TerminalLifecycle) -> bool,
 ) -> TerminalRuntimeState {
+    // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
     let deadline = std::time::Instant::now() + Duration::from_secs(3);
     loop {
         let remaining = deadline
@@ -3061,6 +3109,7 @@ fn wait_for_lifecycle(
 /// per-user temp-dir fallback.
 #[test]
 fn daemon_socket_path_prefers_override_then_xdg_runtime_then_tmp_user() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let override_path = resolve_daemon_socket_path_with(
         Some("/tmp/neozeus-test/daemon.sock"),
         Some("/run/user/1000"),
@@ -3095,6 +3144,7 @@ fn daemon_socket_path_prefers_override_then_xdg_runtime_then_tmp_user() {
 /// wire format unchanged.
 #[test]
 fn daemon_protocol_roundtrip_preserves_terminal_messages() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let message = ClientMessage::Request {
         request_id: 7,
         request: DaemonRequest::SendCommand {
@@ -3143,6 +3193,7 @@ fn daemon_server_cleans_up_stale_socket_file() {
 /// kill removal.
 #[test]
 fn daemon_create_attach_command_output_and_kill_roundtrip() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let (_server, socket_path) = start_test_daemon("neozeus-daemon-roundtrip");
     let client =
         SocketTerminalDaemonClient::connect(&socket_path).expect("daemon client should connect");
@@ -3183,6 +3234,7 @@ fn daemon_create_attach_command_output_and_kill_roundtrip() {
 /// and another reconnects.
 #[test]
 fn daemon_sessions_survive_client_reconnect() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let (_server, socket_path) = start_test_daemon("neozeus-daemon-reconnect");
     let client_a =
         SocketTerminalDaemonClient::connect(&socket_path).expect("first client should connect");
@@ -3223,6 +3275,7 @@ fn daemon_sessions_survive_client_reconnect() {
 /// kills/removes them.
 #[test]
 fn daemon_exited_sessions_remain_listed_until_explicit_kill() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let (_server, socket_path) = start_test_daemon("neozeus-daemon-exited-listed");
     let client =
         SocketTerminalDaemonClient::connect(&socket_path).expect("daemon client should connect");
@@ -3269,6 +3322,7 @@ fn daemon_exited_sessions_remain_listed_until_explicit_kill() {
 /// id order.
 #[test]
 fn daemon_session_listing_preserves_creation_order_not_lexical_order() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let (_server, socket_path) = start_test_daemon("neozeus-daemon-list-order");
     let client =
         SocketTerminalDaemonClient::connect(&socket_path).expect("daemon client should connect");
@@ -3318,6 +3372,7 @@ fn runtime_spawner_bootstraps_persistent_sessions_with_plain_pi_only() {
 /// and forwards outgoing commands back to the daemon client.
 #[test]
 fn daemon_runtime_bridge_pushes_initial_snapshot_and_forwards_commands() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let client = Arc::new(FakeDaemonClient::default());
     client
         .sessions
@@ -3359,6 +3414,7 @@ fn daemon_resize_session_request_succeeds() {
 /// drained update stream.
 #[test]
 fn daemon_runtime_bridge_applies_streamed_updates() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let client = Arc::new(FakeDaemonClient::default());
     client
         .sessions
@@ -3414,6 +3470,7 @@ fn daemon_kill_missing_session_returns_error() {
 /// session.
 #[test]
 fn daemon_multiple_clients_receive_updates_for_same_session() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let (_server, socket_path) = start_test_daemon("neozeus-daemon-multi-client");
     let client_a =
         SocketTerminalDaemonClient::connect(&socket_path).expect("first client should connect");
@@ -3449,6 +3506,7 @@ fn wait_for_surface_dimensions(
     cols: usize,
     rows: usize,
 ) -> TerminalSurface {
+    // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
     let deadline = std::time::Instant::now() + Duration::from_secs(3);
     loop {
         let remaining = deadline
@@ -3565,6 +3623,7 @@ fn daemon_killing_one_session_preserves_other_sessions() {
 /// empty state.
 #[test]
 fn daemon_session_lifecycle_churn_stays_consistent() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let (_server, socket_path) = start_test_daemon("neozeus-daemon-churn");
     let client =
         SocketTerminalDaemonClient::connect(&socket_path).expect("daemon client should connect");
@@ -3589,6 +3648,7 @@ fn daemon_session_lifecycle_churn_stays_consistent() {
 /// in authoritative terminal state.
 #[test]
 fn projection_sync_spawns_missing_terminal_entities() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let (bridge, _) = test_bridge();
     let mut manager = TerminalManager::default();
     let terminal_id = manager.create_terminal_without_focus(bridge);
@@ -3615,6 +3675,7 @@ fn projection_sync_spawns_missing_terminal_entities() {
 /// state drops the terminal.
 #[test]
 fn projection_sync_despawns_stale_terminal_entities() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let (bridge, _) = test_bridge();
     let mut manager = TerminalManager::default();
     let terminal_id = manager.create_terminal_without_focus(bridge);

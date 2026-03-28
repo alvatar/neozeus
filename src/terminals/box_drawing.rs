@@ -1,5 +1,6 @@
 use super::raster::CachedTerminalGlyph;
 
+/// Returns whether box drawing.
 pub(crate) fn is_box_drawing(ch: char) -> bool {
     matches!(
         ch,
@@ -7,11 +8,13 @@ pub(crate) fn is_box_drawing(ch: char) -> bool {
     )
 }
 
+/// Handles rasterize box drawing.
 pub(crate) fn rasterize_box_drawing(
     ch: char,
     cell_width: u32,
     cell_height: u32,
 ) -> Option<CachedTerminalGlyph> {
+    // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
     if !is_box_drawing(ch) {
         return None;
     }
@@ -72,6 +75,7 @@ pub(crate) fn rasterize_box_drawing(
     })
 }
 
+/// Draws h.
 fn draw_h(buffer: &mut [u8], width: u32, height: u32, stroke: u32, y: u32, x0: u32, x1: u32) {
     for yy in y.saturating_sub(stroke / 2)..=(y + stroke / 2).min(height - 1) {
         for xx in x0.min(width - 1)..=x1.min(width - 1) {
@@ -80,6 +84,7 @@ fn draw_h(buffer: &mut [u8], width: u32, height: u32, stroke: u32, y: u32, x0: u
     }
 }
 
+/// Draws v.
 fn draw_v(buffer: &mut [u8], width: u32, height: u32, stroke: u32, x: u32, y0: u32, y1: u32) {
     for xx in x.saturating_sub(stroke / 2)..=(x + stroke / 2).min(width - 1) {
         for yy in y0.min(height - 1)..=y1.min(height - 1) {
@@ -88,6 +93,7 @@ fn draw_v(buffer: &mut [u8], width: u32, height: u32, stroke: u32, x: u32, y0: u
     }
 }
 
+/// Handles stroke width.
 fn stroke_width(ch: char, cell_width: u32, cell_height: u32) -> u32 {
     let base = (cell_width.min(cell_height) / 8).max(1);
     if matches!(ch, '━' | '┃') {
@@ -97,6 +103,7 @@ fn stroke_width(ch: char, cell_width: u32, cell_height: u32) -> u32 {
     }
 }
 
+/// Sets white.
 fn set_white(buffer: &mut [u8], width: u32, x: u32, y: u32) {
     let idx = ((y * width + x) * 4) as usize;
     buffer[idx] = 255;
