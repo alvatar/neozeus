@@ -37,6 +37,8 @@ pub(crate) use notes::{
     resolve_terminal_notes_path, save_terminal_notes_if_dirty, task_entry_from_text,
     TerminalNotesState,
 };
+#[cfg(test)]
+pub(crate) use presentation::hud_terminal_target_position;
 pub(crate) use presentation::{
     active_terminal_layout_for_dimensions, sync_active_terminal_dimensions,
     sync_terminal_hud_surface, sync_terminal_panel_frames, sync_terminal_presentations,
