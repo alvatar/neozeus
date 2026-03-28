@@ -47,7 +47,7 @@ fn terminal_home_position(slot: usize) -> Vec2 {
 ///
 /// Each terminal gets both a panel sprite and a frame sprite, plus an initial placeholder image in the
 /// presentation store.
-pub(crate) fn spawn_terminal_presentation(
+fn spawn_terminal_presentation(
     commands: &mut Commands,
     images: &mut Assets<Image>,
     presentation_store: &mut TerminalPresentationStore,
