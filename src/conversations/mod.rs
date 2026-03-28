@@ -233,11 +233,8 @@ pub(crate) fn sync_task_notes_projection(
     mut notes_state: ResMut<TerminalNotesState>,
 ) {
     let mut changed = false;
-    for (agent_id, link) in &runtime_index.agent_to_runtime {
-        let Some(session_name) = link.session_name.as_deref() else {
-            continue;
-        };
-        let next_text = task_store.text(*agent_id).unwrap_or_default();
+    for (agent_id, session_name) in runtime_index.session_bindings() {
+        let next_text = task_store.text(agent_id).unwrap_or_default();
         changed |= notes_state.set_note_text(session_name, next_text);
     }
     if changed {

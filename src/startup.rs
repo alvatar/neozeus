@@ -477,12 +477,9 @@ fn restore_startup_terminals(ctx: &mut SceneSetupContext) {
     );
 
     if let Some(task_store) = ctx.task_store.as_deref_mut() {
-        for (agent_id, link) in &ctx.runtime_index.agent_to_runtime {
-            let Some(session_name) = link.session_name.as_deref() else {
-                continue;
-            };
+        for (agent_id, session_name) in ctx.runtime_index.session_bindings() {
             if let Some(text) = ctx.notes_state.note_text(session_name) {
-                let _ = task_store.set_text(*agent_id, text);
+                let _ = task_store.set_text(agent_id, text);
             }
         }
     }
