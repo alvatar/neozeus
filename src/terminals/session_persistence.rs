@@ -359,7 +359,7 @@ pub(crate) fn mark_terminal_sessions_dirty(
 ///
 /// The snapshot uses terminal creation order, current focus state, and the agent label directory to
 /// produce the compact persisted record list.
-pub(crate) fn build_persisted_terminal_sessions(
+fn build_persisted_terminal_sessions(
     terminal_manager: &TerminalManager,
     focus_state: &TerminalFocusState,
     agent_catalog: &AgentCatalog,
