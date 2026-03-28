@@ -18,9 +18,9 @@ use crate::{
         ThreadView, WindowCaptureConfig,
     },
     terminals::{
-        TerminalDaemonClientResource, TerminalFontState, TerminalGlyphCache, TerminalManager,
-        TerminalPointerState, TerminalPresentationStore, TerminalRuntimeSpawner,
-        TerminalSessionPersistenceState, TerminalViewState,
+        TerminalFontState, TerminalGlyphCache, TerminalManager, TerminalPointerState,
+        TerminalPresentationStore, TerminalRuntimeSpawner, TerminalSessionPersistenceState,
+        TerminalViewState,
     },
     verification::{AutoVerifyConfig, VerificationScenarioConfig},
 };
@@ -411,12 +411,11 @@ fn configure_app(app: &mut App) -> Result<(), String> {
         ));
     }
 
-    let daemon_client = TerminalDaemonClientResource::system()?;
     let runtime_spawner = if uses_headless_runner(&output) {
-        TerminalRuntimeSpawner::headless(daemon_client.clone())
+        TerminalRuntimeSpawner::pending_headless()
     } else {
         let proxy = app.world().resource::<EventLoopProxyWrapper>();
-        TerminalRuntimeSpawner::new((**proxy).clone(), daemon_client.clone())
+        TerminalRuntimeSpawner::pending((**proxy).clone())
     };
 
     if let Some(hud_capture) = hud_capture {
@@ -447,7 +446,6 @@ fn configure_app(app: &mut App) -> Result<(), String> {
         .insert_resource(TerminalManager::default())
         .insert_resource(crate::terminals::TerminalFocusState::default())
         .insert_resource(TerminalPresentationStore::default())
-        .insert_resource(daemon_client.clone())
         .insert_resource(runtime_spawner)
         .insert_resource(TerminalSessionPersistenceState::default())
         .insert_resource(crate::terminals::TerminalNotesState::default())
@@ -475,6 +473,7 @@ fn configure_app(app: &mut App) -> Result<(), String> {
         .insert_resource(ComposerView::default())
         .insert_resource(TerminalVisibilityState::default())
         .insert_resource(crate::startup::StartupLoadingState::default())
+        .insert_resource(crate::startup::StartupConnectState::default())
         .add_message::<AppCommand>()
         .add_message::<HudIntent>();
 

@@ -48,7 +48,7 @@ impl RuntimeNotifier {
 #[derive(Resource, Clone)]
 pub(crate) struct TerminalRuntimeSpawner {
     notifier: RuntimeNotifier,
-    daemon: TerminalDaemonClientResource,
+    daemon: Arc<Mutex<Option<TerminalDaemonClientResource>>>,
 }
 
 /// Returns whether a newly created session should be bootstrapped by sending the `pi` command.
@@ -60,37 +60,53 @@ fn should_bootstrap_spawned_agent(prefix: &str) -> bool {
 }
 
 impl TerminalRuntimeSpawner {
-    /// Builds the runtime spawner used in normal windowed mode.
-    ///
-    /// It combines a real wake notifier with the daemon client resource so later spawn/attach calls
-    /// can both talk to the daemon and wake the app when background work arrives.
-    pub(crate) fn new(
-        proxy: EventLoopProxy<WinitUserEvent>,
-        daemon: TerminalDaemonClientResource,
-    ) -> Self {
+    /// Builds a spawner that can wake the app but does not yet have a live daemon connection.
+    pub(crate) fn pending(proxy: EventLoopProxy<WinitUserEvent>) -> Self {
         Self {
             notifier: RuntimeNotifier::new(proxy),
-            daemon,
+            daemon: Arc::new(Mutex::new(None)),
         }
     }
 
-    /// Builds the runtime spawner used in headless/offscreen mode.
-    ///
-    /// The only difference from [`new`] is that the notifier is a no-op because there is no Winit
-    /// event loop to wake.
-    pub(crate) fn headless(daemon: TerminalDaemonClientResource) -> Self {
+    /// Builds a headless spawner whose daemon connection will be installed later.
+    pub(crate) fn pending_headless() -> Self {
         Self {
             notifier: RuntimeNotifier::noop(),
-            daemon,
+            daemon: Arc::new(Mutex::new(None)),
         }
     }
 
-    /// Test-only constructor that aliases to the headless runtime spawner.
-    ///
-    /// Unit tests do not need a real OS event loop, so they always use the headless behavior.
+    /// Test-only constructor that installs a ready daemon into a headless spawner.
     #[cfg(test)]
     pub(crate) fn for_tests(daemon: TerminalDaemonClientResource) -> Self {
-        Self::headless(daemon)
+        let spawner = Self::pending_headless();
+        spawner.install_daemon(daemon);
+        spawner
+    }
+
+    /// Returns whether a live daemon client has been installed.
+    pub(crate) fn is_ready(&self) -> bool {
+        self.daemon
+            .lock()
+            .ok()
+            .and_then(|guard| guard.clone())
+            .is_some()
+    }
+
+    /// Installs the live daemon client once background startup connection completes.
+    pub(crate) fn install_daemon(&self, daemon: TerminalDaemonClientResource) {
+        if let Ok(mut guard) = self.daemon.lock() {
+            *guard = Some(daemon);
+        }
+        self.notifier.wake();
+    }
+
+    fn daemon_client(&self) -> Result<TerminalDaemonClientResource, String> {
+        self.daemon
+            .lock()
+            .map_err(|_| "terminal runtime spawner poisoned".to_owned())?
+            .clone()
+            .ok_or_else(|| "terminal runtime still connecting".to_owned())
     }
 
     /// Returns a clone of the runtime notifier used by this spawner.
@@ -106,7 +122,7 @@ impl TerminalRuntimeSpawner {
     /// The spawner is the app's authority for session creation/attachment, so it also exposes session
     /// discovery instead of forcing callers to reach around it to the daemon resource.
     pub(crate) fn list_session_infos(&self) -> Result<Vec<DaemonSessionInfo>, String> {
-        self.daemon.client().list_sessions()
+        self.daemon_client()?.client().list_sessions()
     }
 
     /// Creates a new session and optionally bootstraps it into a `pi` session.
@@ -115,14 +131,14 @@ impl TerminalRuntimeSpawner {
     /// command when the prefix says this is a normal persistent terminal. If bootstrapping fails, the
     /// just-created daemon session is killed so the caller does not inherit a half-initialized shell.
     pub(crate) fn create_session(&self, prefix: &str) -> Result<String, String> {
+        let daemon = self.daemon_client()?;
         let session_id = self.create_shell_session(prefix)?;
         if should_bootstrap_spawned_agent(prefix) {
-            if let Err(error) = self
-                .daemon
+            if let Err(error) = daemon
                 .client()
                 .send_command(&session_id, TerminalCommand::SendCommand("pi".into()))
             {
-                let _ = self.daemon.client().kill_session(&session_id);
+                let _ = daemon.client().kill_session(&session_id);
                 return Err(format!(
                     "failed to start pi in session `{session_id}`: {error}"
                 ));
@@ -137,7 +153,7 @@ impl TerminalRuntimeSpawner {
     /// This is the low-level creation path used both directly and as the first step of
     /// [`create_session`].
     pub(crate) fn create_shell_session(&self, prefix: &str) -> Result<String, String> {
-        self.daemon.client().create_session(prefix)
+        self.daemon_client()?.client().create_session(prefix)
     }
 
     /// Asks the daemon to resize one named session to the requested terminal grid.
@@ -147,7 +163,9 @@ impl TerminalRuntimeSpawner {
         cols: usize,
         rows: usize,
     ) -> Result<(), String> {
-        self.daemon.client().resize_session(session_id, cols, rows)
+        self.daemon_client()?
+            .client()
+            .resize_session(session_id, cols, rows)
     }
 
     /// Asks the daemon to kill one named session.
@@ -155,7 +173,7 @@ impl TerminalRuntimeSpawner {
     /// This is a thin delegation method kept on the spawner so the rest of the app can treat the
     /// spawner as the single runtime/session façade.
     pub(crate) fn kill_session(&self, session_id: &str) -> Result<(), String> {
-        self.daemon.client().kill_session(session_id)
+        self.daemon_client()?.client().kill_session(session_id)
     }
 
     /// Attaches to an existing daemon session and launches the local runtime bridge threads for it.
@@ -163,10 +181,11 @@ impl TerminalRuntimeSpawner {
     /// The daemon supplies the initial snapshot plus the streamed update receiver; this method wraps
     /// both in the app-side [`TerminalBridge`] abstraction.
     pub(crate) fn spawn_attached(&self, session_id: &str) -> Result<TerminalBridge, String> {
-        let attached = self.daemon.client().attach_session(session_id)?;
+        let daemon = self.daemon_client()?;
+        let attached = daemon.client().attach_session(session_id)?;
         Ok(spawn_daemon_terminal_runtime(
             self.notifier.clone(),
-            self.daemon.clone(),
+            daemon,
             session_id.to_owned(),
             attached,
         ))

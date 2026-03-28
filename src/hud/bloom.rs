@@ -7,6 +7,7 @@ use crate::{
         },
         AgentListView, HudLayoutState, HudRect, HudWidgetKey,
     },
+    startup::StartupConnectState,
     terminals::TerminalId,
 };
 use bevy::{
@@ -862,6 +863,7 @@ pub(crate) struct HudWidgetBloomContext<'w, 's> {
     primary_window: Single<'w, 's, &'static Window, With<PrimaryWindow>>,
     layout_state: Res<'w, HudLayoutState>,
     app_session: Res<'w, AppSessionState>,
+    startup_connect: Option<Res<'w, StartupConnectState>>,
     focus_state: Res<'w, crate::terminals::TerminalFocusState>,
     agent_list_view: Res<'w, AgentListView>,
     settings: Res<'w, HudBloomSettings>,
@@ -1009,7 +1011,11 @@ pub(crate) fn sync_hud_widget_bloom(mut ctx: HudWidgetBloomContext) {
     }
 
     let modal_visible = ctx.app_session.composer.message_editor.visible
-        || ctx.app_session.composer.task_editor.visible;
+        || ctx.app_session.composer.task_editor.visible
+        || ctx
+            .startup_connect
+            .as_ref()
+            .is_some_and(|state| state.modal_visible());
     let enabled = ctx
         .layout_state
         .get(HudWidgetKey::AgentList)

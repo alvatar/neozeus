@@ -217,7 +217,7 @@ pub(crate) fn run_verification_scenario(
     let Some(mut config) = config else {
         return;
     };
-    if config.applied {
+    if config.applied || !ctx.runtime_spawner.is_ready() {
         return;
     }
     if config.frames_until_apply > 0 {

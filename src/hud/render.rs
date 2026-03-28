@@ -6,6 +6,7 @@ use crate::{
         task_dialog_rect, AgentListView, ConversationListView, HudLayoutState, HudMessageBoxState,
         HudRect, HudTaskDialogState, HudWidgetKey, ThreadView, HUD_TITLEBAR_HEIGHT,
     },
+    startup::StartupConnectState,
     terminals::{
         TerminalFocusState, TerminalFontState, TerminalManager, TerminalNotesState,
         TerminalPresentationStore, TerminalViewState,
@@ -568,6 +569,71 @@ fn draw_message_box(
 /// button copy.
 ///
 /// Rendering is skipped entirely when the dialog is hidden.
+fn startup_connect_rect(window: &Window) -> HudRect {
+    let size = Vec2::new(
+        (window.width() * 0.46).clamp(420.0, 760.0),
+        (window.height() * 0.22).clamp(180.0, 280.0),
+    );
+    HudRect {
+        x: window.width() * 0.5 - size.x * 0.5,
+        y: window.height() * 0.5 - size.y * 0.5,
+        w: size.x,
+        h: size.y,
+    }
+}
+
+fn draw_startup_connect_overlay(
+    painter: &mut HudPainter,
+    window: &Window,
+    startup_connect: &StartupConnectState,
+) {
+    if !startup_connect.modal_visible() {
+        return;
+    }
+
+    let rect = startup_connect_rect(window);
+    for (outset, alpha) in [(22.0, 0.08), (12.0, 0.16), (5.0, 0.28)] {
+        painter.stroke_rect_width(
+            HudRect {
+                x: rect.x - outset,
+                y: rect.y - outset,
+                w: rect.w + outset * 2.0,
+                h: rect.h + outset * 2.0,
+            },
+            apply_alpha(HudColors::TEXT, alpha),
+            3.0,
+        );
+    }
+
+    painter.fill_rect(rect, HudColors::MESSAGE_BOX, 12.0);
+    painter.stroke_rect_width(rect, HudColors::TEXT, 2.0);
+
+    let title = startup_connect.title();
+    if !title.is_empty() {
+        painter.label(
+            Vec2::new(rect.x + rect.w * 0.5, rect.y + 34.0),
+            title,
+            26.0,
+            HudColors::TEXT,
+            VelloTextAnchor::Top,
+        );
+    }
+    painter.label(
+        Vec2::new(rect.x + rect.w * 0.5, rect.y + 86.0),
+        startup_connect.status(),
+        18.0,
+        HudColors::TEXT_MUTED,
+        VelloTextAnchor::Top,
+    );
+    painter.label(
+        Vec2::new(rect.x + rect.w * 0.5, rect.y + rect.h - 34.0),
+        "Window is live. Restoring will continue as soon as the runtime is ready.",
+        15.0,
+        HudColors::TEXT_MUTED,
+        VelloTextAnchor::Bottom,
+    );
+}
+
 fn draw_task_dialog(
     painter: &mut HudPainter,
     window: &Window,
@@ -699,9 +765,14 @@ pub(crate) fn render_hud_scene(
     _notes_state: Res<TerminalNotesState>,
     font_state: Res<TerminalFontState>,
     fonts: Res<Assets<VelloFont>>,
+    startup_connect: Option<Res<StartupConnectState>>,
     mut scene: Single<&mut VelloScene2d, With<HudVectorSceneMarker>>,
 ) {
     let mut built = vello::Scene::new();
+    if startup_connect.is_some_and(|state| state.modal_visible()) {
+        **scene = VelloScene2d::from(built);
+        return;
+    }
     let inputs = HudRenderInputs {
         terminal_manager: &terminal_manager,
         focus_state: &focus_state,
@@ -757,11 +828,15 @@ pub(crate) fn render_hud_modal_scene(
     app_session: Res<AppSessionState>,
     agent_catalog: Res<AgentCatalog>,
     runtime_index: Res<AgentRuntimeIndex>,
+    startup_connect: Option<Res<StartupConnectState>>,
     fonts: Res<Assets<VelloFont>>,
     mut scene: Single<&mut VelloScene2d, With<HudModalVectorSceneMarker>>,
 ) {
     let mut built = vello::Scene::new();
     let mut painter = HudPainter::new(&mut built, &fonts, &primary_window, 1.0);
+    if let Some(startup_connect) = startup_connect.as_deref() {
+        draw_startup_connect_overlay(&mut painter, &primary_window, startup_connect);
+    }
     draw_message_box(
         &mut painter,
         &primary_window,

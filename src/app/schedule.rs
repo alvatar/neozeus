@@ -17,7 +17,7 @@ use crate::{
         handle_terminal_message_box_keyboard, hide_terminal_on_background_click,
         zoom_terminal_view,
     },
-    startup::{request_redraw_while_visuals_active, setup_scene},
+    startup::{advance_startup_connecting, request_redraw_while_visuals_active, setup_scene},
     terminals::{
         configure_terminal_fonts, save_terminal_notes_if_dirty, save_terminal_sessions_if_dirty,
         sync_active_terminal_dimensions, sync_terminal_hud_surface, sync_terminal_panel_frames,
@@ -92,6 +92,13 @@ pub(crate) fn configure_app_schedule(app: &mut App) {
         (setup_scene, setup_hud, setup_hud_widget_bloom).chain(),
     )
     .add_systems(PostStartup, sync_hud_offscreen_compositor)
+    .add_systems(
+        Update,
+        advance_startup_connecting
+            .before(NeoZeusSet::PollTerminal)
+            .before(NeoZeusSet::UiInput)
+            .before(NeoZeusSet::PresentTerminal),
+    )
     .add_systems(
         Update,
         sync_structural_hud_layout
