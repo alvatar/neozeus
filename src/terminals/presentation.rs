@@ -15,7 +15,7 @@ use super::{
 use bevy::{prelude::*, window::PrimaryWindow};
 
 const HUD_FRAME_PADDING: Vec2 = Vec2::ZERO;
-pub(crate) const ACTIVE_TERMINAL_MARGIN: Vec2 = Vec2::splat(16.0);
+const ACTIVE_TERMINAL_MARGIN: Vec2 = Vec2::splat(16.0);
 pub(crate) const DIRECT_INPUT_FRAME_OUTSET: f32 = 6.0;
 const INACTIVE_RUNTIME_FRAME_OUTSET: f32 = 4.0;
 const STARTUP_PLACEHOLDER_COLS: u32 = 120;
