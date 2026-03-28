@@ -214,7 +214,7 @@ pub(crate) fn configure_terminal_fonts(
 }
 
 /// Initializes the terminal text renderer using the current `LANG` locale.
-pub(crate) fn initialize_terminal_text_renderer(
+fn initialize_terminal_text_renderer(
     report: &TerminalFontReport,
     text_renderer: &mut TerminalTextRenderer,
 ) -> Result<(), String> {
