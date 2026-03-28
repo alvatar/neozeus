@@ -124,7 +124,7 @@ enum AgentRuntimeLifecycle {
 
 impl AgentRuntimeLifecycle {
     /// Builds runtime from the supplied source data.
-    pub(crate) fn from_runtime(runtime: &TerminalRuntimeState) -> Self {
+    fn from_runtime(runtime: &TerminalRuntimeState) -> Self {
         match runtime.lifecycle {
             TerminalLifecycle::Running => Self::Running,
             TerminalLifecycle::Exited { .. } => Self::Exited,
