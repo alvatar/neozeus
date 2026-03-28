@@ -140,8 +140,8 @@ struct AgentListBloomDebugPreviewMarker {
 struct AgentListBloomDebugBackdropMarker;
 
 #[derive(Clone, Copy, Debug, ShaderType)]
-pub(crate) struct AgentListBloomBlurUniform {
-    pub(crate) texel_step_gain: Vec4,
+struct AgentListBloomBlurUniform {
+    texel_step_gain: Vec4,
 }
 
 #[derive(Asset, TypePath, AsBindGroup, Debug, Clone)]
@@ -150,7 +150,7 @@ pub(crate) struct AgentListBloomBlurMaterial {
     #[sampler(1)]
     pub(crate) image: Handle<Image>,
     #[uniform(2)]
-    pub(crate) uniform: AgentListBloomBlurUniform,
+    uniform: AgentListBloomBlurUniform,
 }
 
 impl Material2d for AgentListBloomBlurMaterial {
