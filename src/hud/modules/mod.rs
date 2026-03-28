@@ -17,12 +17,6 @@ pub(crate) use agent_list::{
     agent_row_rect, agent_rows, AgentListRowSection, AGENT_LIST_BLOOM_RED_B,
     AGENT_LIST_BLOOM_RED_G, AGENT_LIST_BLOOM_RED_R,
 };
-#[cfg(test)]
-pub(crate) use agent_list::{
-    AGENT_LIST_BORDER_ORANGE_B, AGENT_LIST_BORDER_ORANGE_G, AGENT_LIST_BORDER_ORANGE_R,
-};
-#[cfg(test)]
-pub(crate) use debug_toolbar::debug_toolbar_buttons;
 
 #[allow(
     clippy::too_many_arguments,
@@ -167,3 +161,12 @@ pub(crate) fn handle_scroll(
         _ => {}
     }
 }
+
+#[cfg(test)]
+pub(crate) use tests::{
+    debug_toolbar_buttons, AGENT_LIST_BORDER_ORANGE_B, AGENT_LIST_BORDER_ORANGE_G,
+    AGENT_LIST_BORDER_ORANGE_R,
+};
+
+#[cfg(test)]
+mod tests;
