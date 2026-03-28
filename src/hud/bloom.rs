@@ -78,7 +78,7 @@ impl Default for HudBloomSettings {
 /// Parses the scalar intensity multiplier for the agent-list bloom effect.
 ///
 /// Only finite, non-negative values are accepted; anything else falls back to the default intensity.
-pub(crate) fn resolve_agent_list_bloom_intensity(raw: Option<&str>) -> f32 {
+fn resolve_agent_list_bloom_intensity(raw: Option<&str>) -> f32 {
     raw.map(str::trim)
         .filter(|value| !value.is_empty())
         .and_then(|value| value.parse::<f32>().ok())
