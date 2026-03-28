@@ -717,3 +717,6 @@ pub(crate) fn blend_rgba_in_place(dst: &mut [u8], source: [u8; 4]) {
 
     dst[3] = (out_alpha * 255.0).round() as u8;
 }
+
+#[cfg(test)]
+mod tests;

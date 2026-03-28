@@ -377,3 +377,6 @@ fn parse_toml_basic_string(raw: &str) -> Result<String, String> {
 
     Ok(out)
 }
+
+#[cfg(test)]
+mod tests;

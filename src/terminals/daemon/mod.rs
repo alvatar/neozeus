@@ -3,6 +3,9 @@ mod protocol;
 mod server;
 mod session;
 
+#[cfg(test)]
+mod tests;
+
 pub(crate) use client::{
     resolve_daemon_socket_path, AttachedDaemonSession, TerminalDaemonClientResource,
 };

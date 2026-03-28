@@ -820,7 +820,6 @@ pub(crate) fn sync_terminal_hud_surface(
 #[cfg(test)]
 pub(crate) use tests::{
     active_terminal_cell_size, active_terminal_dimensions, active_terminal_layout,
-    pixel_perfect_cell_size, pixel_perfect_terminal_logical_size, snap_to_pixel_grid,
 };
 
 #[cfg(test)]
