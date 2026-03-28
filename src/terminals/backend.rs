@@ -1,9 +1,6 @@
 pub(crate) use super::damage::compute_terminal_damage;
 
 #[cfg(test)]
-pub(crate) use tests::{resolve_alacritty_color, xterm_indexed_rgb};
-
-#[cfg(test)]
 mod tests;
 
 /// Converts a command string into the byte stream that should be written to the PTY.

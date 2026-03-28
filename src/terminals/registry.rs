@@ -289,3 +289,6 @@ pub(crate) fn poll_terminal_snapshots(mut terminal_manager: ResMut<TerminalManag
         }
     }
 }
+
+#[cfg(test)]
+mod tests;

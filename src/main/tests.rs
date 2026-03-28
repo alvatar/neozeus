@@ -18,8 +18,8 @@ use crate::{
         HudLayoutState, HudModalState, ThreadView,
     },
     terminals::{
-        AttachedDaemonSession, CachedTerminalGlyph, DaemonSessionInfo, TerminalBridge,
-        TerminalCommand, TerminalDaemonClient, TerminalDaemonClientResource, TerminalDebugStats,
+        AttachedDaemonSession, DaemonSessionInfo, TerminalBridge, TerminalCommand,
+        TerminalDaemonClient, TerminalDaemonClientResource, TerminalDebugStats,
         TerminalRuntimeSpawner, TerminalRuntimeState, TerminalSnapshot, TerminalSurface,
         TerminalUpdate, TerminalUpdateMailbox,
     },
@@ -210,16 +210,6 @@ pub(super) fn insert_terminal_manager_resources(
     world.insert_resource(terminal_manager);
 }
 
-/// App-level convenience wrapper around [`insert_terminal_manager_resources`].
-///
-/// This is used by tests that build a full [`App`] rather than operating on a raw [`World`].
-pub(super) fn insert_terminal_manager_resources_into_app(
-    app: &mut App,
-    terminal_manager: crate::terminals::TerminalManager,
-) {
-    insert_terminal_manager_resources(app.world_mut(), terminal_manager);
-}
-
 /// Inserts an explicit HUD resource triple into a test world.
 ///
 /// This is the lower-level helper used when a test wants exact control over layout, modal, and input
@@ -340,15 +330,6 @@ pub(super) fn snapshot_test_hud_state(world: &World) -> crate::hud::HudState {
         },
         world.resource::<HudInputCaptureState>(),
     )
-}
-
-/// App-level convenience wrapper for restoring a `HudState` snapshot into an [`App`].
-///
-/// It simply forwards to [`insert_test_hud_state`] on the app's world, which keeps App-based and
-/// World-based tests using the same setup path.
-#[cfg(test)]
-pub(super) fn insert_test_hud_state_into_app(app: &mut App, hud_state: crate::hud::HudState) {
-    insert_test_hud_state(app.world_mut(), hud_state);
 }
 
 #[derive(Default)]
@@ -531,20 +512,4 @@ pub(super) fn surface_with_text(rows: usize, cols: usize, y: usize, text: &str) 
         surface.set_text_cell(x, y, &ch.to_string());
     }
     surface
-}
-
-/// Asserts that a rasterized glyph produced at least one non-transparent pixel.
-///
-/// This is the minimal sanity check used by font/raster tests to ensure the glyph did not collapse to
-/// an entirely transparent bitmap.
-pub(super) fn assert_glyph_has_visible_pixels(glyph: &CachedTerminalGlyph) {
-    let non_zero_alpha = glyph
-        .pixels
-        .chunks_exact(4)
-        .filter(|pixel| pixel[3] > 0)
-        .count();
-    assert!(
-        non_zero_alpha > 0,
-        "glyph rasterized to fully transparent image"
-    );
 }
