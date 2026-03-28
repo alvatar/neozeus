@@ -179,7 +179,7 @@ fn parse_terminal_notes(text: &str) -> HashMap<String, String> {
 /// Sessions are sorted by name for deterministic output. Empty session names and blank note payloads
 /// are skipped, and note lines beginning with `.` are escaped by prefixing an extra dot so block
 /// terminators remain unambiguous.
-pub(crate) fn serialize_terminal_notes(notes_by_session: &HashMap<String, String>) -> String {
+fn serialize_terminal_notes(notes_by_session: &HashMap<String, String>) -> String {
     // Process the input incrementally so each transformation stays local and malformed data fails at the narrowest point.
     let mut sessions = notes_by_session
         .iter()
