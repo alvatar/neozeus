@@ -375,7 +375,7 @@ fn load_kitty_font_family() -> Result<Option<String>, String> {
 /// Finds the first Kitty config file visible through the real process environment.
 ///
 /// This is a wrapper around the testable `_with` helper.
-pub(crate) fn find_kitty_config_path() -> Option<PathBuf> {
+fn find_kitty_config_path() -> Option<PathBuf> {
     find_kitty_config_path_with(
         env::var_os("KITTY_CONFIG_DIRECTORY").as_deref(),
         env::var_os("XDG_CONFIG_HOME").as_deref(),
