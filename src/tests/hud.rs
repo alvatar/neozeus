@@ -86,9 +86,7 @@ fn run_app_commands(world: &mut World) {
     }
     world.init_resource::<Messages<AppCommand>>();
     world.init_resource::<Messages<RequestRedraw>>();
-    world
-        .run_system_once(crate::app::apply_app_commands)
-        .unwrap();
+    crate::app::run_apply_app_commands(world);
     world
         .run_system_once(crate::conversations::sync_task_notes_projection)
         .unwrap();

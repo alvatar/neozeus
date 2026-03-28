@@ -10,8 +10,6 @@ pub(crate) use commands::{
     AgentCommand, AppCommand, ComposerCommand, ComposerRequest, TaskCommand, TerminalCommand,
     WidgetCommand,
 };
-#[cfg(test)]
-pub(crate) use dispatch::apply_app_commands;
 pub(crate) use session::AppSessionState;
 pub(crate) use use_cases::restore_app;
 
@@ -32,3 +30,10 @@ pub(crate) use {
     },
     output::{resolve_output_dimension, resolve_output_mode},
 };
+
+#[cfg(test)]
+pub(crate) fn run_apply_app_commands(world: &mut bevy::prelude::World) {
+    use bevy::ecs::system::RunSystemOnce;
+
+    world.run_system_once(dispatch::apply_app_commands).unwrap();
+}

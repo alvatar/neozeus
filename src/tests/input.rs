@@ -116,9 +116,7 @@ fn ensure_app_command_world_resources(world: &mut World) {
 /// Handles run app command cycle.
 fn run_app_command_cycle(world: &mut World) {
     ensure_app_command_world_resources(world);
-    world
-        .run_system_once(crate::app::apply_app_commands)
-        .unwrap();
+    crate::app::run_apply_app_commands(world);
 }
 
 /// Injects one keyboard event into the modal-editor keyboard handler under test.

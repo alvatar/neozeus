@@ -111,7 +111,7 @@ fn refresh_open_task_editor(
 }
 
 #[derive(SystemParam)]
-pub(crate) struct AppCommandContext<'w> {
+pub(super) struct AppCommandContext<'w> {
     time: Res<'w, Time>,
     agent_catalog: ResMut<'w, AgentCatalog>,
     runtime_index: ResMut<'w, AgentRuntimeIndex>,
@@ -138,7 +138,7 @@ pub(crate) struct AppCommandContext<'w> {
 /// This is the sole UI/input mutation entrypoint after command translation. Each command is decoded
 /// into one narrow use-case call so product policy lives in named handlers instead of in HUD fanout
 /// tables or widget code.
-pub(crate) fn apply_app_commands(
+pub(super) fn apply_app_commands(
     mut app_commands: MessageReader<AppCommand>,
     mut ctx: AppCommandContext,
 ) {
