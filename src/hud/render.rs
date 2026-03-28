@@ -44,7 +44,7 @@ pub(crate) struct HudColors;
 
 impl HudColors {
     pub(crate) const FRAME: peniko::Color = peniko::Color::from_rgba8(7, 7, 7, 255);
-    pub(crate) const TITLE: peniko::Color = peniko::Color::from_rgba8(7, 7, 7, 255);
+    const TITLE: peniko::Color = peniko::Color::from_rgba8(7, 7, 7, 255);
     pub(crate) const BORDER: peniko::Color = peniko::Color::from_rgba8(57, 26, 6, 255);
     pub(crate) const TEXT: peniko::Color = peniko::Color::from_rgba8(238, 96, 2, 255);
     pub(crate) const TEXT_MUTED: peniko::Color = peniko::Color::from_rgba8(216, 196, 162, 255);
