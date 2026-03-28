@@ -151,7 +151,7 @@ impl<'scene, 'res> HudPainter<'scene, 'res> {
     ///
     /// If the default font asset has not loaded yet, the function reports zero size instead of
     /// panicking.
-    pub(crate) fn text_size(&self, text: &str, size: f32) -> Vec2 {
+    fn text_size(&self, text: &str, size: f32) -> Vec2 {
         let Some(font) = self.fonts.get(&Handle::<VelloFont>::default()) else {
             return Vec2::ZERO;
         };
