@@ -17,8 +17,6 @@ use std::{
     },
     thread,
 };
-#[cfg(test)]
-use std::{path::PathBuf, time::Duration};
 
 #[derive(Clone)]
 struct DaemonRegistry {
@@ -110,47 +108,6 @@ impl DaemonRegistry {
     }
 }
 
-#[cfg(test)]
-pub(crate) struct DaemonServerHandle {
-    stop: Arc<AtomicBool>,
-    join: Option<thread::JoinHandle<()>>,
-    socket_path: PathBuf,
-}
-
-#[cfg(test)]
-impl DaemonServerHandle {
-    /// Starts a test daemon server thread and waits until its socket becomes reachable.
-    pub(crate) fn start(socket_path: PathBuf) -> Result<Self, String> {
-        let stop = Arc::new(AtomicBool::new(false));
-        let worker_stop = stop.clone();
-        let worker_path = socket_path.clone();
-        let join = thread::spawn(move || {
-            if let Err(error) = run_server_loop(&worker_path, worker_stop) {
-                append_debug_log(format!("daemon server stopped with error: {error}"));
-            }
-        });
-        wait_for_socket(&socket_path, Duration::from_secs(2))?;
-        Ok(Self {
-            stop,
-            join: Some(join),
-            socket_path,
-        })
-    }
-}
-
-#[cfg(test)]
-impl Drop for DaemonServerHandle {
-    /// Stops the test daemon thread, nudges `accept()` awake, joins it, and removes the socket file.
-    fn drop(&mut self) {
-        self.stop.store(true, Ordering::Relaxed);
-        let _ = UnixStream::connect(&self.socket_path);
-        if let Some(join) = self.join.take() {
-            let _ = join.join();
-        }
-        let _ = fs::remove_file(&self.socket_path);
-    }
-}
-
 /// Runs the production daemon server until process shutdown.
 ///
 /// This is the public entry point used by `neozeus daemon`.
@@ -228,25 +185,6 @@ fn bind_listener(socket_path: &Path) -> Result<UnixListener, String> {
             socket_path.display()
         )
     })
-}
-
-/// Polls until the test daemon socket both exists and accepts connections.
-/// Waits for the daemon socket path to appear.
-#[cfg(test)]
-fn wait_for_socket(socket_path: &Path, timeout: Duration) -> Result<(), String> {
-    let deadline = std::time::Instant::now() + timeout;
-    loop {
-        if socket_path.exists() && UnixStream::connect(socket_path).is_ok() {
-            return Ok(());
-        }
-        if std::time::Instant::now() >= deadline {
-            return Err(format!(
-                "timed out waiting for daemon socket {}",
-                socket_path.display()
-            ));
-        }
-        thread::sleep(Duration::from_millis(10));
-    }
 }
 
 /// Services one daemon client connection until the socket closes.
@@ -372,3 +310,9 @@ fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
         Err(poisoned) => poisoned.into_inner(),
     }
 }
+
+#[cfg(test)]
+pub(crate) use tests::DaemonServerHandle;
+
+#[cfg(test)]
+mod tests;
