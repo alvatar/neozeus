@@ -1,4 +1,4 @@
-use crate::terminals::{TerminalDamage, TerminalSurface};
+use super::types::{TerminalDamage, TerminalSurface};
 
 /// Computes the smallest useful repaint description between two terminal surfaces.
 ///

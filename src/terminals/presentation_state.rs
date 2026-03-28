@@ -1,4 +1,4 @@
-use crate::terminals::TerminalId;
+use super::registry::TerminalId;
 use bevy::prelude::*;
 use std::collections::HashMap;
 

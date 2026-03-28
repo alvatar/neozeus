@@ -1,7 +1,7 @@
-use crate::terminals::{
-    types::TerminalLifecycle, TerminalCell, TerminalCellContent, TerminalCommand, TerminalCursor,
-    TerminalCursorShape, TerminalDamage, TerminalFrameUpdate, TerminalRuntimeState,
-    TerminalSnapshot, TerminalSurface, TerminalUpdate,
+use crate::terminals::types::{
+    TerminalCell, TerminalCellContent, TerminalCommand, TerminalCursor, TerminalCursorShape,
+    TerminalDamage, TerminalFrameUpdate, TerminalLifecycle, TerminalRuntimeState, TerminalSnapshot,
+    TerminalSurface, TerminalUpdate,
 };
 use bevy_egui::egui;
 use std::io::{Read, Write};

@@ -1,8 +1,12 @@
 #[cfg(test)]
-use crate::hud::default_hud_module_instance;
+use super::state::default_hud_module_instance;
 #[cfg(test)]
-use crate::hud::HudWidgetDefinition;
-use crate::hud::{append_hud_log, HudLayoutState, HudRect, HudWidgetKey, HUD_WIDGET_DEFINITIONS};
+use super::widgets::HudWidgetDefinition;
+use super::{
+    setup::append_hud_log,
+    state::{HudLayoutState, HudRect},
+    widgets::{HudWidgetKey, HUD_WIDGET_DEFINITIONS},
+};
 use bevy::prelude::*;
 use std::{collections::BTreeMap, env, fs, path::PathBuf};
 

@@ -31,13 +31,12 @@ pub(crate) use render::{
     render_hud_modal_scene, render_hud_scene, HudModalCameraMarker, HudModalVectorSceneMarker,
     HudVectorSceneMarker, HUD_MODAL_CAMERA_ORDER, HUD_MODAL_RENDER_LAYER,
 };
-pub(crate) use setup::{append_hud_log, hud_needs_redraw, setup_hud, sync_structural_hud_layout};
+pub(crate) use setup::{hud_needs_redraw, setup_hud, sync_structural_hud_layout};
 pub(crate) use state::{
     default_hud_module_instance, docked_agent_list_rect, AgentListUiState, ConversationListUiState,
     DebugToolbarUiState, HudDragState, HudInputCaptureState, HudLayoutState, HudRect,
-    TerminalVisibilityPolicy, TerminalVisibilityState, ThreadPaneUiState, HUD_AGENT_LIST_WIDTH,
-    HUD_BUTTON_GAP, HUD_BUTTON_HEIGHT, HUD_BUTTON_MIN_WIDTH, HUD_MODULE_PADDING, HUD_ROW_HEIGHT,
-    HUD_TITLEBAR_HEIGHT,
+    TerminalVisibilityPolicy, TerminalVisibilityState, ThreadPaneUiState, HUD_MODULE_PADDING,
+    HUD_ROW_HEIGHT, HUD_TITLEBAR_HEIGHT,
 };
 pub(crate) use view_models::{
     sync_hud_view_models, AgentListView, ComposerView, ConversationListView, DebugToolbarView,

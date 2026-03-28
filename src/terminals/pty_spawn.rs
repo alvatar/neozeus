@@ -1,4 +1,4 @@
-use crate::terminals::PtySession;
+use super::types::PtySession;
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 use std::{ffi::OsString, io::Write};
 

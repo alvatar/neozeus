@@ -1,4 +1,4 @@
-use crate::hud::HudLayoutState;
+use super::state::HudLayoutState;
 use bevy::prelude::*;
 
 /// Moves each HUD module shell smoothly toward its target rectangle and target alpha.

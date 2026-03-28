@@ -1,5 +1,5 @@
 use super::compute_terminal_damage;
-use crate::terminals::{TerminalDamage, TerminalSurface};
+use crate::terminals::types::{TerminalDamage, TerminalSurface};
 use crate::tests::surface_with_text;
 
 /// Verifies that row-level damage includes exactly the rows whose text changed.

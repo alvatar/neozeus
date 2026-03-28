@@ -1,7 +1,5 @@
-use crate::hud::{
-    render::{HudColors, HudPainter, HudRenderInputs},
-    HudRect, HUD_BUTTON_HEIGHT,
-};
+use crate::hud::render::{HudColors, HudPainter, HudRenderInputs};
+use crate::hud::state::{HudRect, HUD_BUTTON_HEIGHT};
 use bevy::prelude::Vec2;
 use bevy_vello::prelude::VelloTextAnchor;
 

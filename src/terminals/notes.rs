@@ -1,4 +1,4 @@
-use crate::terminals::append_debug_log;
+use super::debug::append_debug_log;
 use bevy::prelude::*;
 use std::{collections::HashMap, env, fs, path::PathBuf};
 

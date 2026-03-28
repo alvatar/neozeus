@@ -1,6 +1,6 @@
 #[cfg(test)]
-pub(crate) use crate::terminals::ansi_surface::{resolve_alacritty_color, xterm_indexed_rgb};
-pub(crate) use crate::terminals::damage::compute_terminal_damage;
+pub(crate) use super::ansi_surface::{resolve_alacritty_color, xterm_indexed_rgb};
+pub(crate) use super::damage::compute_terminal_damage;
 
 /// Converts a command string into the byte stream that should be written to the PTY.
 ///
