@@ -1,9 +1,6 @@
 use crate::{
-    app::{
-        apply_app_commands, request_final_frame_capture, sync_agents_from_terminals,
-        translate_hud_intents_to_app_commands,
-    },
-    conversations::save_conversations_if_dirty,
+    app::{apply_app_commands, request_final_frame_capture, sync_agents_from_terminals},
+    conversations::{save_conversations_if_dirty, sync_task_notes_projection},
     hud::{
         animate_hud_modules, finalize_window_capture, handle_hud_module_shortcuts,
         handle_hud_pointer_input, render_hud_modal_scene, render_hud_scene,
@@ -44,7 +41,7 @@ pub(crate) enum NeoZeusSet {
 /// Declares the application's update pipeline and wires every system into its stage.
 ///
 /// The ordering here is architectural, not cosmetic: terminal polling must happen before raster,
-/// raster before presentation, HUD intents before HUD command application, and redraw decisions only
+/// raster before presentation, app commands before use-case execution, and redraw decisions only
 /// after both terminal and HUD rendering work has had a chance to update state. The startup chain is
 /// also assembled here so scene setup, HUD setup, and bloom setup happen in a deterministic order.
 pub(crate) fn configure_app_schedule(app: &mut App) {
@@ -141,12 +138,7 @@ pub(crate) fn configure_app_schedule(app: &mut App) {
     .add_systems(Update, sync_hud_view_models.before(NeoZeusSet::HudRender))
     .add_systems(
         Update,
-        (
-            sync_agents_from_terminals,
-            translate_hud_intents_to_app_commands,
-        )
-            .chain()
-            .in_set(NeoZeusSet::AppCommandDispatch),
+        sync_agents_from_terminals.in_set(NeoZeusSet::AppCommandDispatch),
     )
     .add_systems(
         Update,
@@ -169,6 +161,7 @@ pub(crate) fn configure_app_schedule(app: &mut App) {
         Update,
         (
             animate_hud_modules,
+            sync_task_notes_projection,
             save_hud_layout_if_dirty,
             save_terminal_notes_if_dirty,
             save_terminal_sessions_if_dirty,

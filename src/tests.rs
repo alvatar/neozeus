@@ -10,8 +10,8 @@ use crate::{
         AgentTaskStore, ConversationPersistenceState, ConversationStore, MessageTransportAdapter,
     },
     hud::{
-        AgentListView, ComposerView, ConversationListView, HudInputCaptureState, HudLayoutState,
-        HudModalState, ThreadView,
+        AgentListView, ComposerView, ConversationListView, DebugToolbarView, HudInputCaptureState,
+        HudLayoutState, HudModalState, ThreadView,
     },
     terminals::{
         AttachedDaemonSession, CachedTerminalGlyph, DaemonSessionInfo, TerminalBridge,
@@ -101,6 +101,10 @@ pub(super) fn test_bridge() -> (TerminalBridge, Arc<TerminalUpdateMailbox>) {
 /// present even in stripped-down unit-test worlds.
 pub(super) fn insert_default_hud_resources(world: &mut World) {
     world.insert_resource(HudLayoutState::default());
+    world.insert_resource(crate::hud::AgentListUiState::default());
+    world.insert_resource(crate::hud::ConversationListUiState::default());
+    world.insert_resource(crate::hud::DebugToolbarUiState);
+    world.insert_resource(crate::hud::ThreadPaneUiState);
     if !world.contains_resource::<AppSessionState>() {
         world.insert_resource(AppSessionState::default());
     }
@@ -116,6 +120,9 @@ pub(super) fn insert_default_hud_resources(world: &mut World) {
     }
     if !world.contains_resource::<ComposerView>() {
         world.insert_resource(ComposerView::default());
+    }
+    if !world.contains_resource::<DebugToolbarView>() {
+        world.insert_resource(DebugToolbarView::default());
     }
     if !world.contains_resource::<crate::terminals::TerminalFocusState>() {
         world.insert_resource(crate::terminals::TerminalFocusState::default());
@@ -168,6 +175,32 @@ pub(super) fn insert_terminal_manager_resources(
     if !world.contains_resource::<MessageTransportAdapter>() {
         world.insert_resource(MessageTransportAdapter);
     }
+    if !world.contains_resource::<crate::hud::AgentListView>() {
+        let rows = {
+            let catalog = world.resource::<AgentCatalog>();
+            let runtime_index = world.resource::<AgentRuntimeIndex>();
+            let focus_state = world.resource::<crate::terminals::TerminalFocusState>();
+            let active_agent = focus_state
+                .active_id()
+                .and_then(|terminal_id| runtime_index.agent_for_terminal(terminal_id));
+            let rows = catalog
+                .iter()
+                .map(|(agent_id, record)| crate::hud::AgentListRowView {
+                    agent_id,
+                    terminal_id: runtime_index.primary_terminal(agent_id),
+                    label: record.label.clone(),
+                    focused: active_agent == Some(agent_id),
+                    has_tasks: false,
+                    interactive: true,
+                })
+                .collect::<Vec<_>>();
+            (active_agent, rows)
+        };
+        if let Some(active_agent) = rows.0 {
+            world.resource_mut::<AppSessionState>().active_agent = Some(active_agent);
+        }
+        world.insert_resource(crate::hud::AgentListView { rows: rows.1 });
+    }
     world.insert_resource(terminal_manager);
 }
 
@@ -191,37 +224,44 @@ pub(super) fn insert_hud_resources(
     modal_state: HudModalState,
     input_capture: HudInputCaptureState,
 ) {
+    if !world.contains_resource::<crate::hud::AgentListUiState>() {
+        world.insert_resource(crate::hud::AgentListUiState::default());
+    }
+    if !world.contains_resource::<crate::hud::ConversationListUiState>() {
+        world.insert_resource(crate::hud::ConversationListUiState::default());
+    }
+    if !world.contains_resource::<crate::hud::DebugToolbarUiState>() {
+        world.insert_resource(crate::hud::DebugToolbarUiState);
+    }
+    if !world.contains_resource::<crate::hud::ThreadPaneUiState>() {
+        world.insert_resource(crate::hud::ThreadPaneUiState);
+    }
     world.insert_resource(layout_state);
     let mut app_session = world
         .remove_resource::<AppSessionState>()
         .unwrap_or_default();
+    let message_box_visible = modal_state.message_box.visible;
+    let task_dialog_visible = modal_state.task_dialog.visible;
     app_session.composer.message_editor = modal_state.message_box;
     app_session.composer.task_editor = modal_state.task_dialog;
-    let runtime_index = world.get_resource::<AgentRuntimeIndex>();
+    let default_agent = app_session
+        .active_agent
+        .or_else(|| {
+            world
+                .get_resource::<AgentRuntimeIndex>()
+                .and_then(|runtime_index| runtime_index.agent_to_runtime.keys().next().copied())
+        })
+        .or_else(|| {
+            (message_box_visible || task_dialog_visible).then_some(crate::agents::AgentId(1))
+        });
     app_session.composer.session = if app_session.composer.message_editor.visible {
-        app_session
-            .composer
-            .message_editor
-            .target_terminal
-            .and_then(|terminal_id| {
-                runtime_index
-                    .and_then(|runtime_index| runtime_index.agent_for_terminal(terminal_id))
-            })
-            .map(|agent_id| crate::ui::ComposerSession {
-                mode: crate::ui::ComposerMode::Message { agent_id },
-            })
+        default_agent.map(|agent_id| crate::ui::ComposerSession {
+            mode: crate::ui::ComposerMode::Message { agent_id },
+        })
     } else if app_session.composer.task_editor.visible {
-        app_session
-            .composer
-            .task_editor
-            .target_terminal
-            .and_then(|terminal_id| {
-                runtime_index
-                    .and_then(|runtime_index| runtime_index.agent_for_terminal(terminal_id))
-            })
-            .map(|agent_id| crate::ui::ComposerSession {
-                mode: crate::ui::ComposerMode::TaskEdit { agent_id },
-            })
+        default_agent.map(|agent_id| crate::ui::ComposerSession {
+            mode: crate::ui::ComposerMode::TaskEdit { agent_id },
+        })
     } else {
         None
     };
@@ -250,6 +290,9 @@ pub(super) fn insert_test_hud_state(world: &mut World, hud_state: crate::hud::Hu
     if !world.contains_resource::<ComposerView>() {
         world.insert_resource(ComposerView::default());
     }
+    if !world.contains_resource::<DebugToolbarView>() {
+        world.insert_resource(DebugToolbarView::default());
+    }
     if !world.contains_resource::<crate::terminals::TerminalFocusState>() {
         world.insert_resource(crate::terminals::TerminalFocusState::default());
     }
@@ -261,11 +304,30 @@ pub(super) fn insert_test_hud_state(world: &mut World, hud_state: crate::hud::Hu
 #[cfg(test)]
 pub(super) fn snapshot_test_hud_state(world: &World) -> crate::hud::HudState {
     let app_session = world.resource::<AppSessionState>();
+    let runtime_index = world.get_resource::<AgentRuntimeIndex>();
+    let mut message_box = app_session.composer.message_editor.clone();
+    let mut task_dialog = app_session.composer.task_editor.clone();
+    let target_terminal = app_session.composer.current_agent().and_then(|agent_id| {
+        runtime_index.and_then(|runtime_index| runtime_index.primary_terminal(agent_id))
+    });
+    #[cfg(test)]
+    {
+        message_box.target_terminal = if message_box.visible {
+            target_terminal
+        } else {
+            None
+        };
+        task_dialog.target_terminal = if task_dialog.visible {
+            target_terminal
+        } else {
+            None
+        };
+    }
     crate::hud::HudState::from_resources(
         world.resource::<HudLayoutState>(),
         &HudModalState {
-            message_box: app_session.composer.message_editor.clone(),
-            task_dialog: app_session.composer.task_editor.clone(),
+            message_box,
+            task_dialog,
         },
         world.resource::<HudInputCaptureState>(),
     )

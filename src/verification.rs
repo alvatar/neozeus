@@ -272,9 +272,6 @@ pub(crate) fn run_verification_scenario(
                 .map(|terminal| &terminal.snapshot.runtime);
             ctx.runtime_index
                 .link_terminal(agent_id, terminal_id, session_name.clone(), runtime);
-            ctx.app_session
-                .composer
-                .bind_agent_terminal(agent_id, terminal_id);
         }
         bridge.send(TerminalCommand::SendCommand(format!(
             "clear; printf '__NZ_VERIFY_{}__\\n'",
@@ -293,7 +290,7 @@ pub(crate) fn run_verification_scenario(
             if let Some(agent_id) = ctx.runtime_index.agent_for_terminal(terminal_id) {
                 ctx.app_session.active_agent = Some(agent_id);
                 ctx.input_capture.close_direct_terminal_input();
-                ctx.app_session.composer.open_message(agent_id, terminal_id);
+                ctx.app_session.composer.open_message(agent_id);
                 ctx.app_session
                     .composer
                     .message_editor
@@ -321,7 +318,7 @@ pub(crate) fn run_verification_scenario(
                 ctx.input_capture.close_direct_terminal_input();
                 ctx.app_session
                     .composer
-                    .open_task_editor(agent_id, terminal_id, note_text);
+                    .open_task_editor(agent_id, note_text);
             }
         }
         VerificationScenario::AgentListBloom => {

@@ -7,11 +7,10 @@ mod session;
 mod use_cases;
 
 pub(crate) use commands::{
-    AgentCommand, AppCommand, ComposerCommand, ComposerRequest, ConversationCommand,
+    AgentCommand, AppCommand, ComposerCommand, ComposerRequest, TaskCommand, TerminalCommand,
+    WidgetCommand,
 };
-pub(crate) use dispatch::{
-    apply_app_commands, sync_agents_from_terminals, translate_hud_intents_to_app_commands,
-};
+pub(crate) use dispatch::{apply_app_commands, sync_agents_from_terminals};
 pub(crate) use schedule::NeoZeusSet;
 pub(crate) use session::{AppSessionState, VisibilityMode};
 pub(crate) use use_cases::restore_app;

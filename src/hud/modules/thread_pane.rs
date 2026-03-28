@@ -1,20 +1,15 @@
 use crate::hud::{
     render::{HudColors, HudPainter, HudRenderInputs},
-    HudModuleModel, HudRect, HUD_ROW_HEIGHT,
+    HudRect, HUD_ROW_HEIGHT,
 };
 use bevy::prelude::Vec2;
 use bevy_vello::prelude::VelloTextAnchor;
 
 pub(crate) fn render_content(
-    model: &HudModuleModel,
     content_rect: HudRect,
     painter: &mut HudPainter,
     inputs: &HudRenderInputs,
 ) {
-    if !matches!(model, HudModuleModel::ThreadPane(_)) {
-        return;
-    }
-
     let header = inputs
         .thread_view
         .agent_id

@@ -1,10 +1,7 @@
-use crate::{
-    hud::{TerminalVisibilityPolicy, TerminalVisibilityState},
-    terminals::{
-        append_debug_log, mark_terminal_sessions_dirty, TerminalBridge, TerminalFocusState,
-        TerminalId, TerminalManager, TerminalPresentationStore, TerminalRuntimeSpawner,
-        TerminalSessionPersistenceState, TerminalViewState,
-    },
+use crate::terminals::{
+    append_debug_log, mark_terminal_sessions_dirty, TerminalBridge, TerminalFocusState, TerminalId,
+    TerminalManager, TerminalPresentationStore, TerminalRuntimeSpawner,
+    TerminalSessionPersistenceState,
 };
 use bevy::prelude::*;
 
@@ -35,24 +32,6 @@ pub(crate) fn attach_terminal_session(
     Ok((terminal_id, bridge))
 }
 
-/// Chooses the terminal that should become active after a given terminal is removed.
-///
-/// The policy is creation-order based rather than focus-order based: prefer the previous terminal if
-/// one exists, otherwise fall back to the next terminal. That matches the mental model that terminal
-/// slots are laid out in creation order and keeps deletion behavior predictable.
-fn adjacent_terminal_in_creation_order(
-    terminal_manager: &TerminalManager,
-    terminal_id: TerminalId,
-) -> Option<TerminalId> {
-    let terminal_ids = terminal_manager.terminal_ids();
-    let index = terminal_ids.iter().position(|id| *id == terminal_id)?;
-    if index > 0 {
-        terminal_ids.get(index - 1).copied()
-    } else {
-        terminal_ids.get(index + 1).copied()
-    }
-}
-
 /// Removes a terminal from authoritative state while leaving projection cleanup to presentation sync.
 ///
 /// Terminal lifecycle mutates only the terminal/focus stores. The later projection sync pass observes
@@ -77,11 +56,9 @@ pub(crate) fn remove_terminal_with_projection(
 )]
 /// Kills the active daemon session when possible and removes the corresponding local terminal.
 ///
-/// The function first snapshots the active terminal's session name and runtime state, then asks the
-/// daemon to kill it. If daemon kill fails for an interactive terminal, the error is propagated; if
-/// the terminal was already non-interactive, the failure is downgraded to a debug log and local
-/// cleanup continues. After removal it selects a replacement focus target by creation order, updates
-/// visibility/view state, marks persistence dirty, and returns the removed terminal id + session name.
+/// The helper performs only runtime-facing work plus terminal/focus state removal. It deliberately
+/// does not choose replacement focus or mutate visibility/view policy; that policy belongs to the
+/// app-layer use case that called it.
 pub(crate) fn kill_active_terminal_session_and_remove(
     commands: &mut Commands,
     time: &Time,
@@ -90,13 +67,10 @@ pub(crate) fn kill_active_terminal_session_and_remove(
     presentation_store: &mut TerminalPresentationStore,
     runtime_spawner: &TerminalRuntimeSpawner,
     session_persistence: &mut TerminalSessionPersistenceState,
-    visibility_state: &mut TerminalVisibilityState,
-    view_state: &mut TerminalViewState,
 ) -> Result<Option<(TerminalId, String)>, String> {
     let Some(active_id) = focus_state.active_id() else {
         return Ok(None);
     };
-    let replacement_id = adjacent_terminal_in_creation_order(terminal_manager, active_id);
     let Some((session_name, runtime_state)) = terminal_manager.get(active_id).map(|terminal| {
         (
             terminal.session_name.clone(),
@@ -122,15 +96,6 @@ pub(crate) fn kill_active_terminal_session_and_remove(
         presentation_store,
         active_id,
     );
-    view_state.forget_terminal(active_id);
-    if let Some(replacement_id) = replacement_id {
-        focus_state.focus_terminal(terminal_manager, replacement_id);
-        visibility_state.policy = TerminalVisibilityPolicy::Isolate(replacement_id);
-        view_state.focus_terminal(Some(replacement_id));
-    } else {
-        visibility_state.policy = TerminalVisibilityPolicy::ShowAll;
-        view_state.focus_terminal(None);
-    }
     #[cfg(test)]
     terminal_manager.replace_test_focus_state(focus_state);
     mark_terminal_sessions_dirty(session_persistence, Some(time));

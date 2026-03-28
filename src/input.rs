@@ -1,15 +1,12 @@
 use crate::{
     agents::AgentRuntimeIndex,
-    app::{
-        AgentCommand as AppAgentCommand, ComposerCommand,
-        ConversationCommand as AppConversationCommand,
-    },
+    app::{AgentCommand as AppAgentCommand, ComposerCommand, TaskCommand as AppTaskCommand},
     app::{AppCommand, AppSessionState, ComposerRequest},
     hud::{HudInputCaptureState, HudLayoutState},
     terminals::{
         terminal_texture_screen_size, TerminalCommand, TerminalDisplayMode, TerminalFocusState,
-        TerminalManager, TerminalNotesState, TerminalPanel, TerminalPointerState,
-        TerminalPresentation, TerminalPresentationStore, TerminalViewState,
+        TerminalManager, TerminalPanel, TerminalPointerState, TerminalPresentation,
+        TerminalPresentationStore, TerminalViewState,
     },
 };
 use bevy::{
@@ -513,7 +510,7 @@ fn message_box_event_text(event: &KeyboardInput) -> Option<String> {
 /// The function returns whether the editor state changed so the caller can request redraw only when
 /// necessary.
 fn handle_text_editor_event(
-    editor: &mut crate::hud::HudMessageBoxState,
+    editor: &mut crate::ui::TextEditorState,
     event: &KeyboardInput,
     ctrl: bool,
     alt: bool,
@@ -586,10 +583,9 @@ pub(crate) fn handle_terminal_message_box_keyboard(
     mut messages: MessageReader<KeyboardInput>,
     keys: Res<ButtonInput<KeyCode>>,
     primary_window: Single<&Window, With<PrimaryWindow>>,
-    terminal_manager: Res<TerminalManager>,
+    _terminal_manager: Res<TerminalManager>,
     focus_state: Res<TerminalFocusState>,
     runtime_index: Res<AgentRuntimeIndex>,
-    notes_state: Res<TerminalNotesState>,
     mut app_session: ResMut<AppSessionState>,
     input_capture: Res<HudInputCaptureState>,
     mut app_commands: MessageWriter<AppCommand>,
@@ -651,12 +647,8 @@ pub(crate) fn handle_terminal_message_box_keyboard(
             // `Ctrl+T` stays live inside the task dialog so done items can be cleared without
             // closing the editor or forcing the caller through pointer interaction.
             if ctrl && !alt && !super_key && event.key_code == KeyCode::KeyT {
-                if let Some(target_terminal) = app_session.composer.task_editor.target_terminal {
-                    if let Some(agent_id) = runtime_index.agent_for_terminal(target_terminal) {
-                        app_commands.write(AppCommand::Conversation(
-                            AppConversationCommand::ClearDoneTasks { agent_id },
-                        ));
-                    }
+                if let Some(agent_id) = app_session.composer.current_agent() {
+                    app_commands.write(AppCommand::Task(AppTaskCommand::ClearDone { agent_id }));
                 }
                 continue;
             }
@@ -691,9 +683,7 @@ pub(crate) fn handle_terminal_message_box_keyboard(
 
         if ctrl && !alt && !super_key && event.key_code == KeyCode::KeyT {
             if let Some(agent_id) = runtime_index.agent_for_terminal(active_id) {
-                app_commands.write(AppCommand::Conversation(
-                    AppConversationCommand::ClearDoneTasks { agent_id },
-                ));
+                app_commands.write(AppCommand::Task(AppTaskCommand::ClearDone { agent_id }));
             }
             break;
         }
@@ -715,11 +705,6 @@ pub(crate) fn handle_terminal_message_box_keyboard(
             }
             KeyCode::KeyT => {
                 if let Some(agent_id) = runtime_index.agent_for_terminal(active_id) {
-                    let _note_text = terminal_manager
-                        .get(active_id)
-                        .and_then(|terminal| notes_state.note_text(&terminal.session_name))
-                        .unwrap_or_default()
-                        .to_owned();
                     app_commands.write(AppCommand::Composer(ComposerCommand::Open(
                         ComposerRequest {
                             mode: crate::ui::ComposerMode::TaskEdit { agent_id },
@@ -730,9 +715,7 @@ pub(crate) fn handle_terminal_message_box_keyboard(
             }
             KeyCode::KeyN => {
                 if let Some(agent_id) = runtime_index.agent_for_terminal(active_id) {
-                    app_commands.write(AppCommand::Conversation(
-                        AppConversationCommand::ConsumeNextTask { agent_id },
-                    ));
+                    app_commands.write(AppCommand::Task(AppTaskCommand::ConsumeNext { agent_id }));
                 }
                 break;
             }

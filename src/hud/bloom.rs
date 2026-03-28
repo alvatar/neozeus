@@ -5,7 +5,7 @@ use crate::{
             agent_row_rect, agent_rows, AgentListRowSection, AGENT_LIST_BLOOM_RED_B,
             AGENT_LIST_BLOOM_RED_G, AGENT_LIST_BLOOM_RED_R,
         },
-        AgentListView, HudLayoutState, HudRect, HudWidgetKey,
+        AgentListUiState, AgentListView, HudLayoutState, HudRect, HudWidgetKey,
     },
     startup::StartupConnectState,
     terminals::TerminalId,
@@ -467,7 +467,7 @@ fn additive_blend_state() -> BlendState {
 fn build_bloom_specs(
     content_rect: HudRect,
     scroll_offset: f32,
-    hovered_terminal: Option<TerminalId>,
+    hovered_agent: Option<crate::agents::AgentId>,
     agent_list_view: &AgentListView,
     focus_state: &crate::terminals::TerminalFocusState,
 ) -> Vec<BloomSourceSpec> {
@@ -476,12 +476,7 @@ fn build_bloom_specs(
     };
 
     let mut specs = Vec::new();
-    for row in agent_rows(
-        content_rect,
-        scroll_offset,
-        hovered_terminal,
-        agent_list_view,
-    ) {
+    for row in agent_rows(content_rect, scroll_offset, hovered_agent, agent_list_view) {
         if row.terminal_id != Some(active_id)
             || row.rect.y + row.rect.h < content_rect.y
             || row.rect.y > content_rect.y + content_rect.h
@@ -865,6 +860,7 @@ pub(crate) struct HudWidgetBloomContext<'w, 's> {
     app_session: Res<'w, AppSessionState>,
     startup_connect: Option<Res<'w, StartupConnectState>>,
     focus_state: Res<'w, crate::terminals::TerminalFocusState>,
+    agent_list_state: Res<'w, AgentListUiState>,
     agent_list_view: Res<'w, AgentListView>,
     settings: Res<'w, HudBloomSettings>,
     commands: Commands<'w, 's>,
@@ -1027,13 +1023,10 @@ pub(crate) fn sync_hud_widget_bloom(mut ctx: HudWidgetBloomContext) {
             .layout_state
             .get(HudWidgetKey::AgentList)
             .expect("agent list exists when enabled");
-        let crate::hud::HudModuleModel::AgentList(state) = &module.model else {
-            unreachable!("agent list module must have agent-list model")
-        };
         build_bloom_specs(
             module.shell.current_rect,
-            state.scroll_offset,
-            state.hovered_terminal,
+            ctx.agent_list_state.scroll_offset,
+            ctx.agent_list_state.hovered_agent,
             &ctx.agent_list_view,
             &ctx.focus_state,
         )

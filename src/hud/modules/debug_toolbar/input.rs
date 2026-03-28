@@ -1,8 +1,6 @@
 use crate::{
-    hud::{HudIntent, HudLayoutState, HudModuleModel, HudRect},
-    terminals::{
-        TerminalFocusState, TerminalManager, TerminalPresentationStore, TerminalViewState,
-    },
+    app::{AgentCommand, AppCommand, TerminalCommand, WidgetCommand},
+    hud::{DebugToolbarView, HudLayoutState, HudRect},
 };
 use bevy::prelude::Vec2;
 
@@ -10,49 +8,40 @@ use super::{debug_toolbar_buttons, DebugToolbarAction};
 
 #[allow(
     clippy::too_many_arguments,
-    reason = "toolbar hit routing needs geometry, terminal state, HUD state, and command output together"
+    reason = "toolbar hit routing needs geometry, toolbar view state, HUD state, and command output together"
 )]
-/// Converts a debug-toolbar click into the corresponding HUD intent.
-///
-/// The function walks the current button layout, finds the clicked button, translates its toolbar-
-/// specific action enum into a generic `HudIntent`, and emits only the first hit.
+/// Converts a debug-toolbar click into the corresponding app command.
 pub(crate) fn handle_pointer_click(
-    model: &HudModuleModel,
     shell_rect: HudRect,
     point: Vec2,
-    terminal_manager: &TerminalManager,
-    focus_state: &TerminalFocusState,
-    presentation_store: &TerminalPresentationStore,
-    view_state: &TerminalViewState,
+    debug_toolbar_view: &DebugToolbarView,
     layout_state: &HudLayoutState,
-    emitted_commands: &mut Vec<HudIntent>,
+    emitted_commands: &mut Vec<AppCommand>,
 ) {
-    if !matches!(model, HudModuleModel::DebugToolbar(_)) {
-        return;
-    }
-    for button in debug_toolbar_buttons(
-        shell_rect,
-        terminal_manager,
-        focus_state,
-        presentation_store,
-        view_state,
-        layout_state,
-    ) {
+    for button in debug_toolbar_buttons(shell_rect, debug_toolbar_view, layout_state) {
         if !button.rect.contains(point) {
             continue;
         }
         match button.action {
-            DebugToolbarAction::SpawnTerminal => emitted_commands.push(HudIntent::SpawnTerminal),
-            DebugToolbarAction::ShowAll => emitted_commands.push(HudIntent::ShowAllTerminals),
-            DebugToolbarAction::TogglePixelPerfect => {
-                emitted_commands.push(HudIntent::ToggleActiveTerminalDisplayMode)
+            DebugToolbarAction::SpawnTerminal => {
+                emitted_commands.push(AppCommand::Agent(AgentCommand::SpawnTerminal))
             }
-            DebugToolbarAction::ResetView => emitted_commands.push(HudIntent::ResetTerminalView),
+            DebugToolbarAction::ShowAll => {
+                emitted_commands.push(AppCommand::Agent(AgentCommand::ShowAll))
+            }
+            DebugToolbarAction::TogglePixelPerfect => emitted_commands.push(AppCommand::Terminal(
+                TerminalCommand::ToggleActiveDisplayMode,
+            )),
+            DebugToolbarAction::ResetView => {
+                emitted_commands.push(AppCommand::Terminal(TerminalCommand::ResetActiveView))
+            }
             DebugToolbarAction::SendCommand(command) => {
-                emitted_commands.push(HudIntent::SendActiveTerminalCommand(command.to_owned()))
+                emitted_commands.push(AppCommand::Terminal(TerminalCommand::SendCommandToActive {
+                    command: command.to_owned(),
+                }))
             }
             DebugToolbarAction::ToggleModule(id) => {
-                emitted_commands.push(HudIntent::ToggleModule(id));
+                emitted_commands.push(AppCommand::Widget(WidgetCommand::Toggle(id)));
             }
         }
         break;

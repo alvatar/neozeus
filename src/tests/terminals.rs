@@ -256,7 +256,41 @@ fn render_surface_to_terminal_image_with_presentation_state(
     let report = configured_terminal_font_report();
     let mut renderer = TerminalTextRenderer::default();
     initialize_test_terminal_text_renderer(&report, &mut renderer);
-    let font_state = configured_test_font_state(report, &mut renderer);
+    let mut best_size = configured_test_font_raster().font_size_px;
+    let mut best_metrics = renderer
+        .font_system
+        .as_mut()
+        .and_then(|fs| crate::terminals::measure_monospace_cell(fs, best_size))
+        .unwrap_or_default();
+    let mut best_score = u32::MAX;
+    for step in 32..=160 {
+        let size = step as f32 * 0.25;
+        let Some(metrics) = renderer
+            .font_system
+            .as_mut()
+            .and_then(|fs| crate::terminals::measure_monospace_cell(fs, size))
+        else {
+            continue;
+        };
+        let score = metrics.cell_width.abs_diff(presentation_state.cell_size.x)
+            + metrics.cell_height.abs_diff(presentation_state.cell_size.y);
+        if score < best_score {
+            best_score = score;
+            best_size = size;
+            best_metrics = metrics;
+            if score == 0 {
+                break;
+            }
+        }
+    }
+    let font_state = TerminalFontState {
+        report: Some(Ok(report)),
+        raster: crate::terminals::TerminalFontRasterConfig {
+            font_size_px: best_size,
+            baseline_offset_px: configured_test_font_raster().baseline_offset_px,
+        },
+        cell_metrics: best_metrics,
+    };
 
     let window = Window {
         resolution: (1400, 900).into(),
@@ -268,7 +302,6 @@ fn render_surface_to_terminal_image_with_presentation_state(
     let (bridge, _) = test_bridge();
     let mut manager = TerminalManager::default();
     let id = manager.create_terminal(bridge);
-    manager.clear_active_terminal();
     let terminal = manager.get_mut(id).expect("terminal should exist");
     terminal.snapshot.surface = Some(surface);
     terminal.surface_revision = 1;

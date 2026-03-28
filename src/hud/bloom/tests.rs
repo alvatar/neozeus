@@ -293,7 +293,7 @@ fn sync_hud_widget_bloom_spawns_agent_list_source_sprites() {
         let row = crate::hud::agent_rows(
             module.shell.current_rect,
             state.scroll_offset,
-            state.hovered_terminal,
+            state.hovered_agent,
             agent_list_view,
         )
         .into_iter()

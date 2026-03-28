@@ -6,11 +6,13 @@ pub(crate) struct ComposerRequest {
     pub(crate) mode: ComposerMode,
 }
 
+#[allow(dead_code)]
 #[derive(Clone, Debug, Message, PartialEq, Eq)]
 pub(crate) enum AppCommand {
     Agent(AgentCommand),
     Terminal(TerminalCommand),
     Conversation(ConversationCommand),
+    Task(TaskCommand),
     Composer(ComposerCommand),
     Widget(WidgetCommand),
 }
@@ -33,6 +35,7 @@ pub(crate) enum TerminalCommand {
     ToggleActiveDisplayMode,
 }
 
+#[allow(dead_code)]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum ConversationCommand {
     SendMessage {
@@ -40,20 +43,16 @@ pub(crate) enum ConversationCommand {
         sender: AgentId,
         body: String,
     },
-    AppendTask {
-        agent_id: AgentId,
-        text: String,
-    },
-    PrependTask {
-        agent_id: AgentId,
-        text: String,
-    },
-    ClearDoneTasks {
-        agent_id: AgentId,
-    },
-    ConsumeNextTask {
-        agent_id: AgentId,
-    },
+}
+
+#[allow(dead_code)]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum TaskCommand {
+    SetText { agent_id: AgentId, text: String },
+    Append { agent_id: AgentId, text: String },
+    Prepend { agent_id: AgentId, text: String },
+    ClearDone { agent_id: AgentId },
+    ConsumeNext { agent_id: AgentId },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

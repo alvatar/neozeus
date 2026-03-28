@@ -228,6 +228,8 @@ fn parse_hud_module_id(name: &str) -> Option<HudWidgetKey> {
     match name {
         "DebugToolbar" => Some(HudWidgetKey::DebugToolbar),
         "AgentList" => Some(HudWidgetKey::AgentList),
+        "ConversationList" => Some(HudWidgetKey::ConversationList),
+        "ThreadPane" => Some(HudWidgetKey::ThreadPane),
         _ => None,
     }
 }

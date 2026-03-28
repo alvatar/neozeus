@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use crate::{hud::HudRect, terminals::TerminalId};
 use bevy::{prelude::Vec2, window::Window};
 use std::{

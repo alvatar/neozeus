@@ -2,8 +2,9 @@ use crate::{
     app::AppSessionState,
     hud::{
         default_hud_module_instance, docked_agent_list_rect, setup_hud_offscreen_compositor,
-        HudInputCaptureState, HudLayoutState, HudModalCameraMarker, HudModalVectorSceneMarker,
-        HudOffscreenCompositor, HudPersistenceState, HudVectorSceneMarker, HudWidgetKey,
+        AgentListUiState, ConversationListUiState, DebugToolbarUiState, HudInputCaptureState,
+        HudLayoutState, HudModalCameraMarker, HudModalVectorSceneMarker, HudOffscreenCompositor,
+        HudPersistenceState, HudVectorSceneMarker, HudWidgetKey, ThreadPaneUiState,
         HUD_MODAL_CAMERA_ORDER, HUD_MODAL_RENDER_LAYER, HUD_WIDGET_DEFINITIONS,
     },
 };
@@ -34,6 +35,10 @@ pub(crate) fn append_hud_log(message: impl AsRef<str>) {
 pub(crate) fn setup_hud(
     mut commands: Commands,
     mut layout_state: ResMut<HudLayoutState>,
+    mut agent_list_state: ResMut<AgentListUiState>,
+    mut conversation_list_state: ResMut<ConversationListUiState>,
+    mut _debug_toolbar_state: ResMut<DebugToolbarUiState>,
+    mut _thread_pane_state: ResMut<ThreadPaneUiState>,
     mut app_session: ResMut<AppSessionState>,
     mut input_capture: ResMut<HudInputCaptureState>,
     mut persistence_state: ResMut<HudPersistenceState>,
@@ -53,6 +58,10 @@ pub(crate) fn setup_hud(
     layout_state.drag = None;
     layout_state.dirty_layout = false;
     app_session.composer = crate::ui::ComposerState::default();
+    *agent_list_state = AgentListUiState::default();
+    *conversation_list_state = ConversationListUiState::default();
+    *_debug_toolbar_state = DebugToolbarUiState;
+    *_thread_pane_state = ThreadPaneUiState;
     input_capture.direct_input_terminal = None;
     for definition in HUD_WIDGET_DEFINITIONS.iter() {
         let mut module = default_hud_module_instance(definition);

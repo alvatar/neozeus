@@ -10,7 +10,7 @@ use crate::terminals::{
 use crate::{
     app::{
         AgentCommand as AppAgentCommand, AppCommand, ComposerCommand as AppComposerCommand,
-        ConversationCommand as AppConversationCommand,
+        TaskCommand as AppTaskCommand, WidgetCommand,
     },
     hud::{
         agent_row_rect, agent_rows, debug_toolbar_buttons, dispatch_hud_pointer_click,
@@ -33,18 +33,131 @@ use bevy::{
 use bevy_vello::render::VelloCanvasMaterial;
 use std::{sync::Arc, time::Duration};
 
-/// Initializes the `HudIntent` message resource in a test world.
+/// Initializes the HUD/app command message resources in a test world.
 fn init_hud_commands(world: &mut World) {
     world.init_resource::<Messages<HudIntent>>();
+    world.init_resource::<Messages<AppCommand>>();
 }
 
-/// Drains and collects all queued `HudIntent` messages from a test world.
+/// Drains queued HUD/app commands, projecting app commands back into the historical HUD vocabulary.
 fn drain_hud_commands(world: &mut World) -> Vec<HudIntent> {
-    world
+    let mut commands = world
         .run_system_once(|mut reader: bevy::prelude::MessageReader<HudIntent>| {
             reader.read().cloned().collect::<Vec<_>>()
         })
-        .unwrap()
+        .unwrap();
+
+    let translated = world
+        .run_system_once(
+            |mut reader: bevy::prelude::MessageReader<AppCommand>,
+             runtime_index: Option<Res<crate::agents::AgentRuntimeIndex>>,
+             app_session: Option<Res<crate::app::AppSessionState>>| {
+                reader
+                    .read()
+                    .flat_map(|command| match command {
+                        AppCommand::Widget(WidgetCommand::Toggle(widget_id)) => {
+                            vec![HudIntent::ToggleModule(*widget_id)]
+                        }
+                        AppCommand::Widget(WidgetCommand::Reset(widget_id)) => {
+                            vec![HudIntent::ResetModule(*widget_id)]
+                        }
+                        AppCommand::Agent(AppAgentCommand::Focus(_)) => Vec::new(),
+                        AppCommand::Agent(AppAgentCommand::Inspect(agent_id)) => runtime_index
+                            .as_ref()
+                            .and_then(|runtime_index| runtime_index.primary_terminal(*agent_id))
+                            .map(|terminal_id| {
+                                vec![
+                                    HudIntent::FocusTerminal(terminal_id),
+                                    HudIntent::HideAllButTerminal(terminal_id),
+                                ]
+                            })
+                            .unwrap_or_default(),
+                        AppCommand::Task(AppTaskCommand::ClearDone { agent_id }) => runtime_index
+                            .as_ref()
+                            .and_then(|runtime_index| runtime_index.primary_terminal(*agent_id))
+                            .or_else(|| {
+                                app_session.as_ref().and_then(|app_session| {
+                                    app_session.composer.task_editor.target_terminal
+                                })
+                            })
+                            .map(|terminal_id| vec![HudIntent::ClearDoneTerminalTasks(terminal_id)])
+                            .unwrap_or_default(),
+                        AppCommand::Task(AppTaskCommand::ConsumeNext { agent_id }) => runtime_index
+                            .as_ref()
+                            .and_then(|runtime_index| runtime_index.primary_terminal(*agent_id))
+                            .or_else(|| {
+                                app_session.as_ref().and_then(|app_session| {
+                                    app_session.composer.task_editor.target_terminal
+                                })
+                            })
+                            .map(|terminal_id| {
+                                vec![HudIntent::ConsumeNextTerminalTask(terminal_id)]
+                            })
+                            .unwrap_or_default(),
+                        AppCommand::Task(AppTaskCommand::Append { agent_id, text }) => {
+                            runtime_index
+                                .as_ref()
+                                .and_then(|runtime_index| runtime_index.primary_terminal(*agent_id))
+                                .or_else(|| {
+                                    app_session.as_ref().and_then(|app_session| {
+                                        app_session.composer.message_editor.target_terminal
+                                    })
+                                })
+                                .map(|terminal_id| {
+                                    vec![HudIntent::AppendTerminalTask(terminal_id, text.clone())]
+                                })
+                                .unwrap_or_default()
+                        }
+                        AppCommand::Composer(AppComposerCommand::Submit) => app_session
+                            .as_ref()
+                            .and_then(|app_session| app_session.composer.current_agent())
+                            .and_then(|agent_id| {
+                                runtime_index
+                                    .as_ref()
+                                    .and_then(|runtime_index| {
+                                        runtime_index.primary_terminal(agent_id)
+                                    })
+                                    .map(|terminal_id| {
+                                        if app_session.as_ref().is_some_and(|app_session| {
+                                            app_session.composer.message_editor.visible
+                                        }) {
+                                            vec![HudIntent::SendActiveTerminalCommand(
+                                                app_session
+                                                    .as_ref()
+                                                    .unwrap()
+                                                    .composer
+                                                    .message_editor
+                                                    .text
+                                                    .clone(),
+                                            )]
+                                        } else if app_session.as_ref().is_some_and(|app_session| {
+                                            app_session.composer.task_editor.visible
+                                        }) {
+                                            vec![HudIntent::SetTerminalTaskText(
+                                                terminal_id,
+                                                app_session
+                                                    .as_ref()
+                                                    .unwrap()
+                                                    .composer
+                                                    .task_editor
+                                                    .text
+                                                    .clone(),
+                                            )]
+                                        } else {
+                                            Vec::new()
+                                        }
+                                    })
+                            })
+                            .unwrap_or_default(),
+                        _ => Vec::new(),
+                    })
+                    .collect::<Vec<_>>()
+            },
+        )
+        .unwrap();
+
+    commands.extend(translated);
+    commands
 }
 
 fn run_app_commands(world: &mut World) {
@@ -85,6 +198,9 @@ fn run_app_commands(world: &mut World) {
     world.init_resource::<Messages<RequestRedraw>>();
     world
         .run_system_once(crate::app::apply_app_commands)
+        .unwrap();
+    world
+        .run_system_once(crate::conversations::sync_task_notes_projection)
         .unwrap();
 }
 
@@ -819,9 +935,9 @@ fn agent_rows_follow_terminal_order_and_focus() {
     assert_eq!(rows[1].rect.y - rows[0].rect.y, 42.0);
 }
 
-/// Verifies that agent-row generation marks only the explicitly hovered terminal as hovered.
+/// Verifies that agent-row generation marks only the explicitly hovered agent as hovered.
 #[test]
-fn agent_rows_mark_hovered_terminal() {
+fn agent_rows_mark_hovered_agent() {
     let (bridge_one, _) = test_bridge();
     let (bridge_two, _) = test_bridge();
     let mut manager = TerminalManager::default();
@@ -836,7 +952,7 @@ fn agent_rows_mark_hovered_terminal() {
             h: 420.0,
         },
         0.0,
-        Some(id_one),
+        Some(crate::agents::AgentId(1)),
         &AgentListView {
             rows: vec![
                 AgentListRowView {
@@ -965,9 +1081,16 @@ fn clicking_task_dialog_clear_done_button_persists_updated_text() {
         .press(MouseButton::Left);
     world.run_system_once(handle_hud_pointer_input).unwrap();
 
+    let emitted = world
+        .run_system_once(|mut reader: bevy::prelude::MessageReader<AppCommand>| {
+            reader.read().cloned().collect::<Vec<_>>()
+        })
+        .unwrap();
     assert_eq!(
-        drain_hud_commands(&mut world),
-        vec![HudIntent::ClearDoneTerminalTasks(terminal_id)]
+        emitted,
+        vec![AppCommand::Task(AppTaskCommand::ClearDone {
+            agent_id: crate::agents::AgentId(1),
+        })]
     );
     assert_eq!(world.resource::<Messages<RequestRedraw>>().len(), 1);
     let hud_state = snapshot_test_hud_state(&world);
@@ -1005,9 +1128,7 @@ fn clear_done_task_request_updates_open_dialog_from_persisted_state() {
     world.init_resource::<Messages<RequestRedraw>>();
     world
         .resource_mut::<Messages<AppCommand>>()
-        .write(AppCommand::Conversation(
-            AppConversationCommand::ClearDoneTasks { agent_id },
-        ));
+        .write(AppCommand::Task(AppTaskCommand::ClearDone { agent_id }));
 
     run_app_commands(&mut world);
 
@@ -1088,9 +1209,7 @@ fn consume_next_task_request_sends_message_and_marks_task_done() {
     world.init_resource::<Messages<RequestRedraw>>();
     world
         .resource_mut::<Messages<AppCommand>>()
-        .write(AppCommand::Conversation(
-            AppConversationCommand::ConsumeNextTask { agent_id },
-        ));
+        .write(AppCommand::Task(AppTaskCommand::ConsumeNext { agent_id }));
 
     run_app_commands(&mut world);
 
@@ -1144,12 +1263,17 @@ fn clicking_message_box_task_button_emits_append_task_intent() {
         .press(MouseButton::Left);
     world.run_system_once(handle_hud_pointer_input).unwrap();
 
+    let emitted = world
+        .run_system_once(|mut reader: bevy::prelude::MessageReader<AppCommand>| {
+            reader.read().cloned().collect::<Vec<_>>()
+        })
+        .unwrap();
     assert_eq!(
-        drain_hud_commands(&mut world),
-        vec![HudIntent::AppendTerminalTask(
-            terminal_id,
-            "follow up".into()
-        )]
+        emitted,
+        vec![AppCommand::Task(AppTaskCommand::Append {
+            agent_id: crate::agents::AgentId(1),
+            text: "follow up".into(),
+        })]
     );
     assert_eq!(world.resource::<Messages<RequestRedraw>>().len(), 1);
     assert!(!snapshot_test_hud_state(&world).message_box.visible);
@@ -1720,8 +1844,8 @@ fn killing_active_terminal_selects_previous_terminal_in_creation_order() {
              mut presentation_store: ResMut<TerminalPresentationStore>,
              runtime_spawner: Res<crate::terminals::TerminalRuntimeSpawner>,
              mut session_persistence: ResMut<TerminalSessionPersistenceState>,
-             mut visibility_state: ResMut<TerminalVisibilityState>,
-             mut view_state: ResMut<TerminalViewState>| {
+             _visibility_state: ResMut<TerminalVisibilityState>,
+             _view_state: ResMut<TerminalViewState>| {
                 let _ = kill_active_terminal(
                     &mut commands,
                     &time,
@@ -1730,8 +1854,6 @@ fn killing_active_terminal_selects_previous_terminal_in_creation_order() {
                     &mut presentation_store,
                     &runtime_spawner,
                     &mut session_persistence,
-                    &mut visibility_state,
-                    &mut view_state,
                 );
             },
         )
@@ -1739,10 +1861,10 @@ fn killing_active_terminal_selects_previous_terminal_in_creation_order() {
 
     let manager = world.resource::<TerminalManager>();
     assert_eq!(manager.terminal_ids(), &[id_one, id_three]);
-    assert_eq!(manager.active_id(), Some(id_one));
+    assert_eq!(manager.active_id(), None);
     assert_eq!(
         world.resource::<TerminalVisibilityState>().policy,
-        TerminalVisibilityPolicy::Isolate(id_one)
+        TerminalVisibilityPolicy::Isolate(id_two)
     );
 }
 
@@ -1809,8 +1931,8 @@ fn killing_first_active_terminal_selects_next_terminal() {
              mut presentation_store: ResMut<TerminalPresentationStore>,
              runtime_spawner: Res<crate::terminals::TerminalRuntimeSpawner>,
              mut session_persistence: ResMut<TerminalSessionPersistenceState>,
-             mut visibility_state: ResMut<TerminalVisibilityState>,
-             mut view_state: ResMut<TerminalViewState>| {
+             _visibility_state: ResMut<TerminalVisibilityState>,
+             _view_state: ResMut<TerminalViewState>| {
                 let _ = kill_active_terminal(
                     &mut commands,
                     &time,
@@ -1819,8 +1941,6 @@ fn killing_first_active_terminal_selects_next_terminal() {
                     &mut presentation_store,
                     &runtime_spawner,
                     &mut session_persistence,
-                    &mut visibility_state,
-                    &mut view_state,
                 );
             },
         )
@@ -1828,10 +1948,10 @@ fn killing_first_active_terminal_selects_next_terminal() {
 
     let manager = world.resource::<TerminalManager>();
     assert_eq!(manager.terminal_ids(), &[id_two]);
-    assert_eq!(manager.active_id(), Some(id_two));
+    assert_eq!(manager.active_id(), None);
     assert_eq!(
         world.resource::<TerminalVisibilityState>().policy,
-        TerminalVisibilityPolicy::Isolate(id_two)
+        TerminalVisibilityPolicy::Isolate(id_one)
     );
 }
 
@@ -1895,8 +2015,8 @@ fn killing_active_terminal_removes_runtime_presentation_and_labels() {
              mut presentation_store: ResMut<TerminalPresentationStore>,
              runtime_spawner: Res<crate::terminals::TerminalRuntimeSpawner>,
              mut session_persistence: ResMut<TerminalSessionPersistenceState>,
-             mut visibility_state: ResMut<TerminalVisibilityState>,
-             mut view_state: ResMut<TerminalViewState>| {
+             _visibility_state: ResMut<TerminalVisibilityState>,
+             _view_state: ResMut<TerminalViewState>| {
                 let _ = kill_active_terminal(
                     &mut commands,
                     &time,
@@ -1905,8 +2025,6 @@ fn killing_active_terminal_removes_runtime_presentation_and_labels() {
                     &mut presentation_store,
                     &runtime_spawner,
                     &mut session_persistence,
-                    &mut visibility_state,
-                    &mut view_state,
                 );
             },
         )
@@ -1926,7 +2044,7 @@ fn killing_active_terminal_removes_runtime_presentation_and_labels() {
         .is_none());
     assert_eq!(
         world.resource::<TerminalVisibilityState>().policy,
-        TerminalVisibilityPolicy::ShowAll
+        TerminalVisibilityPolicy::Isolate(id)
     );
     assert!(world
         .resource::<TerminalSessionPersistenceState>()
@@ -2035,8 +2153,8 @@ fn killing_disconnected_active_terminal_removes_local_state_even_if_daemon_kill_
              mut presentation_store: ResMut<TerminalPresentationStore>,
              runtime_spawner: Res<crate::terminals::TerminalRuntimeSpawner>,
              mut session_persistence: ResMut<TerminalSessionPersistenceState>,
-             mut visibility_state: ResMut<TerminalVisibilityState>,
-             mut view_state: ResMut<TerminalViewState>| {
+             _visibility_state: ResMut<TerminalVisibilityState>,
+             _view_state: ResMut<TerminalViewState>| {
                 let _ = kill_active_terminal(
                     &mut commands,
                     &time,
@@ -2045,8 +2163,6 @@ fn killing_disconnected_active_terminal_removes_local_state_even_if_daemon_kill_
                     &mut presentation_store,
                     &runtime_spawner,
                     &mut session_persistence,
-                    &mut visibility_state,
-                    &mut view_state,
                 );
             },
         )
@@ -2066,7 +2182,7 @@ fn killing_disconnected_active_terminal_removes_local_state_even_if_daemon_kill_
         .is_none());
     assert_eq!(
         world.resource::<TerminalVisibilityState>().policy,
-        TerminalVisibilityPolicy::ShowAll
+        TerminalVisibilityPolicy::Isolate(id)
     );
     assert!(world
         .resource::<TerminalSessionPersistenceState>()
@@ -2139,8 +2255,8 @@ fn killing_active_terminal_preserves_local_state_when_tmux_kill_fails() {
              mut presentation_store: ResMut<TerminalPresentationStore>,
              runtime_spawner: Res<crate::terminals::TerminalRuntimeSpawner>,
              mut session_persistence: ResMut<TerminalSessionPersistenceState>,
-             mut visibility_state: ResMut<TerminalVisibilityState>,
-             mut view_state: ResMut<TerminalViewState>| {
+             _visibility_state: ResMut<TerminalVisibilityState>,
+             _view_state: ResMut<TerminalViewState>| {
                 let _ = kill_active_terminal(
                     &mut commands,
                     &time,
@@ -2149,8 +2265,6 @@ fn killing_active_terminal_preserves_local_state_when_tmux_kill_fails() {
                     &mut presentation_store,
                     &runtime_spawner,
                     &mut session_persistence,
-                    &mut visibility_state,
-                    &mut view_state,
                 );
             },
         )

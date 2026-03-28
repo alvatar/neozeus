@@ -1,6 +1,6 @@
 use crate::hud::{
     render::{apply_alpha, HudPainter, HudRenderInputs},
-    HudModuleModel, HudRect, HUD_MODULE_PADDING,
+    AgentListUiState, HudRect, HUD_MODULE_PADDING,
 };
 use bevy::prelude::Vec2;
 use bevy_vello::{prelude::VelloTextAnchor, vello::peniko};
@@ -123,15 +123,11 @@ fn draw_left_rail(painter: &mut HudPainter, content_rect: HudRect) {
 }
 
 pub(crate) fn render_content(
-    model: &HudModuleModel,
+    state: &AgentListUiState,
     content_rect: HudRect,
     painter: &mut HudPainter,
     inputs: &HudRenderInputs,
 ) {
-    let HudModuleModel::AgentList(state) = model else {
-        return;
-    };
-
     painter.fill_rect(content_rect, apply_alpha(EVA_BLACK, 0.98), 0.0);
     draw_left_rail(painter, content_rect);
 
@@ -175,7 +171,7 @@ pub(crate) fn render_content(
     for row in agent_rows(
         content_rect,
         state.scroll_offset,
-        state.hovered_terminal,
+        state.hovered_agent,
         inputs.agent_list_view,
     ) {
         if row.rect.y + row.rect.h < content_rect.y || row.rect.y > content_rect.y + content_rect.h
