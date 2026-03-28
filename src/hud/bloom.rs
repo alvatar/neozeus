@@ -1193,7 +1193,7 @@ pub(crate) fn sync_hud_widget_bloom(mut ctx: HudWidgetBloomContext) {
 ///
 /// The production code keeps the constant private; tests use this helper to verify setup wiring.
 #[cfg(test)]
-pub(crate) fn agent_list_bloom_layer() -> usize {
+fn agent_list_bloom_layer() -> usize {
     BLOOM_SOURCE_LAYER
 }
 
