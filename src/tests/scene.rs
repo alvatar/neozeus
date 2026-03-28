@@ -177,8 +177,8 @@ fn parses_neozeus_toml_config() {
     );
     assert_eq!(config.terminal_font_size_px(), Some(16.0));
     assert_eq!(config.terminal_baseline_offset_px(), Some(-0.5));
-    assert_eq!(config.window.title.as_deref(), Some("NeoZeus"));
-    assert_eq!(config.window.app_id.as_deref(), Some("neozeus-dev"));
+    assert_eq!(config.window_title(), Some("NeoZeus"));
+    assert_eq!(config.window_app_id(), Some("neozeus-dev"));
 }
 
 /// Verifies the config-file discovery precedence: explicit path, XDG config home, HOME fallback,
