@@ -152,7 +152,7 @@ impl TerminalManager {
     }
 
     /// Creates an unfocused terminal and returns both its id and its creation-order slot index.
-    pub(crate) fn create_terminal_without_focus_with_slot_and_session(
+    pub(super) fn create_terminal_without_focus_with_slot_and_session(
         &mut self,
         bridge: TerminalBridge,
         session_name: String,
