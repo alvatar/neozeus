@@ -14,13 +14,13 @@ use bevy_vello::prelude::VelloTextAnchor;
 const ROW_GAP: f32 = 10.0;
 
 #[derive(Clone, Debug, PartialEq)]
-pub(crate) struct ConversationRow {
-    pub(crate) agent_id: AgentId,
-    pub(crate) rect: HudRect,
-    pub(crate) label: String,
-    pub(crate) message_count: usize,
-    pub(crate) selected: bool,
-    pub(crate) hovered: bool,
+struct ConversationRow {
+    agent_id: AgentId,
+    rect: HudRect,
+    label: String,
+    message_count: usize,
+    selected: bool,
+    hovered: bool,
 }
 
 /// Handles row stride.
@@ -29,7 +29,7 @@ fn row_stride() -> f32 {
 }
 
 /// Handles rows.
-pub(crate) fn rows(
+fn rows(
     shell_rect: HudRect,
     scroll_offset: f32,
     hovered_agent: Option<AgentId>,
