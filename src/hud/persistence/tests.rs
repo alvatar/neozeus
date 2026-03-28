@@ -1,6 +1,6 @@
+use super::super::state::HudRect;
+use super::super::widgets::HudWidgetKey;
 use super::*;
-use crate::hud::state::HudRect;
-use crate::hud::widgets::HudWidgetKey;
 use crate::tests::{insert_test_hud_state, temp_dir};
 use bevy::{
     ecs::system::RunSystemOnce,

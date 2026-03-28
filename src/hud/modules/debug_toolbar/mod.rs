@@ -2,8 +2,8 @@ mod buttons;
 mod input;
 mod render;
 
-use crate::hud::state::HudRect;
-use crate::hud::widgets::HudWidgetKey;
+use super::super::state::HudRect;
+use super::super::widgets::HudWidgetKey;
 
 pub(crate) use buttons::debug_toolbar_buttons;
 pub(crate) use input::handle_pointer_click;

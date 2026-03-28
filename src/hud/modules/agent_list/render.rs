@@ -1,5 +1,5 @@
-use crate::hud::render::{apply_alpha, HudPainter, HudRenderInputs};
-use crate::hud::state::{AgentListUiState, HudRect, HUD_MODULE_PADDING};
+use super::super::super::render::{apply_alpha, HudPainter, HudRenderInputs};
+use super::super::super::state::{AgentListUiState, HudRect, HUD_MODULE_PADDING};
 use bevy::prelude::Vec2;
 use bevy_vello::{prelude::VelloTextAnchor, vello::peniko};
 
