@@ -168,7 +168,7 @@ Make runtime/lifecycle helpers stop deciding app behavior.
 - Refactor `src/terminals/lifecycle.rs`:
   - `kill_active_terminal_session_and_remove` should stop deciding:
     - replacement focus
-n    - visibility mode
+    - visibility mode
     - view reset/focus policy
   - replace with a narrower operation that:
     - identifies active terminal/session
