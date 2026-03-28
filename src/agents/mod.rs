@@ -113,7 +113,7 @@ impl AgentCatalog {
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub(crate) enum AgentRuntimeLifecycle {
+enum AgentRuntimeLifecycle {
     #[default]
     Unknown,
     Running,
@@ -138,7 +138,7 @@ impl AgentRuntimeLifecycle {
 pub(crate) struct AgentRuntimeLink {
     pub(crate) primary_terminal: Option<TerminalId>,
     pub(crate) session_name: Option<String>,
-    pub(crate) lifecycle: AgentRuntimeLifecycle,
+    lifecycle: AgentRuntimeLifecycle,
 }
 
 #[derive(Resource, Default, Clone, Debug, PartialEq, Eq)]
@@ -224,7 +224,7 @@ impl AgentRuntimeIndex {
 
     /// Returns the runtime lifecycle state.
     #[cfg(test)]
-    pub(crate) fn lifecycle(&self, agent_id: AgentId) -> Option<&AgentRuntimeLifecycle> {
+    fn lifecycle(&self, agent_id: AgentId) -> Option<&AgentRuntimeLifecycle> {
         self.agent_to_runtime
             .get(&agent_id)
             .map(|link| &link.lifecycle)
