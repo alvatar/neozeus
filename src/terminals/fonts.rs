@@ -261,7 +261,7 @@ pub(crate) fn initialize_terminal_text_renderer_with_locale(
 ///
 /// An explicit configured font path wins; otherwise the code discovers the requested family and
 /// matching fallback faces.
-pub(crate) fn resolve_terminal_font_report() -> Result<TerminalFontReport, String> {
+fn resolve_terminal_font_report() -> Result<TerminalFontReport, String> {
     let config = load_neozeus_config()?;
     if let Some(font_path) = resolve_terminal_font_path(&config) {
         return resolve_terminal_font_stack_for_path(&font_path);
