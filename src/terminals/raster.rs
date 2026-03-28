@@ -476,8 +476,9 @@ pub(crate) fn rasterize_terminal_glyph(
     let base_color = CtColor::rgb(0xFF, 0xFF, 0xFF);
     let baseline_offset = font_state.baseline_offset();
     for run in buffer.layout_runs() {
+        let snapped_baseline_y = (run.line_y + baseline_offset).round();
         for glyph in run.glyphs {
-            let physical = glyph.physical((0.0, run.line_y + baseline_offset), 1.0);
+            let physical = glyph.physical((0.0, snapped_baseline_y), 1.0);
             text_renderer.swash_cache.with_pixels(
                 font_system,
                 physical.cache_key,

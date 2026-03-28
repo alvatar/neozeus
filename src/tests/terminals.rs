@@ -1684,6 +1684,55 @@ fn standalone_text_renderer_rasterizes_ascii_glyph() {
     assert_glyph_has_visible_pixels(&glyph);
 }
 
+#[test]
+fn glyph_rasterization_snaps_fractional_baseline_to_same_pixels() {
+    let report = configured_terminal_font_report();
+    let mut renderer = TerminalTextRenderer::default();
+    initialize_test_terminal_text_renderer(&report, &mut renderer);
+    let base = measured_font_state_for_size(14.0);
+    let cache_key = TerminalGlyphCacheKey {
+        content: crate::terminals::TerminalCellContent::Single('A'),
+        font_role: TerminalFontRole::Primary,
+        width_cells: 1,
+        cell_width: base.cell_metrics.cell_width,
+        cell_height: base.cell_metrics.cell_height,
+    };
+
+    let integer_baseline = TerminalFontState {
+        report: base.report.clone(),
+        raster: crate::terminals::TerminalFontRasterConfig {
+            font_size_px: base.raster.font_size_px,
+            baseline_offset_px: 0.0,
+        },
+        cell_metrics: base.cell_metrics,
+    };
+    let fractional_baseline = TerminalFontState {
+        report: base.report.clone(),
+        raster: crate::terminals::TerminalFontRasterConfig {
+            font_size_px: base.raster.font_size_px,
+            baseline_offset_px: -0.49,
+        },
+        cell_metrics: base.cell_metrics,
+    };
+
+    let integer = rasterize_terminal_glyph(
+        &cache_key,
+        TerminalFontRole::Primary,
+        false,
+        &mut renderer,
+        &integer_baseline,
+    );
+    let fractional = rasterize_terminal_glyph(
+        &cache_key,
+        TerminalFontRole::Primary,
+        false,
+        &mut renderer,
+        &fractional_baseline,
+    );
+
+    assert_eq!(fractional.pixels, integer.pixels);
+}
+
 /// Verifies every non-empty character cell in the provided `pi` screenshot crop exactly.
 #[test]
 fn rendered_pi_screen_matches_reference_per_character_pixels() {
