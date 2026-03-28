@@ -31,7 +31,7 @@ pub(crate) struct HudPersistenceState {
 /// Resolves the on-disk HUD layout path from explicit XDG/HOME inputs.
 ///
 /// XDG config home wins when present; otherwise the fallback is `$HOME/.config/neozeus/...`.
-pub(crate) fn resolve_hud_layout_path_with(
+fn resolve_hud_layout_path_with(
     xdg_config_home: Option<&str>,
     home: Option<&str>,
 ) -> Option<PathBuf> {
