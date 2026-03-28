@@ -14,17 +14,17 @@ use crate::{
     terminals::{
         active_terminal_cell_size, active_terminal_dimensions, active_terminal_layout,
         active_terminal_viewport, blend_rgba_in_place, build_surface, create_terminal_image,
-        find_kitty_config_path_with, initialize_terminal_text_renderer_with_locale, is_emoji_like,
-        is_private_use_like, parse_kitty_config_file, pixel_perfect_cell_size,
-        pixel_perfect_terminal_logical_size, poll_terminal_snapshots, rasterize_terminal_glyph,
-        read_client_message, read_server_message, resolve_alacritty_color,
-        resolve_daemon_socket_path_with, resolve_terminal_font_report_for_family,
-        resolve_terminal_font_report_for_path, send_command_payload_bytes, snap_to_pixel_grid,
-        sync_active_terminal_dimensions, sync_terminal_panel_frames, sync_terminal_presentations,
-        sync_terminal_projection_entities, sync_terminal_texture,
-        target_active_terminal_dimensions, terminal_texture_screen_size, write_client_message,
-        write_server_message, xterm_indexed_rgb, ClientMessage, DaemonEvent, DaemonRequest,
-        DaemonServerHandle, KittyFontConfig, PresentedTerminal, ServerMessage,
+        find_kitty_config_path_with, hud_terminal_target_position,
+        initialize_terminal_text_renderer_with_locale, is_emoji_like, is_private_use_like,
+        parse_kitty_config_file, pixel_perfect_cell_size, pixel_perfect_terminal_logical_size,
+        poll_terminal_snapshots, rasterize_terminal_glyph, read_client_message,
+        read_server_message, resolve_alacritty_color, resolve_daemon_socket_path_with,
+        resolve_terminal_font_report_for_family, resolve_terminal_font_report_for_path,
+        send_command_payload_bytes, snap_to_pixel_grid, sync_active_terminal_dimensions,
+        sync_terminal_panel_frames, sync_terminal_presentations, sync_terminal_projection_entities,
+        sync_terminal_texture, target_active_terminal_dimensions, terminal_texture_screen_size,
+        write_client_message, write_server_message, xterm_indexed_rgb, ClientMessage, DaemonEvent,
+        DaemonRequest, DaemonServerHandle, KittyFontConfig, PresentedTerminal, ServerMessage,
         SocketTerminalDaemonClient, TerminalCommand, TerminalDaemonClient, TerminalDamage,
         TerminalDisplayMode, TerminalFontRole, TerminalFontState, TerminalFrameUpdate,
         TerminalGlyphCacheKey, TerminalLifecycle, TerminalManager, TerminalPanel,
@@ -463,6 +463,44 @@ fn snap_to_pixel_grid_respects_window_scale_factor() {
     window.resolution.set_scale_factor_override(Some(1.5));
     let snapped = snap_to_pixel_grid(Vec2::new(10.2, -3.4), &window);
     assert_eq!(snapped, Vec2::new(10.0, -10.0 / 3.0));
+}
+
+#[test]
+fn active_terminal_target_position_accounts_for_texture_parity() {
+    let mut window = Window::default();
+    window.resolution.set_scale_factor_override(Some(1.0));
+    window.resolution.set(1400.0, 900.0);
+
+    let mut hud_state = HudState::default();
+    hud_state.insert(
+        HudWidgetKey::AgentList,
+        crate::hud::default_hud_module_instance(&crate::hud::HUD_MODULE_DEFINITIONS[1]),
+    );
+    let rect = crate::hud::docked_agent_list_rect(&window);
+    let agent_list = hud_state.get_mut(HudWidgetKey::AgentList).unwrap();
+    agent_list.shell.enabled = true;
+    agent_list.shell.current_rect = rect;
+    agent_list.shell.target_rect = rect;
+
+    let even = hud_terminal_target_position(
+        &window,
+        &hud_state.layout_state(),
+        &TerminalTextureState {
+            texture_size: UVec2::new(1000, 800),
+            cell_size: UVec2::new(10, 16),
+        },
+    );
+    let odd = hud_terminal_target_position(
+        &window,
+        &hud_state.layout_state(),
+        &TerminalTextureState {
+            texture_size: UVec2::new(999, 799),
+            cell_size: UVec2::new(9, 17),
+        },
+    );
+
+    assert_eq!(even, Vec2::new(150.0, 0.0));
+    assert_eq!(odd, Vec2::new(150.5, -0.5));
 }
 
 /// Verifies that pixel-perfect logical sizing divides physical texture size by the window scale

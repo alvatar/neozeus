@@ -424,6 +424,7 @@ pub(crate) fn pixel_perfect_cell_size(
 /// Snaps a logical position onto the physical pixel grid implied by the window scale factor.
 ///
 /// Pixel-perfect terminal presentation uses this to avoid subpixel blur.
+#[cfg(test)]
 pub(crate) fn snap_to_pixel_grid(position: Vec2, window: &Window) -> Vec2 {
     let scale_factor = window_scale_factor(window);
     (position * scale_factor).round() / scale_factor
@@ -456,10 +457,31 @@ fn smooth_terminal_screen_size(
     Vec2::new(texture_width, texture_height) * fit_scale * zoom_scale
 }
 
+fn snap_axis_for_texture_center(center: f32, physical_size: u32, window: &Window) -> f32 {
+    let scale_factor = window_scale_factor(window);
+    let center_physical = center * scale_factor;
+    let snapped = if physical_size.is_multiple_of(2) {
+        center_physical.round()
+    } else {
+        (center_physical - 0.5).round() + 0.5
+    };
+    snapped / scale_factor
+}
+
 /// Returns the snapped center position the active terminal should occupy inside the HUD viewport.
-fn hud_terminal_target_position(window: &Window, layout_state: &HudLayoutState) -> Vec2 {
+///
+/// Snapping depends on the final physical texture size: even-sized textures center on whole pixels,
+/// odd-sized textures center on half-pixels so both edges still land on pixel boundaries.
+pub(crate) fn hud_terminal_target_position(
+    window: &Window,
+    layout_state: &HudLayoutState,
+    texture_state: &TerminalTextureState,
+) -> Vec2 {
     let (_, center) = active_terminal_viewport(window, layout_state);
-    snap_to_pixel_grid(center, window)
+    Vec2::new(
+        snap_axis_for_texture_center(center.x, texture_state.texture_size.x.max(1), window),
+        snap_axis_for_texture_center(center.y, texture_state.texture_size.y.max(1), window),
+    )
 }
 
 /// Expands a terminal panel's size into the matching HUD-surface backing size.
@@ -661,8 +683,11 @@ pub(crate) fn sync_terminal_presentations(
         match active_id {
             Some(id) if id == panel.id => {
                 presentation.target_alpha = 1.0;
-                presentation.target_position =
-                    hud_terminal_target_position(&primary_window, &layout_state);
+                presentation.target_position = hud_terminal_target_position(
+                    &primary_window,
+                    &layout_state,
+                    &active_texture_state,
+                );
                 presentation.target_size = active_size;
                 presentation.target_z = if pixel_perfect { 3.0 } else { 0.3 };
             }
