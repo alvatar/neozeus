@@ -271,22 +271,6 @@ pub(crate) fn resolve_terminal_font_report() -> Result<TerminalFontReport, Strin
     resolve_terminal_font_stack_for_family(&requested_family)
 }
 
-/// Test helper that resolves the font stack for an explicit family name.
-#[cfg(test)]
-pub(crate) fn resolve_terminal_font_report_for_family(
-    requested_family: &str,
-) -> Result<TerminalFontReport, String> {
-    resolve_terminal_font_stack_for_family(requested_family)
-}
-
-/// Test helper that resolves the font stack for an explicit font file path.
-#[cfg(test)]
-pub(crate) fn resolve_terminal_font_report_for_path(
-    path: &Path,
-) -> Result<TerminalFontReport, String> {
-    resolve_terminal_font_stack_for_path(path)
-}
-
 /// Builds the primary/fallback font stack starting from an explicit font file path.
 ///
 /// The primary face comes from `fc-query` on that exact file; fallback probes then ask fontconfig for
@@ -628,3 +612,11 @@ pub(crate) fn is_emoji_like(ch: char) -> bool {
         0x1F000..=0x1FAFF | 0x2600..=0x27BF | 0xFE0F | 0x200D
     )
 }
+
+#[cfg(test)]
+pub(crate) use tests::{
+    resolve_terminal_font_report_for_family, resolve_terminal_font_report_for_path,
+};
+
+#[cfg(test)]
+mod tests;
