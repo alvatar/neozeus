@@ -1084,7 +1084,9 @@ fn set_task_text_request_clears_persisted_task_presence_when_empty() {
 
     let mut notes_state = TerminalNotesState::default();
     assert!(notes_state.set_note_text("session-a", "- [x] done"));
-    assert!(notes_state.has_note_text("session-a"));
+    assert!(notes_state
+        .note_text("session-a")
+        .is_some_and(|text| !text.trim().is_empty()));
 
     let mut world = World::default();
     world.insert_resource(Time::<()>::default());
@@ -1107,7 +1109,9 @@ fn set_task_text_request_clears_persisted_task_presence_when_empty() {
 
     let notes_state = world.resource::<TerminalNotesState>();
     assert_eq!(notes_state.note_text("session-a"), None);
-    assert!(!notes_state.has_note_text("session-a"));
+    assert!(notes_state
+        .note_text("session-a")
+        .is_none_or(|text| text.trim().is_empty()));
     assert_eq!(world.resource::<Messages<RequestRedraw>>().len(), 1);
     let hud_state = snapshot_test_hud_state(&world);
     assert!(!hud_state.task_dialog.visible);
@@ -1759,8 +1763,9 @@ fn killing_active_terminal_selects_previous_terminal_in_creation_order() {
         .unwrap();
 
     let manager = world.resource::<TerminalManager>();
+    let focus = manager.clone_focus_state();
     assert_eq!(manager.terminal_ids(), &[id_one, id_three]);
-    assert_eq!(manager.active_id(), None);
+    assert_eq!(focus.active_id(), None);
     assert_eq!(
         world.resource::<TerminalVisibilityState>().policy,
         TerminalVisibilityPolicy::Isolate(id_two)
@@ -1843,8 +1848,9 @@ fn killing_first_active_terminal_selects_next_terminal() {
         .unwrap();
 
     let manager = world.resource::<TerminalManager>();
+    let focus = manager.clone_focus_state();
     assert_eq!(manager.terminal_ids(), &[id_two]);
-    assert_eq!(manager.active_id(), None);
+    assert_eq!(focus.active_id(), None);
     assert_eq!(
         world.resource::<TerminalVisibilityState>().policy,
         TerminalVisibilityPolicy::Isolate(id_one)
