@@ -143,7 +143,7 @@ impl TerminalManager {
     }
 
     /// Creates a managed terminal record for an existing session name without changing focus.
-    pub(crate) fn create_terminal_without_focus_with_session(
+    fn create_terminal_without_focus_with_session(
         &mut self,
         bridge: TerminalBridge,
         session_name: String,
