@@ -339,6 +339,10 @@ fn terminal_has_presentable_uploaded_frame(
         && presented_terminal.texture_state.cell_size != UVec2::ZERO
 }
 
+#[allow(
+    clippy::too_many_arguments,
+    reason = "active-terminal resize policy needs terminal, font, runtime, HUD, window, and local debounce state"
+)]
 /// Resizes the active PTY grid to the deterministic terminal dimensions implied by the available
 /// HUD viewport and the fixed measured cell size.
 ///
