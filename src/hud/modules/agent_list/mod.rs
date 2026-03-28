@@ -164,3 +164,6 @@ pub(crate) fn test_agent_rows(
         })
         .collect()
 }
+
+#[cfg(test)]
+mod tests;

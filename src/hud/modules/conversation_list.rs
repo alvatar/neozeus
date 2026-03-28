@@ -178,3 +178,6 @@ pub(crate) fn render_content(
         );
     }
 }
+
+#[cfg(test)]
+mod tests;

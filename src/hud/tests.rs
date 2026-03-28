@@ -1,12 +1,8 @@
-pub(crate) use super::compositor::setup_hud_offscreen_compositor;
 pub(crate) use super::compositor::{
     HudCompositeLayerId, HudCompositeLayerMarker, HUD_COMPOSITE_FOREGROUND_Z,
     HUD_COMPOSITE_RENDER_LAYER,
 };
-pub(crate) use super::modules::{
-    agent_row_rect, handle_pointer_click, handle_scroll, test_agent_rows,
-    test_debug_toolbar_buttons, AgentListRowSection,
-};
+pub(crate) use super::modules::{handle_pointer_click, handle_scroll};
 pub(crate) use super::render::{
     HudVectorSceneMarker, HUD_MODAL_CAMERA_ORDER, HUD_MODAL_RENDER_LAYER,
 };

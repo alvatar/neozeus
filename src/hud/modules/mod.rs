@@ -19,11 +19,6 @@ pub(crate) use agent_list::{
     AGENT_LIST_BLOOM_RED_R,
 };
 
-#[cfg(test)]
-pub(crate) use agent_list::test_agent_rows;
-#[cfg(test)]
-pub(crate) use debug_toolbar::test_debug_toolbar_buttons;
-
 #[allow(
     clippy::too_many_arguments,
     reason = "module click routing needs shell geometry, derived widget data, and command output together"

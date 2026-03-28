@@ -250,3 +250,6 @@ pub(crate) fn sync_hud_offscreen_compositor(
         }
     }
 }
+
+#[cfg(test)]
+mod tests;
