@@ -21,8 +21,6 @@ pub(crate) use capture::{
     request_window_capture, HudCompositeCaptureConfig, HudTextureCaptureConfig,
     WindowCaptureConfig,
 };
-#[cfg(test)]
-pub(crate) use compositor::setup_hud_offscreen_compositor;
 pub(crate) use compositor::{
     sync_hud_offscreen_compositor, HudCompositeCameraMarker, HudOffscreenCompositor,
 };
@@ -31,11 +29,7 @@ pub(crate) use persistence::{save_hud_layout_if_dirty, HudPersistenceState};
 pub(crate) use render::{
     render_hud_modal_scene, render_hud_scene, HudModalCameraMarker, HudModalVectorSceneMarker,
 };
-#[cfg(test)]
-pub(crate) use render::{HudVectorSceneMarker, HUD_MODAL_CAMERA_ORDER, HUD_MODAL_RENDER_LAYER};
 pub(crate) use setup::{hud_needs_redraw, setup_hud, sync_structural_hud_layout};
-#[cfg(test)]
-pub(crate) use state::{default_hud_module_instance, docked_agent_list_rect, HudDragState};
 pub(crate) use state::{
     AgentListUiState, ConversationListUiState, DebugToolbarUiState, HudInputCaptureState,
     HudLayoutState, HudRect, TerminalVisibilityPolicy, TerminalVisibilityState, ThreadPaneUiState,
@@ -47,16 +41,7 @@ pub(crate) use view_models::{
 pub(crate) use widgets::HudWidgetKey;
 
 #[cfg(test)]
-pub(crate) use {
-    compositor::{
-        HudCompositeLayerId, HudCompositeLayerMarker, HUD_COMPOSITE_FOREGROUND_Z,
-        HUD_COMPOSITE_RENDER_LAYER,
-    },
-    modules::{
-        agent_row_rect, agent_rows, debug_toolbar_buttons, handle_pointer_click, handle_scroll,
-        AgentListRowSection,
-    },
-    state::{HudModalState, HudState},
-    view_models::{AgentListRowView, ConversationListRowView},
-    widgets::HUD_WIDGET_DEFINITIONS as HUD_MODULE_DEFINITIONS,
-};
+pub(crate) use tests::*;
+
+#[cfg(test)]
+mod tests;
