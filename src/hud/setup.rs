@@ -138,3 +138,6 @@ pub(crate) fn sync_structural_hud_layout(
 pub(crate) fn hud_needs_redraw(layout_state: &HudLayoutState) -> bool {
     layout_state.drag.is_some() || layout_state.is_animating()
 }
+
+#[cfg(test)]
+mod tests;

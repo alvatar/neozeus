@@ -22,3 +22,6 @@ pub(crate) fn animate_hud_modules(time: Res<Time>, mut layout_state: ResMut<HudL
             (module.shell.target_alpha - module.shell.current_alpha) * blend;
     }
 }
+
+#[cfg(test)]
+mod tests;

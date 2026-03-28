@@ -37,3 +37,6 @@ pub(crate) struct DebugToolbarButtonTestView {
     pub(crate) rect: HudRect,
     pub(crate) active: bool,
 }
+
+#[cfg(test)]
+mod tests;
