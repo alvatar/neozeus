@@ -10,6 +10,7 @@ mod ui;
 mod verification;
 
 #[cfg(test)]
+#[path = "main/tests.rs"]
 mod tests;
 
 use crate::{
