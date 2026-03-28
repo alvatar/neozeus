@@ -17,7 +17,7 @@ use super::{
         AgentCommand, AppCommand, ComposerCommand, TaskCommand as AppTaskCommand,
         TerminalCommand as AppTerminalCommand, WidgetCommand,
     },
-    session::AppSessionState,
+    session::{AppSessionState, VisibilityMode},
     use_cases,
 };
 use bevy::{ecs::system::SystemParam, prelude::*, window::RequestRedraw};
@@ -193,7 +193,7 @@ pub(crate) fn apply_app_commands(
                     }
                 }
                 AgentCommand::Focus(agent_id) => {
-                    ctx.app_session.visibility_mode = crate::app::VisibilityMode::ShowAll;
+                    ctx.app_session.visibility_mode = VisibilityMode::ShowAll;
                     use_cases::focus_agent(
                         *agent_id,
                         &mut ctx.app_session,
@@ -209,7 +209,7 @@ pub(crate) fn apply_app_commands(
                     );
                 }
                 AgentCommand::Inspect(agent_id) => {
-                    ctx.app_session.visibility_mode = crate::app::VisibilityMode::FocusedOnly;
+                    ctx.app_session.visibility_mode = VisibilityMode::FocusedOnly;
                     use_cases::focus_agent(
                         *agent_id,
                         &mut ctx.app_session,
@@ -225,7 +225,7 @@ pub(crate) fn apply_app_commands(
                     );
                 }
                 AgentCommand::ShowAll => {
-                    ctx.app_session.visibility_mode = crate::app::VisibilityMode::ShowAll;
+                    ctx.app_session.visibility_mode = VisibilityMode::ShowAll;
                     ctx.visibility_state.policy = crate::hud::TerminalVisibilityPolicy::ShowAll;
                     ctx.redraws.write(RequestRedraw);
                 }

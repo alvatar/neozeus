@@ -2,7 +2,7 @@ use crate::app::AppSessionState;
 
 use super::{
     compositor::{setup_hud_offscreen_compositor, HudOffscreenCompositor},
-    persistence::HudPersistenceState,
+    persistence::{load_persisted_hud_state_from, resolve_hud_layout_path, HudPersistenceState},
     render::{
         HudModalCameraMarker, HudModalVectorSceneMarker, HudVectorSceneMarker,
         HUD_MODAL_CAMERA_ORDER, HUD_MODAL_RENDER_LAYER,
@@ -54,11 +54,11 @@ pub(crate) fn setup_hud(
     mut redraws: MessageWriter<RequestRedraw>,
 ) {
     // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
-    persistence_state.path = crate::hud::persistence::resolve_hud_layout_path();
+    persistence_state.path = resolve_hud_layout_path();
     let persisted = persistence_state
         .path
         .as_ref()
-        .map(crate::hud::persistence::load_persisted_hud_state_from)
+        .map(load_persisted_hud_state_from)
         .unwrap_or_default();
     layout_state.modules.clear();
     layout_state.z_order.clear();

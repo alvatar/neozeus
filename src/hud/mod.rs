@@ -35,11 +35,10 @@ pub(crate) use render::{
 pub(crate) use render::{HudVectorSceneMarker, HUD_MODAL_CAMERA_ORDER, HUD_MODAL_RENDER_LAYER};
 pub(crate) use setup::{hud_needs_redraw, setup_hud, sync_structural_hud_layout};
 #[cfg(test)]
-pub(crate) use state::{default_hud_module_instance, docked_agent_list_rect};
+pub(crate) use state::{default_hud_module_instance, docked_agent_list_rect, HudDragState};
 pub(crate) use state::{
-    AgentListUiState, ConversationListUiState, DebugToolbarUiState, HudDragState,
-    HudInputCaptureState, HudLayoutState, HudRect, TerminalVisibilityPolicy,
-    TerminalVisibilityState, ThreadPaneUiState,
+    AgentListUiState, ConversationListUiState, DebugToolbarUiState, HudInputCaptureState,
+    HudLayoutState, HudRect, TerminalVisibilityPolicy, TerminalVisibilityState, ThreadPaneUiState,
 };
 pub(crate) use view_models::{
     sync_hud_view_models, AgentListView, ComposerView, ConversationListView, DebugToolbarView,

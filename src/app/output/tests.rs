@@ -1,3 +1,4 @@
+use super::super::bootstrap::primary_window_config_for;
 use super::*;
 use crate::hud::{AgentListBloomAdditiveCameraMarker, HudCompositeCameraMarker};
 use bevy::{
@@ -42,7 +43,7 @@ fn offscreen_window_config_is_hidden_and_windowed() {
         height: 1000,
         scale_factor_override: Some(1.5),
     };
-    let window = crate::app::primary_window_config_for(&output);
+    let window = primary_window_config_for(&output);
     assert!(!window.visible);
     assert!(!window.decorations);
     assert!(!window.focused);

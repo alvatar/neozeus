@@ -39,18 +39,18 @@ pub(crate) use notes::{
     resolve_terminal_notes_path, save_terminal_notes_if_dirty, task_entry_from_text,
     TerminalNotesState,
 };
+#[cfg(test)]
+pub(crate) use presentation::target_active_terminal_dimensions;
 pub(crate) use presentation::{
     sync_active_terminal_dimensions, sync_terminal_hud_surface, sync_terminal_panel_frames,
-    sync_terminal_presentations, sync_terminal_projection_entities,
-    target_active_terminal_dimensions, terminal_texture_screen_size,
-};
-pub(crate) use presentation_state::{
-    PresentedTerminal, TerminalCameraMarker, TerminalDisplayMode, TerminalHudSurfaceMarker,
-    TerminalPanel, TerminalPointerState, TerminalPresentation, TerminalPresentationStore,
-    TerminalViewState,
+    sync_terminal_presentations, sync_terminal_projection_entities, terminal_texture_screen_size,
 };
 #[cfg(test)]
-pub(crate) use presentation_state::{TerminalPanelFrame, TerminalTextureState};
+pub(crate) use presentation_state::{PresentedTerminal, TerminalPanelFrame, TerminalTextureState};
+pub(crate) use presentation_state::{
+    TerminalCameraMarker, TerminalDisplayMode, TerminalHudSurfaceMarker, TerminalPanel,
+    TerminalPointerState, TerminalPresentation, TerminalPresentationStore, TerminalViewState,
+};
 pub(crate) use raster::{sync_terminal_texture, TerminalGlyphCache};
 pub(crate) use registry::{
     poll_terminal_snapshots, TerminalFocusState, TerminalId, TerminalManager,
@@ -63,12 +63,13 @@ pub(crate) use session_persistence::{
 };
 pub(crate) use types::TerminalLifecycle;
 pub(crate) use types::{
-    PtySession, TerminalCell, TerminalCellContent, TerminalCommand, TerminalCursor,
-    TerminalCursorShape, TerminalDimensions, TerminalRuntimeState, TerminalSnapshot,
-    TerminalSurface,
+    TerminalCell, TerminalCellContent, TerminalCommand, TerminalRuntimeState, TerminalSurface,
 };
 #[cfg(test)]
-pub(crate) use types::{TerminalDamage, TerminalFontReport, TerminalFrameUpdate, TerminalUpdate};
+pub(crate) use types::{
+    TerminalDamage, TerminalDimensions, TerminalFontReport, TerminalFrameUpdate, TerminalSnapshot,
+    TerminalUpdate,
+};
 
 #[cfg(test)]
 pub(crate) use ansi_surface::build_surface;

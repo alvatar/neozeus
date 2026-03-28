@@ -12,14 +12,14 @@ pub(crate) use commands::{
 };
 #[cfg(test)]
 pub(crate) use dispatch::apply_app_commands;
-pub(crate) use schedule::NeoZeusSet;
-pub(crate) use session::{AppSessionState, VisibilityMode};
+pub(crate) use session::AppSessionState;
 pub(crate) use use_cases::restore_app;
 
-pub(crate) use bootstrap::{build_app, resolve_window_scale_factor};
+pub(crate) use bootstrap::build_app;
 #[cfg(test)]
-pub(crate) use output::AppOutputConfig;
-pub(crate) use output::OutputMode;
+pub(crate) use bootstrap::resolve_window_scale_factor;
+#[cfg(test)]
+pub(crate) use output::{AppOutputConfig, OutputMode};
 
 #[cfg(test)]
 pub(crate) use {

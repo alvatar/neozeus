@@ -6,6 +6,7 @@ use crate::{
 use super::super::{
     render::{HudColors, HudPainter, HudRenderInputs},
     state::{ConversationListUiState, HudRect, HUD_ROW_HEIGHT},
+    view_models::ConversationListView,
 };
 use bevy::prelude::Vec2;
 use bevy_vello::prelude::VelloTextAnchor;
@@ -32,7 +33,7 @@ pub(crate) fn rows(
     shell_rect: HudRect,
     scroll_offset: f32,
     hovered_agent: Option<AgentId>,
-    conversation_list_view: &crate::hud::ConversationListView,
+    conversation_list_view: &ConversationListView,
 ) -> Vec<ConversationRow> {
     // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
     conversation_list_view
@@ -60,7 +61,7 @@ pub(crate) fn handle_pointer_click(
     state: &ConversationListUiState,
     shell_rect: HudRect,
     point: Vec2,
-    conversation_list_view: &crate::hud::ConversationListView,
+    conversation_list_view: &ConversationListView,
     emitted_commands: &mut Vec<AppCommand>,
 ) {
     // Keep the control flow staged so each branch owns one behavior path and later branches only run when earlier capture rules do not apply.
@@ -84,7 +85,7 @@ pub(crate) fn handle_hover(
     state: &mut ConversationListUiState,
     shell_rect: HudRect,
     point: Option<Vec2>,
-    conversation_list_view: &crate::hud::ConversationListView,
+    conversation_list_view: &ConversationListView,
 ) -> bool {
     // Keep the control flow staged so each branch owns one behavior path and later branches only run when earlier capture rules do not apply.
     let hovered_agent = point.and_then(|point| {

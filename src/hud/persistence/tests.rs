@@ -1,5 +1,7 @@
-use super::super::state::HudRect;
-use super::super::widgets::HudWidgetKey;
+use super::super::{
+    state::{default_hud_module_instance, HudRect, HudState},
+    widgets::{HudWidgetKey, HUD_WIDGET_DEFINITIONS},
+};
 use super::*;
 use crate::tests::{insert_test_hud_state, temp_dir};
 use bevy::{
@@ -79,8 +81,7 @@ fn apply_persisted_layout_overrides_defaults() {
             },
         },
     );
-    let hud_state =
-        apply_persisted_layout(crate::hud::HUD_MODULE_DEFINITIONS.as_slice(), &persisted);
+    let hud_state = apply_persisted_layout(HUD_WIDGET_DEFINITIONS.as_slice(), &persisted);
     let module = hud_state.get(HudWidgetKey::AgentList).unwrap();
     assert!(!module.shell.enabled);
     assert_eq!(module.shell.target_rect.x, 11.0);
@@ -97,9 +98,8 @@ fn saving_hud_layout_persists_target_rect() {
     let dir = temp_dir("neozeus-hud-layout-save");
     let path = dir.join("hud-layout.v1");
     let mut world = World::default();
-    let mut hud_state = crate::hud::HudState::default();
-    let mut module =
-        crate::hud::default_hud_module_instance(&crate::hud::HUD_MODULE_DEFINITIONS[1]);
+    let mut hud_state = HudState::default();
+    let mut module = default_hud_module_instance(&HUD_WIDGET_DEFINITIONS[1]);
     module.shell.target_rect = HudRect {
         x: 321.0,
         y: 222.0,
@@ -134,8 +134,7 @@ fn saving_hud_layout_persists_target_rect() {
     assert!(serialized.contains("h=444"));
 
     let persisted = parse_persisted_hud_state(&serialized);
-    let restored =
-        apply_persisted_layout(crate::hud::HUD_MODULE_DEFINITIONS.as_slice(), &persisted);
+    let restored = apply_persisted_layout(HUD_WIDGET_DEFINITIONS.as_slice(), &persisted);
     let restored_module = restored.get(HudWidgetKey::AgentList).unwrap();
     assert_eq!(restored_module.shell.target_rect.x, 321.0);
     assert_eq!(restored_module.shell.target_rect.h, 444.0);

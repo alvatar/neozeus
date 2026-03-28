@@ -9,8 +9,12 @@ use crate::{
 
 use super::{
     modules,
-    state::{HudLayoutState, HudRect, HUD_TITLEBAR_HEIGHT},
-    view_models::{AgentListView, ComposerView, ConversationListView, ThreadView},
+    state::{
+        AgentListUiState, ConversationListUiState, HudLayoutState, HudRect, HUD_TITLEBAR_HEIGHT,
+    },
+    view_models::{
+        AgentListView, ComposerView, ConversationListView, DebugToolbarView, ThreadView,
+    },
     widgets::HudWidgetKey,
 };
 use bevy::{prelude::*, window::PrimaryWindow};
@@ -269,7 +273,7 @@ pub(crate) struct HudRenderInputs<'a> {
     pub(crate) agent_list_view: &'a AgentListView,
     pub(crate) conversation_list_view: &'a ConversationListView,
     pub(crate) thread_view: &'a ThreadView,
-    pub(crate) debug_toolbar_view: &'a crate::hud::DebugToolbarView,
+    pub(crate) debug_toolbar_view: &'a DebugToolbarView,
     pub(crate) layout_state: &'a HudLayoutState,
 }
 
@@ -729,12 +733,12 @@ fn draw_module_shell(painter: &mut HudPainter, module_id: HudWidgetKey, shell_re
 pub(crate) fn render_hud_scene(
     primary_window: Single<&Window, With<PrimaryWindow>>,
     layout_state: Res<HudLayoutState>,
-    agent_list_state: Res<crate::hud::AgentListUiState>,
-    conversation_list_state: Res<crate::hud::ConversationListUiState>,
+    agent_list_state: Res<AgentListUiState>,
+    conversation_list_state: Res<ConversationListUiState>,
     agent_list_view: Res<AgentListView>,
     conversation_list_view: Res<ConversationListView>,
     thread_view: Res<ThreadView>,
-    debug_toolbar_view: Res<crate::hud::DebugToolbarView>,
+    debug_toolbar_view: Res<DebugToolbarView>,
     fonts: Res<Assets<VelloFont>>,
     startup_connect: Option<Res<StartupConnectState>>,
     mut scene: Single<&mut VelloScene2d, With<HudVectorSceneMarker>>,

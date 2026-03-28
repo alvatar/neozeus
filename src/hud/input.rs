@@ -7,8 +7,8 @@ use crate::{
 use super::{
     modules,
     state::{
-        AgentListUiState, ConversationListUiState, HudInputCaptureState, HudLayoutState, HudRect,
-        HUD_TITLEBAR_HEIGHT,
+        AgentListUiState, ConversationListUiState, HudDragState, HudInputCaptureState,
+        HudLayoutState, HudRect, HUD_TITLEBAR_HEIGHT,
     },
     view_models::{AgentListView, ConversationListView, DebugToolbarView},
     widgets::HudWidgetKey,
@@ -176,7 +176,7 @@ pub(crate) fn handle_hud_pointer_input(mut ctx: HudPointerContext) {
                 .map(|module| module.shell.titlebar_rect())
                 .unwrap_or_default();
             if titlebar_rect.contains(cursor) && module_id != HudWidgetKey::AgentList {
-                ctx.layout_state.drag = Some(crate::hud::HudDragState {
+                ctx.layout_state.drag = Some(HudDragState {
                     module_id,
                     grab_offset: Vec2::new(cursor.x - titlebar_rect.x, cursor.y - titlebar_rect.y),
                 });
