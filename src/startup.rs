@@ -127,6 +127,12 @@ impl StartupConnectState {
         self.phase
     }
 
+    /// Returns whether a background-connect receiver has been installed.
+    #[cfg(test)]
+    pub(crate) fn has_receiver(&self) -> bool {
+        self.receiver.is_some()
+    }
+
     /// Returns the user-facing title for the current startup-connect phase.
     pub(crate) fn title(&self) -> &'static str {
         match self.phase {
@@ -331,6 +337,7 @@ pub(crate) fn setup_scene(world: &mut World) {
     }
     startup_connect.start_background_connect();
     ctx.redraws.write(RequestRedraw);
+    state.apply(world);
 }
 
 #[allow(
