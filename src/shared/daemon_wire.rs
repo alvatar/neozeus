@@ -160,8 +160,9 @@ fn decode_response(decoder: &mut Decoder<'_>) -> Result<DaemonResponse, String> 
 pub fn encode_wire_daemon_session_info(buffer: &mut Vec<u8>, info: &DaemonSessionInfo) {
     push_string(buffer, &info.session_id);
     encode_wire_runtime_state(buffer, &info.runtime);
+    // Session-list wire compatibility intentionally omits `created_order`; daemon response order
+    // already defines list ordering and the main daemon protocol keeps this field off-wire.
     push_u64(buffer, info.revision);
-    push_u64(buffer, info.created_order);
 }
 
 pub(crate) fn decode_wire_daemon_session_info(
@@ -171,7 +172,7 @@ pub(crate) fn decode_wire_daemon_session_info(
         session_id: decoder.read_string()?,
         runtime: decode_wire_runtime_state(decoder)?,
         revision: decoder.read_u64()?,
-        created_order: decoder.read_u64()?,
+        created_order: 0,
     })
 }
 
@@ -451,7 +452,7 @@ mod tests {
     #[test]
     fn subset_server_message_roundtrips_session_list() {
         let mut bytes = Vec::new();
-        let message = ServerMessage::Response {
+        let encoded = ServerMessage::Response {
             request_id: 4,
             response: Ok(DaemonResponse::SessionList {
                 sessions: vec![DaemonSessionInfo {
@@ -466,12 +467,69 @@ mod tests {
                 }],
             }),
         };
+        let expected = ServerMessage::Response {
+            request_id: 4,
+            response: Ok(DaemonResponse::SessionList {
+                sessions: vec![DaemonSessionInfo {
+                    session_id: "alpha".into(),
+                    runtime: TerminalRuntimeState {
+                        status: "running".into(),
+                        lifecycle: TerminalLifecycle::Running,
+                        last_error: None,
+                    },
+                    revision: 9,
+                    created_order: 0,
+                }],
+            }),
+        };
         let mut payload = Vec::new();
-        encode_server_message(&mut payload, &message);
+        encode_server_message(&mut payload, &encoded);
         super::write_frame(&mut bytes, &payload).unwrap();
         assert_eq!(
             read_server_message(&mut Cursor::new(bytes)).unwrap(),
-            message
+            expected
+        );
+    }
+
+    #[test]
+    fn subset_server_message_decodes_real_daemon_session_list_without_created_order() {
+        let mut payload = Vec::new();
+        super::push_u8(&mut payload, 0);
+        super::push_u64(&mut payload, 11);
+        super::push_u8(&mut payload, 0);
+        super::push_u8(&mut payload, 1);
+        super::push_u32(&mut payload, 1);
+        super::push_string(&mut payload, "session-1");
+        super::encode_wire_runtime_state(
+            &mut payload,
+            &TerminalRuntimeState {
+                status: "running".into(),
+                lifecycle: TerminalLifecycle::Running,
+                last_error: None,
+            },
+        );
+        super::push_u64(&mut payload, 21);
+
+        let mut framed = Vec::new();
+        super::write_frame(&mut framed, &payload).unwrap();
+        let message = read_server_message(&mut Cursor::new(framed)).unwrap();
+        assert_eq!(
+            message,
+            ServerMessage::Response {
+                request_id: 11,
+                response: Ok(DaemonResponse::SessionList {
+                    sessions: vec![DaemonSessionInfo {
+                        session_id: "session-1".into(),
+                        runtime: TerminalRuntimeState {
+                            status: "running".into(),
+                            lifecycle: TerminalLifecycle::Running,
+                            last_error: None,
+                        },
+                        revision: 21,
+                        created_order: 0,
+                    }],
+                }),
+            }
         );
     }
 
