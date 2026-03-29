@@ -6,6 +6,8 @@ use std::collections::BTreeMap;
 
 pub(crate) const HUD_TITLEBAR_HEIGHT: f32 = 28.0;
 pub(crate) const HUD_INFO_BAR_HEIGHT: f32 = 40.0;
+const HUD_INFO_BAR_TWO_ROW_HEIGHT: f32 = 72.0;
+const HUD_INFO_BAR_TWO_ROW_THRESHOLD: f32 = 1120.0;
 pub(crate) const HUD_MODULE_PADDING: f32 = 10.0;
 pub(crate) const HUD_ROW_HEIGHT: f32 = 28.0;
 pub(crate) const HUD_AGENT_LIST_WIDTH: f32 = 300.0;
@@ -88,7 +90,7 @@ pub(crate) struct ConversationListUiState {
 pub(crate) struct ThreadPaneUiState;
 
 #[derive(Resource, Clone, Debug, Default, PartialEq)]
-pub(crate) struct DebugToolbarUiState;
+pub(crate) struct InfoBarUiState;
 
 #[derive(Clone, Debug, PartialEq)]
 pub(in crate::hud) struct HudModuleInstance {
@@ -136,7 +138,7 @@ impl HudLayoutState {
     /// Returns the reserved top header height when the info-bar module is enabled.
     pub(crate) fn reserved_header_height(&self) -> f32 {
         self.modules
-            .get(&HudWidgetKey::DebugToolbar)
+            .get(&HudWidgetKey::InfoBar)
             .filter(|module| module.shell.enabled)
             .map(|module| module.shell.current_rect.h)
             .unwrap_or(0.0)
@@ -299,16 +301,26 @@ pub(crate) struct TerminalVisibilityState {
     pub(crate) policy: TerminalVisibilityPolicy,
 }
 
+/// Returns whether the info bar should switch to the taller two-row layout for the current width.
+pub(crate) fn info_bar_needs_two_rows(window_width: f32) -> bool {
+    window_width < HUD_INFO_BAR_TWO_ROW_THRESHOLD
+}
+
 /// Returns the fixed docked rectangle used by the top info-bar module.
 ///
-/// The info bar is pinned to the top edge and spans the full window width using the shared header
-/// height.
+/// The info bar is pinned to the top edge and spans the full window width. Narrow windows reserve a
+/// taller two-row header so the usage bars can wrap instead of collapsing into unreadable geometry.
 pub(crate) fn docked_info_bar_rect(window: &Window) -> HudRect {
     HudRect {
         x: 0.0,
         y: 0.0,
         w: window.width(),
-        h: HUD_INFO_BAR_HEIGHT.min(window.height()),
+        h: if info_bar_needs_two_rows(window.width()) {
+            HUD_INFO_BAR_TWO_ROW_HEIGHT
+        } else {
+            HUD_INFO_BAR_HEIGHT
+        }
+        .min(window.height()),
     }
 }
 

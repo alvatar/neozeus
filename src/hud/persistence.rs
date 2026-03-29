@@ -228,7 +228,7 @@ fn serialize_persisted_hud_state(state: &PersistedHudState) -> String {
 /// The accepted names are the stable title keys, not the human-facing titles.
 fn parse_hud_module_id(name: &str) -> Option<HudWidgetKey> {
     match name {
-        "DebugToolbar" => Some(HudWidgetKey::DebugToolbar),
+        "DebugToolbar" | "InfoBar" => Some(HudWidgetKey::InfoBar),
         "AgentList" => Some(HudWidgetKey::AgentList),
         "ConversationList" => Some(HudWidgetKey::ConversationList),
         "ThreadPane" => Some(HudWidgetKey::ThreadPane),

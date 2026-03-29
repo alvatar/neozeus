@@ -9,8 +9,8 @@ use super::{
     },
     state::{
         default_hud_module_instance, docked_agent_list_rect_with_top_inset, docked_info_bar_rect,
-        AgentListUiState, ConversationListUiState, DebugToolbarUiState, HudInputCaptureState,
-        HudLayoutState, ThreadPaneUiState,
+        AgentListUiState, ConversationListUiState, HudInputCaptureState, HudLayoutState,
+        InfoBarUiState, ThreadPaneUiState,
     },
     widgets::{HudWidgetKey, HUD_WIDGET_DEFINITIONS},
 };
@@ -43,7 +43,7 @@ pub(crate) fn setup_hud(
     mut layout_state: ResMut<HudLayoutState>,
     mut agent_list_state: ResMut<AgentListUiState>,
     mut conversation_list_state: ResMut<ConversationListUiState>,
-    mut _debug_toolbar_state: ResMut<DebugToolbarUiState>,
+    mut _info_bar_state: ResMut<InfoBarUiState>,
     mut _thread_pane_state: ResMut<ThreadPaneUiState>,
     mut app_session: ResMut<AppSessionState>,
     mut input_capture: ResMut<HudInputCaptureState>,
@@ -67,7 +67,7 @@ pub(crate) fn setup_hud(
     app_session.composer = crate::composer::ComposerState::default();
     *agent_list_state = AgentListUiState::default();
     *conversation_list_state = ConversationListUiState::default();
-    *_debug_toolbar_state = DebugToolbarUiState;
+    *_info_bar_state = InfoBarUiState;
     *_thread_pane_state = ThreadPaneUiState;
     input_capture.direct_input_terminal = None;
     for definition in HUD_WIDGET_DEFINITIONS.iter() {
@@ -124,13 +124,13 @@ pub(crate) fn sync_structural_hud_layout(
     mut layout_state: ResMut<HudLayoutState>,
 ) {
     let info_bar_rect = docked_info_bar_rect(&primary_window);
-    if let Some(info_bar) = layout_state.get_mut(HudWidgetKey::DebugToolbar) {
+    if let Some(info_bar) = layout_state.get_mut(HudWidgetKey::InfoBar) {
         info_bar.shell.target_rect = info_bar_rect;
         info_bar.shell.current_rect = info_bar_rect;
     }
 
     let reserved_top = layout_state
-        .get(HudWidgetKey::DebugToolbar)
+        .get(HudWidgetKey::InfoBar)
         .filter(|module| module.shell.enabled)
         .map(|module| module.shell.current_rect.h)
         .unwrap_or(0.0);
@@ -142,10 +142,7 @@ pub(crate) fn sync_structural_hud_layout(
 
     let module_ids = layout_state.iter_z_order().collect::<Vec<_>>();
     for module_id in module_ids {
-        if matches!(
-            module_id,
-            HudWidgetKey::DebugToolbar | HudWidgetKey::AgentList
-        ) {
+        if matches!(module_id, HudWidgetKey::InfoBar | HudWidgetKey::AgentList) {
             continue;
         }
         let Some(module) = layout_state.get_mut(module_id) else {

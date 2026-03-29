@@ -8,6 +8,7 @@ mod hud;
 mod input;
 mod startup;
 mod terminals;
+mod usage;
 mod verification;
 
 #[cfg(test)]

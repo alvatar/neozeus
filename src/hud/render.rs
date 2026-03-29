@@ -14,7 +14,7 @@ use super::{
     state::{
         AgentListUiState, ConversationListUiState, HudLayoutState, HudRect, HUD_TITLEBAR_HEIGHT,
     },
-    view_models::{AgentListView, ComposerView, ConversationListView, ThreadView},
+    view_models::{AgentListView, ComposerView, ConversationListView, InfoBarView, ThreadView},
     widgets::HudWidgetKey,
 };
 use bevy::{prelude::*, window::PrimaryWindow};
@@ -149,7 +149,7 @@ impl<'scene, 'res> HudPainter<'scene, 'res> {
     ///
     /// If the default font asset has not loaded yet, the function reports zero size instead of
     /// panicking.
-    fn text_size(&self, text: &str, size: f32) -> Vec2 {
+    pub(crate) fn text_size(&self, text: &str, size: f32) -> Vec2 {
         let Some(font) = self.fonts.get(&Handle::<VelloFont>::default()) else {
             return Vec2::ZERO;
         };
@@ -271,6 +271,7 @@ pub(crate) struct HudRenderInputs<'a> {
     pub(crate) agent_list_view: &'a AgentListView,
     pub(crate) conversation_list_view: &'a ConversationListView,
     pub(crate) thread_view: &'a ThreadView,
+    pub(crate) info_bar_view: &'a InfoBarView,
 }
 
 /// Logs a low-level color-presence diagnostic for HUD draw data when explicitly requested.
@@ -903,10 +904,7 @@ fn draw_task_dialog(
 /// Most modules exclude the titlebar from content rendering; the agent list is full-bleed and keeps
 /// the entire shell rect.
 fn module_content_rect(module_id: HudWidgetKey, shell_rect: HudRect) -> HudRect {
-    if matches!(
-        module_id,
-        HudWidgetKey::AgentList | HudWidgetKey::DebugToolbar
-    ) {
+    if matches!(module_id, HudWidgetKey::AgentList | HudWidgetKey::InfoBar) {
         return shell_rect;
     }
     HudRect {
@@ -927,7 +925,7 @@ fn draw_module_shell(painter: &mut HudPainter, module_id: HudWidgetKey, shell_re
     }
     painter.fill_rect(shell_rect, HudColors::FRAME, 8.0);
     painter.stroke_rect(shell_rect, HudColors::BORDER, 8.0);
-    if module_id == HudWidgetKey::DebugToolbar {
+    if module_id == HudWidgetKey::InfoBar {
         return;
     }
     painter.fill_rect(
@@ -966,6 +964,7 @@ pub(crate) fn render_hud_scene(
     agent_list_view: Res<AgentListView>,
     conversation_list_view: Res<ConversationListView>,
     thread_view: Res<ThreadView>,
+    info_bar_view: Res<InfoBarView>,
     fonts: Res<Assets<VelloFont>>,
     startup_connect: Option<Res<StartupConnectState>>,
     mut scene: Single<&mut VelloScene2d, With<HudVectorSceneMarker>>,
@@ -980,6 +979,7 @@ pub(crate) fn render_hud_scene(
         agent_list_view: &agent_list_view,
         conversation_list_view: &conversation_list_view,
         thread_view: &thread_view,
+        info_bar_view: &info_bar_view,
     };
 
     for module_id in layout_state.iter_z_order() {

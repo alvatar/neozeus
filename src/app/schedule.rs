@@ -6,7 +6,8 @@ use crate::{
         handle_hud_pointer_input, render_hud_modal_scene, render_hud_scene,
         request_hud_composite_capture, request_hud_texture_capture, request_window_capture,
         save_hud_layout_if_dirty, setup_hud, setup_hud_widget_bloom, sync_hud_offscreen_compositor,
-        sync_hud_view_models, sync_hud_widget_bloom, sync_structural_hud_layout,
+        sync_hud_view_models, sync_hud_widget_bloom, sync_info_bar_view_model,
+        sync_structural_hud_layout,
     },
     input::{
         drag_terminal_view, focus_terminal_on_panel_click, handle_global_terminal_spawn_shortcut,
@@ -20,6 +21,7 @@ use crate::{
         sync_terminal_hud_surface, sync_terminal_panel_frames, sync_terminal_presentations,
         sync_terminal_projection_entities, sync_terminal_texture,
     },
+    usage::{refresh_usage_caches_if_needed, sync_usage_snapshot_from_cache},
     verification::run_verification_scenario,
 };
 
@@ -37,6 +39,7 @@ pub(crate) enum NeoZeusSet {
     HudInput,
     AppCommandDispatch,
     UseCaseExecution,
+    UsageRefresh,
     PresentTerminal,
     HudAnimation,
     HudRender,
@@ -79,7 +82,14 @@ pub(crate) fn configure_app_schedule(app: &mut App) {
         NeoZeusSet::UseCaseExecution
             .before(NeoZeusSet::RasterTerminal)
             .before(NeoZeusSet::PresentTerminal)
+            .before(NeoZeusSet::UsageRefresh)
             .before(NeoZeusSet::HudAnimation),
+    )
+    .configure_sets(
+        Update,
+        NeoZeusSet::UsageRefresh
+            .before(NeoZeusSet::PresentTerminal)
+            .before(NeoZeusSet::HudRender),
     )
     .configure_sets(
         Update,
@@ -142,6 +152,16 @@ pub(crate) fn configure_app_schedule(app: &mut App) {
         (handle_hud_pointer_input, handle_hud_module_shortcuts).in_set(NeoZeusSet::HudInput),
     )
     .add_systems(Update, sync_hud_view_models.before(NeoZeusSet::HudRender))
+    .add_systems(
+        Update,
+        (
+            refresh_usage_caches_if_needed,
+            sync_usage_snapshot_from_cache,
+            sync_info_bar_view_model,
+        )
+            .chain()
+            .in_set(NeoZeusSet::UsageRefresh),
+    )
     .add_systems(
         Update,
         sync_agents_from_terminals.in_set(NeoZeusSet::AppCommandDispatch),

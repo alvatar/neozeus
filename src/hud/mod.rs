@@ -31,13 +31,16 @@ pub(crate) use render::{
 };
 pub(crate) use setup::{hud_needs_redraw, setup_hud, sync_structural_hud_layout};
 pub(crate) use state::{
-    AgentListUiState, ConversationListUiState, DebugToolbarUiState, HudInputCaptureState,
-    HudLayoutState, HudRect, TerminalVisibilityPolicy, TerminalVisibilityState, ThreadPaneUiState,
+    AgentListUiState, ConversationListUiState, HudInputCaptureState, HudLayoutState, HudRect,
+    InfoBarUiState, TerminalVisibilityPolicy, TerminalVisibilityState, ThreadPaneUiState,
 };
 pub(crate) use view_models::{
-    sync_hud_view_models, AgentListView, ComposerView, ConversationListView, DebugToolbarView,
-    ThreadView,
+    sync_hud_view_models, sync_info_bar_view_model, AgentListView, ComposerView,
+    ConversationListView, InfoBarView, ThreadView,
 };
+
+#[cfg(test)]
+pub(crate) use view_models::UsageBarView;
 pub(crate) use widgets::HudWidgetKey;
 
 #[cfg(test)]

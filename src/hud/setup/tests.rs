@@ -75,7 +75,7 @@ fn sync_structural_hud_layout_pins_info_bar_and_docks_agent_list_below() {
     let mut world = World::default();
     let mut hud_state = HudState::default();
     hud_state.insert(
-        HudWidgetKey::DebugToolbar,
+        HudWidgetKey::InfoBar,
         crate::hud::default_hud_module_instance(&crate::hud::HUD_MODULE_DEFINITIONS[0]),
     );
     hud_state.insert(
@@ -106,7 +106,7 @@ fn sync_structural_hud_layout_pins_info_bar_and_docks_agent_list_below() {
     };
     let hud_state = snapshot_test_hud_state(&world);
     let info_bar = hud_state
-        .get(HudWidgetKey::DebugToolbar)
+        .get(HudWidgetKey::InfoBar)
         .expect("info bar should exist");
     let agent_list = hud_state
         .get(HudWidgetKey::AgentList)
@@ -157,4 +157,38 @@ fn disabled_hud_module_still_requests_redraw_while_fading_out() {
     assert!(!module.shell.enabled);
     assert!(module.shell.is_animating());
     assert!(hud_needs_redraw(&state.layout_state()));
+}
+
+/// Verifies that disabling the info bar removes the top structural inset from the docked agent
+/// list.
+#[test]
+fn sync_structural_hud_layout_removes_header_inset_when_info_bar_is_disabled() {
+    let mut world = World::default();
+    let mut hud_state = HudState::default();
+    hud_state.insert(
+        HudWidgetKey::InfoBar,
+        crate::hud::default_hud_module_instance(&crate::hud::HUD_MODULE_DEFINITIONS[0]),
+    );
+    hud_state.insert(
+        HudWidgetKey::AgentList,
+        crate::hud::default_hud_module_instance(&crate::hud::HUD_MODULE_DEFINITIONS[1]),
+    );
+    hud_state.set_module_enabled(HudWidgetKey::InfoBar, false);
+    insert_test_hud_state(&mut world, hud_state);
+    world.spawn((
+        Window {
+            resolution: (1400, 900).into(),
+            ..default()
+        },
+        PrimaryWindow,
+    ));
+
+    world.run_system_once(sync_structural_hud_layout).unwrap();
+
+    let hud_state = snapshot_test_hud_state(&world);
+    let agent_list = hud_state
+        .get(HudWidgetKey::AgentList)
+        .expect("agent list should exist");
+    assert_eq!(agent_list.shell.current_rect.y, 0.0);
+    assert_eq!(agent_list.shell.current_rect.h, 900.0);
 }

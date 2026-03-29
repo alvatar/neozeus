@@ -1721,9 +1721,9 @@ fn clicking_hud_does_not_hide_active_terminal() {
         w: 100.0,
         h: 100.0,
     };
-    hud_state.insert_default_module(crate::hud::HudWidgetKey::DebugToolbar);
+    hud_state.insert_default_module(crate::hud::HudWidgetKey::InfoBar);
     hud_state.set_module_shell_state(
-        crate::hud::HudWidgetKey::DebugToolbar,
+        crate::hud::HudWidgetKey::InfoBar,
         true,
         rect,
         rect,

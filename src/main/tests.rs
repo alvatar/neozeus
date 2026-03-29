@@ -14,8 +14,8 @@ use crate::{
         AgentTaskStore, ConversationPersistenceState, ConversationStore, MessageTransportAdapter,
     },
     hud::{
-        AgentListView, ComposerView, ConversationListView, DebugToolbarView, HudInputCaptureState,
-        HudLayoutState, HudModalState, ThreadView,
+        AgentListView, ComposerView, ConversationListView, HudInputCaptureState, HudLayoutState,
+        HudModalState, InfoBarView, ThreadView,
     },
     terminals::{
         AttachedDaemonSession, DaemonSessionInfo, TerminalBridge, TerminalCommand,
@@ -108,7 +108,7 @@ pub(super) fn insert_default_hud_resources(world: &mut World) {
     world.insert_resource(HudLayoutState::default());
     world.insert_resource(crate::hud::AgentListUiState::default());
     world.insert_resource(crate::hud::ConversationListUiState::default());
-    world.insert_resource(crate::hud::DebugToolbarUiState);
+    world.insert_resource(crate::hud::InfoBarUiState);
     world.insert_resource(crate::hud::ThreadPaneUiState);
     if !world.contains_resource::<AppSessionState>() {
         world.insert_resource(AppSessionState::default());
@@ -126,8 +126,14 @@ pub(super) fn insert_default_hud_resources(world: &mut World) {
     if !world.contains_resource::<ComposerView>() {
         world.insert_resource(ComposerView::default());
     }
-    if !world.contains_resource::<DebugToolbarView>() {
-        world.insert_resource(DebugToolbarView::default());
+    if !world.contains_resource::<InfoBarView>() {
+        world.insert_resource(InfoBarView::default());
+    }
+    if !world.contains_resource::<crate::usage::UsageSnapshot>() {
+        world.insert_resource(crate::usage::UsageSnapshot::default());
+    }
+    if !world.contains_resource::<crate::usage::UsagePersistenceState>() {
+        world.insert_resource(crate::usage::default_usage_persistence_state());
     }
     if !world.contains_resource::<crate::terminals::TerminalFocusState>() {
         world.insert_resource(crate::terminals::TerminalFocusState::default());
@@ -229,8 +235,8 @@ pub(super) fn insert_hud_resources(
     if !world.contains_resource::<crate::hud::ConversationListUiState>() {
         world.insert_resource(crate::hud::ConversationListUiState::default());
     }
-    if !world.contains_resource::<crate::hud::DebugToolbarUiState>() {
-        world.insert_resource(crate::hud::DebugToolbarUiState);
+    if !world.contains_resource::<crate::hud::InfoBarUiState>() {
+        world.insert_resource(crate::hud::InfoBarUiState);
     }
     if !world.contains_resource::<crate::hud::ThreadPaneUiState>() {
         world.insert_resource(crate::hud::ThreadPaneUiState);
@@ -290,8 +296,14 @@ pub(super) fn insert_test_hud_state(world: &mut World, hud_state: crate::hud::Hu
     if !world.contains_resource::<ComposerView>() {
         world.insert_resource(ComposerView::default());
     }
-    if !world.contains_resource::<DebugToolbarView>() {
-        world.insert_resource(DebugToolbarView::default());
+    if !world.contains_resource::<InfoBarView>() {
+        world.insert_resource(InfoBarView::default());
+    }
+    if !world.contains_resource::<crate::usage::UsageSnapshot>() {
+        world.insert_resource(crate::usage::UsageSnapshot::default());
+    }
+    if !world.contains_resource::<crate::usage::UsagePersistenceState>() {
+        world.insert_resource(crate::usage::default_usage_persistence_state());
     }
     if !world.contains_resource::<crate::terminals::TerminalFocusState>() {
         world.insert_resource(crate::terminals::TerminalFocusState::default());

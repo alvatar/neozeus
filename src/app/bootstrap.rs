@@ -18,6 +18,7 @@ use crate::{
         TerminalFontState, TerminalGlyphCache, TerminalManager, TerminalPointerState,
         TerminalPresentationStore, TerminalRuntimeSpawner, TerminalViewState,
     },
+    usage::{default_usage_persistence_state, UsageSnapshot},
     verification::{AutoVerifyConfig, VerificationScenarioConfig},
 };
 
@@ -471,7 +472,7 @@ fn configure_app(app: &mut App) -> Result<(), String> {
         .insert_resource(crate::hud::HudLayoutState::default())
         .insert_resource(crate::hud::AgentListUiState::default())
         .insert_resource(crate::hud::ConversationListUiState::default())
-        .insert_resource(crate::hud::DebugToolbarUiState)
+        .insert_resource(crate::hud::InfoBarUiState)
         .insert_resource(crate::hud::ThreadPaneUiState)
         .insert_resource(crate::hud::HudInputCaptureState::default())
         .insert_resource(HudPersistenceState::default())
@@ -489,7 +490,9 @@ fn configure_app(app: &mut App) -> Result<(), String> {
         .insert_resource(ConversationListView::default())
         .insert_resource(ThreadView::default())
         .insert_resource(ComposerView::default())
-        .insert_resource(crate::hud::DebugToolbarView::default())
+        .insert_resource(crate::hud::InfoBarView::default())
+        .insert_resource(UsageSnapshot::default())
+        .insert_resource(default_usage_persistence_state())
         .insert_resource(TerminalVisibilityState::default())
         .insert_resource(crate::startup::StartupLoadingState::default())
         .insert_resource(crate::startup::StartupConnectState::default())
