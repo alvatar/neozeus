@@ -80,6 +80,35 @@ fn pending_runtime_spawner_becomes_ready_when_daemon_is_installed() {
     assert!(spawner.is_ready());
 }
 
+/// Verifies that setup installs the deferred background-connect receiver when the runtime is not yet ready.
+#[test]
+fn setup_scene_starts_background_connect_when_runtime_is_pending() {
+    let mut world = World::default();
+    world.insert_resource(crate::terminals::TerminalManager::default());
+    world.insert_resource(crate::terminals::TerminalFocusState::default());
+    world.insert_resource(crate::agents::AgentCatalog::default());
+    world.insert_resource(crate::agents::AgentRuntimeIndex::default());
+    world.insert_resource(crate::app::AppSessionState::default());
+    world.insert_resource(crate::conversations::ConversationStore::default());
+    world.insert_resource(crate::conversations::ConversationPersistenceState::default());
+    world.insert_resource(TerminalRuntimeSpawner::pending_headless());
+    world.insert_resource(crate::terminals::TerminalSessionPersistenceState::default());
+    world.insert_resource(crate::terminals::TerminalNotesState::default());
+    world.insert_resource(crate::hud::HudInputCaptureState::default());
+    world.insert_resource(crate::hud::TerminalVisibilityState::default());
+    world.insert_resource(crate::terminals::TerminalViewState::default());
+    world.insert_resource(crate::startup::StartupLoadingState::default());
+    world.insert_resource(StartupConnectState::default());
+    world.insert_resource(Time::<()>::default());
+    world.init_resource::<Messages<RequestRedraw>>();
+
+    world.run_system_once(crate::startup::setup_scene).unwrap();
+
+    let startup_connect = world.resource::<StartupConnectState>();
+    assert_eq!(startup_connect.phase(), StartupConnectPhase::Connecting);
+    assert!(startup_connect.has_receiver());
+}
+
 /// Verifies that startup connecting advances to restoring when background connect completes.
 #[test]
 fn startup_connecting_advances_to_restoring_when_background_connect_completes() {
