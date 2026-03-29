@@ -129,6 +129,9 @@ pub(super) fn insert_default_hud_resources(world: &mut World) {
     if !world.contains_resource::<InfoBarView>() {
         world.insert_resource(InfoBarView::default());
     }
+    if !world.contains_resource::<crate::agents::AgentStatusStore>() {
+        world.insert_resource(crate::agents::AgentStatusStore::default());
+    }
     if !world.contains_resource::<crate::usage::UsageSnapshot>() {
         world.insert_resource(crate::usage::UsageSnapshot::default());
     }
@@ -204,6 +207,7 @@ pub(super) fn insert_terminal_manager_resources(
                     focused: active_agent == Some(agent_id),
                     has_tasks: false,
                     interactive: true,
+                    status: crate::agents::AgentStatus::Unknown,
                 })
                 .collect::<Vec<_>>();
             (active_agent, rows)

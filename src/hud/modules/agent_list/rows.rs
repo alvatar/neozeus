@@ -1,4 +1,7 @@
-use crate::{agents::AgentId, terminals::TerminalId};
+use crate::{
+    agents::{AgentId, AgentStatus},
+    terminals::TerminalId,
+};
 
 use super::super::super::{
     state::{HudRect, HUD_MODULE_PADDING, HUD_ROW_HEIGHT},
@@ -35,6 +38,7 @@ pub(in crate::hud) struct AgentRow {
     pub(in crate::hud) hovered: bool,
     pub(in crate::hud) has_tasks: bool,
     pub(in crate::hud) interactive: bool,
+    pub(in crate::hud) status: AgentStatus,
     pub(in crate::hud) dragging: bool,
 }
 
@@ -141,6 +145,7 @@ pub(in crate::hud) fn projected_agent_rows(
                 hovered: hovered_agent == Some(row.agent_id),
                 has_tasks: row.has_tasks,
                 interactive: row.interactive,
+                status: row.status,
                 dragging: false,
             })
             .collect();
@@ -182,6 +187,7 @@ pub(in crate::hud) fn projected_agent_rows(
             hovered: hovered_agent == Some(row.agent_id),
             has_tasks: row.has_tasks,
             interactive: row.interactive,
+            status: row.status,
             dragging: false,
         });
     }
@@ -201,6 +207,7 @@ pub(in crate::hud) fn projected_agent_rows(
         hovered: hovered_agent == Some(dragged_row.agent_id),
         has_tasks: dragged_row.has_tasks,
         interactive: dragged_row.interactive,
+        status: dragged_row.status,
         dragging: true,
     });
 

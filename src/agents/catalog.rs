@@ -143,6 +143,11 @@ impl AgentCatalog {
             .map(|record| record.label.as_str())
     }
 
+    /// Returns the retained kind metadata for one agent.
+    pub(crate) fn kind(&self, agent_id: AgentId) -> Option<AgentKind> {
+        self.agents.get(&agent_id).map(|record| record.kind)
+    }
+
     /// Iterates agents in current user-defined display order.
     pub(crate) fn iter(&self) -> impl Iterator<Item = (AgentId, &str)> {
         self.order.iter().copied().filter_map(|agent_id| {

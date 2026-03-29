@@ -1,4 +1,5 @@
 use crate::{
+    agents::sync_agent_status,
     app::save_app_state_if_dirty,
     conversations::{save_conversations_if_dirty, sync_task_notes_projection},
     hud::{
@@ -121,7 +122,11 @@ pub(crate) fn configure_app_schedule(app: &mut App) {
     )
     .add_systems(
         Update,
-        crate::terminals::poll_terminal_snapshots.in_set(NeoZeusSet::PollTerminal),
+        (
+            crate::terminals::poll_terminal_snapshots,
+            sync_agent_status.after(crate::terminals::poll_terminal_snapshots),
+        )
+            .in_set(NeoZeusSet::PollTerminal),
     )
     .add_systems(
         Update,

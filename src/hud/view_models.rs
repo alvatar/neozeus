@@ -1,5 +1,5 @@
 use crate::{
-    agents::{AgentCatalog, AgentId, AgentRuntimeIndex},
+    agents::{AgentCatalog, AgentId, AgentRuntimeIndex, AgentStatus, AgentStatusStore},
     app::AppSessionState,
     conversations::{AgentTaskStore, ConversationStore, MessageDeliveryState},
     terminals::TerminalManager,
@@ -16,6 +16,7 @@ pub(crate) struct AgentListRowView {
     pub(crate) focused: bool,
     pub(crate) has_tasks: bool,
     pub(crate) interactive: bool,
+    pub(crate) status: AgentStatus,
 }
 
 #[derive(Resource, Default, Clone, Debug, PartialEq, Eq)]
@@ -107,6 +108,7 @@ pub(crate) fn sync_hud_view_models(
     terminal_manager: Res<TerminalManager>,
     task_store: Res<AgentTaskStore>,
     conversations: Res<ConversationStore>,
+    status_store: Res<AgentStatusStore>,
     mut agent_list: ResMut<AgentListView>,
     mut conversation_list: ResMut<ConversationListView>,
     mut thread_view: ResMut<ThreadView>,
@@ -129,6 +131,7 @@ pub(crate) fn sync_hud_view_models(
                     .text(agent_id)
                     .is_some_and(|text| !text.trim().is_empty()),
                 interactive,
+                status: status_store.status(agent_id),
             }
         })
         .collect();

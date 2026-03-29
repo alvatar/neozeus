@@ -1,3 +1,5 @@
+use crate::agents::AgentStatus;
+
 use super::super::super::render::{apply_alpha, HudPainter, HudRenderInputs};
 use super::super::super::state::{AgentListUiState, HudRect, HUD_MODULE_PADDING};
 use bevy::prelude::Vec2;
@@ -38,6 +40,7 @@ const EVA_EMISSIVE_RED: peniko::Color = peniko::Color::from_rgba8(
 );
 const TASK_RED: peniko::Color = peniko::Color::from_rgba8(255, 24, 24, 255);
 const DISCONNECTED_RED: peniko::Color = peniko::Color::from_rgba8(160, 34, 24, 255);
+const WORKING_GREEN: peniko::Color = peniko::Color::from_rgba8(82, 173, 112, 255);
 
 #[allow(
     clippy::too_many_arguments,
@@ -119,6 +122,37 @@ fn draw_left_rail(painter: &mut HudPainter, content_rect: HudRect) {
     }
 }
 
+fn agent_label_color(status: AgentStatus, focused: bool, dragging: bool) -> peniko::Color {
+    if dragging {
+        EVA_CYAN
+    } else if status == AgentStatus::Working {
+        WORKING_GREEN
+    } else if focused {
+        EVA_ORANGE_BRIGHT
+    } else {
+        EVA_ORANGE
+    }
+}
+
+fn agent_row_stroke(
+    status: AgentStatus,
+    focused: bool,
+    hovered: bool,
+    dragging: bool,
+) -> peniko::Color {
+    if dragging {
+        EVA_CYAN
+    } else if status == AgentStatus::Working {
+        WORKING_GREEN
+    } else if focused {
+        EVA_SELECTED
+    } else if hovered {
+        EVA_ORANGE_BRIGHT
+    } else {
+        EVA_ORANGE
+    }
+}
+
 /// Renders content.
 pub(crate) fn render_content(
     state: &AgentListUiState,
@@ -186,15 +220,7 @@ pub(crate) fn render_content(
         let main_rect = agent_row_rect(row.rect, AgentListRowSection::Main);
         let marker_rect = agent_row_rect(row.rect, AgentListRowSection::Marker);
         let accent_rect = agent_row_rect(row.rect, AgentListRowSection::Accent);
-        let stroke = if row.dragging {
-            EVA_CYAN
-        } else if row.focused {
-            EVA_SELECTED
-        } else if row.hovered {
-            EVA_ORANGE_BRIGHT
-        } else {
-            EVA_ORANGE
-        };
+        let stroke = agent_row_stroke(row.status, row.focused, row.hovered, row.dragging);
         let fill = if row.dragging {
             apply_alpha(EVA_BLACK, 0.98)
         } else if row.focused {
@@ -221,16 +247,40 @@ pub(crate) fn render_content(
             Vec2::new(main_rect.x + 12.0, main_rect.y + 2.0),
             &row.display_label,
             16.0,
-            if row.dragging {
-                EVA_CYAN
-            } else if row.focused {
-                EVA_ORANGE_BRIGHT
-            } else {
-                EVA_ORANGE
-            },
+            agent_label_color(row.status, row.focused, row.dragging),
             VelloTextAnchor::TopLeft,
             0.76,
             1.14,
+        );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{agent_label_color, agent_row_stroke, EVA_CYAN, WORKING_GREEN};
+    use crate::agents::AgentStatus;
+
+    #[test]
+    fn working_agent_rows_use_green_label_and_stroke() {
+        assert_eq!(
+            agent_label_color(AgentStatus::Working, false, false),
+            WORKING_GREEN
+        );
+        assert_eq!(
+            agent_row_stroke(AgentStatus::Working, false, false, false),
+            WORKING_GREEN
+        );
+    }
+
+    #[test]
+    fn dragging_still_overrides_working_green() {
+        assert_eq!(
+            agent_label_color(AgentStatus::Working, false, true),
+            EVA_CYAN
+        );
+        assert_eq!(
+            agent_row_stroke(AgentStatus::Working, true, true, true),
+            EVA_CYAN
         );
     }
 }

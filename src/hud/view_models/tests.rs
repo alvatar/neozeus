@@ -3,7 +3,7 @@ use super::{
     ConversationListView, InfoBarView, ThreadView,
 };
 use crate::{
-    agents::{AgentCatalog, AgentRuntimeIndex},
+    agents::{AgentCatalog, AgentRuntimeIndex, AgentStatus, AgentStatusStore},
     app::AppSessionState,
     conversations::{AgentTaskStore, ConversationStore, MessageAuthor, MessageDeliveryState},
     tests::{insert_terminal_manager_resources, test_bridge},
@@ -65,6 +65,7 @@ fn sync_hud_view_models_derives_agent_rows_and_threads() {
     world.insert_resource(ConversationListView::default());
     world.insert_resource(ThreadView::default());
     world.insert_resource(ComposerView::default());
+    world.insert_resource(AgentStatusStore::default());
     insert_terminal_manager_resources(&mut world, manager);
 
     world.run_system_once(sync_hud_view_models).unwrap();
@@ -74,6 +75,7 @@ fn sync_hud_view_models_derives_agent_rows_and_threads() {
     assert_eq!(agent_list.rows[0].label, "alpha");
     assert!(agent_list.rows[0].focused);
     assert!(agent_list.rows[0].has_tasks);
+    assert_eq!(agent_list.rows[0].status, AgentStatus::Unknown);
 
     let thread = world.resource::<ThreadView>();
     let rows = thread.message_rows();
@@ -84,6 +86,52 @@ fn sync_hud_view_models_derives_agent_rows_and_threads() {
     assert!(composer.visible);
     assert_eq!(composer.title.as_deref(), Some("Message alpha"));
     assert_eq!(composer.text, "hello");
+}
+
+#[test]
+fn sync_hud_view_models_carries_agent_working_status_into_rows() {
+    let (bridge, _) = test_bridge();
+    let mut manager = crate::terminals::TerminalManager::default();
+    let terminal_id = manager.create_terminal(bridge);
+    manager
+        .get_mut(terminal_id)
+        .expect("terminal should exist")
+        .snapshot
+        .surface = Some({
+        let mut surface = crate::tests::surface_with_text(8, 120, 0, "header");
+        surface.set_text_cell(1, 3, "⠋ Working...");
+        surface
+    });
+
+    let mut catalog = AgentCatalog::default();
+    let agent_id = catalog.create_agent(
+        Some("alpha".into()),
+        crate::agents::AgentKind::Terminal,
+        crate::agents::AgentCapabilities::terminal_defaults(),
+    );
+    let mut runtime_index = AgentRuntimeIndex::default();
+    runtime_index.link_terminal(agent_id, terminal_id, "session-1".into(), None);
+
+    let mut world = World::default();
+    world.insert_resource(catalog);
+    world.insert_resource(runtime_index);
+    world.insert_resource(AppSessionState::default());
+    world.insert_resource(AgentTaskStore::default());
+    world.insert_resource(ConversationStore::default());
+    world.insert_resource(AgentListView::default());
+    world.insert_resource(ConversationListView::default());
+    world.insert_resource(ThreadView::default());
+    world.insert_resource(ComposerView::default());
+    world.insert_resource(AgentStatusStore::default());
+    insert_terminal_manager_resources(&mut world, manager);
+
+    world
+        .run_system_once(crate::agents::sync_agent_status)
+        .unwrap();
+    world.run_system_once(sync_hud_view_models).unwrap();
+
+    let agent_list = world.resource::<AgentListView>();
+    assert_eq!(agent_list.rows[0].status, AgentStatus::Working);
 }
 
 fn temp_path(name: &str) -> PathBuf {
