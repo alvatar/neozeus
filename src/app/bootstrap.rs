@@ -382,7 +382,6 @@ fn configure_app(app: &mut App) -> Result<(), String> {
     );
     let mut default_plugins = DefaultPlugins
         .build()
-        .disable::<bevy::pbr::PbrPlugin>()
         .disable::<bevy::gizmos::GizmoPlugin>()
         .set(RenderPlugin {
             render_creation: WgpuSettings {
