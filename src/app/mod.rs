@@ -12,7 +12,7 @@ pub(crate) use commands::{
     WidgetCommand,
 };
 pub(crate) use session::{
-    AppSessionState, CreateAgentDialogField, CreateAgentKind, CwdCompletionItem, TextFieldState,
+    AppSessionState, CreateAgentDialogField, CreateAgentKind, TextFieldState,
 };
 pub(crate) use use_cases::restore_app;
 

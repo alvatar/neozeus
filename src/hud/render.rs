@@ -520,61 +520,6 @@ fn draw_single_line_dialog_field(
     }
 }
 
-/// Draws the cwd completion dropdown below the active cwd field.
-fn draw_cwd_completion_dropdown(
-    painter: &mut HudPainter,
-    rect: HudRect,
-    items: &[crate::app::CwdCompletionItem],
-    selected: usize,
-    preview_active: bool,
-    max_height: f32,
-) {
-    let row_h = 24.0;
-    let max_rows = ((max_height / row_h).floor() as usize).clamp(0, 6);
-    if items.is_empty() || max_rows == 0 {
-        return;
-    }
-    let visible = items.len().min(max_rows);
-    let panel = HudRect {
-        x: rect.x,
-        y: rect.y + rect.h + 6.0,
-        w: rect.w,
-        h: visible as f32 * row_h,
-    };
-    painter.fill_rect(panel, HudColors::BUTTON, 4.0);
-    painter.stroke_rect(panel, HudColors::BUTTON_BORDER, 4.0);
-    for (index, item) in items.iter().take(visible).enumerate() {
-        let row_rect = HudRect {
-            x: panel.x,
-            y: panel.y + index as f32 * row_h,
-            w: panel.w,
-            h: row_h,
-        };
-        if index == selected {
-            painter.fill_rect(
-                row_rect,
-                if preview_active {
-                    HudColors::ROW_FOCUSED
-                } else {
-                    HudColors::ROW_HOVERED
-                },
-                0.0,
-            );
-        }
-        painter.label(
-            Vec2::new(row_rect.x + 10.0, row_rect.y + 5.0),
-            &item.display,
-            14.0,
-            if index == selected {
-                HudColors::TEXT
-            } else {
-                HudColors::TEXT_MUTED
-            },
-            VelloTextAnchor::TopLeft,
-        );
-    }
-}
-
 /// Draws the centered create-agent dialog modal.
 fn draw_create_agent_dialog(
     painter: &mut HudPainter,
@@ -677,19 +622,6 @@ fn draw_create_agent_dialog(
         folder_rect,
         dialog.focus == CreateAgentDialogField::StartingFolder,
     );
-
-    if dialog.focus == CreateAgentDialogField::StartingFolder {
-        if let Some(completion) = dialog.cwd_field.completion.as_ref() {
-            draw_cwd_completion_dropdown(
-                painter,
-                folder_rect,
-                &completion.items,
-                completion.selected,
-                completion.preview_active,
-                (create_rect.y - 12.0 - (folder_rect.y + folder_rect.h + 6.0)).max(0.0),
-            );
-        }
-    }
 
     draw_dialog_button_row(&mut *painter, [(create_rect, "Create")]);
     if dialog.focus == CreateAgentDialogField::CreateButton {
