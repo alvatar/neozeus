@@ -1,5 +1,5 @@
 /// Returns the previous UTF-8 character boundary before `index`, if any.
-pub(crate) fn previous_char_boundary(text: &str, index: usize) -> Option<usize> {
+pub fn previous_char_boundary(text: &str, index: usize) -> Option<usize> {
     if index == 0 {
         return None;
     }
@@ -10,7 +10,7 @@ pub(crate) fn previous_char_boundary(text: &str, index: usize) -> Option<usize> 
 }
 
 /// Returns the next UTF-8 character boundary after `index`, if any.
-pub(crate) fn next_char_boundary(text: &str, index: usize) -> Option<usize> {
+pub fn next_char_boundary(text: &str, index: usize) -> Option<usize> {
     if index >= text.len() {
         return None;
     }
@@ -18,7 +18,7 @@ pub(crate) fn next_char_boundary(text: &str, index: usize) -> Option<usize> {
 }
 
 /// Moves backward to the start of the preceding word according to `is_word_char`.
-pub(crate) fn word_backward_boundary(
+pub fn word_backward_boundary(
     text: &str,
     cursor: usize,
     is_word_char: impl Fn(char) -> bool,
@@ -40,7 +40,7 @@ pub(crate) fn word_backward_boundary(
 }
 
 /// Moves forward to the end of the next word according to `is_word_char`.
-pub(crate) fn word_forward_boundary(
+pub fn word_forward_boundary(
     text: &str,
     cursor: usize,
     is_word_char: impl Fn(char) -> bool,

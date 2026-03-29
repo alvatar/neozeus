@@ -1,24 +1,24 @@
 use super::text_escape::{unquote_escaped_string, EXTENDED_QUOTED_STRING_ESCAPES};
 use std::{env, path::PathBuf};
 
-pub(crate) const APP_STATE_FILENAME: &str = "neozeus-state.v1";
-pub(crate) const APP_STATE_VERSION_V1: &str = "neozeus state version 1";
+pub const APP_STATE_FILENAME: &str = "neozeus-state.v1";
+pub const APP_STATE_VERSION_V1: &str = "neozeus state version 1";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct PersistedAgentState {
-    pub(crate) session_name: String,
-    pub(crate) label: Option<String>,
-    pub(crate) order_index: u64,
-    pub(crate) last_focused: bool,
+pub struct PersistedAgentState {
+    pub session_name: String,
+    pub label: Option<String>,
+    pub order_index: u64,
+    pub last_focused: bool,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub(crate) struct PersistedAppState {
-    pub(crate) agents: Vec<PersistedAgentState>,
+pub struct PersistedAppState {
+    pub agents: Vec<PersistedAgentState>,
 }
 
 /// Resolves the app-state persistence file path from explicit directory inputs.
-pub(crate) fn resolve_app_state_path_with(
+pub fn resolve_app_state_path_with(
     xdg_state_home: Option<&str>,
     home: Option<&str>,
     xdg_config_home: Option<&str>,
@@ -48,7 +48,7 @@ pub(crate) fn resolve_app_state_path_with(
 }
 
 /// Resolves the live app-state persistence path from the current environment.
-pub(crate) fn resolve_app_state_path() -> Option<PathBuf> {
+pub fn resolve_app_state_path() -> Option<PathBuf> {
     resolve_app_state_path_with(
         env::var("XDG_STATE_HOME").ok().as_deref(),
         env::var("HOME").ok().as_deref(),
@@ -57,7 +57,7 @@ pub(crate) fn resolve_app_state_path() -> Option<PathBuf> {
 }
 
 /// Parses version-1 persisted app-state text.
-pub(crate) fn parse_persisted_app_state(text: &str) -> PersistedAppState {
+pub fn parse_persisted_app_state(text: &str) -> PersistedAppState {
     let version_line = text
         .lines()
         .find(|line| !line.trim().is_empty())

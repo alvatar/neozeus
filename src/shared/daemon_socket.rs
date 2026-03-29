@@ -3,7 +3,7 @@ use std::{env, path::PathBuf};
 const DAEMON_SOCKET_FILENAME: &str = "daemon.v2.sock";
 
 /// Resolves the daemon socket path from explicit override/runtime/home inputs.
-pub(crate) fn resolve_daemon_socket_path_with(
+pub fn resolve_daemon_socket_path_with(
     override_path: Option<&str>,
     xdg_runtime_dir: Option<&str>,
     home: Option<&str>,
@@ -34,7 +34,7 @@ pub(crate) fn resolve_daemon_socket_path_with(
 }
 
 /// Resolves the daemon socket path from the real process environment.
-pub(crate) fn resolve_daemon_socket_path() -> Option<PathBuf> {
+pub fn resolve_daemon_socket_path() -> Option<PathBuf> {
     resolve_daemon_socket_path_with(
         env::var("NEOZEUS_DAEMON_SOCKET_PATH").ok().as_deref(),
         env::var("XDG_RUNTIME_DIR").ok().as_deref(),

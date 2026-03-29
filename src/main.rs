@@ -6,7 +6,7 @@ mod conversations;
 mod dialogs;
 mod hud;
 mod input;
-mod shared;
+pub use neozeus::shared;
 mod startup;
 mod terminals;
 mod usage;
