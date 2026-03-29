@@ -296,3 +296,21 @@ impl HudState {
         }
     }
 }
+
+/// Verifies that the extracted agent-list drag state can be reset independently of the rest of the
+/// retained UI state.
+#[test]
+fn agent_list_drag_state_clear_resets_transient_fields() {
+    let mut drag = AgentListDragState {
+        pressed_agent: Some(crate::agents::AgentId(1)),
+        press_origin: Some(Vec2::new(5.0, 7.0)),
+        dragging_agent: Some(crate::agents::AgentId(1)),
+        drag_cursor: Some(Vec2::new(11.0, 13.0)),
+        drag_grab_offset_y: 9.0,
+        last_reorder_index: Some(2),
+    };
+
+    drag.clear();
+
+    assert_eq!(drag, AgentListDragState::default());
+}

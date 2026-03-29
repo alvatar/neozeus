@@ -18,9 +18,9 @@ use crate::{
         task_dialog_action_buttons,
     },
     hud::{
-        handle_hud_module_shortcuts, handle_hud_pointer_input, AgentListUiState, AgentListView,
-        HudDragState, HudRect, HudState, HudWidgetKey, TerminalVisibilityPolicy,
-        TerminalVisibilityState,
+        handle_hud_module_shortcuts, handle_hud_pointer_input, AgentListDragState,
+        AgentListUiState, AgentListView, HudDragState, HudRect, HudState, HudWidgetKey,
+        TerminalVisibilityPolicy, TerminalVisibilityState,
     },
 };
 use bevy::{
@@ -756,12 +756,14 @@ fn releasing_pointer_without_cursor_clears_agent_drag_state() {
     world.insert_resource(AgentListUiState {
         scroll_offset: 0.0,
         hovered_agent: None,
-        pressed_agent: Some(crate::agents::AgentId(11)),
-        press_origin: Some(Vec2::new(10.0, 12.0)),
-        dragging_agent: Some(crate::agents::AgentId(11)),
-        drag_cursor: Some(Vec2::new(15.0, 20.0)),
-        drag_grab_offset_y: 6.0,
-        last_reorder_index: Some(2),
+        drag: AgentListDragState {
+            pressed_agent: Some(crate::agents::AgentId(11)),
+            press_origin: Some(Vec2::new(10.0, 12.0)),
+            dragging_agent: Some(crate::agents::AgentId(11)),
+            drag_cursor: Some(Vec2::new(15.0, 20.0)),
+            drag_grab_offset_y: 6.0,
+            last_reorder_index: Some(2),
+        },
     });
     {
         let buttons = &mut world.resource_mut::<ButtonInput<MouseButton>>();
@@ -774,12 +776,12 @@ fn releasing_pointer_without_cursor_clears_agent_drag_state() {
     let hud_state = snapshot_test_hud_state(&world);
     let agent_list_state = world.resource::<AgentListUiState>();
     assert!(hud_state.drag.is_none());
-    assert_eq!(agent_list_state.pressed_agent, None);
-    assert_eq!(agent_list_state.press_origin, None);
-    assert_eq!(agent_list_state.dragging_agent, None);
-    assert_eq!(agent_list_state.drag_cursor, None);
-    assert_eq!(agent_list_state.drag_grab_offset_y, 0.0);
-    assert_eq!(agent_list_state.last_reorder_index, None);
+    assert_eq!(agent_list_state.drag.pressed_agent, None);
+    assert_eq!(agent_list_state.drag.press_origin, None);
+    assert_eq!(agent_list_state.drag.dragging_agent, None);
+    assert_eq!(agent_list_state.drag.drag_cursor, None);
+    assert_eq!(agent_list_state.drag.drag_grab_offset_y, 0.0);
+    assert_eq!(agent_list_state.drag.last_reorder_index, None);
 }
 
 /// Verifies that HUD hit-testing returns the frontmost enabled module when rects overlap.
