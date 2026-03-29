@@ -4,10 +4,10 @@ use bevy::prelude::Vec2;
 use bevy_vello::{prelude::VelloTextAnchor, vello::peniko};
 
 use super::{
-    agent_row_rect, agent_rows, AgentListRowSection, AGENT_LIST_BLOOM_RED_B,
-    AGENT_LIST_BLOOM_RED_G, AGENT_LIST_BLOOM_RED_R, AGENT_LIST_BORDER_ORANGE_B,
-    AGENT_LIST_BORDER_ORANGE_G, AGENT_LIST_BORDER_ORANGE_R, AGENT_LIST_HEADER_HEIGHT,
-    AGENT_LIST_LEFT_RAIL_WIDTH,
+    agent_row_rect, projected_agent_rows, AgentListDragPreview, AgentListRowSection,
+    AGENT_LIST_BLOOM_RED_B, AGENT_LIST_BLOOM_RED_G, AGENT_LIST_BLOOM_RED_R,
+    AGENT_LIST_BORDER_ORANGE_B, AGENT_LIST_BORDER_ORANGE_G, AGENT_LIST_BORDER_ORANGE_R,
+    AGENT_LIST_HEADER_HEIGHT, AGENT_LIST_LEFT_RAIL_WIDTH,
 };
 
 const EVA_ORANGE: peniko::Color = peniko::Color::from_rgba8(
@@ -173,12 +173,30 @@ pub(crate) fn render_content(
         0.0,
     );
 
-    for row in agent_rows(
+    let drag_preview = match (
+        state.dragging_agent,
+        state.drag_cursor,
+        state.last_reorder_index,
+    ) {
+        (Some(agent_id), Some(cursor), Some(target_index)) => Some(AgentListDragPreview {
+            agent_id,
+            cursor_y: cursor.y,
+            grab_offset_y: state.drag_grab_offset_y,
+            target_index,
+        }),
+        _ => None,
+    };
+
+    let mut rows = projected_agent_rows(
         content_rect,
         state.scroll_offset,
         state.hovered_agent,
         inputs.agent_list_view,
-    ) {
+        drag_preview,
+    );
+    rows.sort_by_key(|row| row.dragging);
+
+    for row in rows {
         if row.rect.y + row.rect.h < content_rect.y || row.rect.y > content_rect.y + content_rect.h
         {
             continue;
@@ -187,14 +205,18 @@ pub(crate) fn render_content(
         let main_rect = agent_row_rect(row.rect, AgentListRowSection::Main);
         let marker_rect = agent_row_rect(row.rect, AgentListRowSection::Marker);
         let accent_rect = agent_row_rect(row.rect, AgentListRowSection::Accent);
-        let stroke = if row.focused {
+        let stroke = if row.dragging {
+            EVA_CYAN
+        } else if row.focused {
             EVA_SELECTED
         } else if row.hovered {
             EVA_ORANGE_BRIGHT
         } else {
             EVA_ORANGE
         };
-        let fill = if row.focused {
+        let fill = if row.dragging {
+            apply_alpha(EVA_BLACK, 0.98)
+        } else if row.focused {
             apply_alpha(EVA_BLACK, 0.94)
         } else if row.hovered {
             apply_alpha(EVA_BLACK, 0.92)
@@ -209,7 +231,7 @@ pub(crate) fn render_content(
             stroke,
             marker_fill(row.has_tasks, row.interactive),
         );
-        if row.focused {
+        if row.focused || row.dragging {
             painter.fill_rect(accent_rect, EVA_EMISSIVE_RED, 0.0);
         }
 
@@ -218,7 +240,9 @@ pub(crate) fn render_content(
             Vec2::new(main_rect.x + 12.0, main_rect.y + 2.0),
             &row.display_label,
             16.0,
-            if row.focused {
+            if row.dragging {
+                EVA_CYAN
+            } else if row.focused {
                 EVA_ORANGE_BRIGHT
             } else {
                 EVA_ORANGE

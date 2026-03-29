@@ -75,6 +75,8 @@ pub(crate) struct AgentListUiState {
     pub(crate) pressed_agent: Option<AgentId>,
     pub(crate) press_origin: Option<Vec2>,
     pub(crate) dragging_agent: Option<AgentId>,
+    pub(crate) drag_cursor: Option<Vec2>,
+    pub(crate) drag_grab_offset_y: f32,
     pub(crate) last_reorder_index: Option<usize>,
 }
 
