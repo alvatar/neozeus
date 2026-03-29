@@ -76,22 +76,6 @@ pub(crate) fn should_spawn_terminal_globally(
     !(ctrl || alt || super_key)
 }
 
-/// Decides whether a keyboard event means "spawn a shell terminal explicitly".
-///
-/// This binding is `Ctrl+Alt+z`. It is kept separate from the plain spawn shortcut so the input
-/// layer can distinguish between the app's default spawn behavior and the explicit shell-launch path.
-pub(crate) fn should_spawn_shell_terminal_globally(
-    event: &KeyboardInput,
-    keys: &ButtonInput<KeyCode>,
-) -> bool {
-    if event.state != ButtonState::Pressed || event.key_code != KeyCode::KeyZ {
-        return false;
-    }
-
-    let (ctrl, alt, super_key) = has_plain_modifiers(keys);
-    ctrl && alt && !super_key
-}
-
 /// Decides whether a keyboard event should kill the currently active terminal session.
 ///
 /// The shortcut is a plain `Ctrl+k` press. Like the other `should_*` helpers, this function only
@@ -119,11 +103,11 @@ pub(crate) fn should_exit_application(event: &KeyboardInput, keys: &ButtonInput<
     !(ctrl || alt || super_key)
 }
 
-/// Watches unfocused-by-modal keyboard input for the global terminal spawn shortcuts.
+/// Watches unfocused-by-modal keyboard input for the global create-agent shortcut.
 ///
 /// The system exits early whenever the primary window is unfocused or a HUD modal currently owns the
-/// keyboard. Otherwise it scans the frame's keyboard events and emits the first matching spawn
-/// intent, preferring the explicit shell-spawn binding over the plain spawn binding.
+/// keyboard. Otherwise it scans the frame's keyboard events and opens the create-agent dialog on the
+/// plain global spawn binding.
 pub(crate) fn handle_global_terminal_spawn_shortcut(
     mut messages: MessageReader<KeyboardInput>,
     keys: Res<ButtonInput<KeyCode>>,
@@ -138,11 +122,6 @@ pub(crate) fn handle_global_terminal_spawn_shortcut(
     }
 
     for event in messages.read() {
-        if should_spawn_shell_terminal_globally(event, &keys) {
-            app_session.create_agent_dialog.open(CreateAgentKind::Shell);
-            redraws.write(RequestRedraw);
-            break;
-        }
         if should_spawn_terminal_globally(event, &keys) {
             app_session.create_agent_dialog.open(CreateAgentKind::Agent);
             redraws.write(RequestRedraw);
