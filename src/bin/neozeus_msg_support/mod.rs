@@ -6,6 +6,12 @@ mod daemon_socket;
 #[cfg(test)]
 #[path = "../../shared/send_command.rs"]
 mod send_command;
+#[allow(
+    dead_code,
+    reason = "neozeus-msg currently reuses only the parse-side subset; phase 6 removes this path-shared module boundary"
+)]
+#[path = "../../shared/text_escape.rs"]
+mod text_escape;
 
 use self::{
     app_state_file::PersistedAppState,

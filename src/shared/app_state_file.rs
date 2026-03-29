@@ -1,3 +1,4 @@
+use super::text_escape::{unquote_escaped_string, EXTENDED_QUOTED_STRING_ESCAPES};
 use std::{env, path::PathBuf};
 
 pub(crate) const APP_STATE_FILENAME: &str = "neozeus-state.v1";
@@ -55,28 +56,6 @@ pub(crate) fn resolve_app_state_path() -> Option<PathBuf> {
     )
 }
 
-fn parse_quoted_string(value: &str) -> Option<String> {
-    let trimmed = value.trim();
-    let inner = trimmed.strip_prefix('"')?.strip_suffix('"')?;
-    let mut parsed = String::with_capacity(inner.len());
-    let mut chars = inner.chars();
-    while let Some(ch) = chars.next() {
-        if ch != '\\' {
-            parsed.push(ch);
-            continue;
-        }
-        match chars.next()? {
-            '\\' => parsed.push('\\'),
-            '"' => parsed.push('"'),
-            'n' => parsed.push('\n'),
-            'r' => parsed.push('\r'),
-            't' => parsed.push('\t'),
-            _ => return None,
-        }
-    }
-    Some(parsed)
-}
-
 /// Parses version-1 persisted app-state text.
 pub(crate) fn parse_persisted_app_state(text: &str) -> PersistedAppState {
     let version_line = text
@@ -132,8 +111,12 @@ pub(crate) fn parse_persisted_app_state(text: &str) -> PersistedAppState {
                     continue;
                 };
                 match key {
-                    "session_name" => session_name = parse_quoted_string(value),
-                    "label" => label = parse_quoted_string(value),
+                    "session_name" => {
+                        session_name = unquote_escaped_string(value, EXTENDED_QUOTED_STRING_ESCAPES)
+                    }
+                    "label" => {
+                        label = unquote_escaped_string(value, EXTENDED_QUOTED_STRING_ESCAPES)
+                    }
                     "order_index" => order_index = value.parse::<u64>().ok(),
                     "focused" => last_focused = value.parse::<u8>().ok().map(|flag| flag != 0),
                     _ => {}

@@ -59,14 +59,14 @@ fn conversation_persistence_roundtrips_messages_by_session_name() {
     let _ = store.push_message(
         conversation_id,
         MessageAuthor::User,
-        "hello\nworld".into(),
+        "hello\nworld \\\"quoted\\\"".into(),
         MessageDeliveryState::Delivered,
     );
     let _ = store.push_message(
         conversation_id,
         MessageAuthor::User,
-        "retry later".into(),
-        MessageDeliveryState::Failed("transport".into()),
+        "retry later \\\\ fallback".into(),
+        MessageDeliveryState::Failed("transport \"down\"".into()),
     );
     let mut runtime_index = AgentRuntimeIndex::default();
     runtime_index.link_terminal(

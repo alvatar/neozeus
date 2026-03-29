@@ -1,4 +1,9 @@
-use crate::agents::AgentRuntimeIndex;
+use crate::{
+    agents::AgentRuntimeIndex,
+    shared::text_escape::{
+        quote_escaped_string, unquote_escaped_string, BASIC_QUOTED_STRING_ESCAPES,
+    },
+};
 
 use super::{ConversationStore, MessageAuthor, MessageDeliveryState};
 use bevy::prelude::*;
@@ -72,44 +77,12 @@ pub(crate) fn resolve_conversations_path() -> Option<PathBuf> {
 
 /// Escapes one persisted conversation field for serialization.
 fn quote(value: &str) -> String {
-    let mut output = String::with_capacity(value.len() + 2);
-    output.push('"');
-    for ch in value.chars() {
-        match ch {
-            '\\' => output.push_str("\\\\"),
-            '"' => output.push_str("\\\""),
-            '\n' => output.push_str("\\n"),
-            _ => output.push(ch),
-        }
-    }
-    output.push('"');
-    output
+    quote_escaped_string(value, BASIC_QUOTED_STRING_ESCAPES)
 }
 
 /// Unescapes one persisted conversation field after parsing.
 fn unquote(value: &str) -> Option<String> {
-    // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
-    let inner = value.strip_prefix('"')?.strip_suffix('"')?;
-    let mut output = String::with_capacity(inner.len());
-    let mut escaped = false;
-    for ch in inner.chars() {
-        if escaped {
-            match ch {
-                '\\' => output.push('\\'),
-                '"' => output.push('"'),
-                'n' => output.push('\n'),
-                _ => return None,
-            }
-            escaped = false;
-            continue;
-        }
-        if ch == '\\' {
-            escaped = true;
-        } else {
-            output.push(ch);
-        }
-    }
-    (!escaped).then_some(output)
+    unquote_escaped_string(value, BASIC_QUOTED_STRING_ESCAPES)
 }
 
 /// Returns the persisted single-field code for a delivery state.
