@@ -146,12 +146,33 @@ fn daemon_socket_path_prefers_override_then_xdg_runtime_then_tmp_user() {
         Some("oracle"),
     )
     .expect("xdg runtime path should resolve");
-    assert_eq!(path, PathBuf::from("/run/user/1000/neozeus/daemon.sock"));
+    assert_eq!(path, PathBuf::from("/run/user/1000/neozeus/daemon.v2.sock"));
 
     let fallback =
         resolve_daemon_socket_path_with(None, None, Some("/home/alvatar"), Some("oracle"))
             .expect("tmp fallback should resolve");
-    assert!(fallback.ends_with("neozeus-oracle/daemon.sock"));
+    assert!(fallback.ends_with("neozeus-oracle/daemon.v2.sock"));
+}
+
+/// Verifies that the default daemon socket path is versioned so new clients do not attach to an
+/// older incompatible daemon left running from a previous build.
+#[test]
+fn daemon_socket_path_uses_versioned_filename() {
+    let resolved = resolve_daemon_socket_path_with(
+        None,
+        Some("/run/user/1000"),
+        Some("/home/alvatar"),
+        Some("oracle"),
+    )
+    .expect("socket path should resolve");
+    assert_eq!(
+        resolved.file_name().and_then(|name| name.to_str()),
+        Some("daemon.v2.sock")
+    );
+    assert_ne!(
+        resolved,
+        PathBuf::from("/run/user/1000/neozeus/daemon.sock")
+    );
 }
 
 /// Verifies representative client and server daemon protocol messages round-trip through the binary
@@ -240,6 +261,30 @@ fn daemon_create_attach_command_output_and_kill_roundtrip() {
     assert!(!sessions
         .iter()
         .any(|session| session.session_id == session_id));
+}
+
+/// Verifies that daemon-created sessions honor the requested initial working directory.
+#[test]
+fn daemon_create_session_honors_requested_cwd() {
+    let (_server, socket_path) = start_test_daemon("neozeus-daemon-cwd");
+    let client =
+        SocketTerminalDaemonClient::connect(&socket_path).expect("daemon client should connect");
+    let cwd = temp_dir("neozeus-daemon-session-cwd");
+    let session_id = client
+        .create_session(
+            PERSISTENT_SESSION_PREFIX,
+            Some(cwd.to_str().expect("cwd should be utf-8")),
+        )
+        .expect("daemon session should be created");
+    let attached = client
+        .attach_session(&session_id)
+        .expect("daemon session should attach");
+
+    client
+        .send_command(&session_id, TerminalCommand::SendCommand("pwd".into()))
+        .expect("pwd command should send");
+    let surface = wait_for_surface_containing(&attached.updates, cwd.to_str().unwrap());
+    assert!(surface_to_text(&surface).contains(cwd.to_str().unwrap()));
 }
 
 /// Verifies that daemon sessions are server-owned and remain attachable after one UI client drops
