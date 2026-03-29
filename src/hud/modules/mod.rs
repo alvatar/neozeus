@@ -19,6 +19,7 @@ pub(crate) use agent_list::{
     AGENT_LIST_BLOOM_RED_B, AGENT_LIST_BLOOM_RED_G, AGENT_LIST_BLOOM_RED_R,
     AGENT_LIST_BORDER_ORANGE_B, AGENT_LIST_BORDER_ORANGE_G, AGENT_LIST_BORDER_ORANGE_R,
 };
+pub(in crate::hud) use info_bar::{INFO_BAR_BACKGROUND, INFO_BAR_BORDER};
 
 #[allow(
     clippy::too_many_arguments,

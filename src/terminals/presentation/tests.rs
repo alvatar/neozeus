@@ -348,13 +348,13 @@ fn active_terminal_viewport_reserves_info_bar_header() {
 
     assert_eq!(
         active_terminal_viewport(&window, &hud_state.layout_state()),
-        (Vec2::new(1100.0, 860.0), Vec2::new(150.0, -20.0))
+        (Vec2::new(1100.0, 840.0), Vec2::new(150.0, -30.0))
     );
 }
 
-/// Verifies that narrow windows reserve the taller two-row info-bar header.
+/// Verifies that the fixed two-row info-bar header reserves the same top band on narrower windows.
 #[test]
-fn active_terminal_viewport_uses_taller_info_bar_on_narrow_windows() {
+fn active_terminal_viewport_uses_fixed_two_row_info_bar_header() {
     let window = Window {
         resolution: (1000, 900).into(),
         ..Default::default()
@@ -382,10 +382,10 @@ fn active_terminal_viewport_uses_taller_info_bar_on_narrow_windows() {
         1.0,
     );
 
-    assert_eq!(info_bar_rect.h, 72.0);
+    assert_eq!(info_bar_rect.h, 60.0);
     assert_eq!(
         active_terminal_viewport(&window, &hud_state.layout_state()),
-        (Vec2::new(700.0, 828.0), Vec2::new(150.0, -36.0))
+        (Vec2::new(700.0, 840.0), Vec2::new(150.0, -30.0))
     );
 }
 

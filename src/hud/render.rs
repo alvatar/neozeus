@@ -923,11 +923,13 @@ fn draw_module_shell(painter: &mut HudPainter, module_id: HudWidgetKey, shell_re
     if module_id == HudWidgetKey::AgentList {
         return;
     }
-    painter.fill_rect(shell_rect, HudColors::FRAME, 8.0);
-    painter.stroke_rect(shell_rect, HudColors::BORDER, 8.0);
     if module_id == HudWidgetKey::InfoBar {
+        painter.fill_rect(shell_rect, modules::INFO_BAR_BACKGROUND, 0.0);
+        painter.stroke_rect_width(shell_rect, modules::INFO_BAR_BORDER, 1.0);
         return;
     }
+    painter.fill_rect(shell_rect, HudColors::FRAME, 8.0);
+    painter.stroke_rect(shell_rect, HudColors::BORDER, 8.0);
     painter.fill_rect(
         HudRect {
             x: shell_rect.x,
