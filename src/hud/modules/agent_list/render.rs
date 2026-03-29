@@ -155,14 +155,14 @@ pub(crate) fn render_content(
     );
 
     let drag_preview = match (
-        state.dragging_agent,
-        state.drag_cursor,
-        state.last_reorder_index,
+        state.drag.dragging_agent,
+        state.drag.drag_cursor,
+        state.drag.last_reorder_index,
     ) {
         (Some(agent_id), Some(cursor), Some(target_index)) => Some(AgentListDragPreview {
             agent_id,
             cursor_y: cursor.y,
-            grab_offset_y: state.drag_grab_offset_y,
+            grab_offset_y: state.drag.drag_grab_offset_y,
             target_index,
         }),
         _ => None,

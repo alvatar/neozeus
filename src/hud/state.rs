@@ -66,16 +66,33 @@ impl HudModuleShell {
     }
 }
 
-#[derive(Resource, Clone, Debug, Default, PartialEq)]
-pub(crate) struct AgentListUiState {
-    pub(crate) scroll_offset: f32,
-    pub(crate) hovered_agent: Option<AgentId>,
+#[derive(Clone, Debug, Default, PartialEq)]
+pub(crate) struct AgentListDragState {
     pub(crate) pressed_agent: Option<AgentId>,
     pub(crate) press_origin: Option<Vec2>,
     pub(crate) dragging_agent: Option<AgentId>,
     pub(crate) drag_cursor: Option<Vec2>,
     pub(crate) drag_grab_offset_y: f32,
     pub(crate) last_reorder_index: Option<usize>,
+}
+
+impl AgentListDragState {
+    /// Clears the transient press/drag preview state for the agent list.
+    pub(crate) fn clear(&mut self) {
+        self.pressed_agent = None;
+        self.press_origin = None;
+        self.dragging_agent = None;
+        self.drag_cursor = None;
+        self.drag_grab_offset_y = 0.0;
+        self.last_reorder_index = None;
+    }
+}
+
+#[derive(Resource, Clone, Debug, Default, PartialEq)]
+pub(crate) struct AgentListUiState {
+    pub(crate) scroll_offset: f32,
+    pub(crate) hovered_agent: Option<AgentId>,
+    pub(crate) drag: AgentListDragState,
 }
 
 #[derive(Resource, Clone, Debug, Default, PartialEq)]
