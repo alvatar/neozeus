@@ -178,18 +178,10 @@ impl TextFieldState {
     }
 }
 
-/// One currently available cwd completion candidate shown in the create-agent dialog.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct CwdCompletionItem {
-    pub(crate) display: String,
-    pub(crate) completion_text: String,
-}
-
 /// Active cwd-completion session state for the create-agent dialog.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct CwdCompletionState {
-    pub(crate) source_text: String,
-    pub(crate) items: Vec<CwdCompletionItem>,
+    pub(crate) items: Vec<DirectoryCompletionCandidate>,
     pub(crate) selected: usize,
     pub(crate) preview_active: bool,
 }
@@ -248,8 +240,7 @@ impl CwdFieldState {
         }
 
         let session = CwdCompletionState {
-            source_text: self.field.text.clone(),
-            items: items.into_iter().map(CwdCompletionItem::from).collect(),
+            items,
             selected: 0,
             preview_active: true,
         };
@@ -271,8 +262,7 @@ impl CwdFieldState {
             if let Ok(items) = complete_directory_segment(&self.field.text, self.field.cursor) {
                 if !items.is_empty() {
                     self.completion = Some(CwdCompletionState {
-                        source_text: accepted_text,
-                        items: items.into_iter().map(CwdCompletionItem::from).collect(),
+                        items,
                         selected: 0,
                         preview_active: false,
                     });
@@ -288,21 +278,11 @@ impl CwdFieldState {
             return false;
         }
         self.completion = Some(CwdCompletionState {
-            source_text: self.field.text.clone(),
-            items: items.into_iter().map(CwdCompletionItem::from).collect(),
+            items,
             selected: 0,
             preview_active: false,
         });
         true
-    }
-}
-
-impl From<DirectoryCompletionCandidate> for CwdCompletionItem {
-    fn from(value: DirectoryCompletionCandidate) -> Self {
-        Self {
-            display: value.display,
-            completion_text: value.completion_text,
-        }
     }
 }
 
