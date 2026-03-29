@@ -103,6 +103,8 @@ fn test_usage_persistence_state() -> UsagePersistenceState {
         claude_log_path: state_dir.join("claude.log"),
         openai_log_path: state_dir.join("openai.log"),
         claude_backoff_until_path: state_dir.join("claude-backoff.txt"),
+        claude_refresh_lock_path: state_dir.join("claude-refresh.lock"),
+        openai_refresh_lock_path: state_dir.join("openai-refresh.lock"),
         helper_script_path: PathBuf::from("scripts/usage_fetch.py"),
         python_program: PathBuf::from("python3"),
         last_claude_refresh_attempt_secs: None,
