@@ -92,6 +92,96 @@ fn run_app_commands(world: &mut World) {
         .unwrap();
 }
 
+/// Verifies that widget toggles snap visibility immediately instead of fading over later animation
+/// ticks.
+#[test]
+fn toggling_widgets_snaps_alpha_immediately() {
+    let mut world = World::default();
+    let mut hud_state = HudState::default();
+    hud_state.insert_default_module(HudWidgetKey::AgentList);
+    hud_state.insert_default_module(HudWidgetKey::ConversationList);
+    let conversation_rect = HudRect {
+        x: 332.0,
+        y: 112.0,
+        w: 320.0,
+        h: 320.0,
+    };
+    hud_state.set_module_shell_state(
+        HudWidgetKey::ConversationList,
+        true,
+        conversation_rect,
+        conversation_rect,
+        1.0,
+        1.0,
+    );
+    insert_test_hud_state(&mut world, hud_state);
+    world.insert_resource(Time::<()>::default());
+    insert_terminal_manager_resources(&mut world, TerminalManager::default());
+    world.init_resource::<Messages<AppCommand>>();
+    world.init_resource::<Messages<RequestRedraw>>();
+
+    world
+        .resource_mut::<Messages<AppCommand>>()
+        .write(AppCommand::Widget(WidgetCommand::Toggle(
+            HudWidgetKey::AgentList,
+        )));
+    world
+        .resource_mut::<Messages<AppCommand>>()
+        .write(AppCommand::Widget(WidgetCommand::Toggle(
+            HudWidgetKey::ConversationList,
+        )));
+    run_app_commands(&mut world);
+
+    let hud_state = snapshot_test_hud_state(&world);
+    assert_eq!(
+        hud_state.module_enabled(HudWidgetKey::AgentList),
+        Some(false)
+    );
+    assert_eq!(
+        hud_state.module_current_alpha(HudWidgetKey::AgentList),
+        Some(0.0)
+    );
+    assert_eq!(
+        hud_state.module_enabled(HudWidgetKey::ConversationList),
+        Some(false)
+    );
+    assert_eq!(
+        hud_state.module_current_alpha(HudWidgetKey::ConversationList),
+        Some(0.0)
+    );
+
+    world.insert_resource(Messages::<AppCommand>::default());
+    world
+        .resource_mut::<Messages<AppCommand>>()
+        .write(AppCommand::Widget(WidgetCommand::Toggle(
+            HudWidgetKey::AgentList,
+        )));
+    world
+        .resource_mut::<Messages<AppCommand>>()
+        .write(AppCommand::Widget(WidgetCommand::Toggle(
+            HudWidgetKey::ConversationList,
+        )));
+    run_app_commands(&mut world);
+
+    let hud_state = snapshot_test_hud_state(&world);
+    assert_eq!(
+        hud_state.module_enabled(HudWidgetKey::AgentList),
+        Some(true)
+    );
+    assert_eq!(
+        hud_state.module_current_alpha(HudWidgetKey::AgentList),
+        Some(1.0)
+    );
+    assert_eq!(
+        hud_state.module_enabled(HudWidgetKey::ConversationList),
+        Some(true)
+    );
+    assert_eq!(
+        hud_state.module_current_alpha(HudWidgetKey::ConversationList),
+        Some(1.0)
+    );
+}
+
 /// Verifies that resetting a HUD module restores the baked-in default shell state instead of merely
 /// toggling enablement.
 #[test]

@@ -199,9 +199,10 @@ impl HudLayoutState {
         self.z_order.push(id);
     }
 
-    /// Enables or disables a module shell and updates its target alpha accordingly.
+    /// Enables or disables a module shell and snaps its visible alpha to the new state.
     ///
-    /// The current alpha is left alone so animation can fade toward the new target state.
+    /// Widget show/hide toggles are intentionally instant rather than faded so shortcut-driven HUD
+    /// visibility changes feel immediate.
     pub(crate) fn set_module_enabled(&mut self, id: HudWidgetKey, enabled: bool) {
         let Some(module) = self.modules.get_mut(&id) else {
             return;
@@ -211,6 +212,7 @@ impl HudLayoutState {
         }
         module.shell.enabled = enabled;
         module.shell.target_alpha = if enabled { 1.0 } else { 0.0 };
+        module.shell.current_alpha = module.shell.target_alpha;
         self.dirty_layout = true;
     }
 
