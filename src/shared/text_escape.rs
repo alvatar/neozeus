@@ -1,25 +1,24 @@
 /// Configures which backslash escape sequences are valid for one quoted-string format.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct QuotedStringEscapeRules {
-    pub(crate) carriage_return: bool,
-    pub(crate) tab: bool,
+pub struct QuotedStringEscapeRules {
+    pub carriage_return: bool,
+    pub tab: bool,
 }
 
 /// Quoted-string escape rules for the stricter conversation persistence format.
-pub(crate) const BASIC_QUOTED_STRING_ESCAPES: QuotedStringEscapeRules = QuotedStringEscapeRules {
+pub const BASIC_QUOTED_STRING_ESCAPES: QuotedStringEscapeRules = QuotedStringEscapeRules {
     carriage_return: false,
     tab: false,
 };
 
 /// Quoted-string escape rules for app/session persistence formats that support `\r` and `\t`.
-pub(crate) const EXTENDED_QUOTED_STRING_ESCAPES: QuotedStringEscapeRules =
-    QuotedStringEscapeRules {
-        carriage_return: true,
-        tab: true,
-    };
+pub const EXTENDED_QUOTED_STRING_ESCAPES: QuotedStringEscapeRules = QuotedStringEscapeRules {
+    carriage_return: true,
+    tab: true,
+};
 
 /// Escapes raw text for use as the inner content of a quoted persisted string.
-pub(crate) fn escape_quoted_string_content(value: &str, rules: QuotedStringEscapeRules) -> String {
+pub fn escape_quoted_string_content(value: &str, rules: QuotedStringEscapeRules) -> String {
     let mut escaped = String::with_capacity(value.len() + 4);
     for ch in value.chars() {
         match ch {
@@ -35,15 +34,12 @@ pub(crate) fn escape_quoted_string_content(value: &str, rules: QuotedStringEscap
 }
 
 /// Quotes and escapes one persisted string field.
-pub(crate) fn quote_escaped_string(value: &str, rules: QuotedStringEscapeRules) -> String {
+pub fn quote_escaped_string(value: &str, rules: QuotedStringEscapeRules) -> String {
     format!("\"{}\"", escape_quoted_string_content(value, rules))
 }
 
 /// Parses one quoted persisted string field according to the supplied escape rules.
-pub(crate) fn unquote_escaped_string(
-    value: &str,
-    rules: QuotedStringEscapeRules,
-) -> Option<String> {
+pub fn unquote_escaped_string(value: &str, rules: QuotedStringEscapeRules) -> Option<String> {
     let trimmed = value.trim();
     let inner = trimmed.strip_prefix('"')?.strip_suffix('"')?;
     let mut parsed = String::with_capacity(inner.len());

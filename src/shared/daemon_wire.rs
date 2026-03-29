@@ -1,0 +1,524 @@
+use std::io::{Read, Write};
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum TerminalLifecycle {
+    Running,
+    Exited {
+        code: Option<u32>,
+        signal: Option<String>,
+    },
+    Disconnected,
+    Failed,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TerminalRuntimeState {
+    pub status: String,
+    pub lifecycle: TerminalLifecycle,
+    pub last_error: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum TerminalCommand {
+    InputText(String),
+    InputEvent(String),
+    SendCommand(String),
+    ScrollDisplay(i32),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DaemonSessionInfo {
+    pub session_id: String,
+    pub runtime: TerminalRuntimeState,
+    pub revision: u64,
+    pub created_order: u64,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum ClientMessage {
+    Request {
+        request_id: u64,
+        request: DaemonRequest,
+    },
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum DaemonRequest {
+    ListSessions,
+    SendCommand {
+        session_id: String,
+        command: TerminalCommand,
+    },
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum ServerMessage {
+    Response {
+        request_id: u64,
+        response: Result<DaemonResponse, String>,
+    },
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum DaemonResponse {
+    SessionList { sessions: Vec<DaemonSessionInfo> },
+    Ack,
+}
+
+/// Serializes and writes one CLI-compatible client message as a length-prefixed daemon frame.
+pub fn write_client_message(
+    writer: &mut impl Write,
+    message: &ClientMessage,
+) -> Result<(), String> {
+    let mut payload = Vec::new();
+    encode_client_message(&mut payload, message);
+    write_frame(writer, &payload)
+}
+
+/// Reads and decodes one CLI-compatible server response frame.
+pub fn read_server_message(reader: &mut impl Read) -> Result<ServerMessage, String> {
+    let payload = read_frame(reader)?;
+    let mut decoder = Decoder::new(&payload);
+    let message = decode_server_message(&mut decoder)?;
+    decoder.finish()?;
+    Ok(message)
+}
+
+pub(crate) fn write_frame(writer: &mut impl Write, payload: &[u8]) -> Result<(), String> {
+    let len = u32::try_from(payload.len()).map_err(|_| "protocol frame too large".to_owned())?;
+    writer
+        .write_all(&len.to_le_bytes())
+        .map_err(|error| format!("failed to write frame length: {error}"))?;
+    writer
+        .write_all(payload)
+        .map_err(|error| format!("failed to write frame payload: {error}"))?;
+    writer
+        .flush()
+        .map_err(|error| format!("failed to flush frame payload: {error}"))
+}
+
+pub(crate) fn read_frame(reader: &mut impl Read) -> Result<Vec<u8>, String> {
+    let mut len_buf = [0_u8; 4];
+    reader
+        .read_exact(&mut len_buf)
+        .map_err(|error| format!("failed to read frame length: {error}"))?;
+    let len = u32::from_le_bytes(len_buf) as usize;
+    let mut payload = vec![0_u8; len];
+    reader
+        .read_exact(&mut payload)
+        .map_err(|error| format!("failed to read frame payload: {error}"))?;
+    Ok(payload)
+}
+
+fn encode_client_message(buffer: &mut Vec<u8>, message: &ClientMessage) {
+    match message {
+        ClientMessage::Request {
+            request_id,
+            request,
+        } => {
+            push_u8(buffer, 0);
+            push_u64(buffer, *request_id);
+            encode_request(buffer, request);
+        }
+    }
+}
+
+fn encode_request(buffer: &mut Vec<u8>, request: &DaemonRequest) {
+    match request {
+        DaemonRequest::ListSessions => push_u8(buffer, 1),
+        DaemonRequest::SendCommand {
+            session_id,
+            command,
+        } => {
+            push_u8(buffer, 4);
+            push_string(buffer, session_id);
+            encode_wire_terminal_command(buffer, command);
+        }
+    }
+}
+
+fn decode_server_message(decoder: &mut Decoder<'_>) -> Result<ServerMessage, String> {
+    match decoder.read_u8()? {
+        0 => Ok(ServerMessage::Response {
+            request_id: decoder.read_u64()?,
+            response: decode_result(decoder, decode_response)?,
+        }),
+        tag => Err(format!("unknown server message tag {tag}")),
+    }
+}
+
+fn decode_response(decoder: &mut Decoder<'_>) -> Result<DaemonResponse, String> {
+    match decoder.read_u8()? {
+        1 => Ok(DaemonResponse::SessionList {
+            sessions: decoder.read_vec(decode_wire_daemon_session_info)?,
+        }),
+        4 => Ok(DaemonResponse::Ack),
+        tag => Err(format!("unknown daemon response tag {tag}")),
+    }
+}
+
+pub fn encode_wire_daemon_session_info(buffer: &mut Vec<u8>, info: &DaemonSessionInfo) {
+    push_string(buffer, &info.session_id);
+    encode_wire_runtime_state(buffer, &info.runtime);
+    push_u64(buffer, info.revision);
+    push_u64(buffer, info.created_order);
+}
+
+pub(crate) fn decode_wire_daemon_session_info(
+    decoder: &mut Decoder<'_>,
+) -> Result<DaemonSessionInfo, String> {
+    Ok(DaemonSessionInfo {
+        session_id: decoder.read_string()?,
+        runtime: decode_wire_runtime_state(decoder)?,
+        revision: decoder.read_u64()?,
+        created_order: decoder.read_u64()?,
+    })
+}
+
+pub fn encode_wire_terminal_command(buffer: &mut Vec<u8>, command: &TerminalCommand) {
+    match command {
+        TerminalCommand::InputText(text) => {
+            push_u8(buffer, 0);
+            push_string(buffer, text);
+        }
+        TerminalCommand::InputEvent(event) => {
+            push_u8(buffer, 1);
+            push_string(buffer, event);
+        }
+        TerminalCommand::SendCommand(command) => {
+            push_u8(buffer, 2);
+            push_string(buffer, command);
+        }
+        TerminalCommand::ScrollDisplay(delta) => {
+            push_u8(buffer, 3);
+            push_i32(buffer, *delta);
+        }
+    }
+}
+
+pub fn decode_wire_terminal_command(decoder: &mut Decoder<'_>) -> Result<TerminalCommand, String> {
+    match decoder.read_u8()? {
+        0 => Ok(TerminalCommand::InputText(decoder.read_string()?)),
+        1 => Ok(TerminalCommand::InputEvent(decoder.read_string()?)),
+        2 => Ok(TerminalCommand::SendCommand(decoder.read_string()?)),
+        3 => Ok(TerminalCommand::ScrollDisplay(decoder.read_i32()?)),
+        tag => Err(format!("unknown terminal command tag {tag}")),
+    }
+}
+
+pub fn encode_wire_runtime_state(buffer: &mut Vec<u8>, state: &TerminalRuntimeState) {
+    push_string(buffer, &state.status);
+    encode_wire_lifecycle(buffer, &state.lifecycle);
+    push_bool(buffer, state.last_error.is_some());
+    if let Some(error) = &state.last_error {
+        push_string(buffer, error);
+    }
+}
+
+pub fn decode_wire_runtime_state(
+    decoder: &mut Decoder<'_>,
+) -> Result<TerminalRuntimeState, String> {
+    Ok(TerminalRuntimeState {
+        status: decoder.read_string()?,
+        lifecycle: decode_wire_lifecycle(decoder)?,
+        last_error: if decoder.read_bool()? {
+            Some(decoder.read_string()?)
+        } else {
+            None
+        },
+    })
+}
+
+pub(crate) fn encode_wire_lifecycle(buffer: &mut Vec<u8>, lifecycle: &TerminalLifecycle) {
+    match lifecycle {
+        TerminalLifecycle::Running => push_u8(buffer, 0),
+        TerminalLifecycle::Exited { code, signal } => {
+            push_u8(buffer, 1);
+            push_option_u32(buffer, *code);
+            push_bool(buffer, signal.is_some());
+            if let Some(signal) = signal {
+                push_string(buffer, signal);
+            }
+        }
+        TerminalLifecycle::Disconnected => push_u8(buffer, 2),
+        TerminalLifecycle::Failed => push_u8(buffer, 3),
+    }
+}
+
+pub(crate) fn decode_wire_lifecycle(
+    decoder: &mut Decoder<'_>,
+) -> Result<TerminalLifecycle, String> {
+    match decoder.read_u8()? {
+        0 => Ok(TerminalLifecycle::Running),
+        1 => Ok(TerminalLifecycle::Exited {
+            code: decoder.read_option_u32()?,
+            signal: if decoder.read_bool()? {
+                Some(decoder.read_string()?)
+            } else {
+                None
+            },
+        }),
+        2 => Ok(TerminalLifecycle::Disconnected),
+        3 => Ok(TerminalLifecycle::Failed),
+        tag => Err(format!("unknown lifecycle tag {tag}")),
+    }
+}
+
+pub(crate) fn decode_result<T>(
+    decoder: &mut Decoder<'_>,
+    decode_ok: impl Fn(&mut Decoder<'_>) -> Result<T, String>,
+) -> Result<Result<T, String>, String> {
+    match decoder.read_u8()? {
+        0 => Ok(Ok(decode_ok(decoder)?)),
+        1 => Ok(Err(decoder.read_string()?)),
+        tag => Err(format!("unknown result tag {tag}")),
+    }
+}
+
+pub(crate) fn push_bool(buffer: &mut Vec<u8>, value: bool) {
+    push_u8(buffer, u8::from(value));
+}
+
+pub(crate) fn push_u8(buffer: &mut Vec<u8>, value: u8) {
+    buffer.push(value);
+}
+
+pub(crate) fn push_i32(buffer: &mut Vec<u8>, value: i32) {
+    buffer.extend_from_slice(&value.to_le_bytes());
+}
+
+pub(crate) fn push_u64(buffer: &mut Vec<u8>, value: u64) {
+    buffer.extend_from_slice(&value.to_le_bytes());
+}
+
+pub(crate) fn push_option_u32(buffer: &mut Vec<u8>, value: Option<u32>) {
+    push_bool(buffer, value.is_some());
+    if let Some(value) = value {
+        buffer.extend_from_slice(&value.to_le_bytes());
+    }
+}
+
+pub(crate) fn push_u32(buffer: &mut Vec<u8>, value: u32) {
+    buffer.extend_from_slice(&value.to_le_bytes());
+}
+
+pub(crate) fn push_string(buffer: &mut Vec<u8>, value: &str) {
+    push_u32(buffer, u32::try_from(value.len()).unwrap_or(u32::MAX));
+    buffer.extend_from_slice(value.as_bytes());
+}
+
+pub struct Decoder<'a> {
+    input: &'a [u8],
+    offset: usize,
+}
+
+impl<'a> Decoder<'a> {
+    pub fn new(input: &'a [u8]) -> Self {
+        Self { input, offset: 0 }
+    }
+
+    pub fn finish(&self) -> Result<(), String> {
+        if self.offset == self.input.len() {
+            Ok(())
+        } else {
+            Err("trailing bytes after protocol message".to_owned())
+        }
+    }
+
+    pub fn read_u8(&mut self) -> Result<u8, String> {
+        let Some(value) = self.input.get(self.offset).copied() else {
+            return Err("unexpected eof reading u8".to_owned());
+        };
+        self.offset += 1;
+        Ok(value)
+    }
+
+    pub fn read_bool(&mut self) -> Result<bool, String> {
+        match self.read_u8()? {
+            0 => Ok(false),
+            1 => Ok(true),
+            value => Err(format!("invalid bool tag {value}")),
+        }
+    }
+
+    pub fn read_i32(&mut self) -> Result<i32, String> {
+        let bytes = self.read_array::<4>()?;
+        Ok(i32::from_le_bytes(bytes))
+    }
+
+    pub fn read_u32(&mut self) -> Result<u32, String> {
+        let bytes = self.read_array::<4>()?;
+        Ok(u32::from_le_bytes(bytes))
+    }
+
+    pub fn read_u64(&mut self) -> Result<u64, String> {
+        let bytes = self.read_array::<8>()?;
+        Ok(u64::from_le_bytes(bytes))
+    }
+
+    pub fn read_usize(&mut self) -> Result<usize, String> {
+        let value = self.read_u64()?;
+        usize::try_from(value).map_err(|_| format!("usize out of range {value}"))
+    }
+
+    pub fn read_option_u32(&mut self) -> Result<Option<u32>, String> {
+        if !self.read_bool()? {
+            return Ok(None);
+        }
+        let bytes = self.read_array::<4>()?;
+        Ok(Some(u32::from_le_bytes(bytes)))
+    }
+
+    pub fn read_char(&mut self) -> Result<char, String> {
+        char::from_u32(self.read_u32()?).ok_or_else(|| "invalid char codepoint".to_owned())
+    }
+
+    pub fn read_string(&mut self) -> Result<String, String> {
+        let len = self.read_u32()? as usize;
+        let bytes = self.read_bytes(len)?;
+        String::from_utf8(bytes.to_vec()).map_err(|error| format!("invalid utf8 string: {error}"))
+    }
+
+    pub fn read_vec<T>(
+        &mut self,
+        decode: impl Fn(&mut Decoder<'_>) -> Result<T, String>,
+    ) -> Result<Vec<T>, String> {
+        let len = self.read_u32()? as usize;
+        let mut values = Vec::with_capacity(len);
+        for _ in 0..len {
+            values.push(decode(self)?);
+        }
+        Ok(values)
+    }
+
+    pub fn read_option<T>(
+        &mut self,
+        decode: impl Fn(&mut Decoder<'_>) -> Result<T, String>,
+    ) -> Result<Option<T>, String> {
+        if self.read_bool()? {
+            Ok(Some(decode(self)?))
+        } else {
+            Ok(None)
+        }
+    }
+
+    fn read_array<const N: usize>(&mut self) -> Result<[u8; N], String> {
+        let bytes = self.read_bytes(N)?;
+        let mut array = [0_u8; N];
+        array.copy_from_slice(bytes);
+        Ok(array)
+    }
+
+    fn read_bytes(&mut self, len: usize) -> Result<&'a [u8], String> {
+        let end = self
+            .offset
+            .checked_add(len)
+            .ok_or_else(|| "protocol length overflow".to_owned())?;
+        let Some(bytes) = self.input.get(self.offset..end) else {
+            return Err("unexpected eof reading bytes".to_owned());
+        };
+        self.offset = end;
+        Ok(bytes)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        read_server_message, write_client_message, ClientMessage, DaemonRequest, DaemonResponse,
+        DaemonSessionInfo, ServerMessage, TerminalCommand, TerminalLifecycle, TerminalRuntimeState,
+    };
+    use std::io::Cursor;
+
+    #[test]
+    fn subset_client_message_roundtrips_send_command() {
+        let message = ClientMessage::Request {
+            request_id: 7,
+            request: DaemonRequest::SendCommand {
+                session_id: "alpha".into(),
+                command: TerminalCommand::SendCommand("echo hi".into()),
+            },
+        };
+        let mut bytes = Vec::new();
+        write_client_message(&mut bytes, &message).unwrap();
+        let mut cursor = Cursor::new(bytes);
+        let payload = super::read_frame(&mut cursor).unwrap();
+        let mut decoder = super::Decoder::new(&payload);
+        assert_eq!(decode_client_message(&mut decoder).unwrap(), message);
+        decoder.finish().unwrap();
+    }
+
+    #[test]
+    fn subset_server_message_roundtrips_session_list() {
+        let mut bytes = Vec::new();
+        let message = ServerMessage::Response {
+            request_id: 4,
+            response: Ok(DaemonResponse::SessionList {
+                sessions: vec![DaemonSessionInfo {
+                    session_id: "alpha".into(),
+                    runtime: TerminalRuntimeState {
+                        status: "running".into(),
+                        lifecycle: TerminalLifecycle::Running,
+                        last_error: None,
+                    },
+                    revision: 9,
+                    created_order: 3,
+                }],
+            }),
+        };
+        let mut payload = Vec::new();
+        encode_server_message(&mut payload, &message);
+        super::write_frame(&mut bytes, &payload).unwrap();
+        assert_eq!(
+            read_server_message(&mut Cursor::new(bytes)).unwrap(),
+            message
+        );
+    }
+
+    fn encode_server_message(buffer: &mut Vec<u8>, message: &ServerMessage) {
+        match message {
+            ServerMessage::Response {
+                request_id,
+                response,
+            } => {
+                super::push_u8(buffer, 0);
+                super::push_u64(buffer, *request_id);
+                match response {
+                    Ok(DaemonResponse::SessionList { sessions }) => {
+                        super::push_u8(buffer, 0);
+                        super::push_u8(buffer, 1);
+                        super::push_u32(buffer, u32::try_from(sessions.len()).unwrap());
+                        for session in sessions {
+                            super::encode_wire_daemon_session_info(buffer, session);
+                        }
+                    }
+                    Ok(DaemonResponse::Ack) => {
+                        super::push_u8(buffer, 0);
+                        super::push_u8(buffer, 4);
+                    }
+                    Err(error) => {
+                        super::push_u8(buffer, 1);
+                        super::push_string(buffer, error);
+                    }
+                }
+            }
+        }
+    }
+
+    fn decode_client_message(decoder: &mut super::Decoder<'_>) -> Result<ClientMessage, String> {
+        match decoder.read_u8()? {
+            0 => Ok(ClientMessage::Request {
+                request_id: decoder.read_u64()?,
+                request: match decoder.read_u8()? {
+                    1 => DaemonRequest::ListSessions,
+                    4 => DaemonRequest::SendCommand {
+                        session_id: decoder.read_string()?,
+                        command: super::decode_wire_terminal_command(decoder)?,
+                    },
+                    tag => return Err(format!("unknown daemon request tag {tag}")),
+                },
+            }),
+            tag => Err(format!("unknown client message tag {tag}")),
+        }
+    }
+}

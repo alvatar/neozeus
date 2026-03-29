@@ -3,8 +3,11 @@ use super::super::types::{
     TerminalDamage, TerminalFrameUpdate, TerminalLifecycle, TerminalRuntimeState, TerminalSnapshot,
     TerminalSurface, TerminalUpdate,
 };
+use crate::shared::daemon_wire as wire;
 use bevy_egui::egui;
 use std::io::{Read, Write};
+
+type Decoder<'a> = wire::Decoder<'a>;
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum ClientMessage {
@@ -391,36 +394,12 @@ fn decode_event(decoder: &mut Decoder<'_>) -> Result<DaemonEvent, String> {
 
 /// Encodes one terminal command into its tagged wire representation.
 fn encode_command(buffer: &mut Vec<u8>, command: &TerminalCommand) {
-    // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
-    match command {
-        TerminalCommand::InputText(text) => {
-            push_u8(buffer, 0);
-            push_string(buffer, text);
-        }
-        TerminalCommand::InputEvent(event) => {
-            push_u8(buffer, 1);
-            push_string(buffer, event);
-        }
-        TerminalCommand::SendCommand(command) => {
-            push_u8(buffer, 2);
-            push_string(buffer, command);
-        }
-        TerminalCommand::ScrollDisplay(lines) => {
-            push_u8(buffer, 3);
-            push_i32(buffer, *lines);
-        }
-    }
+    wire::encode_wire_terminal_command(buffer, &to_wire_command(command));
 }
 
 /// Decodes one terminal command from the payload stream.
 fn decode_command(decoder: &mut Decoder<'_>) -> Result<TerminalCommand, String> {
-    match decoder.read_u8()? {
-        0 => Ok(TerminalCommand::InputText(decoder.read_string()?)),
-        1 => Ok(TerminalCommand::InputEvent(decoder.read_string()?)),
-        2 => Ok(TerminalCommand::SendCommand(decoder.read_string()?)),
-        3 => Ok(TerminalCommand::ScrollDisplay(decoder.read_i32()?)),
-        tag => Err(format!("unknown terminal command tag {tag}")),
-    }
+    wire::decode_wire_terminal_command(decoder).map(from_wire_command)
 }
 
 /// Encodes a full terminal snapshot consisting of optional surface plus runtime state.
@@ -621,51 +600,70 @@ fn decode_cursor_shape(decoder: &mut Decoder<'_>) -> Result<TerminalCursorShape,
 
 /// Encodes the runtime status string, lifecycle enum, and optional last-error text.
 fn encode_runtime_state(buffer: &mut Vec<u8>, state: &TerminalRuntimeState) {
-    push_string(buffer, &state.status);
-    encode_lifecycle(buffer, &state.lifecycle);
-    push_option(buffer, state.last_error.as_ref(), |buffer, error| {
-        push_string(buffer, error)
-    });
+    wire::encode_wire_runtime_state(buffer, &to_wire_runtime_state(state));
 }
 
 /// Decodes runtime status metadata from the payload stream.
 fn decode_runtime_state(decoder: &mut Decoder<'_>) -> Result<TerminalRuntimeState, String> {
-    Ok(TerminalRuntimeState {
-        status: decoder.read_string()?,
-        lifecycle: decode_lifecycle(decoder)?,
-        last_error: decoder.read_option(|decoder| decoder.read_string())?,
-    })
+    wire::decode_wire_runtime_state(decoder).map(from_wire_runtime_state)
 }
 
-/// Encodes the terminal lifecycle enum, including optional exit code and signal payloads.
-fn encode_lifecycle(buffer: &mut Vec<u8>, lifecycle: &TerminalLifecycle) {
-    match lifecycle {
-        TerminalLifecycle::Running => push_u8(buffer, 0),
-        TerminalLifecycle::Exited { code, signal } => {
-            push_u8(buffer, 1);
-            push_option(buffer, code.as_ref(), |buffer, code| {
-                push_u32(buffer, *code)
-            });
-            push_option(buffer, signal.as_ref(), |buffer, signal| {
-                push_string(buffer, signal)
-            });
+fn to_wire_command(command: &TerminalCommand) -> wire::TerminalCommand {
+    match command {
+        TerminalCommand::InputText(text) => wire::TerminalCommand::InputText(text.clone()),
+        TerminalCommand::InputEvent(event) => wire::TerminalCommand::InputEvent(event.clone()),
+        TerminalCommand::SendCommand(command) => {
+            wire::TerminalCommand::SendCommand(command.clone())
         }
-        TerminalLifecycle::Disconnected => push_u8(buffer, 2),
-        TerminalLifecycle::Failed => push_u8(buffer, 3),
+        TerminalCommand::ScrollDisplay(lines) => wire::TerminalCommand::ScrollDisplay(*lines),
     }
 }
 
-/// Decodes the terminal lifecycle enum from the payload stream.
-fn decode_lifecycle(decoder: &mut Decoder<'_>) -> Result<TerminalLifecycle, String> {
-    match decoder.read_u8()? {
-        0 => Ok(TerminalLifecycle::Running),
-        1 => Ok(TerminalLifecycle::Exited {
-            code: decoder.read_option(|decoder| decoder.read_u32())?,
-            signal: decoder.read_option(|decoder| decoder.read_string())?,
-        }),
-        2 => Ok(TerminalLifecycle::Disconnected),
-        3 => Ok(TerminalLifecycle::Failed),
-        tag => Err(format!("unknown terminal lifecycle tag {tag}")),
+fn from_wire_command(command: wire::TerminalCommand) -> TerminalCommand {
+    match command {
+        wire::TerminalCommand::InputText(text) => TerminalCommand::InputText(text),
+        wire::TerminalCommand::InputEvent(event) => TerminalCommand::InputEvent(event),
+        wire::TerminalCommand::SendCommand(command) => TerminalCommand::SendCommand(command),
+        wire::TerminalCommand::ScrollDisplay(lines) => TerminalCommand::ScrollDisplay(lines),
+    }
+}
+
+fn to_wire_runtime_state(state: &TerminalRuntimeState) -> wire::TerminalRuntimeState {
+    wire::TerminalRuntimeState {
+        status: state.status.clone(),
+        lifecycle: to_wire_lifecycle(&state.lifecycle),
+        last_error: state.last_error.clone(),
+    }
+}
+
+fn from_wire_runtime_state(state: wire::TerminalRuntimeState) -> TerminalRuntimeState {
+    TerminalRuntimeState {
+        status: state.status,
+        lifecycle: from_wire_lifecycle(state.lifecycle),
+        last_error: state.last_error,
+    }
+}
+
+fn to_wire_lifecycle(lifecycle: &TerminalLifecycle) -> wire::TerminalLifecycle {
+    match lifecycle {
+        TerminalLifecycle::Running => wire::TerminalLifecycle::Running,
+        TerminalLifecycle::Exited { code, signal } => wire::TerminalLifecycle::Exited {
+            code: *code,
+            signal: signal.clone(),
+        },
+        TerminalLifecycle::Disconnected => wire::TerminalLifecycle::Disconnected,
+        TerminalLifecycle::Failed => wire::TerminalLifecycle::Failed,
+    }
+}
+
+fn from_wire_lifecycle(lifecycle: wire::TerminalLifecycle) -> TerminalLifecycle {
+    match lifecycle {
+        wire::TerminalLifecycle::Running => TerminalLifecycle::Running,
+        wire::TerminalLifecycle::Exited { code, signal } => {
+            TerminalLifecycle::Exited { code, signal }
+        }
+        wire::TerminalLifecycle::Disconnected => TerminalLifecycle::Disconnected,
+        wire::TerminalLifecycle::Failed => TerminalLifecycle::Failed,
     }
 }
 
@@ -757,11 +755,6 @@ fn push_u64(buffer: &mut Vec<u8>, value: u64) {
     buffer.extend_from_slice(&value.to_le_bytes());
 }
 
-/// Appends a little-endian `i32` to the payload buffer.
-fn push_i32(buffer: &mut Vec<u8>, value: i32) {
-    buffer.extend_from_slice(&value.to_le_bytes());
-}
-
 /// Encodes `usize` through the protocol's fixed `u64` representation.
 fn push_usize(buffer: &mut Vec<u8>, value: usize) {
     push_u64(buffer, value as u64);
@@ -777,116 +770,6 @@ fn push_string(buffer: &mut Vec<u8>, value: &str) {
     let bytes = value.as_bytes();
     push_u32(buffer, u32::try_from(bytes.len()).unwrap_or(u32::MAX));
     buffer.extend_from_slice(bytes);
-}
-
-struct Decoder<'a> {
-    bytes: &'a [u8],
-    cursor: usize,
-}
-
-impl<'a> Decoder<'a> {
-    /// Creates a payload decoder over a borrowed byte slice with cursor positioned at the start.
-    fn new(bytes: &'a [u8]) -> Self {
-        Self { bytes, cursor: 0 }
-    }
-
-    /// Verifies that the decoder consumed the payload exactly with no trailing garbage.
-    fn finish(&self) -> Result<(), String> {
-        if self.cursor == self.bytes.len() {
-            Ok(())
-        } else {
-            Err("protocol payload had trailing bytes".to_owned())
-        }
-    }
-
-    /// Borrows the next `len` bytes from the payload and advances the cursor.
-    ///
-    /// Overflow and truncation are reported as protocol errors instead of panicking.
-    fn take(&mut self, len: usize) -> Result<&'a [u8], String> {
-        let end = self
-            .cursor
-            .checked_add(len)
-            .ok_or_else(|| "protocol cursor overflow".to_owned())?;
-        let bytes = self
-            .bytes
-            .get(self.cursor..end)
-            .ok_or_else(|| "protocol payload truncated".to_owned())?;
-        self.cursor = end;
-        Ok(bytes)
-    }
-
-    /// Reads a protocol boolean encoded as one byte.
-    fn read_bool(&mut self) -> Result<bool, String> {
-        Ok(self.read_u8()? != 0)
-    }
-
-    /// Reads one raw byte from the payload.
-    fn read_u8(&mut self) -> Result<u8, String> {
-        Ok(self.take(1)?[0])
-    }
-
-    /// Reads a little-endian `u32` from the payload.
-    fn read_u32(&mut self) -> Result<u32, String> {
-        let mut buf = [0_u8; 4];
-        buf.copy_from_slice(self.take(4)?);
-        Ok(u32::from_le_bytes(buf))
-    }
-
-    /// Reads a little-endian `u64` from the payload.
-    fn read_u64(&mut self) -> Result<u64, String> {
-        let mut buf = [0_u8; 8];
-        buf.copy_from_slice(self.take(8)?);
-        Ok(u64::from_le_bytes(buf))
-    }
-
-    /// Reads a little-endian `i32` from the payload.
-    fn read_i32(&mut self) -> Result<i32, String> {
-        let mut buf = [0_u8; 4];
-        buf.copy_from_slice(self.take(4)?);
-        Ok(i32::from_le_bytes(buf))
-    }
-
-    /// Reads a protocol `usize`, which is encoded on the wire as `u64`.
-    fn read_usize(&mut self) -> Result<usize, String> {
-        usize::try_from(self.read_u64()?).map_err(|_| "usize decode overflow".to_owned())
-    }
-
-    /// Reads a Unicode scalar value encoded as `u32` and converts it back into `char`.
-    fn read_char(&mut self) -> Result<char, String> {
-        char::from_u32(self.read_u32()?).ok_or_else(|| "invalid char codepoint".to_owned())
-    }
-
-    /// Reads a length-prefixed UTF-8 string from the payload.
-    fn read_string(&mut self) -> Result<String, String> {
-        let len = self.read_u32()? as usize;
-        let bytes = self.take(len)?;
-        String::from_utf8(bytes.to_vec()).map_err(|error| format!("invalid utf-8 string: {error}"))
-    }
-
-    /// Reads vec.
-    fn read_vec<T>(
-        &mut self,
-        decode: impl Fn(&mut Decoder<'_>) -> Result<T, String>,
-    ) -> Result<Vec<T>, String> {
-        let len = self.read_u32()? as usize;
-        let mut values = Vec::with_capacity(len);
-        for _ in 0..len {
-            values.push(decode(self)?);
-        }
-        Ok(values)
-    }
-
-    /// Reads option.
-    fn read_option<T>(
-        &mut self,
-        decode: impl Fn(&mut Decoder<'_>) -> Result<T, String>,
-    ) -> Result<Option<T>, String> {
-        if self.read_bool()? {
-            Ok(Some(decode(self)?))
-        } else {
-            Ok(None)
-        }
-    }
 }
 
 #[cfg(test)]

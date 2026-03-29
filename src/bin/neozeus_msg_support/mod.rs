@@ -1,22 +1,9 @@
-#[path = "../../shared/app_state_file.rs"]
-mod app_state_file;
 mod daemon_client;
-#[path = "../../shared/daemon_socket.rs"]
-mod daemon_socket;
-#[cfg(test)]
-#[path = "../../shared/send_command.rs"]
-mod send_command;
-#[allow(
-    dead_code,
-    reason = "neozeus-msg currently reuses only the parse-side subset; phase 6 removes this path-shared module boundary"
-)]
-#[path = "../../shared/text_escape.rs"]
-mod text_escape;
 
-use self::{
-    app_state_file::PersistedAppState,
-    daemon_client::{DaemonMessenger, DaemonSessionInfo, SocketDaemonMessenger, TerminalCommand},
+use self::daemon_client::{
+    DaemonMessenger, DaemonSessionInfo, SocketDaemonMessenger, TerminalCommand,
 };
+use neozeus::shared::app_state_file::{self, PersistedAppState};
 use std::{fs, path::Path};
 
 const USAGE: &str =
@@ -187,14 +174,15 @@ fn dispatch_send<D: DaemonMessenger>(
 #[cfg(test)]
 mod tests {
     use super::{
-        app_state_file::{PersistedAgentState, PersistedAppState},
         daemon_client::{
             DaemonMessenger, DaemonSessionInfo, TerminalCommand, TerminalRuntimeState,
         },
         dispatch_send, load_existing_persisted_app_state, parse_args,
-        resolve_session_from_agent_label,
+        resolve_session_from_agent_label, Command, SendRequest, SendTarget,
+    };
+    use neozeus::shared::{
+        app_state_file::{PersistedAgentState, PersistedAppState},
         send_command::send_command_payload_bytes,
-        Command, SendRequest, SendTarget,
     };
     use std::{
         fs,
@@ -234,7 +222,11 @@ mod tests {
     fn session_info(session_id: &str) -> DaemonSessionInfo {
         DaemonSessionInfo {
             session_id: session_id.to_owned(),
-            runtime: TerminalRuntimeState::running("fake daemon"),
+            runtime: TerminalRuntimeState {
+                status: "fake daemon".into(),
+                lifecycle: super::daemon_client::TerminalLifecycle::Running,
+                last_error: None,
+            },
             revision: 0,
             created_order: 0,
         }
@@ -425,7 +417,10 @@ mod tests {
         dispatch_send(&daemon, &request, None).expect("send should succeed");
 
         let sent = daemon.sent_commands.lock().unwrap();
-        let (_, TerminalCommand::SendCommand(payload)) = &sent[0];
+        let payload = match &sent[0] {
+            (_, TerminalCommand::SendCommand(payload)) => payload,
+            (_, other) => panic!("expected send-command payload, got {other:?}"),
+        };
         assert_eq!(payload, "echo hi\npwd");
         assert_eq!(send_command_payload_bytes(payload), b"echo hi\rpwd\r");
     }
