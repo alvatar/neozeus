@@ -200,16 +200,21 @@ pub(crate) struct CwdFieldState {
 }
 
 impl CwdFieldState {
+    /// Runs one field-text mutation and clears any stale completion session afterward.
+    pub(crate) fn mutate_text<T>(&mut self, mutate: impl FnOnce(&mut TextFieldState) -> T) -> T {
+        let result = mutate(&mut self.field);
+        self.clear_completion();
+        result
+    }
+
     /// Replaces the field contents and clears any stale completion session.
     pub(crate) fn load_text(&mut self, text: &str) {
-        self.field.load_text(text);
-        self.clear_completion();
+        self.mutate_text(|field| field.load_text(text));
     }
 
     /// Clears both field text and completion state.
     pub(crate) fn clear(&mut self) {
-        self.field.clear();
-        self.clear_completion();
+        self.mutate_text(TextFieldState::clear);
     }
 
     /// Removes the current completion session without modifying field text.
