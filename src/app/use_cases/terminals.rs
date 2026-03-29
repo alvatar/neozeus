@@ -1,7 +1,4 @@
-use crate::terminals::{
-    TerminalFocusState, TerminalManager, TerminalPresentationStore, TerminalViewState,
-};
-use bevy::{prelude::MessageWriter, window::RequestRedraw};
+use crate::terminals::TerminalManager;
 
 /// Handles send terminal command.
 pub(crate) fn send_terminal_command(
@@ -16,25 +13,4 @@ pub(crate) fn send_terminal_command(
                 command.to_owned(),
             ));
     }
-}
-
-/// Toggles active display mode.
-pub(crate) fn toggle_active_display_mode(
-    focus_state: &TerminalFocusState,
-    presentation_store: &mut TerminalPresentationStore,
-    redraws: &mut MessageWriter<RequestRedraw>,
-) {
-    presentation_store.toggle_active_display_mode(focus_state.active_id());
-    redraws.write(RequestRedraw);
-}
-
-/// Resets active view.
-pub(crate) fn reset_active_view(
-    focus_state: &TerminalFocusState,
-    view_state: &mut TerminalViewState,
-    redraws: &mut MessageWriter<RequestRedraw>,
-) {
-    view_state.distance = 10.0;
-    view_state.reset_active_offset(focus_state.active_id());
-    redraws.write(RequestRedraw);
 }

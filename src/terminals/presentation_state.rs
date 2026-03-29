@@ -45,14 +45,6 @@ impl TerminalViewState {
         }
     }
 
-    /// Resets the shared offset and, if focused, clears the stored offset for that terminal too.
-    pub(crate) fn reset_active_offset(&mut self, active_id: Option<TerminalId>) {
-        self.offset = Vec2::ZERO;
-        if let Some(id) = active_id {
-            self.offsets_by_terminal.insert(id, Vec2::ZERO);
-        }
-    }
-
     /// Drops any remembered per-terminal pan offset for a terminal that is being removed.
     pub(crate) fn forget_terminal(&mut self, terminal_id: TerminalId) {
         self.offsets_by_terminal.remove(&terminal_id);
@@ -168,16 +160,5 @@ impl TerminalPresentationStore {
         self.terminals
             .get(&active_id?)
             .map(|terminal| terminal.display_mode)
-    }
-
-    /// Toggles the active terminal between smooth and pixel-perfect display modes.
-    pub(crate) fn toggle_active_display_mode(&mut self, active_id: Option<TerminalId>) {
-        let Some(terminal) = active_id.and_then(|id| self.terminals.get_mut(&id)) else {
-            return;
-        };
-        terminal.display_mode = match terminal.display_mode {
-            TerminalDisplayMode::Smooth => TerminalDisplayMode::PixelPerfect,
-            TerminalDisplayMode::PixelPerfect => TerminalDisplayMode::Smooth,
-        };
     }
 }

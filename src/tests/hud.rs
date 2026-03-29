@@ -328,7 +328,7 @@ fn focus_and_visibility_requests_request_redraw_immediately() {
 
     world
         .resource_mut::<Messages<AppCommand>>()
-        .write(AppCommand::Agent(AppAgentCommand::ShowAll));
+        .write(AppCommand::Agent(AppAgentCommand::ClearFocus));
     run_app_commands(&mut world);
 
     assert_eq!(

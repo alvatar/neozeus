@@ -14,9 +14,7 @@ use super::{
     state::{
         AgentListUiState, ConversationListUiState, HudLayoutState, HudRect, HUD_TITLEBAR_HEIGHT,
     },
-    view_models::{
-        AgentListView, ComposerView, ConversationListView, DebugToolbarView, ThreadView,
-    },
+    view_models::{AgentListView, ComposerView, ConversationListView, ThreadView},
     widgets::HudWidgetKey,
 };
 use bevy::{prelude::*, window::PrimaryWindow};
@@ -50,9 +48,7 @@ impl HudColors {
     pub(crate) const BORDER: peniko::Color = peniko::Color::from_rgba8(57, 26, 6, 255);
     pub(crate) const TEXT: peniko::Color = peniko::Color::from_rgba8(238, 96, 2, 255);
     pub(crate) const TEXT_MUTED: peniko::Color = peniko::Color::from_rgba8(216, 196, 162, 255);
-    pub(crate) const TEXT_ON_ACCENT: peniko::Color = peniko::Color::from_rgba8(0, 0, 0, 255);
     pub(crate) const BUTTON: peniko::Color = peniko::Color::from_rgba8(26, 26, 26, 255);
-    pub(crate) const BUTTON_ACTIVE: peniko::Color = peniko::Color::from_rgba8(255, 102, 0, 255);
     pub(crate) const BUTTON_BORDER: peniko::Color = peniko::Color::from_rgba8(57, 26, 6, 255);
     pub(crate) const ROW_HOVERED: peniko::Color = peniko::Color::from_rgba8(44, 32, 24, 255);
     pub(crate) const ROW_FOCUSED: peniko::Color = peniko::Color::from_rgba8(44, 32, 24, 255);
@@ -275,8 +271,6 @@ pub(crate) struct HudRenderInputs<'a> {
     pub(crate) agent_list_view: &'a AgentListView,
     pub(crate) conversation_list_view: &'a ConversationListView,
     pub(crate) thread_view: &'a ThreadView,
-    pub(crate) debug_toolbar_view: &'a DebugToolbarView,
-    pub(crate) layout_state: &'a HudLayoutState,
 }
 
 /// Logs a low-level color-presence diagnostic for HUD draw data when explicitly requested.
@@ -909,7 +903,10 @@ fn draw_task_dialog(
 /// Most modules exclude the titlebar from content rendering; the agent list is full-bleed and keeps
 /// the entire shell rect.
 fn module_content_rect(module_id: HudWidgetKey, shell_rect: HudRect) -> HudRect {
-    if module_id == HudWidgetKey::AgentList {
+    if matches!(
+        module_id,
+        HudWidgetKey::AgentList | HudWidgetKey::DebugToolbar
+    ) {
         return shell_rect;
     }
     HudRect {
@@ -930,6 +927,9 @@ fn draw_module_shell(painter: &mut HudPainter, module_id: HudWidgetKey, shell_re
     }
     painter.fill_rect(shell_rect, HudColors::FRAME, 8.0);
     painter.stroke_rect(shell_rect, HudColors::BORDER, 8.0);
+    if module_id == HudWidgetKey::DebugToolbar {
+        return;
+    }
     painter.fill_rect(
         HudRect {
             x: shell_rect.x,
@@ -966,7 +966,6 @@ pub(crate) fn render_hud_scene(
     agent_list_view: Res<AgentListView>,
     conversation_list_view: Res<ConversationListView>,
     thread_view: Res<ThreadView>,
-    debug_toolbar_view: Res<DebugToolbarView>,
     fonts: Res<Assets<VelloFont>>,
     startup_connect: Option<Res<StartupConnectState>>,
     mut scene: Single<&mut VelloScene2d, With<HudVectorSceneMarker>>,
@@ -981,8 +980,6 @@ pub(crate) fn render_hud_scene(
         agent_list_view: &agent_list_view,
         conversation_list_view: &conversation_list_view,
         thread_view: &thread_view,
-        debug_toolbar_view: &debug_toolbar_view,
-        layout_state: &layout_state,
     };
 
     for module_id in layout_state.iter_z_order() {

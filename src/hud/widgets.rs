@@ -46,14 +46,14 @@ pub(crate) const HUD_WIDGET_DEFINITIONS: [HudWidgetDefinition; 4] = [
     HudWidgetDefinition {
         key: HudWidgetKey::DebugToolbar,
         shortcut_number: 0,
-        title: "Debug Toolbar",
+        title: "Info Bar",
         persistence_key: "DebugToolbar",
         default_enabled: true,
         default_rect: HudRect {
-            x: 24.0,
-            y: 24.0,
-            w: 920.0,
-            h: 64.0,
+            x: 0.0,
+            y: 0.0,
+            w: 1280.0,
+            h: 40.0,
         },
     },
     HudWidgetDefinition {

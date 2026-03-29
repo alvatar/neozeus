@@ -8,9 +8,9 @@ use super::{
         HUD_MODAL_CAMERA_ORDER, HUD_MODAL_RENDER_LAYER,
     },
     state::{
-        default_hud_module_instance, docked_agent_list_rect, AgentListUiState,
-        ConversationListUiState, DebugToolbarUiState, HudInputCaptureState, HudLayoutState,
-        ThreadPaneUiState,
+        default_hud_module_instance, docked_agent_list_rect_with_top_inset, docked_info_bar_rect,
+        AgentListUiState, ConversationListUiState, DebugToolbarUiState, HudInputCaptureState,
+        HudLayoutState, ThreadPaneUiState,
     },
     widgets::{HudWidgetKey, HUD_WIDGET_DEFINITIONS},
 };
@@ -117,18 +117,47 @@ pub(crate) fn setup_hud(
 
 /// Reapplies structural layout constraints that the user is not allowed to move.
 ///
-/// Today this means forcing the agent list to stay docked to the window edge regardless of persisted
-/// or animated state.
+/// The info bar is pinned to the top edge, the agent list is pinned below it, and floating modules
+/// are clamped so they cannot overlap the reserved header band.
 pub(crate) fn sync_structural_hud_layout(
     primary_window: Single<&Window, With<PrimaryWindow>>,
     mut layout_state: ResMut<HudLayoutState>,
 ) {
-    let rect = docked_agent_list_rect(&primary_window);
-    let Some(agent_list) = layout_state.get_mut(HudWidgetKey::AgentList) else {
-        return;
-    };
-    agent_list.shell.target_rect = rect;
-    agent_list.shell.current_rect = rect;
+    let info_bar_rect = docked_info_bar_rect(&primary_window);
+    if let Some(info_bar) = layout_state.get_mut(HudWidgetKey::DebugToolbar) {
+        info_bar.shell.target_rect = info_bar_rect;
+        info_bar.shell.current_rect = info_bar_rect;
+    }
+
+    let reserved_top = layout_state
+        .get(HudWidgetKey::DebugToolbar)
+        .filter(|module| module.shell.enabled)
+        .map(|module| module.shell.current_rect.h)
+        .unwrap_or(0.0);
+    let agent_list_rect = docked_agent_list_rect_with_top_inset(&primary_window, reserved_top);
+    if let Some(agent_list) = layout_state.get_mut(HudWidgetKey::AgentList) {
+        agent_list.shell.target_rect = agent_list_rect;
+        agent_list.shell.current_rect = agent_list_rect;
+    }
+
+    let module_ids = layout_state.iter_z_order().collect::<Vec<_>>();
+    for module_id in module_ids {
+        if matches!(
+            module_id,
+            HudWidgetKey::DebugToolbar | HudWidgetKey::AgentList
+        ) {
+            continue;
+        }
+        let Some(module) = layout_state.get_mut(module_id) else {
+            continue;
+        };
+        if module.shell.target_rect.y < reserved_top {
+            module.shell.target_rect.y = reserved_top;
+        }
+        if module.shell.current_rect.y < reserved_top {
+            module.shell.current_rect.y = reserved_top;
+        }
+    }
 }
 
 /// Returns whether HUD animation/dragging requires another redraw.

@@ -9,7 +9,6 @@ pub(crate) struct ComposerRequest {
 #[derive(Clone, Debug, Message, PartialEq, Eq)]
 pub(crate) enum AppCommand {
     Agent(AgentCommand),
-    Terminal(TerminalCommand),
     Task(TaskCommand),
     Composer(ComposerCommand),
     Widget(WidgetCommand),
@@ -17,7 +16,6 @@ pub(crate) enum AppCommand {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum AgentCommand {
-    SpawnTerminal,
     Create {
         label: Option<String>,
         spawn_shell_only: bool,
@@ -29,16 +27,8 @@ pub(crate) enum AgentCommand {
         agent_id: AgentId,
         target_index: usize,
     },
-    ShowAll,
     ClearFocus,
     KillActive,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum TerminalCommand {
-    SendCommandToActive { command: String },
-    ResetActiveView,
-    ToggleActiveDisplayMode,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
