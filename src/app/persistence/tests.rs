@@ -128,20 +128,16 @@ fn saving_app_state_persists_agent_order_labels_and_focus() {
 
     let mut agent_catalog = AgentCatalog::default();
     let mut runtime_index = AgentRuntimeIndex::default();
-    let alpha = agent_catalog
-        .create_agent(
-            Some("alpha".into()),
-            AgentKind::Terminal,
-            AgentCapabilities::terminal_defaults(),
-        )
-        .unwrap();
-    let beta = agent_catalog
-        .create_agent(
-            Some("beta".into()),
-            AgentKind::Terminal,
-            AgentCapabilities::terminal_defaults(),
-        )
-        .unwrap();
+    let alpha = agent_catalog.create_agent(
+        Some("alpha".into()),
+        AgentKind::Terminal,
+        AgentCapabilities::terminal_defaults(),
+    );
+    let beta = agent_catalog.create_agent(
+        Some("beta".into()),
+        AgentKind::Terminal,
+        AgentCapabilities::terminal_defaults(),
+    );
     runtime_index.link_terminal(alpha, id_one, "neozeus-session-a".into(), None);
     runtime_index.link_terminal(beta, id_two, "neozeus-session-b".into(), None);
     agent_catalog.move_to_index(beta, 0);

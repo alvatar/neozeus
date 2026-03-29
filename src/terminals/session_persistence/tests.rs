@@ -173,13 +173,11 @@ fn saving_terminal_sessions_persists_focus_order_and_labels() {
 
     let mut agent_catalog = AgentCatalog::default();
     let mut runtime_index = AgentRuntimeIndex::default();
-    let agent_id = agent_catalog
-        .create_agent(
-            Some("oracle one".into()),
-            AgentKind::Terminal,
-            AgentCapabilities::terminal_defaults(),
-        )
-        .unwrap();
+    let agent_id = agent_catalog.create_agent(
+        Some("oracle one".into()),
+        AgentKind::Terminal,
+        AgentCapabilities::terminal_defaults(),
+    );
     runtime_index.link_terminal(agent_id, id_one, "neozeus-session-a".into(), None);
 
     let mut world = World::default();

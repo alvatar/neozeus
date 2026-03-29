@@ -72,9 +72,7 @@ pub(crate) fn sync_agents_from_terminals(
                     AgentKind::Terminal => crate::agents::AgentCapabilities::terminal_defaults(),
                     AgentKind::Verifier => crate::agents::AgentCapabilities::verifier_defaults(),
                 };
-                let agent_id = agent_catalog
-                    .create_agent(None, kind, capabilities)
-                    .expect("default terminal label generation must stay unique");
+                let agent_id = agent_catalog.create_agent(None, kind, capabilities);
                 runtime_index.link_terminal(
                     agent_id,
                     terminal_id,

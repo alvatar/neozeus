@@ -197,13 +197,11 @@ fn world_with_active_terminal_and_receiver(
         .clone();
 
     let mut catalog = AgentCatalog::default();
-    let agent_id = catalog
-        .create_agent(
-            Some("agent-1".into()),
-            crate::agents::AgentKind::Terminal,
-            crate::agents::AgentCapabilities::terminal_defaults(),
-        )
-        .unwrap();
+    let agent_id = catalog.create_agent(
+        Some("agent-1".into()),
+        crate::agents::AgentKind::Terminal,
+        crate::agents::AgentCapabilities::terminal_defaults(),
+    );
     let mut runtime_index = AgentRuntimeIndex::default();
     runtime_index.link_terminal(agent_id, terminal_id, session_name, None);
 
@@ -748,20 +746,16 @@ fn clicking_terminal_panel_enqueues_focus_and_isolate_for_topmost_visible_panel(
     window.set_cursor_position(Some(Vec2::new(640.0, 360.0)));
 
     let mut catalog = AgentCatalog::default();
-    let first_agent = catalog
-        .create_agent(
-            Some("agent-1".into()),
-            crate::agents::AgentKind::Terminal,
-            crate::agents::AgentCapabilities::terminal_defaults(),
-        )
-        .unwrap();
-    let second_agent = catalog
-        .create_agent(
-            Some("agent-2".into()),
-            crate::agents::AgentKind::Terminal,
-            crate::agents::AgentCapabilities::terminal_defaults(),
-        )
-        .unwrap();
+    let first_agent = catalog.create_agent(
+        Some("agent-1".into()),
+        crate::agents::AgentKind::Terminal,
+        crate::agents::AgentCapabilities::terminal_defaults(),
+    );
+    let second_agent = catalog.create_agent(
+        Some("agent-2".into()),
+        crate::agents::AgentKind::Terminal,
+        crate::agents::AgentCapabilities::terminal_defaults(),
+    );
     let mut runtime_index = AgentRuntimeIndex::default();
     runtime_index.link_terminal(
         first_agent,
