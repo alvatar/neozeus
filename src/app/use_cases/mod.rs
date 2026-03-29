@@ -17,5 +17,5 @@ pub(crate) use spawn_agent_terminal::{attach_restored_terminal, spawn_agent_term
 pub(crate) use tasks::{
     append_task, clear_done_tasks, consume_next_task, prepend_task, set_task_text,
 };
-pub(crate) use terminals::{reset_active_view, send_terminal_command, toggle_active_display_mode};
+pub(crate) use terminals::send_terminal_command;
 pub(crate) use widgets::{reset_widget, toggle_widget};

@@ -316,6 +316,42 @@ fn active_terminal_viewport_reserves_agent_list_column() {
     );
 }
 
+/// Verifies that the active-terminal viewport also reserves the top info-bar header when enabled.
+#[test]
+fn active_terminal_viewport_reserves_info_bar_header() {
+    let window = Window {
+        resolution: (1400, 900).into(),
+        ..Default::default()
+    };
+    let mut hud_state = HudState::default();
+    hud_state.insert_default_module(HudWidgetKey::DebugToolbar);
+    hud_state.insert_default_module(HudWidgetKey::AgentList);
+    let info_bar_rect = crate::hud::docked_info_bar_rect(&window);
+    let agent_list_rect =
+        crate::hud::docked_agent_list_rect_with_top_inset(&window, info_bar_rect.h);
+    hud_state.set_module_shell_state(
+        HudWidgetKey::DebugToolbar,
+        true,
+        info_bar_rect,
+        info_bar_rect,
+        1.0,
+        1.0,
+    );
+    hud_state.set_module_shell_state(
+        HudWidgetKey::AgentList,
+        true,
+        agent_list_rect,
+        agent_list_rect,
+        1.0,
+        1.0,
+    );
+
+    assert_eq!(
+        active_terminal_viewport(&window, &hud_state.layout_state()),
+        (Vec2::new(1100.0, 860.0), Vec2::new(150.0, -20.0))
+    );
+}
+
 /// Verifies that the active terminal presentation uses the texture's logical size and snaps to the
 /// center of the usable viewport.
 #[test]

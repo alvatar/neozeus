@@ -5,11 +5,9 @@ use bevy::prelude::*;
 use std::collections::BTreeMap;
 
 pub(crate) const HUD_TITLEBAR_HEIGHT: f32 = 28.0;
+pub(crate) const HUD_INFO_BAR_HEIGHT: f32 = 40.0;
 pub(crate) const HUD_MODULE_PADDING: f32 = 10.0;
 pub(crate) const HUD_ROW_HEIGHT: f32 = 28.0;
-pub(crate) const HUD_BUTTON_HEIGHT: f32 = 28.0;
-pub(crate) const HUD_BUTTON_GAP: f32 = 8.0;
-pub(crate) const HUD_BUTTON_MIN_WIDTH: f32 = 72.0;
 pub(crate) const HUD_AGENT_LIST_WIDTH: f32 = 300.0;
 const HUD_ANIMATION_EPSILON: f32 = 0.25;
 
@@ -132,6 +130,15 @@ impl HudLayoutState {
             .get(&HudWidgetKey::AgentList)
             .filter(|module| module.shell.enabled)
             .map(|module| module.shell.current_rect.w)
+            .unwrap_or(0.0)
+    }
+
+    /// Returns the reserved top header height when the info-bar module is enabled.
+    pub(crate) fn reserved_header_height(&self) -> f32 {
+        self.modules
+            .get(&HudWidgetKey::DebugToolbar)
+            .filter(|module| module.shell.enabled)
+            .map(|module| module.shell.current_rect.h)
             .unwrap_or(0.0)
     }
 
@@ -292,16 +299,36 @@ pub(crate) struct TerminalVisibilityState {
     pub(crate) policy: TerminalVisibilityPolicy,
 }
 
-/// Returns the fixed docked rectangle used by the agent-list module.
+/// Returns the fixed docked rectangle used by the top info-bar module.
 ///
-/// The agent list is pinned to the left edge and spans the full window height, with width clamped by
-/// the current window width.
-pub(crate) fn docked_agent_list_rect(window: &Window) -> HudRect {
+/// The info bar is pinned to the top edge and spans the full window width using the shared header
+/// height.
+pub(crate) fn docked_info_bar_rect(window: &Window) -> HudRect {
     HudRect {
         x: 0.0,
         y: 0.0,
+        w: window.width(),
+        h: HUD_INFO_BAR_HEIGHT.min(window.height()),
+    }
+}
+
+/// Returns the fixed docked rectangle used by the agent-list module with no top inset.
+///
+/// Tests use this helper when they want the agent list docked without the structural info-bar
+/// reservation.
+#[cfg(test)]
+pub(crate) fn docked_agent_list_rect(window: &Window) -> HudRect {
+    docked_agent_list_rect_with_top_inset(window, 0.0)
+}
+
+/// Returns the fixed docked rectangle used by the agent-list module beneath one reserved top inset.
+pub(crate) fn docked_agent_list_rect_with_top_inset(window: &Window, top_inset: f32) -> HudRect {
+    let top_inset = top_inset.clamp(0.0, window.height());
+    HudRect {
+        x: 0.0,
+        y: top_inset,
         w: HUD_AGENT_LIST_WIDTH.min(window.width()),
-        h: window.height(),
+        h: (window.height() - top_inset).max(0.0),
     }
 }
 

@@ -7,16 +7,14 @@ use crate::{
     hud::{HudInputCaptureState, HudLayoutState, TerminalVisibilityState},
     startup::StartupLoadingState,
     terminals::{
-        append_debug_log, TerminalFocusState, TerminalManager, TerminalPresentationStore,
-        TerminalRuntimeSpawner, TerminalViewState, PERSISTENT_SESSION_PREFIX,
-        VERIFIER_SESSION_PREFIX,
+        append_debug_log, TerminalFocusState, TerminalManager, TerminalRuntimeSpawner,
+        TerminalViewState, PERSISTENT_SESSION_PREFIX, VERIFIER_SESSION_PREFIX,
     },
 };
 
 use super::{
     commands::{
-        AgentCommand, AppCommand, ComposerCommand, TaskCommand as AppTaskCommand,
-        TerminalCommand as AppTerminalCommand, WidgetCommand,
+        AgentCommand, AppCommand, ComposerCommand, TaskCommand as AppTaskCommand, WidgetCommand,
     },
     session::{AppSessionState, VisibilityMode},
     use_cases,
@@ -121,7 +119,6 @@ pub(super) struct AppCommandContext<'w> {
     app_session: ResMut<'w, AppSessionState>,
     terminal_manager: ResMut<'w, TerminalManager>,
     focus_state: ResMut<'w, TerminalFocusState>,
-    presentation_store: ResMut<'w, TerminalPresentationStore>,
     runtime_spawner: Res<'w, TerminalRuntimeSpawner>,
     input_capture: ResMut<'w, HudInputCaptureState>,
     layout_state: ResMut<'w, HudLayoutState>,
@@ -149,30 +146,6 @@ pub(super) fn apply_app_commands(
     for command in app_commands.read() {
         match command {
             AppCommand::Agent(command) => match command {
-                AgentCommand::SpawnTerminal => {
-                    if let Err(error) = use_cases::spawn_agent_terminal(
-                        &mut ctx.agent_catalog,
-                        &mut ctx.runtime_index,
-                        &mut ctx.app_session,
-                        &mut ctx.terminal_manager,
-                        &mut ctx.focus_state,
-                        &ctx.runtime_spawner,
-                        &mut ctx.input_capture,
-                        &mut ctx.app_state_persistence,
-                        &mut ctx.visibility_state,
-                        &mut ctx.view_state,
-                        ctx.startup_loading.as_deref_mut(),
-                        &ctx.time,
-                        PERSISTENT_SESSION_PREFIX,
-                        false,
-                        AgentKind::Terminal,
-                        None,
-                        None,
-                        &mut ctx.redraws,
-                    ) {
-                        append_debug_log(format!("spawn terminal failed: {error}"));
-                    }
-                }
                 AgentCommand::Create {
                     label,
                     spawn_shell_only,
@@ -246,11 +219,6 @@ pub(super) fn apply_app_commands(
                         ctx.redraws.write(RequestRedraw);
                     }
                 }
-                AgentCommand::ShowAll => {
-                    ctx.app_session.visibility_mode = VisibilityMode::ShowAll;
-                    ctx.visibility_state.policy = crate::hud::TerminalVisibilityPolicy::ShowAll;
-                    ctx.redraws.write(RequestRedraw);
-                }
                 AgentCommand::ClearFocus => {
                     ctx.app_session.active_agent = None;
                     let _ = ctx.focus_state.clear_active_terminal();
@@ -282,27 +250,6 @@ pub(super) fn apply_app_commands(
                     ) {
                         append_debug_log(format!("kill active agent failed: {error}"));
                     }
-                }
-            },
-            AppCommand::Terminal(command) => match command {
-                AppTerminalCommand::SendCommandToActive { command } => {
-                    if let Some(active_id) = ctx.focus_state.active_id() {
-                        use_cases::send_terminal_command(active_id, command, &ctx.terminal_manager);
-                    }
-                }
-                AppTerminalCommand::ResetActiveView => {
-                    use_cases::reset_active_view(
-                        &ctx.focus_state,
-                        &mut ctx.view_state,
-                        &mut ctx.redraws,
-                    );
-                }
-                AppTerminalCommand::ToggleActiveDisplayMode => {
-                    use_cases::toggle_active_display_mode(
-                        &ctx.focus_state,
-                        &mut ctx.presentation_store,
-                        &mut ctx.redraws,
-                    );
                 }
             },
             AppCommand::Task(command) => match command {

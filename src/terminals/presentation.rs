@@ -171,13 +171,20 @@ fn physical_to_logical_size(size: Vec2, window: &Window) -> Vec2 {
 /// Returns the logical viewport size/center available for the active terminal after reserving HUD
 /// chrome.
 ///
-/// The docked agent list claims space on the left when enabled.
+/// The docked agent list claims space on the left when enabled, and the info bar claims space on the
+/// top edge when enabled.
 fn active_terminal_viewport(window: &Window, layout_state: &HudLayoutState) -> (Vec2, Vec2) {
     let reserved_left = layout_state
         .docked_agent_list_width()
         .clamp(0.0, window.width());
-    let usable_size = Vec2::new((window.width() - reserved_left).max(64.0), window.height());
-    let center = Vec2::new(reserved_left * 0.5, 0.0);
+    let reserved_top = layout_state
+        .reserved_header_height()
+        .clamp(0.0, window.height());
+    let usable_size = Vec2::new(
+        (window.width() - reserved_left).max(64.0),
+        (window.height() - reserved_top).max(64.0),
+    );
+    let center = Vec2::new(reserved_left * 0.5, -reserved_top * 0.5);
     (usable_size, center)
 }
 

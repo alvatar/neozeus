@@ -68,12 +68,16 @@ fn setup_hud_requests_initial_redraw() {
     assert!(modal_layers.intersects(&RenderLayers::layer(HUD_MODAL_RENDER_LAYER)));
 }
 
-/// Verifies that structural HUD sync forcibly docks the agent list to the left edge at full window
-/// height.
+/// Verifies that structural HUD sync pins the info bar to the top edge and docks the agent list
+/// directly below it.
 #[test]
-fn sync_structural_hud_layout_docks_agent_list_to_full_height_left_column() {
+fn sync_structural_hud_layout_pins_info_bar_and_docks_agent_list_below() {
     let mut world = World::default();
     let mut hud_state = HudState::default();
+    hud_state.insert(
+        HudWidgetKey::DebugToolbar,
+        crate::hud::default_hud_module_instance(&crate::hud::HUD_MODULE_DEFINITIONS[0]),
+    );
     hud_state.insert(
         HudWidgetKey::AgentList,
         crate::hud::default_hud_module_instance(&crate::hud::HUD_MODULE_DEFINITIONS[1]),
@@ -89,15 +93,26 @@ fn sync_structural_hud_layout_docks_agent_list_to_full_height_left_column() {
 
     world.run_system_once(sync_structural_hud_layout).unwrap();
 
-    let expected_rect = {
+    let (expected_info_bar_rect, expected_agent_rect) = {
         let mut query = world.query_filtered::<&Window, With<PrimaryWindow>>();
-        crate::hud::docked_agent_list_rect(query.single(&world).expect("window should exist"))
+        let window = query.single(&world).expect("window should exist");
+        (
+            crate::hud::docked_info_bar_rect(window),
+            crate::hud::docked_agent_list_rect_with_top_inset(
+                window,
+                crate::hud::docked_info_bar_rect(window).h,
+            ),
+        )
     };
     let hud_state = snapshot_test_hud_state(&world);
-    let module = hud_state
+    let info_bar = hud_state
+        .get(HudWidgetKey::DebugToolbar)
+        .expect("info bar should exist");
+    let agent_list = hud_state
         .get(HudWidgetKey::AgentList)
         .expect("agent list should exist");
-    assert_eq!(module.shell.current_rect, expected_rect);
+    assert_eq!(info_bar.shell.current_rect, expected_info_bar_rect);
+    assert_eq!(agent_list.shell.current_rect, expected_agent_rect);
 }
 
 /// Verifies that the HUD redraw predicate turns on for either drag state or in-flight shell

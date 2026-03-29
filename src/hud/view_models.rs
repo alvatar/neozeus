@@ -86,13 +86,6 @@ pub(crate) struct DebugToolbarView {
     pub(crate) pixel_perfect_active: bool,
 }
 
-impl DebugToolbarView {
-    /// Returns the current zoom distance in logical units.
-    pub(crate) fn zoom_distance(&self) -> f32 {
-        self.zoom_distance_milli as f32 / 1000.0
-    }
-}
-
 #[allow(
     clippy::too_many_arguments,
     reason = "view-model derivation reads the authoritative stores and writes the derived UI projections"

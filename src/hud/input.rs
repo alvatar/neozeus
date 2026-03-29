@@ -40,7 +40,10 @@ fn cursor_hud_position(window: &Window) -> Option<Vec2> {
 /// content. The agent list is the exception: its whole shell is interactive, so it keeps the full
 /// rectangle.
 fn content_hit_rect(module_id: HudWidgetKey, rect: HudRect) -> HudRect {
-    if module_id == HudWidgetKey::AgentList {
+    if matches!(
+        module_id,
+        HudWidgetKey::AgentList | HudWidgetKey::DebugToolbar
+    ) {
         return rect;
     }
     HudRect {
@@ -185,7 +188,12 @@ pub(crate) fn handle_hud_pointer_input(world: &mut World) {
                 .get(module_id)
                 .map(|module| module.shell.titlebar_rect())
                 .unwrap_or_default();
-            if titlebar_rect.contains(cursor) && module_id != HudWidgetKey::AgentList {
+            if titlebar_rect.contains(cursor)
+                && !matches!(
+                    module_id,
+                    HudWidgetKey::AgentList | HudWidgetKey::DebugToolbar
+                )
+            {
                 ctx.layout_state.drag = Some(HudDragState {
                     module_id,
                     grab_offset: Vec2::new(cursor.x - titlebar_rect.x, cursor.y - titlebar_rect.y),
