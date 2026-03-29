@@ -53,7 +53,7 @@ pub(crate) const HUD_WIDGET_DEFINITIONS: [HudWidgetDefinition; 4] = [
             x: 0.0,
             y: 0.0,
             w: 1280.0,
-            h: 40.0,
+            h: 60.0,
         },
     },
     HudWidgetDefinition {

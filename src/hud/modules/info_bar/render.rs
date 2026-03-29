@@ -1,35 +1,49 @@
-use super::super::super::render::{HudColors, HudPainter, HudRenderInputs};
+use super::super::super::render::{HudPainter, HudRenderInputs};
 use super::super::super::state::HudRect;
 use super::super::super::view_models::UsageBarView;
 use bevy::prelude::Vec2;
 use bevy_vello::prelude::{peniko, VelloTextAnchor};
 
-const INFO_BAR_PADDING_X: f32 = 10.0;
-const INFO_BAR_PADDING_Y: f32 = 8.0;
-const INFO_BAR_SECTION_GAP: f32 = 10.0;
-const INFO_BAR_COMPACT_SECTION_GAP: f32 = 6.0;
-const INFO_BAR_ROW_GAP: f32 = 6.0;
-const INFO_BAR_BAR_CELL_COUNT: usize = 12;
-const INFO_BAR_BAR_CELL_GAP: f32 = 2.0;
+pub(in crate::hud) const INFO_BAR_BACKGROUND: peniko::Color =
+    peniko::Color::from_rgba8(5, 15, 21, 255);
+pub(in crate::hud) const INFO_BAR_BORDER: peniko::Color =
+    peniko::Color::from_rgba8(28, 33, 36, 255);
+const INFO_BAR_LABEL_COLOR: peniko::Color = peniko::Color::from_rgba8(68, 119, 119, 255);
+const INFO_BAR_TRACK_COLOR: peniko::Color = peniko::Color::from_rgba8(15, 22, 26, 255);
+const INFO_BAR_TRACK_SEPARATOR: peniko::Color = peniko::Color::from_rgba8(28, 33, 36, 255);
+const INFO_BAR_PADDING_X: f32 = 4.0;
+const INFO_BAR_PADDING_Y: f32 = 10.0;
+const INFO_BAR_ROW_GAP: f32 = 8.0;
+const INFO_BAR_SECTION_GAP: f32 = 18.0;
+const INFO_BAR_COMPACT_SECTION_GAP: f32 = 10.0;
+const INFO_BAR_LABEL_GAP: f32 = 8.0;
+const INFO_BAR_VALUE_GAP: f32 = 6.0;
+const INFO_BAR_BAR_HEIGHT: f32 = 14.0;
 const INFO_BAR_LABEL_SIZE: f32 = 14.0;
 const INFO_BAR_COMPACT_LABEL_SIZE: f32 = 13.0;
 const INFO_BAR_VALUE_SIZE: f32 = 14.0;
 const INFO_BAR_COMPACT_VALUE_SIZE: f32 = 13.0;
-const INFO_BAR_MIN_BAR_CELL_WIDTH: f32 = 4.0;
-const INFO_BAR_MAX_BAR_CELL_WIDTH: f32 = 7.0;
-const INFO_BAR_PERCENT_WIDTH: f32 = 38.0;
-const INFO_BAR_DETAIL_WIDTH: f32 = 72.0;
+const INFO_BAR_PERCENT_WIDTH: f32 = 36.0;
+const INFO_BAR_COMPACT_PERCENT_WIDTH: f32 = 32.0;
+const INFO_BAR_DETAIL_WIDTH: f32 = 76.0;
+const INFO_BAR_COMPACT_DETAIL_WIDTH: f32 = 64.0;
+const INFO_BAR_MIN_BAR_WIDTH: f32 = 40.0;
+const INFO_BAR_MINI_BAR_WIDTH: f32 = 28.0;
+const INFO_BAR_SESSION_WIDTH_RATIO: f32 = 0.56;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub(in crate::hud) struct InfoBarCompactness {
-    pub(in crate::hud) two_rows: bool,
+pub(in crate::hud) struct InfoBarDensity {
+    pub(in crate::hud) compact: bool,
     pub(in crate::hud) section_gap: f32,
-    pub(in crate::hud) compact_text: bool,
+    pub(in crate::hud) percent_width: f32,
+    pub(in crate::hud) detail_width: f32,
+    pub(in crate::hud) label_size: f32,
+    pub(in crate::hud) value_size: f32,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub(in crate::hud) struct InfoBarSectionLayout {
-    pub(in crate::hud) section_rect: HudRect,
+pub(in crate::hud) struct InfoBarMetricLayout {
+    pub(in crate::hud) group_rect: HudRect,
     pub(in crate::hud) label_position: Vec2,
     pub(in crate::hud) bar_rect: HudRect,
     pub(in crate::hud) pct_rect: HudRect,
@@ -57,215 +71,268 @@ pub(in crate::hud) fn usage_gradient_color(pct: f32) -> peniko::Color {
     peniko::Color::from_rgba8(r, g, b, 255)
 }
 
-/// Chooses the spacing/text-density policy for the current info-bar geometry.
-pub(in crate::hud) fn info_bar_compactness(content_rect: HudRect) -> InfoBarCompactness {
-    let usable_width = (content_rect.w - INFO_BAR_PADDING_X * 2.0).max(0.0);
-    let single_row_section_width = ((usable_width - INFO_BAR_SECTION_GAP * 3.0) / 4.0).max(0.0);
-    if single_row_section_width < 240.0 {
-        return InfoBarCompactness {
-            two_rows: true,
+fn mix_color(a: peniko::Color, b: peniko::Color, t: f32) -> peniko::Color {
+    let a = a.to_rgba8();
+    let b = b.to_rgba8();
+    let t = t.clamp(0.0, 1.0);
+    peniko::Color::from_rgba8(
+        (a.r as f32 + (b.r as f32 - a.r as f32) * t).round() as u8,
+        (a.g as f32 + (b.g as f32 - a.g as f32) * t).round() as u8,
+        (a.b as f32 + (b.b as f32 - a.b as f32) * t).round() as u8,
+        (a.a as f32 + (b.a as f32 - a.a as f32) * t).round() as u8,
+    )
+}
+
+/// Chooses the density policy for the current info-bar width while keeping the reference layout.
+pub(in crate::hud) fn info_bar_density(content_rect: HudRect) -> InfoBarDensity {
+    if content_rect.w < 1120.0 {
+        return InfoBarDensity {
+            compact: true,
             section_gap: INFO_BAR_COMPACT_SECTION_GAP,
-            compact_text: true,
+            percent_width: INFO_BAR_COMPACT_PERCENT_WIDTH,
+            detail_width: INFO_BAR_COMPACT_DETAIL_WIDTH,
+            label_size: INFO_BAR_COMPACT_LABEL_SIZE,
+            value_size: INFO_BAR_COMPACT_VALUE_SIZE,
         };
     }
-    InfoBarCompactness {
-        two_rows: false,
-        section_gap: if single_row_section_width < 280.0 {
-            INFO_BAR_COMPACT_SECTION_GAP
-        } else {
-            INFO_BAR_SECTION_GAP
+    InfoBarDensity {
+        compact: false,
+        section_gap: INFO_BAR_SECTION_GAP,
+        percent_width: INFO_BAR_PERCENT_WIDTH,
+        detail_width: INFO_BAR_DETAIL_WIDTH,
+        label_size: INFO_BAR_LABEL_SIZE,
+        value_size: INFO_BAR_VALUE_SIZE,
+    }
+}
+
+/// Computes the two provider-row rectangles for the reference Zeus layout.
+pub(in crate::hud) fn info_bar_row_rects(content_rect: HudRect) -> [HudRect; 2] {
+    let row_height =
+        ((content_rect.h - INFO_BAR_PADDING_Y * 2.0 - INFO_BAR_ROW_GAP) / 2.0).max(0.0);
+    [
+        HudRect {
+            x: content_rect.x + INFO_BAR_PADDING_X,
+            y: content_rect.y + INFO_BAR_PADDING_Y,
+            w: (content_rect.w - INFO_BAR_PADDING_X * 2.0).max(0.0),
+            h: row_height,
         },
-        compact_text: single_row_section_width < 280.0,
-    }
+        HudRect {
+            x: content_rect.x + INFO_BAR_PADDING_X,
+            y: content_rect.y + INFO_BAR_PADDING_Y + row_height + INFO_BAR_ROW_GAP,
+            w: (content_rect.w - INFO_BAR_PADDING_X * 2.0).max(0.0),
+            h: row_height,
+        },
+    ]
 }
 
-/// Computes the section rects used by the info bar, switching to a 2×2 layout when narrow.
-pub(in crate::hud) fn info_bar_section_rects(content_rect: HudRect) -> [HudRect; 4] {
-    let compact = info_bar_compactness(content_rect);
-    let available_width = (content_rect.w - INFO_BAR_PADDING_X * 2.0).max(0.0);
-    if compact.two_rows {
-        let section_width = ((available_width - compact.section_gap) / 2.0).max(0.0);
-        let section_height =
-            ((content_rect.h - INFO_BAR_PADDING_Y * 2.0 - INFO_BAR_ROW_GAP) / 2.0).max(0.0);
-        return [
-            HudRect {
-                x: content_rect.x + INFO_BAR_PADDING_X,
-                y: content_rect.y + INFO_BAR_PADDING_Y,
-                w: section_width,
-                h: section_height,
-            },
-            HudRect {
-                x: content_rect.x + INFO_BAR_PADDING_X + section_width + compact.section_gap,
-                y: content_rect.y + INFO_BAR_PADDING_Y,
-                w: section_width,
-                h: section_height,
-            },
-            HudRect {
-                x: content_rect.x + INFO_BAR_PADDING_X,
-                y: content_rect.y + INFO_BAR_PADDING_Y + section_height + INFO_BAR_ROW_GAP,
-                w: section_width,
-                h: section_height,
-            },
-            HudRect {
-                x: content_rect.x + INFO_BAR_PADDING_X + section_width + compact.section_gap,
-                y: content_rect.y + INFO_BAR_PADDING_Y + section_height + INFO_BAR_ROW_GAP,
-                w: section_width,
-                h: section_height,
-            },
-        ];
-    }
-
-    let total_gap = compact.section_gap * 3.0;
-    let section_width = ((available_width - total_gap) / 4.0).max(0.0);
-    let section_height = (content_rect.h - INFO_BAR_PADDING_Y * 2.0).max(0.0);
-    std::array::from_fn(|index| HudRect {
-        x: content_rect.x
-            + INFO_BAR_PADDING_X
-            + index as f32 * (section_width + compact.section_gap),
-        y: content_rect.y + INFO_BAR_PADDING_Y,
-        w: section_width,
-        h: section_height,
-    })
+/// Splits one provider row into `Session` and `Week` metric groups.
+pub(in crate::hud) fn info_bar_metric_group_rects(
+    row_rect: HudRect,
+    density: InfoBarDensity,
+) -> [HudRect; 2] {
+    let usable_width = (row_rect.w - density.section_gap).max(0.0);
+    let session_width = (usable_width * INFO_BAR_SESSION_WIDTH_RATIO).max(0.0);
+    let week_width = (usable_width - session_width).max(0.0);
+    [
+        HudRect {
+            x: row_rect.x,
+            y: row_rect.y,
+            w: session_width,
+            h: row_rect.h,
+        },
+        HudRect {
+            x: row_rect.x + session_width + density.section_gap,
+            y: row_rect.y,
+            w: week_width,
+            h: row_rect.h,
+        },
+    ]
 }
 
-/// Computes the inner geometry for one info-bar section.
-pub(in crate::hud) fn info_bar_section_layout(
-    section_rect: HudRect,
+/// Computes the inner geometry for one usage metric within a provider row.
+pub(in crate::hud) fn info_bar_metric_layout(
+    group_rect: HudRect,
     label_width: f32,
-) -> InfoBarSectionLayout {
-    let bar_height = 14.0;
-    let label_gap = 6.0;
-    let value_gap = 6.0;
-    let bar_available_width = (section_rect.w
-        - label_width
-        - INFO_BAR_PERCENT_WIDTH
-        - INFO_BAR_DETAIL_WIDTH
-        - label_gap
-        - value_gap * 2.0)
-        .max(INFO_BAR_BAR_CELL_COUNT as f32 * INFO_BAR_MIN_BAR_CELL_WIDTH);
-    let cell_width = ((bar_available_width
-        - INFO_BAR_BAR_CELL_GAP * (INFO_BAR_BAR_CELL_COUNT.saturating_sub(1) as f32))
-        / INFO_BAR_BAR_CELL_COUNT as f32)
-        .clamp(INFO_BAR_MIN_BAR_CELL_WIDTH, INFO_BAR_MAX_BAR_CELL_WIDTH);
-    let final_bar_width = cell_width * INFO_BAR_BAR_CELL_COUNT as f32
-        + INFO_BAR_BAR_CELL_GAP * (INFO_BAR_BAR_CELL_COUNT.saturating_sub(1) as f32);
-    let y = section_rect.y + (section_rect.h - bar_height) * 0.5;
-    let bar_x = section_rect.x + label_width + label_gap;
-    let pct_x = bar_x + final_bar_width + value_gap;
-    let detail_x = pct_x + INFO_BAR_PERCENT_WIDTH + value_gap;
-    InfoBarSectionLayout {
-        section_rect,
-        label_position: Vec2::new(section_rect.x, section_rect.y + section_rect.h * 0.5),
+    density: InfoBarDensity,
+) -> InfoBarMetricLayout {
+    let mut detail_width = density.detail_width;
+    let mut percent_width = density.percent_width;
+    let base_x = group_rect.x + label_width + INFO_BAR_LABEL_GAP;
+    let fixed_width = label_width
+        + INFO_BAR_LABEL_GAP
+        + percent_width
+        + INFO_BAR_VALUE_GAP
+        + detail_width
+        + INFO_BAR_VALUE_GAP;
+    let mut bar_width = group_rect.w - fixed_width;
+    if bar_width < INFO_BAR_MIN_BAR_WIDTH {
+        let shortage = INFO_BAR_MIN_BAR_WIDTH - bar_width;
+        let detail_take = shortage.min(detail_width - INFO_BAR_MINI_BAR_WIDTH);
+        detail_width -= detail_take;
+        bar_width += detail_take;
+    }
+    if bar_width < INFO_BAR_MIN_BAR_WIDTH {
+        let shortage = INFO_BAR_MIN_BAR_WIDTH - bar_width;
+        let percent_take = shortage.min(percent_width - INFO_BAR_MINI_BAR_WIDTH);
+        percent_width -= percent_take;
+        bar_width += percent_take;
+    }
+    bar_width = bar_width.max(INFO_BAR_MINI_BAR_WIDTH);
+    let bar_y = group_rect.y + (group_rect.h - INFO_BAR_BAR_HEIGHT) * 0.5;
+    let pct_x = base_x + bar_width + INFO_BAR_VALUE_GAP;
+    let detail_x = pct_x + percent_width + INFO_BAR_VALUE_GAP;
+    InfoBarMetricLayout {
+        group_rect,
+        label_position: Vec2::new(group_rect.x, group_rect.y + group_rect.h * 0.5),
         bar_rect: HudRect {
-            x: bar_x,
-            y,
-            w: final_bar_width,
-            h: bar_height,
+            x: base_x,
+            y: bar_y,
+            w: bar_width,
+            h: INFO_BAR_BAR_HEIGHT,
         },
         pct_rect: HudRect {
             x: pct_x,
-            y,
-            w: INFO_BAR_PERCENT_WIDTH,
-            h: bar_height,
+            y: bar_y,
+            w: percent_width,
+            h: INFO_BAR_BAR_HEIGHT,
         },
         detail_rect: HudRect {
             x: detail_x,
-            y,
-            w: INFO_BAR_DETAIL_WIDTH,
-            h: bar_height,
+            y: bar_y,
+            w: detail_width,
+            h: INFO_BAR_BAR_HEIGHT,
         },
     }
 }
 
-/// Renders the info bar usage contents.
+/// Renders the info bar usage contents in the reference two-row Zeus layout.
 pub(crate) fn render_content(
     content_rect: HudRect,
     painter: &mut HudPainter,
     inputs: &HudRenderInputs,
 ) {
-    let bars = [
+    let density = info_bar_density(content_rect);
+    let rows = info_bar_row_rects(content_rect);
+    render_provider_row(
+        rows[0],
+        density,
         &inputs.info_bar_view.claude_session,
         &inputs.info_bar_view.claude_week,
+        painter,
+    );
+    render_provider_row(
+        rows[1],
+        density,
         &inputs.info_bar_view.openai_session,
         &inputs.info_bar_view.openai_week,
-    ];
-    for (section_rect, bar_view) in info_bar_section_rects(content_rect).into_iter().zip(bars) {
-        render_usage_section(section_rect, bar_view, painter);
-    }
+        painter,
+    );
 }
 
-fn render_usage_section(section_rect: HudRect, bar_view: &UsageBarView, painter: &mut HudPainter) {
-    let compact = info_bar_compactness(section_rect);
-    let label_size = if compact.compact_text {
-        INFO_BAR_COMPACT_LABEL_SIZE
-    } else {
-        INFO_BAR_LABEL_SIZE
-    };
-    let value_size = if compact.compact_text {
-        INFO_BAR_COMPACT_VALUE_SIZE
-    } else {
-        INFO_BAR_VALUE_SIZE
-    };
-    let label_width = painter.text_size(&bar_view.label, label_size).x;
-    let layout = info_bar_section_layout(section_rect, label_width);
+fn render_provider_row(
+    row_rect: HudRect,
+    density: InfoBarDensity,
+    session_bar: &UsageBarView,
+    week_bar: &UsageBarView,
+    painter: &mut HudPainter,
+) {
+    let groups = info_bar_metric_group_rects(row_rect, density);
+    render_metric(groups[0], density, session_bar, painter);
+    render_metric(groups[1], density, week_bar, painter);
+}
+
+fn render_metric(
+    group_rect: HudRect,
+    density: InfoBarDensity,
+    bar_view: &UsageBarView,
+    painter: &mut HudPainter,
+) {
+    let label_width = painter.text_size(&bar_view.label, density.label_size).x;
+    let layout = info_bar_metric_layout(group_rect, label_width, density);
 
     painter.label(
         layout.label_position,
         &bar_view.label,
-        label_size,
-        HudColors::TEXT_MUTED,
+        density.label_size,
+        INFO_BAR_LABEL_COLOR,
         VelloTextAnchor::Left,
     );
 
     render_usage_bar(layout.bar_rect, bar_view.pct(), painter);
 
-    let pct_text = format!("{:>4}", format!("{:.0}%", bar_view.pct()));
-    let pct_width = painter.text_size(&pct_text, value_size).x;
+    let pct_text = if bar_view.available {
+        format!("{:.0}%", bar_view.pct())
+    } else {
+        "--".to_owned()
+    };
+    let pct_width = painter.text_size(&pct_text, density.value_size).x;
     painter.label(
         Vec2::new(
             layout.pct_rect.x + layout.pct_rect.w - pct_width,
             layout.pct_rect.y + layout.pct_rect.h * 0.5,
         ),
         &pct_text,
-        value_size,
-        usage_gradient_color(bar_view.pct()),
+        density.value_size,
+        if bar_view.available {
+            usage_gradient_color(bar_view.pct())
+        } else {
+            INFO_BAR_LABEL_COLOR
+        },
         VelloTextAnchor::Left,
     );
 
-    let detail_text = format!("{:>8}", bar_view.detail_text);
-    let detail_width = painter.text_size(&detail_text, value_size).x;
-    painter.label(
-        Vec2::new(
-            layout.detail_rect.x + layout.detail_rect.w - detail_width,
-            layout.detail_rect.y + layout.detail_rect.h * 0.5,
-        ),
-        &detail_text,
-        value_size,
-        HudColors::TEXT_MUTED,
-        VelloTextAnchor::Left,
-    );
+    if !bar_view.detail_text.is_empty() {
+        let detail_width = painter
+            .text_size(&bar_view.detail_text, density.value_size)
+            .x;
+        painter.label(
+            Vec2::new(
+                layout.detail_rect.x + layout.detail_rect.w - detail_width,
+                layout.detail_rect.y + layout.detail_rect.h * 0.5,
+            ),
+            &bar_view.detail_text,
+            density.value_size,
+            INFO_BAR_LABEL_COLOR,
+            VelloTextAnchor::Left,
+        );
+    }
 }
 
 fn render_usage_bar(bar_rect: HudRect, pct: f32, painter: &mut HudPainter) {
-    let cell_width = ((bar_rect.w
-        - INFO_BAR_BAR_CELL_GAP * (INFO_BAR_BAR_CELL_COUNT.saturating_sub(1) as f32))
-        / INFO_BAR_BAR_CELL_COUNT as f32)
-        .max(0.0);
-    let filled =
-        ((pct.clamp(0.0, 100.0) / 100.0) * INFO_BAR_BAR_CELL_COUNT as f32).round() as usize;
-    for index in 0..INFO_BAR_BAR_CELL_COUNT {
-        let cell_rect = HudRect {
-            x: bar_rect.x + index as f32 * (cell_width + INFO_BAR_BAR_CELL_GAP),
-            y: bar_rect.y,
-            w: cell_width,
-            h: bar_rect.h,
-        };
-        let color = if index < filled {
-            usage_gradient_color(((index + 1) as f32 / INFO_BAR_BAR_CELL_COUNT as f32) * 100.0)
-        } else {
-            HudColors::BUTTON
-        };
-        painter.fill_rect(cell_rect, color, 1.0);
-        painter.stroke_rect(cell_rect, HudColors::BUTTON_BORDER, 1.0);
+    painter.fill_rect(bar_rect, INFO_BAR_TRACK_COLOR, 0.0);
+
+    let pct = pct.clamp(0.0, 100.0);
+    let filled_width = bar_rect.w * (pct / 100.0);
+    if filled_width > 0.0 {
+        let slices = ((filled_width / 4.0).ceil() as usize).clamp(1, 64);
+        for slice_index in 0..slices {
+            let start_t = slice_index as f32 / slices as f32;
+            let end_t = (slice_index + 1) as f32 / slices as f32;
+            let x0 = bar_rect.x + filled_width * start_t;
+            let x1 = bar_rect.x + filled_width * end_t;
+            let slice_rect = HudRect {
+                x: x0,
+                y: bar_rect.y,
+                w: (x1 - x0).max(0.5),
+                h: bar_rect.h,
+            };
+            let slice_color = usage_gradient_color(pct * end_t);
+            painter.fill_rect(slice_rect, slice_color, 0.0);
+        }
+    }
+
+    let stripe_count = ((bar_rect.w / 4.0).floor() as usize).max(1);
+    for stripe_index in 1..stripe_count {
+        let x = bar_rect.x + stripe_index as f32 * (bar_rect.w / stripe_count as f32);
+        painter.fill_rect(
+            HudRect {
+                x,
+                y: bar_rect.y,
+                w: 1.0,
+                h: bar_rect.h,
+            },
+            mix_color(INFO_BAR_TRACK_SEPARATOR, INFO_BAR_TRACK_COLOR, 0.3),
+            0.0,
+        );
     }
 }

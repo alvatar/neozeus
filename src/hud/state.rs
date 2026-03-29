@@ -5,9 +5,7 @@ use bevy::prelude::*;
 use std::collections::BTreeMap;
 
 pub(crate) const HUD_TITLEBAR_HEIGHT: f32 = 28.0;
-pub(crate) const HUD_INFO_BAR_HEIGHT: f32 = 40.0;
-const HUD_INFO_BAR_TWO_ROW_HEIGHT: f32 = 72.0;
-const HUD_INFO_BAR_TWO_ROW_THRESHOLD: f32 = 1120.0;
+pub(crate) const HUD_INFO_BAR_HEIGHT: f32 = 60.0;
 pub(crate) const HUD_MODULE_PADDING: f32 = 10.0;
 pub(crate) const HUD_ROW_HEIGHT: f32 = 28.0;
 pub(crate) const HUD_AGENT_LIST_WIDTH: f32 = 300.0;
@@ -301,26 +299,16 @@ pub(crate) struct TerminalVisibilityState {
     pub(crate) policy: TerminalVisibilityPolicy,
 }
 
-/// Returns whether the info bar should switch to the taller two-row layout for the current width.
-pub(crate) fn info_bar_needs_two_rows(window_width: f32) -> bool {
-    window_width < HUD_INFO_BAR_TWO_ROW_THRESHOLD
-}
-
 /// Returns the fixed docked rectangle used by the top info-bar module.
 ///
-/// The info bar is pinned to the top edge and spans the full window width. Narrow windows reserve a
-/// taller two-row header so the usage bars can wrap instead of collapsing into unreadable geometry.
+/// The info bar is pinned to the top edge and spans the full window width with a fixed two-row
+/// height matching the Zeus-style reference layout.
 pub(crate) fn docked_info_bar_rect(window: &Window) -> HudRect {
     HudRect {
         x: 0.0,
         y: 0.0,
         w: window.width(),
-        h: if info_bar_needs_two_rows(window.width()) {
-            HUD_INFO_BAR_TWO_ROW_HEIGHT
-        } else {
-            HUD_INFO_BAR_HEIGHT
-        }
-        .min(window.height()),
+        h: HUD_INFO_BAR_HEIGHT.min(window.height()),
     }
 }
 
