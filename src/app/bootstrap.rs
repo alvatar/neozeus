@@ -481,6 +481,7 @@ fn configure_app(app: &mut App) -> Result<(), String> {
         .insert_resource(HudWidgetBloom::default())
         .insert_resource(AgentCatalog::default())
         .insert_resource(AgentRuntimeIndex::default())
+        .insert_resource(crate::agents::AgentStatusStore::default())
         .insert_resource(AppSessionState::default())
         .insert_resource(ConversationStore::default())
         .insert_resource(ConversationPersistenceState::default())
