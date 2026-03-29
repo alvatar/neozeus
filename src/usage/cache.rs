@@ -7,6 +7,8 @@ const OPENAI_CACHE_FILENAME: &str = "openai-usage-cache.json";
 const CLAUDE_LOG_FILENAME: &str = "claude-usage.log";
 const OPENAI_LOG_FILENAME: &str = "openai-usage.log";
 const CLAUDE_BACKOFF_FILENAME: &str = "claude-usage-backoff-until.txt";
+const CLAUDE_REFRESH_LOCK_FILENAME: &str = "claude-usage-refresh.lock";
+const OPENAI_REFRESH_LOCK_FILENAME: &str = "openai-usage-refresh.lock";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum CacheReadState {
@@ -57,6 +59,8 @@ pub(crate) fn default_usage_persistence_state() -> UsagePersistenceState {
             .filter(|value| !value.is_empty())
             .map(PathBuf::from)
             .unwrap_or_else(|| state_dir.join(CLAUDE_BACKOFF_FILENAME)),
+        claude_refresh_lock_path: state_dir.join(CLAUDE_REFRESH_LOCK_FILENAME),
+        openai_refresh_lock_path: state_dir.join(OPENAI_REFRESH_LOCK_FILENAME),
         helper_script_path: PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("scripts/usage_fetch.py"),
         python_program: PathBuf::from(env::var_os("PYTHON").unwrap_or_else(|| "python3".into())),
@@ -337,6 +341,12 @@ mod tests {
         let state = default_usage_persistence_state();
         assert!(state.claude_cache_path.ends_with("claude-usage-cache.json"));
         assert!(state.openai_cache_path.ends_with("openai-usage-cache.json"));
+        assert!(state
+            .claude_refresh_lock_path
+            .ends_with("claude-usage-refresh.lock"));
+        assert!(state
+            .openai_refresh_lock_path
+            .ends_with("openai-usage-refresh.lock"));
         assert!(state.helper_script_path.ends_with("scripts/usage_fetch.py"));
     }
 
@@ -411,6 +421,8 @@ mod tests {
             claude_log_path: PathBuf::from("/tmp/neozeus/claude.log"),
             openai_log_path: PathBuf::from("/tmp/neozeus/openai.log"),
             claude_backoff_until_path: PathBuf::from("/tmp/neozeus/claude-backoff.txt"),
+            claude_refresh_lock_path: PathBuf::from("/tmp/neozeus/claude-refresh.lock"),
+            openai_refresh_lock_path: PathBuf::from("/tmp/neozeus/openai-refresh.lock"),
             helper_script_path: PathBuf::from("scripts/usage_fetch.py"),
             python_program: PathBuf::from("python3"),
             last_claude_refresh_attempt_secs: None,

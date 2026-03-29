@@ -2,14 +2,18 @@ use super::models::UsagePersistenceState;
 use bevy::prelude::*;
 use std::{
     fs,
-    process::{Command, Stdio},
-    time::{SystemTime, UNIX_EPOCH},
+    path::Path,
+    process::{Child, Command, Stdio},
+    thread,
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 const CLAUDE_CACHE_MAX_AGE_SECS: f32 = 60.0;
 const OPENAI_CACHE_MAX_AGE_SECS: f32 = 10.0;
 const CLAUDE_REFRESH_MIN_INTERVAL_SECS: f32 = 60.0;
 const OPENAI_REFRESH_MIN_INTERVAL_SECS: f32 = 5.0;
+const USAGE_REFRESH_LOCK_STALE_SECS: u64 = 45;
+const USAGE_REFRESH_PROCESS_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Returns whether one refresh attempt should be spawned now under the given throttle window.
 pub(crate) fn should_spawn_refresh(
@@ -46,12 +50,21 @@ pub(crate) fn refresh_usage_caches_if_needed(
         &persistence_state.claude_cache_path,
         CLAUDE_CACHE_MAX_AGE_SECS,
     ) && !claude_backoff_active(&persistence_state.claude_backoff_until_path, now_unix_secs)
+        && !refresh_fetch_inflight(
+            &persistence_state.claude_refresh_lock_path,
+            USAGE_REFRESH_LOCK_STALE_SECS,
+        )
         && should_spawn_refresh(
             persistence_state.last_claude_refresh_attempt_secs,
             now_secs,
             CLAUDE_REFRESH_MIN_INTERVAL_SECS,
         )
-        && spawn_usage_fetch(&persistence_state, "fetch-claude").is_ok()
+        && spawn_usage_fetch(
+            &persistence_state,
+            "fetch-claude",
+            &persistence_state.claude_refresh_lock_path,
+        )
+        .is_ok()
     {
         persistence_state.last_claude_refresh_attempt_secs = Some(now_secs);
     }
@@ -59,11 +72,19 @@ pub(crate) fn refresh_usage_caches_if_needed(
     if cache_missing_or_stale(
         &persistence_state.openai_cache_path,
         OPENAI_CACHE_MAX_AGE_SECS,
+    ) && !refresh_fetch_inflight(
+        &persistence_state.openai_refresh_lock_path,
+        USAGE_REFRESH_LOCK_STALE_SECS,
     ) && should_spawn_refresh(
         persistence_state.last_openai_refresh_attempt_secs,
         now_secs,
         OPENAI_REFRESH_MIN_INTERVAL_SECS,
-    ) && spawn_usage_fetch(&persistence_state, "fetch-openai").is_ok()
+    ) && spawn_usage_fetch(
+        &persistence_state,
+        "fetch-openai",
+        &persistence_state.openai_refresh_lock_path,
+    )
+    .is_ok()
     {
         persistence_state.last_openai_refresh_attempt_secs = Some(now_secs);
     }
@@ -86,11 +107,33 @@ pub(crate) fn claude_backoff_active(path: &std::path::Path, now_unix_secs: u64) 
         .is_some_and(|backoff_until| backoff_until > now_unix_secs)
 }
 
+fn refresh_fetch_inflight(lock_path: &Path, stale_after_secs: u64) -> bool {
+    let Ok(metadata) = fs::metadata(lock_path) else {
+        return false;
+    };
+    let Ok(modified) = metadata.modified() else {
+        let _ = fs::remove_file(lock_path);
+        return false;
+    };
+    let Ok(age) = SystemTime::now().duration_since(modified) else {
+        return true;
+    };
+    if age.as_secs() < stale_after_secs {
+        return true;
+    }
+    let _ = fs::remove_file(lock_path);
+    false
+}
+
 fn spawn_usage_fetch(
     persistence_state: &UsagePersistenceState,
     command: &str,
+    lock_path: &Path,
 ) -> Result<(), std::io::Error> {
-    Command::new(&persistence_state.python_program)
+    if let Some(parent) = lock_path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let child = Command::new(&persistence_state.python_program)
         .arg(&persistence_state.helper_script_path)
         .arg(command)
         .env("NEOZEUS_STATE_DIR", &persistence_state.state_dir)
@@ -117,15 +160,42 @@ fn spawn_usage_fetch(
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
-        .spawn()
-        .map(|_| ())
+        .spawn()?;
+    fs::write(lock_path, current_unix_secs().to_string())?;
+    spawn_refresh_supervisor(
+        child,
+        lock_path.to_path_buf(),
+        USAGE_REFRESH_PROCESS_TIMEOUT,
+    );
+    Ok(())
+}
+
+fn spawn_refresh_supervisor(child: Child, lock_path: std::path::PathBuf, timeout: Duration) {
+    thread::spawn(move || supervise_refresh_child(child, &lock_path, timeout));
+}
+
+fn supervise_refresh_child(mut child: Child, lock_path: &Path, timeout: Duration) {
+    let start = Instant::now();
+    loop {
+        match child.try_wait() {
+            Ok(Some(_status)) => break,
+            Ok(None) if start.elapsed() >= timeout => {
+                let _ = child.kill();
+                let _ = child.wait();
+                break;
+            }
+            Ok(None) => thread::sleep(Duration::from_millis(50)),
+            Err(_) => break,
+        }
+    }
+    let _ = fs::remove_file(lock_path);
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        cache_missing_or_stale, claude_backoff_active, current_unix_secs,
-        refresh_usage_caches_if_needed, should_spawn_refresh,
+        cache_missing_or_stale, claude_backoff_active, current_unix_secs, refresh_fetch_inflight,
+        refresh_usage_caches_if_needed, should_spawn_refresh, supervise_refresh_child,
     };
     use crate::usage::{UsagePersistenceState, UsageSnapshot};
     use bevy::{ecs::system::RunSystemOnce, prelude::*};
@@ -145,6 +215,26 @@ mod tests {
         let path = std::env::temp_dir().join(format!("neozeus-usage-refresh-{name}-{unique}"));
         fs::create_dir_all(&path).unwrap();
         path
+    }
+
+    fn test_persistence_state(
+        state_dir: PathBuf,
+        helper_script_path: PathBuf,
+    ) -> UsagePersistenceState {
+        UsagePersistenceState {
+            claude_cache_path: state_dir.join("missing-claude.json"),
+            openai_cache_path: state_dir.join("missing-openai.json"),
+            claude_log_path: state_dir.join("claude.log"),
+            openai_log_path: state_dir.join("openai.log"),
+            claude_backoff_until_path: state_dir.join("claude-backoff.txt"),
+            claude_refresh_lock_path: state_dir.join("claude-refresh.lock"),
+            openai_refresh_lock_path: state_dir.join("openai-refresh.lock"),
+            helper_script_path,
+            python_program: PathBuf::from("python3"),
+            state_dir,
+            last_claude_refresh_attempt_secs: None,
+            last_openai_refresh_attempt_secs: None,
+        }
     }
 
     fn set_file_mtime_secs_ago(path: &PathBuf, seconds_ago: u64) {
@@ -187,18 +277,7 @@ mod tests {
         let mut world = World::default();
         world.insert_resource(Time::<()>::default());
         world.insert_resource(UsageSnapshot::default());
-        world.insert_resource(UsagePersistenceState {
-            state_dir: state_dir.clone(),
-            claude_cache_path: state_dir.join("missing-claude.json"),
-            openai_cache_path: state_dir.join("missing-openai.json"),
-            claude_log_path: state_dir.join("claude.log"),
-            openai_log_path: state_dir.join("openai.log"),
-            claude_backoff_until_path: state_dir.join("claude-backoff.txt"),
-            helper_script_path: helper,
-            python_program: PathBuf::from("python3"),
-            last_claude_refresh_attempt_secs: None,
-            last_openai_refresh_attempt_secs: None,
-        });
+        world.insert_resource(test_persistence_state(state_dir.clone(), helper));
         world
             .resource_mut::<Time<()>>()
             .advance_by(Duration::from_secs(10));
@@ -220,18 +299,10 @@ mod tests {
         let mut world = World::default();
         world.insert_resource(Time::<()>::default());
         world.insert_resource(UsageSnapshot::default());
-        world.insert_resource(UsagePersistenceState {
-            state_dir: state_dir.clone(),
-            claude_cache_path: state_dir.join("missing-claude.json"),
-            openai_cache_path: state_dir.join("missing-openai.json"),
-            claude_log_path: state_dir.join("claude.log"),
-            openai_log_path: state_dir.join("openai.log"),
-            claude_backoff_until_path: state_dir.join("claude-backoff.txt"),
-            helper_script_path: helper,
-            python_program: PathBuf::from("python3"),
-            last_claude_refresh_attempt_secs: Some(8.0),
-            last_openai_refresh_attempt_secs: Some(8.0),
-        });
+        let mut state = test_persistence_state(state_dir.clone(), helper);
+        state.last_claude_refresh_attempt_secs = Some(8.0);
+        state.last_openai_refresh_attempt_secs = Some(8.0);
+        world.insert_resource(state);
         world
             .resource_mut::<Time<()>>()
             .advance_by(Duration::from_secs(10));
@@ -243,6 +314,43 @@ mod tests {
         let state = world.resource::<UsagePersistenceState>();
         assert_eq!(state.last_claude_refresh_attempt_secs, Some(8.0));
         assert_eq!(state.last_openai_refresh_attempt_secs, Some(8.0));
+    }
+
+    #[test]
+    fn fresh_refresh_lock_blocks_new_spawn_attempts() {
+        let state_dir = temp_dir("fresh-lock");
+        let lock_path = state_dir.join("refresh.lock");
+        fs::write(&lock_path, "123").unwrap();
+
+        assert!(refresh_fetch_inflight(&lock_path, 45));
+        assert!(lock_path.exists());
+    }
+
+    #[test]
+    fn stale_refresh_lock_is_cleared_and_allows_retry() {
+        let state_dir = temp_dir("stale-lock");
+        let lock_path = state_dir.join("refresh.lock");
+        fs::write(&lock_path, "123").unwrap();
+        set_file_mtime_secs_ago(&lock_path, 120);
+
+        assert!(!refresh_fetch_inflight(&lock_path, 45));
+        assert!(!lock_path.exists());
+    }
+
+    #[test]
+    fn supervise_refresh_child_kills_stuck_process_and_clears_lock() {
+        let state_dir = temp_dir("supervise-timeout");
+        let lock_path = state_dir.join("refresh.lock");
+        fs::write(&lock_path, "123").unwrap();
+        let child = Command::new("python3")
+            .arg("-c")
+            .arg("import time; time.sleep(60)")
+            .spawn()
+            .expect("python helper should spawn");
+
+        supervise_refresh_child(child, &lock_path, Duration::from_millis(50));
+
+        assert!(!lock_path.exists());
     }
 
     #[test]
@@ -261,18 +369,9 @@ mod tests {
         let mut world = World::default();
         world.insert_resource(Time::<()>::default());
         world.insert_resource(UsageSnapshot::default());
-        world.insert_resource(UsagePersistenceState {
-            state_dir: state_dir.clone(),
-            claude_cache_path: claude_cache,
-            openai_cache_path: state_dir.join("missing-openai.json"),
-            claude_log_path: state_dir.join("claude.log"),
-            openai_log_path: state_dir.join("openai.log"),
-            claude_backoff_until_path: state_dir.join("claude-backoff.txt"),
-            helper_script_path: helper,
-            python_program: PathBuf::from("python3"),
-            last_claude_refresh_attempt_secs: None,
-            last_openai_refresh_attempt_secs: None,
-        });
+        let mut persistence = test_persistence_state(state_dir.clone(), helper);
+        persistence.claude_cache_path = claude_cache;
+        world.insert_resource(persistence);
         world
             .resource_mut::<Time<()>>()
             .advance_by(Duration::from_secs(10));
@@ -310,18 +409,9 @@ mod tests {
         let mut world = World::default();
         world.insert_resource(Time::<()>::default());
         world.insert_resource(UsageSnapshot::default());
-        world.insert_resource(UsagePersistenceState {
-            state_dir: state_dir.clone(),
-            claude_cache_path: state_dir.join("missing-claude.json"),
-            openai_cache_path: openai_cache,
-            claude_log_path: state_dir.join("claude.log"),
-            openai_log_path: state_dir.join("openai.log"),
-            claude_backoff_until_path: state_dir.join("claude-backoff.txt"),
-            helper_script_path: helper,
-            python_program: PathBuf::from("python3"),
-            last_claude_refresh_attempt_secs: None,
-            last_openai_refresh_attempt_secs: None,
-        });
+        let mut persistence = test_persistence_state(state_dir.clone(), helper);
+        persistence.openai_cache_path = openai_cache;
+        world.insert_resource(persistence);
         world
             .resource_mut::<Time<()>>()
             .advance_by(Duration::from_secs(10));
@@ -359,18 +449,10 @@ mod tests {
         let mut world = World::default();
         world.insert_resource(Time::<()>::default());
         world.insert_resource(UsageSnapshot::default());
-        world.insert_resource(UsagePersistenceState {
-            state_dir: state_dir.clone(),
-            claude_cache_path: state_dir.join("missing-claude.json"),
-            openai_cache_path: state_dir.join("missing-openai.json"),
-            claude_log_path: state_dir.join("claude.log"),
-            openai_log_path: state_dir.join("openai.log"),
-            claude_backoff_until_path: backoff_path,
-            helper_script_path: helper,
-            python_program: PathBuf::from("python3"),
-            last_claude_refresh_attempt_secs: None,
-            last_openai_refresh_attempt_secs: Some(8.0),
-        });
+        let mut persistence = test_persistence_state(state_dir.clone(), helper);
+        persistence.claude_backoff_until_path = backoff_path;
+        persistence.last_openai_refresh_attempt_secs = Some(8.0);
+        world.insert_resource(persistence);
         world
             .resource_mut::<Time<()>>()
             .advance_by(Duration::from_secs(10));

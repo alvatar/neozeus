@@ -40,6 +40,8 @@ pub(crate) struct UsagePersistenceState {
     pub(crate) claude_log_path: PathBuf,
     pub(crate) openai_log_path: PathBuf,
     pub(crate) claude_backoff_until_path: PathBuf,
+    pub(crate) claude_refresh_lock_path: PathBuf,
+    pub(crate) openai_refresh_lock_path: PathBuf,
     pub(crate) helper_script_path: PathBuf,
     pub(crate) python_program: PathBuf,
     pub(crate) last_claude_refresh_attempt_secs: Option<f32>,
