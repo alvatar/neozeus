@@ -1,4 +1,4 @@
-use crate::hud::{HudLayoutState, HudWidgetKey, TerminalVisibilityPolicy, TerminalVisibilityState};
+use crate::hud::{HudLayoutState, TerminalVisibilityPolicy, TerminalVisibilityState};
 
 use super::{
     fonts::{TerminalCellMetrics, TerminalFontState},
@@ -24,7 +24,7 @@ const STARTUP_PLACEHOLDER_COLOR: Color = Color::srgb(0.10, 0.13, 0.18);
 const STARTUP_PLACEHOLDER_ACTIVE_COLOR: Color = Color::srgb(0.16, 0.18, 0.22);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct ActiveTerminalLayout {
+pub(super) struct ActiveTerminalLayout {
     pub(crate) cell_size: UVec2,
     pub(crate) dimensions: TerminalDimensions,
     pub(crate) texture_size: UVec2,
@@ -177,10 +177,7 @@ fn active_terminal_viewport(
     layout_state: &HudLayoutState,
 ) -> (Vec2, Vec2) {
     let reserved_left = layout_state
-        .get(HudWidgetKey::AgentList)
-        .filter(|module| module.shell.enabled)
-        .map(|module| module.shell.current_rect.w)
-        .unwrap_or(0.0)
+        .docked_agent_list_width()
         .clamp(0.0, window.width());
     let usable_size = Vec2::new((window.width() - reserved_left).max(64.0), window.height());
     let center = Vec2::new(reserved_left * 0.5, 0.0);
@@ -226,7 +223,7 @@ pub(crate) fn target_active_terminal_dimensions(
 }
 
 /// Returns the active terminal layout for dimensions.
-pub(crate) fn active_terminal_layout_for_dimensions(
+pub(super) fn active_terminal_layout_for_dimensions(
     _window: &Window,
     _layout_state: &HudLayoutState,
     _view_state: &TerminalViewState,

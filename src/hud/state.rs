@@ -34,7 +34,7 @@ impl HudRect {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub(crate) struct HudModuleShell {
+pub(in crate::hud) struct HudModuleShell {
     pub(crate) enabled: bool,
     pub(crate) target_rect: HudRect,
     pub(crate) current_rect: HudRect,
@@ -87,7 +87,7 @@ pub(crate) struct ThreadPaneUiState;
 pub(crate) struct DebugToolbarUiState;
 
 #[derive(Clone, Debug, PartialEq)]
-pub(crate) struct HudModuleInstance {
+pub(in crate::hud) struct HudModuleInstance {
     pub(crate) shell: HudModuleShell,
 }
 
@@ -99,24 +99,40 @@ pub(crate) struct HudDragState {
 
 #[derive(Resource, Default)]
 pub(crate) struct HudLayoutState {
-    pub(crate) modules: BTreeMap<HudWidgetKey, HudModuleInstance>,
-    pub(crate) z_order: Vec<HudWidgetKey>,
-    pub(crate) drag: Option<HudDragState>,
-    pub(crate) dirty_layout: bool,
+    pub(super) modules: BTreeMap<HudWidgetKey, HudModuleInstance>,
+    pub(super) z_order: Vec<HudWidgetKey>,
+    pub(super) drag: Option<HudDragState>,
+    pub(super) dirty_layout: bool,
 }
 
 impl HudLayoutState {
     /// Returns the retained module instance for a given module id.
     ///
     /// This is the read-only accessor used by most HUD systems.
-    pub(crate) fn get(&self, id: HudWidgetKey) -> Option<&HudModuleInstance> {
+    pub(in crate::hud) fn get(&self, id: HudWidgetKey) -> Option<&HudModuleInstance> {
         self.modules.get(&id)
+    }
+
+    /// Returns whether one module is currently enabled.
+    pub(crate) fn module_enabled(&self, id: HudWidgetKey) -> bool {
+        self.modules
+            .get(&id)
+            .is_some_and(|module| module.shell.enabled)
+    }
+
+    /// Returns the current docked agent-list width when that module is enabled.
+    pub(crate) fn docked_agent_list_width(&self) -> f32 {
+        self.modules
+            .get(&HudWidgetKey::AgentList)
+            .filter(|module| module.shell.enabled)
+            .map(|module| module.shell.current_rect.w)
+            .unwrap_or(0.0)
     }
 
     /// Returns mutable access to one retained module instance.
     ///
     /// Systems that mutate shell state go through this helper.
-    pub(crate) fn get_mut(&mut self, id: HudWidgetKey) -> Option<&mut HudModuleInstance> {
+    pub(in crate::hud) fn get_mut(&mut self, id: HudWidgetKey) -> Option<&mut HudModuleInstance> {
         self.modules.get_mut(&id)
     }
 
@@ -138,7 +154,7 @@ impl HudLayoutState {
     ///
     /// First insert appends the module at the back; replacing an existing module preserves its current
     /// z position.
-    pub(crate) fn insert(&mut self, id: HudWidgetKey, module: HudModuleInstance) {
+    pub(in crate::hud) fn insert(&mut self, id: HudWidgetKey, module: HudModuleInstance) {
         self.modules.insert(id, module);
         if !self.z_order.contains(&id) {
             self.z_order.push(id);
@@ -287,7 +303,7 @@ pub(crate) fn docked_agent_list_rect(window: &Window) -> HudRect {
 ///
 /// Only generic shell/layout state lives here; widget-local retained state is stored separately in
 /// per-widget resources.
-pub(crate) fn default_hud_module_instance(definition: &HudWidgetDefinition) -> HudModuleInstance {
+pub(in crate::hud) fn default_hud_module_instance(definition: &HudWidgetDefinition) -> HudModuleInstance {
     HudModuleInstance {
         shell: HudModuleShell {
             enabled: definition.default_enabled,

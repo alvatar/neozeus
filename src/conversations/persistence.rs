@@ -9,19 +9,19 @@ const CONVERSATIONS_VERSION: &str = "version 1";
 const CONVERSATIONS_SAVE_DEBOUNCE_SECS: f32 = 0.3;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct PersistedConversationMessage {
+pub(super) struct PersistedConversationMessage {
     pub(crate) body: String,
     pub(crate) delivery: MessageDeliveryState,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct PersistedConversationRecord {
+pub(super) struct PersistedConversationRecord {
     pub(crate) session_name: String,
     pub(crate) messages: Vec<PersistedConversationMessage>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub(crate) struct PersistedConversations {
+pub(super) struct PersistedConversations {
     pub(crate) conversations: Vec<PersistedConversationRecord>,
 }
 
@@ -132,7 +132,7 @@ fn parse_delivery(code: &str, error: Option<String>) -> Option<MessageDeliverySt
 }
 
 /// Serializes persisted conversations.
-pub(crate) fn serialize_persisted_conversations(persisted: &PersistedConversations) -> String {
+pub(super) fn serialize_persisted_conversations(persisted: &PersistedConversations) -> String {
     // Process the input incrementally so each transformation stays local and malformed data fails at the narrowest point.
     let mut output = String::from(CONVERSATIONS_VERSION);
     output.push('\n');
@@ -160,7 +160,7 @@ pub(crate) fn serialize_persisted_conversations(persisted: &PersistedConversatio
 }
 
 /// Parses persisted conversations.
-pub(crate) fn parse_persisted_conversations(text: &str) -> PersistedConversations {
+pub(super) fn parse_persisted_conversations(text: &str) -> PersistedConversations {
     // Process the input incrementally so each transformation stays local and malformed data fails at the narrowest point.
     let mut persisted = PersistedConversations::default();
     let mut current: Option<PersistedConversationRecord> = None;
@@ -236,7 +236,7 @@ pub(crate) fn parse_persisted_conversations(text: &str) -> PersistedConversation
 }
 
 /// Loads persisted conversations from.
-pub(crate) fn load_persisted_conversations_from(path: &PathBuf) -> PersistedConversations {
+fn load_persisted_conversations_from(path: &PathBuf) -> PersistedConversations {
     match fs::read_to_string(path) {
         Ok(text) => parse_persisted_conversations(&text),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
@@ -253,7 +253,7 @@ pub(crate) fn load_persisted_conversations_from(path: &PathBuf) -> PersistedConv
 }
 
 /// Builds persisted conversations.
-pub(crate) fn build_persisted_conversations(
+pub(super) fn build_persisted_conversations(
     conversations: &ConversationStore,
     runtime_index: &AgentRuntimeIndex,
 ) -> PersistedConversations {
@@ -285,7 +285,7 @@ pub(crate) fn build_persisted_conversations(
 }
 
 /// Restores persisted conversations.
-pub(crate) fn restore_persisted_conversations(
+pub(super) fn restore_persisted_conversations(
     persisted: &PersistedConversations,
     runtime_index: &AgentRuntimeIndex,
     conversations: &mut ConversationStore,
@@ -306,6 +306,18 @@ pub(crate) fn restore_persisted_conversations(
             );
         }
     }
+}
+
+/// Loads persisted conversations from disk and restores them directly into the live store.
+///
+/// Startup uses this wrapper so the on-disk schema stays local to this module.
+pub(crate) fn restore_persisted_conversations_from_path(
+    path: &PathBuf,
+    runtime_index: &AgentRuntimeIndex,
+    conversations: &mut ConversationStore,
+) {
+    let persisted = load_persisted_conversations_from(path);
+    restore_persisted_conversations(&persisted, runtime_index, conversations);
 }
 
 /// Marks conversations dirty.

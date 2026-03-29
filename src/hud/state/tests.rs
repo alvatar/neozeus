@@ -10,7 +10,7 @@ pub(crate) struct HudModalState {
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub(crate) struct HudState {
-    pub(crate) modules: BTreeMap<HudWidgetKey, HudModuleInstance>,
+    modules: BTreeMap<HudWidgetKey, HudModuleInstance>,
     pub(crate) z_order: Vec<HudWidgetKey>,
     pub(crate) drag: Option<HudDragState>,
     pub(crate) dirty_layout: bool,
@@ -28,12 +28,12 @@ impl HudState {
     /// Returns the retained test module instance for a given module id.
     ///
     /// This mirrors [`HudLayoutState::get`] on the legacy aggregate test helper.
-    pub(crate) fn get(&self, id: HudWidgetKey) -> Option<&HudModuleInstance> {
+    pub(in crate::hud) fn get(&self, id: HudWidgetKey) -> Option<&HudModuleInstance> {
         self.modules.get(&id)
     }
 
     /// Returns mutable access to one module inside the aggregate test HUD state.
-    pub(crate) fn get_mut(&mut self, id: HudWidgetKey) -> Option<&mut HudModuleInstance> {
+    pub(in crate::hud) fn get_mut(&mut self, id: HudWidgetKey) -> Option<&mut HudModuleInstance> {
         self.modules.get_mut(&id)
     }
 
@@ -43,11 +43,57 @@ impl HudState {
     }
 
     /// Inserts or replaces a module in the aggregate test HUD state and ensures z-order membership.
-    pub(crate) fn insert(&mut self, id: HudWidgetKey, module: HudModuleInstance) {
+    pub(in crate::hud) fn insert(&mut self, id: HudWidgetKey, module: HudModuleInstance) {
         self.modules.insert(id, module);
         if !self.z_order.contains(&id) {
             self.z_order.push(id);
         }
+    }
+
+    /// Inserts one module using its built-in default shell definition.
+    pub(crate) fn insert_default_module(&mut self, id: HudWidgetKey) {
+        let Some(definition) = HUD_WIDGET_DEFINITIONS
+            .iter()
+            .find(|definition| definition.key == id)
+        else {
+            return;
+        };
+        self.insert(id, default_hud_module_instance(definition));
+    }
+
+    /// Overwrites all externally relevant shell fields for one test HUD module.
+    pub(crate) fn set_module_shell_state(
+        &mut self,
+        id: HudWidgetKey,
+        enabled: bool,
+        current_rect: HudRect,
+        target_rect: HudRect,
+        current_alpha: f32,
+        target_alpha: f32,
+    ) {
+        let Some(module) = self.modules.get_mut(&id) else {
+            return;
+        };
+        module.shell.enabled = enabled;
+        module.shell.current_rect = current_rect;
+        module.shell.target_rect = target_rect;
+        module.shell.current_alpha = current_alpha;
+        module.shell.target_alpha = target_alpha;
+    }
+
+    /// Returns whether one test HUD module is enabled.
+    pub(crate) fn module_enabled(&self, id: HudWidgetKey) -> Option<bool> {
+        self.modules.get(&id).map(|module| module.shell.enabled)
+    }
+
+    /// Returns one test HUD module's target rectangle.
+    pub(crate) fn module_target_rect(&self, id: HudWidgetKey) -> Option<HudRect> {
+        self.modules.get(&id).map(|module| module.shell.target_rect)
+    }
+
+    /// Returns one test HUD module's current alpha.
+    pub(crate) fn module_current_alpha(&self, id: HudWidgetKey) -> Option<f32> {
+        self.modules.get(&id).map(|module| module.shell.current_alpha)
     }
 
     /// Moves a module id to the front of the aggregate test HUD z-order.

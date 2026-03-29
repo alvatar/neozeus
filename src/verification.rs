@@ -188,7 +188,7 @@ pub(crate) fn start_auto_verify_dispatcher(
 }
 
 #[derive(SystemParam)]
-pub(crate) struct VerificationScenarioContext<'w> {
+struct VerificationScenarioContext<'w> {
     terminal_manager: ResMut<'w, TerminalManager>,
     focus_state: ResMut<'w, TerminalFocusState>,
     presentation_store: ResMut<'w, TerminalPresentationStore>,
@@ -211,21 +211,29 @@ pub(crate) struct VerificationScenarioContext<'w> {
 /// scenario expects. The inspect-switch scenario is special: it primes two terminals first and only
 /// marks itself applied once both terminals have presentable uploaded frames, so the final capture
 /// measures a real visual switch instead of a partially loaded one.
-pub(crate) fn run_verification_scenario(
-    config: Option<ResMut<VerificationScenarioConfig>>,
-    mut ctx: VerificationScenarioContext,
-) {
+pub(crate) fn run_verification_scenario(world: &mut World) {
+    let mut state: bevy::ecs::system::SystemState<(
+        Option<ResMut<VerificationScenarioConfig>>,
+        VerificationScenarioContext,
+    )> = bevy::ecs::system::SystemState::new(world);
+    let (config, mut ctx) = state.get_mut(world);
+    macro_rules! finish {
+        () => {{
+            state.apply(world);
+            return;
+        }};
+    }
     // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
     let Some(mut config) = config else {
-        return;
+        finish!();
     };
     if config.applied || !ctx.runtime_spawner.is_ready() {
-        return;
+        finish!();
     }
     if config.frames_until_apply > 0 {
         config.frames_until_apply -= 1;
         ctx.redraws.write(RequestRedraw);
-        return;
+        finish!();
     }
 
     let required_terminals = match config.scenario {
@@ -237,7 +245,7 @@ pub(crate) fn run_verification_scenario(
             Ok(session_name) => session_name,
             Err(error) => {
                 append_debug_log(format!("verification scenario spawn failed: {error}"));
-                return;
+                finish!();
             }
         };
         let (terminal_id, bridge) = match attach_terminal_session(
@@ -254,7 +262,7 @@ pub(crate) fn run_verification_scenario(
                     session_name
                 ));
                 let _ = ctx.runtime_spawner.kill_session(&session_name);
-                return;
+                finish!();
             }
         };
         let label = match config.terminal_ids.len() {
@@ -310,7 +318,7 @@ pub(crate) fn run_verification_scenario(
                 .get(terminal_id)
                 .map(|terminal| terminal.session_name.clone())
             else {
-                return;
+                finish!();
             };
             let note_text = "- [ ] verify bloom layering\n- [ ] keep button text readable";
             let _ = ctx.notes_state.set_note_text(&session_name, note_text);
@@ -360,7 +368,7 @@ pub(crate) fn run_verification_scenario(
                 ctx.terminal_manager
                     .replace_test_focus_state(&ctx.focus_state);
                 ctx.redraws.write(RequestRedraw);
-                return;
+                finish!();
             }
             if !terminal_has_presentable_frame(
                 first,
@@ -372,7 +380,7 @@ pub(crate) fn run_verification_scenario(
                 &ctx.presentation_store,
             ) {
                 ctx.redraws.write(RequestRedraw);
-                return;
+                finish!();
             }
             ctx.focus_state
                 .focus_terminal(&ctx.terminal_manager, second);
@@ -389,6 +397,7 @@ pub(crate) fn run_verification_scenario(
     ));
     config.applied = true;
     ctx.redraws.write(RequestRedraw);
+    state.apply(world);
 }
 
 #[cfg(test)]

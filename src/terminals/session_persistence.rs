@@ -32,25 +32,15 @@ pub(crate) struct TerminalSessionPersistenceState {
     pub(crate) dirty_since_secs: Option<f32>,
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub(crate) struct ReconciledTerminalSessions {
-    pub(crate) restore: Vec<TerminalSessionRecord>,
-    pub(crate) import: Vec<TerminalSessionRecord>,
-    pub(crate) prune: Vec<TerminalSessionRecord>,
-}
-
-impl ReconciledTerminalSessions {
-    /// Returns the sessions that should exist after reconciliation in their effective startup order.
-    ///
-    /// The result is simply restored sessions followed by imported sessions, both already sorted by
-    /// the reconciliation step.
-    pub(crate) fn ordered_sessions(&self) -> Vec<TerminalSessionRecord> {
-        self.restore
-            .iter()
-            .chain(self.import.iter())
-            .cloned()
-            .collect()
-    }
+/// Returns the sessions that should exist after reconciliation in their effective startup order.
+///
+/// The result is simply restored sessions followed by imported sessions, both already sorted by
+/// the reconciliation step.
+pub(crate) fn ordered_reconciled_terminal_sessions(
+    restore: &[TerminalSessionRecord],
+    import: &[TerminalSessionRecord],
+) -> Vec<TerminalSessionRecord> {
+    restore.iter().chain(import.iter()).cloned().collect()
 }
 
 /// Resolves the terminal-session persistence file path from explicit directory inputs.
@@ -447,7 +437,11 @@ pub(crate) fn save_terminal_sessions_if_dirty(
 pub(crate) fn reconcile_terminal_sessions(
     persisted: &PersistedTerminalSessions,
     live_sessions: &[String],
-) -> ReconciledTerminalSessions {
+) -> (
+    Vec<TerminalSessionRecord>,
+    Vec<TerminalSessionRecord>,
+    Vec<TerminalSessionRecord>,
+) {
     // Rebuild the derived or projected state from the authoritative resources in one pass so partial updates cannot drift.
     let live = live_sessions.iter().cloned().collect::<BTreeSet<_>>();
     let persisted_names = persisted
@@ -497,11 +491,7 @@ pub(crate) fn reconcile_terminal_sessions(
         })
         .collect();
 
-    ReconciledTerminalSessions {
-        restore,
-        import,
-        prune,
-    }
+    (restore, import, prune)
 }
 
 #[cfg(test)]

@@ -18,19 +18,6 @@ pub(crate) enum TaskDialogAction {
     ClearDone,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub(crate) struct MessageBoxActionButton {
-    pub(crate) action: MessageBoxAction,
-    pub(crate) rect: HudRect,
-    pub(crate) label: &'static str,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub(crate) struct TaskDialogActionButton {
-    pub(crate) action: TaskDialogAction,
-    pub(crate) rect: HudRect,
-    pub(crate) label: &'static str,
-}
 
 /// Computes the outer rectangle for the message-box modal.
 ///
@@ -50,33 +37,35 @@ pub(crate) fn message_box_rect(window: &Window) -> HudRect {
 }
 
 /// Lays out the two task action buttons shown at the bottom of the message box.
-pub(crate) fn message_box_action_buttons(window: &Window) -> [MessageBoxActionButton; 2] {
+pub(crate) fn message_box_action_buttons(
+    window: &Window,
+) -> [(MessageBoxAction, HudRect, &'static str); 2] {
     // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
     let rect = message_box_rect(window);
     let base_y = rect.y + rect.h - 36.0;
     let prepend_x = rect.x + rect.w - 24.0 - ACTION_BUTTON_W;
     let append_x = prepend_x - ACTION_BUTTON_GAP - ACTION_BUTTON_W;
     [
-        MessageBoxActionButton {
-            action: MessageBoxAction::AppendTask,
-            rect: HudRect {
+        (
+            MessageBoxAction::AppendTask,
+            HudRect {
                 x: append_x,
                 y: base_y,
                 w: ACTION_BUTTON_W,
                 h: ACTION_BUTTON_H,
             },
-            label: "Append Task",
-        },
-        MessageBoxActionButton {
-            action: MessageBoxAction::PrependTask,
-            rect: HudRect {
+            "Append Task",
+        ),
+        (
+            MessageBoxAction::PrependTask,
+            HudRect {
                 x: prepend_x,
                 y: base_y,
                 w: ACTION_BUTTON_W,
                 h: ACTION_BUTTON_H,
             },
-            label: "Prepend Task",
-        },
+            "Prepend Task",
+        ),
     ]
 }
 
@@ -84,8 +73,8 @@ pub(crate) fn message_box_action_buttons(window: &Window) -> [MessageBoxActionBu
 pub(crate) fn message_box_action_at(window: &Window, point: Vec2) -> Option<MessageBoxAction> {
     message_box_action_buttons(window)
         .into_iter()
-        .find(|button| button.rect.contains(point))
-        .map(|button| button.action)
+        .find(|(_, rect, _)| rect.contains(point))
+        .map(|(action, _, _)| action)
 }
 
 /// Returns the outer rectangle for the task dialog.
@@ -97,25 +86,27 @@ pub(crate) fn task_dialog_rect(window: &Window) -> HudRect {
 }
 
 /// Lays out the task dialog's action buttons.
-pub(crate) fn task_dialog_action_buttons(window: &Window) -> [TaskDialogActionButton; 1] {
+pub(crate) fn task_dialog_action_buttons(
+    window: &Window,
+) -> [(TaskDialogAction, HudRect, &'static str); 1] {
     let rect = task_dialog_rect(window);
     let base_y = rect.y + rect.h - 36.0;
-    [TaskDialogActionButton {
-        action: TaskDialogAction::ClearDone,
-        rect: HudRect {
+    [(
+        TaskDialogAction::ClearDone,
+        HudRect {
             x: rect.x + 24.0,
             y: base_y,
             w: ACTION_BUTTON_W,
             h: ACTION_BUTTON_H,
         },
-        label: "Clear done [x]",
-    }]
+        "Clear done [x]",
+    )]
 }
 
 /// Hit-tests the task dialog's action buttons and returns the clicked action.
 pub(crate) fn task_dialog_action_at(window: &Window, point: Vec2) -> Option<TaskDialogAction> {
     task_dialog_action_buttons(window)
         .into_iter()
-        .find(|button| button.rect.contains(point))
-        .map(|button| button.action)
+        .find(|(_, rect, _)| rect.contains(point))
+        .map(|(action, _, _)| action)
 }

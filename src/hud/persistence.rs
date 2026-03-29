@@ -12,13 +12,13 @@ const HUD_LAYOUT_VERSION_V2: &str = "version 2";
 const HUD_LAYOUT_SAVE_DEBOUNCE_SECS: f32 = 0.3;
 
 #[derive(Clone, Debug, PartialEq)]
-pub(crate) struct PersistedHudModuleState {
+struct PersistedHudModuleState {
     pub(crate) enabled: bool,
     pub(crate) rect: HudRect,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
-pub(crate) struct PersistedHudState {
+struct PersistedHudState {
     pub(crate) modules: BTreeMap<HudWidgetKey, PersistedHudModuleState>,
 }
 
@@ -240,7 +240,7 @@ fn parse_hud_module_id(name: &str) -> Option<HudWidgetKey> {
 ///
 /// Missing files are treated as "no saved layout"; other I/O failures are logged and also fall back
 /// to defaults.
-pub(crate) fn load_persisted_hud_state_from(path: &PathBuf) -> PersistedHudState {
+fn load_persisted_hud_state_from(path: &PathBuf) -> PersistedHudState {
     match fs::read_to_string(path) {
         Ok(text) => parse_persisted_hud_state(&text),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => PersistedHudState::default(),
@@ -252,6 +252,20 @@ pub(crate) fn load_persisted_hud_state_from(path: &PathBuf) -> PersistedHudState
             PersistedHudState::default()
         }
     }
+}
+
+/// Loads persisted HUD module enablement/rect overrides from disk.
+///
+/// Missing files or unreadable data degrade to an empty override map so startup can keep the built-in
+/// defaults without having to know about the on-disk representation.
+pub(crate) fn load_persisted_hud_modules_from(
+    path: &PathBuf,
+) -> BTreeMap<HudWidgetKey, (bool, HudRect)> {
+    load_persisted_hud_state_from(path)
+        .modules
+        .into_iter()
+        .map(|(key, state)| (key, (state.enabled, state.rect)))
+        .collect()
 }
 
 /// Debounces and writes HUD layout changes to disk once the layout has settled.

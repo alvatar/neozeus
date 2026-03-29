@@ -46,20 +46,21 @@ pub(crate) fn active_terminal_dimensions(
     target_active_terminal_dimensions(window, layout_state, font_state)
 }
 
-/// Returns the active terminal layout.
+/// Returns the active terminal dimensions together with the derived texture state.
 pub(crate) fn active_terminal_layout(
     window: &Window,
     layout_state: &HudLayoutState,
     view_state: &TerminalViewState,
     font_state: &TerminalFontState,
-) -> ActiveTerminalLayout {
-    active_terminal_layout_for_dimensions(
+) -> (TerminalDimensions, TerminalTextureState) {
+    let layout = active_terminal_layout_for_dimensions(
         window,
         layout_state,
         view_state,
         target_active_terminal_dimensions(window, layout_state, font_state),
         font_state,
-    )
+    );
+    (layout.dimensions, active_layout_texture_state(layout))
 }
 
 /// Computes the raster cell size chosen for pixel-perfect scaling of a fixed terminal geometry.
@@ -254,15 +255,9 @@ fn active_terminal_target_position_accounts_for_texture_parity() {
     window.resolution.set(1400.0, 900.0);
 
     let mut hud_state = HudState::default();
-    hud_state.insert(
-        HudWidgetKey::AgentList,
-        crate::hud::default_hud_module_instance(&crate::hud::HUD_MODULE_DEFINITIONS[1]),
-    );
+    hud_state.insert_default_module(HudWidgetKey::AgentList);
     let rect = crate::hud::docked_agent_list_rect(&window);
-    let agent_list = hud_state.get_mut(HudWidgetKey::AgentList).unwrap();
-    agent_list.shell.enabled = true;
-    agent_list.shell.current_rect = rect;
-    agent_list.shell.target_rect = rect;
+    hud_state.set_module_shell_state(HudWidgetKey::AgentList, true, rect, rect, 1.0, 1.0);
 
     let even = hud_terminal_target_position(
         &window,
@@ -311,15 +306,9 @@ fn active_terminal_viewport_reserves_agent_list_column() {
         ..Default::default()
     };
     let mut hud_state = HudState::default();
-    hud_state.insert(
-        HudWidgetKey::AgentList,
-        crate::hud::default_hud_module_instance(&crate::hud::HUD_MODULE_DEFINITIONS[1]),
-    );
+    hud_state.insert_default_module(HudWidgetKey::AgentList);
     let rect = crate::hud::docked_agent_list_rect(&window);
-    let agent_list = hud_state.get_mut(HudWidgetKey::AgentList).unwrap();
-    agent_list.shell.enabled = true;
-    agent_list.shell.current_rect = rect;
-    agent_list.shell.target_rect = rect;
+    hud_state.set_module_shell_state(HudWidgetKey::AgentList, true, rect, rect, 1.0, 1.0);
 
     assert_eq!(
         active_terminal_viewport(&window, &hud_state.layout_state()),
@@ -341,15 +330,9 @@ fn active_terminal_presentation_uses_texture_logical_size_and_centers_in_viewpor
         ..Default::default()
     };
     let mut hud_state = HudState::default();
-    hud_state.insert(
-        HudWidgetKey::AgentList,
-        crate::hud::default_hud_module_instance(&crate::hud::HUD_MODULE_DEFINITIONS[1]),
-    );
+    hud_state.insert_default_module(HudWidgetKey::AgentList);
     let rect = crate::hud::docked_agent_list_rect(&window);
-    let agent_list = hud_state.get_mut(HudWidgetKey::AgentList).unwrap();
-    agent_list.shell.enabled = true;
-    agent_list.shell.current_rect = rect;
-    agent_list.shell.target_rect = rect;
+    hud_state.set_module_shell_state(HudWidgetKey::AgentList, true, rect, rect, 1.0, 1.0);
 
     let view_state = TerminalViewState::default();
     let font_state = TerminalFontState::default();
@@ -357,13 +340,13 @@ fn active_terminal_presentation_uses_texture_logical_size_and_centers_in_viewpor
         active_terminal_layout(&window, &hud_state.layout_state(), &view_state, &font_state);
     for (_, terminal) in manager.iter_mut() {
         terminal.snapshot.surface = Some(TerminalSurface::new(
-            active_layout.dimensions.cols,
-            active_layout.dimensions.rows,
+            active_layout.0.cols,
+            active_layout.0.rows,
         ));
     }
     let texture_state = TerminalTextureState {
-        texture_size: active_layout.texture_size,
-        cell_size: active_layout.cell_size,
+        texture_size: active_layout.1.texture_size,
+        cell_size: active_layout.1.cell_size,
     };
     let expected_size = terminal_texture_screen_size(
         &texture_state,
@@ -464,8 +447,8 @@ fn active_terminal_snaps_immediately_when_active_layout_changes() {
         &font_state,
     );
     manager.get_mut(id).unwrap().snapshot.surface = Some(TerminalSurface::new(
-        initial_layout.dimensions.cols,
-        initial_layout.dimensions.rows,
+        initial_layout.0.cols,
+        initial_layout.0.rows,
     ));
     manager.get_mut(id).unwrap().surface_revision = 1;
 
@@ -475,12 +458,12 @@ fn active_terminal_snaps_immediately_when_active_layout_changes() {
         PresentedTerminal {
             image: Default::default(),
             texture_state: TerminalTextureState {
-                texture_size: initial_layout.texture_size,
-                cell_size: initial_layout.cell_size,
+                texture_size: initial_layout.1.texture_size,
+                cell_size: initial_layout.1.cell_size,
             },
             desired_texture_state: TerminalTextureState {
-                texture_size: initial_layout.texture_size,
-                cell_size: initial_layout.cell_size,
+                texture_size: initial_layout.1.texture_size,
+                cell_size: initial_layout.1.cell_size,
             },
             display_mode: TerminalDisplayMode::Smooth,
             uploaded_revision: 1,
@@ -529,8 +512,8 @@ fn active_terminal_snaps_immediately_when_active_layout_changes() {
         let world = app.world_mut();
         let mut manager = world.resource_mut::<TerminalManager>();
         manager.get_mut(id).unwrap().snapshot.surface = Some(TerminalSurface::new(
-            final_layout.dimensions.cols,
-            final_layout.dimensions.rows,
+            final_layout.0.cols,
+            final_layout.0.rows,
         ));
         manager.get_mut(id).unwrap().surface_revision = 2;
     }
@@ -539,8 +522,8 @@ fn active_terminal_snaps_immediately_when_active_layout_changes() {
         let mut store = world.resource_mut::<TerminalPresentationStore>();
         let presented = store.get_mut(id).unwrap();
         presented.texture_state = TerminalTextureState {
-            texture_size: final_layout.texture_size,
-            cell_size: final_layout.cell_size,
+            texture_size: final_layout.1.texture_size,
+            cell_size: final_layout.1.cell_size,
         };
         presented.desired_texture_state = presented.texture_state.clone();
         presented.uploaded_revision = 2;
@@ -550,8 +533,8 @@ fn active_terminal_snaps_immediately_when_active_layout_changes() {
 
     let expected_size = terminal_texture_screen_size(
         &TerminalTextureState {
-            texture_size: final_layout.texture_size,
-            cell_size: final_layout.cell_size,
+            texture_size: final_layout.1.texture_size,
+            cell_size: final_layout.1.cell_size,
         },
         &TerminalViewState::default(),
         &final_window,
@@ -582,24 +565,18 @@ fn switching_active_terminal_snaps_immediately_without_animation() {
         ..Default::default()
     };
     let mut hud_state = HudState::default();
-    hud_state.insert(
-        HudWidgetKey::AgentList,
-        crate::hud::default_hud_module_instance(&crate::hud::HUD_MODULE_DEFINITIONS[1]),
-    );
+    hud_state.insert_default_module(HudWidgetKey::AgentList);
     let rect = crate::hud::docked_agent_list_rect(&window);
-    let agent_list = hud_state.get_mut(HudWidgetKey::AgentList).unwrap();
-    agent_list.shell.enabled = true;
-    agent_list.shell.current_rect = rect;
-    agent_list.shell.target_rect = rect;
+    hud_state.set_module_shell_state(HudWidgetKey::AgentList, true, rect, rect, 1.0, 1.0);
 
     let view_state = TerminalViewState::default();
     let font_state = TerminalFontState::default();
     let active_layout =
         active_terminal_layout(&window, &hud_state.layout_state(), &view_state, &font_state);
-    let dimensions = active_layout.dimensions;
+    let dimensions = active_layout.0;
     let active_texture_state = TerminalTextureState {
-        texture_size: active_layout.texture_size,
-        cell_size: active_layout.cell_size,
+        texture_size: active_layout.1.texture_size,
+        cell_size: active_layout.1.cell_size,
     };
     let stale_background_texture_state = TerminalTextureState {
         texture_size: UVec2::new(
@@ -744,25 +721,19 @@ fn switching_active_terminal_keeps_cached_frame_visible_until_resized_surface_ar
         ..Default::default()
     };
     let mut hud_state = HudState::default();
-    hud_state.insert(
-        HudWidgetKey::AgentList,
-        crate::hud::default_hud_module_instance(&crate::hud::HUD_MODULE_DEFINITIONS[1]),
-    );
+    hud_state.insert_default_module(HudWidgetKey::AgentList);
     let rect = crate::hud::docked_agent_list_rect(&window);
-    let agent_list = hud_state.get_mut(HudWidgetKey::AgentList).unwrap();
-    agent_list.shell.enabled = true;
-    agent_list.shell.current_rect = rect;
-    agent_list.shell.target_rect = rect;
+    hud_state.set_module_shell_state(HudWidgetKey::AgentList, true, rect, rect, 1.0, 1.0);
 
     let mut view_state = TerminalViewState::default();
     view_state.distance = 5.0;
     let layout_state = hud_state.layout_state();
     let font_state = TerminalFontState::default();
     let active_layout = active_terminal_layout(&window, &layout_state, &view_state, &font_state);
-    let dimensions = active_layout.dimensions;
+    let dimensions = active_layout.0;
     let active_texture_state = TerminalTextureState {
-        texture_size: active_layout.texture_size,
-        cell_size: active_layout.cell_size,
+        texture_size: active_layout.1.texture_size,
+        cell_size: active_layout.1.cell_size,
     };
     let cached_background_state = TerminalTextureState {
         texture_size: UVec2::new(
@@ -917,15 +888,9 @@ fn active_terminal_resize_requests_follow_viewport_grid_policy() {
         ..Default::default()
     };
     let mut hud_state = HudState::default();
-    hud_state.insert(
-        HudWidgetKey::AgentList,
-        crate::hud::default_hud_module_instance(&crate::hud::HUD_MODULE_DEFINITIONS[1]),
-    );
+    hud_state.insert_default_module(HudWidgetKey::AgentList);
     let rect = crate::hud::docked_agent_list_rect(&window);
-    let agent_list = hud_state.get_mut(HudWidgetKey::AgentList).unwrap();
-    agent_list.shell.enabled = true;
-    agent_list.shell.current_rect = rect;
-    agent_list.shell.target_rect = rect;
+    hud_state.set_module_shell_state(HudWidgetKey::AgentList, true, rect, rect, 1.0, 1.0);
 
     let mut view_state = TerminalViewState::default();
     view_state.distance = 5.0;
@@ -1365,8 +1330,8 @@ fn active_terminal_presentation_keeps_cached_frame_visible_until_active_layout_u
                 cell_size: UVec2::new(DEFAULT_CELL_WIDTH_PX, DEFAULT_CELL_HEIGHT_PX),
             },
             desired_texture_state: TerminalTextureState {
-                texture_size: active_layout.texture_size,
-                cell_size: active_layout.cell_size,
+                texture_size: active_layout.1.texture_size,
+                cell_size: active_layout.1.cell_size,
             },
             display_mode: TerminalDisplayMode::Smooth,
             uploaded_revision: 1,
@@ -1445,8 +1410,8 @@ fn active_terminal_reappears_snapped_after_becoming_ready_for_new_layout() {
     );
 
     manager.get_mut(id).unwrap().snapshot.surface = Some(TerminalSurface::new(
-        initial_layout.dimensions.cols,
-        initial_layout.dimensions.rows,
+        initial_layout.0.cols,
+        initial_layout.0.rows,
     ));
     manager.get_mut(id).unwrap().surface_revision = 1;
 
@@ -1456,12 +1421,12 @@ fn active_terminal_reappears_snapped_after_becoming_ready_for_new_layout() {
         PresentedTerminal {
             image: Default::default(),
             texture_state: TerminalTextureState {
-                texture_size: initial_layout.texture_size,
-                cell_size: initial_layout.cell_size,
+                texture_size: initial_layout.1.texture_size,
+                cell_size: initial_layout.1.cell_size,
             },
             desired_texture_state: TerminalTextureState {
-                texture_size: initial_layout.texture_size,
-                cell_size: initial_layout.cell_size,
+                texture_size: initial_layout.1.texture_size,
+                cell_size: initial_layout.1.cell_size,
             },
             display_mode: TerminalDisplayMode::Smooth,
             uploaded_revision: 1,
@@ -1512,8 +1477,8 @@ fn active_terminal_reappears_snapped_after_becoming_ready_for_new_layout() {
         let world = app.world_mut();
         let mut manager = world.resource_mut::<TerminalManager>();
         manager.get_mut(id).unwrap().snapshot.surface = Some(TerminalSurface::new(
-            final_layout.dimensions.cols,
-            final_layout.dimensions.rows,
+            final_layout.0.cols,
+            final_layout.0.rows,
         ));
         manager.get_mut(id).unwrap().surface_revision = 2;
     }
@@ -1522,8 +1487,8 @@ fn active_terminal_reappears_snapped_after_becoming_ready_for_new_layout() {
         let mut store = world.resource_mut::<TerminalPresentationStore>();
         let presented = store.get_mut(id).unwrap();
         presented.texture_state = TerminalTextureState {
-            texture_size: final_layout.texture_size,
-            cell_size: final_layout.cell_size,
+            texture_size: final_layout.1.texture_size,
+            cell_size: final_layout.1.cell_size,
         };
         presented.desired_texture_state = presented.texture_state.clone();
         presented.uploaded_revision = 2;
@@ -1533,8 +1498,8 @@ fn active_terminal_reappears_snapped_after_becoming_ready_for_new_layout() {
 
     let expected_size = terminal_texture_screen_size(
         &TerminalTextureState {
-            texture_size: final_layout.texture_size,
-            cell_size: final_layout.cell_size,
+            texture_size: final_layout.1.texture_size,
+            cell_size: final_layout.1.cell_size,
         },
         &TerminalViewState::default(),
         &final_window,
@@ -1569,8 +1534,8 @@ fn active_terminal_presentation_becomes_visible_once_active_layout_upload_is_rea
         active_terminal_layout(&window, &hud_state.layout_state(), &view_state, &font_state);
 
     manager.get_mut(id).unwrap().snapshot.surface = Some(TerminalSurface::new(
-        active_layout.dimensions.cols,
-        active_layout.dimensions.rows,
+        active_layout.0.cols,
+        active_layout.0.rows,
     ));
     manager.get_mut(id).unwrap().surface_revision = 1;
 
@@ -1580,12 +1545,12 @@ fn active_terminal_presentation_becomes_visible_once_active_layout_upload_is_rea
         PresentedTerminal {
             image: Default::default(),
             texture_state: TerminalTextureState {
-                texture_size: active_layout.texture_size,
-                cell_size: active_layout.cell_size,
+                texture_size: active_layout.1.texture_size,
+                cell_size: active_layout.1.cell_size,
             },
             desired_texture_state: TerminalTextureState {
-                texture_size: active_layout.texture_size,
-                cell_size: active_layout.cell_size,
+                texture_size: active_layout.1.texture_size,
+                cell_size: active_layout.1.cell_size,
             },
             display_mode: TerminalDisplayMode::Smooth,
             uploaded_revision: 1,
@@ -1651,8 +1616,8 @@ fn message_box_keeps_terminal_presentations_visible() {
 
     let terminal = manager.get_mut(id).unwrap();
     terminal.snapshot.surface = Some(TerminalSurface::new(
-        active_layout.dimensions.cols,
-        active_layout.dimensions.rows,
+        active_layout.0.cols,
+        active_layout.0.rows,
     ));
     terminal.surface_revision = 1;
 
@@ -1662,12 +1627,12 @@ fn message_box_keeps_terminal_presentations_visible() {
         PresentedTerminal {
             image: Default::default(),
             texture_state: TerminalTextureState {
-                texture_size: active_layout.texture_size,
-                cell_size: active_layout.cell_size,
+                texture_size: active_layout.1.texture_size,
+                cell_size: active_layout.1.cell_size,
             },
             desired_texture_state: TerminalTextureState {
-                texture_size: active_layout.texture_size,
-                cell_size: active_layout.cell_size,
+                texture_size: active_layout.1.texture_size,
+                cell_size: active_layout.1.cell_size,
             },
             display_mode: TerminalDisplayMode::Smooth,
             uploaded_revision: 1,
@@ -1869,8 +1834,8 @@ fn terminal_visibility_policy_show_all_keeps_only_active_terminal_visible() {
         active_terminal_layout(&window, &hud_state.layout_state(), &view_state, &font_state);
 
     manager.get_mut(id_one).unwrap().snapshot.surface = Some(TerminalSurface::new(
-        active_layout.dimensions.cols,
-        active_layout.dimensions.rows,
+        active_layout.0.cols,
+        active_layout.0.rows,
     ));
     manager.get_mut(id_one).unwrap().surface_revision = 1;
     manager.get_mut(id_two).unwrap().snapshot.surface = Some(TerminalSurface::new(2, 2));
@@ -1882,12 +1847,12 @@ fn terminal_visibility_policy_show_all_keeps_only_active_terminal_visible() {
         PresentedTerminal {
             image: Default::default(),
             texture_state: TerminalTextureState {
-                texture_size: active_layout.texture_size,
-                cell_size: active_layout.cell_size,
+                texture_size: active_layout.1.texture_size,
+                cell_size: active_layout.1.cell_size,
             },
             desired_texture_state: TerminalTextureState {
-                texture_size: active_layout.texture_size,
-                cell_size: active_layout.cell_size,
+                texture_size: active_layout.1.texture_size,
+                cell_size: active_layout.1.cell_size,
             },
             display_mode: TerminalDisplayMode::Smooth,
             uploaded_revision: 1,

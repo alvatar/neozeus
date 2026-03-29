@@ -50,7 +50,7 @@ fn content_hit_rect(module_id: HudWidgetKey, rect: HudRect) -> HudRect {
 }
 
 #[derive(SystemParam)]
-pub(crate) struct HudPointerContext<'w, 's> {
+struct HudPointerContext<'w, 's> {
     primary_window: Single<'w, 's, &'static Window, With<PrimaryWindow>>,
     mouse_buttons: Res<'w, ButtonInput<MouseButton>>,
     mouse_wheel: MessageReader<'w, 's, MouseWheel>,
@@ -120,7 +120,10 @@ fn task_dialog_command(
 /// direct terminal input suppresses HUD interaction entirely, and only then does ordinary module
 /// interaction run. Within normal interaction it handles click dispatch, titlebar dragging, scroll
 /// routing, and per-module hover updates.
-pub(crate) fn handle_hud_pointer_input(mut ctx: HudPointerContext) {
+pub(crate) fn handle_hud_pointer_input(world: &mut World) {
+    let mut state: bevy::ecs::system::SystemState<HudPointerContext> =
+        bevy::ecs::system::SystemState::new(world);
+    let mut ctx = state.get_mut(world);
     // Keep the control flow staged so each branch owns one behavior path and later branches only run when earlier capture rules do not apply.
     if ctx.app_session.composer.message_editor.visible {
         ctx.layout_state.drag = None;
@@ -281,6 +284,7 @@ pub(crate) fn handle_hud_pointer_input(mut ctx: HudPointerContext) {
     for command in emitted_commands {
         ctx.app_commands.write(command);
     }
+    state.apply(world);
 }
 
 /// Chooses the next or previous agent id for keyboard navigation through the agent list.

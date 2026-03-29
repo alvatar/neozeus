@@ -352,10 +352,6 @@ fn resolve_terminal_font_stack_for_family(
     })
 }
 
-#[derive(Default)]
-pub(crate) struct KittyFontConfig {
-    pub(crate) font_family: Option<String>,
-}
 
 /// Loads Kitty's configured `font_family`, following nested `include` directives when present.
 ///
@@ -367,9 +363,9 @@ fn load_kitty_font_family() -> Result<Option<String>, String> {
     };
 
     let mut visited = BTreeSet::new();
-    let mut config = KittyFontConfig::default();
-    parse_kitty_config_file(&config_path, &mut visited, &mut config)?;
-    Ok(config.font_family)
+    let mut font_family = None;
+    parse_kitty_config_file(&config_path, &mut visited, &mut font_family)?;
+    Ok(font_family)
 }
 
 /// Finds the first Kitty config file visible through the real process environment.
@@ -438,7 +434,7 @@ fn find_kitty_config_path_with(
 fn parse_kitty_config_file(
     path: &Path,
     visited: &mut BTreeSet<PathBuf>,
-    config: &mut KittyFontConfig,
+    font_family: &mut Option<String>,
 ) -> Result<(), String> {
     // Process the input incrementally so each transformation stays local and malformed data fails at the narrowest point.
     let canonical = path
@@ -477,11 +473,11 @@ fn parse_kitty_config_file(
                     .map(|parent| parent.join(&value))
                     .unwrap_or_else(|| PathBuf::from(&value));
                 if include.is_file() {
-                    parse_kitty_config_file(&include, visited, config)?;
+                    parse_kitty_config_file(&include, visited, font_family)?;
                 }
             }
             "font_family" => {
-                config.font_family = Some(value);
+                *font_family = Some(value);
             }
             _ => {}
         }

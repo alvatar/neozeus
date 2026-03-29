@@ -517,7 +517,7 @@ fn build_bloom_specs(
 }
 
 #[derive(SystemParam)]
-pub(crate) struct HudWidgetBloomSetupContext<'w, 's> {
+struct HudWidgetBloomSetupContext<'w, 's> {
     commands: Commands<'w, 's>,
     primary_window: Single<'w, 's, &'static Window, With<PrimaryWindow>>,
     settings: Res<'w, HudBloomSettings>,
@@ -532,7 +532,10 @@ pub(crate) struct HudWidgetBloomSetupContext<'w, 's> {
 /// Startup allocates three float targets (source, small blur, wide blur), creates the cameras and
 /// fullscreen quads that feed the blur passes, and spawns the hidden composite sprites that will later
 /// be shown by the sync system once real bloom content exists.
-pub(crate) fn setup_hud_widget_bloom(mut ctx: HudWidgetBloomSetupContext) {
+pub(crate) fn setup_hud_widget_bloom(world: &mut World) {
+    let mut state: bevy::ecs::system::SystemState<HudWidgetBloomSetupContext> =
+        bevy::ecs::system::SystemState::new(world);
+    let mut ctx = state.get_mut(world);
     // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
     let target_size = bloom_target_size(&ctx.primary_window);
     let target_texel_size = Vec2::new(
@@ -784,6 +787,7 @@ pub(crate) fn setup_hud_widget_bloom(mut ctx: HudWidgetBloomSetupContext) {
         composite_sprite: Some(composite_sprite),
         wide_composite_sprite: Some(wide_composite_sprite),
     };
+    state.apply(world);
 }
 
 type BloomSourceCameraFilter = (
@@ -856,7 +860,7 @@ type BloomDebugPreviewFilter = (
 );
 
 #[derive(SystemParam)]
-pub(crate) struct HudWidgetBloomContext<'w, 's> {
+struct HudWidgetBloomContext<'w, 's> {
     primary_window: Single<'w, 's, &'static Window, With<PrimaryWindow>>,
     layout_state: Res<'w, HudLayoutState>,
     app_session: Res<'w, AppSessionState>,
@@ -944,7 +948,10 @@ pub(crate) struct HudWidgetBloomContext<'w, 's> {
 /// The sync pass keeps bloom targets sized correctly, suppresses the whole effect while HUD modals are
 /// visible, regenerates the active row's border sprites, updates debug previews when enabled, and
 /// shows or hides the composite sprites based on whether there is any current bloom content.
-pub(crate) fn sync_hud_widget_bloom(mut ctx: HudWidgetBloomContext) {
+pub(crate) fn sync_hud_widget_bloom(world: &mut World) {
+    let mut state: bevy::ecs::system::SystemState<HudWidgetBloomContext> =
+        bevy::ecs::system::SystemState::new(world);
+    let mut ctx = state.get_mut(world);
     // Rebuild the derived or projected state from the authoritative resources in one pass so partial updates cannot drift.
     let target_size = bloom_target_size(&ctx.primary_window);
     let pass = &mut ctx.bloom.agent_list;
@@ -1187,6 +1194,7 @@ pub(crate) fn sync_hud_widget_bloom(mut ctx: HudWidgetBloomContext) {
             Visibility::Hidden
         };
     }
+    state.apply(world);
 }
 
 /// Exposes the bloom source render-layer id to tests.
