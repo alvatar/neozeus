@@ -1,6 +1,6 @@
 use crate::{
     agents::{AgentCatalog, AgentRuntimeIndex},
-    app::{restore_app, AppSessionState},
+    app::{resolve_app_state_path, restore_app, AppSessionState, AppStatePersistenceState},
     conversations::{
         resolve_conversations_path, restore_persisted_conversations_from_path,
         ConversationPersistenceState, ConversationStore,
@@ -11,9 +11,8 @@ use crate::{
     },
     terminals::{
         append_debug_log, attach_terminal_session, resolve_terminal_notes_path,
-        resolve_terminal_sessions_path, TerminalCameraMarker, TerminalFocusState,
-        TerminalHudSurfaceMarker, TerminalManager, TerminalPanel, TerminalPresentation,
-        TerminalPresentationStore, TerminalRuntimeSpawner, TerminalSessionPersistenceState,
+        TerminalCameraMarker, TerminalFocusState, TerminalHudSurfaceMarker, TerminalManager,
+        TerminalPanel, TerminalPresentation, TerminalPresentationStore, TerminalRuntimeSpawner,
         VERIFIER_SESSION_PREFIX,
     },
     verification::{start_auto_verify_dispatcher, AutoVerifyConfig, VerificationScenarioConfig},
@@ -174,7 +173,7 @@ struct SceneSetupContext<'w, 's> {
     conversations: ResMut<'w, ConversationStore>,
     conversation_persistence: ResMut<'w, ConversationPersistenceState>,
     runtime_spawner: Res<'w, TerminalRuntimeSpawner>,
-    session_persistence: ResMut<'w, TerminalSessionPersistenceState>,
+    app_state_persistence: ResMut<'w, AppStatePersistenceState>,
     notes_state: ResMut<'w, crate::terminals::TerminalNotesState>,
     input_capture: ResMut<'w, HudInputCaptureState>,
     visibility_state: ResMut<'w, TerminalVisibilityState>,
@@ -307,7 +306,7 @@ pub(crate) fn setup_scene(world: &mut World) {
         TerminalHudSurfaceMarker,
     ));
 
-    ctx.session_persistence.path = resolve_terminal_sessions_path();
+    ctx.app_state_persistence.path = resolve_app_state_path();
     ctx.notes_state.path = resolve_terminal_notes_path();
     ctx.conversation_persistence.path = resolve_conversations_path();
     if let Some(path) = ctx.notes_state.path.as_ref() {
@@ -494,7 +493,7 @@ fn restore_startup_terminals(ctx: &mut SceneSetupContext) {
         &mut ctx.focus_state,
         &ctx.runtime_spawner,
         &mut ctx.input_capture,
-        &mut ctx.session_persistence,
+        &mut ctx.app_state_persistence,
         &mut ctx.visibility_state,
         &mut ctx.view_state,
         ctx.startup_loading.as_deref_mut(),

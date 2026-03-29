@@ -5,11 +5,11 @@ use super::{
 use crate::terminals::{
     kill_active_terminal_session_and_remove as kill_active_terminal, TerminalManager,
     TerminalNotesState, TerminalPanel, TerminalPanelFrame, TerminalPresentationStore,
-    TerminalSessionPersistenceState, TerminalViewState,
+    TerminalViewState,
 };
 use crate::{
     app::{
-        AgentCommand as AppAgentCommand, AppCommand, AppSessionState,
+        AgentCommand as AppAgentCommand, AppCommand, AppSessionState, AppStatePersistenceState,
         ComposerCommand as AppComposerCommand, TaskCommand as AppTaskCommand, WidgetCommand,
     },
     composer::{message_box_action_buttons, message_box_rect, task_dialog_action_buttons},
@@ -43,6 +43,9 @@ fn drain_hud_commands(world: &mut World) -> Vec<AppCommand> {
 /// Handles run app commands.
 fn run_app_commands(world: &mut World) {
     // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
+    if !world.contains_resource::<Time<()>>() {
+        world.insert_resource(Time::<()>::default());
+    }
     if !world.contains_resource::<Assets<Image>>() {
         world.insert_resource(Assets::<Image>::default());
     }
@@ -67,8 +70,8 @@ fn run_app_commands(world: &mut World) {
     if !world.contains_resource::<TerminalNotesState>() {
         world.insert_resource(TerminalNotesState::default());
     }
-    if !world.contains_resource::<TerminalSessionPersistenceState>() {
-        world.insert_resource(TerminalSessionPersistenceState::default());
+    if !world.contains_resource::<AppStatePersistenceState>() {
+        world.insert_resource(AppStatePersistenceState::default());
     }
     if !world.contains_resource::<TerminalVisibilityState>() {
         world.insert_resource(TerminalVisibilityState::default());
@@ -295,7 +298,7 @@ fn focus_and_visibility_requests_request_redraw_immediately() {
     world.insert_resource(time);
     insert_terminal_manager_resources(&mut world, manager);
     insert_default_hud_resources(&mut world);
-    world.insert_resource(TerminalSessionPersistenceState::default());
+    world.insert_resource(AppStatePersistenceState::default());
     world.insert_resource(TerminalViewState::default());
     world.insert_resource(TerminalVisibilityState::default());
     world.init_resource::<Messages<AppCommand>>();
@@ -695,7 +698,7 @@ fn killing_active_terminal_selects_previous_terminal_in_creation_order() {
     insert_terminal_manager_resources(&mut world, manager);
     world.insert_resource(store);
     world.insert_resource(fake_runtime_spawner(client));
-    world.insert_resource(TerminalSessionPersistenceState::default());
+    world.insert_resource(AppStatePersistenceState::default());
     world.insert_resource(TerminalVisibilityState {
         policy: TerminalVisibilityPolicy::Isolate(id_two),
     });
@@ -715,7 +718,7 @@ fn killing_active_terminal_selects_previous_terminal_in_creation_order() {
              mut terminal_manager: ResMut<TerminalManager>,
              mut focus_state: ResMut<crate::terminals::TerminalFocusState>,
              runtime_spawner: Res<crate::terminals::TerminalRuntimeSpawner>,
-             mut session_persistence: ResMut<TerminalSessionPersistenceState>,
+             mut session_persistence: ResMut<AppStatePersistenceState>,
              _visibility_state: ResMut<TerminalVisibilityState>,
              _view_state: ResMut<TerminalViewState>| {
                 let _ = kill_active_terminal(
@@ -780,7 +783,7 @@ fn killing_first_active_terminal_selects_next_terminal() {
     insert_terminal_manager_resources(&mut world, manager);
     world.insert_resource(store);
     world.insert_resource(fake_runtime_spawner(client));
-    world.insert_resource(TerminalSessionPersistenceState::default());
+    world.insert_resource(AppStatePersistenceState::default());
     world.insert_resource(TerminalVisibilityState {
         policy: TerminalVisibilityPolicy::Isolate(id_one),
     });
@@ -800,7 +803,7 @@ fn killing_first_active_terminal_selects_next_terminal() {
              mut terminal_manager: ResMut<TerminalManager>,
              mut focus_state: ResMut<crate::terminals::TerminalFocusState>,
              runtime_spawner: Res<crate::terminals::TerminalRuntimeSpawner>,
-             mut session_persistence: ResMut<TerminalSessionPersistenceState>,
+             mut session_persistence: ResMut<AppStatePersistenceState>,
              _visibility_state: ResMut<TerminalVisibilityState>,
              _view_state: ResMut<TerminalViewState>| {
                 let _ = kill_active_terminal(
@@ -862,7 +865,7 @@ fn killing_active_terminal_removes_runtime_presentation_and_labels() {
     insert_terminal_manager_resources(&mut world, manager);
     world.insert_resource(store);
     world.insert_resource(fake_runtime_spawner(client.clone()));
-    world.insert_resource(TerminalSessionPersistenceState::default());
+    world.insert_resource(AppStatePersistenceState::default());
     world.insert_resource(TerminalVisibilityState {
         policy: TerminalVisibilityPolicy::Isolate(id),
     });
@@ -882,7 +885,7 @@ fn killing_active_terminal_removes_runtime_presentation_and_labels() {
              mut terminal_manager: ResMut<TerminalManager>,
              mut focus_state: ResMut<crate::terminals::TerminalFocusState>,
              runtime_spawner: Res<crate::terminals::TerminalRuntimeSpawner>,
-             mut session_persistence: ResMut<TerminalSessionPersistenceState>,
+             mut session_persistence: ResMut<AppStatePersistenceState>,
              _visibility_state: ResMut<TerminalVisibilityState>,
              _view_state: ResMut<TerminalViewState>| {
                 let _ = kill_active_terminal(
@@ -913,7 +916,7 @@ fn killing_active_terminal_removes_runtime_presentation_and_labels() {
         TerminalVisibilityPolicy::Isolate(id)
     );
     assert!(world
-        .resource::<TerminalSessionPersistenceState>()
+        .resource::<AppStatePersistenceState>()
         .dirty_since_secs
         .is_some());
     assert!(client.sessions.lock().unwrap().is_empty());
@@ -921,6 +924,57 @@ fn killing_active_terminal_removes_runtime_presentation_and_labels() {
     let frame_count = world.query::<&TerminalPanelFrame>().iter(&world).count();
     assert_eq!(panel_count, 0);
     assert_eq!(frame_count, 0);
+}
+
+/// Verifies that duplicate agent names are rejected before any daemon session is created.
+#[test]
+fn create_agent_rejects_duplicate_name_without_creating_session() {
+    let client = std::sync::Arc::new(FakeDaemonClient::default());
+    let mut world = World::default();
+    world.insert_resource(fake_runtime_spawner(client.clone()));
+    world.init_resource::<Messages<AppCommand>>();
+    world.insert_resource(Assets::<Image>::default());
+    insert_terminal_manager_resources(&mut world, TerminalManager::default());
+    insert_default_hud_resources(&mut world);
+    let mut catalog = crate::agents::AgentCatalog::default();
+    catalog
+        .create_agent(
+            Some("oracle".into()),
+            crate::agents::AgentKind::Terminal,
+            crate::agents::AgentCapabilities::terminal_defaults(),
+        )
+        .unwrap();
+    world.insert_resource(catalog);
+    world
+        .resource_mut::<AppSessionState>()
+        .create_agent_dialog
+        .open(crate::app::CreateAgentKind::Agent);
+    world
+        .resource_mut::<Messages<AppCommand>>()
+        .write(AppCommand::Agent(AppAgentCommand::Create {
+            label: Some("oracle".into()),
+            spawn_shell_only: false,
+            working_directory: "~/code".into(),
+        }));
+
+    run_app_commands(&mut world);
+
+    assert_eq!(world.resource::<TerminalManager>().terminal_ids().len(), 0);
+    assert!(
+        world
+            .resource::<AppSessionState>()
+            .create_agent_dialog
+            .visible
+    );
+    assert_eq!(
+        world
+            .resource::<AppSessionState>()
+            .create_agent_dialog
+            .error
+            .as_deref(),
+        Some("agent `oracle` already exists")
+    );
+    assert!(client.created_sessions.lock().unwrap().is_empty());
 }
 
 /// Verifies that creating a shell agent creates a session without injecting any bootstrap command
@@ -943,7 +997,7 @@ fn create_shell_agent_request_does_not_send_pi_command() {
     world.insert_resource(TerminalPresentationStore::default());
     world.insert_resource(AgentListView::default());
     world.insert_resource(fake_runtime_spawner(client.clone()));
-    world.insert_resource(TerminalSessionPersistenceState::default());
+    world.insert_resource(AppStatePersistenceState::default());
     world.insert_resource(TerminalVisibilityState::default());
     world.insert_resource(TerminalViewState::default());
     world.init_resource::<Messages<AppCommand>>();
@@ -1016,7 +1070,7 @@ fn killing_disconnected_active_terminal_removes_local_state_even_if_daemon_kill_
     insert_terminal_manager_resources(&mut world, manager);
     world.insert_resource(store);
     world.insert_resource(fake_runtime_spawner(client.clone()));
-    world.insert_resource(TerminalSessionPersistenceState::default());
+    world.insert_resource(AppStatePersistenceState::default());
     world.insert_resource(TerminalVisibilityState {
         policy: TerminalVisibilityPolicy::Isolate(id),
     });
@@ -1036,7 +1090,7 @@ fn killing_disconnected_active_terminal_removes_local_state_even_if_daemon_kill_
              mut terminal_manager: ResMut<TerminalManager>,
              mut focus_state: ResMut<crate::terminals::TerminalFocusState>,
              runtime_spawner: Res<crate::terminals::TerminalRuntimeSpawner>,
-             mut session_persistence: ResMut<TerminalSessionPersistenceState>,
+             mut session_persistence: ResMut<AppStatePersistenceState>,
              _visibility_state: ResMut<TerminalVisibilityState>,
              _view_state: ResMut<TerminalViewState>| {
                 let _ = kill_active_terminal(
@@ -1067,7 +1121,7 @@ fn killing_disconnected_active_terminal_removes_local_state_even_if_daemon_kill_
         TerminalVisibilityPolicy::Isolate(id)
     );
     assert!(world
-        .resource::<TerminalSessionPersistenceState>()
+        .resource::<AppStatePersistenceState>()
         .dirty_since_secs
         .is_some());
     let panel_count = world.query::<&TerminalPanel>().iter(&world).count();
@@ -1115,7 +1169,7 @@ fn killing_active_terminal_preserves_local_state_when_tmux_kill_fails() {
     insert_terminal_manager_resources(&mut world, manager);
     world.insert_resource(store);
     world.insert_resource(fake_runtime_spawner(client.clone()));
-    world.insert_resource(TerminalSessionPersistenceState::default());
+    world.insert_resource(AppStatePersistenceState::default());
     world.insert_resource(TerminalVisibilityState {
         policy: TerminalVisibilityPolicy::Isolate(id),
     });
@@ -1135,7 +1189,7 @@ fn killing_active_terminal_preserves_local_state_when_tmux_kill_fails() {
              mut terminal_manager: ResMut<TerminalManager>,
              mut focus_state: ResMut<crate::terminals::TerminalFocusState>,
              runtime_spawner: Res<crate::terminals::TerminalRuntimeSpawner>,
-             mut session_persistence: ResMut<TerminalSessionPersistenceState>,
+             mut session_persistence: ResMut<AppStatePersistenceState>,
              _visibility_state: ResMut<TerminalVisibilityState>,
              _view_state: ResMut<TerminalViewState>| {
                 let _ = kill_active_terminal(
@@ -1159,7 +1213,7 @@ fn killing_active_terminal_preserves_local_state_when_tmux_kill_fails() {
         TerminalVisibilityPolicy::Isolate(id)
     );
     assert!(world
-        .resource::<TerminalSessionPersistenceState>()
+        .resource::<AppStatePersistenceState>()
         .dirty_since_secs
         .is_none());
     let panel_count = world.query::<&TerminalPanel>().iter(&world).count();

@@ -25,6 +25,10 @@ pub(crate) enum AgentCommand {
     },
     Focus(AgentId),
     Inspect(AgentId),
+    Reorder {
+        agent_id: AgentId,
+        target_index: usize,
+    },
     ShowAll,
     ClearFocus,
     KillActive,

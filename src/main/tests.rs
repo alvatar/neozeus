@@ -156,11 +156,13 @@ pub(super) fn insert_terminal_manager_resources(
                 .expect("terminal should exist")
                 .session_name
                 .clone();
-            let agent_id = catalog.create_agent(
-                None,
-                crate::agents::AgentKind::Terminal,
-                crate::agents::AgentCapabilities::terminal_defaults(),
-            );
+            let agent_id = catalog
+                .create_agent(
+                    None,
+                    crate::agents::AgentKind::Terminal,
+                    crate::agents::AgentCapabilities::terminal_defaults(),
+                )
+                .unwrap();
             runtime_index.link_terminal(agent_id, terminal_id, session_name, None);
         }
         world.insert_resource(catalog);

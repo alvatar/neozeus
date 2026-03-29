@@ -217,6 +217,10 @@ pub(crate) fn handle_hud_pointer_input(world: &mut World) {
     let Some(cursor) = cursor_hud_position(&ctx.primary_window) else {
         if ctx.mouse_buttons.just_released(MouseButton::Left) {
             ctx.layout_state.drag = None;
+            ctx.agent_list_state.pressed_agent = None;
+            ctx.agent_list_state.press_origin = None;
+            ctx.agent_list_state.dragging_agent = None;
+            ctx.agent_list_state.last_reorder_index = None;
         }
         return;
     };
@@ -239,25 +243,72 @@ pub(crate) fn handle_hud_pointer_input(world: &mut World) {
             } else if let Some(module) = ctx.layout_state.get(module_id) {
                 let content_rect = content_hit_rect(module_id, module.shell.current_rect);
                 if content_rect.contains(cursor) {
-                    modules::handle_pointer_click(
-                        module_id,
-                        content_rect,
-                        cursor,
-                        &ctx.agent_list_state,
-                        &ctx.conversation_list_state,
-                        &ctx.agent_list_view,
-                        &ctx.conversation_list_view,
-                        &ctx.debug_toolbar_view,
-                        &ctx.layout_state,
-                        &mut emitted_commands,
-                    );
+                    if module_id == HudWidgetKey::AgentList {
+                        ctx.agent_list_state.pressed_agent = modules::agent_at_point(
+                            &ctx.agent_list_state,
+                            content_rect,
+                            cursor,
+                            &ctx.agent_list_view,
+                        );
+                        ctx.agent_list_state.press_origin = Some(cursor);
+                        ctx.agent_list_state.dragging_agent = None;
+                        ctx.agent_list_state.last_reorder_index =
+                            ctx.agent_list_state.pressed_agent.and_then(|agent_id| {
+                                ctx.agent_list_view
+                                    .rows
+                                    .iter()
+                                    .position(|row| row.agent_id == agent_id)
+                            });
+                    } else {
+                        modules::handle_pointer_click(
+                            module_id,
+                            content_rect,
+                            cursor,
+                            &ctx.agent_list_state,
+                            &ctx.conversation_list_state,
+                            &ctx.agent_list_view,
+                            &ctx.conversation_list_view,
+                            &ctx.debug_toolbar_view,
+                            &ctx.layout_state,
+                            &mut emitted_commands,
+                        );
+                    }
                 }
             }
         }
     }
 
     if ctx.mouse_buttons.pressed(MouseButton::Left) {
-        if let Some(drag) = ctx.layout_state.drag {
+        if let Some(pressed_agent) = ctx.agent_list_state.pressed_agent {
+            let moved_far_enough = ctx
+                .agent_list_state
+                .press_origin
+                .is_some_and(|origin| origin.distance(cursor) >= 4.0);
+            if moved_far_enough && ctx.agent_list_state.dragging_agent.is_none() {
+                ctx.agent_list_state.dragging_agent = Some(pressed_agent);
+            }
+            if let Some(dragging_agent) = ctx.agent_list_state.dragging_agent {
+                if let Some(module) = ctx.layout_state.get(HudWidgetKey::AgentList) {
+                    let content_rect =
+                        content_hit_rect(HudWidgetKey::AgentList, module.shell.current_rect);
+                    if let Some(target_index) = modules::reorder_target_index(
+                        &ctx.agent_list_state,
+                        content_rect,
+                        cursor,
+                        &ctx.agent_list_view,
+                    ) {
+                        if ctx.agent_list_state.last_reorder_index != Some(target_index) {
+                            emitted_commands.push(AppCommand::Agent(AgentCommand::Reorder {
+                                agent_id: dragging_agent,
+                                target_index,
+                            }));
+                            ctx.agent_list_state.last_reorder_index = Some(target_index);
+                            ctx.redraws.write(RequestRedraw);
+                        }
+                    }
+                }
+            }
+        } else if let Some(drag) = ctx.layout_state.drag {
             if let Some(module) = ctx.layout_state.get_mut(drag.module_id) {
                 module.shell.target_rect.x = cursor.x - drag.grab_offset.x;
                 module.shell.target_rect.y = cursor.y - drag.grab_offset.y;
@@ -267,6 +318,29 @@ pub(crate) fn handle_hud_pointer_input(world: &mut World) {
     }
 
     if ctx.mouse_buttons.just_released(MouseButton::Left) {
+        if let Some(pressed_agent) = ctx.agent_list_state.pressed_agent.take() {
+            let was_dragging = ctx.agent_list_state.dragging_agent.take().is_some();
+            ctx.agent_list_state.press_origin = None;
+            ctx.agent_list_state.last_reorder_index = None;
+            if !was_dragging {
+                if let Some(module) = ctx.layout_state.get(HudWidgetKey::AgentList) {
+                    let content_rect =
+                        content_hit_rect(HudWidgetKey::AgentList, module.shell.current_rect);
+                    if modules::agent_at_point(
+                        &ctx.agent_list_state,
+                        content_rect,
+                        cursor,
+                        &ctx.agent_list_view,
+                    ) == Some(pressed_agent)
+                    {
+                        emitted_commands
+                            .push(AppCommand::Agent(AgentCommand::Focus(pressed_agent)));
+                        emitted_commands
+                            .push(AppCommand::Agent(AgentCommand::Inspect(pressed_agent)));
+                    }
+                }
+            }
+        }
         ctx.layout_state.drag = None;
     }
 

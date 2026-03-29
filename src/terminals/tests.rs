@@ -8,9 +8,6 @@ pub(crate) use super::presentation::{
 pub(crate) use super::presentation_state::{
     PresentedTerminal, TerminalPanelFrame, TerminalTextureState,
 };
-pub(crate) use super::session_persistence::{
-    serialize_persisted_terminal_sessions, PersistedTerminalSessions, TerminalSessionRecord,
-};
 pub(crate) use super::types::{
     TerminalDamage, TerminalFrameUpdate, TerminalSnapshot, TerminalUpdate,
 };

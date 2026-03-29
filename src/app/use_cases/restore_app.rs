@@ -1,13 +1,15 @@
 use crate::{
     agents::{AgentCatalog, AgentKind, AgentRuntimeIndex},
+    app::{
+        load_persisted_app_state_from, mark_app_state_dirty, ordered_reconciled_persisted_agents,
+        reconcile_persisted_agents, AppStatePersistenceState,
+    },
     startup::{
         choose_startup_focus_session_name, startup_visibility_policy_for_focus, StartupLoadingState,
     },
     terminals::{
-        append_debug_log, load_persisted_terminal_sessions_from, mark_terminal_sessions_dirty,
-        ordered_reconciled_terminal_sessions, reconcile_terminal_sessions, DaemonSessionInfo,
-        TerminalFocusState, TerminalLifecycle, TerminalManager, TerminalRuntimeSpawner,
-        TerminalSessionPersistenceState, TerminalViewState, PERSISTENT_SESSION_PREFIX,
+        append_debug_log, DaemonSessionInfo, TerminalFocusState, TerminalLifecycle,
+        TerminalManager, TerminalRuntimeSpawner, TerminalViewState, PERSISTENT_SESSION_PREFIX,
     },
 };
 
@@ -33,7 +35,7 @@ pub(crate) fn restore_app(
     focus_state: &mut TerminalFocusState,
     runtime_spawner: &TerminalRuntimeSpawner,
     input_capture: &mut crate::hud::HudInputCaptureState,
-    session_persistence: &mut TerminalSessionPersistenceState,
+    app_state_persistence: &mut AppStatePersistenceState,
     visibility_state: &mut crate::hud::TerminalVisibilityState,
     view_state: &mut TerminalViewState,
     startup_loading: Option<&mut StartupLoadingState>,
@@ -42,10 +44,10 @@ pub(crate) fn restore_app(
 ) {
     // Walk the lifecycle in explicit stages so each side effect happens only after its prerequisites have been established.
     let mut startup_loading = startup_loading;
-    let persisted = session_persistence
+    let persisted = app_state_persistence
         .path
         .as_ref()
-        .map(load_persisted_terminal_sessions_from)
+        .map(load_persisted_app_state_from)
         .unwrap_or_default();
     let live_session_infos = match runtime_spawner.list_session_infos() {
         Ok(sessions) => sessions,
@@ -60,7 +62,7 @@ pub(crate) fn restore_app(
                 focus_state,
                 runtime_spawner,
                 input_capture,
-                session_persistence,
+                app_state_persistence,
                 visibility_state,
                 view_state,
                 startup_loading_slot,
@@ -79,12 +81,12 @@ pub(crate) fn restore_app(
         .iter()
         .map(|session| session.session_id.clone())
         .collect::<Vec<_>>();
-    let (restore, import, prune) = reconcile_terminal_sessions(&persisted, &live_sessions);
+    let (restore, import, prune) = reconcile_persisted_agents(&persisted, &live_sessions);
     if !prune.is_empty() || !import.is_empty() {
-        mark_terminal_sessions_dirty(session_persistence, None);
+        mark_app_state_dirty(app_state_persistence, None);
     }
 
-    for record in ordered_reconciled_terminal_sessions(&restore, &import) {
+    for record in ordered_reconciled_persisted_agents(&restore, &import) {
         let startup_loading_slot = startup_loading.as_deref_mut();
         if let Err(error) = attach_restored_terminal(
             agent_catalog,
@@ -171,7 +173,7 @@ pub(crate) fn restore_app(
             focus_state,
             runtime_spawner,
             input_capture,
-            session_persistence,
+            app_state_persistence,
             visibility_state,
             view_state,
             startup_loading,

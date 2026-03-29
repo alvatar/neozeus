@@ -22,6 +22,6 @@ pub(crate) use protocol::{
 pub(crate) use server::run_daemon_server;
 #[cfg(test)]
 pub(crate) use server::DaemonServerHandle;
-pub(crate) use session::{
-    is_persistent_session_name, PERSISTENT_SESSION_PREFIX, VERIFIER_SESSION_PREFIX,
-};
+#[cfg(test)]
+pub(crate) use session::is_persistent_session_name;
+pub(crate) use session::{PERSISTENT_SESSION_PREFIX, VERIFIER_SESSION_PREFIX};

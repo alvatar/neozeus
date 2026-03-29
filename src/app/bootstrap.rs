@@ -1,5 +1,6 @@
 use crate::{
     agents::{AgentCatalog, AgentRuntimeIndex},
+    app::AppStatePersistenceState,
     app_config::{
         load_neozeus_config, resolve_app_id, resolve_window_title, NeoZeusConfig,
         GPU_NOT_FOUND_PANIC_FRAGMENT,
@@ -15,8 +16,7 @@ use crate::{
     },
     terminals::{
         TerminalFontState, TerminalGlyphCache, TerminalManager, TerminalPointerState,
-        TerminalPresentationStore, TerminalRuntimeSpawner, TerminalSessionPersistenceState,
-        TerminalViewState,
+        TerminalPresentationStore, TerminalRuntimeSpawner, TerminalViewState,
     },
     verification::{AutoVerifyConfig, VerificationScenarioConfig},
 };
@@ -460,7 +460,7 @@ fn configure_app(app: &mut App) -> Result<(), String> {
         .insert_resource(crate::terminals::TerminalFocusState::default())
         .insert_resource(TerminalPresentationStore::default())
         .insert_resource(runtime_spawner)
-        .insert_resource(TerminalSessionPersistenceState::default())
+        .insert_resource(AppStatePersistenceState::default())
         .insert_resource(crate::terminals::TerminalNotesState::default())
         .insert_resource(TerminalFontState::default())
         .insert_resource(TerminalViewState::default())

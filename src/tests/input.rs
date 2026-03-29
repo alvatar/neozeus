@@ -6,8 +6,8 @@ use super::{
 use crate::{
     agents::{AgentCatalog, AgentRuntimeIndex},
     app::{
-        AgentCommand as AppAgentCommand, AppCommand, AppSessionState, CreateAgentDialogField,
-        CreateAgentKind, TaskCommand as AppTaskCommand,
+        AgentCommand as AppAgentCommand, AppCommand, AppSessionState, AppStatePersistenceState,
+        CreateAgentDialogField, CreateAgentKind, TaskCommand as AppTaskCommand,
     },
     conversations::{AgentTaskStore, ConversationStore, MessageTransportAdapter},
     hud::TerminalVisibilityState,
@@ -20,7 +20,6 @@ use crate::{
     },
     terminals::{
         TerminalCommand, TerminalManager, TerminalNotesState, TerminalPanel, TerminalPresentation,
-        TerminalSessionPersistenceState,
     },
 };
 use bevy::{
@@ -110,8 +109,8 @@ fn ensure_app_command_world_resources(world: &mut World) {
     if !world.contains_resource::<TerminalNotesState>() {
         world.insert_resource(TerminalNotesState::default());
     }
-    if !world.contains_resource::<TerminalSessionPersistenceState>() {
-        world.insert_resource(TerminalSessionPersistenceState::default());
+    if !world.contains_resource::<AppStatePersistenceState>() {
+        world.insert_resource(AppStatePersistenceState::default());
     }
     if !world.contains_resource::<TerminalVisibilityState>() {
         world.insert_resource(TerminalVisibilityState::default());
@@ -197,11 +196,13 @@ fn world_with_active_terminal_and_receiver(
         .clone();
 
     let mut catalog = AgentCatalog::default();
-    let agent_id = catalog.create_agent(
-        Some("agent-1".into()),
-        crate::agents::AgentKind::Terminal,
-        crate::agents::AgentCapabilities::terminal_defaults(),
-    );
+    let agent_id = catalog
+        .create_agent(
+            Some("agent-1".into()),
+            crate::agents::AgentKind::Terminal,
+            crate::agents::AgentCapabilities::terminal_defaults(),
+        )
+        .unwrap();
     let mut runtime_index = AgentRuntimeIndex::default();
     runtime_index.link_terminal(agent_id, terminal_id, session_name, None);
 
@@ -222,7 +223,7 @@ fn world_with_active_terminal_and_receiver(
     world.insert_resource(AgentTaskStore::default());
     world.insert_resource(MessageTransportAdapter);
     world.insert_resource(TerminalNotesState::default());
-    world.insert_resource(TerminalSessionPersistenceState::default());
+    world.insert_resource(AppStatePersistenceState::default());
     world.insert_resource(TerminalVisibilityState::default());
     world.insert_resource(crate::terminals::TerminalViewState::default());
     init_hud_commands(&mut world);
@@ -709,7 +710,7 @@ fn background_click_hides_active_terminal() {
         Vec2::ZERO
     );
     assert!(world
-        .resource::<TerminalSessionPersistenceState>()
+        .resource::<AppStatePersistenceState>()
         .dirty_since_secs
         .is_some());
     assert!(manager.get(terminal_id).is_some());
@@ -737,7 +738,7 @@ fn clicking_visible_terminal_does_not_hide_it() {
         Some(terminal_id)
     );
     assert!(world
-        .resource::<TerminalSessionPersistenceState>()
+        .resource::<AppStatePersistenceState>()
         .dirty_since_secs
         .is_none());
 }
@@ -764,7 +765,7 @@ fn clicking_shifted_visible_terminal_does_not_hide_it() {
         Some(terminal_id)
     );
     assert!(world
-        .resource::<TerminalSessionPersistenceState>()
+        .resource::<AppStatePersistenceState>()
         .dirty_since_secs
         .is_none());
 }
@@ -782,16 +783,20 @@ fn clicking_terminal_panel_enqueues_focus_and_isolate_for_topmost_visible_panel(
     window.set_cursor_position(Some(Vec2::new(640.0, 360.0)));
 
     let mut catalog = AgentCatalog::default();
-    let first_agent = catalog.create_agent(
-        Some("agent-1".into()),
-        crate::agents::AgentKind::Terminal,
-        crate::agents::AgentCapabilities::terminal_defaults(),
-    );
-    let second_agent = catalog.create_agent(
-        Some("agent-2".into()),
-        crate::agents::AgentKind::Terminal,
-        crate::agents::AgentCapabilities::terminal_defaults(),
-    );
+    let first_agent = catalog
+        .create_agent(
+            Some("agent-1".into()),
+            crate::agents::AgentKind::Terminal,
+            crate::agents::AgentCapabilities::terminal_defaults(),
+        )
+        .unwrap();
+    let second_agent = catalog
+        .create_agent(
+            Some("agent-2".into()),
+            crate::agents::AgentKind::Terminal,
+            crate::agents::AgentCapabilities::terminal_defaults(),
+        )
+        .unwrap();
     let mut runtime_index = AgentRuntimeIndex::default();
     runtime_index.link_terminal(
         first_agent,

@@ -3,6 +3,7 @@ mod commands;
 mod dispatch;
 mod output;
 mod path_completion;
+mod persistence;
 mod schedule;
 mod session;
 mod use_cases;
@@ -10,6 +11,11 @@ mod use_cases;
 pub(crate) use commands::{
     AgentCommand, AppCommand, ComposerCommand, ComposerRequest, TaskCommand, TerminalCommand,
     WidgetCommand,
+};
+pub(crate) use persistence::{
+    load_persisted_app_state_from, mark_app_state_dirty, ordered_reconciled_persisted_agents,
+    reconcile_persisted_agents, resolve_app_state_path, save_app_state_if_dirty,
+    AppStatePersistenceState,
 };
 pub(crate) use session::{
     AppSessionState, CreateAgentDialogField, CreateAgentKind, TextFieldState,

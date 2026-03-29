@@ -1,11 +1,11 @@
 use crate::{
     agents::{AgentCapabilities, AgentCatalog, AgentId, AgentKind, AgentRuntimeIndex},
+    app::{mark_app_state_dirty, AppStatePersistenceState},
     hud::{HudInputCaptureState, TerminalVisibilityPolicy, TerminalVisibilityState},
     startup::StartupLoadingState,
     terminals::{
-        append_debug_log, attach_terminal_session, mark_terminal_sessions_dirty,
-        TerminalFocusState, TerminalManager, TerminalRuntimeSpawner,
-        TerminalSessionPersistenceState, TerminalViewState,
+        append_debug_log, attach_terminal_session, TerminalFocusState, TerminalManager,
+        TerminalRuntimeSpawner, TerminalViewState,
     },
 };
 
@@ -25,7 +25,7 @@ pub(crate) fn spawn_agent_terminal(
     focus_state: &mut TerminalFocusState,
     runtime_spawner: &TerminalRuntimeSpawner,
     input_capture: &mut HudInputCaptureState,
-    session_persistence: &mut TerminalSessionPersistenceState,
+    app_state_persistence: &mut AppStatePersistenceState,
     visibility_state: &mut TerminalVisibilityState,
     view_state: &mut TerminalViewState,
     startup_loading: Option<&mut StartupLoadingState>,
@@ -38,6 +38,7 @@ pub(crate) fn spawn_agent_terminal(
     redraws: &mut MessageWriter<RequestRedraw>,
 ) -> Result<AgentId, String> {
     // Walk the lifecycle in explicit stages so each side effect happens only after its prerequisites have been established.
+    let label = agent_catalog.validate_requested_label(label.as_deref(), None)?;
     let session_name = if spawn_shell_only {
         runtime_spawner.create_shell_session_with_cwd(prefix, working_directory)
     } else {
@@ -55,7 +56,7 @@ pub(crate) fn spawn_agent_terminal(
         AgentKind::Terminal => AgentCapabilities::terminal_defaults(),
         AgentKind::Verifier => AgentCapabilities::verifier_defaults(),
     };
-    let agent_id = agent_catalog.create_agent(label, kind, capabilities);
+    let agent_id = agent_catalog.create_agent(label, kind, capabilities)?;
     let runtime = terminal_manager
         .get(terminal_id)
         .map(|terminal| &terminal.snapshot.runtime);
@@ -65,7 +66,7 @@ pub(crate) fn spawn_agent_terminal(
     view_state.focus_terminal(Some(terminal_id));
     app_session.visibility_mode = VisibilityMode::FocusedOnly;
     visibility_state.policy = TerminalVisibilityPolicy::Isolate(terminal_id);
-    mark_terminal_sessions_dirty(session_persistence, Some(time));
+    mark_app_state_dirty(app_state_persistence, Some(time));
     if let Some(startup_loading) = startup_loading {
         startup_loading.register(terminal_id);
     }
@@ -107,7 +108,15 @@ pub(crate) fn attach_restored_terminal(
         AgentKind::Terminal => AgentCapabilities::terminal_defaults(),
         AgentKind::Verifier => AgentCapabilities::verifier_defaults(),
     };
-    let agent_id = agent_catalog.create_agent(label, kind, capabilities);
+    let agent_id = agent_catalog.create_agent(None, kind, capabilities)?;
+    if let Some(label) = label {
+        if let Err(error) = agent_catalog.rename_agent(agent_id, &label) {
+            append_debug_log(format!(
+                "restored agent label conflict for session {}: {error}; using generated fallback",
+                session_name
+            ));
+        }
+    }
     let runtime = terminal_manager
         .get(terminal_id)
         .map(|terminal| &terminal.snapshot.runtime);

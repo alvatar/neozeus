@@ -34,6 +34,7 @@ const DAEMON_BACKEND_STATUS: &str = "backend: neozeus daemon pty";
 /// Returns whether a daemon session name belongs to the ordinary persisted-session namespace.
 ///
 /// Verifier sessions deliberately use a separate prefix and therefore do not match here.
+#[cfg(test)]
 pub(crate) fn is_persistent_session_name(session_name: &str) -> bool {
     session_name.starts_with(PERSISTENT_SESSION_PREFIX)
 }

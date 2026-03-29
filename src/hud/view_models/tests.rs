@@ -16,11 +16,13 @@ fn sync_hud_view_models_derives_agent_rows_and_threads() {
     let terminal_id = manager.create_terminal(bridge);
 
     let mut catalog = AgentCatalog::default();
-    let agent_id = catalog.create_agent(
-        Some("alpha".into()),
-        crate::agents::AgentKind::Terminal,
-        crate::agents::AgentCapabilities::terminal_defaults(),
-    );
+    let agent_id = catalog
+        .create_agent(
+            Some("alpha".into()),
+            crate::agents::AgentKind::Terminal,
+            crate::agents::AgentCapabilities::terminal_defaults(),
+        )
+        .unwrap();
     let mut runtime_index = AgentRuntimeIndex::default();
     runtime_index.link_terminal(agent_id, terminal_id, "session-1".into(), None);
 
