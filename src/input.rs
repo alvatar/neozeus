@@ -1,7 +1,9 @@
 use crate::{
     agents::AgentRuntimeIndex,
-    app::{AgentCommand as AppAgentCommand, ComposerCommand, TaskCommand as AppTaskCommand},
-    app::{AppCommand, AppSessionState, ComposerRequest},
+    app::{
+        AgentCommand as AppAgentCommand, AppCommand, AppSessionState, ComposerCommand,
+        ComposerRequest, CreateAgentDialogField, CreateAgentKind, TaskCommand as AppTaskCommand,
+    },
     hud::{HudInputCaptureState, HudLayoutState},
     terminals::{
         terminal_texture_screen_size, TerminalCommand, TerminalDisplayMode, TerminalFocusState,
@@ -124,22 +126,24 @@ pub(crate) fn handle_global_terminal_spawn_shortcut(
     mut messages: MessageReader<KeyboardInput>,
     keys: Res<ButtonInput<KeyCode>>,
     primary_window: Single<&Window, With<PrimaryWindow>>,
-    app_session: Res<AppSessionState>,
+    mut app_session: ResMut<AppSessionState>,
     input_capture: Res<HudInputCaptureState>,
-    mut app_commands: MessageWriter<AppCommand>,
+    mut redraws: MessageWriter<RequestRedraw>,
 ) {
     // Keep the control flow staged so each branch owns one behavior path and later branches only run when earlier capture rules do not apply.
-    if app_session.composer.keyboard_capture_active(&input_capture) || !primary_window.focused {
+    if app_session.keyboard_capture_active(&input_capture) || !primary_window.focused {
         return;
     }
 
     for event in messages.read() {
         if should_spawn_shell_terminal_globally(event, &keys) {
-            app_commands.write(AppCommand::Agent(AppAgentCommand::SpawnShellTerminal));
+            app_session.create_agent_dialog.open(CreateAgentKind::Shell);
+            redraws.write(RequestRedraw);
             break;
         }
         if should_spawn_terminal_globally(event, &keys) {
-            app_commands.write(AppCommand::Agent(AppAgentCommand::SpawnTerminal));
+            app_session.create_agent_dialog.open(CreateAgentKind::Agent);
+            redraws.write(RequestRedraw);
             break;
         }
     }
@@ -160,7 +164,7 @@ pub(crate) fn handle_terminal_lifecycle_shortcuts(
     mut app_exits: MessageWriter<AppExit>,
 ) {
     // Keep the control flow staged so each branch owns one behavior path and later branches only run when earlier capture rules do not apply.
-    if app_session.composer.keyboard_capture_active(&input_capture) {
+    if app_session.keyboard_capture_active(&input_capture) {
         return;
     }
 
@@ -227,8 +231,7 @@ pub(crate) fn focus_terminal_on_panel_click(
     mut app_commands: MessageWriter<AppCommand>,
 ) {
     // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
-    if app_session.composer.message_editor.visible
-        || app_session.composer.task_editor.visible
+    if app_session.modal_visible()
         || !mouse_buttons.just_pressed(MouseButton::Left)
         || !primary_window.focused
     {
@@ -269,8 +272,7 @@ pub(crate) fn hide_terminal_on_background_click(
     mut app_commands: MessageWriter<AppCommand>,
 ) {
     // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
-    if app_session.composer.message_editor.visible
-        || app_session.composer.task_editor.visible
+    if app_session.modal_visible()
         || !mouse_buttons.just_pressed(MouseButton::Left)
         || !primary_window.focused
     {
@@ -421,10 +423,7 @@ pub(crate) fn handle_terminal_direct_input_keyboard(
     mut input_capture: ResMut<HudInputCaptureState>,
     mut redraws: MessageWriter<RequestRedraw>,
 ) {
-    if !primary_window.focused
-        || app_session.composer.message_editor.visible
-        || app_session.composer.task_editor.visible
-    {
+    if !primary_window.focused || app_session.modal_visible() {
         return;
     }
 
@@ -569,6 +568,60 @@ fn handle_text_editor_event(
     }
 }
 
+/// Applies one keyboard event to a single-line HUD text editor field.
+///
+/// This is the reduced variant used by the create-agent dialog: it keeps the Emacs-like cursor and
+/// word-editing behavior, but intentionally rejects newline and tab insertion so the field remains a
+/// single logical line and `Tab` stays available for focus traversal.
+fn handle_single_line_text_editor_event(
+    editor: &mut crate::composer::TextEditorState,
+    event: &KeyboardInput,
+    ctrl: bool,
+    alt: bool,
+    super_key: bool,
+) -> bool {
+    if ctrl && !alt && !super_key {
+        match event.key_code {
+            KeyCode::Space => editor.set_mark(),
+            KeyCode::KeyA => editor.move_line_start(),
+            KeyCode::KeyB => editor.move_left(),
+            KeyCode::KeyD => editor.delete_forward_char(),
+            KeyCode::KeyE => editor.move_line_end(),
+            KeyCode::KeyF => editor.move_right(),
+            KeyCode::KeyH => editor.delete_backward_char(),
+            KeyCode::KeyK => editor.kill_to_end_of_line(),
+            KeyCode::KeyW => editor.kill_region(),
+            KeyCode::KeyY => editor.yank(),
+            _ => false,
+        }
+    } else if alt && !ctrl && !super_key {
+        match event.key_code {
+            KeyCode::Backspace => editor.kill_word_backward(),
+            KeyCode::KeyB => editor.move_word_backward(),
+            KeyCode::KeyD => editor.kill_word_forward(),
+            KeyCode::KeyF => editor.move_word_forward(),
+            KeyCode::KeyW => editor.copy_region(),
+            KeyCode::KeyY => editor.yank_pop(),
+            _ => false,
+        }
+    } else if !(ctrl || alt || super_key) {
+        match event.key_code {
+            KeyCode::Backspace => editor.delete_backward_char(),
+            KeyCode::Delete => editor.delete_forward_char(),
+            KeyCode::ArrowLeft => editor.move_left(),
+            KeyCode::ArrowRight => editor.move_right(),
+            KeyCode::Home => editor.move_line_start(),
+            KeyCode::End => editor.move_line_end(),
+            KeyCode::ArrowUp | KeyCode::ArrowDown | KeyCode::Enter | KeyCode::Tab => false,
+            _ => message_box_event_text(event)
+                .filter(|text| !text.contains(['\n', '\r', '\t']))
+                .is_some_and(|text| editor.insert_text(&text)),
+        }
+    } else {
+        false
+    }
+}
+
 #[allow(
     clippy::too_many_arguments,
     reason = "dialog keyboard handling needs input, focus, notes, terminal state, HUD state, commands, and redraws together"
@@ -604,6 +657,91 @@ pub(crate) fn handle_terminal_message_box_keyboard(
     let (ctrl, alt, super_key) = has_plain_modifiers(&keys);
 
     if input_capture.direct_input_terminal.is_some() {
+        return;
+    }
+
+    if app_session.create_agent_dialog.visible {
+        let shift = keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight);
+        let mut needs_redraw = false;
+        for event in messages.read() {
+            if event.state != ButtonState::Pressed {
+                continue;
+            }
+
+            if event.key_code == KeyCode::Escape {
+                app_session.create_agent_dialog.close();
+                needs_redraw = true;
+                break;
+            }
+
+            if !ctrl && !alt && !super_key && event.key_code == KeyCode::Tab {
+                app_session.create_agent_dialog.cycle_focus(shift);
+                needs_redraw = true;
+                continue;
+            }
+
+            let (changed, clear_error) = match app_session.create_agent_dialog.focus {
+                CreateAgentDialogField::Name => (
+                    handle_single_line_text_editor_event(
+                        &mut app_session.create_agent_dialog.name_editor,
+                        event,
+                        ctrl,
+                        alt,
+                        super_key,
+                    ),
+                    true,
+                ),
+                CreateAgentDialogField::Kind => {
+                    if ctrl || alt || super_key {
+                        (false, false)
+                    } else {
+                        match event.key_code {
+                            KeyCode::ArrowLeft | KeyCode::ArrowRight | KeyCode::Space => {
+                                app_session.create_agent_dialog.toggle_kind();
+                                (true, false)
+                            }
+                            _ => (false, false),
+                        }
+                    }
+                }
+                CreateAgentDialogField::StartingFolder => (
+                    handle_single_line_text_editor_event(
+                        &mut app_session.create_agent_dialog.starting_folder_editor,
+                        event,
+                        ctrl,
+                        alt,
+                        super_key,
+                    ),
+                    true,
+                ),
+                CreateAgentDialogField::CreateButton => {
+                    if !ctrl
+                        && !alt
+                        && !super_key
+                        && matches!(event.key_code, KeyCode::Enter | KeyCode::Space)
+                    {
+                        if let Some(command) =
+                            app_session.create_agent_dialog.build_create_command()
+                        {
+                            app_commands.write(command);
+                        }
+                        (true, false)
+                    } else {
+                        (false, false)
+                    }
+                }
+            };
+            if changed {
+                if clear_error {
+                    app_session.create_agent_dialog.error = None;
+                }
+                needs_redraw = true;
+            }
+        }
+
+        if needs_redraw {
+            redraws.write(RequestRedraw);
+        }
         return;
     }
 

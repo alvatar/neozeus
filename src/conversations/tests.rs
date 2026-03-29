@@ -1,7 +1,8 @@
 use super::{
     persistence::{
-        build_persisted_conversations, parse_persisted_conversations, resolve_conversations_path_with,
-        restore_persisted_conversations, serialize_persisted_conversations,
+        build_persisted_conversations, parse_persisted_conversations,
+        resolve_conversations_path_with, restore_persisted_conversations,
+        serialize_persisted_conversations,
     },
     AgentTaskStore, ConversationStore, MessageAuthor, MessageDeliveryState,
 };

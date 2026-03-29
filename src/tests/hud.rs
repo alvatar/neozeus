@@ -9,8 +9,8 @@ use crate::terminals::{
 };
 use crate::{
     app::{
-        AgentCommand as AppAgentCommand, AppCommand, ComposerCommand as AppComposerCommand,
-        TaskCommand as AppTaskCommand, WidgetCommand,
+        AgentCommand as AppAgentCommand, AppCommand, AppSessionState,
+        ComposerCommand as AppComposerCommand, TaskCommand as AppTaskCommand, WidgetCommand,
     },
     composer::{message_box_action_buttons, message_box_rect, task_dialog_action_buttons},
     hud::{
@@ -101,7 +101,10 @@ fn reset_module_restores_default_toolbar_state() {
 
     hud_state.reset_module(HudWidgetKey::DebugToolbar);
 
-    assert_eq!(hud_state.module_enabled(HudWidgetKey::DebugToolbar), Some(true));
+    assert_eq!(
+        hud_state.module_enabled(HudWidgetKey::DebugToolbar),
+        Some(true)
+    );
     assert_eq!(
         hud_state.module_target_rect(HudWidgetKey::DebugToolbar),
         Some(crate::hud::HUD_MODULE_DEFINITIONS[0].default_rect)
@@ -600,10 +603,7 @@ fn clicking_message_box_task_button_emits_append_task_intent() {
         ..Default::default()
     };
     let (_, append_rect, _) = message_box_action_buttons(&window)[0];
-    window.set_cursor_position(Some(Vec2::new(
-        append_rect.x + 4.0,
-        append_rect.y + 4.0,
-    )));
+    window.set_cursor_position(Some(Vec2::new(append_rect.x + 4.0, append_rect.y + 4.0)));
 
     world.insert_resource(ButtonInput::<MouseButton>::default());
     world.insert_resource(Messages::<MouseWheel>::default());
@@ -923,10 +923,10 @@ fn killing_active_terminal_removes_runtime_presentation_and_labels() {
     assert_eq!(frame_count, 0);
 }
 
-/// Verifies that the shell-spawn app command creates a session without injecting any bootstrap
-/// command payload.
+/// Verifies that creating a shell agent creates a session without injecting any bootstrap command
+/// payload.
 #[test]
-fn spawn_shell_lifecycle_request_does_not_send_pi_command() {
+fn create_shell_agent_request_does_not_send_pi_command() {
     // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let client = Arc::new(FakeDaemonClient::default());
     let mut world = World::default();
@@ -936,6 +936,10 @@ fn spawn_shell_lifecycle_request_does_not_send_pi_command() {
     world.insert_resource(Assets::<Image>::default());
     insert_terminal_manager_resources(&mut world, TerminalManager::default());
     insert_default_hud_resources(&mut world);
+    world
+        .resource_mut::<AppSessionState>()
+        .create_agent_dialog
+        .open(crate::app::CreateAgentKind::Shell);
     world.insert_resource(TerminalPresentationStore::default());
     world.insert_resource(AgentListView::default());
     world.insert_resource(fake_runtime_spawner(client.clone()));
@@ -947,12 +951,26 @@ fn spawn_shell_lifecycle_request_does_not_send_pi_command() {
 
     world
         .resource_mut::<Messages<AppCommand>>()
-        .write(AppCommand::Agent(AppAgentCommand::SpawnShellTerminal));
+        .write(AppCommand::Agent(AppAgentCommand::Create {
+            label: Some("shell".into()),
+            spawn_shell_only: true,
+            working_directory: "~/code".into(),
+        }));
 
     run_app_commands(&mut world);
 
     assert_eq!(world.resource::<TerminalManager>().terminal_ids().len(), 1);
+    assert!(
+        !world
+            .resource::<AppSessionState>()
+            .create_agent_dialog
+            .visible
+    );
     assert!(client.sent_commands.lock().unwrap().is_empty());
+    assert_eq!(
+        client.created_sessions.lock().unwrap().as_slice(),
+        &[("neozeus-session-0".to_owned(), Some("~/code".to_owned()))]
+    );
 }
 
 /// Verifies the special-case cleanup path for disconnected terminals: local state is removed even if

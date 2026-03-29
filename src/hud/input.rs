@@ -1,7 +1,12 @@
 use crate::{
-    app::AppSessionState,
-    app::{AgentCommand, AppCommand, TaskCommand, WidgetCommand},
-    composer::{message_box_action_at, task_dialog_action_at, MessageBoxAction, TaskDialogAction},
+    app::{
+        AgentCommand, AppCommand, AppSessionState, CreateAgentDialogField, TaskCommand,
+        WidgetCommand,
+    },
+    composer::{
+        create_agent_dialog_target_at, message_box_action_at, task_dialog_action_at,
+        CreateAgentDialogTarget, MessageBoxAction, TaskDialogAction,
+    },
 };
 
 use super::{
@@ -125,6 +130,42 @@ pub(crate) fn handle_hud_pointer_input(world: &mut World) {
         bevy::ecs::system::SystemState::new(world);
     let mut ctx = state.get_mut(world);
     // Keep the control flow staged so each branch owns one behavior path and later branches only run when earlier capture rules do not apply.
+    if ctx.app_session.create_agent_dialog.visible {
+        ctx.layout_state.drag = None;
+        let Some(cursor) = cursor_hud_position(&ctx.primary_window) else {
+            return;
+        };
+        if ctx.mouse_buttons.just_pressed(MouseButton::Left) {
+            if let Some(target) = create_agent_dialog_target_at(&ctx.primary_window, cursor) {
+                match target {
+                    CreateAgentDialogTarget::NameField => {
+                        ctx.app_session.create_agent_dialog.focus = CreateAgentDialogField::Name;
+                        ctx.app_session.create_agent_dialog.error = None;
+                    }
+                    CreateAgentDialogTarget::Kind(kind) => {
+                        ctx.app_session.create_agent_dialog.focus = CreateAgentDialogField::Kind;
+                        ctx.app_session.create_agent_dialog.set_kind(kind);
+                    }
+                    CreateAgentDialogTarget::StartingFolderField => {
+                        ctx.app_session.create_agent_dialog.focus =
+                            CreateAgentDialogField::StartingFolder;
+                        ctx.app_session.create_agent_dialog.error = None;
+                    }
+                    CreateAgentDialogTarget::CreateButton => {
+                        ctx.app_session.create_agent_dialog.focus =
+                            CreateAgentDialogField::CreateButton;
+                        if let Some(command) =
+                            ctx.app_session.create_agent_dialog.build_create_command()
+                        {
+                            ctx.app_commands.write(command);
+                        }
+                    }
+                }
+                ctx.redraws.write(RequestRedraw);
+            }
+        }
+        return;
+    }
     if ctx.app_session.composer.message_editor.visible {
         ctx.layout_state.drag = None;
         let Some(cursor) = cursor_hud_position(&ctx.primary_window) else {
@@ -336,7 +377,7 @@ pub(crate) fn handle_hud_module_shortcuts(
     mut app_commands: MessageWriter<AppCommand>,
 ) {
     // Keep the control flow staged so each branch owns one behavior path and later branches only run when earlier capture rules do not apply.
-    if app_session.composer.keyboard_capture_active(&input_capture) {
+    if app_session.keyboard_capture_active(&input_capture) {
         return;
     }
 

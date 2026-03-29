@@ -172,10 +172,7 @@ fn physical_to_logical_size(size: Vec2, window: &Window) -> Vec2 {
 /// chrome.
 ///
 /// The docked agent list claims space on the left when enabled.
-fn active_terminal_viewport(
-    window: &Window,
-    layout_state: &HudLayoutState,
-) -> (Vec2, Vec2) {
+fn active_terminal_viewport(window: &Window, layout_state: &HudLayoutState) -> (Vec2, Vec2) {
     let reserved_left = layout_state
         .docked_agent_list_width()
         .clamp(0.0, window.width());

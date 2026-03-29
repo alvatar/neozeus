@@ -10,7 +10,7 @@ pub(crate) use commands::{
     AgentCommand, AppCommand, ComposerCommand, ComposerRequest, TaskCommand, TerminalCommand,
     WidgetCommand,
 };
-pub(crate) use session::AppSessionState;
+pub(crate) use session::{AppSessionState, CreateAgentDialogField, CreateAgentKind};
 pub(crate) use use_cases::restore_app;
 
 pub(crate) use bootstrap::build_app;

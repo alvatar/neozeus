@@ -68,13 +68,17 @@ impl DaemonSession {
     ///
     /// The initial snapshot is seeded with a blank surface at the default terminal size so attaches
     /// have something coherent to render before the PTY produces output.
-    pub(crate) fn start(session_id: String, created_order: u64) -> Result<Arc<Self>, String> {
+    pub(crate) fn start(
+        session_id: String,
+        created_order: u64,
+        cwd: Option<&str>,
+    ) -> Result<Arc<Self>, String> {
         // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
         let PtySession {
             master,
             writer,
             child,
-        } = spawn_pty(DEFAULT_COLS, DEFAULT_ROWS)?;
+        } = spawn_pty(DEFAULT_COLS, DEFAULT_ROWS, cwd)?;
         let state = Arc::new(Mutex::new(DaemonSessionState {
             snapshot: TerminalSnapshot {
                 surface: Some(TerminalSurface::new(

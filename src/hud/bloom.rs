@@ -1016,8 +1016,7 @@ pub(crate) fn sync_hud_widget_bloom(world: &mut World) {
         }
     }
 
-    let modal_visible = ctx.app_session.composer.message_editor.visible
-        || ctx.app_session.composer.task_editor.visible
+    let modal_visible = ctx.app_session.modal_visible()
         || ctx
             .startup_connect
             .as_ref()

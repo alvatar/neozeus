@@ -18,7 +18,11 @@ pub(crate) enum AppCommand {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum AgentCommand {
     SpawnTerminal,
-    SpawnShellTerminal,
+    Create {
+        label: Option<String>,
+        spawn_shell_only: bool,
+        working_directory: String,
+    },
     Focus(AgentId),
     Inspect(AgentId),
     ShowAll,

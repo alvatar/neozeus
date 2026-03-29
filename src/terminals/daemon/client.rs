@@ -32,8 +32,8 @@ pub(crate) struct AttachedDaemonSession {
 pub(crate) trait TerminalDaemonClient: Send + Sync {
     /// Returns the daemon's current session list with runtime/revision metadata.
     fn list_sessions(&self) -> Result<Vec<DaemonSessionInfo>, String>;
-    /// Asks the daemon to create a new session id using the provided prefix.
-    fn create_session(&self, prefix: &str) -> Result<String, String>;
+    /// Asks the daemon to create a new session id using the provided prefix and optional working directory.
+    fn create_session(&self, prefix: &str, cwd: Option<&str>) -> Result<String, String>;
     /// Attaches to one daemon session and returns its current snapshot plus a live update stream.
     fn attach_session(&self, session_id: &str) -> Result<AttachedDaemonSession, String>;
     /// Sends one terminal command into the named daemon session.
@@ -224,9 +224,10 @@ impl TerminalDaemonClient for SocketTerminalDaemonClient {
     }
 
     /// Issues a `CreateSession` request and extracts the returned session id.
-    fn create_session(&self, prefix: &str) -> Result<String, String> {
+    fn create_session(&self, prefix: &str, cwd: Option<&str>) -> Result<String, String> {
         match self.request(DaemonRequest::CreateSession {
             prefix: prefix.to_owned(),
+            cwd: cwd.map(str::to_owned),
         })? {
             DaemonResponse::SessionCreated { session_id } => Ok(session_id),
             response => Err(format!("unexpected daemon create response: {response:?}")),

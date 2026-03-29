@@ -34,13 +34,14 @@ pub(crate) fn spawn_agent_terminal(
     spawn_shell_only: bool,
     kind: AgentKind,
     label: Option<String>,
+    working_directory: Option<&str>,
     redraws: &mut MessageWriter<RequestRedraw>,
 ) -> Result<AgentId, String> {
     // Walk the lifecycle in explicit stages so each side effect happens only after its prerequisites have been established.
     let session_name = if spawn_shell_only {
-        runtime_spawner.create_shell_session(prefix)
+        runtime_spawner.create_shell_session_with_cwd(prefix, working_directory)
     } else {
-        runtime_spawner.create_session(prefix)
+        runtime_spawner.create_session_with_cwd(prefix, working_directory)
     }?;
     let (terminal_id, _) = attach_terminal_session(
         terminal_manager,

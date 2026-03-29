@@ -352,7 +352,6 @@ fn resolve_terminal_font_stack_for_family(
     })
 }
 
-
 /// Loads Kitty's configured `font_family`, following nested `include` directives when present.
 ///
 /// If no Kitty config file exists, the function reports `Ok(None)` rather than treating that as an

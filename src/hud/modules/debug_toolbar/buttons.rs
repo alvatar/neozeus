@@ -99,22 +99,23 @@ pub(in crate::hud) fn debug_toolbar_buttons(
     let y = shell_rect.y + HUD_MODULE_PADDING;
     buttons
         .into_iter()
-        .map(|(label, action, active): (String, DebugToolbarAction, bool)| {
-            let width = HUD_BUTTON_MIN_WIDTH.max(label.len() as f32 * 8.0 + 20.0);
-            let rect = HudRect {
-                x: cursor_x,
-                y,
-                w: width,
-                h: HUD_BUTTON_HEIGHT,
-            };
-            cursor_x += width + HUD_BUTTON_GAP;
-            DebugToolbarButton {
-                label,
-                rect,
-                action,
-                active,
-            }
-        })
+        .map(
+            |(label, action, active): (String, DebugToolbarAction, bool)| {
+                let width = HUD_BUTTON_MIN_WIDTH.max(label.len() as f32 * 8.0 + 20.0);
+                let rect = HudRect {
+                    x: cursor_x,
+                    y,
+                    w: width,
+                    h: HUD_BUTTON_HEIGHT,
+                };
+                cursor_x += width + HUD_BUTTON_GAP;
+                DebugToolbarButton {
+                    label,
+                    rect,
+                    action,
+                    active,
+                }
+            },
+        )
         .collect()
 }
-

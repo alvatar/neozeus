@@ -164,12 +164,17 @@ pub(super) fn apply_app_commands(
                         false,
                         AgentKind::Terminal,
                         None,
+                        None,
                         &mut ctx.redraws,
                     ) {
                         append_debug_log(format!("spawn terminal failed: {error}"));
                     }
                 }
-                AgentCommand::SpawnShellTerminal => {
+                AgentCommand::Create {
+                    label,
+                    spawn_shell_only,
+                    working_directory,
+                } => {
                     if let Err(error) = use_cases::spawn_agent_terminal(
                         &mut ctx.agent_catalog,
                         &mut ctx.runtime_index,
@@ -184,12 +189,17 @@ pub(super) fn apply_app_commands(
                         ctx.startup_loading.as_deref_mut(),
                         &ctx.time,
                         PERSISTENT_SESSION_PREFIX,
-                        true,
+                        *spawn_shell_only,
                         AgentKind::Terminal,
-                        None,
+                        label.clone(),
+                        Some(working_directory.as_str()),
                         &mut ctx.redraws,
                     ) {
-                        append_debug_log(format!("spawn shell terminal failed: {error}"));
+                        ctx.app_session.create_agent_dialog.error = Some(error.clone());
+                        append_debug_log(format!("create agent failed: {error}"));
+                        ctx.redraws.write(RequestRedraw);
+                    } else {
+                        ctx.app_session.create_agent_dialog.close();
                     }
                 }
                 AgentCommand::Focus(agent_id) => {
