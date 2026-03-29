@@ -12,6 +12,7 @@ use super::super::{
 };
 use super::*;
 use crate::{
+    agents::AgentStatus,
     terminals::TerminalManager,
     tests::{
         insert_terminal_manager_resources, insert_test_hud_state, snapshot_test_hud_state,
@@ -52,6 +53,46 @@ fn agent_list_reference_colors_match_requested_values() {
         ),
         (143, 37, 15)
     );
+    assert_eq!(
+        (
+            AGENT_LIST_WORKING_GLOW_R,
+            AGENT_LIST_WORKING_GLOW_G,
+            AGENT_LIST_WORKING_GLOW_B,
+        ),
+        (84, 220, 190)
+    );
+}
+
+#[test]
+fn working_rows_use_turquoise_bloom_glow() {
+    let main = bloom_source_color(
+        AgentStatus::Working,
+        false,
+        false,
+        AgentListBloomSourceKind::Main,
+    );
+    let marker = bloom_source_color(
+        AgentStatus::Working,
+        false,
+        false,
+        AgentListBloomSourceKind::Marker,
+    );
+    let idle = bloom_source_color(
+        AgentStatus::Idle,
+        false,
+        false,
+        AgentListBloomSourceKind::Main,
+    );
+
+    let main_linear = main.to_linear();
+    let marker_linear = marker.to_linear();
+    let idle_linear = idle.to_linear();
+    assert!(main_linear.green > main_linear.red);
+    assert!(main_linear.blue > main_linear.red);
+    assert!(marker_linear.green > marker_linear.red);
+    assert!(marker_linear.blue > marker_linear.red);
+    assert!(marker_linear.green >= main_linear.green);
+    assert!(idle_linear.red > idle_linear.green);
 }
 
 /// Verifies the permissive parser for the bloom-intensity override.

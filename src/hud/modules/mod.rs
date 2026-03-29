@@ -18,6 +18,7 @@ pub(crate) use agent_list::{
     agent_at_point, agent_row_rect, reorder_target_index, AgentListRowSection,
     AGENT_LIST_BLOOM_RED_B, AGENT_LIST_BLOOM_RED_G, AGENT_LIST_BLOOM_RED_R,
     AGENT_LIST_BORDER_ORANGE_B, AGENT_LIST_BORDER_ORANGE_G, AGENT_LIST_BORDER_ORANGE_R,
+    AGENT_LIST_WORKING_GLOW_B, AGENT_LIST_WORKING_GLOW_G, AGENT_LIST_WORKING_GLOW_R,
 };
 pub(in crate::hud) use info_bar::{INFO_BAR_BACKGROUND, INFO_BAR_BORDER};
 

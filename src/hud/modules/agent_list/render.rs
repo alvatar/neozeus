@@ -9,7 +9,8 @@ use super::{
     agent_row_rect, projected_agent_rows, AgentListDragPreview, AgentListRowSection,
     AGENT_LIST_BLOOM_RED_B, AGENT_LIST_BLOOM_RED_G, AGENT_LIST_BLOOM_RED_R,
     AGENT_LIST_BORDER_ORANGE_B, AGENT_LIST_BORDER_ORANGE_G, AGENT_LIST_BORDER_ORANGE_R,
-    AGENT_LIST_HEADER_HEIGHT, AGENT_LIST_LEFT_RAIL_WIDTH,
+    AGENT_LIST_HEADER_HEIGHT, AGENT_LIST_LEFT_RAIL_WIDTH, AGENT_LIST_WORKING_GREEN_B,
+    AGENT_LIST_WORKING_GREEN_G, AGENT_LIST_WORKING_GREEN_R,
 };
 
 const EVA_ORANGE: peniko::Color = peniko::Color::from_rgba8(
@@ -40,7 +41,12 @@ const EVA_EMISSIVE_RED: peniko::Color = peniko::Color::from_rgba8(
 );
 const TASK_RED: peniko::Color = peniko::Color::from_rgba8(255, 24, 24, 255);
 const DISCONNECTED_RED: peniko::Color = peniko::Color::from_rgba8(160, 34, 24, 255);
-const WORKING_GREEN: peniko::Color = peniko::Color::from_rgba8(82, 173, 112, 255);
+const WORKING_ROW_COLOR: peniko::Color = peniko::Color::from_rgba8(
+    AGENT_LIST_WORKING_GREEN_R,
+    AGENT_LIST_WORKING_GREEN_G,
+    AGENT_LIST_WORKING_GREEN_B,
+    255,
+);
 
 #[allow(
     clippy::too_many_arguments,
@@ -71,10 +77,43 @@ fn draw_button_rect(
     painter.stroke_rect_width(rect, stroke, 2.5);
 }
 
+fn agent_fill_color(
+    status: AgentStatus,
+    focused: bool,
+    hovered: bool,
+    dragging: bool,
+) -> peniko::Color {
+    if dragging {
+        apply_alpha(EVA_BLACK, 0.98)
+    } else if status == AgentStatus::Working {
+        apply_alpha(WORKING_ROW_COLOR, 0.22)
+    } else if focused {
+        apply_alpha(EVA_BLACK, 0.94)
+    } else if hovered {
+        apply_alpha(EVA_BLACK, 0.92)
+    } else {
+        apply_alpha(EVA_BLACK, 0.90)
+    }
+}
+
+fn agent_accent_color(status: AgentStatus, focused: bool, dragging: bool) -> Option<peniko::Color> {
+    if dragging {
+        Some(EVA_EMISSIVE_RED)
+    } else if status == AgentStatus::Working {
+        Some(WORKING_ROW_COLOR)
+    } else if focused {
+        Some(EVA_EMISSIVE_RED)
+    } else {
+        None
+    }
+}
+
 /// Handles marker fill.
-fn marker_fill(has_tasks: bool, interactive: bool) -> peniko::Color {
+fn marker_fill(status: AgentStatus, has_tasks: bool, interactive: bool) -> peniko::Color {
     if !interactive {
         DISCONNECTED_RED
+    } else if status == AgentStatus::Working {
+        WORKING_ROW_COLOR
     } else if has_tasks {
         TASK_RED
     } else {
@@ -126,7 +165,7 @@ fn agent_label_color(status: AgentStatus, focused: bool, dragging: bool) -> peni
     if dragging {
         EVA_CYAN
     } else if status == AgentStatus::Working {
-        WORKING_GREEN
+        WORKING_ROW_COLOR
     } else if focused {
         EVA_ORANGE_BRIGHT
     } else {
@@ -143,7 +182,7 @@ fn agent_row_stroke(
     if dragging {
         EVA_CYAN
     } else if status == AgentStatus::Working {
-        WORKING_GREEN
+        WORKING_ROW_COLOR
     } else if focused {
         EVA_SELECTED
     } else if hovered {
@@ -221,25 +260,17 @@ pub(crate) fn render_content(
         let marker_rect = agent_row_rect(row.rect, AgentListRowSection::Marker);
         let accent_rect = agent_row_rect(row.rect, AgentListRowSection::Accent);
         let stroke = agent_row_stroke(row.status, row.focused, row.hovered, row.dragging);
-        let fill = if row.dragging {
-            apply_alpha(EVA_BLACK, 0.98)
-        } else if row.focused {
-            apply_alpha(EVA_BLACK, 0.94)
-        } else if row.hovered {
-            apply_alpha(EVA_BLACK, 0.92)
-        } else {
-            apply_alpha(EVA_BLACK, 0.90)
-        };
+        let fill = agent_fill_color(row.status, row.focused, row.hovered, row.dragging);
 
         draw_button_rect(painter, main_rect, stroke, fill);
         draw_button_rect(
             painter,
             marker_rect,
             stroke,
-            marker_fill(row.has_tasks, row.interactive),
+            marker_fill(row.status, row.has_tasks, row.interactive),
         );
-        if row.focused || row.dragging {
-            painter.fill_rect(accent_rect, EVA_EMISSIVE_RED, 0.0);
+        if let Some(accent_fill) = agent_accent_color(row.status, row.focused, row.dragging) {
+            painter.fill_rect(accent_rect, accent_fill, 0.0);
         }
 
         draw_label(
@@ -257,18 +288,33 @@ pub(crate) fn render_content(
 
 #[cfg(test)]
 mod tests {
-    use super::{agent_label_color, agent_row_stroke, EVA_CYAN, WORKING_GREEN};
+    use super::{
+        agent_accent_color, agent_fill_color, agent_label_color, agent_row_stroke, marker_fill,
+        EVA_CYAN, WORKING_ROW_COLOR,
+    };
     use crate::agents::AgentStatus;
 
     #[test]
-    fn working_agent_rows_use_green_label_and_stroke() {
+    fn working_agent_rows_use_green_palette() {
         assert_eq!(
             agent_label_color(AgentStatus::Working, false, false),
-            WORKING_GREEN
+            WORKING_ROW_COLOR
         );
         assert_eq!(
             agent_row_stroke(AgentStatus::Working, false, false, false),
-            WORKING_GREEN
+            WORKING_ROW_COLOR
+        );
+        assert_eq!(
+            agent_fill_color(AgentStatus::Working, false, false, false),
+            super::apply_alpha(WORKING_ROW_COLOR, 0.22)
+        );
+        assert_eq!(
+            marker_fill(AgentStatus::Working, false, true),
+            WORKING_ROW_COLOR
+        );
+        assert_eq!(
+            agent_accent_color(AgentStatus::Working, false, false),
+            Some(WORKING_ROW_COLOR)
         );
     }
 

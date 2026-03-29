@@ -1,9 +1,12 @@
-use crate::{app::AppSessionState, startup::StartupConnectState, terminals::TerminalId};
+use crate::{
+    agents::AgentStatus, app::AppSessionState, startup::StartupConnectState, terminals::TerminalId,
+};
 
 use super::{
     modules::{
         agent_row_rect, agent_rows, AgentListRowSection, AGENT_LIST_BLOOM_RED_B,
-        AGENT_LIST_BLOOM_RED_G, AGENT_LIST_BLOOM_RED_R,
+        AGENT_LIST_BLOOM_RED_G, AGENT_LIST_BLOOM_RED_R, AGENT_LIST_WORKING_GLOW_B,
+        AGENT_LIST_WORKING_GLOW_G, AGENT_LIST_WORKING_GLOW_R,
     },
     state::{AgentListUiState, HudLayoutState, HudRect},
     view_models::AgentListView,
@@ -355,18 +358,12 @@ fn blur_uniform(texel_size: Vec2, radius_pixels: f32, gain: f32) -> AgentListBlo
     }
 }
 
-/// Builds a linear-space bloom source color from the reference emissive red constant.
+/// Builds a linear-space bloom source color from one shared sRGB reference color.
 ///
 /// The conversion goes through sRGB->linear once and then applies caller-controlled intensity and
-/// alpha scaling so all bloom source colors derive from the same reference hue.
-fn bloom_reference_red(scale: f32, alpha: f32) -> Color {
-    let linear: LinearRgba = Srgba::rgba_u8(
-        AGENT_LIST_BLOOM_RED_R,
-        AGENT_LIST_BLOOM_RED_G,
-        AGENT_LIST_BLOOM_RED_B,
-        255,
-    )
-    .into();
+/// alpha scaling so all bloom source colors derive from the same configurable hue source.
+fn bloom_reference_color(red: u8, green: u8, blue: u8, scale: f32, alpha: f32) -> Color {
+    let linear: LinearRgba = Srgba::rgba_u8(red, green, blue, 255).into();
     Color::linear_rgba(
         linear.red * scale,
         linear.green * scale,
@@ -375,11 +372,43 @@ fn bloom_reference_red(scale: f32, alpha: f32) -> Color {
     )
 }
 
+fn bloom_reference_red(scale: f32, alpha: f32) -> Color {
+    bloom_reference_color(
+        AGENT_LIST_BLOOM_RED_R,
+        AGENT_LIST_BLOOM_RED_G,
+        AGENT_LIST_BLOOM_RED_B,
+        scale,
+        alpha,
+    )
+}
+
+fn bloom_reference_working_glow(scale: f32, alpha: f32) -> Color {
+    bloom_reference_color(
+        AGENT_LIST_WORKING_GLOW_R,
+        AGENT_LIST_WORKING_GLOW_G,
+        AGENT_LIST_WORKING_GLOW_B,
+        scale,
+        alpha,
+    )
+}
+
 /// Chooses the bloom source color for one border strip based on row state and source kind.
 ///
-/// Focused rows glow most strongly, hovered rows get a medium boost, and idle rows still contribute a
-/// faint glow. Marker strips are slightly hotter than main strips.
-fn bloom_source_color(focused: bool, hovered: bool, kind: AgentListBloomSourceKind) -> Color {
+/// Working rows switch to a turquoise glow palette. Non-working rows keep the existing red palette
+/// with focused/hovered intensity tiers. Marker strips remain slightly hotter than main strips.
+fn bloom_source_color(
+    status: AgentStatus,
+    focused: bool,
+    hovered: bool,
+    kind: AgentListBloomSourceKind,
+) -> Color {
+    if status == AgentStatus::Working {
+        return match kind {
+            AgentListBloomSourceKind::Main => bloom_reference_working_glow(3.4, 0.95),
+            AgentListBloomSourceKind::Marker => bloom_reference_working_glow(4.2, 1.0),
+        };
+    }
+
     match (focused, hovered, kind) {
         (true, _, AgentListBloomSourceKind::Main) => bloom_reference_red(5.0, 1.0),
         (_, true, AgentListBloomSourceKind::Main) => bloom_reference_red(2.5, 0.85),
@@ -497,7 +526,7 @@ fn build_bloom_specs(
                 2.5,
             ),
         ] {
-            let color = bloom_source_color(row.focused, row.hovered, kind);
+            let color = bloom_source_color(row.status, row.focused, row.hovered, kind);
             for (segment, border_rect) in bloom_border_rects(rect, thickness) {
                 specs.push(BloomSourceSpec {
                     key: AgentListBloomSourceSprite {
