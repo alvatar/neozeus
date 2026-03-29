@@ -6,9 +6,8 @@ use crate::{
     terminals::{
         append_debug_log, load_persisted_terminal_sessions_from, mark_terminal_sessions_dirty,
         ordered_reconciled_terminal_sessions, reconcile_terminal_sessions, DaemonSessionInfo,
-        TerminalFocusState, TerminalLifecycle,
-        TerminalManager, TerminalRuntimeSpawner, TerminalSessionPersistenceState,
-        TerminalViewState, PERSISTENT_SESSION_PREFIX,
+        TerminalFocusState, TerminalLifecycle, TerminalManager, TerminalRuntimeSpawner,
+        TerminalSessionPersistenceState, TerminalViewState, PERSISTENT_SESSION_PREFIX,
     },
 };
 
@@ -69,6 +68,7 @@ pub(crate) fn restore_app(
                 PERSISTENT_SESSION_PREFIX,
                 false,
                 AgentKind::Terminal,
+                None,
                 None,
                 redraws,
             );
@@ -179,6 +179,7 @@ pub(crate) fn restore_app(
             PERSISTENT_SESSION_PREFIX,
             false,
             AgentKind::Terminal,
+            None,
             None,
             redraws,
         );

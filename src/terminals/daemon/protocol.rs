@@ -19,6 +19,7 @@ pub(crate) enum DaemonRequest {
     ListSessions,
     CreateSession {
         prefix: String,
+        cwd: Option<String>,
     },
     AttachSession {
         session_id: String,
@@ -192,9 +193,13 @@ fn encode_request(buffer: &mut Vec<u8>, request: &DaemonRequest) {
     // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
     match request {
         DaemonRequest::ListSessions => push_u8(buffer, 1),
-        DaemonRequest::CreateSession { prefix } => {
+        DaemonRequest::CreateSession { prefix, cwd } => {
             push_u8(buffer, 2);
             push_string(buffer, prefix);
+            push_bool(buffer, cwd.is_some());
+            if let Some(cwd) = cwd {
+                push_string(buffer, cwd);
+            }
         }
         DaemonRequest::AttachSession { session_id } => {
             push_u8(buffer, 3);
@@ -230,9 +235,15 @@ fn decode_request(decoder: &mut Decoder<'_>) -> Result<DaemonRequest, String> {
     // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
     match decoder.read_u8()? {
         1 => Ok(DaemonRequest::ListSessions),
-        2 => Ok(DaemonRequest::CreateSession {
-            prefix: decoder.read_string()?,
-        }),
+        2 => {
+            let prefix = decoder.read_string()?;
+            let cwd = if decoder.read_bool()? {
+                Some(decoder.read_string()?)
+            } else {
+                None
+            };
+            Ok(DaemonRequest::CreateSession { prefix, cwd })
+        }
         3 => Ok(DaemonRequest::AttachSession {
             session_id: decoder.read_string()?,
         }),

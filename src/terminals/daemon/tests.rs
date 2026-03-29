@@ -210,7 +210,7 @@ fn daemon_create_attach_command_output_and_kill_roundtrip() {
     let client =
         SocketTerminalDaemonClient::connect(&socket_path).expect("daemon client should connect");
     let session_id = client
-        .create_session(PERSISTENT_SESSION_PREFIX)
+        .create_session(PERSISTENT_SESSION_PREFIX, None)
         .expect("daemon session should be created");
     let sessions = client.list_sessions().expect("daemon sessions should list");
     assert!(sessions
@@ -250,7 +250,7 @@ fn daemon_sessions_survive_client_reconnect() {
     let client_a =
         SocketTerminalDaemonClient::connect(&socket_path).expect("first client should connect");
     let session_id = client_a
-        .create_session(PERSISTENT_SESSION_PREFIX)
+        .create_session(PERSISTENT_SESSION_PREFIX, None)
         .expect("daemon session should be created");
     let attached_a = client_a
         .attach_session(&session_id)
@@ -290,7 +290,7 @@ fn daemon_exited_sessions_remain_listed_until_explicit_kill() {
     let client =
         SocketTerminalDaemonClient::connect(&socket_path).expect("daemon client should connect");
     let session_id = client
-        .create_session(PERSISTENT_SESSION_PREFIX)
+        .create_session(PERSISTENT_SESSION_PREFIX, None)
         .expect("daemon session should be created");
     let attached = client
         .attach_session(&session_id)
@@ -340,7 +340,7 @@ fn daemon_session_listing_preserves_creation_order_not_lexical_order() {
     for _ in 0..12 {
         created.push(
             client
-                .create_session(PERSISTENT_SESSION_PREFIX)
+                .create_session(PERSISTENT_SESSION_PREFIX, None)
                 .expect("daemon session should be created"),
         );
     }
@@ -361,7 +361,7 @@ fn daemon_resize_session_request_succeeds() {
     let client =
         SocketTerminalDaemonClient::connect(&socket_path).expect("daemon client should connect");
     let session_id = client
-        .create_session(PERSISTENT_SESSION_PREFIX)
+        .create_session(PERSISTENT_SESSION_PREFIX, None)
         .expect("daemon session should be created");
     client
         .resize_session(&session_id, 100, 30)
@@ -401,7 +401,7 @@ fn daemon_multiple_clients_receive_updates_for_same_session() {
     let client_a =
         SocketTerminalDaemonClient::connect(&socket_path).expect("first client should connect");
     let session_id = client_a
-        .create_session(PERSISTENT_SESSION_PREFIX)
+        .create_session(PERSISTENT_SESSION_PREFIX, None)
         .expect("daemon session should be created");
     let attached_a = client_a
         .attach_session(&session_id)
@@ -464,7 +464,7 @@ fn daemon_resize_session_updates_attached_surface_dimensions() {
     let client =
         SocketTerminalDaemonClient::connect(&socket_path).expect("daemon client should connect");
     let session_id = client
-        .create_session(PERSISTENT_SESSION_PREFIX)
+        .create_session(PERSISTENT_SESSION_PREFIX, None)
         .expect("daemon session should be created");
     let attached = client
         .attach_session(&session_id)
@@ -483,7 +483,7 @@ fn daemon_duplicate_attach_in_same_client_is_rejected() {
     let client =
         SocketTerminalDaemonClient::connect(&socket_path).expect("daemon client should connect");
     let session_id = client
-        .create_session(PERSISTENT_SESSION_PREFIX)
+        .create_session(PERSISTENT_SESSION_PREFIX, None)
         .expect("daemon session should be created");
     let _attached = client
         .attach_session(&session_id)
@@ -501,10 +501,10 @@ fn daemon_killing_one_session_preserves_other_sessions() {
     let client =
         SocketTerminalDaemonClient::connect(&socket_path).expect("daemon client should connect");
     let first = client
-        .create_session(PERSISTENT_SESSION_PREFIX)
+        .create_session(PERSISTENT_SESSION_PREFIX, None)
         .expect("first daemon session should be created");
     let second = client
-        .create_session(PERSISTENT_SESSION_PREFIX)
+        .create_session(PERSISTENT_SESSION_PREFIX, None)
         .expect("second daemon session should be created");
     client
         .kill_session(&first)
@@ -525,7 +525,7 @@ fn daemon_session_lifecycle_churn_stays_consistent() {
         SocketTerminalDaemonClient::connect(&socket_path).expect("daemon client should connect");
     for _ in 0..5 {
         let session_id = client
-            .create_session(PERSISTENT_SESSION_PREFIX)
+            .create_session(PERSISTENT_SESSION_PREFIX, None)
             .expect("daemon session should be created during churn");
         let _attached = client
             .attach_session(&session_id)

@@ -61,7 +61,7 @@ impl DaemonRegistry {
     ///
     /// Prefix validation happens up front so the daemon never creates empty or whitespace-only session
     /// names.
-    fn create_session(&self, prefix: &str) -> Result<String, String> {
+    fn create_session(&self, prefix: &str, cwd: Option<&str>) -> Result<String, String> {
         // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
         if prefix.trim().is_empty() {
             return Err("daemon session prefix must not be empty".to_owned());
@@ -73,7 +73,7 @@ impl DaemonRegistry {
             registry.next_session_counter += 1;
             (session_id, created_order)
         };
-        let session = DaemonSession::start(session_id.clone(), created_order)?;
+        let session = DaemonSession::start(session_id.clone(), created_order, cwd)?;
         let mut registry = lock(&self.inner);
         if registry
             .sessions
@@ -259,8 +259,8 @@ fn handle_request(
         DaemonRequest::ListSessions => Ok(DaemonResponse::SessionList {
             sessions: registry.list_sessions(),
         }),
-        DaemonRequest::CreateSession { prefix } => Ok(DaemonResponse::SessionCreated {
-            session_id: registry.create_session(&prefix)?,
+        DaemonRequest::CreateSession { prefix, cwd } => Ok(DaemonResponse::SessionCreated {
+            session_id: registry.create_session(&prefix, cwd.as_deref())?,
         }),
         DaemonRequest::AttachSession { session_id } => {
             let session = registry.session(&session_id)?;

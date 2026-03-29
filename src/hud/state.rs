@@ -303,7 +303,9 @@ pub(crate) fn docked_agent_list_rect(window: &Window) -> HudRect {
 ///
 /// Only generic shell/layout state lives here; widget-local retained state is stored separately in
 /// per-widget resources.
-pub(in crate::hud) fn default_hud_module_instance(definition: &HudWidgetDefinition) -> HudModuleInstance {
+pub(in crate::hud) fn default_hud_module_instance(
+    definition: &HudWidgetDefinition,
+) -> HudModuleInstance {
     HudModuleInstance {
         shell: HudModuleShell {
             enabled: definition.default_enabled,

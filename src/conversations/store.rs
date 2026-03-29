@@ -97,11 +97,7 @@ impl ConversationStore {
     }
 
     /// Sets delivery.
-    pub(crate) fn set_delivery(
-        &mut self,
-        message_id: u64,
-        delivery: MessageDeliveryState,
-    ) -> bool {
+    pub(crate) fn set_delivery(&mut self, message_id: u64, delivery: MessageDeliveryState) -> bool {
         let Some(message) = self.messages.get_mut(&MessageId(message_id)) else {
             return false;
         };

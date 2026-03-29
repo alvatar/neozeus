@@ -687,8 +687,7 @@ fn sync_terminal_texture_renders_visible_text_on_last_row() {
     let active_layout =
         active_terminal_layout(&window, &hud_state.layout_state(), &view_state, &font_state);
 
-    let mut surface =
-        TerminalSurface::new(active_layout.0.cols, active_layout.0.rows);
+    let mut surface = TerminalSurface::new(active_layout.0.cols, active_layout.0.rows);
     set_colored_text(
         &mut surface,
         active_layout.0.rows - 1,
@@ -721,8 +720,7 @@ fn sync_terminal_texture_updates_pixels_when_last_row_text_changes() {
     let active_layout =
         active_terminal_layout(&window, &hud_state.layout_state(), &view_state, &font_state);
 
-    let mut before =
-        TerminalSurface::new(active_layout.0.cols, active_layout.0.rows);
+    let mut before = TerminalSurface::new(active_layout.0.cols, active_layout.0.rows);
     set_colored_text(
         &mut before,
         active_layout.0.rows - 1,
@@ -732,8 +730,7 @@ fn sync_terminal_texture_updates_pixels_when_last_row_text_changes() {
     );
     let (before_image, texture_state) = render_surface_to_terminal_image(before);
 
-    let mut after =
-        TerminalSurface::new(active_layout.0.cols, active_layout.0.rows);
+    let mut after = TerminalSurface::new(active_layout.0.cols, active_layout.0.rows);
     set_colored_text(
         &mut after,
         active_layout.0.rows - 1,

@@ -37,7 +37,6 @@ pub(in crate::hud) struct AgentRow {
     pub(in crate::hud) interactive: bool,
 }
 
-
 /// Derives one sub-rectangle of an agent row for rendering or hit-testing.
 ///
 /// A logical row is split into the main label box, the narrow status marker, and a tiny accent strip.
@@ -112,4 +111,3 @@ pub(in crate::hud) fn agent_rows(
         })
         .collect()
 }
-

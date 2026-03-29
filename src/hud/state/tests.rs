@@ -93,7 +93,9 @@ impl HudState {
 
     /// Returns one test HUD module's current alpha.
     pub(crate) fn module_current_alpha(&self, id: HudWidgetKey) -> Option<f32> {
-        self.modules.get(&id).map(|module| module.shell.current_alpha)
+        self.modules
+            .get(&id)
+            .map(|module| module.shell.current_alpha)
     }
 
     /// Moves a module id to the front of the aggregate test HUD z-order.

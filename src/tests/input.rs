@@ -5,8 +5,10 @@ use super::{
 };
 use crate::{
     agents::{AgentCatalog, AgentRuntimeIndex},
-    app::{AgentCommand as AppAgentCommand, TaskCommand as AppTaskCommand},
-    app::{AppCommand, AppSessionState},
+    app::{
+        AgentCommand as AppAgentCommand, AppCommand, AppSessionState, CreateAgentDialogField,
+        CreateAgentKind, TaskCommand as AppTaskCommand,
+    },
     conversations::{AgentTaskStore, ConversationStore, MessageTransportAdapter},
     hud::TerminalVisibilityState,
     input::{
@@ -64,11 +66,20 @@ fn drain_hud_commands(world: &mut World) -> Vec<AppCommand> {
 /// Ensures app command world resources exists and returns its identifier.
 fn ensure_app_command_world_resources(world: &mut World) {
     // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
+    if !world.contains_resource::<Time<()>>() {
+        world.insert_resource(Time::<()>::default());
+    }
     if !world.contains_resource::<Assets<Image>>() {
         world.insert_resource(Assets::<Image>::default());
     }
     if !world.contains_resource::<crate::terminals::TerminalPresentationStore>() {
         world.insert_resource(crate::terminals::TerminalPresentationStore::default());
+    }
+    if !world.contains_resource::<TerminalManager>() {
+        world.insert_resource(TerminalManager::default());
+    }
+    if !world.contains_resource::<crate::terminals::TerminalFocusState>() {
+        world.insert_resource(crate::terminals::TerminalFocusState::default());
     }
     if !world.contains_resource::<crate::terminals::TerminalRuntimeSpawner>() {
         world.insert_resource(fake_runtime_spawner(std::sync::Arc::new(
@@ -108,6 +119,12 @@ fn ensure_app_command_world_resources(world: &mut World) {
     if !world.contains_resource::<crate::terminals::TerminalViewState>() {
         world.insert_resource(crate::terminals::TerminalViewState::default());
     }
+    if !world.contains_resource::<crate::hud::HudInputCaptureState>() {
+        world.insert_resource(crate::hud::HudInputCaptureState::default());
+    }
+    if !world.contains_resource::<Messages<AppCommand>>() {
+        world.init_resource::<Messages<AppCommand>>();
+    }
     if !world.contains_resource::<Messages<RequestRedraw>>() {
         world.init_resource::<Messages<RequestRedraw>>();
     }
@@ -127,7 +144,9 @@ fn dispatch_message_box_key(world: &mut World, event: KeyboardInput) {
     world
         .run_system_once(handle_terminal_message_box_keyboard)
         .unwrap();
-    run_app_command_cycle(world);
+    if !world.resource::<Messages<AppCommand>>().is_empty() {
+        run_app_command_cycle(world);
+    }
 }
 
 /// Injects one keyboard event through the direct-input handler and then the modal keyboard handler,
@@ -142,7 +161,9 @@ fn dispatch_terminal_ui_key(world: &mut World, event: KeyboardInput) {
     world
         .run_system_once(handle_terminal_message_box_keyboard)
         .unwrap();
-    run_app_command_cycle(world);
+    if !world.resource::<Messages<AppCommand>>().is_empty() {
+        run_app_command_cycle(world);
+    }
 }
 
 /// Builds a test world containing one focused terminal panel plus the receiver for commands sent to
@@ -282,10 +303,10 @@ fn global_shell_spawn_shortcut_only_uses_ctrl_alt_z() {
     assert!(!should_spawn_shell_terminal_globally(&event, &ctrl_keys));
 }
 
-/// Verifies that the global spawn shortcut still emits a spawn intent even when another terminal is
-/// already active.
+/// Verifies that the global spawn shortcut opens the centered create-agent dialog even when another
+/// terminal is already active.
 #[test]
-fn global_spawn_shortcut_enqueues_spawn_even_with_active_terminal() {
+fn global_spawn_shortcut_opens_create_agent_dialog_even_with_active_terminal() {
     // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let (bridge, _) = test_bridge();
     let mut manager = TerminalManager::default();
@@ -299,7 +320,7 @@ fn global_spawn_shortcut_enqueues_spawn_even_with_active_terminal() {
     world.insert_resource(ButtonInput::<KeyCode>::default());
     insert_terminal_manager_resources(&mut world, manager);
     insert_default_hud_resources(&mut world);
-    init_hud_commands(&mut world);
+    world.init_resource::<Messages<RequestRedraw>>();
     world.init_resource::<Messages<KeyboardInput>>();
     world.spawn((window, PrimaryWindow));
 
@@ -311,15 +332,25 @@ fn global_spawn_shortcut_enqueues_spawn_even_with_active_terminal() {
         .run_system_once(handle_global_terminal_spawn_shortcut)
         .unwrap();
 
+    let session = world.resource::<AppSessionState>();
+    assert!(session.create_agent_dialog.visible);
+    assert_eq!(session.create_agent_dialog.kind, CreateAgentKind::Agent);
+    assert_eq!(session.create_agent_dialog.name_editor.text, "");
     assert_eq!(
-        drain_hud_commands(&mut world),
-        vec![AppCommand::Agent(AppAgentCommand::SpawnTerminal)]
+        session.create_agent_dialog.starting_folder_editor.text,
+        "~/code"
     );
+    assert_eq!(
+        session.create_agent_dialog.focus,
+        CreateAgentDialogField::Name
+    );
+    assert_eq!(world.resource::<Messages<RequestRedraw>>().len(), 1);
 }
 
-/// Verifies that the explicit shell-spawn shortcut emits the shell-spawn HUD intent.
+/// Verifies that the explicit shell-spawn shortcut opens the create-agent dialog with shell kind
+/// preselected.
 #[test]
-fn global_shell_spawn_shortcut_enqueues_shell_spawn() {
+fn global_shell_spawn_shortcut_opens_shell_create_agent_dialog() {
     // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let (bridge, _) = test_bridge();
     let mut manager = TerminalManager::default();
@@ -336,7 +367,7 @@ fn global_shell_spawn_shortcut_enqueues_shell_spawn() {
     world.insert_resource(keys);
     insert_terminal_manager_resources(&mut world, manager);
     insert_default_hud_resources(&mut world);
-    init_hud_commands(&mut world);
+    world.init_resource::<Messages<RequestRedraw>>();
     world.init_resource::<Messages<KeyboardInput>>();
     world.spawn((window, PrimaryWindow));
 
@@ -348,9 +379,115 @@ fn global_shell_spawn_shortcut_enqueues_shell_spawn() {
         .run_system_once(handle_global_terminal_spawn_shortcut)
         .unwrap();
 
+    let session = world.resource::<AppSessionState>();
+    assert!(session.create_agent_dialog.visible);
+    assert_eq!(session.create_agent_dialog.kind, CreateAgentKind::Shell);
+    assert_eq!(
+        session.create_agent_dialog.focus,
+        CreateAgentDialogField::Name
+    );
+    assert_eq!(world.resource::<Messages<RequestRedraw>>().len(), 1);
+}
+
+/// Verifies that `Tab` advances focus through the create-agent dialog fields.
+#[test]
+fn create_agent_dialog_tab_advances_focus() {
+    let mut world = World::default();
+    world.insert_resource(ButtonInput::<KeyCode>::default());
+    world.insert_resource(AppSessionState::default());
+    world
+        .resource_mut::<AppSessionState>()
+        .create_agent_dialog
+        .open(CreateAgentKind::Agent);
+    world.spawn((
+        Window {
+            focused: true,
+            ..Default::default()
+        },
+        PrimaryWindow,
+    ));
+
+    dispatch_message_box_key(&mut world, pressed_key(KeyCode::Tab, Key::Tab));
+
+    assert_eq!(
+        world
+            .resource::<AppSessionState>()
+            .create_agent_dialog
+            .focus,
+        CreateAgentDialogField::Kind
+    );
+}
+
+/// Verifies that `Escape` cancels the create-agent dialog without spawning anything.
+#[test]
+fn create_agent_dialog_escape_closes_without_spawning() {
+    let mut world = World::default();
+    world.insert_resource(ButtonInput::<KeyCode>::default());
+    world.insert_resource(AppSessionState::default());
+    world
+        .resource_mut::<AppSessionState>()
+        .create_agent_dialog
+        .open(CreateAgentKind::Agent);
+    world.spawn((
+        Window {
+            focused: true,
+            ..Default::default()
+        },
+        PrimaryWindow,
+    ));
+
+    dispatch_message_box_key(&mut world, pressed_key(KeyCode::Escape, Key::Escape));
+
+    assert!(
+        !world
+            .resource::<AppSessionState>()
+            .create_agent_dialog
+            .visible
+    );
+}
+
+/// Verifies that submitting the create-agent dialog emits the configured agent-create command.
+#[test]
+fn create_agent_dialog_submit_emits_create_command() {
+    let mut world = World::default();
+    world.insert_resource(ButtonInput::<KeyCode>::default());
+    world.insert_resource(AppSessionState::default());
+    {
+        let mut session = world.resource_mut::<AppSessionState>();
+        session.create_agent_dialog.open(CreateAgentKind::Shell);
+        session.create_agent_dialog.name_editor.load_text("oracle");
+        session
+            .create_agent_dialog
+            .starting_folder_editor
+            .load_text("~/code");
+        session.create_agent_dialog.focus = CreateAgentDialogField::CreateButton;
+    }
+    ensure_app_command_world_resources(&mut world);
+    init_hud_commands(&mut world);
+    world.init_resource::<Messages<RequestRedraw>>();
+    world.init_resource::<Messages<KeyboardInput>>();
+    world.spawn((
+        Window {
+            focused: true,
+            ..Default::default()
+        },
+        PrimaryWindow,
+    ));
+
+    world
+        .resource_mut::<Messages<KeyboardInput>>()
+        .write(pressed_key(KeyCode::Enter, Key::Enter));
+    world
+        .run_system_once(handle_terminal_message_box_keyboard)
+        .unwrap();
+
     assert_eq!(
         drain_hud_commands(&mut world),
-        vec![AppCommand::Agent(AppAgentCommand::SpawnShellTerminal)]
+        vec![AppCommand::Agent(AppAgentCommand::Create {
+            label: Some("oracle".into()),
+            spawn_shell_only: true,
+            working_directory: "~/code".into(),
+        })]
     );
 }
 

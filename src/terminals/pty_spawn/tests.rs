@@ -1,5 +1,5 @@
 use super::*;
-use std::{ffi::OsString, fs};
+use std::{ffi::OsString, fs, path::PathBuf};
 
 /// Rewrites the shell environment so tests run against an isolated temporary home/config tree.
 ///
@@ -45,4 +45,23 @@ pub(super) fn apply_test_shell_isolation(command: &mut CommandBuilder) {
 #[test]
 fn raw_shell_program_is_zsh() {
     assert_eq!(raw_shell_program(), OsString::from("zsh"));
+}
+
+/// Verifies that configured shell working directories expand `~` and ignore empty input.
+#[test]
+fn resolve_shell_cwd_expands_home_and_ignores_empty_values() {
+    let home = std::env::temp_dir().join("neozeus-pty-home-test");
+    std::env::set_var("HOME", &home);
+
+    assert_eq!(resolve_shell_cwd(None).unwrap(), None);
+    assert_eq!(resolve_shell_cwd(Some("  ")).unwrap(), None);
+    assert_eq!(resolve_shell_cwd(Some("~")).unwrap(), Some(home.clone()));
+    assert_eq!(
+        resolve_shell_cwd(Some("~/code")).unwrap(),
+        Some(home.join("code"))
+    );
+    assert_eq!(
+        resolve_shell_cwd(Some("/tmp/work")).unwrap(),
+        Some(PathBuf::from("/tmp/work"))
+    );
 }

@@ -1,6 +1,8 @@
 use crate::{
-    app::AppSessionState,
+    app::{AppSessionState, CreateAgentDialogField},
     composer::{
+        create_agent_create_button_rect, create_agent_dialog_rect, create_agent_kind_option_rects,
+        create_agent_name_field_rect, create_agent_starting_folder_rect,
         message_box_action_buttons, message_box_rect, task_dialog_action_buttons, task_dialog_rect,
         TextEditorState,
     },
@@ -477,6 +479,150 @@ fn draw_dialog_button_row(
     }
 }
 
+/// Draws one single-line dialog field with optional focus cursor.
+fn draw_single_line_dialog_field(
+    painter: &mut HudPainter,
+    editor: &TextEditorState,
+    rect: HudRect,
+    focused: bool,
+) {
+    painter.fill_rect(rect, HudColors::BUTTON, 4.0);
+    painter.stroke_rect(
+        rect,
+        if focused {
+            HudColors::TEXT
+        } else {
+            HudColors::BUTTON_BORDER
+        },
+        4.0,
+    );
+    painter.label(
+        Vec2::new(rect.x + 10.0, rect.y + 7.0),
+        &editor.text,
+        15.0,
+        HudColors::TEXT,
+        VelloTextAnchor::TopLeft,
+    );
+    if focused {
+        let cursor = editor.cursor.min(editor.text.len());
+        let before_cursor = &editor.text[..cursor];
+        let cursor_x = rect.x + 10.0 + painter.text_size(before_cursor, 15.0).x;
+        painter.fill_rect(
+            HudRect {
+                x: cursor_x,
+                y: rect.y + 6.0,
+                w: 2.0,
+                h: rect.h - 12.0,
+            },
+            HudColors::TEXT,
+            0.0,
+        );
+    }
+}
+
+/// Draws the centered create-agent dialog modal.
+fn draw_create_agent_dialog(
+    painter: &mut HudPainter,
+    window: &Window,
+    app_session: &AppSessionState,
+) {
+    if !app_session.create_agent_dialog.visible {
+        return;
+    }
+
+    let dialog = &app_session.create_agent_dialog;
+    let rect = create_agent_dialog_rect(window);
+    painter.fill_rect(rect, HudColors::MESSAGE_BOX, 12.0);
+    painter.stroke_rect(rect, HudColors::BORDER, 12.0);
+
+    painter.label(
+        Vec2::new(rect.x + 24.0, rect.y + 14.0),
+        "Create agent",
+        20.0,
+        HudColors::TEXT,
+        VelloTextAnchor::TopLeft,
+    );
+
+    let name_rect = create_agent_name_field_rect(window);
+    let kind_options = create_agent_kind_option_rects(window);
+    let folder_rect = create_agent_starting_folder_rect(window);
+    let create_rect = create_agent_create_button_rect(window);
+
+    painter.label(
+        Vec2::new(rect.x + 24.0, name_rect.y + 7.0),
+        "Name",
+        15.0,
+        HudColors::TEXT_MUTED,
+        VelloTextAnchor::TopLeft,
+    );
+    draw_single_line_dialog_field(
+        painter,
+        &dialog.name_editor,
+        name_rect,
+        dialog.focus == CreateAgentDialogField::Name,
+    );
+
+    painter.label(
+        Vec2::new(rect.x + 24.0, kind_options[0].1.y + 3.0),
+        "Type",
+        15.0,
+        HudColors::TEXT_MUTED,
+        VelloTextAnchor::TopLeft,
+    );
+    for (kind, option_rect, label) in kind_options {
+        let selected = dialog.kind == kind;
+        let focused = dialog.focus == CreateAgentDialogField::Kind && selected;
+        let bullet = if selected { "◉" } else { "○" };
+        painter.label(
+            Vec2::new(option_rect.x, option_rect.y),
+            &format!("{bullet} {label}"),
+            16.0,
+            if focused {
+                HudColors::TEXT
+            } else {
+                HudColors::TEXT_MUTED
+            },
+            VelloTextAnchor::TopLeft,
+        );
+    }
+
+    painter.label(
+        Vec2::new(rect.x + 24.0, folder_rect.y + 7.0),
+        "Starting folder",
+        15.0,
+        HudColors::TEXT_MUTED,
+        VelloTextAnchor::TopLeft,
+    );
+    draw_single_line_dialog_field(
+        painter,
+        &dialog.starting_folder_editor,
+        folder_rect,
+        dialog.focus == CreateAgentDialogField::StartingFolder,
+    );
+
+    draw_dialog_button_row(&mut *painter, [(create_rect, "Create")]);
+    if dialog.focus == CreateAgentDialogField::CreateButton {
+        painter.stroke_rect(create_rect, HudColors::TEXT, 0.0);
+    }
+
+    let status_y = create_rect.y - 26.0;
+    let status = dialog
+        .error
+        .as_deref()
+        .unwrap_or("Tab next · Shift-Tab previous · Left/Right/Space change type · Esc cancel");
+    painter.label(
+        Vec2::new(rect.x + 24.0, status_y),
+        status,
+        14.0,
+        if dialog.error.is_some() {
+            peniko::Color::from_rgba8(220, 80, 80, 255)
+        } else {
+            HudColors::TEXT_MUTED
+        },
+        VelloTextAnchor::TopLeft,
+    );
+}
+
 /// Draws the message-box modal, including title, editor body, buttons, and status line.
 ///
 /// Rendering is skipped entirely when the modal is not visible.
@@ -520,7 +666,10 @@ fn draw_message_box(
         h: (info_row_y - 12.0 - (rect.y + 64.0)).max(96.0),
     };
     draw_text_editor_body(painter, window, message_box, body_rect);
-    draw_dialog_button_row(painter, buttons.into_iter().map(|(_, rect, label)| (rect, label)));
+    draw_dialog_button_row(
+        painter,
+        buttons.into_iter().map(|(_, rect, label)| (rect, label)),
+    );
 
     let (line_number, column_number) = message_box.cursor_line_and_column();
     painter.label(
@@ -657,7 +806,10 @@ fn draw_task_dialog(
         h: (info_row_y - 12.0 - (rect.y + 64.0)).max(96.0),
     };
     draw_text_editor_body(painter, window, task_dialog, body_rect);
-    draw_dialog_button_row(painter, buttons.into_iter().map(|(_, rect, label)| (rect, label)));
+    draw_dialog_button_row(
+        painter,
+        buttons.into_iter().map(|(_, rect, label)| (rect, label)),
+    );
 
     let (line_number, column_number) = task_dialog.cursor_line_and_column();
     painter.label(
@@ -808,6 +960,7 @@ pub(crate) fn render_hud_modal_scene(
     if let Some(startup_connect) = startup_connect.as_deref() {
         draw_startup_connect_overlay(&mut painter, &primary_window, startup_connect);
     }
+    draw_create_agent_dialog(&mut painter, &primary_window, &app_session);
     draw_message_box(
         &mut painter,
         &primary_window,

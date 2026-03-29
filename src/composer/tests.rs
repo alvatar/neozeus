@@ -1,5 +1,6 @@
-use super::{ComposerMode, ComposerState};
+use super::{create_agent_dialog_rect, ComposerMode, ComposerState};
 use crate::agents::AgentId;
+use bevy::window::Window;
 
 /// Verifies that message composer preserves per agent drafts.
 #[test]
@@ -33,4 +34,18 @@ fn task_editor_reopens_from_supplied_text_not_stale_buffer() {
 
     composer.open_task_editor(AgentId(1), "fresh");
     assert_eq!(composer.task_editor.text, "fresh");
+}
+
+/// Verifies that the create-agent dialog is centered in the window instead of top-aligned like the
+/// message box.
+#[test]
+fn create_agent_dialog_rect_is_centered() {
+    let window = Window {
+        resolution: (1400, 900).into(),
+        ..Default::default()
+    };
+
+    let rect = create_agent_dialog_rect(&window);
+    assert!((rect.x - (1400.0 - rect.w) * 0.5).abs() < 0.01);
+    assert!((rect.y - (900.0 - rect.h) * 0.5).abs() < 0.01);
 }

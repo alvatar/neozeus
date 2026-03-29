@@ -1,14 +1,14 @@
 use super::types::PtySession;
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};
-use std::{ffi::OsString, io::Write};
+use std::{ffi::OsString, io::Write, path::PathBuf};
 
 /// Allocates a new PTY pair and starts the configured shell inside it.
 ///
 /// The function opens the PTY at the requested cell size, builds the shell command, forces
-/// `TERM=xterm-256color`, spawns the child on the slave side, drops the slave handle, and returns a
-/// [`PtySession`] containing the master, a writable handle, and the child process.
-pub(crate) fn spawn_pty(cols: u16, rows: u16) -> Result<PtySession, String> {
-    // Walk the lifecycle in explicit stages so each side effect happens only after its prerequisites have been established.
+/// `TERM=xterm-256color`, applies an optional working directory, spawns the child on the slave side,
+/// drops the slave handle, and returns a [`PtySession`] containing the master, a writable handle,
+/// and the child process.
+pub(crate) fn spawn_pty(cols: u16, rows: u16, cwd: Option<&str>) -> Result<PtySession, String> {
     let pty_system = native_pty_system();
     let pair = pty_system
         .openpty(PtySize {
@@ -21,6 +21,9 @@ pub(crate) fn spawn_pty(cols: u16, rows: u16) -> Result<PtySession, String> {
 
     let mut command = build_shell_command();
     command.env("TERM", "xterm-256color");
+    if let Some(cwd) = resolve_shell_cwd(cwd)? {
+        command.cwd(cwd);
+    }
 
     let child = pair
         .slave
@@ -39,6 +42,28 @@ pub(crate) fn spawn_pty(cols: u16, rows: u16) -> Result<PtySession, String> {
         writer,
         child,
     })
+}
+
+/// Resolves the optional configured shell working directory into a concrete path.
+///
+/// Empty strings mean "use the process default". `~` and `~/...` are expanded against `$HOME`.
+fn resolve_shell_cwd(raw: Option<&str>) -> Result<Option<PathBuf>, String> {
+    let Some(raw) = raw.map(str::trim).filter(|value| !value.is_empty()) else {
+        return Ok(None);
+    };
+    if raw == "~" {
+        let home = std::env::var_os("HOME")
+            .map(PathBuf::from)
+            .ok_or_else(|| "cannot expand `~` without HOME".to_owned())?;
+        return Ok(Some(home));
+    }
+    if let Some(rest) = raw.strip_prefix("~/") {
+        let home = std::env::var_os("HOME")
+            .map(PathBuf::from)
+            .ok_or_else(|| "cannot expand `~` without HOME".to_owned())?;
+        return Ok(Some(home.join(rest)));
+    }
+    Ok(Some(PathBuf::from(raw)))
 }
 
 /// Builds the shell command used for newly spawned PTY sessions.

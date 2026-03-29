@@ -136,8 +136,17 @@ impl TerminalRuntimeSpawner {
     /// command when the prefix says this is a normal persistent terminal. If bootstrapping fails, the
     /// just-created daemon session is killed so the caller does not inherit a half-initialized shell.
     pub(crate) fn create_session(&self, prefix: &str) -> Result<String, String> {
+        self.create_session_with_cwd(prefix, None)
+    }
+
+    /// Creates a new session in the requested working directory and optionally bootstraps it into a `pi` session.
+    pub(crate) fn create_session_with_cwd(
+        &self,
+        prefix: &str,
+        cwd: Option<&str>,
+    ) -> Result<String, String> {
         let daemon = self.daemon_client()?;
-        let session_id = self.create_shell_session(prefix)?;
+        let session_id = self.create_shell_session_with_cwd(prefix, cwd)?;
         if should_bootstrap_spawned_agent(prefix) {
             if let Err(error) = daemon
                 .client()
@@ -157,8 +166,13 @@ impl TerminalRuntimeSpawner {
     ///
     /// This is the low-level creation path used both directly and as the first step of
     /// [`create_session`].
-    pub(crate) fn create_shell_session(&self, prefix: &str) -> Result<String, String> {
-        self.daemon_client()?.client().create_session(prefix)
+    /// Creates a raw shell session in the requested working directory without bootstrapping `pi`.
+    pub(crate) fn create_shell_session_with_cwd(
+        &self,
+        prefix: &str,
+        cwd: Option<&str>,
+    ) -> Result<String, String> {
+        self.daemon_client()?.client().create_session(prefix, cwd)
     }
 
     /// Asks the daemon to resize one named session to the requested terminal grid.

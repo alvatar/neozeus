@@ -276,7 +276,10 @@ pub(crate) fn request_redraw_while_visuals_active(
 /// paths, loads saved terminal notes, and then chooses one of three mutually exclusive startup
 /// paths: auto-verify bootstrap, deterministic verification scenario bootstrap, or normal session
 /// restore/import.
-#[allow(clippy::type_complexity, reason = "exclusive-system wrapper materializes the original startup params via SystemState")]
+#[allow(
+    clippy::type_complexity,
+    reason = "exclusive-system wrapper materializes the original startup params via SystemState"
+)]
 pub(crate) fn setup_scene(world: &mut World) {
     let mut state: bevy::ecs::system::SystemState<(
         SceneSetupContext,
@@ -343,7 +346,10 @@ pub(crate) fn setup_scene(world: &mut World) {
     clippy::too_many_arguments,
     reason = "startup connection advance needs the startup scene resources plus optional verification modes"
 )]
-#[allow(clippy::type_complexity, reason = "exclusive-system wrapper materializes the original startup params via SystemState")]
+#[allow(
+    clippy::type_complexity,
+    reason = "exclusive-system wrapper materializes the original startup params via SystemState"
+)]
 /// Advances startup connecting.
 pub(crate) fn advance_startup_connecting(world: &mut World) {
     let mut state: bevy::ecs::system::SystemState<(
