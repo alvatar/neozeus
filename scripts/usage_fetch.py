@@ -102,9 +102,10 @@ def _parse_retry_after_seconds(headers: object) -> int | None:
     if raw is None:
         return None
     try:
-        return max(0, int(str(raw).strip()))
+        seconds = int(str(raw).strip())
     except ValueError:
         return None
+    return seconds if seconds > 0 else None
 
 
 # ---------------------------------------------------------------------------
@@ -196,7 +197,7 @@ def fetch_claude_usage() -> int:
 
     if status == 429:
         backoff_seconds = retry_after_seconds if retry_after_seconds is not None else 900
-        backoff_until = int(time.time()) + max(60, backoff_seconds)
+        backoff_until = int(time.time()) + max(900, backoff_seconds)
         _write_claude_backoff_until(backoff_until)
         _log(
             CLAUDE_LOG,

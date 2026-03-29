@@ -76,7 +76,7 @@ fn current_unix_secs() -> u64 {
         .unwrap_or_default()
 }
 
-fn claude_backoff_active(path: &std::path::Path, now_unix_secs: u64) -> bool {
+pub(crate) fn claude_backoff_active(path: &std::path::Path, now_unix_secs: u64) -> bool {
     let Ok(raw) = fs::read_to_string(path) else {
         return false;
     };
