@@ -383,6 +383,7 @@ fn configure_app(app: &mut App) -> Result<(), String> {
     let mut default_plugins = DefaultPlugins
         .build()
         .disable::<bevy::pbr::PbrPlugin>()
+        .disable::<bevy::gizmos::GizmoPlugin>()
         .set(RenderPlugin {
             render_creation: WgpuSettings {
                 force_fallback_adapter: resolve_force_fallback_adapter_for(
