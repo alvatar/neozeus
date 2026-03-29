@@ -80,6 +80,17 @@ fn pending_runtime_spawner_becomes_ready_when_daemon_is_installed() {
     assert!(spawner.is_ready());
 }
 
+/// Verifies that the startup overlay keeps the user-facing title at `Connecting` through the
+/// restore phase.
+#[test]
+fn startup_connect_title_stays_connecting_during_restore() {
+    let state = StartupConnectState::with_receiver_for_test(
+        StartupConnectPhase::Restoring,
+        std::sync::mpsc::channel().1,
+    );
+    assert_eq!(state.title(), "Connecting");
+}
+
 /// Verifies that setup installs the deferred background-connect receiver when the runtime is not yet ready.
 #[test]
 fn setup_scene_starts_background_connect_when_runtime_is_pending() {

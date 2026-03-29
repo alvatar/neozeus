@@ -136,8 +136,7 @@ impl StartupConnectState {
     /// Returns the user-facing title for the current startup-connect phase.
     pub(crate) fn title(&self) -> &'static str {
         match self.phase {
-            StartupConnectPhase::Connecting => "Connecting",
-            StartupConnectPhase::Restoring => "Restoring",
+            StartupConnectPhase::Connecting | StartupConnectPhase::Restoring => "Connecting",
             StartupConnectPhase::Ready => "",
             StartupConnectPhase::Failed => "Connection failed",
         }

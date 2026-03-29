@@ -16,7 +16,8 @@ use bevy::prelude::Vec2;
 pub(in crate::hud) use agent_list::agent_rows;
 pub(crate) use agent_list::{
     agent_row_rect, AgentListRowSection, AGENT_LIST_BLOOM_RED_B, AGENT_LIST_BLOOM_RED_G,
-    AGENT_LIST_BLOOM_RED_R,
+    AGENT_LIST_BLOOM_RED_R, AGENT_LIST_BORDER_ORANGE_B, AGENT_LIST_BORDER_ORANGE_G,
+    AGENT_LIST_BORDER_ORANGE_R,
 };
 
 #[allow(
@@ -162,11 +163,6 @@ pub(crate) fn handle_scroll(
         _ => {}
     }
 }
-
-#[cfg(test)]
-pub(crate) use tests::{
-    AGENT_LIST_BORDER_ORANGE_B, AGENT_LIST_BORDER_ORANGE_G, AGENT_LIST_BORDER_ORANGE_R,
-};
 
 #[cfg(test)]
 mod tests;

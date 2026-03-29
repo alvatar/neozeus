@@ -566,21 +566,29 @@ fn draw_startup_connect_overlay(
     }
 
     let rect = startup_connect_rect(window);
-    for (outset, alpha) in [(22.0, 0.08), (12.0, 0.16), (5.0, 0.28)] {
-        painter.stroke_rect_width(
-            HudRect {
-                x: rect.x - outset,
-                y: rect.y - outset,
-                w: rect.w + outset * 2.0,
-                h: rect.h + outset * 2.0,
-            },
-            apply_alpha(HudColors::TEXT, alpha),
-            3.0,
-        );
-    }
+    let glow_rect = HudRect {
+        x: rect.x - 10.0,
+        y: rect.y - 10.0,
+        w: rect.w + 20.0,
+        h: rect.h + 20.0,
+    };
+    let glow = peniko::Color::from_rgba8(
+        modules::AGENT_LIST_BLOOM_RED_R,
+        modules::AGENT_LIST_BLOOM_RED_G,
+        modules::AGENT_LIST_BLOOM_RED_B,
+        255,
+    );
+    let border = peniko::Color::from_rgba8(
+        modules::AGENT_LIST_BORDER_ORANGE_R,
+        modules::AGENT_LIST_BORDER_ORANGE_G,
+        modules::AGENT_LIST_BORDER_ORANGE_B,
+        255,
+    );
 
-    painter.fill_rect(rect, HudColors::MESSAGE_BOX, 12.0);
-    painter.stroke_rect_width(rect, HudColors::TEXT, 2.0);
+    // Match the active-agent look: one hard border with a soft emissive halo behind it.
+    painter.fill_rect(glow_rect, apply_alpha(glow, 0.18), 0.0);
+    painter.fill_rect(rect, HudColors::MESSAGE_BOX, 0.0);
+    painter.stroke_rect_width(rect, border, 2.5);
 
     let title = startup_connect.title();
     if !title.is_empty() {
@@ -588,7 +596,7 @@ fn draw_startup_connect_overlay(
             Vec2::new(rect.x + rect.w * 0.5, rect.y + 34.0),
             title,
             26.0,
-            HudColors::TEXT,
+            border,
             VelloTextAnchor::Top,
         );
     }
@@ -601,7 +609,7 @@ fn draw_startup_connect_overlay(
     );
     painter.label(
         Vec2::new(rect.x + rect.w * 0.5, rect.y + rect.h - 34.0),
-        "Window is live. Restoring will continue as soon as the runtime is ready.",
+        "Window is live. Session restore will begin as soon as the runtime is ready.",
         15.0,
         HudColors::TEXT_MUTED,
         VelloTextAnchor::Bottom,
