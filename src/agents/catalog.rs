@@ -51,34 +51,44 @@ pub(crate) struct AgentCatalog {
 }
 
 impl AgentCatalog {
-    /// Validates that one explicit user-facing label is non-empty after trimming and unique.
-    pub(crate) fn validate_requested_label(
-        &self,
-        label: Option<&str>,
-        excluding: Option<AgentId>,
-    ) -> Result<Option<String>, String> {
-        let Some(label) = label.map(str::trim) else {
+    /// Validates that one explicit user-facing create label is non-empty after trimming and unique.
+    pub(crate) fn validate_new_label(&self, label: Option<&str>) -> Result<Option<String>, String> {
+        let Some(label) = normalize_requested_label(label) else {
             return Ok(None);
         };
-        if label.is_empty() {
-            return Ok(None);
-        }
-        if self.label_exists(label, excluding) {
+        if self.label_exists(&label, None) {
             return Err(format!("agent `{label}` already exists"));
         }
-        Ok(Some(label.to_owned()))
+        Ok(Some(label))
     }
 
-    /// Creates one agent with either a validated explicit label or the next unique default label.
+    /// Validates that one explicit rename target is non-empty after trimming and unique.
+    pub(crate) fn validate_rename_label(
+        &self,
+        agent_id: AgentId,
+        label: &str,
+    ) -> Result<String, String> {
+        let label = normalize_requested_label(Some(label))
+            .ok_or_else(|| "agent name is required".to_owned())?;
+        if self.label_exists(&label, Some(agent_id)) {
+            return Err(format!("agent `{label}` already exists"));
+        }
+        Ok(label)
+    }
+
+    /// Creates one agent with either a prevalidated explicit label or the next unique default label.
     pub(crate) fn create_agent(
         &mut self,
         label: Option<String>,
         kind: AgentKind,
         capabilities: AgentCapabilities,
-    ) -> Result<AgentId, String> {
-        let label = self
-            .validate_requested_label(label.as_deref(), None)?
+    ) -> AgentId {
+        let label = normalize_requested_label(label.as_deref())
             .unwrap_or_else(|| self.next_default_label());
+        debug_assert!(
+            !self.label_exists(&label, None),
+            "create_agent requires a prevalidated unique label"
+        );
         let id = AgentId(self.next_id.max(1));
         self.next_id = id.0 + 1;
         self.agents.insert(
@@ -90,14 +100,11 @@ impl AgentCatalog {
             },
         );
         self.order.push(id);
-        Ok(id)
+        id
     }
 
-    /// Renames one existing agent, enforcing the same uniqueness rule as create.
-    pub(crate) fn rename_agent(&mut self, agent_id: AgentId, label: &str) -> Result<(), String> {
-        let label = self
-            .validate_requested_label(Some(label), Some(agent_id))?
-            .ok_or_else(|| "agent name is required".to_owned())?;
+    /// Renames one existing agent using a prevalidated label.
+    pub(crate) fn rename_agent(&mut self, agent_id: AgentId, label: String) -> Result<(), String> {
         let Some(record) = self.agents.get_mut(&agent_id) else {
             return Err(format!("unknown agent {}", agent_id.0));
         };
@@ -161,4 +168,9 @@ impl AgentCatalog {
             display_index += 1;
         }
     }
+}
+
+fn normalize_requested_label(label: Option<&str>) -> Option<String> {
+    let label = label.map(str::trim)?;
+    (!label.is_empty()).then(|| label.to_owned())
 }

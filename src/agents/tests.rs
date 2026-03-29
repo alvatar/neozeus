@@ -7,20 +7,16 @@ use crate::terminals::{TerminalId, TerminalRuntimeState};
 #[test]
 fn catalog_assigns_stable_default_labels_in_creation_order() {
     let mut catalog = AgentCatalog::default();
-    let alpha = catalog
-        .create_agent(
-            None,
-            AgentKind::Terminal,
-            AgentCapabilities::terminal_defaults(),
-        )
-        .unwrap();
-    let beta = catalog
-        .create_agent(
-            None,
-            AgentKind::Terminal,
-            AgentCapabilities::terminal_defaults(),
-        )
-        .unwrap();
+    let alpha = catalog.create_agent(
+        None,
+        AgentKind::Terminal,
+        AgentCapabilities::terminal_defaults(),
+    );
+    let beta = catalog.create_agent(
+        None,
+        AgentKind::Terminal,
+        AgentCapabilities::terminal_defaults(),
+    );
 
     assert_eq!(alpha, AgentId(1));
     assert_eq!(beta, AgentId(2));
@@ -32,29 +28,22 @@ fn catalog_assigns_stable_default_labels_in_creation_order() {
 #[test]
 fn catalog_rejects_duplicate_labels_and_skips_taken_default_names() {
     let mut catalog = AgentCatalog::default();
-    let _ = catalog
-        .create_agent(
-            Some("agent-1".into()),
-            AgentKind::Terminal,
-            AgentCapabilities::terminal_defaults(),
-        )
-        .unwrap();
+    let initial_label = catalog.validate_new_label(Some("agent-1")).unwrap();
+    let _ = catalog.create_agent(
+        initial_label,
+        AgentKind::Terminal,
+        AgentCapabilities::terminal_defaults(),
+    );
 
-    let generated = catalog
-        .create_agent(
-            None,
-            AgentKind::Terminal,
-            AgentCapabilities::terminal_defaults(),
-        )
-        .unwrap();
+    let generated = catalog.create_agent(
+        None,
+        AgentKind::Terminal,
+        AgentCapabilities::terminal_defaults(),
+    );
 
     assert_eq!(catalog.label(generated), Some("agent-2"));
     assert_eq!(
-        catalog.create_agent(
-            Some("agent-1".into()),
-            AgentKind::Terminal,
-            AgentCapabilities::terminal_defaults(),
-        ),
+        catalog.validate_new_label(Some("agent-1")),
         Err("agent `agent-1` already exists".into())
     );
 }
@@ -63,26 +52,23 @@ fn catalog_rejects_duplicate_labels_and_skips_taken_default_names() {
 #[test]
 fn catalog_rename_rejects_duplicates() {
     let mut catalog = AgentCatalog::default();
-    let alpha = catalog
-        .create_agent(
-            Some("alpha".into()),
-            AgentKind::Terminal,
-            AgentCapabilities::terminal_defaults(),
-        )
-        .unwrap();
-    let beta = catalog
-        .create_agent(
-            Some("beta".into()),
-            AgentKind::Terminal,
-            AgentCapabilities::terminal_defaults(),
-        )
-        .unwrap();
+    let alpha = catalog.create_agent(
+        Some("alpha".into()),
+        AgentKind::Terminal,
+        AgentCapabilities::terminal_defaults(),
+    );
+    let beta = catalog.create_agent(
+        Some("beta".into()),
+        AgentKind::Terminal,
+        AgentCapabilities::terminal_defaults(),
+    );
 
     assert_eq!(
-        catalog.rename_agent(beta, " alpha "),
+        catalog.validate_rename_label(beta, " alpha "),
         Err("agent `alpha` already exists".into())
     );
-    catalog.rename_agent(beta, " gamma ").unwrap();
+    let label = catalog.validate_rename_label(beta, " gamma ").unwrap();
+    catalog.rename_agent(beta, label).unwrap();
     assert_eq!(catalog.label(beta), Some("gamma"));
     assert_eq!(catalog.label(alpha), Some("alpha"));
 }
@@ -91,27 +77,21 @@ fn catalog_rename_rejects_duplicates() {
 #[test]
 fn catalog_move_to_index_reorders_agents() {
     let mut catalog = AgentCatalog::default();
-    let alpha = catalog
-        .create_agent(
-            Some("alpha".into()),
-            AgentKind::Terminal,
-            AgentCapabilities::terminal_defaults(),
-        )
-        .unwrap();
-    let beta = catalog
-        .create_agent(
-            Some("beta".into()),
-            AgentKind::Terminal,
-            AgentCapabilities::terminal_defaults(),
-        )
-        .unwrap();
-    let gamma = catalog
-        .create_agent(
-            Some("gamma".into()),
-            AgentKind::Terminal,
-            AgentCapabilities::terminal_defaults(),
-        )
-        .unwrap();
+    let alpha = catalog.create_agent(
+        Some("alpha".into()),
+        AgentKind::Terminal,
+        AgentCapabilities::terminal_defaults(),
+    );
+    let beta = catalog.create_agent(
+        Some("beta".into()),
+        AgentKind::Terminal,
+        AgentCapabilities::terminal_defaults(),
+    );
+    let gamma = catalog.create_agent(
+        Some("gamma".into()),
+        AgentKind::Terminal,
+        AgentCapabilities::terminal_defaults(),
+    );
 
     assert!(catalog.move_to_index(gamma, 0));
     assert_eq!(catalog.order, vec![gamma, alpha, beta]);

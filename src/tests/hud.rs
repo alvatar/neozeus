@@ -1081,13 +1081,11 @@ fn create_agent_rejects_duplicate_name_without_creating_session() {
     insert_terminal_manager_resources(&mut world, TerminalManager::default());
     insert_default_hud_resources(&mut world);
     let mut catalog = crate::agents::AgentCatalog::default();
-    catalog
-        .create_agent(
-            Some("oracle".into()),
-            crate::agents::AgentKind::Terminal,
-            crate::agents::AgentCapabilities::terminal_defaults(),
-        )
-        .unwrap();
+    catalog.create_agent(
+        Some("oracle".into()),
+        crate::agents::AgentKind::Terminal,
+        crate::agents::AgentCapabilities::terminal_defaults(),
+    );
     world.insert_resource(catalog);
     world
         .resource_mut::<AppSessionState>()

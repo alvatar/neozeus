@@ -38,7 +38,7 @@ pub(crate) fn spawn_agent_terminal(
     redraws: &mut MessageWriter<RequestRedraw>,
 ) -> Result<AgentId, String> {
     // Walk the lifecycle in explicit stages so each side effect happens only after its prerequisites have been established.
-    let label = agent_catalog.validate_requested_label(label.as_deref(), None)?;
+    let label = agent_catalog.validate_new_label(label.as_deref())?;
     let session_name = if spawn_shell_only {
         runtime_spawner.create_shell_session_with_cwd(prefix, working_directory)
     } else {
@@ -56,7 +56,7 @@ pub(crate) fn spawn_agent_terminal(
         AgentKind::Terminal => AgentCapabilities::terminal_defaults(),
         AgentKind::Verifier => AgentCapabilities::verifier_defaults(),
     };
-    let agent_id = agent_catalog.create_agent(label, kind, capabilities)?;
+    let agent_id = agent_catalog.create_agent(label, kind, capabilities);
     let runtime = terminal_manager
         .get(terminal_id)
         .map(|terminal| &terminal.snapshot.runtime);
@@ -108,13 +108,18 @@ pub(crate) fn attach_restored_terminal(
         AgentKind::Terminal => AgentCapabilities::terminal_defaults(),
         AgentKind::Verifier => AgentCapabilities::verifier_defaults(),
     };
-    let agent_id = agent_catalog.create_agent(None, kind, capabilities)?;
+    let agent_id = agent_catalog.create_agent(None, kind, capabilities);
     if let Some(label) = label {
-        if let Err(error) = agent_catalog.rename_agent(agent_id, &label) {
-            append_debug_log(format!(
-                "restored agent label conflict for session {}: {error}; using generated fallback",
-                session_name
-            ));
+        match agent_catalog.validate_rename_label(agent_id, &label) {
+            Ok(label) => {
+                let _ = agent_catalog.rename_agent(agent_id, label);
+            }
+            Err(error) => {
+                append_debug_log(format!(
+                    "restored agent label conflict for session {}: {error}; using generated fallback",
+                    session_name
+                ));
+            }
         }
     }
     let runtime = terminal_manager
