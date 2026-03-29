@@ -3,7 +3,7 @@ use crate::{
     app::AppSessionState,
     conversations::{AgentTaskStore, ConversationStore, MessageDeliveryState},
     terminals::TerminalManager,
-    usage::{time_left, UsageSnapshot},
+    usage::{claude_backoff_active, time_left, UsagePersistenceState, UsageSnapshot},
 };
 use bevy::prelude::*;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -192,9 +192,14 @@ pub(crate) fn sync_hud_view_models(
 /// Derives the render-ready info-bar usage rows from the normalized usage snapshot.
 pub(crate) fn sync_info_bar_view_model(
     usage_snapshot: Res<UsageSnapshot>,
+    persistence_state: Res<UsagePersistenceState>,
     mut info_bar_view: ResMut<InfoBarView>,
 ) {
     let now_unix_secs = current_unix_secs();
+    let claude_rate_limited = claude_backoff_active(
+        &persistence_state.claude_backoff_until_path,
+        now_unix_secs as u64,
+    );
 
     if usage_snapshot.claude.available {
         info_bar_view.claude_session = UsageBarView {
@@ -216,7 +221,11 @@ pub(crate) fn sync_info_bar_view_model(
         info_bar_view.claude_session = UsageBarView {
             label: "Claude Session:".to_owned(),
             pct_milli: 0,
-            detail_text: "(unavailable)".to_owned(),
+            detail_text: if claude_rate_limited {
+                "(rate limited)".to_owned()
+            } else {
+                "(unavailable)".to_owned()
+            },
             available: false,
         };
         info_bar_view.claude_week = UsageBarView {
