@@ -23,7 +23,8 @@ pub(crate) enum CreateAgentKind {
 pub(crate) enum CreateAgentDialogField {
     #[default]
     Name,
-    Kind,
+    KindAgent,
+    KindShell,
     StartingFolder,
     CreateButton,
 }
@@ -65,16 +66,26 @@ impl CreateAgentDialogState {
         self.visible
     }
 
+    /// Returns the focus slot corresponding to the currently selected kind.
+    fn selected_kind_focus(&self) -> CreateAgentDialogField {
+        match self.kind {
+            CreateAgentKind::Agent => CreateAgentDialogField::KindAgent,
+            CreateAgentKind::Shell => CreateAgentDialogField::KindShell,
+        }
+    }
+
     /// Advances focus to the next or previous field in the dialog's fixed tab order.
     pub(crate) fn cycle_focus(&mut self, reverse: bool) {
         self.focus = match (self.focus, reverse) {
-            (CreateAgentDialogField::Name, false) => CreateAgentDialogField::Kind,
-            (CreateAgentDialogField::Kind, false) => CreateAgentDialogField::StartingFolder,
+            (CreateAgentDialogField::Name, false) => self.selected_kind_focus(),
+            (CreateAgentDialogField::KindAgent, false) => CreateAgentDialogField::KindShell,
+            (CreateAgentDialogField::KindShell, false) => CreateAgentDialogField::StartingFolder,
             (CreateAgentDialogField::StartingFolder, false) => CreateAgentDialogField::CreateButton,
             (CreateAgentDialogField::CreateButton, false) => CreateAgentDialogField::Name,
             (CreateAgentDialogField::Name, true) => CreateAgentDialogField::CreateButton,
-            (CreateAgentDialogField::Kind, true) => CreateAgentDialogField::Name,
-            (CreateAgentDialogField::StartingFolder, true) => CreateAgentDialogField::Kind,
+            (CreateAgentDialogField::KindAgent, true) => CreateAgentDialogField::Name,
+            (CreateAgentDialogField::KindShell, true) => CreateAgentDialogField::KindAgent,
+            (CreateAgentDialogField::StartingFolder, true) => self.selected_kind_focus(),
             (CreateAgentDialogField::CreateButton, true) => CreateAgentDialogField::StartingFolder,
         };
     }
@@ -82,15 +93,8 @@ impl CreateAgentDialogState {
     /// Sets the selected creation kind and clears any stale dialog error.
     pub(crate) fn set_kind(&mut self, kind: CreateAgentKind) {
         self.kind = kind;
+        self.focus = self.selected_kind_focus();
         self.error = None;
-    }
-
-    /// Toggles between the two available creation kinds.
-    pub(crate) fn toggle_kind(&mut self) {
-        self.set_kind(match self.kind {
-            CreateAgentKind::Agent => CreateAgentKind::Shell,
-            CreateAgentKind::Shell => CreateAgentKind::Agent,
-        });
     }
 
     /// Returns the label entered by the user, trimmed and normalized to optional form.
