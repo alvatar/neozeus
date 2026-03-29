@@ -23,8 +23,7 @@ pub(crate) enum CreateAgentKind {
 pub(crate) enum CreateAgentDialogField {
     #[default]
     Name,
-    KindAgent,
-    KindShell,
+    Kind,
     StartingFolder,
     CreateButton,
 }
@@ -66,26 +65,16 @@ impl CreateAgentDialogState {
         self.visible
     }
 
-    /// Returns the focus slot corresponding to the currently selected kind.
-    fn selected_kind_focus(&self) -> CreateAgentDialogField {
-        match self.kind {
-            CreateAgentKind::Agent => CreateAgentDialogField::KindAgent,
-            CreateAgentKind::Shell => CreateAgentDialogField::KindShell,
-        }
-    }
-
     /// Advances focus to the next or previous field in the dialog's fixed tab order.
     pub(crate) fn cycle_focus(&mut self, reverse: bool) {
         self.focus = match (self.focus, reverse) {
-            (CreateAgentDialogField::Name, false) => self.selected_kind_focus(),
-            (CreateAgentDialogField::KindAgent, false) => CreateAgentDialogField::KindShell,
-            (CreateAgentDialogField::KindShell, false) => CreateAgentDialogField::StartingFolder,
-            (CreateAgentDialogField::StartingFolder, false) => CreateAgentDialogField::CreateButton,
+            (CreateAgentDialogField::Name, false) => CreateAgentDialogField::Kind,
+            (CreateAgentDialogField::Kind, false) => CreateAgentDialogField::StartingFolder,
+            (CreateAgentDialogField::StartingFolder, false) => CreateAgentDialogField::Name,
             (CreateAgentDialogField::CreateButton, false) => CreateAgentDialogField::Name,
-            (CreateAgentDialogField::Name, true) => CreateAgentDialogField::CreateButton,
-            (CreateAgentDialogField::KindAgent, true) => CreateAgentDialogField::Name,
-            (CreateAgentDialogField::KindShell, true) => CreateAgentDialogField::KindAgent,
-            (CreateAgentDialogField::StartingFolder, true) => self.selected_kind_focus(),
+            (CreateAgentDialogField::Name, true) => CreateAgentDialogField::StartingFolder,
+            (CreateAgentDialogField::Kind, true) => CreateAgentDialogField::Name,
+            (CreateAgentDialogField::StartingFolder, true) => CreateAgentDialogField::Kind,
             (CreateAgentDialogField::CreateButton, true) => CreateAgentDialogField::StartingFolder,
         };
     }
@@ -93,7 +82,6 @@ impl CreateAgentDialogState {
     /// Sets the selected creation kind and clears any stale dialog error.
     pub(crate) fn set_kind(&mut self, kind: CreateAgentKind) {
         self.kind = kind;
-        self.focus = self.selected_kind_focus();
         self.error = None;
     }
 
@@ -117,7 +105,7 @@ impl CreateAgentDialogState {
     pub(crate) fn build_create_command(&mut self) -> Option<AppCommand> {
         let working_directory = self.starting_folder();
         if working_directory.is_empty() {
-            self.error = Some("Starting folder is required".to_owned());
+            self.error = Some("cwd is required".to_owned());
             return None;
         }
         self.error = None;

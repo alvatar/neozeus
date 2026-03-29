@@ -143,6 +143,7 @@ pub(crate) fn handle_hud_pointer_input(world: &mut World) {
                         ctx.app_session.create_agent_dialog.error = None;
                     }
                     CreateAgentDialogTarget::Kind(kind) => {
+                        ctx.app_session.create_agent_dialog.focus = CreateAgentDialogField::Kind;
                         ctx.app_session.create_agent_dialog.set_kind(kind);
                     }
                     CreateAgentDialogTarget::StartingFolderField => {

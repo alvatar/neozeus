@@ -1,5 +1,5 @@
 use crate::{
-    app::{AppSessionState, CreateAgentDialogField, CreateAgentKind},
+    app::{AppSessionState, CreateAgentDialogField},
     composer::{
         create_agent_create_button_rect, create_agent_dialog_rect, create_agent_kind_option_rects,
         create_agent_name_field_rect, create_agent_starting_folder_rect,
@@ -571,11 +571,7 @@ fn draw_create_agent_dialog(
     );
     for (kind, option_rect, label) in kind_options {
         let selected = dialog.kind == kind;
-        let focused = matches!(
-            (dialog.focus, kind),
-            (CreateAgentDialogField::KindAgent, CreateAgentKind::Agent)
-                | (CreateAgentDialogField::KindShell, CreateAgentKind::Shell)
-        );
+        let focused = dialog.focus == CreateAgentDialogField::Kind;
         let square_rect = HudRect {
             x: option_rect.x,
             y: option_rect.y + 2.0,
@@ -593,7 +589,7 @@ fn draw_create_agent_dialog(
         );
         painter.stroke_rect(
             square_rect,
-            if focused {
+            if focused && selected {
                 HudColors::TEXT
             } else {
                 HudColors::BUTTON_BORDER
@@ -604,7 +600,7 @@ fn draw_create_agent_dialog(
             Vec2::new(option_rect.x + 26.0, option_rect.y),
             label,
             16.0,
-            if focused || selected {
+            if selected {
                 HudColors::TEXT
             } else {
                 HudColors::TEXT_MUTED
@@ -615,7 +611,7 @@ fn draw_create_agent_dialog(
 
     painter.label(
         Vec2::new(rect.x + 24.0, folder_rect.y + 7.0),
-        "Starting folder",
+        "cwd",
         15.0,
         HudColors::TEXT_MUTED,
         VelloTextAnchor::TopLeft,
