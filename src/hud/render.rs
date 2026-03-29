@@ -4,7 +4,7 @@ use crate::{
         create_agent_create_button_rect, create_agent_dialog_rect, create_agent_kind_option_rects,
         create_agent_name_field_rect, create_agent_starting_folder_rect,
         message_box_action_buttons, message_box_rect, task_dialog_action_buttons, task_dialog_rect,
-        TextEditorState,
+        MessageDialogFocus, TaskDialogFocus, TextEditorState,
     },
     startup::StartupConnectState,
 };
@@ -348,10 +348,19 @@ fn draw_text_editor_body(
     window: &Window,
     editor: &TextEditorState,
     body_rect: HudRect,
+    focused: bool,
 ) {
     // Build the geometry or layout decisions first, then emit the matching draw operations against the prepared state.
     painter.fill_rect(body_rect, HudColors::MESSAGE_BOX, 6.0);
-    painter.stroke_rect(body_rect, HudColors::TEXT_MUTED, 4.0);
+    painter.stroke_rect(
+        body_rect,
+        if focused {
+            HudColors::TEXT_MUTED
+        } else {
+            HudColors::BUTTON_BORDER
+        },
+        4.0,
+    );
 
     let line_height = 24.0;
     let text_size = 18.0;
@@ -438,7 +447,7 @@ fn draw_text_editor_body(
             );
         }
 
-        if line_index == cursor_line {
+        if focused && line_index == cursor_line {
             let visible_cursor_col = cursor_col.saturating_sub(start_col);
             let before_cursor = slice_chars(line, start_col, visible_cursor_col);
             let cursor_x = content_x + painter.text_size(&before_cursor, text_size).x;
@@ -464,16 +473,28 @@ fn draw_text_editor_body(
 /// chrome.
 fn draw_dialog_button_row(
     painter: &mut HudPainter,
-    buttons: impl IntoIterator<Item = (HudRect, &'static str)>,
+    buttons: impl IntoIterator<Item = (HudRect, &'static str, bool)>,
 ) {
-    for (rect, label) in buttons {
+    for (rect, label, focused) in buttons {
         painter.fill_rect(rect, HudColors::BUTTON, 0.0);
-        painter.stroke_rect(rect, HudColors::BUTTON_BORDER, 0.0);
+        painter.stroke_rect(
+            rect,
+            if focused {
+                HudColors::TEXT
+            } else {
+                HudColors::BUTTON_BORDER
+            },
+            0.0,
+        );
         painter.label(
             Vec2::new(rect.x + 10.0, rect.y + 6.0),
             label,
             14.0,
-            HudColors::TEXT,
+            if focused {
+                HudColors::TEXT
+            } else {
+                HudColors::TEXT_MUTED
+            },
             VelloTextAnchor::TopLeft,
         );
     }
@@ -623,10 +644,14 @@ fn draw_create_agent_dialog(
         dialog.focus == CreateAgentDialogField::StartingFolder,
     );
 
-    draw_dialog_button_row(&mut *painter, [(create_rect, "Create")]);
-    if dialog.focus == CreateAgentDialogField::CreateButton {
-        painter.stroke_rect(create_rect, HudColors::TEXT, 0.0);
-    }
+    draw_dialog_button_row(
+        &mut *painter,
+        [(
+            create_rect,
+            "Create",
+            dialog.focus == CreateAgentDialogField::CreateButton,
+        )],
+    );
 
     if let Some(error) = dialog.error.as_deref() {
         painter.label(
@@ -647,6 +672,7 @@ fn draw_message_box(
     window: &Window,
     message_box: &TextEditorState,
     title: &str,
+    focus: MessageDialogFocus,
 ) {
     // Build the geometry or layout decisions first, then emit the matching draw operations against the prepared state.
     if !message_box.visible {
@@ -681,10 +707,29 @@ fn draw_message_box(
         w: rect.w - 44.0,
         h: (info_row_y - 12.0 - (rect.y + 64.0)).max(96.0),
     };
-    draw_text_editor_body(painter, window, message_box, body_rect);
+    draw_text_editor_body(
+        painter,
+        window,
+        message_box,
+        body_rect,
+        focus == MessageDialogFocus::Editor,
+    );
     draw_dialog_button_row(
         painter,
-        buttons.into_iter().map(|(_, rect, label)| (rect, label)),
+        buttons.into_iter().map(|(action, rect, label)| {
+            (
+                rect,
+                label,
+                match action {
+                    crate::composer::MessageBoxAction::AppendTask => {
+                        focus == MessageDialogFocus::AppendButton
+                    }
+                    crate::composer::MessageBoxAction::PrependTask => {
+                        focus == MessageDialogFocus::PrependButton
+                    }
+                },
+            )
+        }),
     );
 
     let (line_number, column_number) = message_box.cursor_line_and_column();
@@ -787,6 +832,7 @@ fn draw_task_dialog(
     window: &Window,
     task_dialog: &TextEditorState,
     title: &str,
+    focus: TaskDialogFocus,
 ) {
     // Build the geometry or layout decisions first, then emit the matching draw operations against the prepared state.
     if !task_dialog.visible {
@@ -821,10 +867,26 @@ fn draw_task_dialog(
         w: rect.w - 44.0,
         h: (info_row_y - 12.0 - (rect.y + 64.0)).max(96.0),
     };
-    draw_text_editor_body(painter, window, task_dialog, body_rect);
+    draw_text_editor_body(
+        painter,
+        window,
+        task_dialog,
+        body_rect,
+        focus == TaskDialogFocus::Editor,
+    );
     draw_dialog_button_row(
         painter,
-        buttons.into_iter().map(|(_, rect, label)| (rect, label)),
+        buttons.into_iter().map(|(action, rect, label)| {
+            (
+                rect,
+                label,
+                match action {
+                    crate::composer::TaskDialogAction::ClearDone => {
+                        focus == TaskDialogFocus::ClearDoneButton
+                    }
+                },
+            )
+        }),
     );
 
     let (line_number, column_number) = task_dialog.cursor_line_and_column();
@@ -982,12 +1044,14 @@ pub(crate) fn render_hud_modal_scene(
         &primary_window,
         &app_session.composer.message_editor,
         composer_view.title.as_deref().unwrap_or("Message"),
+        app_session.composer.message_dialog_focus,
     );
     draw_task_dialog(
         &mut painter,
         &primary_window,
         &app_session.composer.task_editor,
         composer_view.title.as_deref().unwrap_or("Tasks"),
+        app_session.composer.task_dialog_focus,
     );
     **scene = VelloScene2d::from(built);
 }

@@ -9,6 +9,7 @@ use crate::{
         AgentCommand as AppAgentCommand, AppCommand, AppSessionState, AppStatePersistenceState,
         CreateAgentDialogField, CreateAgentKind, TaskCommand as AppTaskCommand,
     },
+    composer::{MessageDialogFocus, TaskDialogFocus},
     conversations::{AgentTaskStore, ConversationStore, MessageTransportAdapter},
     hud::TerminalVisibilityState,
     input::{
@@ -396,7 +397,7 @@ fn global_shell_spawn_shortcut_opens_shell_create_agent_dialog() {
     assert_eq!(world.resource::<Messages<RequestRedraw>>().len(), 1);
 }
 
-/// Verifies that `Tab` advances focus through the create-agent dialog fields.
+/// Verifies that `Tab` advances through every create-agent control, including the create button.
 #[test]
 fn create_agent_dialog_tab_advances_focus() {
     let mut world = World::default();
@@ -415,13 +416,30 @@ fn create_agent_dialog_tab_advances_focus() {
     ));
 
     dispatch_message_box_key(&mut world, pressed_key(KeyCode::Tab, Key::Tab));
-
     assert_eq!(
         world
             .resource::<AppSessionState>()
             .create_agent_dialog
             .focus,
         CreateAgentDialogField::Kind
+    );
+
+    dispatch_message_box_key(&mut world, pressed_key(KeyCode::Tab, Key::Tab));
+    assert_eq!(
+        world
+            .resource::<AppSessionState>()
+            .create_agent_dialog
+            .focus,
+        CreateAgentDialogField::StartingFolder
+    );
+
+    dispatch_message_box_key(&mut world, pressed_key(KeyCode::Tab, Key::Tab));
+    assert_eq!(
+        world
+            .resource::<AppSessionState>()
+            .create_agent_dialog
+            .focus,
+        CreateAgentDialogField::CreateButton
     );
 }
 
@@ -454,9 +472,9 @@ fn create_agent_dialog_space_toggles_type() {
     );
 }
 
-/// Verifies that `Tab` in the cwd field starts completion and cycles matching directories.
+/// Verifies that `Ctrl+Space` in the cwd field starts completion and cycles matching directories.
 #[test]
-fn create_agent_dialog_tab_cycles_cwd_completions() {
+fn create_agent_dialog_ctrl_space_cycles_cwd_completions() {
     let root = unique_temp_dir("cwd-cycle");
     std::fs::create_dir_all(root.join("code")).unwrap();
     std::fs::create_dir_all(root.join("configs")).unwrap();
@@ -481,7 +499,10 @@ fn create_agent_dialog_tab_cycles_cwd_completions() {
         PrimaryWindow,
     ));
 
-    dispatch_message_box_key(&mut world, pressed_key(KeyCode::Tab, Key::Tab));
+    let mut ctrl_keys = ButtonInput::<KeyCode>::default();
+    ctrl_keys.press(KeyCode::ControlLeft);
+    world.insert_resource(ctrl_keys);
+    dispatch_message_box_key(&mut world, pressed_text(KeyCode::Space, Some(" ")));
     {
         let session = world.resource::<AppSessionState>();
         assert_eq!(
@@ -491,7 +512,7 @@ fn create_agent_dialog_tab_cycles_cwd_completions() {
         assert!(session.create_agent_dialog.cwd_field.completion.is_some());
     }
 
-    dispatch_message_box_key(&mut world, pressed_key(KeyCode::Tab, Key::Tab));
+    dispatch_message_box_key(&mut world, pressed_text(KeyCode::Space, Some(" ")));
     let session = world.resource::<AppSessionState>();
     assert_eq!(
         session.create_agent_dialog.cwd_field.field.text,
@@ -528,7 +549,11 @@ fn create_agent_dialog_enter_descends_into_selected_cwd_completion() {
         PrimaryWindow,
     ));
 
-    dispatch_message_box_key(&mut world, pressed_key(KeyCode::Tab, Key::Tab));
+    let mut ctrl_keys = ButtonInput::<KeyCode>::default();
+    ctrl_keys.press(KeyCode::ControlLeft);
+    world.insert_resource(ctrl_keys);
+    dispatch_message_box_key(&mut world, pressed_text(KeyCode::Space, Some(" ")));
+    world.insert_resource(ButtonInput::<KeyCode>::default());
     dispatch_message_box_key(&mut world, pressed_key(KeyCode::Enter, Key::Enter));
 
     let session = world.resource::<AppSessionState>();
@@ -1136,6 +1161,69 @@ fn message_box_supports_multiline_typing_and_ctrl_s_send() {
     assert!(hud_state.message_box.text.is_empty());
 }
 
+/// Verifies that `Tab` in the message box cycles focus from the editor into the action buttons.
+#[test]
+fn message_box_tab_cycles_focus_to_action_buttons() {
+    let (mut world, terminal_id) =
+        world_with_active_terminal(Vec2::new(10.0, 10.0), false, Vec2::ZERO);
+    let mut hud_state = crate::hud::HudState::default();
+    hud_state.open_message_box(terminal_id);
+    insert_test_hud_state(&mut world, hud_state);
+    init_hud_commands(&mut world);
+    world.init_resource::<Messages<KeyboardInput>>();
+    world.init_resource::<Messages<RequestRedraw>>();
+
+    dispatch_message_box_key(&mut world, pressed_key(KeyCode::Tab, Key::Tab));
+    assert_eq!(
+        world
+            .resource::<AppSessionState>()
+            .composer
+            .message_dialog_focus,
+        MessageDialogFocus::AppendButton
+    );
+
+    dispatch_message_box_key(&mut world, pressed_key(KeyCode::Tab, Key::Tab));
+    assert_eq!(
+        world
+            .resource::<AppSessionState>()
+            .composer
+            .message_dialog_focus,
+        MessageDialogFocus::PrependButton
+    );
+}
+
+/// Verifies that pressing `Enter` on a focused message-box action button triggers that action.
+#[test]
+fn message_box_enter_on_focused_button_emits_action_command() {
+    let (mut world, terminal_id) =
+        world_with_active_terminal(Vec2::new(10.0, 10.0), false, Vec2::ZERO);
+    let agent_id = world
+        .resource::<AgentRuntimeIndex>()
+        .agent_for_terminal(terminal_id)
+        .expect("agent should be linked");
+    let mut hud_state = crate::hud::HudState::default();
+    hud_state.open_message_box(terminal_id);
+    hud_state.message_box.insert_text("follow up");
+    insert_test_hud_state(&mut world, hud_state);
+    init_hud_commands(&mut world);
+    world.init_resource::<Messages<KeyboardInput>>();
+    world.init_resource::<Messages<RequestRedraw>>();
+    world
+        .resource_mut::<AppSessionState>()
+        .composer
+        .message_dialog_focus = MessageDialogFocus::AppendButton;
+
+    dispatch_message_box_key(&mut world, pressed_key(KeyCode::Enter, Key::Enter));
+
+    assert_eq!(
+        drain_hud_commands(&mut world),
+        vec![AppCommand::Task(AppTaskCommand::Append {
+            agent_id,
+            text: "follow up".into(),
+        })]
+    );
+}
+
 /// Verifies that `Ctrl+T` outside the task dialog enqueues the clear-done-tasks intent for the
 /// active terminal.
 #[test]
@@ -1242,6 +1330,57 @@ fn task_dialog_escape_persists_tasks_and_closes() {
     );
     let hud_state = snapshot_test_hud_state(&world);
     assert!(!hud_state.task_dialog.visible);
+}
+
+/// Verifies that `Tab` in the task dialog cycles focus from the editor into the clear-done button.
+#[test]
+fn task_dialog_tab_cycles_focus_to_action_button() {
+    let (mut world, terminal_id) =
+        world_with_active_terminal(Vec2::new(10.0, 10.0), false, Vec2::ZERO);
+    let mut hud_state = crate::hud::HudState::default();
+    hud_state.open_task_dialog(terminal_id, "- [ ] keep");
+    insert_test_hud_state(&mut world, hud_state);
+    init_hud_commands(&mut world);
+    world.init_resource::<Messages<KeyboardInput>>();
+    world.init_resource::<Messages<RequestRedraw>>();
+
+    dispatch_message_box_key(&mut world, pressed_key(KeyCode::Tab, Key::Tab));
+
+    assert_eq!(
+        world
+            .resource::<AppSessionState>()
+            .composer
+            .task_dialog_focus,
+        TaskDialogFocus::ClearDoneButton
+    );
+}
+
+/// Verifies that pressing `Enter` on the focused task-dialog button triggers clear-done.
+#[test]
+fn task_dialog_enter_on_focused_button_emits_clear_done() {
+    let (mut world, terminal_id) =
+        world_with_active_terminal(Vec2::new(10.0, 10.0), false, Vec2::ZERO);
+    let agent_id = world
+        .resource::<AgentRuntimeIndex>()
+        .agent_for_terminal(terminal_id)
+        .expect("agent should be linked");
+    let mut hud_state = crate::hud::HudState::default();
+    hud_state.open_task_dialog(terminal_id, "- [x] done");
+    insert_test_hud_state(&mut world, hud_state);
+    init_hud_commands(&mut world);
+    world.init_resource::<Messages<KeyboardInput>>();
+    world.init_resource::<Messages<RequestRedraw>>();
+    world
+        .resource_mut::<AppSessionState>()
+        .composer
+        .task_dialog_focus = TaskDialogFocus::ClearDoneButton;
+
+    dispatch_message_box_key(&mut world, pressed_key(KeyCode::Enter, Key::Enter));
+
+    assert_eq!(
+        drain_hud_commands(&mut world),
+        vec![AppCommand::Task(AppTaskCommand::ClearDone { agent_id })]
+    );
 }
 
 /// Verifies that `Ctrl+T` inside the message box is treated as editor input/no-op rather than as the

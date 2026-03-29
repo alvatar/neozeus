@@ -9,7 +9,9 @@ pub(crate) use layout::{
     message_box_rect, task_dialog_action_at, task_dialog_action_buttons, task_dialog_rect,
     CreateAgentDialogTarget, MessageBoxAction, TaskDialogAction,
 };
-pub(crate) use state::{ComposerMode, ComposerState, TextEditorState};
+pub(crate) use state::{
+    ComposerMode, ComposerState, MessageDialogFocus, TaskDialogFocus, TextEditorState,
+};
 
 #[cfg(test)]
 pub(crate) use state::ComposerSession;

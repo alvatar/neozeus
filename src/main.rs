@@ -3,6 +3,7 @@ mod app;
 mod app_config;
 mod composer;
 mod conversations;
+mod dialogs;
 mod hud;
 mod input;
 mod startup;

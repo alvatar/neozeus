@@ -47,10 +47,12 @@ fn create_agent_dialog_cycles_focus_forward_and_backward() {
     dialog.cycle_focus(false);
     assert_eq!(dialog.focus, CreateAgentDialogField::StartingFolder);
     dialog.cycle_focus(false);
+    assert_eq!(dialog.focus, CreateAgentDialogField::CreateButton);
+    dialog.cycle_focus(false);
     assert_eq!(dialog.focus, CreateAgentDialogField::Name);
 
     dialog.cycle_focus(true);
-    assert_eq!(dialog.focus, CreateAgentDialogField::StartingFolder);
+    assert_eq!(dialog.focus, CreateAgentDialogField::CreateButton);
 }
 
 /// Verifies that the session-level keyboard-capture predicate includes the create-agent dialog.
