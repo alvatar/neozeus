@@ -1,7 +1,10 @@
 use crate::{
     agents::{AgentCatalog, AgentRuntimeIndex},
-    shared::app_state_file::{
-        parse_persisted_app_state, PersistedAgentState, PersistedAppState, APP_STATE_VERSION_V1,
+    shared::{
+        app_state_file::{
+            parse_persisted_app_state, PersistedAgentState, PersistedAppState, APP_STATE_VERSION_V1,
+        },
+        text_escape::{quote_escaped_string, EXTENDED_QUOTED_STRING_ESCAPES},
     },
     terminals::{
         append_debug_log, load_persisted_terminal_sessions_from, resolve_terminal_sessions_path,
@@ -18,21 +21,6 @@ const APP_STATE_SAVE_DEBOUNCE_SECS: f32 = 0.3;
 
 pub(crate) use crate::shared::app_state_file::resolve_app_state_path;
 
-fn escape_persisted_string(value: &str) -> String {
-    let mut escaped = String::with_capacity(value.len() + 4);
-    for ch in value.chars() {
-        match ch {
-            '\\' => escaped.push_str("\\\\"),
-            '"' => escaped.push_str("\\\""),
-            '\n' => escaped.push_str("\\n"),
-            '\r' => escaped.push_str("\\r"),
-            '\t' => escaped.push_str("\\t"),
-            _ => escaped.push(ch),
-        }
-    }
-    escaped
-}
-
 /// Serializes persisted app-state metadata into the current version-1 app-state format.
 pub(crate) fn serialize_persisted_app_state(state: &PersistedAppState) -> String {
     let mut output = String::from(APP_STATE_VERSION_V1);
@@ -42,11 +30,14 @@ pub(crate) fn serialize_persisted_app_state(state: &PersistedAppState) -> String
     for record in ordered {
         output.push_str("[agent]\n");
         output.push_str(&format!(
-            "session_name=\"{}\"\n",
-            escape_persisted_string(&record.session_name)
+            "session_name={}\n",
+            quote_escaped_string(&record.session_name, EXTENDED_QUOTED_STRING_ESCAPES)
         ));
         if let Some(label) = record.label {
-            output.push_str(&format!("label=\"{}\"\n", escape_persisted_string(&label)));
+            output.push_str(&format!(
+                "label={}\n",
+                quote_escaped_string(&label, EXTENDED_QUOTED_STRING_ESCAPES)
+            ));
         }
         output.push_str(&format!("order_index={}\n", record.order_index));
         output.push_str(&format!("focused={}\n", u8::from(record.last_focused)));

@@ -38,8 +38,8 @@ fn app_state_parse_and_serialize_roundtrip() {
     let persisted = PersistedAppState {
         agents: vec![
             PersistedAgentState {
-                session_name: "neozeus-session-a".into(),
-                label: Some("agent 1".into()),
+                session_name: "neozeus-session-a\rtab\tquoted\"".into(),
+                label: Some("agent 1\nrow\rand\ttabs\\slash".into()),
                 order_index: 0,
                 last_focused: true,
             },

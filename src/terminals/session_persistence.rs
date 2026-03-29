@@ -1,3 +1,7 @@
+#[cfg(test)]
+use crate::shared::text_escape::quote_escaped_string;
+use crate::shared::text_escape::{unquote_escaped_string, EXTENDED_QUOTED_STRING_ESCAPES};
+
 use super::debug::append_debug_log;
 use std::{env, fs, path::PathBuf};
 
@@ -87,51 +91,12 @@ pub(crate) fn resolve_terminal_sessions_path() -> Option<PathBuf> {
     )
 }
 
-/// Escapes a string for the quoted version-2 session persistence format.
-///
-/// Only the escape sequences that the matching parser understands are emitted, keeping the format
-/// intentionally small and deterministic.
-#[cfg(test)]
-fn escape_persisted_string(value: &str) -> String {
-    let mut escaped = String::with_capacity(value.len() + 4);
-    for ch in value.chars() {
-        match ch {
-            '\\' => escaped.push_str("\\\\"),
-            '"' => escaped.push_str("\\\""),
-            '\n' => escaped.push_str("\\n"),
-            '\r' => escaped.push_str("\\r"),
-            '\t' => escaped.push_str("\\t"),
-            _ => escaped.push(ch),
-        }
-    }
-    escaped
-}
-
 /// Parses a quoted string from the version-2 session persistence format.
 ///
-/// The parser accepts the same limited escape set emitted by [`escape_persisted_string`]. Returning
-/// `None` on malformed input lets the higher-level parser skip bad fields without panicking.
+/// Returning `None` on malformed input lets the higher-level parser skip bad fields without
+/// panicking.
 fn parse_quoted_string(value: &str) -> Option<String> {
-    // Process the input incrementally so each transformation stays local and malformed data fails at the narrowest point.
-    let trimmed = value.trim();
-    let inner = trimmed.strip_prefix('"')?.strip_suffix('"')?;
-    let mut parsed = String::with_capacity(inner.len());
-    let mut chars = inner.chars();
-    while let Some(ch) = chars.next() {
-        if ch != '\\' {
-            parsed.push(ch);
-            continue;
-        }
-        match chars.next()? {
-            '\\' => parsed.push('\\'),
-            '"' => parsed.push('"'),
-            'n' => parsed.push('\n'),
-            'r' => parsed.push('\r'),
-            't' => parsed.push('\t'),
-            _ => return None,
-        }
-    }
-    Some(parsed)
+    unquote_escaped_string(value, EXTENDED_QUOTED_STRING_ESCAPES)
 }
 
 /// Parses the legacy version-1 terminal-session persistence format.
@@ -298,11 +263,14 @@ pub(crate) fn serialize_persisted_terminal_sessions(
     for record in ordered {
         output.push_str("[session]\n");
         output.push_str(&format!(
-            "name=\"{}\"\n",
-            escape_persisted_string(&record.session_name)
+            "name={}\n",
+            quote_escaped_string(&record.session_name, EXTENDED_QUOTED_STRING_ESCAPES)
         ));
         if let Some(label) = record.label {
-            output.push_str(&format!("label=\"{}\"\n", escape_persisted_string(&label)));
+            output.push_str(&format!(
+                "label={}\n",
+                quote_escaped_string(&label, EXTENDED_QUOTED_STRING_ESCAPES)
+            ));
         }
         output.push_str(&format!("creation_index={}\n", record.creation_index));
         output.push_str(&format!("focused={}\n", u8::from(record.last_focused)));
