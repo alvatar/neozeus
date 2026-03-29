@@ -57,6 +57,10 @@ CLAUDE_LOG = Path(
 OPENAI_LOG = Path(
     os.environ.get("NEOZEUS_OPENAI_USAGE_LOG", "").strip() or STATE_DIR / "openai-usage.log"
 )
+CLAUDE_BACKOFF = Path(
+    os.environ.get("NEOZEUS_CLAUDE_USAGE_BACKOFF", "").strip()
+    or STATE_DIR / "claude-usage-backoff-until.txt"
+)
 
 
 def _atomic_write_text(path: Path, content: str) -> None:
@@ -74,6 +78,33 @@ def _log(path: Path, message: str) -> None:
             handle.write(f"[{timestamp}] {message}\n")
     except OSError:
         pass
+
+
+def _clear_file_if_exists(path: Path) -> None:
+    try:
+        path.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+def _write_claude_backoff_until(until_epoch_s: int) -> None:
+    try:
+        _atomic_write_text(CLAUDE_BACKOFF, str(until_epoch_s))
+    except OSError:
+        pass
+
+
+def _parse_retry_after_seconds(headers: object) -> int | None:
+    try:
+        raw = headers.get("Retry-After")
+    except AttributeError:
+        return None
+    if raw is None:
+        return None
+    try:
+        return max(0, int(str(raw).strip()))
+    except ValueError:
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -118,7 +149,7 @@ def _refresh_claude_oauth_token() -> bool:
     return True
 
 
-def _fetch_claude_usage_once(access_token: str) -> tuple[int, str]:
+def _fetch_claude_usage_once(access_token: str) -> tuple[int, str, int | None]:
     try:
         request = urllib.request.Request(
             CLAUDE_USAGE_URL,
@@ -132,13 +163,13 @@ def _fetch_claude_usage_once(access_token: str) -> tuple[int, str]:
         with urllib.request.urlopen(request, timeout=5) as response:
             status = int(getattr(response, "status", 200) or 200)
             body = response.read().decode(errors="replace")
-            return status, body
+            return status, body, _parse_retry_after_seconds(response.headers)
     except urllib.error.HTTPError as error:
         body = error.read(500).decode(errors="replace")
-        return int(error.code), body
+        return int(error.code), body, _parse_retry_after_seconds(error.headers)
     except (urllib.error.URLError, TimeoutError, OSError, ValueError) as error:
         _log(CLAUDE_LOG, f"usage fetch failed: {type(error).__name__}: {error}")
-        return 0, ""
+        return 0, "", None
 
 
 def fetch_claude_usage() -> int:
@@ -152,7 +183,7 @@ def fetch_claude_usage() -> int:
             _log(CLAUDE_LOG, "token still missing after refresh")
             return 1
 
-    status, body = _fetch_claude_usage_once(token)
+    status, body, retry_after_seconds = _fetch_claude_usage_once(token)
     if status in (401, 403):
         _log(CLAUDE_LOG, f"usage API rejected token ({status}); refreshing once")
         if not _refresh_claude_oauth_token():
@@ -161,7 +192,17 @@ def fetch_claude_usage() -> int:
         if not token:
             _log(CLAUDE_LOG, "token missing after auth retry")
             return 1
-        status, body = _fetch_claude_usage_once(token)
+        status, body, retry_after_seconds = _fetch_claude_usage_once(token)
+
+    if status == 429:
+        backoff_seconds = retry_after_seconds if retry_after_seconds is not None else 900
+        backoff_until = int(time.time()) + max(60, backoff_seconds)
+        _write_claude_backoff_until(backoff_until)
+        _log(
+            CLAUDE_LOG,
+            f"usage API rate limited status=429 backoff_until={backoff_until} retry_after={retry_after_seconds}",
+        )
+        return 1
 
     if status != 200 or not body:
         _log(CLAUDE_LOG, f"usage API request failed status={status}")
@@ -179,6 +220,7 @@ def fetch_claude_usage() -> int:
 
     try:
         _atomic_write_text(CLAUDE_CACHE, body)
+        _clear_file_if_exists(CLAUDE_BACKOFF)
         _log(CLAUDE_LOG, f"cached Claude usage to {CLAUDE_CACHE}")
         return 0
     except OSError as error:

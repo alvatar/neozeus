@@ -3,7 +3,7 @@ use bevy::prelude::*;
 use std::{
     fs,
     process::{Command, Stdio},
-    time::SystemTime,
+    time::{SystemTime, UNIX_EPOCH},
 };
 
 const CLAUDE_CACHE_MAX_AGE_SECS: f32 = 60.0;
@@ -40,15 +40,18 @@ pub(crate) fn refresh_usage_caches_if_needed(
     mut persistence_state: ResMut<UsagePersistenceState>,
 ) {
     let now_secs = time.elapsed_secs();
+    let now_unix_secs = current_unix_secs();
 
     if cache_missing_or_stale(
         &persistence_state.claude_cache_path,
         CLAUDE_CACHE_MAX_AGE_SECS,
-    ) && should_spawn_refresh(
-        persistence_state.last_claude_refresh_attempt_secs,
-        now_secs,
-        CLAUDE_REFRESH_MIN_INTERVAL_SECS,
-    ) && spawn_usage_fetch(&persistence_state, "fetch-claude").is_ok()
+    ) && !claude_backoff_active(&persistence_state.claude_backoff_until_path, now_unix_secs)
+        && should_spawn_refresh(
+            persistence_state.last_claude_refresh_attempt_secs,
+            now_secs,
+            CLAUDE_REFRESH_MIN_INTERVAL_SECS,
+        )
+        && spawn_usage_fetch(&persistence_state, "fetch-claude").is_ok()
     {
         persistence_state.last_claude_refresh_attempt_secs = Some(now_secs);
     }
@@ -64,6 +67,23 @@ pub(crate) fn refresh_usage_caches_if_needed(
     {
         persistence_state.last_openai_refresh_attempt_secs = Some(now_secs);
     }
+}
+
+fn current_unix_secs() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs())
+        .unwrap_or_default()
+}
+
+fn claude_backoff_active(path: &std::path::Path, now_unix_secs: u64) -> bool {
+    let Ok(raw) = fs::read_to_string(path) else {
+        return false;
+    };
+    raw.trim()
+        .parse::<u64>()
+        .ok()
+        .is_some_and(|backoff_until| backoff_until > now_unix_secs)
 }
 
 fn spawn_usage_fetch(
@@ -90,6 +110,10 @@ fn spawn_usage_fetch(
             "NEOZEUS_OPENAI_USAGE_LOG",
             &persistence_state.openai_log_path,
         )
+        .env(
+            "NEOZEUS_CLAUDE_USAGE_BACKOFF",
+            &persistence_state.claude_backoff_until_path,
+        )
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -99,7 +123,10 @@ fn spawn_usage_fetch(
 
 #[cfg(test)]
 mod tests {
-    use super::{cache_missing_or_stale, refresh_usage_caches_if_needed, should_spawn_refresh};
+    use super::{
+        cache_missing_or_stale, claude_backoff_active, current_unix_secs,
+        refresh_usage_caches_if_needed, should_spawn_refresh,
+    };
     use crate::usage::{UsagePersistenceState, UsageSnapshot};
     use bevy::{ecs::system::RunSystemOnce, prelude::*};
     use std::{
@@ -166,6 +193,7 @@ mod tests {
             openai_cache_path: state_dir.join("missing-openai.json"),
             claude_log_path: state_dir.join("claude.log"),
             openai_log_path: state_dir.join("openai.log"),
+            claude_backoff_until_path: state_dir.join("claude-backoff.txt"),
             helper_script_path: helper,
             python_program: PathBuf::from("python3"),
             last_claude_refresh_attempt_secs: None,
@@ -198,6 +226,7 @@ mod tests {
             openai_cache_path: state_dir.join("missing-openai.json"),
             claude_log_path: state_dir.join("claude.log"),
             openai_log_path: state_dir.join("openai.log"),
+            claude_backoff_until_path: state_dir.join("claude-backoff.txt"),
             helper_script_path: helper,
             python_program: PathBuf::from("python3"),
             last_claude_refresh_attempt_secs: Some(8.0),
@@ -238,6 +267,7 @@ mod tests {
             openai_cache_path: state_dir.join("missing-openai.json"),
             claude_log_path: state_dir.join("claude.log"),
             openai_log_path: state_dir.join("openai.log"),
+            claude_backoff_until_path: state_dir.join("claude-backoff.txt"),
             helper_script_path: helper,
             python_program: PathBuf::from("python3"),
             last_claude_refresh_attempt_secs: None,
@@ -286,6 +316,7 @@ mod tests {
             openai_cache_path: openai_cache,
             claude_log_path: state_dir.join("claude.log"),
             openai_log_path: state_dir.join("openai.log"),
+            claude_backoff_until_path: state_dir.join("claude-backoff.txt"),
             helper_script_path: helper,
             python_program: PathBuf::from("python3"),
             last_claude_refresh_attempt_secs: None,
@@ -313,5 +344,53 @@ mod tests {
                 .last_openai_refresh_attempt_secs,
             Some(10.0)
         );
+    }
+
+    #[test]
+    fn claude_backoff_file_blocks_refresh_until_expired() {
+        let state_dir = temp_dir("claude-backoff");
+        let backoff_path = state_dir.join("claude-backoff.txt");
+        fs::write(&backoff_path, format!("{}", current_unix_secs() + 600)).unwrap();
+
+        assert!(claude_backoff_active(&backoff_path, current_unix_secs()));
+
+        let helper = state_dir.join("helper.py");
+        fs::write(&helper, "import sys; raise SystemExit(0)").unwrap();
+        let mut world = World::default();
+        world.insert_resource(Time::<()>::default());
+        world.insert_resource(UsageSnapshot::default());
+        world.insert_resource(UsagePersistenceState {
+            state_dir: state_dir.clone(),
+            claude_cache_path: state_dir.join("missing-claude.json"),
+            openai_cache_path: state_dir.join("missing-openai.json"),
+            claude_log_path: state_dir.join("claude.log"),
+            openai_log_path: state_dir.join("openai.log"),
+            claude_backoff_until_path: backoff_path,
+            helper_script_path: helper,
+            python_program: PathBuf::from("python3"),
+            last_claude_refresh_attempt_secs: None,
+            last_openai_refresh_attempt_secs: Some(8.0),
+        });
+        world
+            .resource_mut::<Time<()>>()
+            .advance_by(Duration::from_secs(10));
+
+        world
+            .run_system_once(refresh_usage_caches_if_needed)
+            .unwrap();
+
+        assert_eq!(
+            world
+                .resource::<UsagePersistenceState>()
+                .last_claude_refresh_attempt_secs,
+            None
+        );
+    }
+
+    #[test]
+    fn malformed_claude_backoff_file_is_ignored() {
+        let path = temp_dir("claude-backoff-malformed").join("claude-backoff.txt");
+        fs::write(&path, "not-a-timestamp").unwrap();
+        assert!(!claude_backoff_active(&path, current_unix_secs()));
     }
 }

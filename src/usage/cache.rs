@@ -6,6 +6,7 @@ const CLAUDE_CACHE_FILENAME: &str = "claude-usage-cache.json";
 const OPENAI_CACHE_FILENAME: &str = "openai-usage-cache.json";
 const CLAUDE_LOG_FILENAME: &str = "claude-usage.log";
 const OPENAI_LOG_FILENAME: &str = "openai-usage.log";
+const CLAUDE_BACKOFF_FILENAME: &str = "claude-usage-backoff-until.txt";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum CacheReadState {
@@ -52,6 +53,10 @@ pub(crate) fn default_usage_persistence_state() -> UsagePersistenceState {
             .filter(|value| !value.is_empty())
             .map(PathBuf::from)
             .unwrap_or_else(|| state_dir.join(OPENAI_LOG_FILENAME)),
+        claude_backoff_until_path: env::var_os("NEOZEUS_CLAUDE_USAGE_BACKOFF")
+            .filter(|value| !value.is_empty())
+            .map(PathBuf::from)
+            .unwrap_or_else(|| state_dir.join(CLAUDE_BACKOFF_FILENAME)),
         helper_script_path: PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("scripts/usage_fetch.py"),
         python_program: PathBuf::from(env::var_os("PYTHON").unwrap_or_else(|| "python3".into())),
@@ -405,6 +410,7 @@ mod tests {
             openai_cache_path: openai_path.clone(),
             claude_log_path: PathBuf::from("/tmp/neozeus/claude.log"),
             openai_log_path: PathBuf::from("/tmp/neozeus/openai.log"),
+            claude_backoff_until_path: PathBuf::from("/tmp/neozeus/claude-backoff.txt"),
             helper_script_path: PathBuf::from("scripts/usage_fetch.py"),
             python_program: PathBuf::from("python3"),
             last_claude_refresh_attempt_secs: None,
