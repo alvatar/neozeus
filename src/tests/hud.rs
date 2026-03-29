@@ -99,21 +99,18 @@ fn reset_module_restores_default_toolbar_state() {
         w: 10.0,
         h: 10.0,
     };
-    hud_state.insert_default_module(HudWidgetKey::DebugToolbar);
-    hud_state.set_module_shell_state(HudWidgetKey::DebugToolbar, false, rect, rect, 0.0, 0.0);
+    hud_state.insert_default_module(HudWidgetKey::InfoBar);
+    hud_state.set_module_shell_state(HudWidgetKey::InfoBar, false, rect, rect, 0.0, 0.0);
 
-    hud_state.reset_module(HudWidgetKey::DebugToolbar);
+    hud_state.reset_module(HudWidgetKey::InfoBar);
 
+    assert_eq!(hud_state.module_enabled(HudWidgetKey::InfoBar), Some(true));
     assert_eq!(
-        hud_state.module_enabled(HudWidgetKey::DebugToolbar),
-        Some(true)
-    );
-    assert_eq!(
-        hud_state.module_target_rect(HudWidgetKey::DebugToolbar),
+        hud_state.module_target_rect(HudWidgetKey::InfoBar),
         Some(crate::hud::HUD_MODULE_DEFINITIONS[0].default_rect)
     );
     assert_eq!(
-        hud_state.module_current_alpha(HudWidgetKey::DebugToolbar),
+        hud_state.module_current_alpha(HudWidgetKey::InfoBar),
         Some(1.0)
     );
     assert!(hud_state.dirty_layout);
@@ -360,7 +357,7 @@ fn alt_shift_module_shortcut_still_resets_module() {
     assert_eq!(
         drain_hud_commands(&mut world),
         vec![AppCommand::Widget(WidgetCommand::Reset(
-            HudWidgetKey::DebugToolbar
+            HudWidgetKey::InfoBar
         ))]
     );
 }
@@ -644,7 +641,7 @@ fn clicking_message_box_task_button_emits_append_task_intent() {
 #[test]
 fn hud_state_topmost_enabled_at_prefers_frontmost_module() {
     let mut state = HudState::default();
-    state.insert_default_module(HudWidgetKey::DebugToolbar);
+    state.insert_default_module(HudWidgetKey::InfoBar);
     state.insert_default_module(HudWidgetKey::AgentList);
     state.raise_to_front(HudWidgetKey::AgentList);
 

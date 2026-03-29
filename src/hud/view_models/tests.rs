@@ -1,9 +1,13 @@
-use super::{sync_hud_view_models, AgentListView, ComposerView, ConversationListView, ThreadView};
+use super::{
+    sync_hud_view_models, sync_info_bar_view_model, AgentListView, ComposerView,
+    ConversationListView, InfoBarView, ThreadView,
+};
 use crate::{
     agents::{AgentCatalog, AgentRuntimeIndex},
     app::AppSessionState,
     conversations::{AgentTaskStore, ConversationStore, MessageAuthor, MessageDeliveryState},
     tests::{insert_terminal_manager_resources, test_bridge},
+    usage::{ClaudeUsageData, OpenAiUsageData, UsageSnapshot},
 };
 use bevy::{ecs::system::RunSystemOnce, prelude::*};
 
@@ -77,4 +81,57 @@ fn sync_hud_view_models_derives_agent_rows_and_threads() {
     assert!(composer.visible);
     assert_eq!(composer.title.as_deref(), Some("Message alpha"));
     assert_eq!(composer.text, "hello");
+}
+
+/// Verifies that the info bar derives Zeus-style usage rows from the normalized usage snapshot.
+#[test]
+fn sync_info_bar_view_model_derives_usage_rows() {
+    let mut world = World::default();
+    world.insert_resource(UsageSnapshot {
+        claude: ClaudeUsageData {
+            session_pct: 42.0,
+            week_pct: 10.0,
+            session_resets_at: "5m".into(),
+            week_resets_at: "2h".into(),
+            available: true,
+            ..Default::default()
+        },
+        openai: OpenAiUsageData {
+            requests_pct_milli: 40_000,
+            tokens_pct_milli: 75_000,
+            requests_resets_at: "45s".into(),
+            tokens_resets_at: "24h".into(),
+            available: true,
+            ..Default::default()
+        },
+    });
+    world.insert_resource(InfoBarView::default());
+
+    world.run_system_once(sync_info_bar_view_model).unwrap();
+
+    let info_bar = world.resource::<InfoBarView>();
+    assert_eq!(info_bar.claude_session.label, "Claude Session:");
+    assert_eq!(info_bar.claude_session.pct_milli, 42_000);
+    assert_eq!(info_bar.claude_session.detail_text, "(5m)");
+    assert_eq!(info_bar.claude_week.detail_text, "(2h00m)");
+    assert_eq!(info_bar.openai_session.label, "OpenAI Session:");
+    assert_eq!(info_bar.openai_session.pct_milli, 40_000);
+    assert_eq!(info_bar.openai_session.detail_text, "(45s)");
+    assert_eq!(info_bar.openai_week.detail_text, "(1d00h)");
+}
+
+/// Verifies that unavailable providers produce explicit unavailable session text without panicking.
+#[test]
+fn sync_info_bar_view_model_marks_unavailable_providers_explicitly() {
+    let mut world = World::default();
+    world.insert_resource(UsageSnapshot::default());
+    world.insert_resource(InfoBarView::default());
+
+    world.run_system_once(sync_info_bar_view_model).unwrap();
+
+    let info_bar = world.resource::<InfoBarView>();
+    assert_eq!(info_bar.claude_session.detail_text, "(unavailable)");
+    assert_eq!(info_bar.claude_week.detail_text, "");
+    assert_eq!(info_bar.openai_session.detail_text, "(unavailable)");
+    assert_eq!(info_bar.openai_week.detail_text, "");
 }

@@ -111,17 +111,6 @@ impl TerminalBridge {
             stats.dirty_rows_uploaded += dirty_rows as u64;
         });
     }
-
-    /// Returns a cloned snapshot of the current debug statistics for this terminal.
-    ///
-    /// Poisoned locks are recovered instead of propagating an error, because inspection tooling should
-    /// still be able to see the last known counters even after a panic in another holder.
-    pub(crate) fn debug_stats_snapshot(&self) -> TerminalDebugStats {
-        match self.inner.debug_stats.lock() {
-            Ok(stats) => stats.clone(),
-            Err(poisoned) => poisoned.into_inner().clone(),
-        }
-    }
 }
 
 /// Produces a short stable label for a terminal command variant.

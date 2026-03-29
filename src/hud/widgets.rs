@@ -5,7 +5,7 @@ pub(crate) struct HudWidgetKey(&'static str);
 
 #[allow(non_upper_case_globals)]
 impl HudWidgetKey {
-    pub(crate) const DebugToolbar: Self = Self("debug-toolbar");
+    pub(crate) const InfoBar: Self = Self("info-bar");
     pub(crate) const AgentList: Self = Self("agent-list");
     pub(crate) const ConversationList: Self = Self("conversation-list");
     pub(crate) const ThreadPane: Self = Self("thread-pane");
@@ -44,10 +44,10 @@ pub(crate) struct HudWidgetDefinition {
 
 pub(crate) const HUD_WIDGET_DEFINITIONS: [HudWidgetDefinition; 4] = [
     HudWidgetDefinition {
-        key: HudWidgetKey::DebugToolbar,
+        key: HudWidgetKey::InfoBar,
         shortcut_number: 0,
         title: "Info Bar",
-        persistence_key: "DebugToolbar",
+        persistence_key: "InfoBar",
         default_enabled: true,
         default_rect: HudRect {
             x: 0.0,

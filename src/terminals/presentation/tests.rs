@@ -324,13 +324,13 @@ fn active_terminal_viewport_reserves_info_bar_header() {
         ..Default::default()
     };
     let mut hud_state = HudState::default();
-    hud_state.insert_default_module(HudWidgetKey::DebugToolbar);
+    hud_state.insert_default_module(HudWidgetKey::InfoBar);
     hud_state.insert_default_module(HudWidgetKey::AgentList);
     let info_bar_rect = crate::hud::docked_info_bar_rect(&window);
     let agent_list_rect =
         crate::hud::docked_agent_list_rect_with_top_inset(&window, info_bar_rect.h);
     hud_state.set_module_shell_state(
-        HudWidgetKey::DebugToolbar,
+        HudWidgetKey::InfoBar,
         true,
         info_bar_rect,
         info_bar_rect,
@@ -349,6 +349,43 @@ fn active_terminal_viewport_reserves_info_bar_header() {
     assert_eq!(
         active_terminal_viewport(&window, &hud_state.layout_state()),
         (Vec2::new(1100.0, 860.0), Vec2::new(150.0, -20.0))
+    );
+}
+
+/// Verifies that narrow windows reserve the taller two-row info-bar header.
+#[test]
+fn active_terminal_viewport_uses_taller_info_bar_on_narrow_windows() {
+    let window = Window {
+        resolution: (1000, 900).into(),
+        ..Default::default()
+    };
+    let mut hud_state = HudState::default();
+    hud_state.insert_default_module(HudWidgetKey::InfoBar);
+    hud_state.insert_default_module(HudWidgetKey::AgentList);
+    let info_bar_rect = crate::hud::docked_info_bar_rect(&window);
+    let agent_list_rect =
+        crate::hud::docked_agent_list_rect_with_top_inset(&window, info_bar_rect.h);
+    hud_state.set_module_shell_state(
+        HudWidgetKey::InfoBar,
+        true,
+        info_bar_rect,
+        info_bar_rect,
+        1.0,
+        1.0,
+    );
+    hud_state.set_module_shell_state(
+        HudWidgetKey::AgentList,
+        true,
+        agent_list_rect,
+        agent_list_rect,
+        1.0,
+        1.0,
+    );
+
+    assert_eq!(info_bar_rect.h, 72.0);
+    assert_eq!(
+        active_terminal_viewport(&window, &hud_state.layout_state()),
+        (Vec2::new(700.0, 828.0), Vec2::new(150.0, -36.0))
     );
 }
 

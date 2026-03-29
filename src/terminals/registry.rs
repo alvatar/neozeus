@@ -1,6 +1,6 @@
 use super::{
     bridge::TerminalBridge,
-    debug::{append_debug_log, TerminalDebugStats},
+    debug::append_debug_log,
     types::{TerminalDamage, TerminalSnapshot},
 };
 use bevy::prelude::{ResMut, Resource};
@@ -60,25 +60,6 @@ impl TerminalFocusState {
     ) -> Option<&'a TerminalBridge> {
         self.active_id
             .and_then(|id| terminal_manager.get(id).map(|terminal| &terminal.bridge))
-    }
-
-    /// Implements active snapshot.
-    pub(crate) fn active_snapshot<'a>(
-        &self,
-        terminal_manager: &'a TerminalManager,
-    ) -> Option<&'a TerminalSnapshot> {
-        self.active_id
-            .and_then(|id| terminal_manager.get(id).map(|terminal| &terminal.snapshot))
-    }
-
-    /// Returns debug stats for the active terminal bridge, or default stats if nothing is focused.
-    pub(crate) fn active_debug_stats(
-        &self,
-        terminal_manager: &TerminalManager,
-    ) -> TerminalDebugStats {
-        self.active_bridge(terminal_manager)
-            .map(TerminalBridge::debug_stats_snapshot)
-            .unwrap_or_default()
     }
 
     /// Test helper that exposes the focus-order list.

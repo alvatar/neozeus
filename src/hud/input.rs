@@ -12,7 +12,7 @@ use super::{
         AgentListUiState, ConversationListUiState, HudDragState, HudInputCaptureState,
         HudLayoutState, HudRect, HUD_TITLEBAR_HEIGHT,
     },
-    view_models::{AgentListView, ConversationListView, DebugToolbarView},
+    view_models::{AgentListView, ConversationListView, InfoBarView},
     widgets::HudWidgetKey,
 };
 use bevy::{
@@ -40,10 +40,7 @@ fn cursor_hud_position(window: &Window) -> Option<Vec2> {
 /// content. The agent list is the exception: its whole shell is interactive, so it keeps the full
 /// rectangle.
 fn content_hit_rect(module_id: HudWidgetKey, rect: HudRect) -> HudRect {
-    if matches!(
-        module_id,
-        HudWidgetKey::AgentList | HudWidgetKey::DebugToolbar
-    ) {
+    if matches!(module_id, HudWidgetKey::AgentList | HudWidgetKey::InfoBar) {
         return rect;
     }
     HudRect {
@@ -64,7 +61,7 @@ struct HudPointerContext<'w, 's> {
     input_capture: Res<'w, HudInputCaptureState>,
     agent_list_state: ResMut<'w, AgentListUiState>,
     conversation_list_state: ResMut<'w, ConversationListUiState>,
-    debug_toolbar_view: Res<'w, DebugToolbarView>,
+    info_bar_view: Res<'w, InfoBarView>,
     agent_list_view: Res<'w, AgentListView>,
     conversation_list_view: Res<'w, ConversationListView>,
     app_commands: MessageWriter<'w, AppCommand>,
@@ -189,10 +186,7 @@ pub(crate) fn handle_hud_pointer_input(world: &mut World) {
                 .map(|module| module.shell.titlebar_rect())
                 .unwrap_or_default();
             if titlebar_rect.contains(cursor)
-                && !matches!(
-                    module_id,
-                    HudWidgetKey::AgentList | HudWidgetKey::DebugToolbar
-                )
+                && !matches!(module_id, HudWidgetKey::AgentList | HudWidgetKey::InfoBar)
             {
                 ctx.layout_state.drag = Some(HudDragState {
                     module_id,
@@ -242,7 +236,7 @@ pub(crate) fn handle_hud_pointer_input(world: &mut World) {
                             &ctx.conversation_list_state,
                             &ctx.agent_list_view,
                             &ctx.conversation_list_view,
-                            &ctx.debug_toolbar_view,
+                            &ctx.info_bar_view,
                             &ctx.layout_state,
                             &mut emitted_commands,
                         );
@@ -490,7 +484,7 @@ pub(crate) fn handle_hud_module_shortcuts(
         }
 
         let module_id = match event.key_code {
-            KeyCode::Digit0 => Some(HudWidgetKey::DebugToolbar),
+            KeyCode::Digit0 => Some(HudWidgetKey::InfoBar),
             KeyCode::Digit1 => Some(HudWidgetKey::AgentList),
             KeyCode::Digit2 => Some(HudWidgetKey::ConversationList),
             KeyCode::Digit3 => Some(HudWidgetKey::ThreadPane),

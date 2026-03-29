@@ -4,7 +4,7 @@ use crate::{
     app::{AgentCommand as AppAgentCommand, AppCommand},
     hud::{
         AgentListRowView, AgentListUiState, AgentListView, ConversationListUiState,
-        ConversationListView, DebugToolbarView, HudRect, HudState, HudWidgetKey,
+        ConversationListView, HudRect, HudState, HudWidgetKey, InfoBarView,
     },
     terminals::{TerminalManager, TerminalPresentationStore, TerminalViewState},
     tests::{insert_test_hud_state, snapshot_test_hud_state, test_bridge},
@@ -421,7 +421,7 @@ fn clicking_agent_list_row_emits_focus_and_isolate_commands() {
         &ConversationListUiState::default(),
         &agent_list_view,
         &ConversationListView::default(),
-        &DebugToolbarView::default(),
+        &InfoBarView::default(),
         &hud_state.layout_state(),
         &mut emitted_commands,
     );
