@@ -1,6 +1,6 @@
 use super::{
     AppSessionState, CreateAgentDialogField, CreateAgentDialogState, CreateAgentKind,
-    VisibilityMode,
+    TextFieldState, VisibilityMode,
 };
 use crate::{agents::AgentId, hud::HudInputCaptureState};
 
@@ -62,4 +62,36 @@ fn create_agent_dialog_counts_as_keyboard_capture() {
     assert!(!session.keyboard_capture_active(&HudInputCaptureState::default()));
     session.create_agent_dialog.open(CreateAgentKind::Agent);
     assert!(session.keyboard_capture_active(&HudInputCaptureState::default()));
+}
+
+/// Verifies that single-line field character motion and deletion respect UTF-8 codepoint
+/// boundaries.
+#[test]
+fn text_field_char_motion_and_delete_follow_utf8_boundaries() {
+    let mut field = TextFieldState::default();
+    field.load_text("aéb");
+
+    assert!(field.move_left());
+    assert_eq!(field.cursor, 3);
+    assert!(field.move_left());
+    assert_eq!(field.cursor, 1);
+    assert!(field.delete_forward_char());
+    assert_eq!(field.text, "ab");
+    assert_eq!(field.cursor, 1);
+}
+
+/// Verifies that single-line field word movement uses whitespace-delimited segments rather than the
+/// composer editor's identifier-style word policy.
+#[test]
+fn text_field_word_motion_uses_whitespace_boundaries() {
+    let mut field = TextFieldState::default();
+    field.load_text("  foo-bar baz");
+    assert!(field.move_word_backward());
+    assert_eq!(field.cursor, 10);
+    assert!(field.move_word_backward());
+    assert_eq!(field.cursor, 2);
+    assert!(field.move_word_forward());
+    assert_eq!(field.cursor, 9);
+    assert!(field.move_word_forward());
+    assert_eq!(field.cursor, 13);
 }

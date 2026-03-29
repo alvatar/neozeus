@@ -1,3 +1,7 @@
+use crate::shared::text_cursor::{
+    next_char_boundary, previous_char_boundary, word_backward_boundary, word_forward_boundary,
+};
+
 use super::state::{
     TextEditorDraft, TextEditorState, TextEditorYankState, TEXT_EDITOR_KILL_RING_LIMIT,
 };
@@ -200,7 +204,7 @@ impl TextEditorState {
 
     /// Moves word backward.
     pub(crate) fn move_word_backward(&mut self) -> bool {
-        let boundary = word_backward_boundary(&self.text, self.cursor);
+        let boundary = word_backward_boundary(&self.text, self.cursor, is_word_char);
         if boundary == self.cursor {
             return false;
         }
@@ -212,7 +216,7 @@ impl TextEditorState {
 
     /// Moves word forward.
     pub(crate) fn move_word_forward(&mut self) -> bool {
-        let boundary = word_forward_boundary(&self.text, self.cursor);
+        let boundary = word_forward_boundary(&self.text, self.cursor, is_word_char);
         if boundary == self.cursor {
             return false;
         }
@@ -280,7 +284,7 @@ impl TextEditorState {
 
     /// Deletes word forward and updates the kill-ring state.
     pub(crate) fn kill_word_forward(&mut self) -> bool {
-        let boundary = word_forward_boundary(&self.text, self.cursor);
+        let boundary = word_forward_boundary(&self.text, self.cursor, is_word_char);
         let Some(killed) = self.delete_range_internal(self.cursor, boundary, true) else {
             return false;
         };
@@ -289,7 +293,7 @@ impl TextEditorState {
 
     /// Deletes word backward and updates the kill-ring state.
     pub(crate) fn kill_word_backward(&mut self) -> bool {
-        let boundary = word_backward_boundary(&self.text, self.cursor);
+        let boundary = word_backward_boundary(&self.text, self.cursor, is_word_char);
         let Some(killed) = self.delete_range_internal(boundary, self.cursor, true) else {
             return false;
         };
@@ -436,80 +440,6 @@ fn adjust_index_after_delete(index: usize, start: usize, end: usize) -> usize {
     } else {
         index - (end - start)
     }
-}
-
-/// Handles word backward boundary.
-fn word_backward_boundary(text: &str, cursor: usize) -> usize {
-    let mut current = cursor;
-    while let Some((previous, ch)) = previous_char(text, current) {
-        if is_word_char(ch) {
-            break;
-        }
-        current = previous;
-    }
-    while let Some((previous, ch)) = previous_char(text, current) {
-        if !is_word_char(ch) {
-            break;
-        }
-        current = previous;
-    }
-    current
-}
-
-/// Handles word forward boundary.
-fn word_forward_boundary(text: &str, cursor: usize) -> usize {
-    let mut current = cursor;
-    while let Some((next, ch)) = next_char(text, current) {
-        if is_word_char(ch) {
-            break;
-        }
-        current = next;
-    }
-    while let Some((next, ch)) = next_char(text, current) {
-        if !is_word_char(ch) {
-            break;
-        }
-        current = next;
-    }
-    current
-}
-
-/// Handles previous char boundary.
-fn previous_char_boundary(text: &str, cursor: usize) -> Option<usize> {
-    if cursor == 0 {
-        return None;
-    }
-    text[..cursor].char_indices().last().map(|(index, _)| index)
-}
-
-/// Handles next char boundary.
-fn next_char_boundary(text: &str, cursor: usize) -> Option<usize> {
-    if cursor >= text.len() {
-        return None;
-    }
-    text[cursor..]
-        .chars()
-        .next()
-        .map(|ch| cursor + ch.len_utf8())
-}
-
-/// Handles previous char.
-fn previous_char(text: &str, cursor: usize) -> Option<(usize, char)> {
-    if cursor == 0 {
-        return None;
-    }
-    text[..cursor].char_indices().last()
-}
-
-/// Handles next char.
-fn next_char(text: &str, cursor: usize) -> Option<(usize, char)> {
-    if cursor >= text.len() {
-        return None;
-    }
-    text[cursor..]
-        .chars()
-        .next()
-        .map(|ch| (cursor + ch.len_utf8(), ch))
 }
 
 /// Handles current line bounds.
