@@ -147,13 +147,13 @@ fn resolve_neozeus_config_path_with(
 ///
 /// Empty override values are ignored on purpose so shell wrappers can export the variable without
 /// forcing an empty title. If neither the environment nor the config file specifies a title, the
-/// application falls back to `neozeus`.
+/// application falls back to `NEOZEUS CONTROL PANEL`.
 pub(crate) fn resolve_window_title(config: &NeoZeusConfig) -> String {
     env::var("NEOZEUS_WINDOW_TITLE")
         .ok()
         .filter(|value| !value.trim().is_empty())
         .or_else(|| config.window_title().map(str::to_owned))
-        .unwrap_or_else(|| "neozeus".to_owned())
+        .unwrap_or_else(|| "NEOZEUS CONTROL PANEL".to_owned())
 }
 
 /// Resolves the native app/window id with the same precedence model as the visible title.
