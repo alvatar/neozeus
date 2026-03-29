@@ -51,7 +51,7 @@ font_size_px = 16.0
 baseline_offset_px = -0.5
 
 [window]
-title = "neozeus"
+title = "NEOZEUS CONTROL PANEL"
 app_id = "neozeus"
 ```
 
