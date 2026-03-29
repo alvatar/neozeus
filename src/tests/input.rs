@@ -17,7 +17,7 @@ use crate::{
         handle_terminal_direct_input_keyboard, handle_terminal_lifecycle_shortcuts,
         handle_terminal_message_box_keyboard, hide_terminal_on_background_click,
         keyboard_input_to_terminal_command, should_exit_application, should_kill_active_terminal,
-        should_spawn_shell_terminal_globally, should_spawn_terminal_globally,
+        should_spawn_terminal_globally,
     },
     terminals::{
         TerminalCommand, TerminalManager, TerminalNotesState, TerminalPanel, TerminalPresentation,
@@ -296,24 +296,6 @@ fn global_spawn_shortcut_only_uses_plain_z() {
     assert!(!should_spawn_terminal_globally(&event, &ctrl_keys));
 }
 
-/// Verifies that the explicit shell-spawn shortcut is accepted only for `Ctrl+Alt+z`.
-#[test]
-fn global_shell_spawn_shortcut_only_uses_ctrl_alt_z() {
-    let event = pressed_text(KeyCode::KeyZ, Some("z"));
-
-    let mut ctrl_alt_keys = ButtonInput::<KeyCode>::default();
-    ctrl_alt_keys.press(KeyCode::ControlLeft);
-    ctrl_alt_keys.press(KeyCode::AltLeft);
-    assert!(should_spawn_shell_terminal_globally(&event, &ctrl_alt_keys));
-
-    let plain_keys = ButtonInput::<KeyCode>::default();
-    assert!(!should_spawn_shell_terminal_globally(&event, &plain_keys));
-
-    let mut ctrl_keys = ButtonInput::<KeyCode>::default();
-    ctrl_keys.press(KeyCode::ControlLeft);
-    assert!(!should_spawn_shell_terminal_globally(&event, &ctrl_keys));
-}
-
 /// Verifies that the global spawn shortcut opens the centered create-agent dialog even when another
 /// terminal is already active.
 #[test]
@@ -348,48 +330,6 @@ fn global_spawn_shortcut_opens_create_agent_dialog_even_with_active_terminal() {
     assert_eq!(session.create_agent_dialog.kind, CreateAgentKind::Agent);
     assert_eq!(session.create_agent_dialog.name_field.text, "");
     assert_eq!(session.create_agent_dialog.cwd_field.field.text, "~/code");
-    assert_eq!(
-        session.create_agent_dialog.focus,
-        CreateAgentDialogField::Name
-    );
-    assert_eq!(world.resource::<Messages<RequestRedraw>>().len(), 1);
-}
-
-/// Verifies that the explicit shell-spawn shortcut opens the create-agent dialog with shell kind
-/// preselected.
-#[test]
-fn global_shell_spawn_shortcut_opens_shell_create_agent_dialog() {
-    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
-    let (bridge, _) = test_bridge();
-    let mut manager = TerminalManager::default();
-    manager.create_terminal(bridge);
-
-    let mut world = World::default();
-    let window = Window {
-        focused: true,
-        ..Default::default()
-    };
-    let mut keys = ButtonInput::<KeyCode>::default();
-    keys.press(KeyCode::ControlLeft);
-    keys.press(KeyCode::AltLeft);
-    world.insert_resource(keys);
-    insert_terminal_manager_resources(&mut world, manager);
-    insert_default_hud_resources(&mut world);
-    world.init_resource::<Messages<RequestRedraw>>();
-    world.init_resource::<Messages<KeyboardInput>>();
-    world.spawn((window, PrimaryWindow));
-
-    world
-        .resource_mut::<Messages<KeyboardInput>>()
-        .write(pressed_text(KeyCode::KeyZ, Some("z")));
-
-    world
-        .run_system_once(handle_global_terminal_spawn_shortcut)
-        .unwrap();
-
-    let session = world.resource::<AppSessionState>();
-    assert!(session.create_agent_dialog.visible);
-    assert_eq!(session.create_agent_dialog.kind, CreateAgentKind::Shell);
     assert_eq!(
         session.create_agent_dialog.focus,
         CreateAgentDialogField::Name
