@@ -71,18 +71,21 @@ fn usage_gradient_keeps_original_cyan_to_red_ramp() {
     assert_eq!((high.r, high.g, high.b, high.a), (0xFF, 0x33, 0x33, 0xFF));
 }
 
-/// Verifies that the reference layout keeps the Claude row above the OpenAI row.
+/// Verifies that the reference layout keeps the Claude row above the OpenAI row and only uses
+/// the left half of the info bar width.
 #[test]
-fn info_bar_rows_keep_provider_order() {
-    let rows = render::info_bar_row_rects(HudRect {
+fn info_bar_rows_keep_provider_order_and_use_left_half_width() {
+    let rect = HudRect {
         x: 0.0,
         y: 0.0,
         w: 1280.0,
         h: 60.0,
-    });
+    };
+    let rows = render::info_bar_row_rects(rect);
     assert_eq!(rows.len(), 2);
     assert!(rows[0].y < rows[1].y);
     assert_eq!(rows[0].x, rows[1].x);
+    assert!(rows[0].w <= rect.w * 0.5);
 }
 
 /// Verifies that each provider row places `Session` before `Week`.

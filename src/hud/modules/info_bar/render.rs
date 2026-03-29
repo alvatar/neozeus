@@ -14,6 +14,7 @@ const INFO_BAR_TRACK_SEPARATOR: peniko::Color = peniko::Color::from_rgba8(28, 33
 const INFO_BAR_PADDING_X: f32 = 4.0;
 const INFO_BAR_PADDING_Y: f32 = 10.0;
 const INFO_BAR_ROW_GAP: f32 = 8.0;
+const INFO_BAR_CONTENT_WIDTH_RATIO: f32 = 0.5;
 const INFO_BAR_SECTION_GAP: f32 = 18.0;
 const INFO_BAR_COMPACT_SECTION_GAP: f32 = 10.0;
 const INFO_BAR_LABEL_GAP: f32 = 8.0;
@@ -109,17 +110,19 @@ pub(in crate::hud) fn info_bar_density(content_rect: HudRect) -> InfoBarDensity 
 pub(in crate::hud) fn info_bar_row_rects(content_rect: HudRect) -> [HudRect; 2] {
     let row_height =
         ((content_rect.h - INFO_BAR_PADDING_Y * 2.0 - INFO_BAR_ROW_GAP) / 2.0).max(0.0);
+    let content_width =
+        ((content_rect.w - INFO_BAR_PADDING_X * 2.0) * INFO_BAR_CONTENT_WIDTH_RATIO).max(0.0);
     [
         HudRect {
             x: content_rect.x + INFO_BAR_PADDING_X,
             y: content_rect.y + INFO_BAR_PADDING_Y,
-            w: (content_rect.w - INFO_BAR_PADDING_X * 2.0).max(0.0),
+            w: content_width,
             h: row_height,
         },
         HudRect {
             x: content_rect.x + INFO_BAR_PADDING_X,
             y: content_rect.y + INFO_BAR_PADDING_Y + row_height + INFO_BAR_ROW_GAP,
-            w: (content_rect.w - INFO_BAR_PADDING_X * 2.0).max(0.0),
+            w: content_width,
             h: row_height,
         },
     ]
