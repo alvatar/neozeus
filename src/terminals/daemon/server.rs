@@ -95,16 +95,14 @@ impl DaemonRegistry {
             .ok_or_else(|| format!("daemon session `{session_id}` not found"))
     }
 
-    /// Removes a daemon session from the registry and asks its worker to terminate.
+    /// Hard-kills a daemon session, waits for its worker teardown to finish, and only then removes
+    /// it from the registry.
     fn kill_session(&self, session_id: &str) -> Result<(), String> {
-        let session = {
-            let mut registry = lock(&self.inner);
-            registry
-                .sessions
-                .remove(session_id)
-                .ok_or_else(|| format!("daemon session `{session_id}` not found"))?
-        };
-        session.kill()
+        let session = self.session(session_id)?;
+        session.kill()?;
+        let mut registry = lock(&self.inner);
+        registry.sessions.remove(session_id);
+        Ok(())
     }
 }
 

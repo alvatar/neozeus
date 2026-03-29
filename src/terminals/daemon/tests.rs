@@ -123,6 +123,23 @@ fn wait_for_surface_dimensions(
     }
 }
 
+/// Waits until a file appears and returns its trimmed contents.
+fn wait_for_file_text(path: &std::path::Path) -> String {
+    let deadline = std::time::Instant::now() + Duration::from_secs(3);
+    loop {
+        if let Ok(text) = fs::read_to_string(path) {
+            let text = text.trim().to_owned();
+            if !text.is_empty() {
+                return text;
+            }
+        }
+        if std::time::Instant::now() >= deadline {
+            panic!("timed out waiting for file {}", path.display());
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
 /// Verifies daemon socket-path resolution precedence: explicit override, then XDG runtime, then the
 /// per-user temp-dir fallback.
 #[test]
@@ -559,6 +576,42 @@ fn daemon_killing_one_session_preserves_other_sessions() {
         .expect("sessions should list after kill");
     assert!(!sessions.iter().any(|session| session.session_id == first));
     assert!(sessions.iter().any(|session| session.session_id == second));
+}
+
+/// Verifies that daemon `kill_session` only returns after the shell process has actually been
+/// hard-killed and reaped.
+#[test]
+fn daemon_kill_session_waits_for_shell_exit() {
+    let (_server, socket_path) = start_test_daemon("neozeus-daemon-kill-wait");
+    let client =
+        SocketTerminalDaemonClient::connect(&socket_path).expect("daemon client should connect");
+    let session_id = client
+        .create_session(PERSISTENT_SESSION_PREFIX, None)
+        .expect("daemon session should be created");
+
+    let pid_file = temp_dir("neozeus-daemon-kill-wait-pid").join("shell.pid");
+    client
+        .send_command(
+            &session_id,
+            TerminalCommand::SendCommand(format!(
+                "echo $$ > {}; trap '' HUP; sleep 5",
+                pid_file.display()
+            )),
+        )
+        .expect("daemon command should send");
+
+    let pid_text = wait_for_file_text(&pid_file);
+    let pid: u32 = pid_text.parse().expect("shell pid should parse");
+    assert!(std::path::Path::new(&format!("/proc/{pid}")).exists());
+
+    client
+        .kill_session(&session_id)
+        .expect("daemon session should kill");
+
+    assert!(
+        !std::path::Path::new(&format!("/proc/{pid}")).exists(),
+        "shell pid {pid} should be gone after kill_session returns"
+    );
 }
 
 /// Stress-smoke test that repeated daemon create/attach/kill churn leaves the daemon in a clean
