@@ -691,17 +691,24 @@ pub(crate) fn handle_terminal_message_box_keyboard(
                     ),
                     true,
                 ),
-                CreateAgentDialogField::Kind => {
-                    if ctrl || alt || super_key {
-                        (false, false)
+                CreateAgentDialogField::KindAgent => {
+                    if !ctrl && !alt && !super_key && event.key_code == KeyCode::Space {
+                        app_session
+                            .create_agent_dialog
+                            .set_kind(CreateAgentKind::Agent);
+                        (true, false)
                     } else {
-                        match event.key_code {
-                            KeyCode::ArrowLeft | KeyCode::ArrowRight | KeyCode::Space => {
-                                app_session.create_agent_dialog.toggle_kind();
-                                (true, false)
-                            }
-                            _ => (false, false),
-                        }
+                        (false, false)
+                    }
+                }
+                CreateAgentDialogField::KindShell => {
+                    if !ctrl && !alt && !super_key && event.key_code == KeyCode::Space {
+                        app_session
+                            .create_agent_dialog
+                            .set_kind(CreateAgentKind::Shell);
+                        (true, false)
+                    } else {
+                        (false, false)
                     }
                 }
                 CreateAgentDialogField::StartingFolder => (

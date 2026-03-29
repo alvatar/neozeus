@@ -1,5 +1,5 @@
 use crate::{
-    app::{AppSessionState, CreateAgentDialogField},
+    app::{AppSessionState, CreateAgentDialogField, CreateAgentKind},
     composer::{
         create_agent_create_button_rect, create_agent_dialog_rect, create_agent_kind_option_rects,
         create_agent_name_field_rect, create_agent_starting_folder_rect,
@@ -571,13 +571,40 @@ fn draw_create_agent_dialog(
     );
     for (kind, option_rect, label) in kind_options {
         let selected = dialog.kind == kind;
-        let focused = dialog.focus == CreateAgentDialogField::Kind && selected;
-        let bullet = if selected { "◉" } else { "○" };
-        painter.label(
-            Vec2::new(option_rect.x, option_rect.y),
-            &format!("{bullet} {label}"),
-            16.0,
+        let focused = matches!(
+            (dialog.focus, kind),
+            (CreateAgentDialogField::KindAgent, CreateAgentKind::Agent)
+                | (CreateAgentDialogField::KindShell, CreateAgentKind::Shell)
+        );
+        let square_rect = HudRect {
+            x: option_rect.x,
+            y: option_rect.y + 2.0,
+            w: 16.0,
+            h: 16.0,
+        };
+        painter.fill_rect(
+            square_rect,
+            if selected {
+                HudColors::TEXT
+            } else {
+                HudColors::BUTTON
+            },
+            0.0,
+        );
+        painter.stroke_rect(
+            square_rect,
             if focused {
+                HudColors::TEXT
+            } else {
+                HudColors::BUTTON_BORDER
+            },
+            0.0,
+        );
+        painter.label(
+            Vec2::new(option_rect.x + 26.0, option_rect.y),
+            label,
+            16.0,
+            if focused || selected {
                 HudColors::TEXT
             } else {
                 HudColors::TEXT_MUTED
@@ -605,22 +632,15 @@ fn draw_create_agent_dialog(
         painter.stroke_rect(create_rect, HudColors::TEXT, 0.0);
     }
 
-    let status_y = create_rect.y - 26.0;
-    let status = dialog
-        .error
-        .as_deref()
-        .unwrap_or("Tab next · Shift-Tab previous · Left/Right/Space change type · Esc cancel");
-    painter.label(
-        Vec2::new(rect.x + 24.0, status_y),
-        status,
-        14.0,
-        if dialog.error.is_some() {
-            peniko::Color::from_rgba8(220, 80, 80, 255)
-        } else {
-            HudColors::TEXT_MUTED
-        },
-        VelloTextAnchor::TopLeft,
-    );
+    if let Some(error) = dialog.error.as_deref() {
+        painter.label(
+            Vec2::new(rect.x + 24.0, create_rect.y - 26.0),
+            error,
+            14.0,
+            peniko::Color::from_rgba8(220, 80, 80, 255),
+            VelloTextAnchor::TopLeft,
+        );
+    }
 }
 
 /// Draws the message-box modal, including title, editor body, buttons, and status line.

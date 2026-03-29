@@ -414,7 +414,36 @@ fn create_agent_dialog_tab_advances_focus() {
             .resource::<AppSessionState>()
             .create_agent_dialog
             .focus,
-        CreateAgentDialogField::Kind
+        CreateAgentDialogField::KindAgent
+    );
+}
+
+/// Verifies that pressing `Space` selects the currently focused type option.
+#[test]
+fn create_agent_dialog_space_selects_focused_type() {
+    let mut world = World::default();
+    world.insert_resource(ButtonInput::<KeyCode>::default());
+    world.insert_resource(AppSessionState::default());
+    {
+        let mut session = world.resource_mut::<AppSessionState>();
+        session.create_agent_dialog.open(CreateAgentKind::Agent);
+        session.create_agent_dialog.focus = CreateAgentDialogField::KindShell;
+    }
+    world.spawn((
+        Window {
+            focused: true,
+            ..Default::default()
+        },
+        PrimaryWindow,
+    ));
+
+    dispatch_message_box_key(&mut world, pressed_text(KeyCode::Space, Some(" ")));
+
+    let session = world.resource::<AppSessionState>();
+    assert_eq!(session.create_agent_dialog.kind, CreateAgentKind::Shell);
+    assert_eq!(
+        session.create_agent_dialog.focus,
+        CreateAgentDialogField::KindShell
     );
 }
 

@@ -43,7 +43,9 @@ fn create_agent_dialog_cycles_focus_forward_and_backward() {
     dialog.open(CreateAgentKind::Agent);
 
     dialog.cycle_focus(false);
-    assert_eq!(dialog.focus, CreateAgentDialogField::Kind);
+    assert_eq!(dialog.focus, CreateAgentDialogField::KindAgent);
+    dialog.cycle_focus(false);
+    assert_eq!(dialog.focus, CreateAgentDialogField::KindShell);
     dialog.cycle_focus(false);
     assert_eq!(dialog.focus, CreateAgentDialogField::StartingFolder);
     dialog.cycle_focus(false);
@@ -53,6 +55,17 @@ fn create_agent_dialog_cycles_focus_forward_and_backward() {
 
     dialog.cycle_focus(true);
     assert_eq!(dialog.focus, CreateAgentDialogField::CreateButton);
+}
+
+/// Verifies that selected kind determines which type option receives focus when tab enters that row.
+#[test]
+fn create_agent_dialog_focus_enters_selected_kind() {
+    let mut dialog = CreateAgentDialogState::default();
+    dialog.open(CreateAgentKind::Shell);
+
+    dialog.cycle_focus(false);
+
+    assert_eq!(dialog.focus, CreateAgentDialogField::KindShell);
 }
 
 /// Verifies that the session-level keyboard-capture predicate includes the create-agent dialog.
