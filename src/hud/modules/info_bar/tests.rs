@@ -60,15 +60,16 @@ fn info_bar_click_does_not_emit_commands() {
     assert!(emitted_commands.is_empty());
 }
 
-/// Verifies that the usage gradient keeps the original Zeus cyan-to-red ramp.
+/// Verifies that the usage gradient uses the NeoZeus warm palette rather than the borrowed Zeus
+/// teal palette.
 #[test]
-fn usage_gradient_keeps_original_cyan_to_red_ramp() {
+fn usage_gradient_keeps_neozeus_orange_ramp() {
     let low = render::usage_gradient_color(0.0).to_rgba8();
-    assert_eq!((low.r, low.g, low.b, low.a), (0x00, 0xD7, 0xD7, 0xFF));
+    assert_eq!((low.r, low.g, low.b, low.a), (216, 160, 96, 255));
     let mid = render::usage_gradient_color(70.0).to_rgba8();
-    assert_eq!((mid.r, mid.g, mid.b, mid.a), (0xD7, 0xD7, 0x00, 0xFF));
+    assert_eq!((mid.r, mid.g, mid.b, mid.a), (238, 96, 2, 255));
     let high = render::usage_gradient_color(100.0).to_rgba8();
-    assert_eq!((high.r, high.g, high.b, high.a), (0xFF, 0x33, 0x33, 0xFF));
+    assert_eq!((high.r, high.g, high.b, high.a), (255, 96, 48, 255));
 }
 
 /// Verifies that the reference layout keeps the Claude row above the OpenAI row and only uses
