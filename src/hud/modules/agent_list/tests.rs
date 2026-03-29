@@ -92,6 +92,78 @@ fn reorder_target_index_tracks_row_midpoints() {
     );
 }
 
+/// Verifies that the dragged row follows the cursor while the remaining rows reflow around the
+/// live insertion slot.
+#[test]
+fn projected_agent_rows_follow_drag_cursor_and_reflow_other_rows() {
+    let shell = HudRect {
+        x: 24.0,
+        y: 96.0,
+        w: 300.0,
+        h: 420.0,
+    };
+    let view = AgentListView {
+        rows: vec![
+            AgentListRowView {
+                agent_id: AgentId(1),
+                terminal_id: None,
+                label: "alpha".into(),
+                focused: false,
+                has_tasks: false,
+                interactive: true,
+            },
+            AgentListRowView {
+                agent_id: AgentId(2),
+                terminal_id: None,
+                label: "beta".into(),
+                focused: true,
+                has_tasks: false,
+                interactive: true,
+            },
+            AgentListRowView {
+                agent_id: AgentId(3),
+                terminal_id: None,
+                label: "gamma".into(),
+                focused: false,
+                has_tasks: true,
+                interactive: true,
+            },
+        ],
+    };
+
+    let rows = rows::projected_agent_rows(
+        shell,
+        0.0,
+        None,
+        &view,
+        Some(rows::AgentListDragPreview {
+            agent_id: AgentId(2),
+            cursor_y: 260.0,
+            grab_offset_y: 10.0,
+            target_index: 2,
+        }),
+    );
+
+    let alpha = rows
+        .iter()
+        .find(|row| row.agent_id == AgentId(1))
+        .expect("alpha row should exist");
+    let gamma = rows
+        .iter()
+        .find(|row| row.agent_id == AgentId(3))
+        .expect("gamma row should exist");
+    let beta = rows
+        .iter()
+        .find(|row| row.agent_id == AgentId(2))
+        .expect("beta row should exist");
+
+    assert!(!alpha.dragging);
+    assert_eq!(alpha.rect.y, 158.0);
+    assert_eq!(gamma.rect.y, 200.0);
+    assert!(beta.dragging);
+    assert_eq!(beta.rect.y, 250.0);
+}
+
 /// Verifies that explicit agent-directory labels override the synthetic `agent-N` fallback names.
 #[test]
 fn agent_rows_use_derived_agent_view_labels() {

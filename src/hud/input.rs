@@ -220,6 +220,8 @@ pub(crate) fn handle_hud_pointer_input(world: &mut World) {
             ctx.agent_list_state.pressed_agent = None;
             ctx.agent_list_state.press_origin = None;
             ctx.agent_list_state.dragging_agent = None;
+            ctx.agent_list_state.drag_cursor = None;
+            ctx.agent_list_state.drag_grab_offset_y = 0.0;
             ctx.agent_list_state.last_reorder_index = None;
         }
         return;
@@ -252,6 +254,22 @@ pub(crate) fn handle_hud_pointer_input(world: &mut World) {
                         );
                         ctx.agent_list_state.press_origin = Some(cursor);
                         ctx.agent_list_state.dragging_agent = None;
+                        ctx.agent_list_state.drag_cursor = None;
+                        ctx.agent_list_state.drag_grab_offset_y = ctx
+                            .agent_list_state
+                            .pressed_agent
+                            .and_then(|agent_id| {
+                                modules::agent_rows(
+                                    content_rect,
+                                    ctx.agent_list_state.scroll_offset,
+                                    ctx.agent_list_state.hovered_agent,
+                                    &ctx.agent_list_view,
+                                )
+                                .into_iter()
+                                .find(|row| row.agent_id == agent_id)
+                                .map(|row| cursor.y - row.rect.y)
+                            })
+                            .unwrap_or(0.0);
                         ctx.agent_list_state.last_reorder_index =
                             ctx.agent_list_state.pressed_agent.and_then(|agent_id| {
                                 ctx.agent_list_view
@@ -286,8 +304,11 @@ pub(crate) fn handle_hud_pointer_input(world: &mut World) {
                 .is_some_and(|origin| origin.distance(cursor) >= 4.0);
             if moved_far_enough && ctx.agent_list_state.dragging_agent.is_none() {
                 ctx.agent_list_state.dragging_agent = Some(pressed_agent);
+                ctx.agent_list_state.drag_cursor = Some(cursor);
+                ctx.redraws.write(RequestRedraw);
             }
             if let Some(dragging_agent) = ctx.agent_list_state.dragging_agent {
+                ctx.agent_list_state.drag_cursor = Some(cursor);
                 if let Some(module) = ctx.layout_state.get(HudWidgetKey::AgentList) {
                     let content_rect =
                         content_hit_rect(HudWidgetKey::AgentList, module.shell.current_rect);
@@ -321,6 +342,8 @@ pub(crate) fn handle_hud_pointer_input(world: &mut World) {
         if let Some(pressed_agent) = ctx.agent_list_state.pressed_agent.take() {
             let was_dragging = ctx.agent_list_state.dragging_agent.take().is_some();
             ctx.agent_list_state.press_origin = None;
+            ctx.agent_list_state.drag_cursor = None;
+            ctx.agent_list_state.drag_grab_offset_y = 0.0;
             ctx.agent_list_state.last_reorder_index = None;
             if !was_dragging {
                 if let Some(module) = ctx.layout_state.get(HudWidgetKey::AgentList) {

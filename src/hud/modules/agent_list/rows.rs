@@ -35,6 +35,15 @@ pub(in crate::hud) struct AgentRow {
     pub(in crate::hud) hovered: bool,
     pub(in crate::hud) has_tasks: bool,
     pub(in crate::hud) interactive: bool,
+    pub(in crate::hud) dragging: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(in crate::hud) struct AgentListDragPreview {
+    pub(in crate::hud) agent_id: AgentId,
+    pub(in crate::hud) cursor_y: f32,
+    pub(in crate::hud) grab_offset_y: f32,
+    pub(in crate::hud) target_index: usize,
 }
 
 /// Derives one sub-rectangle of an agent row for rendering or hit-testing.
@@ -85,22 +94,87 @@ pub(in crate::hud) fn agent_rows(
     hovered_agent: Option<AgentId>,
     agent_list_view: &AgentListView,
 ) -> Vec<AgentRow> {
+    projected_agent_rows(
+        shell_rect,
+        scroll_offset,
+        hovered_agent,
+        agent_list_view,
+        None,
+    )
+}
+
+/// Builds the retained row descriptors, optionally projecting one row into a live drag preview.
+pub(in crate::hud) fn projected_agent_rows(
+    shell_rect: HudRect,
+    scroll_offset: f32,
+    hovered_agent: Option<AgentId>,
+    agent_list_view: &AgentListView,
+    drag_preview: Option<AgentListDragPreview>,
+) -> Vec<AgentRow> {
     let content_x = shell_rect.x + AGENT_LIST_LEFT_RAIL_WIDTH + 1.0;
     let content_y = shell_rect.y + HUD_MODULE_PADDING + AGENT_LIST_HEADER_HEIGHT;
     let content_w = (shell_rect.w - AGENT_LIST_LEFT_RAIL_WIDTH - 3.0).max(0.0);
     let row_stride = agent_row_stride();
-    agent_list_view
+
+    let Some(drag_preview) = drag_preview.filter(|preview| {
+        agent_list_view
+            .rows
+            .iter()
+            .any(|row| row.agent_id == preview.agent_id)
+    }) else {
+        return agent_list_view
+            .rows
+            .iter()
+            .enumerate()
+            .map(|(index, row)| AgentRow {
+                agent_id: row.agent_id,
+                terminal_id: row.terminal_id,
+                display_label: row.label.to_uppercase(),
+                label: row.label.clone(),
+                rect: HudRect {
+                    x: content_x,
+                    y: content_y + index as f32 * row_stride - scroll_offset,
+                    w: content_w,
+                    h: HUD_ROW_HEIGHT,
+                },
+                focused: row.focused,
+                hovered: hovered_agent == Some(row.agent_id),
+                has_tasks: row.has_tasks,
+                interactive: row.interactive,
+                dragging: false,
+            })
+            .collect();
+    };
+
+    let target_index = drag_preview
+        .target_index
+        .min(agent_list_view.rows.len().saturating_sub(1));
+    let dragged_row = agent_list_view
         .rows
         .iter()
+        .find(|row| row.agent_id == drag_preview.agent_id)
+        .expect("validated drag preview should reference an existing row");
+    let mut rows = Vec::with_capacity(agent_list_view.rows.len());
+
+    for (index, row) in agent_list_view
+        .rows
+        .iter()
+        .filter(|row| row.agent_id != drag_preview.agent_id)
         .enumerate()
-        .map(|(index, row)| AgentRow {
+    {
+        let projected_index = if index < target_index {
+            index
+        } else {
+            index + 1
+        };
+        rows.push(AgentRow {
             agent_id: row.agent_id,
             terminal_id: row.terminal_id,
             display_label: row.label.to_uppercase(),
             label: row.label.clone(),
             rect: HudRect {
                 x: content_x,
-                y: content_y + index as f32 * row_stride - scroll_offset,
+                y: content_y + projected_index as f32 * row_stride - scroll_offset,
                 w: content_w,
                 h: HUD_ROW_HEIGHT,
             },
@@ -108,6 +182,27 @@ pub(in crate::hud) fn agent_rows(
             hovered: hovered_agent == Some(row.agent_id),
             has_tasks: row.has_tasks,
             interactive: row.interactive,
-        })
-        .collect()
+            dragging: false,
+        });
+    }
+
+    rows.push(AgentRow {
+        agent_id: dragged_row.agent_id,
+        terminal_id: dragged_row.terminal_id,
+        display_label: dragged_row.label.to_uppercase(),
+        label: dragged_row.label.clone(),
+        rect: HudRect {
+            x: content_x,
+            y: drag_preview.cursor_y - drag_preview.grab_offset_y,
+            w: content_w,
+            h: HUD_ROW_HEIGHT,
+        },
+        focused: dragged_row.focused,
+        hovered: hovered_agent == Some(dragged_row.agent_id),
+        has_tasks: dragged_row.has_tasks,
+        interactive: dragged_row.interactive,
+        dragging: true,
+    });
+
+    rows
 }
