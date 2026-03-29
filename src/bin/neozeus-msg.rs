@@ -1,4 +1,3 @@
-#[path = "neozeus_msg_support/mod.rs"]
 mod neozeus_msg_support;
 
 use std::env;
