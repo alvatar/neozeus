@@ -1,16 +1,14 @@
-use super::super::super::render::{HudPainter, HudRenderInputs};
+use super::super::super::render::{HudColors, HudPainter, HudRenderInputs};
 use super::super::super::state::HudRect;
 use super::super::super::view_models::UsageBarView;
 use bevy::prelude::Vec2;
 use bevy_vello::prelude::{peniko, VelloTextAnchor};
 
-pub(in crate::hud) const INFO_BAR_BACKGROUND: peniko::Color =
-    peniko::Color::from_rgba8(5, 15, 21, 255);
-pub(in crate::hud) const INFO_BAR_BORDER: peniko::Color =
-    peniko::Color::from_rgba8(28, 33, 36, 255);
-const INFO_BAR_LABEL_COLOR: peniko::Color = peniko::Color::from_rgba8(68, 119, 119, 255);
-const INFO_BAR_TRACK_COLOR: peniko::Color = peniko::Color::from_rgba8(15, 22, 26, 255);
-const INFO_BAR_TRACK_SEPARATOR: peniko::Color = peniko::Color::from_rgba8(28, 33, 36, 255);
+pub(in crate::hud) const INFO_BAR_BACKGROUND: peniko::Color = HudColors::FRAME;
+pub(in crate::hud) const INFO_BAR_BORDER: peniko::Color = HudColors::BORDER;
+const INFO_BAR_LABEL_COLOR: peniko::Color = HudColors::TEXT_MUTED;
+const INFO_BAR_TRACK_COLOR: peniko::Color = HudColors::BUTTON;
+const INFO_BAR_TRACK_SEPARATOR: peniko::Color = HudColors::BORDER;
 const INFO_BAR_PADDING_X: f32 = 4.0;
 const INFO_BAR_PADDING_Y: f32 = 10.0;
 const INFO_BAR_ROW_GAP: f32 = 8.0;
@@ -51,25 +49,17 @@ pub(in crate::hud) struct InfoBarMetricLayout {
     pub(in crate::hud) detail_rect: HudRect,
 }
 
-/// Returns the Zeus usage gradient (cyan → yellow → red) for a given percentage.
+/// Returns the NeoZeus warm usage gradient (muted amber → orange → hot orange-red).
 pub(in crate::hud) fn usage_gradient_color(pct: f32) -> peniko::Color {
     let clamped = pct.clamp(0.0, 100.0) / 100.0;
-    let (r, g, b) = if clamped < 0.70 {
-        let t = clamped / 0.70;
-        (
-            (0x00 as f32 + (0xD7 as f32 - 0x00 as f32) * t).round() as u8,
-            0xD7,
-            (0xD7 as f32 + (0x00 as f32 - 0xD7 as f32) * t).round() as u8,
-        )
+    let low = peniko::Color::from_rgba8(216, 160, 96, 255);
+    let mid = HudColors::TEXT;
+    let high = peniko::Color::from_rgba8(255, 96, 48, 255);
+    if clamped < 0.70 {
+        mix_color(low, mid, clamped / 0.70)
     } else {
-        let t = (clamped - 0.70) / 0.30;
-        (
-            (0xD7 as f32 + (0xFF as f32 - 0xD7 as f32) * t).round() as u8,
-            (0xD7 as f32 + (0x33 as f32 - 0xD7 as f32) * t).round() as u8,
-            (0x00 as f32 + (0x33 as f32 - 0x00 as f32) * t).round() as u8,
-        )
-    };
-    peniko::Color::from_rgba8(r, g, b, 255)
+        mix_color(mid, high, (clamped - 0.70) / 0.30)
+    }
 }
 
 fn mix_color(a: peniko::Color, b: peniko::Color, t: f32) -> peniko::Color {
