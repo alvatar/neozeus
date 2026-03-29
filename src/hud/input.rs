@@ -1,11 +1,8 @@
 use crate::{
-    app::{
-        AgentCommand, AppCommand, AppSessionState, CreateAgentDialogField, TaskCommand,
-        WidgetCommand,
-    },
+    app::{AgentCommand, AppCommand, AppSessionState, CreateAgentDialogField, WidgetCommand},
     composer::{
         create_agent_dialog_target_at, message_box_action_at, task_dialog_action_at,
-        CreateAgentDialogTarget, MessageBoxAction, TaskDialogAction,
+        CreateAgentDialogTarget,
     },
 };
 
@@ -69,53 +66,6 @@ struct HudPointerContext<'w, 's> {
     conversation_list_view: Res<'w, ConversationListView>,
     app_commands: MessageWriter<'w, AppCommand>,
     redraws: MessageWriter<'w, RequestRedraw>,
-}
-
-/// Converts a message-box task action button click into the corresponding task command.
-///
-/// The payload comes from the current message-box text, trimmed and rejected if empty. Successful
-/// conversion also closes the message box and discards its draft because the text has been consumed
-/// into a task mutation.
-fn message_box_task_command(
-    composer: &mut crate::composer::ComposerState,
-    action: MessageBoxAction,
-) -> Option<AppCommand> {
-    // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
-    let agent_id = match composer.session.as_ref().map(|session| &session.mode) {
-        Some(crate::composer::ComposerMode::Message { agent_id }) => *agent_id,
-        _ => return None,
-    };
-    let payload = composer.message_editor.text.trim().to_owned();
-    if payload.is_empty() {
-        return None;
-    }
-    composer.discard_current_message();
-    Some(AppCommand::Task(match action {
-        MessageBoxAction::AppendTask => TaskCommand::Append {
-            agent_id,
-            text: payload,
-        },
-        MessageBoxAction::PrependTask => TaskCommand::Prepend {
-            agent_id,
-            text: payload,
-        },
-    }))
-}
-
-/// Converts a task-dialog action button click into the corresponding task command.
-///
-/// Today the only task-dialog action is `ClearDone`, which requires a bound task-edit session.
-fn task_dialog_command(
-    composer: &mut crate::composer::ComposerState,
-    action: TaskDialogAction,
-) -> Option<AppCommand> {
-    let agent_id = match composer.session.as_ref().map(|session| &session.mode) {
-        Some(crate::composer::ComposerMode::TaskEdit { agent_id }) => *agent_id,
-        _ => return None,
-    };
-    match action {
-        TaskDialogAction::ClearDone => Some(AppCommand::Task(TaskCommand::ClearDone { agent_id })),
-    }
 }
 
 /// Handles all pointer-driven HUD interaction: modal buttons, module clicks, dragging, scrolling,
@@ -185,9 +135,7 @@ pub(crate) fn handle_hud_pointer_input(world: &mut World) {
         };
         if ctx.mouse_buttons.just_pressed(MouseButton::Left) {
             if let Some(action) = message_box_action_at(&ctx.primary_window, cursor) {
-                if let Some(command) =
-                    message_box_task_command(&mut ctx.app_session.composer, action)
-                {
+                if let Some(command) = ctx.app_session.composer.message_box_action_command(action) {
                     ctx.app_commands.write(command);
                 }
                 ctx.redraws.write(RequestRedraw);
@@ -202,7 +150,7 @@ pub(crate) fn handle_hud_pointer_input(world: &mut World) {
         };
         if ctx.mouse_buttons.just_pressed(MouseButton::Left) {
             if let Some(action) = task_dialog_action_at(&ctx.primary_window, cursor) {
-                if let Some(command) = task_dialog_command(&mut ctx.app_session.composer, action) {
+                if let Some(command) = ctx.app_session.composer.task_dialog_action_command(action) {
                     ctx.app_commands.write(command);
                 }
                 ctx.redraws.write(RequestRedraw);

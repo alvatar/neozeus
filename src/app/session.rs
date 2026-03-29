@@ -1,4 +1,9 @@
-use crate::{agents::AgentId, hud::HudInputCaptureState, terminals::TerminalId};
+use crate::{
+    agents::AgentId,
+    dialogs::{cycle_dialog_focus, DialogTabOrder},
+    hud::HudInputCaptureState,
+    terminals::TerminalId,
+};
 
 use super::{
     commands::{AgentCommand, AppCommand},
@@ -27,6 +32,15 @@ pub(crate) enum CreateAgentDialogField {
     Kind,
     StartingFolder,
     CreateButton,
+}
+
+impl DialogTabOrder for CreateAgentDialogField {
+    const TAB_ORDER: &'static [Self] = &[
+        Self::Name,
+        Self::Kind,
+        Self::StartingFolder,
+        Self::CreateButton,
+    ];
 }
 
 /// Lightweight single-line text field state for form controls.
@@ -321,18 +335,9 @@ impl CreateAgentDialogState {
         self.visible
     }
 
-    /// Advances focus to the next or previous field in the dialog's fixed tab order.
+    /// Advances focus to the next or previous field in the dialog's shared tab order.
     pub(crate) fn cycle_focus(&mut self, reverse: bool) {
-        self.focus = match (self.focus, reverse) {
-            (CreateAgentDialogField::Name, false) => CreateAgentDialogField::Kind,
-            (CreateAgentDialogField::Kind, false) => CreateAgentDialogField::StartingFolder,
-            (CreateAgentDialogField::StartingFolder, false) => CreateAgentDialogField::Name,
-            (CreateAgentDialogField::CreateButton, false) => CreateAgentDialogField::Name,
-            (CreateAgentDialogField::Name, true) => CreateAgentDialogField::StartingFolder,
-            (CreateAgentDialogField::Kind, true) => CreateAgentDialogField::Name,
-            (CreateAgentDialogField::StartingFolder, true) => CreateAgentDialogField::Kind,
-            (CreateAgentDialogField::CreateButton, true) => CreateAgentDialogField::StartingFolder,
-        };
+        cycle_dialog_focus(&mut self.focus, reverse);
         if self.focus != CreateAgentDialogField::StartingFolder {
             self.cwd_field.clear_completion();
         }

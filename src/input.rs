@@ -5,6 +5,7 @@ use crate::{
         ComposerRequest, CreateAgentDialogField, CreateAgentKind, TaskCommand as AppTaskCommand,
         TextFieldState,
     },
+    composer::{MessageDialogFocus, TaskDialogFocus},
     hud::{HudInputCaptureState, HudLayoutState},
     terminals::{
         terminal_texture_screen_size, TerminalCommand, TerminalDisplayMode, TerminalFocusState,
@@ -572,7 +573,7 @@ fn handle_text_editor_event(
 /// Applies one keyboard event to a single-line HUD text field.
 ///
 /// This keeps the form-control behavior intentionally small: no multiline editing, no selection,
-/// and no generic `Tab` handling because the cwd field reserves that key for completion.
+/// and no generic `Tab` handling because dialogs reserve `Tab` for focus traversal.
 fn handle_text_field_event(
     field: &mut TextFieldState,
     event: &KeyboardInput,
@@ -670,19 +671,8 @@ pub(crate) fn handle_terminal_message_box_keyboard(
             }
 
             if !ctrl && !alt && !super_key && event.key_code == KeyCode::Tab {
-                if app_session.create_agent_dialog.focus == CreateAgentDialogField::StartingFolder {
-                    if app_session
-                        .create_agent_dialog
-                        .cwd_field
-                        .start_or_cycle_completion(shift)
-                    {
-                        app_session.create_agent_dialog.error = None;
-                        needs_redraw = true;
-                    }
-                } else {
-                    app_session.create_agent_dialog.cycle_focus(shift);
-                    needs_redraw = true;
-                }
+                app_session.create_agent_dialog.cycle_focus(shift);
+                needs_redraw = true;
                 continue;
             }
 
@@ -710,7 +700,15 @@ pub(crate) fn handle_terminal_message_box_keyboard(
                     }
                 }
                 CreateAgentDialogField::StartingFolder => {
-                    if !ctrl && !alt && !super_key && event.key_code == KeyCode::Enter {
+                    if ctrl && !alt && !super_key && event.key_code == KeyCode::Space {
+                        (
+                            app_session
+                                .create_agent_dialog
+                                .cwd_field
+                                .start_or_cycle_completion(shift),
+                            true,
+                        )
+                    } else if !ctrl && !alt && !super_key && event.key_code == KeyCode::Enter {
                         (
                             app_session
                                 .create_agent_dialog
@@ -764,6 +762,7 @@ pub(crate) fn handle_terminal_message_box_keyboard(
     }
 
     if app_session.composer.message_editor.visible {
+        let shift = keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight);
         let mut needs_redraw = false;
         for event in messages.read() {
             if event.state != ButtonState::Pressed {
@@ -784,13 +783,51 @@ pub(crate) fn handle_terminal_message_box_keyboard(
                 break;
             }
 
-            needs_redraw |= handle_text_editor_event(
-                &mut app_session.composer.message_editor,
-                event,
-                ctrl,
-                alt,
-                super_key,
-            );
+            if !ctrl && !alt && !super_key && event.key_code == KeyCode::Tab {
+                app_session.composer.cycle_message_dialog_focus(shift);
+                needs_redraw = true;
+                continue;
+            }
+
+            match app_session.composer.message_dialog_focus {
+                MessageDialogFocus::Editor => {
+                    needs_redraw |= handle_text_editor_event(
+                        &mut app_session.composer.message_editor,
+                        event,
+                        ctrl,
+                        alt,
+                        super_key,
+                    );
+                }
+                MessageDialogFocus::AppendButton => {
+                    if !ctrl
+                        && !alt
+                        && !super_key
+                        && matches!(event.key_code, KeyCode::Enter | KeyCode::Space)
+                    {
+                        if let Some(command) = app_session.composer.message_box_action_command(
+                            crate::composer::MessageBoxAction::AppendTask,
+                        ) {
+                            app_commands.write(command);
+                        }
+                        needs_redraw = true;
+                    }
+                }
+                MessageDialogFocus::PrependButton => {
+                    if !ctrl
+                        && !alt
+                        && !super_key
+                        && matches!(event.key_code, KeyCode::Enter | KeyCode::Space)
+                    {
+                        if let Some(command) = app_session.composer.message_box_action_command(
+                            crate::composer::MessageBoxAction::PrependTask,
+                        ) {
+                            app_commands.write(command);
+                        }
+                        needs_redraw = true;
+                    }
+                }
+            }
         }
 
         if needs_redraw {
@@ -800,6 +837,7 @@ pub(crate) fn handle_terminal_message_box_keyboard(
     }
 
     if app_session.composer.task_editor.visible {
+        let shift = keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight);
         let mut needs_redraw = false;
         for event in messages.read() {
             if event.state != ButtonState::Pressed {
@@ -820,13 +858,37 @@ pub(crate) fn handle_terminal_message_box_keyboard(
                 break;
             }
 
-            needs_redraw |= handle_text_editor_event(
-                &mut app_session.composer.task_editor,
-                event,
-                ctrl,
-                alt,
-                super_key,
-            );
+            if !ctrl && !alt && !super_key && event.key_code == KeyCode::Tab {
+                app_session.composer.cycle_task_dialog_focus(shift);
+                needs_redraw = true;
+                continue;
+            }
+
+            match app_session.composer.task_dialog_focus {
+                TaskDialogFocus::Editor => {
+                    needs_redraw |= handle_text_editor_event(
+                        &mut app_session.composer.task_editor,
+                        event,
+                        ctrl,
+                        alt,
+                        super_key,
+                    );
+                }
+                TaskDialogFocus::ClearDoneButton => {
+                    if !ctrl
+                        && !alt
+                        && !super_key
+                        && matches!(event.key_code, KeyCode::Enter | KeyCode::Space)
+                    {
+                        if let Some(command) = app_session.composer.task_dialog_action_command(
+                            crate::composer::TaskDialogAction::ClearDone,
+                        ) {
+                            app_commands.write(command);
+                        }
+                        needs_redraw = true;
+                    }
+                }
+            }
         }
 
         if needs_redraw {
