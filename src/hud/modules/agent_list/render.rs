@@ -22,12 +22,6 @@ const EVA_ORANGE_BRIGHT: peniko::Color = peniko::Color::from_rgba8(
     AGENT_LIST_BORDER_ORANGE_B,
     255,
 );
-const EVA_ORANGE_DIM: peniko::Color = peniko::Color::from_rgba8(
-    AGENT_LIST_BORDER_ORANGE_R,
-    AGENT_LIST_BORDER_ORANGE_G,
-    AGENT_LIST_BORDER_ORANGE_B,
-    255,
-);
 const EVA_SELECTED: peniko::Color = peniko::Color::from_rgba8(
     AGENT_LIST_BORDER_ORANGE_R,
     AGENT_LIST_BORDER_ORANGE_G,
@@ -142,25 +136,12 @@ pub(crate) fn render_content(
             content_rect.x + AGENT_LIST_LEFT_RAIL_WIDTH + HUD_MODULE_PADDING,
             content_rect.y + 10.0,
         ),
-        "AGENT SUPPORT SYSTEM",
+        "NEOZEUS CONTROL PANEL",
         18.0,
         EVA_ORANGE_BRIGHT,
         VelloTextAnchor::TopLeft,
         0.82,
         1.08,
-    );
-    draw_label(
-        painter,
-        Vec2::new(
-            content_rect.x + content_rect.w - 14.0,
-            content_rect.y + 12.0,
-        ),
-        "SEG.A",
-        13.0,
-        EVA_ORANGE_DIM,
-        VelloTextAnchor::TopRight,
-        0.88,
-        1.04,
     );
     painter.fill_rect(
         HudRect {
