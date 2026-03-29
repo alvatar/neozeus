@@ -111,14 +111,10 @@ pub(super) fn handle_create_agent_dialog_key(
                     true,
                 )
             } else {
-                let changed = handle_text_field_event(
-                    &mut app_session.create_agent_dialog.cwd_field.field,
-                    event,
-                    modifiers,
-                );
-                if changed {
-                    app_session.create_agent_dialog.cwd_field.clear_completion();
-                }
+                let changed = app_session
+                    .create_agent_dialog
+                    .cwd_field
+                    .mutate_text(|field| handle_text_field_event(field, event, modifiers));
                 (changed, true)
             }
         }

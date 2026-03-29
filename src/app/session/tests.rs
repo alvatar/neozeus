@@ -95,3 +95,17 @@ fn text_field_word_motion_uses_whitespace_boundaries() {
     assert!(field.move_word_forward());
     assert_eq!(field.cursor, 13);
 }
+
+/// Verifies that cwd-field text mutations always invalidate stale completion previews.
+#[test]
+fn cwd_field_mutate_text_clears_completion_state() {
+    let mut dialog = CreateAgentDialogState::default();
+    dialog.open(CreateAgentKind::Agent);
+    assert!(dialog.cwd_field.start_or_cycle_completion(false));
+    assert!(dialog.cwd_field.completion.is_some());
+
+    let changed = dialog.cwd_field.mutate_text(|field| field.insert_text("x"));
+
+    assert!(changed);
+    assert!(dialog.cwd_field.completion.is_none());
+}
