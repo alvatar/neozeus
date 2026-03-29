@@ -17,7 +17,7 @@ use std::{
     time::Duration,
 };
 
-const DAEMON_SOCKET_FILENAME: &str = "daemon.sock";
+const DAEMON_SOCKET_FILENAME: &str = "daemon.v2.sock";
 const DAEMON_CONNECT_RETRY_TIMEOUT: Duration = Duration::from_secs(2);
 const DAEMON_REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
 
