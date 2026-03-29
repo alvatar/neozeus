@@ -78,7 +78,14 @@ struct HudPointerContext<'w, 's> {
 pub(crate) fn handle_hud_pointer_input(world: &mut World) {
     let mut state: bevy::ecs::system::SystemState<HudPointerContext> =
         bevy::ecs::system::SystemState::new(world);
-    let mut ctx = state.get_mut(world);
+    {
+        let mut ctx = state.get_mut(world);
+        handle_hud_pointer_input_with_context(&mut ctx);
+    }
+    state.apply(world);
+}
+
+fn handle_hud_pointer_input_with_context(ctx: &mut HudPointerContext<'_, '_>) {
     // Keep the control flow staged so each branch owns one behavior path and later branches only run when earlier capture rules do not apply.
     if ctx.app_session.create_agent_dialog.visible {
         ctx.layout_state.drag = None;
@@ -384,7 +391,6 @@ pub(crate) fn handle_hud_pointer_input(world: &mut World) {
     for command in emitted_commands {
         ctx.app_commands.write(command);
     }
-    state.apply(world);
 }
 
 /// Chooses the next or previous agent id for keyboard navigation through the agent list.
