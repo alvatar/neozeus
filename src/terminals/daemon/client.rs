@@ -4,6 +4,9 @@ use super::protocol::{
     read_server_message, write_client_message, ClientMessage, DaemonEvent, DaemonRequest,
     DaemonResponse, DaemonSessionInfo, ServerMessage,
 };
+use crate::shared::daemon_socket::resolve_daemon_socket_path as shared_resolve_daemon_socket_path;
+#[cfg(test)]
+use crate::shared::daemon_socket::resolve_daemon_socket_path_with as shared_resolve_daemon_socket_path_with;
 use bevy::prelude::Resource;
 use std::{
     collections::HashMap,
@@ -17,7 +20,6 @@ use std::{
     time::Duration,
 };
 
-const DAEMON_SOCKET_FILENAME: &str = "daemon.v2.sock";
 const DAEMON_CONNECT_RETRY_TIMEOUT: Duration = Duration::from_secs(2);
 const DAEMON_REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -326,47 +328,21 @@ impl TerminalDaemonClient for SocketTerminalDaemonClient {
 ///
 /// The precedence is: explicit override path, then XDG runtime dir, then a per-user directory under
 /// the system temp dir when only HOME is available.
+#[cfg(test)]
 pub(crate) fn resolve_daemon_socket_path_with(
     override_path: Option<&str>,
     xdg_runtime_dir: Option<&str>,
     home: Option<&str>,
     user: Option<&str>,
 ) -> Option<PathBuf> {
-    // Process the input incrementally so each transformation stays local and malformed data fails at the narrowest point.
-    if let Some(override_path) = override_path.filter(|value| !value.is_empty()) {
-        return Some(PathBuf::from(override_path));
-    }
-
-    if let Some(xdg_runtime_dir) = xdg_runtime_dir.filter(|value| !value.is_empty()) {
-        return Some(
-            PathBuf::from(xdg_runtime_dir)
-                .join("neozeus")
-                .join(DAEMON_SOCKET_FILENAME),
-        );
-    }
-
-    let user = user.filter(|value| !value.is_empty()).unwrap_or("user");
-    if home.is_some() {
-        return Some(
-            std::env::temp_dir()
-                .join(format!("neozeus-{user}"))
-                .join(DAEMON_SOCKET_FILENAME),
-        );
-    }
-
-    None
+    shared_resolve_daemon_socket_path_with(override_path, xdg_runtime_dir, home, user)
 }
 
 /// Resolves the daemon socket path from the real process environment.
 ///
 /// This thin wrapper exists so the path policy can be tested separately from environment access.
 pub(crate) fn resolve_daemon_socket_path() -> Option<PathBuf> {
-    resolve_daemon_socket_path_with(
-        env::var("NEOZEUS_DAEMON_SOCKET_PATH").ok().as_deref(),
-        env::var("XDG_RUNTIME_DIR").ok().as_deref(),
-        env::var("HOME").ok().as_deref(),
-        env::var("USER").ok().as_deref(),
-    )
+    shared_resolve_daemon_socket_path()
 }
 
 /// Spawns a detached copy of the current executable in daemon mode bound to the chosen socket.

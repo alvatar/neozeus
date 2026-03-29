@@ -6,6 +6,7 @@ mod conversations;
 mod dialogs;
 mod hud;
 mod input;
+mod shared;
 mod startup;
 mod terminals;
 mod usage;

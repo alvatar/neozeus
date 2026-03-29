@@ -19,6 +19,28 @@ cargo run
 Default startup is borderless fullscreen.
 Use `NEOZEUS_WINDOW_MODE=windowed` for a normal window.
 
+## neozeus-msg
+
+Install the standalone messaging CLI with:
+
+```bash
+./scripts/install-neozeus-msg
+```
+
+Usage:
+
+```bash
+neozeus-msg send --to-agent <agent-name> "message..."
+neozeus-msg send --to-session <session-name> "message..."
+```
+
+Target modes:
+
+- `--to-agent` — normal user-facing mode; resolves the current agent label through `neozeus-state.v1`
+- `--to-session` — lower-level diagnostic/recovery mode; targets one daemon session directly
+
+The command connects directly to the NeoZeus daemon and sends the payload through the existing terminal command path, so embedded newlines behave like Enter presses and a final Enter is sent automatically.
+
 ## Useful keys
 
 - `z` — spawn agent terminal
