@@ -1,5 +1,5 @@
 use crate::{
-    app::{AppSessionState, CreateAgentDialogField},
+    app::{AppSessionState, CreateAgentDialogField, TextFieldState},
     composer::{
         create_agent_create_button_rect, create_agent_dialog_rect, create_agent_kind_option_rects,
         create_agent_name_field_rect, create_agent_starting_folder_rect,
@@ -482,7 +482,7 @@ fn draw_dialog_button_row(
 /// Draws one single-line dialog field with optional focus cursor.
 fn draw_single_line_dialog_field(
     painter: &mut HudPainter,
-    editor: &TextEditorState,
+    field: &TextFieldState,
     rect: HudRect,
     focused: bool,
 ) {
@@ -498,14 +498,14 @@ fn draw_single_line_dialog_field(
     );
     painter.label(
         Vec2::new(rect.x + 10.0, rect.y + 7.0),
-        &editor.text,
+        &field.text,
         15.0,
         HudColors::TEXT,
         VelloTextAnchor::TopLeft,
     );
     if focused {
-        let cursor = editor.cursor.min(editor.text.len());
-        let before_cursor = &editor.text[..cursor];
+        let cursor = field.cursor.min(field.text.len());
+        let before_cursor = &field.text[..cursor];
         let cursor_x = rect.x + 10.0 + painter.text_size(before_cursor, 15.0).x;
         painter.fill_rect(
             HudRect {
@@ -516,6 +516,61 @@ fn draw_single_line_dialog_field(
             },
             HudColors::TEXT,
             0.0,
+        );
+    }
+}
+
+/// Draws the cwd completion dropdown below the active cwd field.
+fn draw_cwd_completion_dropdown(
+    painter: &mut HudPainter,
+    rect: HudRect,
+    items: &[crate::app::CwdCompletionItem],
+    selected: usize,
+    preview_active: bool,
+    max_height: f32,
+) {
+    let row_h = 24.0;
+    let max_rows = ((max_height / row_h).floor() as usize).clamp(0, 6);
+    if items.is_empty() || max_rows == 0 {
+        return;
+    }
+    let visible = items.len().min(max_rows);
+    let panel = HudRect {
+        x: rect.x,
+        y: rect.y + rect.h + 6.0,
+        w: rect.w,
+        h: visible as f32 * row_h,
+    };
+    painter.fill_rect(panel, HudColors::BUTTON, 4.0);
+    painter.stroke_rect(panel, HudColors::BUTTON_BORDER, 4.0);
+    for (index, item) in items.iter().take(visible).enumerate() {
+        let row_rect = HudRect {
+            x: panel.x,
+            y: panel.y + index as f32 * row_h,
+            w: panel.w,
+            h: row_h,
+        };
+        if index == selected {
+            painter.fill_rect(
+                row_rect,
+                if preview_active {
+                    HudColors::ROW_FOCUSED
+                } else {
+                    HudColors::ROW_HOVERED
+                },
+                0.0,
+            );
+        }
+        painter.label(
+            Vec2::new(row_rect.x + 10.0, row_rect.y + 5.0),
+            &item.display,
+            14.0,
+            if index == selected {
+                HudColors::TEXT
+            } else {
+                HudColors::TEXT_MUTED
+            },
+            VelloTextAnchor::TopLeft,
         );
     }
 }
@@ -557,7 +612,7 @@ fn draw_create_agent_dialog(
     );
     draw_single_line_dialog_field(
         painter,
-        &dialog.name_editor,
+        &dialog.name_field,
         name_rect,
         dialog.focus == CreateAgentDialogField::Name,
     );
@@ -618,10 +673,23 @@ fn draw_create_agent_dialog(
     );
     draw_single_line_dialog_field(
         painter,
-        &dialog.starting_folder_editor,
+        &dialog.cwd_field.field,
         folder_rect,
         dialog.focus == CreateAgentDialogField::StartingFolder,
     );
+
+    if dialog.focus == CreateAgentDialogField::StartingFolder {
+        if let Some(completion) = dialog.cwd_field.completion.as_ref() {
+            draw_cwd_completion_dropdown(
+                painter,
+                folder_rect,
+                &completion.items,
+                completion.selected,
+                completion.preview_active,
+                (create_rect.y - 12.0 - (folder_rect.y + folder_rect.h + 6.0)).max(0.0),
+            );
+        }
+    }
 
     draw_dialog_button_row(&mut *painter, [(create_rect, "Create")]);
     if dialog.focus == CreateAgentDialogField::CreateButton {
