@@ -2,7 +2,7 @@ use crate::app::AppSessionState;
 
 use super::{
     compositor::{setup_hud_offscreen_compositor, HudOffscreenCompositor},
-    persistence::{load_persisted_hud_state_from, resolve_hud_layout_path, HudPersistenceState},
+    persistence::{load_persisted_hud_modules_from, resolve_hud_layout_path, HudPersistenceState},
     render::{
         HudModalCameraMarker, HudModalVectorSceneMarker, HudVectorSceneMarker,
         HUD_MODAL_CAMERA_ORDER, HUD_MODAL_RENDER_LAYER,
@@ -58,7 +58,7 @@ pub(crate) fn setup_hud(
     let persisted = persistence_state
         .path
         .as_ref()
-        .map(load_persisted_hud_state_from)
+        .map(load_persisted_hud_modules_from)
         .unwrap_or_default();
     layout_state.modules.clear();
     layout_state.z_order.clear();
@@ -72,11 +72,11 @@ pub(crate) fn setup_hud(
     input_capture.direct_input_terminal = None;
     for definition in HUD_WIDGET_DEFINITIONS.iter() {
         let mut module = default_hud_module_instance(definition);
-        if let Some(saved) = persisted.modules.get(&definition.key) {
-            module.shell.enabled = saved.enabled;
-            module.shell.target_rect = saved.rect;
-            module.shell.current_rect = saved.rect;
-            module.shell.target_alpha = if saved.enabled { 1.0 } else { 0.0 };
+        if let Some((enabled, rect)) = persisted.get(&definition.key) {
+            module.shell.enabled = *enabled;
+            module.shell.target_rect = *rect;
+            module.shell.current_rect = *rect;
+            module.shell.target_alpha = if *enabled { 1.0 } else { 0.0 };
             module.shell.current_alpha = module.shell.target_alpha;
         }
         layout_state.insert(definition.key, module);

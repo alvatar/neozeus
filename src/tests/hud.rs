@@ -90,29 +90,26 @@ fn run_app_commands(world: &mut World) {
 fn reset_module_restores_default_toolbar_state() {
     // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let mut hud_state = HudState::default();
-    let mut module =
-        crate::hud::default_hud_module_instance(&crate::hud::HUD_MODULE_DEFINITIONS[0]);
-    module.shell.enabled = false;
-    module.shell.target_alpha = 0.0;
-    module.shell.current_alpha = 0.0;
-    module.shell.target_rect = HudRect {
+    let rect = HudRect {
         x: 1800.0,
         y: 1200.0,
         w: 10.0,
         h: 10.0,
     };
-    module.shell.current_rect = module.shell.target_rect;
-    hud_state.insert(HudWidgetKey::DebugToolbar, module);
+    hud_state.insert_default_module(HudWidgetKey::DebugToolbar);
+    hud_state.set_module_shell_state(HudWidgetKey::DebugToolbar, false, rect, rect, 0.0, 0.0);
 
     hud_state.reset_module(HudWidgetKey::DebugToolbar);
 
-    let module = hud_state.get(HudWidgetKey::DebugToolbar).unwrap();
-    assert!(module.shell.enabled);
+    assert_eq!(hud_state.module_enabled(HudWidgetKey::DebugToolbar), Some(true));
     assert_eq!(
-        module.shell.target_rect,
-        crate::hud::HUD_MODULE_DEFINITIONS[0].default_rect
+        hud_state.module_target_rect(HudWidgetKey::DebugToolbar),
+        Some(crate::hud::HUD_MODULE_DEFINITIONS[0].default_rect)
     );
-    assert_eq!(module.shell.current_alpha, 1.0);
+    assert_eq!(
+        hud_state.module_current_alpha(HudWidgetKey::DebugToolbar),
+        Some(1.0)
+    );
     assert!(hud_state.dirty_layout);
 }
 
@@ -412,10 +409,10 @@ fn clicking_task_dialog_clear_done_button_persists_updated_text() {
         resolution: (1400, 900).into(),
         ..Default::default()
     };
-    let clear_done_button = task_dialog_action_buttons(&window)[0];
+    let (_, clear_done_rect, _) = task_dialog_action_buttons(&window)[0];
     window.set_cursor_position(Some(Vec2::new(
-        clear_done_button.rect.x + 4.0,
-        clear_done_button.rect.y + 4.0,
+        clear_done_rect.x + 4.0,
+        clear_done_rect.y + 4.0,
     )));
 
     world.insert_resource(ButtonInput::<MouseButton>::default());
@@ -602,10 +599,10 @@ fn clicking_message_box_task_button_emits_append_task_intent() {
         resolution: (1400, 900).into(),
         ..Default::default()
     };
-    let append_button = message_box_action_buttons(&window)[0];
+    let (_, append_rect, _) = message_box_action_buttons(&window)[0];
     window.set_cursor_position(Some(Vec2::new(
-        append_button.rect.x + 4.0,
-        append_button.rect.y + 4.0,
+        append_rect.x + 4.0,
+        append_rect.y + 4.0,
     )));
 
     world.insert_resource(ButtonInput::<MouseButton>::default());
@@ -644,14 +641,8 @@ fn clicking_message_box_task_button_emits_append_task_intent() {
 #[test]
 fn hud_state_topmost_enabled_at_prefers_frontmost_module() {
     let mut state = HudState::default();
-    state.insert(
-        HudWidgetKey::DebugToolbar,
-        crate::hud::default_hud_module_instance(&crate::hud::HUD_MODULE_DEFINITIONS[0]),
-    );
-    state.insert(
-        HudWidgetKey::AgentList,
-        crate::hud::default_hud_module_instance(&crate::hud::HUD_MODULE_DEFINITIONS[1]),
-    );
+    state.insert_default_module(HudWidgetKey::DebugToolbar);
+    state.insert_default_module(HudWidgetKey::AgentList);
     state.raise_to_front(HudWidgetKey::AgentList);
 
     assert_eq!(

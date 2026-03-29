@@ -1,7 +1,9 @@
 use super::{
-    build_persisted_conversations, parse_persisted_conversations, resolve_conversations_path_with,
-    restore_persisted_conversations, serialize_persisted_conversations, AgentTaskStore,
-    ConversationStore, MessageAuthor, MessageDeliveryState,
+    persistence::{
+        build_persisted_conversations, parse_persisted_conversations, resolve_conversations_path_with,
+        restore_persisted_conversations, serialize_persisted_conversations,
+    },
+    AgentTaskStore, ConversationStore, MessageAuthor, MessageDeliveryState,
 };
 use crate::agents::{AgentId, AgentRuntimeIndex};
 
@@ -25,8 +27,10 @@ fn push_message_appends_to_conversation_history() {
         "hello".into(),
         MessageDeliveryState::Pending,
     );
-    assert_eq!(store.messages_for(conversation).len(), 1);
-    assert_eq!(store.messages.get(&message_id).unwrap().body, "hello");
+    let messages = store.messages_for(conversation);
+    assert_eq!(messages.len(), 1);
+    assert_eq!(message_id, 1);
+    assert_eq!(messages[0].0, "hello");
 }
 
 /// Verifies that task store clear done and consume next update text.
@@ -113,7 +117,7 @@ fn restore_persisted_conversations_reattaches_to_restored_agents() {
         .expect("restored conversation should be linked");
     let messages = restored.messages_for(restored_conversation);
     assert_eq!(messages.len(), 1);
-    assert_eq!(messages[0].body, "hello");
+    assert_eq!(messages[0].0, "hello");
 }
 
 /// Verifies that conversations path prefers state home then home state then config.

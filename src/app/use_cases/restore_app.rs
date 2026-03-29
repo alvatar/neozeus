@@ -5,7 +5,8 @@ use crate::{
     },
     terminals::{
         append_debug_log, load_persisted_terminal_sessions_from, mark_terminal_sessions_dirty,
-        reconcile_terminal_sessions, DaemonSessionInfo, TerminalFocusState, TerminalLifecycle,
+        ordered_reconciled_terminal_sessions, reconcile_terminal_sessions, DaemonSessionInfo,
+        TerminalFocusState, TerminalLifecycle,
         TerminalManager, TerminalRuntimeSpawner, TerminalSessionPersistenceState,
         TerminalViewState, PERSISTENT_SESSION_PREFIX,
     },
@@ -78,12 +79,12 @@ pub(crate) fn restore_app(
         .iter()
         .map(|session| session.session_id.clone())
         .collect::<Vec<_>>();
-    let reconciled = reconcile_terminal_sessions(&persisted, &live_sessions);
-    if !reconciled.prune.is_empty() || !reconciled.import.is_empty() {
+    let (restore, import, prune) = reconcile_terminal_sessions(&persisted, &live_sessions);
+    if !prune.is_empty() || !import.is_empty() {
         mark_terminal_sessions_dirty(session_persistence, None);
     }
 
-    for record in reconciled.ordered_sessions() {
+    for record in ordered_reconciled_terminal_sessions(&restore, &import) {
         let startup_loading_slot = startup_loading.as_deref_mut();
         if let Err(error) = attach_restored_terminal(
             agent_catalog,
@@ -109,8 +110,7 @@ pub(crate) fn restore_app(
         .iter()
         .map(|session| (session.session_id.as_str(), session))
         .collect::<std::collections::HashMap<_, _>>();
-    let restored_focus_session = reconciled
-        .restore
+    let restored_focus_session = restore
         .iter()
         .find(|record| {
             record.last_focused
@@ -119,8 +119,7 @@ pub(crate) fn restore_app(
                     .is_some_and(|session| startup_focus_candidate_is_interactive(session))
         })
         .map(|record| record.session_name.as_str());
-    let restored_session_names = reconciled
-        .restore
+    let restored_session_names = restore
         .iter()
         .filter(|record| {
             live_session_lookup
@@ -129,8 +128,7 @@ pub(crate) fn restore_app(
         })
         .map(|record| record.session_name.as_str())
         .collect::<Vec<_>>();
-    let imported_session_names = reconciled
-        .import
+    let imported_session_names = import
         .iter()
         .filter(|record| {
             live_session_lookup

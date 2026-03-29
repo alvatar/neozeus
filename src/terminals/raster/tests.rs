@@ -449,15 +449,9 @@ fn sync_terminal_texture_keeps_cached_switch_frame_until_resized_surface_arrives
         ..Default::default()
     };
     let mut hud_state = HudState::default();
-    hud_state.insert(
-        HudWidgetKey::AgentList,
-        crate::hud::default_hud_module_instance(&crate::hud::HUD_MODULE_DEFINITIONS[1]),
-    );
+    hud_state.insert_default_module(HudWidgetKey::AgentList);
     let rect = crate::hud::docked_agent_list_rect(&window);
-    let agent_list = hud_state.get_mut(HudWidgetKey::AgentList).unwrap();
-    agent_list.shell.enabled = true;
-    agent_list.shell.current_rect = rect;
-    agent_list.shell.target_rect = rect;
+    hud_state.set_module_shell_state(HudWidgetKey::AgentList, true, rect, rect, 1.0, 1.0);
 
     let view_state = TerminalViewState::default();
     let active_dimensions =
@@ -565,15 +559,9 @@ fn sync_terminal_texture_promotes_active_terminal_once_resized_surface_arrives()
         ..Default::default()
     };
     let mut hud_state = HudState::default();
-    hud_state.insert(
-        HudWidgetKey::AgentList,
-        crate::hud::default_hud_module_instance(&crate::hud::HUD_MODULE_DEFINITIONS[1]),
-    );
+    hud_state.insert_default_module(HudWidgetKey::AgentList);
     let rect = crate::hud::docked_agent_list_rect(&window);
-    let agent_list = hud_state.get_mut(HudWidgetKey::AgentList).unwrap();
-    agent_list.shell.enabled = true;
-    agent_list.shell.current_rect = rect;
-    agent_list.shell.target_rect = rect;
+    hud_state.set_module_shell_state(HudWidgetKey::AgentList, true, rect, rect, 1.0, 1.0);
 
     let view_state = TerminalViewState::default();
     let active_dimensions =
@@ -700,17 +688,17 @@ fn sync_terminal_texture_renders_visible_text_on_last_row() {
         active_terminal_layout(&window, &hud_state.layout_state(), &view_state, &font_state);
 
     let mut surface =
-        TerminalSurface::new(active_layout.dimensions.cols, active_layout.dimensions.rows);
+        TerminalSurface::new(active_layout.0.cols, active_layout.0.rows);
     set_colored_text(
         &mut surface,
-        active_layout.dimensions.rows - 1,
+        active_layout.0.rows - 1,
         0,
         "typed text",
         egui::Color32::from_rgb(220, 220, 220),
     );
 
     let (image, texture_state) = render_surface_to_terminal_image(surface);
-    let y_start = (active_layout.dimensions.rows as u32 - 1) * texture_state.cell_size.y;
+    let y_start = (active_layout.0.rows as u32 - 1) * texture_state.cell_size.y;
     let visible_pixels =
         count_non_background_pixels_in_band(&image, y_start, y_start + texture_state.cell_size.y);
     assert!(
@@ -734,10 +722,10 @@ fn sync_terminal_texture_updates_pixels_when_last_row_text_changes() {
         active_terminal_layout(&window, &hud_state.layout_state(), &view_state, &font_state);
 
     let mut before =
-        TerminalSurface::new(active_layout.dimensions.cols, active_layout.dimensions.rows);
+        TerminalSurface::new(active_layout.0.cols, active_layout.0.rows);
     set_colored_text(
         &mut before,
-        active_layout.dimensions.rows - 1,
+        active_layout.0.rows - 1,
         0,
         "$ ",
         egui::Color32::from_rgb(220, 220, 220),
@@ -745,10 +733,10 @@ fn sync_terminal_texture_updates_pixels_when_last_row_text_changes() {
     let (before_image, texture_state) = render_surface_to_terminal_image(before);
 
     let mut after =
-        TerminalSurface::new(active_layout.dimensions.cols, active_layout.dimensions.rows);
+        TerminalSurface::new(active_layout.0.cols, active_layout.0.rows);
     set_colored_text(
         &mut after,
-        active_layout.dimensions.rows - 1,
+        active_layout.0.rows - 1,
         0,
         "$ abc",
         egui::Color32::from_rgb(220, 220, 220),
@@ -768,7 +756,7 @@ fn sync_terminal_texture_updates_pixels_when_last_row_text_changes() {
         "last-row text change should alter texture pixels"
     );
 
-    let y_start = (active_layout.dimensions.rows as u32 - 1) * texture_state.cell_size.y;
+    let y_start = (active_layout.0.rows as u32 - 1) * texture_state.cell_size.y;
     let before_pixels = count_non_background_pixels_in_band(
         &before_image,
         y_start,

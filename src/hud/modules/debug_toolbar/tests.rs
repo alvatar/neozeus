@@ -18,7 +18,7 @@ fn clicking_debug_toolbar_button_emits_spawn_terminal_command() {
         crate::hud::default_hud_module_instance(&crate::hud::HUD_MODULE_DEFINITIONS[1]),
     );
     let mut emitted_commands = Vec::new();
-    let buttons = test_debug_toolbar_buttons(
+    let buttons = buttons::debug_toolbar_buttons(
         HudRect {
             x: 24.0,
             y: 52.0,
@@ -70,7 +70,7 @@ fn clicking_debug_toolbar_command_button_emits_terminal_command() {
         crate::hud::default_hud_module_instance(&crate::hud::HUD_MODULE_DEFINITIONS[1]),
     );
     let mut emitted_commands = Vec::new();
-    let buttons = test_debug_toolbar_buttons(
+    let buttons = buttons::debug_toolbar_buttons(
         HudRect {
             x: 24.0,
             y: 52.0,
@@ -121,7 +121,7 @@ fn debug_toolbar_buttons_include_module_toggle_entries() {
         HudWidgetKey::AgentList,
         crate::hud::default_hud_module_instance(&crate::hud::HUD_MODULE_DEFINITIONS[1]),
     );
-    let buttons = test_debug_toolbar_buttons(
+    let buttons = buttons::debug_toolbar_buttons(
         HudRect {
             x: 24.0,
             y: 24.0,
@@ -151,7 +151,7 @@ fn debug_toolbar_module_toggle_buttons_reflect_enabled_state() {
     );
     hud_state.set_module_enabled(HudWidgetKey::AgentList, false);
 
-    let buttons = test_debug_toolbar_buttons(
+    let buttons = buttons::debug_toolbar_buttons(
         HudRect {
             x: 24.0,
             y: 24.0,

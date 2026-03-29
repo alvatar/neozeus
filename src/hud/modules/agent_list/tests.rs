@@ -42,7 +42,7 @@ fn agent_row_rect_splits_main_and_marker_geometry() {
 /// Verifies that explicit agent-directory labels override the synthetic `agent-N` fallback names.
 #[test]
 fn agent_rows_use_derived_agent_view_labels() {
-    let rows = test_agent_rows(
+    let rows = rows::agent_rows(
         HudRect {
             x: 24.0,
             y: 96.0,
@@ -96,7 +96,7 @@ fn agent_rows_follow_terminal_order_and_focus() {
         w: 300.0,
         h: 420.0,
     };
-    let rows = test_agent_rows(
+    let rows = rows::agent_rows(
         shell_rect,
         0.0,
         None,
@@ -140,7 +140,7 @@ fn agent_rows_mark_hovered_agent() {
     let id_one = manager.create_terminal(bridge_one);
     let id_two = manager.create_terminal(bridge_two);
 
-    let rows = test_agent_rows(
+    let rows = rows::agent_rows(
         HudRect {
             x: 24.0,
             y: 96.0,
@@ -263,7 +263,7 @@ fn clicking_agent_list_row_emits_focus_and_isolate_commands() {
             },
         ],
     };
-    let rows = test_agent_rows(
+    let rows = rows::agent_rows(
         HudRect {
             x: 24.0,
             y: 132.0,

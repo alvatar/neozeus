@@ -15,7 +15,4 @@ pub(crate) use rows::{
 };
 
 #[cfg(test)]
-pub(crate) use rows::test_agent_rows;
-
-#[cfg(test)]
 mod tests;

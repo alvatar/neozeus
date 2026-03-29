@@ -13,32 +13,20 @@ fn drain_terminal_updates_keeps_latest_frame_and_status() {
     // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let mailbox = crate::terminals::TerminalUpdateMailbox::default();
 
-    assert!(
-        mailbox
-            .push(TerminalUpdate::Frame(TerminalFrameUpdate {
-                surface: surface_with_text(2, 2, 0, "a"),
-                damage: TerminalDamage::Rows(vec![0]),
-                runtime: TerminalRuntimeState::running("one"),
-            }))
-            .should_wake
-    );
-    assert!(
-        !mailbox
-            .push(TerminalUpdate::Frame(TerminalFrameUpdate {
-                surface: surface_with_text(2, 2, 1, "b"),
-                damage: TerminalDamage::Rows(vec![1]),
-                runtime: TerminalRuntimeState::running("two"),
-            }))
-            .should_wake
-    );
-    assert!(
-        !mailbox
-            .push(TerminalUpdate::Status {
-                runtime: TerminalRuntimeState::running("done"),
-                surface: None,
-            })
-            .should_wake
-    );
+    assert!(mailbox.push(TerminalUpdate::Frame(TerminalFrameUpdate {
+        surface: surface_with_text(2, 2, 0, "a"),
+        damage: TerminalDamage::Rows(vec![0]),
+        runtime: TerminalRuntimeState::running("one"),
+    })));
+    assert!(!mailbox.push(TerminalUpdate::Frame(TerminalFrameUpdate {
+        surface: surface_with_text(2, 2, 1, "b"),
+        damage: TerminalDamage::Rows(vec![1]),
+        runtime: TerminalRuntimeState::running("two"),
+    })));
+    assert!(!mailbox.push(TerminalUpdate::Status {
+        runtime: TerminalRuntimeState::running("done"),
+        surface: None,
+    }));
 
     let (frame, status, dropped) = mailbox.drain();
     assert_eq!(dropped, 1);

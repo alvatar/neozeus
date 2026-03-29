@@ -137,7 +137,7 @@ fn reconcile_terminal_sessions_restores_prunes_and_imports() {
         ],
     };
 
-    let reconciled = reconcile_terminal_sessions(
+    let (restore, import, prune) = reconcile_terminal_sessions(
         &persisted,
         &[
             "neozeus-session-a".into(),
@@ -146,13 +146,13 @@ fn reconcile_terminal_sessions_restores_prunes_and_imports() {
         ],
     );
 
-    assert_eq!(reconciled.restore.len(), 1);
-    assert_eq!(reconciled.restore[0].session_name, "neozeus-session-a");
-    assert_eq!(reconciled.prune.len(), 1);
-    assert_eq!(reconciled.prune[0].session_name, "neozeus-session-b");
-    assert_eq!(reconciled.import.len(), 1);
-    assert_eq!(reconciled.import[0].session_name, "neozeus-session-c");
-    assert_eq!(reconciled.import[0].creation_index, 2);
+    assert_eq!(restore.len(), 1);
+    assert_eq!(restore[0].session_name, "neozeus-session-a");
+    assert_eq!(prune.len(), 1);
+    assert_eq!(prune[0].session_name, "neozeus-session-b");
+    assert_eq!(import.len(), 1);
+    assert_eq!(import[0].session_name, "neozeus-session-c");
+    assert_eq!(import[0].creation_index, 2);
 }
 
 /// Verifies that saving terminal sessions preserves creation order, labels, and the focused session.

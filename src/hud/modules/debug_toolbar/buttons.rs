@@ -99,7 +99,7 @@ pub(in crate::hud) fn debug_toolbar_buttons(
     let y = shell_rect.y + HUD_MODULE_PADDING;
     buttons
         .into_iter()
-        .map(|(label, action, active)| {
+        .map(|(label, action, active): (String, DebugToolbarAction, bool)| {
             let width = HUD_BUTTON_MIN_WIDTH.max(label.len() as f32 * 8.0 + 20.0);
             let rect = HudRect {
                 x: cursor_x,
@@ -118,19 +118,3 @@ pub(in crate::hud) fn debug_toolbar_buttons(
         .collect()
 }
 
-/// Test-only wrapper that builds toolbar buttons and maps them into the simplified test view type.
-#[cfg(test)]
-pub(crate) fn test_debug_toolbar_buttons(
-    shell_rect: HudRect,
-    debug_toolbar_view: &DebugToolbarView,
-    layout_state: &HudLayoutState,
-) -> Vec<super::DebugToolbarButtonTestView> {
-    debug_toolbar_buttons(shell_rect, debug_toolbar_view, layout_state)
-        .into_iter()
-        .map(|button| super::DebugToolbarButtonTestView {
-            label: button.label,
-            rect: button.rect,
-            active: button.active,
-        })
-        .collect()
-}

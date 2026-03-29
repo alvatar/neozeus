@@ -11,11 +11,6 @@ struct PendingTerminalUpdates {
     wake_pending: bool,
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(crate) struct MailboxPush {
-    pub(crate) should_wake: bool,
-}
-
 #[derive(Default)]
 pub(crate) struct TerminalUpdateMailbox {
     inner: Mutex<PendingTerminalUpdates>,
@@ -27,7 +22,7 @@ impl TerminalUpdateMailbox {
     /// The mailbox coalesces frames aggressively: if an older frame was still waiting, it is dropped
     /// and the drop counter is incremented. That keeps the consumer focused on the most recent visual
     /// state instead of replaying stale intermediate frames.
-    fn push_frame(&self, frame: TerminalFrameUpdate) -> MailboxPush {
+    fn push_frame(&self, frame: TerminalFrameUpdate) -> bool {
         let mut pending = match self.inner.lock() {
             Ok(pending) => pending,
             Err(poisoned) => poisoned.into_inner(),
@@ -35,31 +30,27 @@ impl TerminalUpdateMailbox {
         if pending.latest_frame.replace(frame).is_some() {
             pending.dropped_frames += 1;
         }
-        MailboxPush {
-            should_wake: mark_wake_pending(&mut pending),
-        }
+        mark_wake_pending(&mut pending)
     }
 
     /// Stores the newest runtime/status update and reports whether the consumer should be woken.
     ///
     /// Status updates are also coalesced, but unlike frames there is no drop counter because only the
     /// latest status matters semantically.
-    fn push_status(&self, status: LatestTerminalStatus) -> MailboxPush {
+    fn push_status(&self, status: LatestTerminalStatus) -> bool {
         let mut pending = match self.inner.lock() {
             Ok(pending) => pending,
             Err(poisoned) => poisoned.into_inner(),
         };
         pending.latest_status = Some(status);
-        MailboxPush {
-            should_wake: mark_wake_pending(&mut pending),
-        }
+        mark_wake_pending(&mut pending)
     }
 
     /// Routes a generic terminal update into the appropriate coalescing path.
     ///
     /// This is just the enum-dispatch convenience wrapper around [`push_frame`] and [`push_status`],
     /// keeping callers from having to duplicate the match themselves.
-    pub(crate) fn push(&self, update: TerminalUpdate) -> MailboxPush {
+    pub(crate) fn push(&self, update: TerminalUpdate) -> bool {
         match update {
             TerminalUpdate::Frame(frame) => self.push_frame(frame),
             TerminalUpdate::Status { runtime, surface } => self.push_status((runtime, surface)),

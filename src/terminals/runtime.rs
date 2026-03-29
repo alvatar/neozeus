@@ -251,11 +251,11 @@ fn spawn_daemon_terminal_runtime(
     let update_mailbox_thread = update_mailbox.clone();
     thread::spawn(move || {
         while let Ok(update) = attached.updates.recv() {
-            let push = update_mailbox_thread.push(update);
+            let should_wake = update_mailbox_thread.push(update);
             with_debug_stats(&update_debug_stats, |stats| {
                 stats.snapshots_sent += 1;
             });
-            if push.should_wake {
+            if should_wake {
                 update_notifier.wake();
             }
         }
@@ -282,14 +282,14 @@ fn push_initial_snapshot(
     notifier: &RuntimeNotifier,
     snapshot: TerminalSnapshot,
 ) {
-    let push = update_mailbox.push(TerminalUpdate::Status {
+    let should_wake = update_mailbox.push(TerminalUpdate::Status {
         runtime: snapshot.runtime,
         surface: snapshot.surface,
     });
     with_debug_stats(debug_stats, |stats| {
         stats.snapshots_sent += 1;
     });
-    if push.should_wake {
+    if should_wake {
         notifier.wake();
     }
 }
@@ -305,14 +305,14 @@ fn publish_runtime_status(
     notifier: &RuntimeNotifier,
     runtime: TerminalRuntimeState,
 ) {
-    let push = update_mailbox.push(TerminalUpdate::Status {
+    let should_wake = update_mailbox.push(TerminalUpdate::Status {
         runtime,
         surface: None,
     });
     with_debug_stats(debug_stats, |stats| {
         stats.snapshots_sent += 1;
     });
-    if push.should_wake {
+    if should_wake {
         notifier.wake();
     }
 }

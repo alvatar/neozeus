@@ -511,7 +511,7 @@ fn draw_message_box(
     );
 
     let buttons = message_box_action_buttons(window);
-    let button_row_y = buttons[0].rect.y;
+    let button_row_y = buttons[0].1.y;
     let info_row_y = button_row_y - 26.0;
     let body_rect = HudRect {
         x: rect.x + 22.0,
@@ -520,12 +520,7 @@ fn draw_message_box(
         h: (info_row_y - 12.0 - (rect.y + 64.0)).max(96.0),
     };
     draw_text_editor_body(painter, window, message_box, body_rect);
-    draw_dialog_button_row(
-        painter,
-        buttons
-            .into_iter()
-            .map(|button| (button.rect, button.label)),
-    );
+    draw_dialog_button_row(painter, buttons.into_iter().map(|(_, rect, label)| (rect, label)));
 
     let (line_number, column_number) = message_box.cursor_line_and_column();
     painter.label(
@@ -645,7 +640,7 @@ fn draw_task_dialog(
     );
 
     let buttons = task_dialog_action_buttons(window);
-    let button_row_y = buttons[0].rect.y;
+    let button_row_y = buttons[0].1.y;
     let info_row_y = button_row_y - 26.0;
     let body_rect = HudRect {
         x: rect.x + 22.0,
@@ -654,12 +649,7 @@ fn draw_task_dialog(
         h: (info_row_y - 12.0 - (rect.y + 64.0)).max(96.0),
     };
     draw_text_editor_body(painter, window, task_dialog, body_rect);
-    draw_dialog_button_row(
-        painter,
-        buttons
-            .into_iter()
-            .map(|button| (button.rect, button.label)),
-    );
+    draw_dialog_button_row(painter, buttons.into_iter().map(|(_, rect, label)| (rect, label)));
 
     let (line_number, column_number) = task_dialog.cursor_line_and_column();
     painter.label(

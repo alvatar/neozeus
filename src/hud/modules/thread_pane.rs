@@ -30,7 +30,7 @@ pub(crate) fn render_content(
         VelloTextAnchor::TopLeft,
     );
 
-    if inputs.thread_view.messages.is_empty() {
+    if inputs.thread_view.is_empty() {
         painter.label(
             Vec2::new(content_rect.x + 8.0, content_rect.y + HUD_ROW_HEIGHT + 12.0),
             "No messages yet",
@@ -42,7 +42,7 @@ pub(crate) fn render_content(
     }
 
     let mut y = content_rect.y + HUD_ROW_HEIGHT + 8.0;
-    for message in &inputs.thread_view.messages {
+    for (body, delivered) in inputs.thread_view.message_rows() {
         let rect = HudRect {
             x: content_rect.x,
             y,
@@ -53,9 +53,9 @@ pub(crate) fn render_content(
         painter.stroke_rect(rect, HudColors::BORDER, 4.0);
         painter.label(
             Vec2::new(rect.x + 8.0, rect.y + 8.0),
-            &message.body,
+            &body,
             13.0,
-            if message.delivered {
+            if delivered {
                 HudColors::TEXT
             } else {
                 HudColors::TEXT_MUTED

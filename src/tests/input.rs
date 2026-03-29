@@ -1365,16 +1365,21 @@ fn clicking_hud_does_not_hide_active_terminal() {
     let (mut world, terminal_id) =
         world_with_active_terminal(Vec2::new(10.0, 10.0), false, Vec2::ZERO);
     let mut hud_state = crate::hud::HudState::default();
-    let mut module =
-        crate::hud::default_hud_module_instance(&crate::hud::HUD_MODULE_DEFINITIONS[0]);
-    module.shell.current_rect = crate::hud::HudRect {
+    let rect = crate::hud::HudRect {
         x: 0.0,
         y: 0.0,
         w: 100.0,
         h: 100.0,
     };
-    module.shell.target_rect = module.shell.current_rect;
-    hud_state.insert(crate::hud::HudWidgetKey::DebugToolbar, module);
+    hud_state.insert_default_module(crate::hud::HudWidgetKey::DebugToolbar);
+    hud_state.set_module_shell_state(
+        crate::hud::HudWidgetKey::DebugToolbar,
+        true,
+        rect,
+        rect,
+        1.0,
+        1.0,
+    );
     insert_test_hud_state(&mut world, hud_state);
     world
         .resource_mut::<ButtonInput<MouseButton>>()

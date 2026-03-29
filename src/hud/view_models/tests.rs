@@ -67,8 +67,9 @@ fn sync_hud_view_models_derives_agent_rows_and_threads() {
     assert!(agent_list.rows[0].has_tasks);
 
     let thread = world.resource::<ThreadView>();
-    assert_eq!(thread.messages.len(), 1);
-    assert_eq!(thread.messages[0].body, "hello");
+    let rows = thread.message_rows();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].0, "hello");
 
     let composer = world.resource::<ComposerView>();
     assert!(composer.visible);

@@ -40,7 +40,7 @@ pub(crate) struct ConversationListView {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct ThreadMessageView {
+struct ThreadMessageView {
     pub(crate) body: String,
     pub(crate) delivered: bool,
 }
@@ -48,7 +48,22 @@ pub(crate) struct ThreadMessageView {
 #[derive(Resource, Default, Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ThreadView {
     pub(crate) agent_id: Option<AgentId>,
-    pub(crate) messages: Vec<ThreadMessageView>,
+    messages: Vec<ThreadMessageView>,
+}
+
+impl ThreadView {
+    /// Returns whether the current thread has any messages.
+    pub(crate) fn is_empty(&self) -> bool {
+        self.messages.is_empty()
+    }
+
+    /// Returns cloned `(body, delivered)` pairs in display order.
+    pub(crate) fn message_rows(&self) -> Vec<(String, bool)> {
+        self.messages
+            .iter()
+            .map(|message| (message.body.clone(), message.delivered))
+            .collect()
+    }
 }
 
 #[derive(Resource, Default, Clone, Debug, PartialEq, Eq)]
@@ -144,9 +159,9 @@ pub(crate) fn sync_hud_view_models(
             conversations
                 .messages_for(conversation_id)
                 .into_iter()
-                .map(|message| ThreadMessageView {
-                    body: message.body.clone(),
-                    delivered: matches!(message.delivery, MessageDeliveryState::Delivered),
+                .map(|(body, delivery)| ThreadMessageView {
+                    body,
+                    delivered: matches!(delivery, MessageDeliveryState::Delivered),
                 })
                 .collect()
         })

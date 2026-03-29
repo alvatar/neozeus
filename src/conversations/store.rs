@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 pub(crate) struct ConversationId(pub(crate) u64);
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub(crate) struct MessageId(pub(crate) u64);
+pub(super) struct MessageId(u64);
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum MessageAuthor {
@@ -21,7 +21,7 @@ pub(crate) enum MessageDeliveryState {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct MessageRecord {
+pub(super) struct MessageRecord {
     pub(crate) id: MessageId,
     pub(crate) conversation_id: ConversationId,
     pub(crate) author: MessageAuthor,
@@ -30,7 +30,7 @@ pub(crate) struct MessageRecord {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct ConversationRecord {
+pub(super) struct ConversationRecord {
     pub(crate) id: ConversationId,
     pub(crate) agent_id: AgentId,
     pub(crate) message_ids: Vec<MessageId>,
@@ -40,9 +40,9 @@ pub(crate) struct ConversationRecord {
 pub(crate) struct ConversationStore {
     next_conversation_id: u64,
     next_message_id: u64,
-    pub(crate) conversations: BTreeMap<ConversationId, ConversationRecord>,
-    pub(crate) messages: BTreeMap<MessageId, MessageRecord>,
-    pub(crate) agent_to_conversation: BTreeMap<AgentId, ConversationId>,
+    pub(super) conversations: BTreeMap<ConversationId, ConversationRecord>,
+    pub(super) messages: BTreeMap<MessageId, MessageRecord>,
+    pub(super) agent_to_conversation: BTreeMap<AgentId, ConversationId>,
 }
 
 impl ConversationStore {
@@ -77,7 +77,7 @@ impl ConversationStore {
         author: MessageAuthor,
         body: String,
         delivery: MessageDeliveryState,
-    ) -> MessageId {
+    ) -> u64 {
         let message_id = MessageId(self.next_message_id.max(1));
         self.next_message_id = message_id.0 + 1;
         self.messages.insert(
@@ -93,16 +93,16 @@ impl ConversationStore {
         if let Some(conversation) = self.conversations.get_mut(&conversation_id) {
             conversation.message_ids.push(message_id);
         }
-        message_id
+        message_id.0
     }
 
     /// Sets delivery.
     pub(crate) fn set_delivery(
         &mut self,
-        message_id: MessageId,
+        message_id: u64,
         delivery: MessageDeliveryState,
     ) -> bool {
-        let Some(message) = self.messages.get_mut(&message_id) else {
+        let Some(message) = self.messages.get_mut(&MessageId(message_id)) else {
             return false;
         };
         if message.delivery == delivery {
@@ -112,13 +112,17 @@ impl ConversationStore {
         true
     }
 
-    /// Handles messages for.
-    pub(crate) fn messages_for(&self, conversation_id: ConversationId) -> Vec<&MessageRecord> {
+    /// Returns cloned message bodies and delivery states for one conversation in append order.
+    pub(crate) fn messages_for(
+        &self,
+        conversation_id: ConversationId,
+    ) -> Vec<(String, MessageDeliveryState)> {
         self.conversations
             .get(&conversation_id)
             .into_iter()
             .flat_map(|conversation| conversation.message_ids.iter())
             .filter_map(|message_id| self.messages.get(message_id))
+            .map(|message| (message.body.clone(), message.delivery.clone()))
             .collect()
     }
 }

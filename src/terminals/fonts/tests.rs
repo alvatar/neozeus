@@ -163,15 +163,9 @@ fn larger_measured_cells_reduce_terminal_grid_in_same_viewport() {
         ..Default::default()
     };
     let mut hud_state = HudState::default();
-    hud_state.insert(
-        HudWidgetKey::AgentList,
-        crate::hud::default_hud_module_instance(&crate::hud::HUD_MODULE_DEFINITIONS[1]),
-    );
+    hud_state.insert_default_module(HudWidgetKey::AgentList);
     let rect = crate::hud::docked_agent_list_rect(&window);
-    let agent_list = hud_state.get_mut(HudWidgetKey::AgentList).unwrap();
-    agent_list.shell.enabled = true;
-    agent_list.shell.current_rect = rect;
-    agent_list.shell.target_rect = rect;
+    hud_state.set_module_shell_state(HudWidgetKey::AgentList, true, rect, rect, 1.0, 1.0);
 
     let smaller = measured_font_state_for_size(16.0);
     let larger = measured_font_state_for_size(21.6);
@@ -231,14 +225,11 @@ fn parses_font_family_from_included_kitty_config() {
     fs::write(&main, "include fonts.conf\n").expect("failed to write main config");
 
     let mut visited = BTreeSet::new();
-    let mut config = KittyFontConfig::default();
-    parse_kitty_config_file(&main, &mut visited, &mut config)
+    let mut font_family = None;
+    parse_kitty_config_file(&main, &mut visited, &mut font_family)
         .expect("failed to parse kitty config");
 
-    assert_eq!(
-        config.font_family.as_deref(),
-        Some("JetBrains Mono Nerd Font")
-    );
+    assert_eq!(font_family.as_deref(), Some("JetBrains Mono Nerd Font"));
 }
 
 /// Verifies Kitty config discovery precedence prefers an explicit config directory over XDG and HOME fallbacks.

@@ -2,8 +2,8 @@ use crate::{
     agents::{AgentCatalog, AgentRuntimeIndex},
     app::{restore_app, AppSessionState},
     conversations::{
-        load_persisted_conversations_from, resolve_conversations_path,
-        restore_persisted_conversations, ConversationPersistenceState, ConversationStore,
+        resolve_conversations_path, restore_persisted_conversations_from_path,
+        ConversationPersistenceState, ConversationStore,
     },
     hud::{
         hud_needs_redraw, HudInputCaptureState, HudLayoutState, TerminalVisibilityPolicy,
@@ -158,7 +158,7 @@ impl StartupConnectState {
 }
 
 #[derive(SystemParam)]
-pub(crate) struct SceneSetupContext<'w, 's> {
+struct SceneSetupContext<'w, 's> {
     commands: Commands<'w, 's>,
     terminal_manager: ResMut<'w, TerminalManager>,
     focus_state: ResMut<'w, TerminalFocusState>,
@@ -271,12 +271,15 @@ pub(crate) fn request_redraw_while_visuals_active(
 /// paths, loads saved terminal notes, and then chooses one of three mutually exclusive startup
 /// paths: auto-verify bootstrap, deterministic verification scenario bootstrap, or normal session
 /// restore/import.
-pub(crate) fn setup_scene(
-    mut ctx: SceneSetupContext,
-    mut startup_connect: ResMut<StartupConnectState>,
-    _auto_verify: Option<Res<AutoVerifyConfig>>,
-    verification_scenario: Option<Res<VerificationScenarioConfig>>,
-) {
+#[allow(clippy::type_complexity, reason = "exclusive-system wrapper materializes the original startup params via SystemState")]
+pub(crate) fn setup_scene(world: &mut World) {
+    let mut state: bevy::ecs::system::SystemState<(
+        SceneSetupContext,
+        ResMut<StartupConnectState>,
+        Option<Res<AutoVerifyConfig>>,
+        Option<Res<VerificationScenarioConfig>>,
+    )> = bevy::ecs::system::SystemState::new(world);
+    let (mut ctx, mut startup_connect, _auto_verify, verification_scenario) = state.get_mut(world);
     // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
     ctx.commands.spawn((
         Camera2d,
@@ -319,6 +322,7 @@ pub(crate) fn setup_scene(
         startup_connect.phase = StartupConnectPhase::Ready;
         startup_connect.status.clear();
         ctx.redraws.write(RequestRedraw);
+        state.apply(world);
         return;
     }
 
@@ -333,23 +337,32 @@ pub(crate) fn setup_scene(
     clippy::too_many_arguments,
     reason = "startup connection advance needs the startup scene resources plus optional verification modes"
 )]
+#[allow(clippy::type_complexity, reason = "exclusive-system wrapper materializes the original startup params via SystemState")]
 /// Advances startup connecting.
-pub(crate) fn advance_startup_connecting(
-    mut ctx: SceneSetupContext,
-    mut startup_connect: ResMut<StartupConnectState>,
-    auto_verify: Option<Res<AutoVerifyConfig>>,
-    verification_scenario: Option<Res<VerificationScenarioConfig>>,
-) {
+pub(crate) fn advance_startup_connecting(world: &mut World) {
+    let mut state: bevy::ecs::system::SystemState<(
+        SceneSetupContext,
+        ResMut<StartupConnectState>,
+        Option<Res<AutoVerifyConfig>>,
+        Option<Res<VerificationScenarioConfig>>,
+    )> = bevy::ecs::system::SystemState::new(world);
+    let (mut ctx, mut startup_connect, auto_verify, verification_scenario) = state.get_mut(world);
+    macro_rules! finish {
+        () => {{
+            state.apply(world);
+            return;
+        }};
+    }
     // Walk the lifecycle in explicit stages so each side effect happens only after its prerequisites have been established.
     match startup_connect.phase {
         StartupConnectPhase::Connecting => {
             if startup_connect.hold_frames_remaining > 0 {
                 startup_connect.hold_frames_remaining -= 1;
                 ctx.redraws.write(RequestRedraw);
-                return;
+                finish!();
             }
             let Some(receiver) = startup_connect.receiver.as_ref() else {
-                return;
+                finish!();
             };
             let result = receiver.lock().ok().and_then(|guard| guard.try_recv().ok());
             match result {
@@ -373,7 +386,7 @@ pub(crate) fn advance_startup_connecting(
         }
         StartupConnectPhase::Restoring => {
             if startup_connect.restore_started || !ctx.runtime_spawner.is_ready() {
-                return;
+                finish!();
             }
             startup_connect.restore_started = true;
             if let Some(config) = auto_verify {
@@ -387,6 +400,7 @@ pub(crate) fn advance_startup_connecting(
         }
         StartupConnectPhase::Ready | StartupConnectPhase::Failed => {}
     }
+    state.apply(world);
 }
 
 /// Records a startup-spawned terminal in the optional loading tracker resource.
@@ -484,11 +498,9 @@ fn restore_startup_terminals(ctx: &mut SceneSetupContext) {
         }
     }
 
-    let persisted = ctx
-        .conversation_persistence
-        .path
-        .as_ref()
-        .map(load_persisted_conversations_from)
-        .unwrap_or_default();
-    restore_persisted_conversations(&persisted, &ctx.runtime_index, &mut ctx.conversations);
+    if let Some(path) = ctx.conversation_persistence.path.as_ref() {
+        restore_persisted_conversations_from_path(path, &ctx.runtime_index, &mut ctx.conversations);
+    } else {
+        *ctx.conversations = ConversationStore::default();
+    }
 }

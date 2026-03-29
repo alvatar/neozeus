@@ -37,19 +37,6 @@ pub(in crate::hud) struct AgentRow {
     pub(in crate::hud) interactive: bool,
 }
 
-#[cfg(test)]
-#[derive(Clone, Debug, PartialEq)]
-pub(crate) struct AgentRowTestView {
-    pub(crate) agent_id: AgentId,
-    pub(crate) terminal_id: Option<TerminalId>,
-    pub(crate) label: String,
-    pub(crate) display_label: String,
-    pub(crate) rect: HudRect,
-    pub(crate) focused: bool,
-    pub(crate) hovered: bool,
-    pub(crate) has_tasks: bool,
-    pub(crate) interactive: bool,
-}
 
 /// Derives one sub-rectangle of an agent row for rendering or hit-testing.
 ///
@@ -126,26 +113,3 @@ pub(in crate::hud) fn agent_rows(
         .collect()
 }
 
-/// Test-only wrapper that builds agent rows and maps them into the simplified test view type.
-#[cfg(test)]
-pub(crate) fn test_agent_rows(
-    shell_rect: HudRect,
-    scroll_offset: f32,
-    hovered_agent: Option<AgentId>,
-    agent_list_view: &AgentListView,
-) -> Vec<AgentRowTestView> {
-    agent_rows(shell_rect, scroll_offset, hovered_agent, agent_list_view)
-        .into_iter()
-        .map(|row| AgentRowTestView {
-            agent_id: row.agent_id,
-            terminal_id: row.terminal_id,
-            label: row.label,
-            display_label: row.display_label,
-            rect: row.rect,
-            focused: row.focused,
-            hovered: row.hovered,
-            has_tasks: row.has_tasks,
-            interactive: row.interactive,
-        })
-        .collect()
-}
