@@ -1,14 +1,15 @@
 use crate::{
     agents::{AgentCatalog, AgentKind, AgentRuntimeIndex},
+    app::{mark_app_state_dirty, AppStatePersistenceState},
     conversations::{
         AgentTaskStore, ConversationPersistenceState, ConversationStore, MessageTransportAdapter,
     },
     hud::{HudInputCaptureState, HudLayoutState, TerminalVisibilityState},
     startup::StartupLoadingState,
     terminals::{
-        append_debug_log, mark_terminal_sessions_dirty, TerminalFocusState, TerminalManager,
-        TerminalPresentationStore, TerminalRuntimeSpawner, TerminalSessionPersistenceState,
-        TerminalViewState, PERSISTENT_SESSION_PREFIX, VERIFIER_SESSION_PREFIX,
+        append_debug_log, TerminalFocusState, TerminalManager, TerminalPresentationStore,
+        TerminalRuntimeSpawner, TerminalViewState, PERSISTENT_SESSION_PREFIX,
+        VERIFIER_SESSION_PREFIX,
     },
 };
 
@@ -73,7 +74,9 @@ pub(crate) fn sync_agents_from_terminals(
                     AgentKind::Terminal => crate::agents::AgentCapabilities::terminal_defaults(),
                     AgentKind::Verifier => crate::agents::AgentCapabilities::verifier_defaults(),
                 };
-                let agent_id = agent_catalog.create_agent(None, kind, capabilities);
+                let agent_id = agent_catalog
+                    .create_agent(None, kind, capabilities)
+                    .expect("default terminal label generation must stay unique");
                 runtime_index.link_terminal(
                     agent_id,
                     terminal_id,
@@ -126,7 +129,7 @@ pub(super) struct AppCommandContext<'w> {
     conversations: ResMut<'w, ConversationStore>,
     conversation_persistence: ResMut<'w, ConversationPersistenceState>,
     transport: Res<'w, MessageTransportAdapter>,
-    session_persistence: ResMut<'w, TerminalSessionPersistenceState>,
+    app_state_persistence: ResMut<'w, AppStatePersistenceState>,
     visibility_state: ResMut<'w, TerminalVisibilityState>,
     view_state: ResMut<'w, TerminalViewState>,
     startup_loading: Option<ResMut<'w, StartupLoadingState>>,
@@ -155,7 +158,7 @@ pub(super) fn apply_app_commands(
                         &mut ctx.focus_state,
                         &ctx.runtime_spawner,
                         &mut ctx.input_capture,
-                        &mut ctx.session_persistence,
+                        &mut ctx.app_state_persistence,
                         &mut ctx.visibility_state,
                         &mut ctx.view_state,
                         ctx.startup_loading.as_deref_mut(),
@@ -183,7 +186,7 @@ pub(super) fn apply_app_commands(
                         &mut ctx.focus_state,
                         &ctx.runtime_spawner,
                         &mut ctx.input_capture,
-                        &mut ctx.session_persistence,
+                        &mut ctx.app_state_persistence,
                         &mut ctx.visibility_state,
                         &mut ctx.view_state,
                         ctx.startup_loading.as_deref_mut(),
@@ -211,7 +214,7 @@ pub(super) fn apply_app_commands(
                         &mut ctx.terminal_manager,
                         &mut ctx.focus_state,
                         &mut ctx.input_capture,
-                        &mut ctx.session_persistence,
+                        &mut ctx.app_state_persistence,
                         &mut ctx.view_state,
                         &mut ctx.visibility_state,
                         &ctx.time,
@@ -227,12 +230,21 @@ pub(super) fn apply_app_commands(
                         &mut ctx.terminal_manager,
                         &mut ctx.focus_state,
                         &mut ctx.input_capture,
-                        &mut ctx.session_persistence,
+                        &mut ctx.app_state_persistence,
                         &mut ctx.view_state,
                         &mut ctx.visibility_state,
                         &ctx.time,
                         &mut ctx.redraws,
                     );
+                }
+                AgentCommand::Reorder {
+                    agent_id,
+                    target_index,
+                } => {
+                    if ctx.agent_catalog.move_to_index(*agent_id, *target_index) {
+                        mark_app_state_dirty(&mut ctx.app_state_persistence, Some(&ctx.time));
+                        ctx.redraws.write(RequestRedraw);
+                    }
                 }
                 AgentCommand::ShowAll => {
                     ctx.app_session.visibility_mode = VisibilityMode::ShowAll;
@@ -249,7 +261,7 @@ pub(super) fn apply_app_commands(
                     ctx.view_state.focus_terminal(None);
                     ctx.input_capture
                         .reconcile_direct_terminal_input(ctx.focus_state.active_id());
-                    mark_terminal_sessions_dirty(&mut ctx.session_persistence, Some(&ctx.time));
+                    mark_app_state_dirty(&mut ctx.app_state_persistence, Some(&ctx.time));
                     ctx.redraws.write(RequestRedraw);
                 }
                 AgentCommand::KillActive => {
@@ -263,7 +275,7 @@ pub(super) fn apply_app_commands(
                         &mut ctx.focus_state,
                         &ctx.runtime_spawner,
                         &mut ctx.input_capture,
-                        &mut ctx.session_persistence,
+                        &mut ctx.app_state_persistence,
                         &mut ctx.visibility_state,
                         &mut ctx.view_state,
                         &mut ctx.redraws,

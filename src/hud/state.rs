@@ -72,6 +72,10 @@ impl HudModuleShell {
 pub(crate) struct AgentListUiState {
     pub(crate) scroll_offset: f32,
     pub(crate) hovered_agent: Option<AgentId>,
+    pub(crate) pressed_agent: Option<AgentId>,
+    pub(crate) press_origin: Option<Vec2>,
+    pub(crate) dragging_agent: Option<AgentId>,
+    pub(crate) last_reorder_index: Option<usize>,
 }
 
 #[derive(Resource, Clone, Debug, Default, PartialEq)]

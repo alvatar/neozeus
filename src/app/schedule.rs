@@ -1,4 +1,5 @@
 use crate::{
+    app::save_app_state_if_dirty,
     conversations::{save_conversations_if_dirty, sync_task_notes_projection},
     hud::{
         animate_hud_modules, finalize_window_capture, handle_hud_module_shortcuts,
@@ -15,9 +16,9 @@ use crate::{
     },
     startup::{advance_startup_connecting, request_redraw_while_visuals_active, setup_scene},
     terminals::{
-        configure_terminal_fonts, save_terminal_notes_if_dirty, save_terminal_sessions_if_dirty,
-        sync_active_terminal_dimensions, sync_terminal_hud_surface, sync_terminal_panel_frames,
-        sync_terminal_presentations, sync_terminal_projection_entities, sync_terminal_texture,
+        configure_terminal_fonts, save_terminal_notes_if_dirty, sync_active_terminal_dimensions,
+        sync_terminal_hud_surface, sync_terminal_panel_frames, sync_terminal_presentations,
+        sync_terminal_projection_entities, sync_terminal_texture,
     },
     verification::run_verification_scenario,
 };
@@ -169,7 +170,7 @@ pub(crate) fn configure_app_schedule(app: &mut App) {
             sync_task_notes_projection,
             save_hud_layout_if_dirty,
             save_terminal_notes_if_dirty,
-            save_terminal_sessions_if_dirty,
+            save_app_state_if_dirty,
             save_conversations_if_dirty,
         )
             .in_set(NeoZeusSet::HudAnimation),

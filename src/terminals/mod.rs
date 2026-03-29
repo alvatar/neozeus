@@ -45,10 +45,12 @@ pub(crate) use registry::{
 };
 pub(crate) use runtime::{RuntimeNotifier, TerminalRuntimeSpawner};
 pub(crate) use session_persistence::{
-    load_persisted_terminal_sessions_from, mark_terminal_sessions_dirty,
-    ordered_reconciled_terminal_sessions, reconcile_terminal_sessions,
-    resolve_terminal_sessions_path, save_terminal_sessions_if_dirty,
-    TerminalSessionPersistenceState,
+    load_persisted_terminal_sessions_from, resolve_terminal_sessions_path,
+    PersistedTerminalSessions,
+};
+#[cfg(test)]
+pub(crate) use session_persistence::{
+    serialize_persisted_terminal_sessions, TerminalSessionRecord,
 };
 pub(crate) use types::TerminalLifecycle;
 pub(crate) use types::{

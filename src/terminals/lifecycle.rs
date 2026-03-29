@@ -1,9 +1,10 @@
+use crate::app::{mark_app_state_dirty, AppStatePersistenceState};
+
 use super::{
     bridge::TerminalBridge,
     debug::append_debug_log,
     registry::{TerminalFocusState, TerminalId, TerminalManager},
     runtime::TerminalRuntimeSpawner,
-    session_persistence::{mark_terminal_sessions_dirty, TerminalSessionPersistenceState},
 };
 use bevy::prelude::*;
 
@@ -64,7 +65,7 @@ pub(crate) fn kill_active_terminal_session_and_remove(
     terminal_manager: &mut TerminalManager,
     focus_state: &mut TerminalFocusState,
     runtime_spawner: &TerminalRuntimeSpawner,
-    session_persistence: &mut TerminalSessionPersistenceState,
+    app_state_persistence: &mut AppStatePersistenceState,
 ) -> Result<Option<(TerminalId, String)>, String> {
     // Walk the lifecycle in explicit stages so each side effect happens only after its prerequisites have been established.
     let Some(active_id) = focus_state.active_id() else {
@@ -91,6 +92,6 @@ pub(crate) fn kill_active_terminal_session_and_remove(
     remove_terminal_with_projection(terminal_manager, focus_state, active_id);
     #[cfg(test)]
     terminal_manager.replace_test_focus_state(focus_state);
-    mark_terminal_sessions_dirty(session_persistence, Some(time));
+    mark_app_state_dirty(app_state_persistence, Some(time));
     Ok(Some((active_id, session_name)))
 }

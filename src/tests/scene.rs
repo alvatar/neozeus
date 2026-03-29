@@ -103,7 +103,7 @@ fn setup_scene_starts_background_connect_when_runtime_is_pending() {
     world.insert_resource(crate::conversations::ConversationStore::default());
     world.insert_resource(crate::conversations::ConversationPersistenceState::default());
     world.insert_resource(TerminalRuntimeSpawner::pending_headless());
-    world.insert_resource(crate::terminals::TerminalSessionPersistenceState::default());
+    world.insert_resource(crate::app::AppStatePersistenceState::default());
     world.insert_resource(crate::terminals::TerminalNotesState::default());
     world.insert_resource(crate::hud::HudInputCaptureState::default());
     world.insert_resource(crate::hud::TerminalVisibilityState::default());
@@ -140,7 +140,7 @@ fn startup_connecting_advances_to_restoring_when_background_connect_completes() 
     world.insert_resource(crate::conversations::ConversationStore::default());
     world.insert_resource(crate::conversations::ConversationPersistenceState::default());
     world.insert_resource(spawner.clone());
-    world.insert_resource(crate::terminals::TerminalSessionPersistenceState::default());
+    world.insert_resource(crate::app::AppStatePersistenceState::default());
     world.insert_resource(crate::terminals::TerminalNotesState::default());
     world.insert_resource(crate::hud::HudInputCaptureState::default());
     world.insert_resource(crate::hud::TerminalVisibilityState::default());
@@ -458,7 +458,7 @@ fn startup_focus_skips_disconnected_restored_session() {
     world.init_resource::<Messages<RequestRedraw>>();
     world.insert_resource(Time::<()>::default());
     world.insert_resource(fake_runtime_spawner(client.clone()));
-    world.insert_resource(crate::terminals::TerminalSessionPersistenceState {
+    world.insert_resource(crate::app::AppStatePersistenceState {
         path: Some(sessions_path),
         dirty_since_secs: None,
     });
@@ -523,7 +523,7 @@ fn startup_leaves_only_disconnected_sessions_visible_and_unfocused() {
     world.init_resource::<Messages<RequestRedraw>>();
     world.insert_resource(Time::<()>::default());
     world.insert_resource(fake_runtime_spawner(client.clone()));
-    world.insert_resource(crate::terminals::TerminalSessionPersistenceState {
+    world.insert_resource(crate::app::AppStatePersistenceState {
         path: Some(sessions_path),
         dirty_since_secs: None,
     });
@@ -571,7 +571,7 @@ fn startup_spawns_initial_terminal_when_no_sessions_exist() {
     world.init_resource::<Messages<RequestRedraw>>();
     world.insert_resource(Time::<()>::default());
     world.insert_resource(fake_runtime_spawner(client.clone()));
-    world.insert_resource(crate::terminals::TerminalSessionPersistenceState::default());
+    world.insert_resource(crate::app::AppStatePersistenceState::default());
     world.insert_resource(crate::terminals::TerminalNotesState::default());
     world.insert_resource(crate::hud::TerminalVisibilityState::default());
     world.insert_resource(crate::startup::StartupConnectState::default());

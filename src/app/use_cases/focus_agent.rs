@@ -1,10 +1,8 @@
 use crate::{
     agents::{AgentId, AgentRuntimeIndex},
+    app::{mark_app_state_dirty, AppStatePersistenceState},
     hud::{HudInputCaptureState, TerminalVisibilityPolicy, TerminalVisibilityState},
-    terminals::{
-        mark_terminal_sessions_dirty, TerminalFocusState, TerminalManager,
-        TerminalSessionPersistenceState, TerminalViewState,
-    },
+    terminals::{TerminalFocusState, TerminalManager, TerminalViewState},
 };
 
 use super::super::session::{AppSessionState, VisibilityMode};
@@ -22,7 +20,7 @@ pub(crate) fn focus_agent(
     terminal_manager: &mut TerminalManager,
     focus_state: &mut TerminalFocusState,
     input_capture: &mut HudInputCaptureState,
-    session_persistence: &mut TerminalSessionPersistenceState,
+    app_state_persistence: &mut AppStatePersistenceState,
     view_state: &mut TerminalViewState,
     visibility_state: &mut TerminalVisibilityState,
     time: &Time,
@@ -42,6 +40,6 @@ pub(crate) fn focus_agent(
         VisibilityMode::ShowAll => TerminalVisibilityPolicy::ShowAll,
         VisibilityMode::FocusedOnly => TerminalVisibilityPolicy::Isolate(terminal_id),
     };
-    mark_terminal_sessions_dirty(session_persistence, Some(time));
+    mark_app_state_dirty(app_state_persistence, Some(time));
     redraws.write(RequestRedraw);
 }

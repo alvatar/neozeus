@@ -1,10 +1,11 @@
 use crate::{
     agents::{AgentCatalog, AgentId, AgentRuntimeIndex},
+    app::AppStatePersistenceState,
     conversations::AgentTaskStore,
     hud::{HudInputCaptureState, TerminalVisibilityPolicy, TerminalVisibilityState},
     terminals::{
         kill_active_terminal_session_and_remove, TerminalFocusState, TerminalManager,
-        TerminalRuntimeSpawner, TerminalSessionPersistenceState, TerminalViewState,
+        TerminalRuntimeSpawner, TerminalViewState,
     },
 };
 
@@ -39,7 +40,7 @@ pub(crate) fn kill_active_agent(
     focus_state: &mut TerminalFocusState,
     runtime_spawner: &TerminalRuntimeSpawner,
     input_capture: &mut HudInputCaptureState,
-    session_persistence: &mut TerminalSessionPersistenceState,
+    app_state_persistence: &mut AppStatePersistenceState,
     visibility_state: &mut TerminalVisibilityState,
     view_state: &mut TerminalViewState,
     redraws: &mut MessageWriter<RequestRedraw>,
@@ -54,7 +55,7 @@ pub(crate) fn kill_active_agent(
         terminal_manager,
         focus_state,
         runtime_spawner,
-        session_persistence,
+        app_state_persistence,
     )?;
     let Some((terminal_id, _session_name)) = removed else {
         return Ok(None);

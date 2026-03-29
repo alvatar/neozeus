@@ -7,21 +7,115 @@ use crate::terminals::{TerminalId, TerminalRuntimeState};
 #[test]
 fn catalog_assigns_stable_default_labels_in_creation_order() {
     let mut catalog = AgentCatalog::default();
-    let alpha = catalog.create_agent(
-        None,
-        AgentKind::Terminal,
-        AgentCapabilities::terminal_defaults(),
-    );
-    let beta = catalog.create_agent(
-        None,
-        AgentKind::Terminal,
-        AgentCapabilities::terminal_defaults(),
-    );
+    let alpha = catalog
+        .create_agent(
+            None,
+            AgentKind::Terminal,
+            AgentCapabilities::terminal_defaults(),
+        )
+        .unwrap();
+    let beta = catalog
+        .create_agent(
+            None,
+            AgentKind::Terminal,
+            AgentCapabilities::terminal_defaults(),
+        )
+        .unwrap();
 
     assert_eq!(alpha, AgentId(1));
     assert_eq!(beta, AgentId(2));
     assert_eq!(catalog.label(alpha), Some("agent-1"));
     assert_eq!(catalog.label(beta), Some("agent-2"));
+}
+
+/// Verifies that explicit agent labels must be unique while default labels skip occupied names.
+#[test]
+fn catalog_rejects_duplicate_labels_and_skips_taken_default_names() {
+    let mut catalog = AgentCatalog::default();
+    let _ = catalog
+        .create_agent(
+            Some("agent-1".into()),
+            AgentKind::Terminal,
+            AgentCapabilities::terminal_defaults(),
+        )
+        .unwrap();
+
+    let generated = catalog
+        .create_agent(
+            None,
+            AgentKind::Terminal,
+            AgentCapabilities::terminal_defaults(),
+        )
+        .unwrap();
+
+    assert_eq!(catalog.label(generated), Some("agent-2"));
+    assert_eq!(
+        catalog.create_agent(
+            Some("agent-1".into()),
+            AgentKind::Terminal,
+            AgentCapabilities::terminal_defaults(),
+        ),
+        Err("agent `agent-1` already exists".into())
+    );
+}
+
+/// Verifies that renaming also enforces uniqueness and trims outer whitespace.
+#[test]
+fn catalog_rename_rejects_duplicates() {
+    let mut catalog = AgentCatalog::default();
+    let alpha = catalog
+        .create_agent(
+            Some("alpha".into()),
+            AgentKind::Terminal,
+            AgentCapabilities::terminal_defaults(),
+        )
+        .unwrap();
+    let beta = catalog
+        .create_agent(
+            Some("beta".into()),
+            AgentKind::Terminal,
+            AgentCapabilities::terminal_defaults(),
+        )
+        .unwrap();
+
+    assert_eq!(
+        catalog.rename_agent(beta, " alpha "),
+        Err("agent `alpha` already exists".into())
+    );
+    catalog.rename_agent(beta, " gamma ").unwrap();
+    assert_eq!(catalog.label(beta), Some("gamma"));
+    assert_eq!(catalog.label(alpha), Some("alpha"));
+}
+
+/// Verifies that moving one agent updates the retained display order deterministically.
+#[test]
+fn catalog_move_to_index_reorders_agents() {
+    let mut catalog = AgentCatalog::default();
+    let alpha = catalog
+        .create_agent(
+            Some("alpha".into()),
+            AgentKind::Terminal,
+            AgentCapabilities::terminal_defaults(),
+        )
+        .unwrap();
+    let beta = catalog
+        .create_agent(
+            Some("beta".into()),
+            AgentKind::Terminal,
+            AgentCapabilities::terminal_defaults(),
+        )
+        .unwrap();
+    let gamma = catalog
+        .create_agent(
+            Some("gamma".into()),
+            AgentKind::Terminal,
+            AgentCapabilities::terminal_defaults(),
+        )
+        .unwrap();
+
+    assert!(catalog.move_to_index(gamma, 0));
+    assert_eq!(catalog.order, vec![gamma, alpha, beta]);
+    assert!(!catalog.move_to_index(gamma, 0));
 }
 
 /// Verifies that runtime index links terminal session and runtime state.

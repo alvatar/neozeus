@@ -271,11 +271,14 @@ pub(crate) fn run_verification_scenario(world: &mut World) {
             _ => "gamma",
         };
         if ctx.runtime_index.agent_for_terminal(terminal_id).is_none() {
-            let agent_id = ctx.agent_catalog.create_agent(
-                Some(label.to_owned()),
-                AgentKind::Verifier,
-                AgentCapabilities::verifier_defaults(),
-            );
+            let agent_id = ctx
+                .agent_catalog
+                .create_agent(
+                    Some(label.to_owned()),
+                    AgentKind::Verifier,
+                    AgentCapabilities::verifier_defaults(),
+                )
+                .expect("verification labels must remain unique");
             let runtime = ctx
                 .terminal_manager
                 .get(terminal_id)

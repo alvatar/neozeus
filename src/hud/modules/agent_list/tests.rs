@@ -1,5 +1,6 @@
 use super::*;
 use crate::{
+    agents::AgentId,
     app::{AgentCommand as AppAgentCommand, AppCommand},
     hud::{
         AgentListRowView, AgentListUiState, AgentListView, ConversationListUiState,
@@ -37,6 +38,58 @@ fn agent_row_rect_splits_main_and_marker_geometry() {
     assert_eq!(accent.y, row.y + 3.0);
     assert_eq!(accent.w, 8.0);
     assert_eq!(accent.h, row.h - 6.0);
+}
+
+/// Verifies that reorder hit-testing chooses the first row whose midpoint is below the cursor.
+#[test]
+fn reorder_target_index_tracks_row_midpoints() {
+    let state = AgentListUiState::default();
+    let shell = HudRect {
+        x: 24.0,
+        y: 96.0,
+        w: 300.0,
+        h: 420.0,
+    };
+    let view = AgentListView {
+        rows: vec![
+            AgentListRowView {
+                agent_id: AgentId(1),
+                terminal_id: None,
+                label: "alpha".into(),
+                focused: false,
+                has_tasks: false,
+                interactive: true,
+            },
+            AgentListRowView {
+                agent_id: AgentId(2),
+                terminal_id: None,
+                label: "beta".into(),
+                focused: false,
+                has_tasks: false,
+                interactive: true,
+            },
+        ],
+    };
+    let rows = rows::agent_rows(shell, 0.0, None, &view);
+
+    assert_eq!(
+        reorder_target_index(
+            &state,
+            shell,
+            Vec2::new(rows[0].rect.x + 4.0, rows[0].rect.y + 2.0),
+            &view
+        ),
+        Some(0)
+    );
+    assert_eq!(
+        reorder_target_index(
+            &state,
+            shell,
+            Vec2::new(rows[1].rect.x + 4.0, rows[1].rect.y + rows[1].rect.h),
+            &view
+        ),
+        Some(1)
+    );
 }
 
 /// Verifies that explicit agent-directory labels override the synthetic `agent-N` fallback names.
