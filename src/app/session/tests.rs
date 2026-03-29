@@ -22,8 +22,8 @@ fn session_focus_and_visibility_update_independently() {
 #[test]
 fn create_agent_dialog_open_resets_defaults() {
     let mut dialog = CreateAgentDialogState::default();
-    dialog.name_editor.load_text("stale");
-    dialog.starting_folder_editor.load_text("/tmp");
+    dialog.name_field.load_text("stale");
+    dialog.cwd_field.load_text("/tmp");
     dialog.error = Some("old error".into());
 
     dialog.open(CreateAgentKind::Shell);
@@ -31,8 +31,8 @@ fn create_agent_dialog_open_resets_defaults() {
     assert!(dialog.visible);
     assert_eq!(dialog.kind, CreateAgentKind::Shell);
     assert_eq!(dialog.focus, CreateAgentDialogField::Name);
-    assert_eq!(dialog.name_editor.text, "");
-    assert_eq!(dialog.starting_folder_editor.text, "~/code");
+    assert_eq!(dialog.name_field.text, "");
+    assert_eq!(dialog.cwd_field.field.text, "~/code");
     assert_eq!(dialog.error, None);
 }
 

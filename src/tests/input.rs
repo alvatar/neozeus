@@ -166,6 +166,15 @@ fn dispatch_terminal_ui_key(world: &mut World, event: KeyboardInput) {
     }
 }
 
+/// Builds a unique temporary directory path for one filesystem-backed input test.
+fn unique_temp_dir(prefix: &str) -> std::path::PathBuf {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    std::env::temp_dir().join(format!("neozeus-{prefix}-{nanos}-{}", std::process::id()))
+}
+
 /// Builds a test world containing one focused terminal panel plus the receiver for commands sent to
 /// its bridge.
 fn world_with_active_terminal_and_receiver(
@@ -335,11 +344,8 @@ fn global_spawn_shortcut_opens_create_agent_dialog_even_with_active_terminal() {
     let session = world.resource::<AppSessionState>();
     assert!(session.create_agent_dialog.visible);
     assert_eq!(session.create_agent_dialog.kind, CreateAgentKind::Agent);
-    assert_eq!(session.create_agent_dialog.name_editor.text, "");
-    assert_eq!(
-        session.create_agent_dialog.starting_folder_editor.text,
-        "~/code"
-    );
+    assert_eq!(session.create_agent_dialog.name_field.text, "");
+    assert_eq!(session.create_agent_dialog.cwd_field.field.text, "~/code");
     assert_eq!(
         session.create_agent_dialog.focus,
         CreateAgentDialogField::Name
@@ -447,6 +453,103 @@ fn create_agent_dialog_space_toggles_type() {
     );
 }
 
+/// Verifies that `Tab` in the cwd field starts completion and cycles matching directories.
+#[test]
+fn create_agent_dialog_tab_cycles_cwd_completions() {
+    let root = unique_temp_dir("cwd-cycle");
+    std::fs::create_dir_all(root.join("code")).unwrap();
+    std::fs::create_dir_all(root.join("configs")).unwrap();
+
+    let mut world = World::default();
+    world.insert_resource(ButtonInput::<KeyCode>::default());
+    world.insert_resource(AppSessionState::default());
+    {
+        let mut session = world.resource_mut::<AppSessionState>();
+        session.create_agent_dialog.open(CreateAgentKind::Agent);
+        session.create_agent_dialog.focus = CreateAgentDialogField::StartingFolder;
+        session
+            .create_agent_dialog
+            .cwd_field
+            .load_text(&format!("{}/co", root.display()));
+    }
+    world.spawn((
+        Window {
+            focused: true,
+            ..Default::default()
+        },
+        PrimaryWindow,
+    ));
+
+    dispatch_message_box_key(&mut world, pressed_key(KeyCode::Tab, Key::Tab));
+    {
+        let session = world.resource::<AppSessionState>();
+        assert_eq!(
+            session.create_agent_dialog.cwd_field.field.text,
+            format!("{}/code/", root.display())
+        );
+        assert!(session.create_agent_dialog.cwd_field.completion.is_some());
+    }
+
+    dispatch_message_box_key(&mut world, pressed_key(KeyCode::Tab, Key::Tab));
+    let session = world.resource::<AppSessionState>();
+    assert_eq!(
+        session.create_agent_dialog.cwd_field.field.text,
+        format!("{}/configs/", root.display())
+    );
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+/// Verifies that `Enter` in the cwd field accepts the current completion and opens the next level.
+#[test]
+fn create_agent_dialog_enter_descends_into_selected_cwd_completion() {
+    let root = unique_temp_dir("cwd-enter");
+    std::fs::create_dir_all(root.join("code").join("alpha")).unwrap();
+    std::fs::create_dir_all(root.join("configs")).unwrap();
+
+    let mut world = World::default();
+    world.insert_resource(ButtonInput::<KeyCode>::default());
+    world.insert_resource(AppSessionState::default());
+    {
+        let mut session = world.resource_mut::<AppSessionState>();
+        session.create_agent_dialog.open(CreateAgentKind::Agent);
+        session.create_agent_dialog.focus = CreateAgentDialogField::StartingFolder;
+        session
+            .create_agent_dialog
+            .cwd_field
+            .load_text(&format!("{}/co", root.display()));
+    }
+    world.spawn((
+        Window {
+            focused: true,
+            ..Default::default()
+        },
+        PrimaryWindow,
+    ));
+
+    dispatch_message_box_key(&mut world, pressed_key(KeyCode::Tab, Key::Tab));
+    dispatch_message_box_key(&mut world, pressed_key(KeyCode::Enter, Key::Enter));
+
+    let session = world.resource::<AppSessionState>();
+    assert_eq!(
+        session.create_agent_dialog.cwd_field.field.text,
+        format!("{}/code/", root.display())
+    );
+    let completion = session
+        .create_agent_dialog
+        .cwd_field
+        .completion
+        .as_ref()
+        .expect("next-level completion should stay open");
+    assert!(!completion.preview_active);
+    assert_eq!(
+        completion.items[0].completion_text,
+        format!("{}/code/alpha/", root.display())
+    );
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
 /// Verifies that `Escape` cancels the create-agent dialog without spawning anything.
 #[test]
 fn create_agent_dialog_escape_closes_without_spawning() {
@@ -484,11 +587,8 @@ fn create_agent_dialog_submit_emits_create_command() {
     {
         let mut session = world.resource_mut::<AppSessionState>();
         session.create_agent_dialog.open(CreateAgentKind::Shell);
-        session.create_agent_dialog.name_editor.load_text("oracle");
-        session
-            .create_agent_dialog
-            .starting_folder_editor
-            .load_text("~/code");
+        session.create_agent_dialog.name_field.load_text("oracle");
+        session.create_agent_dialog.cwd_field.load_text("~/code");
         session.create_agent_dialog.focus = CreateAgentDialogField::CreateButton;
     }
     ensure_app_command_world_resources(&mut world);

@@ -2,6 +2,7 @@ mod bootstrap;
 mod commands;
 mod dispatch;
 mod output;
+mod path_completion;
 mod schedule;
 mod session;
 mod use_cases;
@@ -10,7 +11,9 @@ pub(crate) use commands::{
     AgentCommand, AppCommand, ComposerCommand, ComposerRequest, TaskCommand, TerminalCommand,
     WidgetCommand,
 };
-pub(crate) use session::{AppSessionState, CreateAgentDialogField, CreateAgentKind};
+pub(crate) use session::{
+    AppSessionState, CreateAgentDialogField, CreateAgentKind, CwdCompletionItem, TextFieldState,
+};
 pub(crate) use use_cases::restore_app;
 
 pub(crate) use bootstrap::build_app;

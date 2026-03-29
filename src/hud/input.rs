@@ -140,10 +140,18 @@ pub(crate) fn handle_hud_pointer_input(world: &mut World) {
                 match target {
                     CreateAgentDialogTarget::NameField => {
                         ctx.app_session.create_agent_dialog.focus = CreateAgentDialogField::Name;
+                        ctx.app_session
+                            .create_agent_dialog
+                            .cwd_field
+                            .clear_completion();
                         ctx.app_session.create_agent_dialog.error = None;
                     }
                     CreateAgentDialogTarget::Kind(kind) => {
                         ctx.app_session.create_agent_dialog.focus = CreateAgentDialogField::Kind;
+                        ctx.app_session
+                            .create_agent_dialog
+                            .cwd_field
+                            .clear_completion();
                         ctx.app_session.create_agent_dialog.set_kind(kind);
                     }
                     CreateAgentDialogTarget::StartingFolderField => {
@@ -154,6 +162,10 @@ pub(crate) fn handle_hud_pointer_input(world: &mut World) {
                     CreateAgentDialogTarget::CreateButton => {
                         ctx.app_session.create_agent_dialog.focus =
                             CreateAgentDialogField::CreateButton;
+                        ctx.app_session
+                            .create_agent_dialog
+                            .cwd_field
+                            .clear_completion();
                         if let Some(command) =
                             ctx.app_session.create_agent_dialog.build_create_command()
                         {

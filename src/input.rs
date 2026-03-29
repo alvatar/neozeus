@@ -3,6 +3,7 @@ use crate::{
     app::{
         AgentCommand as AppAgentCommand, AppCommand, AppSessionState, ComposerCommand,
         ComposerRequest, CreateAgentDialogField, CreateAgentKind, TaskCommand as AppTaskCommand,
+        TextFieldState,
     },
     hud::{HudInputCaptureState, HudLayoutState},
     terminals::{
@@ -568,13 +569,12 @@ fn handle_text_editor_event(
     }
 }
 
-/// Applies one keyboard event to a single-line HUD text editor field.
+/// Applies one keyboard event to a single-line HUD text field.
 ///
-/// This is the reduced variant used by the create-agent dialog: it keeps the Emacs-like cursor and
-/// word-editing behavior, but intentionally rejects newline and tab insertion so the field remains a
-/// single logical line and `Tab` stays available for focus traversal.
-fn handle_single_line_text_editor_event(
-    editor: &mut crate::composer::TextEditorState,
+/// This keeps the form-control behavior intentionally small: no multiline editing, no selection,
+/// and no generic `Tab` handling because the cwd field reserves that key for completion.
+fn handle_text_field_event(
+    field: &mut TextFieldState,
     event: &KeyboardInput,
     ctrl: bool,
     alt: bool,
@@ -582,40 +582,35 @@ fn handle_single_line_text_editor_event(
 ) -> bool {
     if ctrl && !alt && !super_key {
         match event.key_code {
-            KeyCode::Space => editor.set_mark(),
-            KeyCode::KeyA => editor.move_line_start(),
-            KeyCode::KeyB => editor.move_left(),
-            KeyCode::KeyD => editor.delete_forward_char(),
-            KeyCode::KeyE => editor.move_line_end(),
-            KeyCode::KeyF => editor.move_right(),
-            KeyCode::KeyH => editor.delete_backward_char(),
-            KeyCode::KeyK => editor.kill_to_end_of_line(),
-            KeyCode::KeyW => editor.kill_region(),
-            KeyCode::KeyY => editor.yank(),
+            KeyCode::KeyA => field.move_start(),
+            KeyCode::KeyB => field.move_left(),
+            KeyCode::KeyD => field.delete_forward_char(),
+            KeyCode::KeyE => field.move_end(),
+            KeyCode::KeyF => field.move_right(),
+            KeyCode::KeyH => field.delete_backward_char(),
+            KeyCode::KeyK => field.kill_to_end(),
             _ => false,
         }
     } else if alt && !ctrl && !super_key {
         match event.key_code {
-            KeyCode::Backspace => editor.kill_word_backward(),
-            KeyCode::KeyB => editor.move_word_backward(),
-            KeyCode::KeyD => editor.kill_word_forward(),
-            KeyCode::KeyF => editor.move_word_forward(),
-            KeyCode::KeyW => editor.copy_region(),
-            KeyCode::KeyY => editor.yank_pop(),
+            KeyCode::Backspace => field.kill_word_backward(),
+            KeyCode::KeyB => field.move_word_backward(),
+            KeyCode::KeyD => field.kill_word_forward(),
+            KeyCode::KeyF => field.move_word_forward(),
             _ => false,
         }
     } else if !(ctrl || alt || super_key) {
         match event.key_code {
-            KeyCode::Backspace => editor.delete_backward_char(),
-            KeyCode::Delete => editor.delete_forward_char(),
-            KeyCode::ArrowLeft => editor.move_left(),
-            KeyCode::ArrowRight => editor.move_right(),
-            KeyCode::Home => editor.move_line_start(),
-            KeyCode::End => editor.move_line_end(),
+            KeyCode::Backspace => field.delete_backward_char(),
+            KeyCode::Delete => field.delete_forward_char(),
+            KeyCode::ArrowLeft => field.move_left(),
+            KeyCode::ArrowRight => field.move_right(),
+            KeyCode::Home => field.move_start(),
+            KeyCode::End => field.move_end(),
             KeyCode::ArrowUp | KeyCode::ArrowDown | KeyCode::Enter | KeyCode::Tab => false,
             _ => message_box_event_text(event)
                 .filter(|text| !text.contains(['\n', '\r', '\t']))
-                .is_some_and(|text| editor.insert_text(&text)),
+                .is_some_and(|text| field.insert_text(&text)),
         }
     } else {
         false
@@ -675,15 +670,26 @@ pub(crate) fn handle_terminal_message_box_keyboard(
             }
 
             if !ctrl && !alt && !super_key && event.key_code == KeyCode::Tab {
-                app_session.create_agent_dialog.cycle_focus(shift);
-                needs_redraw = true;
+                if app_session.create_agent_dialog.focus == CreateAgentDialogField::StartingFolder {
+                    if app_session
+                        .create_agent_dialog
+                        .cwd_field
+                        .start_or_cycle_completion(shift)
+                    {
+                        app_session.create_agent_dialog.error = None;
+                        needs_redraw = true;
+                    }
+                } else {
+                    app_session.create_agent_dialog.cycle_focus(shift);
+                    needs_redraw = true;
+                }
                 continue;
             }
 
             let (changed, clear_error) = match app_session.create_agent_dialog.focus {
                 CreateAgentDialogField::Name => (
-                    handle_single_line_text_editor_event(
-                        &mut app_session.create_agent_dialog.name_editor,
+                    handle_text_field_event(
+                        &mut app_session.create_agent_dialog.name_field,
                         event,
                         ctrl,
                         alt,
@@ -703,16 +709,29 @@ pub(crate) fn handle_terminal_message_box_keyboard(
                         (false, false)
                     }
                 }
-                CreateAgentDialogField::StartingFolder => (
-                    handle_single_line_text_editor_event(
-                        &mut app_session.create_agent_dialog.starting_folder_editor,
-                        event,
-                        ctrl,
-                        alt,
-                        super_key,
-                    ),
-                    true,
-                ),
+                CreateAgentDialogField::StartingFolder => {
+                    if !ctrl && !alt && !super_key && event.key_code == KeyCode::Enter {
+                        (
+                            app_session
+                                .create_agent_dialog
+                                .cwd_field
+                                .accept_completion(),
+                            true,
+                        )
+                    } else {
+                        let changed = handle_text_field_event(
+                            &mut app_session.create_agent_dialog.cwd_field.field,
+                            event,
+                            ctrl,
+                            alt,
+                            super_key,
+                        );
+                        if changed {
+                            app_session.create_agent_dialog.cwd_field.clear_completion();
+                        }
+                        (changed, true)
+                    }
+                }
                 CreateAgentDialogField::CreateButton => {
                     if !ctrl
                         && !alt
