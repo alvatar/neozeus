@@ -86,269 +86,336 @@ pub(crate) fn handle_hud_pointer_input(world: &mut World) {
 }
 
 fn handle_hud_pointer_input_with_context(ctx: &mut HudPointerContext<'_, '_>) {
-    // Keep the control flow staged so each branch owns one behavior path and later branches only run when earlier capture rules do not apply.
-    if ctx.app_session.create_agent_dialog.visible {
-        ctx.layout_state.drag = None;
-        let Some(cursor) = cursor_hud_position(&ctx.primary_window) else {
-            return;
-        };
-        if ctx.mouse_buttons.just_pressed(MouseButton::Left) {
-            if let Some(target) = create_agent_dialog_target_at(&ctx.primary_window, cursor) {
-                match target {
-                    CreateAgentDialogTarget::NameField => {
-                        ctx.app_session.create_agent_dialog.focus = CreateAgentDialogField::Name;
-                        ctx.app_session
-                            .create_agent_dialog
-                            .cwd_field
-                            .clear_completion();
-                        ctx.app_session.create_agent_dialog.error = None;
-                    }
-                    CreateAgentDialogTarget::Kind(kind) => {
-                        ctx.app_session.create_agent_dialog.focus = CreateAgentDialogField::Kind;
-                        ctx.app_session
-                            .create_agent_dialog
-                            .cwd_field
-                            .clear_completion();
-                        ctx.app_session.create_agent_dialog.set_kind(kind);
-                    }
-                    CreateAgentDialogTarget::StartingFolderField => {
-                        ctx.app_session.create_agent_dialog.focus =
-                            CreateAgentDialogField::StartingFolder;
-                        ctx.app_session.create_agent_dialog.error = None;
-                    }
-                    CreateAgentDialogTarget::CreateButton => {
-                        ctx.app_session.create_agent_dialog.focus =
-                            CreateAgentDialogField::CreateButton;
-                        ctx.app_session
-                            .create_agent_dialog
-                            .cwd_field
-                            .clear_completion();
-                        if let Some(command) =
-                            ctx.app_session.create_agent_dialog.build_create_command()
-                        {
-                            ctx.app_commands.write(command);
-                        }
-                    }
-                }
-                ctx.redraws.write(RequestRedraw);
-            }
-        }
+    if handle_create_agent_dialog_pointer(ctx)
+        || handle_message_dialog_pointer(ctx)
+        || handle_task_dialog_pointer(ctx)
+        || handle_direct_input_pointer_capture(ctx)
+    {
         return;
     }
-    if ctx.app_session.composer.message_editor.visible {
-        ctx.layout_state.drag = None;
-        let Some(cursor) = cursor_hud_position(&ctx.primary_window) else {
-            return;
-        };
-        if ctx.mouse_buttons.just_pressed(MouseButton::Left) {
-            if let Some(action) = message_box_action_at(&ctx.primary_window, cursor) {
-                if let Some(command) = ctx.app_session.composer.message_box_action_command(action) {
-                    ctx.app_commands.write(command);
-                }
-                ctx.redraws.write(RequestRedraw);
-            }
-        }
-        return;
+    handle_general_hud_pointer(ctx);
+}
+
+fn handle_create_agent_dialog_pointer(ctx: &mut HudPointerContext<'_, '_>) -> bool {
+    if !ctx.app_session.create_agent_dialog.visible {
+        return false;
     }
-    if ctx.app_session.composer.task_editor.visible {
-        ctx.layout_state.drag = None;
-        let Some(cursor) = cursor_hud_position(&ctx.primary_window) else {
-            return;
-        };
-        if ctx.mouse_buttons.just_pressed(MouseButton::Left) {
-            if let Some(action) = task_dialog_action_at(&ctx.primary_window, cursor) {
-                if let Some(command) = ctx.app_session.composer.task_dialog_action_command(action) {
-                    ctx.app_commands.write(command);
-                }
-                ctx.redraws.write(RequestRedraw);
-            }
-        }
-        return;
-    }
-    if ctx.input_capture.direct_input_terminal.is_some() {
-        ctx.layout_state.drag = None;
-        return;
-    }
+    ctx.layout_state.drag = None;
     let Some(cursor) = cursor_hud_position(&ctx.primary_window) else {
-        if ctx.mouse_buttons.just_released(MouseButton::Left) {
-            ctx.layout_state.drag = None;
-            ctx.agent_list_state.pressed_agent = None;
-            ctx.agent_list_state.press_origin = None;
-            ctx.agent_list_state.dragging_agent = None;
-            ctx.agent_list_state.drag_cursor = None;
-            ctx.agent_list_state.drag_grab_offset_y = 0.0;
-            ctx.agent_list_state.last_reorder_index = None;
+        return true;
+    };
+    if ctx.mouse_buttons.just_pressed(MouseButton::Left) {
+        if let Some(target) = create_agent_dialog_target_at(&ctx.primary_window, cursor) {
+            match target {
+                CreateAgentDialogTarget::NameField => {
+                    ctx.app_session.create_agent_dialog.focus = CreateAgentDialogField::Name;
+                    ctx.app_session
+                        .create_agent_dialog
+                        .cwd_field
+                        .clear_completion();
+                    ctx.app_session.create_agent_dialog.error = None;
+                }
+                CreateAgentDialogTarget::Kind(kind) => {
+                    ctx.app_session.create_agent_dialog.focus = CreateAgentDialogField::Kind;
+                    ctx.app_session
+                        .create_agent_dialog
+                        .cwd_field
+                        .clear_completion();
+                    ctx.app_session.create_agent_dialog.set_kind(kind);
+                }
+                CreateAgentDialogTarget::StartingFolderField => {
+                    ctx.app_session.create_agent_dialog.focus =
+                        CreateAgentDialogField::StartingFolder;
+                    ctx.app_session.create_agent_dialog.error = None;
+                }
+                CreateAgentDialogTarget::CreateButton => {
+                    ctx.app_session.create_agent_dialog.focus =
+                        CreateAgentDialogField::CreateButton;
+                    ctx.app_session
+                        .create_agent_dialog
+                        .cwd_field
+                        .clear_completion();
+                    if let Some(command) =
+                        ctx.app_session.create_agent_dialog.build_create_command()
+                    {
+                        ctx.app_commands.write(command);
+                    }
+                }
+            }
+            ctx.redraws.write(RequestRedraw);
         }
+    }
+    true
+}
+
+fn handle_message_dialog_pointer(ctx: &mut HudPointerContext<'_, '_>) -> bool {
+    if !ctx.app_session.composer.message_editor.visible {
+        return false;
+    }
+    ctx.layout_state.drag = None;
+    let Some(cursor) = cursor_hud_position(&ctx.primary_window) else {
+        return true;
+    };
+    if ctx.mouse_buttons.just_pressed(MouseButton::Left) {
+        if let Some(action) = message_box_action_at(&ctx.primary_window, cursor) {
+            if let Some(command) = ctx.app_session.composer.message_box_action_command(action) {
+                ctx.app_commands.write(command);
+            }
+            ctx.redraws.write(RequestRedraw);
+        }
+    }
+    true
+}
+
+fn handle_task_dialog_pointer(ctx: &mut HudPointerContext<'_, '_>) -> bool {
+    if !ctx.app_session.composer.task_editor.visible {
+        return false;
+    }
+    ctx.layout_state.drag = None;
+    let Some(cursor) = cursor_hud_position(&ctx.primary_window) else {
+        return true;
+    };
+    if ctx.mouse_buttons.just_pressed(MouseButton::Left) {
+        if let Some(action) = task_dialog_action_at(&ctx.primary_window, cursor) {
+            if let Some(command) = ctx.app_session.composer.task_dialog_action_command(action) {
+                ctx.app_commands.write(command);
+            }
+            ctx.redraws.write(RequestRedraw);
+        }
+    }
+    true
+}
+
+fn handle_direct_input_pointer_capture(ctx: &mut HudPointerContext<'_, '_>) -> bool {
+    if ctx.input_capture.direct_input_terminal.is_none() {
+        return false;
+    }
+    ctx.layout_state.drag = None;
+    true
+}
+
+fn handle_general_hud_pointer(ctx: &mut HudPointerContext<'_, '_>) {
+    let Some(cursor) = cursor_hud_position(&ctx.primary_window) else {
+        clear_pointer_state_when_cursor_missing(ctx);
         return;
     };
 
     let mut emitted_commands = Vec::new();
+    handle_general_left_click(ctx, cursor, &mut emitted_commands);
+    handle_general_drag_update(ctx, cursor, &mut emitted_commands);
+    handle_general_release(ctx, cursor, &mut emitted_commands);
+    handle_general_scroll(ctx, cursor);
+    handle_general_hover(ctx, cursor);
+    emit_app_commands(ctx, emitted_commands);
+}
 
-    if ctx.mouse_buttons.just_pressed(MouseButton::Left) {
-        if let Some(module_id) = ctx.layout_state.topmost_enabled_at(cursor) {
-            ctx.layout_state.raise_to_front(module_id);
-            let titlebar_rect = ctx
-                .layout_state
-                .get(module_id)
-                .map(|module| module.shell.titlebar_rect())
-                .unwrap_or_default();
-            if titlebar_rect.contains(cursor)
-                && !matches!(module_id, HudWidgetKey::AgentList | HudWidgetKey::InfoBar)
-            {
-                ctx.layout_state.drag = Some(HudDragState {
-                    module_id,
-                    grab_offset: Vec2::new(cursor.x - titlebar_rect.x, cursor.y - titlebar_rect.y),
-                });
-            } else if let Some(module) = ctx.layout_state.get(module_id) {
-                let content_rect = content_hit_rect(module_id, module.shell.current_rect);
-                if content_rect.contains(cursor) {
-                    if module_id == HudWidgetKey::AgentList {
-                        ctx.agent_list_state.pressed_agent = modules::agent_at_point(
-                            &ctx.agent_list_state,
-                            content_rect,
-                            cursor,
-                            &ctx.agent_list_view,
-                        );
-                        ctx.agent_list_state.press_origin = Some(cursor);
-                        ctx.agent_list_state.dragging_agent = None;
-                        ctx.agent_list_state.drag_cursor = None;
-                        ctx.agent_list_state.drag_grab_offset_y = ctx
-                            .agent_list_state
-                            .pressed_agent
-                            .and_then(|agent_id| {
-                                modules::agent_rows(
-                                    content_rect,
-                                    ctx.agent_list_state.scroll_offset,
-                                    ctx.agent_list_state.hovered_agent,
-                                    &ctx.agent_list_view,
-                                )
-                                .into_iter()
-                                .find(|row| row.agent_id == agent_id)
-                                .map(|row| cursor.y - row.rect.y)
-                            })
-                            .unwrap_or(0.0);
-                        ctx.agent_list_state.last_reorder_index =
-                            ctx.agent_list_state.pressed_agent.and_then(|agent_id| {
-                                ctx.agent_list_view
-                                    .rows
-                                    .iter()
-                                    .position(|row| row.agent_id == agent_id)
-                            });
-                    } else {
-                        modules::handle_pointer_click(
-                            module_id,
-                            content_rect,
-                            cursor,
-                            &ctx.agent_list_state,
-                            &ctx.conversation_list_state,
-                            &ctx.agent_list_view,
-                            &ctx.conversation_list_view,
-                            &ctx.info_bar_view,
-                            &ctx.layout_state,
-                            &mut emitted_commands,
-                        );
-                    }
-                }
-            }
-        }
-    }
-
-    if ctx.mouse_buttons.pressed(MouseButton::Left) {
-        if let Some(pressed_agent) = ctx.agent_list_state.pressed_agent {
-            let moved_far_enough = ctx
-                .agent_list_state
-                .press_origin
-                .is_some_and(|origin| origin.distance(cursor) >= 4.0);
-            if moved_far_enough && ctx.agent_list_state.dragging_agent.is_none() {
-                ctx.agent_list_state.dragging_agent = Some(pressed_agent);
-                ctx.agent_list_state.drag_cursor = Some(cursor);
-                ctx.redraws.write(RequestRedraw);
-            }
-            if let Some(dragging_agent) = ctx.agent_list_state.dragging_agent {
-                ctx.agent_list_state.drag_cursor = Some(cursor);
-                if let Some(module) = ctx.layout_state.get(HudWidgetKey::AgentList) {
-                    let content_rect =
-                        content_hit_rect(HudWidgetKey::AgentList, module.shell.current_rect);
-                    if let Some(target_index) = modules::reorder_target_index(
-                        &ctx.agent_list_state,
-                        content_rect,
-                        cursor,
-                        &ctx.agent_list_view,
-                    ) {
-                        if ctx.agent_list_state.last_reorder_index != Some(target_index) {
-                            emitted_commands.push(AppCommand::Agent(AgentCommand::Reorder {
-                                agent_id: dragging_agent,
-                                target_index,
-                            }));
-                            ctx.agent_list_state.last_reorder_index = Some(target_index);
-                            ctx.redraws.write(RequestRedraw);
-                        }
-                    }
-                }
-            }
-        } else if let Some(drag) = ctx.layout_state.drag {
-            if let Some(module) = ctx.layout_state.get_mut(drag.module_id) {
-                module.shell.target_rect.x = cursor.x - drag.grab_offset.x;
-                module.shell.target_rect.y = cursor.y - drag.grab_offset.y;
-                ctx.layout_state.dirty_layout = true;
-            }
-        }
-    }
-
+fn clear_pointer_state_when_cursor_missing(ctx: &mut HudPointerContext<'_, '_>) {
     if ctx.mouse_buttons.just_released(MouseButton::Left) {
-        if let Some(pressed_agent) = ctx.agent_list_state.pressed_agent.take() {
-            let was_dragging = ctx.agent_list_state.dragging_agent.take().is_some();
-            ctx.agent_list_state.press_origin = None;
-            ctx.agent_list_state.drag_cursor = None;
-            ctx.agent_list_state.drag_grab_offset_y = 0.0;
-            ctx.agent_list_state.last_reorder_index = None;
-            if !was_dragging {
-                if let Some(module) = ctx.layout_state.get(HudWidgetKey::AgentList) {
-                    let content_rect =
-                        content_hit_rect(HudWidgetKey::AgentList, module.shell.current_rect);
-                    if modules::agent_at_point(
-                        &ctx.agent_list_state,
-                        content_rect,
-                        cursor,
-                        &ctx.agent_list_view,
-                    ) == Some(pressed_agent)
-                    {
-                        emitted_commands
-                            .push(AppCommand::Agent(AgentCommand::Focus(pressed_agent)));
-                        emitted_commands
-                            .push(AppCommand::Agent(AgentCommand::Inspect(pressed_agent)));
+        ctx.layout_state.drag = None;
+        ctx.agent_list_state.pressed_agent = None;
+        ctx.agent_list_state.press_origin = None;
+        ctx.agent_list_state.dragging_agent = None;
+        ctx.agent_list_state.drag_cursor = None;
+        ctx.agent_list_state.drag_grab_offset_y = 0.0;
+        ctx.agent_list_state.last_reorder_index = None;
+    }
+}
+
+fn handle_general_left_click(
+    ctx: &mut HudPointerContext<'_, '_>,
+    cursor: Vec2,
+    emitted_commands: &mut Vec<AppCommand>,
+) {
+    if !ctx.mouse_buttons.just_pressed(MouseButton::Left) {
+        return;
+    }
+    let Some(module_id) = ctx.layout_state.topmost_enabled_at(cursor) else {
+        return;
+    };
+    ctx.layout_state.raise_to_front(module_id);
+    let titlebar_rect = ctx
+        .layout_state
+        .get(module_id)
+        .map(|module| module.shell.titlebar_rect())
+        .unwrap_or_default();
+    if titlebar_rect.contains(cursor)
+        && !matches!(module_id, HudWidgetKey::AgentList | HudWidgetKey::InfoBar)
+    {
+        ctx.layout_state.drag = Some(HudDragState {
+            module_id,
+            grab_offset: Vec2::new(cursor.x - titlebar_rect.x, cursor.y - titlebar_rect.y),
+        });
+        return;
+    }
+    let Some(module) = ctx.layout_state.get(module_id) else {
+        return;
+    };
+    let content_rect = content_hit_rect(module_id, module.shell.current_rect);
+    if !content_rect.contains(cursor) {
+        return;
+    }
+    if module_id == HudWidgetKey::AgentList {
+        ctx.agent_list_state.pressed_agent = modules::agent_at_point(
+            &ctx.agent_list_state,
+            content_rect,
+            cursor,
+            &ctx.agent_list_view,
+        );
+        ctx.agent_list_state.press_origin = Some(cursor);
+        ctx.agent_list_state.dragging_agent = None;
+        ctx.agent_list_state.drag_cursor = None;
+        ctx.agent_list_state.drag_grab_offset_y = ctx
+            .agent_list_state
+            .pressed_agent
+            .and_then(|agent_id| {
+                modules::agent_rows(
+                    content_rect,
+                    ctx.agent_list_state.scroll_offset,
+                    ctx.agent_list_state.hovered_agent,
+                    &ctx.agent_list_view,
+                )
+                .into_iter()
+                .find(|row| row.agent_id == agent_id)
+                .map(|row| cursor.y - row.rect.y)
+            })
+            .unwrap_or(0.0);
+        ctx.agent_list_state.last_reorder_index =
+            ctx.agent_list_state.pressed_agent.and_then(|agent_id| {
+                ctx.agent_list_view
+                    .rows
+                    .iter()
+                    .position(|row| row.agent_id == agent_id)
+            });
+        return;
+    }
+    modules::handle_pointer_click(
+        module_id,
+        content_rect,
+        cursor,
+        &ctx.agent_list_state,
+        &ctx.conversation_list_state,
+        &ctx.agent_list_view,
+        &ctx.conversation_list_view,
+        &ctx.info_bar_view,
+        &ctx.layout_state,
+        emitted_commands,
+    );
+}
+
+fn handle_general_drag_update(
+    ctx: &mut HudPointerContext<'_, '_>,
+    cursor: Vec2,
+    emitted_commands: &mut Vec<AppCommand>,
+) {
+    if !ctx.mouse_buttons.pressed(MouseButton::Left) {
+        return;
+    }
+    if let Some(pressed_agent) = ctx.agent_list_state.pressed_agent {
+        let moved_far_enough = ctx
+            .agent_list_state
+            .press_origin
+            .is_some_and(|origin| origin.distance(cursor) >= 4.0);
+        if moved_far_enough && ctx.agent_list_state.dragging_agent.is_none() {
+            ctx.agent_list_state.dragging_agent = Some(pressed_agent);
+            ctx.agent_list_state.drag_cursor = Some(cursor);
+            ctx.redraws.write(RequestRedraw);
+        }
+        if let Some(dragging_agent) = ctx.agent_list_state.dragging_agent {
+            ctx.agent_list_state.drag_cursor = Some(cursor);
+            if let Some(module) = ctx.layout_state.get(HudWidgetKey::AgentList) {
+                let content_rect =
+                    content_hit_rect(HudWidgetKey::AgentList, module.shell.current_rect);
+                if let Some(target_index) = modules::reorder_target_index(
+                    &ctx.agent_list_state,
+                    content_rect,
+                    cursor,
+                    &ctx.agent_list_view,
+                ) {
+                    if ctx.agent_list_state.last_reorder_index != Some(target_index) {
+                        emitted_commands.push(AppCommand::Agent(AgentCommand::Reorder {
+                            agent_id: dragging_agent,
+                            target_index,
+                        }));
+                        ctx.agent_list_state.last_reorder_index = Some(target_index);
+                        ctx.redraws.write(RequestRedraw);
                     }
                 }
             }
         }
-        ctx.layout_state.drag = None;
+        return;
     }
+    if let Some(drag) = ctx.layout_state.drag {
+        if let Some(module) = ctx.layout_state.get_mut(drag.module_id) {
+            module.shell.target_rect.x = cursor.x - drag.grab_offset.x;
+            module.shell.target_rect.y = cursor.y - drag.grab_offset.y;
+            ctx.layout_state.dirty_layout = true;
+        }
+    }
+}
 
+fn handle_general_release(
+    ctx: &mut HudPointerContext<'_, '_>,
+    cursor: Vec2,
+    emitted_commands: &mut Vec<AppCommand>,
+) {
+    if !ctx.mouse_buttons.just_released(MouseButton::Left) {
+        return;
+    }
+    if let Some(pressed_agent) = ctx.agent_list_state.pressed_agent.take() {
+        let was_dragging = ctx.agent_list_state.dragging_agent.take().is_some();
+        ctx.agent_list_state.press_origin = None;
+        ctx.agent_list_state.drag_cursor = None;
+        ctx.agent_list_state.drag_grab_offset_y = 0.0;
+        ctx.agent_list_state.last_reorder_index = None;
+        if !was_dragging {
+            if let Some(module) = ctx.layout_state.get(HudWidgetKey::AgentList) {
+                let content_rect =
+                    content_hit_rect(HudWidgetKey::AgentList, module.shell.current_rect);
+                if modules::agent_at_point(
+                    &ctx.agent_list_state,
+                    content_rect,
+                    cursor,
+                    &ctx.agent_list_view,
+                ) == Some(pressed_agent)
+                {
+                    emitted_commands.push(AppCommand::Agent(AgentCommand::Focus(pressed_agent)));
+                    emitted_commands.push(AppCommand::Agent(AgentCommand::Inspect(pressed_agent)));
+                }
+            }
+        }
+    }
+    ctx.layout_state.drag = None;
+}
+
+fn handle_general_scroll(ctx: &mut HudPointerContext<'_, '_>, cursor: Vec2) {
     let scroll_delta = ctx.mouse_wheel.read().fold(0.0, |acc, event| {
         acc + match event.unit {
             MouseScrollUnit::Line => event.y * 24.0,
             MouseScrollUnit::Pixel => event.y,
         }
     });
-    if scroll_delta != 0.0 {
-        if let Some(module_id) = ctx.layout_state.topmost_enabled_at(cursor) {
-            if let Some(module) = ctx.layout_state.get_mut(module_id) {
-                let content_rect = content_hit_rect(module_id, module.shell.current_rect);
-                if content_rect.contains(cursor) {
-                    modules::handle_scroll(
-                        module_id,
-                        scroll_delta,
-                        content_rect,
-                        &mut ctx.agent_list_state,
-                        &mut ctx.conversation_list_state,
-                        &ctx.agent_list_view,
-                        &ctx.conversation_list_view,
-                    );
-                }
+    if scroll_delta == 0.0 {
+        return;
+    }
+    if let Some(module_id) = ctx.layout_state.topmost_enabled_at(cursor) {
+        if let Some(module) = ctx.layout_state.get_mut(module_id) {
+            let content_rect = content_hit_rect(module_id, module.shell.current_rect);
+            if content_rect.contains(cursor) {
+                modules::handle_scroll(
+                    module_id,
+                    scroll_delta,
+                    content_rect,
+                    &mut ctx.agent_list_state,
+                    &mut ctx.conversation_list_state,
+                    &ctx.agent_list_view,
+                    &ctx.conversation_list_view,
+                );
             }
         }
     }
+}
 
+fn handle_general_hover(ctx: &mut HudPointerContext<'_, '_>, cursor: Vec2) {
     let hovered_module_id = ctx
         .layout_state
         .topmost_enabled_at(cursor)
@@ -387,7 +454,9 @@ fn handle_hud_pointer_input_with_context(ctx: &mut HudPointerContext<'_, '_>) {
             )
         };
     }
+}
 
+fn emit_app_commands(ctx: &mut HudPointerContext<'_, '_>, emitted_commands: Vec<AppCommand>) {
     for command in emitted_commands {
         ctx.app_commands.write(command);
     }
