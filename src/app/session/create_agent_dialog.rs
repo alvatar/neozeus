@@ -1,4 +1,9 @@
-use crate::dialogs::{cycle_dialog_focus, DialogTabOrder};
+use crate::{
+    dialogs::{cycle_dialog_focus, DialogTabOrder},
+    shared::text_cursor::{
+        next_char_boundary, previous_char_boundary, word_backward_boundary, word_forward_boundary,
+    },
+};
 
 use super::super::{
     commands::{AgentCommand, AppCommand},
@@ -130,7 +135,7 @@ impl TextFieldState {
 
     /// Moves the cursor to the start of the previous word.
     pub(crate) fn move_word_backward(&mut self) -> bool {
-        let target = word_backward_boundary(&self.text, self.cursor);
+        let target = word_backward_boundary(&self.text, self.cursor, |ch| !ch.is_whitespace());
         if target == self.cursor {
             return false;
         }
@@ -140,7 +145,7 @@ impl TextFieldState {
 
     /// Moves the cursor to the start of the next word boundary.
     pub(crate) fn move_word_forward(&mut self) -> bool {
-        let target = word_forward_boundary(&self.text, self.cursor);
+        let target = word_forward_boundary(&self.text, self.cursor, |ch| !ch.is_whitespace());
         if target == self.cursor {
             return false;
         }
@@ -150,7 +155,7 @@ impl TextFieldState {
 
     /// Deletes the word before the cursor.
     pub(crate) fn kill_word_backward(&mut self) -> bool {
-        let start = word_backward_boundary(&self.text, self.cursor);
+        let start = word_backward_boundary(&self.text, self.cursor, |ch| !ch.is_whitespace());
         if start == self.cursor {
             return false;
         }
@@ -161,7 +166,7 @@ impl TextFieldState {
 
     /// Deletes the word after the cursor.
     pub(crate) fn kill_word_forward(&mut self) -> bool {
-        let end = word_forward_boundary(&self.text, self.cursor);
+        let end = word_forward_boundary(&self.text, self.cursor, |ch| !ch.is_whitespace());
         if end == self.cursor {
             return false;
         }
@@ -372,76 +377,4 @@ fn normalize_single_line_text(text: &str) -> String {
     text.chars()
         .filter(|ch| !matches!(ch, '\n' | '\r' | '\t'))
         .collect()
-}
-
-fn previous_char_boundary(text: &str, index: usize) -> Option<usize> {
-    if index == 0 {
-        return None;
-    }
-    text[..index]
-        .char_indices()
-        .last()
-        .map(|(offset, _)| offset)
-}
-
-fn next_char_boundary(text: &str, index: usize) -> Option<usize> {
-    if index >= text.len() {
-        return None;
-    }
-    text[index..]
-        .char_indices()
-        .nth(1)
-        .map(|(offset, _)| index + offset)
-        .or(Some(text.len()))
-}
-
-fn word_backward_boundary(text: &str, mut index: usize) -> usize {
-    while let Some(previous) = previous_char_boundary(text, index) {
-        let Some(ch) = text[previous..index].chars().next() else {
-            break;
-        };
-        if !ch.is_whitespace() {
-            index = previous;
-            break;
-        }
-        index = previous;
-    }
-    while let Some(previous) = previous_char_boundary(text, index) {
-        let Some(ch) = text[previous..index].chars().next() else {
-            break;
-        };
-        if ch.is_whitespace() {
-            break;
-        }
-        index = previous;
-    }
-    index
-}
-
-fn word_forward_boundary(text: &str, mut index: usize) -> usize {
-    while let Some(next) = next_char_boundary(text, index) {
-        let Some(ch) = text[index..next].chars().next() else {
-            break;
-        };
-        if !ch.is_whitespace() {
-            break;
-        }
-        index = next;
-        if index >= text.len() {
-            return index;
-        }
-    }
-    while let Some(next) = next_char_boundary(text, index) {
-        let Some(ch) = text[index..next].chars().next() else {
-            break;
-        };
-        if ch.is_whitespace() {
-            break;
-        }
-        index = next;
-        if index >= text.len() {
-            break;
-        }
-    }
-    index
 }
