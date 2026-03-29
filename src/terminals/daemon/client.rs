@@ -4,16 +4,14 @@ use super::protocol::{
     read_server_message, write_client_message, ClientMessage, DaemonEvent, DaemonRequest,
     DaemonResponse, DaemonSessionInfo, ServerMessage,
 };
-use crate::shared::daemon_socket::resolve_daemon_socket_path as shared_resolve_daemon_socket_path;
-#[cfg(test)]
-use crate::shared::daemon_socket::resolve_daemon_socket_path_with as shared_resolve_daemon_socket_path_with;
+use crate::shared::daemon_socket::resolve_daemon_socket_path;
 use bevy::prelude::Resource;
 use std::{
     collections::HashMap,
     env,
     net::Shutdown,
     os::unix::net::UnixStream,
-    path::{Path, PathBuf},
+    path::Path,
     process::{Command, Stdio},
     sync::{mpsc, Arc, Mutex},
     thread,
@@ -322,27 +320,6 @@ impl TerminalDaemonClient for SocketTerminalDaemonClient {
             response => Err(format!("unexpected daemon kill response: {response:?}")),
         }
     }
-}
-
-/// Resolves the daemon socket path from explicit override/runtime/home inputs.
-///
-/// The precedence is: explicit override path, then XDG runtime dir, then a per-user directory under
-/// the system temp dir when only HOME is available.
-#[cfg(test)]
-pub(crate) fn resolve_daemon_socket_path_with(
-    override_path: Option<&str>,
-    xdg_runtime_dir: Option<&str>,
-    home: Option<&str>,
-    user: Option<&str>,
-) -> Option<PathBuf> {
-    shared_resolve_daemon_socket_path_with(override_path, xdg_runtime_dir, home, user)
-}
-
-/// Resolves the daemon socket path from the real process environment.
-///
-/// This thin wrapper exists so the path policy can be tested separately from environment access.
-pub(crate) fn resolve_daemon_socket_path() -> Option<PathBuf> {
-    shared_resolve_daemon_socket_path()
 }
 
 /// Spawns a detached copy of the current executable in daemon mode bound to the chosen socket.

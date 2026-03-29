@@ -6,13 +6,12 @@ mod session;
 #[cfg(test)]
 mod tests;
 
-pub(crate) use client::{
-    resolve_daemon_socket_path, AttachedDaemonSession, TerminalDaemonClientResource,
-};
+pub(crate) use crate::shared::daemon_socket::resolve_daemon_socket_path;
 #[cfg(test)]
-pub(crate) use client::{
-    resolve_daemon_socket_path_with, SocketTerminalDaemonClient, TerminalDaemonClient,
-};
+pub(crate) use crate::shared::daemon_socket::resolve_daemon_socket_path_with;
+pub(crate) use client::{AttachedDaemonSession, TerminalDaemonClientResource};
+#[cfg(test)]
+pub(crate) use client::{SocketTerminalDaemonClient, TerminalDaemonClient};
 pub(crate) use protocol::DaemonSessionInfo;
 #[cfg(test)]
 pub(crate) use protocol::{

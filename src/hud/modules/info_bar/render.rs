@@ -9,26 +9,60 @@ pub(in crate::hud) const INFO_BAR_BORDER: peniko::Color = HudColors::BORDER;
 const INFO_BAR_LABEL_COLOR: peniko::Color = HudColors::TEXT_MUTED;
 const INFO_BAR_TRACK_COLOR: peniko::Color = HudColors::BUTTON;
 const INFO_BAR_TRACK_SEPARATOR: peniko::Color = HudColors::BORDER;
-const INFO_BAR_PADDING_X: f32 = 4.0;
-const INFO_BAR_PADDING_Y: f32 = 10.0;
-const INFO_BAR_ROW_GAP: f32 = 8.0;
-const INFO_BAR_CONTENT_WIDTH_RATIO: f32 = 0.5;
-const INFO_BAR_SECTION_GAP: f32 = 18.0;
-const INFO_BAR_COMPACT_SECTION_GAP: f32 = 10.0;
-const INFO_BAR_LABEL_GAP: f32 = 8.0;
-const INFO_BAR_VALUE_GAP: f32 = 6.0;
-const INFO_BAR_BAR_HEIGHT: f32 = 14.0;
-const INFO_BAR_LABEL_SIZE: f32 = 14.0;
-const INFO_BAR_COMPACT_LABEL_SIZE: f32 = 13.0;
-const INFO_BAR_VALUE_SIZE: f32 = 14.0;
-const INFO_BAR_COMPACT_VALUE_SIZE: f32 = 13.0;
-const INFO_BAR_PERCENT_WIDTH: f32 = 36.0;
-const INFO_BAR_COMPACT_PERCENT_WIDTH: f32 = 32.0;
-const INFO_BAR_DETAIL_WIDTH: f32 = 76.0;
-const INFO_BAR_COMPACT_DETAIL_WIDTH: f32 = 64.0;
-const INFO_BAR_MIN_BAR_WIDTH: f32 = 40.0;
-const INFO_BAR_MINI_BAR_WIDTH: f32 = 28.0;
-const INFO_BAR_SESSION_WIDTH_RATIO: f32 = 0.56;
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct InfoBarLayoutStyle {
+    padding_x: f32,
+    padding_y: f32,
+    row_gap: f32,
+    content_width_ratio: f32,
+    compact_width_threshold: f32,
+    label_gap: f32,
+    value_gap: f32,
+    bar_height: f32,
+    min_bar_width: f32,
+    mini_bar_width: f32,
+    session_width_ratio: f32,
+}
+
+const INFO_BAR_LAYOUT: InfoBarLayoutStyle = InfoBarLayoutStyle {
+    padding_x: 4.0,
+    padding_y: 10.0,
+    row_gap: 8.0,
+    content_width_ratio: 0.5,
+    compact_width_threshold: 1120.0,
+    label_gap: 8.0,
+    value_gap: 6.0,
+    bar_height: 14.0,
+    min_bar_width: 40.0,
+    mini_bar_width: 28.0,
+    session_width_ratio: 0.56,
+};
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct InfoBarDensityPreset {
+    section_gap: f32,
+    percent_width: f32,
+    detail_width: f32,
+    label_size: f32,
+    value_size: f32,
+}
+
+const INFO_BAR_COMPACT_DENSITY: InfoBarDensityPreset = InfoBarDensityPreset {
+    section_gap: 10.0,
+    percent_width: 32.0,
+    detail_width: 64.0,
+    label_size: 13.0,
+    value_size: 13.0,
+};
+
+const INFO_BAR_REGULAR_DENSITY: InfoBarDensityPreset = InfoBarDensityPreset {
+    section_gap: 18.0,
+    percent_width: 36.0,
+    detail_width: 76.0,
+    label_size: 14.0,
+    value_size: 14.0,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(in crate::hud) struct InfoBarDensity {
@@ -76,42 +110,39 @@ fn mix_color(a: peniko::Color, b: peniko::Color, t: f32) -> peniko::Color {
 
 /// Chooses the density policy for the current info-bar width while keeping the reference layout.
 pub(in crate::hud) fn info_bar_density(content_rect: HudRect) -> InfoBarDensity {
-    if content_rect.w < 1120.0 {
-        return InfoBarDensity {
-            compact: true,
-            section_gap: INFO_BAR_COMPACT_SECTION_GAP,
-            percent_width: INFO_BAR_COMPACT_PERCENT_WIDTH,
-            detail_width: INFO_BAR_COMPACT_DETAIL_WIDTH,
-            label_size: INFO_BAR_COMPACT_LABEL_SIZE,
-            value_size: INFO_BAR_COMPACT_VALUE_SIZE,
-        };
-    }
+    let (compact, preset) = if content_rect.w < INFO_BAR_LAYOUT.compact_width_threshold {
+        (true, INFO_BAR_COMPACT_DENSITY)
+    } else {
+        (false, INFO_BAR_REGULAR_DENSITY)
+    };
     InfoBarDensity {
-        compact: false,
-        section_gap: INFO_BAR_SECTION_GAP,
-        percent_width: INFO_BAR_PERCENT_WIDTH,
-        detail_width: INFO_BAR_DETAIL_WIDTH,
-        label_size: INFO_BAR_LABEL_SIZE,
-        value_size: INFO_BAR_VALUE_SIZE,
+        compact,
+        section_gap: preset.section_gap,
+        percent_width: preset.percent_width,
+        detail_width: preset.detail_width,
+        label_size: preset.label_size,
+        value_size: preset.value_size,
     }
 }
 
 /// Computes the two provider-row rectangles for the reference Zeus layout.
 pub(in crate::hud) fn info_bar_row_rects(content_rect: HudRect) -> [HudRect; 2] {
-    let row_height =
-        ((content_rect.h - INFO_BAR_PADDING_Y * 2.0 - INFO_BAR_ROW_GAP) / 2.0).max(0.0);
-    let content_width =
-        ((content_rect.w - INFO_BAR_PADDING_X * 2.0) * INFO_BAR_CONTENT_WIDTH_RATIO).max(0.0);
+    let row_height = ((content_rect.h - INFO_BAR_LAYOUT.padding_y * 2.0 - INFO_BAR_LAYOUT.row_gap)
+        / 2.0)
+        .max(0.0);
+    let content_width = ((content_rect.w - INFO_BAR_LAYOUT.padding_x * 2.0)
+        * INFO_BAR_LAYOUT.content_width_ratio)
+        .max(0.0);
     [
         HudRect {
-            x: content_rect.x + INFO_BAR_PADDING_X,
-            y: content_rect.y + INFO_BAR_PADDING_Y,
+            x: content_rect.x + INFO_BAR_LAYOUT.padding_x,
+            y: content_rect.y + INFO_BAR_LAYOUT.padding_y,
             w: content_width,
             h: row_height,
         },
         HudRect {
-            x: content_rect.x + INFO_BAR_PADDING_X,
-            y: content_rect.y + INFO_BAR_PADDING_Y + row_height + INFO_BAR_ROW_GAP,
+            x: content_rect.x + INFO_BAR_LAYOUT.padding_x,
+            y: content_rect.y + INFO_BAR_LAYOUT.padding_y + row_height + INFO_BAR_LAYOUT.row_gap,
             w: content_width,
             h: row_height,
         },
@@ -124,7 +155,7 @@ pub(in crate::hud) fn info_bar_metric_group_rects(
     density: InfoBarDensity,
 ) -> [HudRect; 2] {
     let usable_width = (row_rect.w - density.section_gap).max(0.0);
-    let session_width = (usable_width * INFO_BAR_SESSION_WIDTH_RATIO).max(0.0);
+    let session_width = (usable_width * INFO_BAR_LAYOUT.session_width_ratio).max(0.0);
     let week_width = (usable_width - session_width).max(0.0);
     [
         HudRect {
@@ -150,30 +181,30 @@ pub(in crate::hud) fn info_bar_metric_layout(
 ) -> InfoBarMetricLayout {
     let mut detail_width = density.detail_width;
     let mut percent_width = density.percent_width;
-    let base_x = group_rect.x + label_width + INFO_BAR_LABEL_GAP;
+    let base_x = group_rect.x + label_width + INFO_BAR_LAYOUT.label_gap;
     let fixed_width = label_width
-        + INFO_BAR_LABEL_GAP
+        + INFO_BAR_LAYOUT.label_gap
         + percent_width
-        + INFO_BAR_VALUE_GAP
+        + INFO_BAR_LAYOUT.value_gap
         + detail_width
-        + INFO_BAR_VALUE_GAP;
+        + INFO_BAR_LAYOUT.value_gap;
     let mut bar_width = group_rect.w - fixed_width;
-    if bar_width < INFO_BAR_MIN_BAR_WIDTH {
-        let shortage = INFO_BAR_MIN_BAR_WIDTH - bar_width;
-        let detail_take = shortage.min(detail_width - INFO_BAR_MINI_BAR_WIDTH);
+    if bar_width < INFO_BAR_LAYOUT.min_bar_width {
+        let shortage = INFO_BAR_LAYOUT.min_bar_width - bar_width;
+        let detail_take = shortage.min(detail_width - INFO_BAR_LAYOUT.mini_bar_width);
         detail_width -= detail_take;
         bar_width += detail_take;
     }
-    if bar_width < INFO_BAR_MIN_BAR_WIDTH {
-        let shortage = INFO_BAR_MIN_BAR_WIDTH - bar_width;
-        let percent_take = shortage.min(percent_width - INFO_BAR_MINI_BAR_WIDTH);
+    if bar_width < INFO_BAR_LAYOUT.min_bar_width {
+        let shortage = INFO_BAR_LAYOUT.min_bar_width - bar_width;
+        let percent_take = shortage.min(percent_width - INFO_BAR_LAYOUT.mini_bar_width);
         percent_width -= percent_take;
         bar_width += percent_take;
     }
-    bar_width = bar_width.max(INFO_BAR_MINI_BAR_WIDTH);
-    let bar_y = group_rect.y + (group_rect.h - INFO_BAR_BAR_HEIGHT) * 0.5;
-    let pct_x = base_x + bar_width + INFO_BAR_VALUE_GAP;
-    let detail_x = pct_x + percent_width + INFO_BAR_VALUE_GAP;
+    bar_width = bar_width.max(INFO_BAR_LAYOUT.mini_bar_width);
+    let bar_y = group_rect.y + (group_rect.h - INFO_BAR_LAYOUT.bar_height) * 0.5;
+    let pct_x = base_x + bar_width + INFO_BAR_LAYOUT.value_gap;
+    let detail_x = pct_x + percent_width + INFO_BAR_LAYOUT.value_gap;
     InfoBarMetricLayout {
         group_rect,
         label_position: Vec2::new(group_rect.x, group_rect.y + group_rect.h * 0.5),
@@ -181,19 +212,19 @@ pub(in crate::hud) fn info_bar_metric_layout(
             x: base_x,
             y: bar_y,
             w: bar_width,
-            h: INFO_BAR_BAR_HEIGHT,
+            h: INFO_BAR_LAYOUT.bar_height,
         },
         pct_rect: HudRect {
             x: pct_x,
             y: bar_y,
             w: percent_width,
-            h: INFO_BAR_BAR_HEIGHT,
+            h: INFO_BAR_LAYOUT.bar_height,
         },
         detail_rect: HudRect {
             x: detail_x,
             y: bar_y,
             w: detail_width,
-            h: INFO_BAR_BAR_HEIGHT,
+            h: INFO_BAR_LAYOUT.bar_height,
         },
     }
 }
