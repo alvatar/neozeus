@@ -25,11 +25,29 @@ use std::{
         mpsc, Arc, Mutex,
     },
     thread,
+    time::{Duration, Instant},
 };
 
 pub(crate) const PERSISTENT_SESSION_PREFIX: &str = "neozeus-session-";
 pub(crate) const VERIFIER_SESSION_PREFIX: &str = "neozeus-verifier-";
 const DAEMON_BACKEND_STATUS: &str = "backend: neozeus daemon pty";
+const DAEMON_KILL_WAIT_TIMEOUT: Duration = Duration::from_secs(3);
+
+#[cfg(unix)]
+mod unix_signals {
+    use std::os::raw::c_int;
+
+    pub(super) const SIGHUP: c_int = 1;
+    pub(super) const SIGKILL: c_int = 9;
+
+    unsafe extern "C" {
+        fn kill(pid: c_int, signal: c_int) -> c_int;
+    }
+
+    pub(super) unsafe fn send(pid: c_int, signal: c_int) -> c_int {
+        kill(pid, signal)
+    }
+}
 
 /// Returns whether a daemon session name belongs to the ordinary persisted-session namespace.
 ///
@@ -50,6 +68,7 @@ pub(crate) struct DaemonSession {
     created_order: u64,
     state: Arc<Mutex<DaemonSessionState>>,
     command_tx: mpsc::Sender<DaemonSessionCommand>,
+    shutdown_rx: Mutex<Option<mpsc::Receiver<Result<(), String>>>>,
 }
 
 struct DaemonSessionState {
@@ -92,16 +111,20 @@ impl DaemonSession {
             subscribers: HashMap::new(),
         }));
         let (command_tx, command_rx) = mpsc::channel();
+        let (shutdown_tx, shutdown_rx) = mpsc::channel();
         let session = Arc::new(Self {
             session_id: session_id.clone(),
             created_order,
             state: state.clone(),
             command_tx,
+            shutdown_rx: Mutex::new(Some(shutdown_rx)),
         });
 
         let worker_state = state.clone();
         thread::spawn(move || {
-            run_session_worker(session_id, worker_state, command_rx, master, writer, child)
+            let result =
+                run_session_worker(session_id, worker_state, command_rx, master, writer, child);
+            let _ = shutdown_tx.send(result);
         });
 
         Ok(session)
@@ -171,10 +194,16 @@ impl DaemonSession {
             })
     }
 
-    /// Asks the daemon session worker thread to terminate the PTY session.
+    /// Asks the daemon session worker thread to terminate the PTY session and waits until teardown completes.
     pub(crate) fn kill(&self) -> Result<(), String> {
+        let shutdown_rx = lock(&self.shutdown_rx).take();
         let _ = self.command_tx.send(DaemonSessionCommand::Kill);
-        Ok(())
+        let Some(shutdown_rx) = shutdown_rx else {
+            return Ok(());
+        };
+        shutdown_rx
+            .recv_timeout(DAEMON_KILL_WAIT_TIMEOUT)
+            .map_err(|_| format!("daemon session `{}` kill timed out", self.session_id))?
     }
 }
 
@@ -214,7 +243,7 @@ fn run_session_worker(
     master: Box<dyn portable_pty::MasterPty + Send>,
     mut writer: Box<dyn std::io::Write + Send>,
     mut child: Box<dyn portable_pty::Child + Send + Sync>,
-) {
+) -> Result<(), String> {
     // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
     let mut reader = match master.try_clone_reader() {
         Ok(reader) => reader,
@@ -229,8 +258,8 @@ fn run_session_worker(
                     surface: None,
                 },
             );
-            let _ = child.kill();
-            return;
+            let _ = terminate_session_processes(master.as_ref(), &mut *child);
+            return Ok(());
         }
     };
 
@@ -276,6 +305,7 @@ fn run_session_worker(
     let mut parser = ansi::Processor::<ansi::StdSyncHandler>::new();
     let mut previous_surface: Option<TerminalSurface> = None;
     let mut running = true;
+    let mut child_reaped = false;
 
     while running {
         let mut received_output = false;
@@ -399,7 +429,7 @@ fn run_session_worker(
                     }
                 }
                 DaemonSessionCommand::Kill => {
-                    if let Err(error) = child.kill() {
+                    if let Err(error) = terminate_session_processes(master.as_ref(), &mut *child) {
                         publish_update(
                             &state,
                             &session_id,
@@ -410,7 +440,11 @@ fn run_session_worker(
                                 surface: Some(build_surface(&terminal)),
                             },
                         );
+                        return Err(format!(
+                            "daemon session `{session_id}` kill failed: {error}"
+                        ));
                     }
+                    child_reaped = true;
                     running = false;
                 }
             }
@@ -447,6 +481,7 @@ fn run_session_worker(
                         surface: Some(build_surface(&terminal)),
                     },
                 );
+                child_reaped = true;
                 running = false;
             }
             Ok(None) => {}
@@ -472,8 +507,82 @@ fn run_session_worker(
         }
     }
 
-    let _ = child.kill();
-    let _ = reader_thread.join();
+    if !child_reaped {
+        let _ = terminate_session_processes(master.as_ref(), &mut *child);
+    }
+    drop(writer);
+    drop(master);
+    reader_thread
+        .join()
+        .map_err(|_| format!("daemon session `{session_id}` reader thread panicked"))?;
+    Ok(())
+}
+
+/// Waits until the PTY child has exited or a timeout elapses.
+fn wait_for_child_exit(
+    child: &mut (dyn portable_pty::Child + Send + Sync),
+    timeout: Duration,
+) -> Result<bool, String> {
+    let deadline = Instant::now() + timeout;
+    loop {
+        if child
+            .try_wait()
+            .map_err(|error| format!("daemon PTY child wait failed: {error}"))?
+            .is_some()
+        {
+            return Ok(true);
+        }
+        if Instant::now() >= deadline {
+            return Ok(false);
+        }
+        thread::sleep(Duration::from_millis(20));
+    }
+}
+
+/// Hard-stops the daemon PTY child, escalating from hangup to a group kill when needed, and waits
+/// until the child has exited.
+fn terminate_session_processes(
+    master: &(dyn portable_pty::MasterPty + Send),
+    child: &mut (dyn portable_pty::Child + Send + Sync),
+) -> Result<(), String> {
+    #[cfg(unix)]
+    {
+        if let Some(pgid) = master.process_group_leader().filter(|pgid| *pgid > 0) {
+            let hup_result = unsafe { unix_signals::send(-pgid, unix_signals::SIGHUP) };
+            if hup_result != 0 {
+                let error = std::io::Error::last_os_error();
+                if error.kind() != std::io::ErrorKind::NotFound {
+                    return Err(format!(
+                        "failed to send SIGHUP to daemon session process group {pgid}: {error}"
+                    ));
+                }
+            }
+            if wait_for_child_exit(child, Duration::from_millis(250))? {
+                return Ok(());
+            }
+
+            let kill_result = unsafe { unix_signals::send(-pgid, unix_signals::SIGKILL) };
+            if kill_result != 0 {
+                let error = std::io::Error::last_os_error();
+                if error.kind() != std::io::ErrorKind::NotFound {
+                    return Err(format!(
+                        "failed to send SIGKILL to daemon session process group {pgid}: {error}"
+                    ));
+                }
+            }
+            if wait_for_child_exit(child, Duration::from_secs(1))? {
+                return Ok(());
+            }
+        }
+    }
+
+    child
+        .kill()
+        .map_err(|error| format!("daemon PTY child kill failed: {error}"))?;
+    if wait_for_child_exit(child, Duration::from_secs(1))? {
+        return Ok(());
+    }
+    Err("daemon PTY child did not exit after hard kill".to_owned())
 }
 
 /// Applies one queued terminal command to the daemon PTY session.
