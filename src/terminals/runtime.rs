@@ -1,9 +1,6 @@
 use super::{
     bridge::TerminalBridge,
-    daemon::{
-        AttachedDaemonSession, DaemonSessionInfo, TerminalDaemonClientResource,
-        PERSISTENT_SESSION_PREFIX,
-    },
+    daemon::{AttachedDaemonSession, DaemonSessionInfo, TerminalDaemonClientResource},
     debug::{append_debug_log, note_terminal_error, with_debug_stats, TerminalDebugStats},
     mailbox::TerminalUpdateMailbox,
     types::{TerminalCommand, TerminalRuntimeState, TerminalSnapshot, TerminalUpdate},
@@ -53,14 +50,6 @@ impl RuntimeNotifier {
 pub(crate) struct TerminalRuntimeSpawner {
     notifier: RuntimeNotifier,
     daemon: Arc<Mutex<Option<TerminalDaemonClientResource>>>,
-}
-
-/// Returns whether a newly created session should be bootstrapped by sending the `pi` command.
-///
-/// Only persistent user-facing sessions get this behavior; verifier or other special-purpose session
-/// prefixes should stay plain shells.
-fn should_bootstrap_spawned_agent(prefix: &str) -> bool {
-    prefix == PERSISTENT_SESSION_PREFIX
 }
 
 impl TerminalRuntimeSpawner {
@@ -130,34 +119,41 @@ impl TerminalRuntimeSpawner {
         self.daemon_client()?.client().list_sessions()
     }
 
-    /// Creates a new session and optionally bootstraps it into a `pi` session.
+    /// Creates a new session and optionally bootstraps it into one agent CLI.
     ///
-    /// The method first creates a plain shell session, then conditionally sends an initial `pi`
-    /// command when the prefix says this is a normal persistent terminal. If bootstrapping fails, the
-    /// just-created daemon session is killed so the caller does not inherit a half-initialized shell.
-    pub(crate) fn create_session(&self, prefix: &str) -> Result<String, String> {
-        self.create_session_with_cwd(prefix, None)
+    /// The method first creates a plain shell session, then conditionally sends one startup command
+    /// such as `pi`, `claude`, or `codex`. If bootstrapping fails, the just-created daemon session is
+    /// killed so the caller does not inherit a half-initialized shell.
+    pub(crate) fn create_session(
+        &self,
+        prefix: &str,
+        startup_command: Option<&str>,
+    ) -> Result<String, String> {
+        self.create_session_with_cwd(prefix, None, startup_command)
     }
 
-    /// Creates a new session in the requested working directory and optionally bootstraps it into a `pi` session.
+    /// Creates a new session in the requested working directory and optionally bootstraps one agent CLI.
     pub(crate) fn create_session_with_cwd(
         &self,
         prefix: &str,
         cwd: Option<&str>,
+        startup_command: Option<&str>,
     ) -> Result<String, String> {
         let daemon = self.daemon_client()?;
         let session_id = self.create_shell_session_with_cwd(prefix, cwd)?;
-        if should_bootstrap_spawned_agent(prefix) {
-            if let Err(error) = daemon
-                .client()
-                .send_command(&session_id, TerminalCommand::SendCommand("pi".into()))
-            {
+        if let Some(startup_command) = startup_command {
+            if let Err(error) = daemon.client().send_command(
+                &session_id,
+                TerminalCommand::SendCommand(startup_command.into()),
+            ) {
                 let _ = daemon.client().kill_session(&session_id);
                 return Err(format!(
-                    "failed to start pi in session `{session_id}`: {error}"
+                    "failed to start {startup_command} in session `{session_id}`: {error}"
                 ));
             }
-            append_debug_log(format!("bootstrapped pi session={session_id}"));
+            append_debug_log(format!(
+                "bootstrapped {startup_command} session={session_id}"
+            ));
         }
         Ok(session_id)
     }

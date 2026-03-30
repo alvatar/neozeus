@@ -1,5 +1,5 @@
 use crate::{
-    agents::{AgentCapabilities, AgentCatalog, AgentId, AgentKind, AgentRuntimeIndex},
+    agents::{AgentCatalog, AgentId, AgentKind, AgentRuntimeIndex},
     app::{mark_app_state_dirty, AppStatePersistenceState},
     hud::{HudInputCaptureState, TerminalVisibilityPolicy, TerminalVisibilityState},
     startup::StartupLoadingState,
@@ -31,7 +31,6 @@ pub(crate) fn spawn_agent_terminal(
     startup_loading: Option<&mut StartupLoadingState>,
     time: &Time,
     prefix: &str,
-    spawn_shell_only: bool,
     kind: AgentKind,
     label: Option<String>,
     working_directory: Option<&str>,
@@ -39,11 +38,11 @@ pub(crate) fn spawn_agent_terminal(
 ) -> Result<AgentId, String> {
     // Walk the lifecycle in explicit stages so each side effect happens only after its prerequisites have been established.
     let label = agent_catalog.validate_new_label(label.as_deref())?;
-    let session_name = if spawn_shell_only {
-        runtime_spawner.create_shell_session_with_cwd(prefix, working_directory)
-    } else {
-        runtime_spawner.create_session_with_cwd(prefix, working_directory)
-    }?;
+    let session_name = runtime_spawner.create_session_with_cwd(
+        prefix,
+        working_directory,
+        kind.bootstrap_command(),
+    )?;
     let (terminal_id, _) = attach_terminal_session(
         terminal_manager,
         focus_state,
@@ -52,10 +51,7 @@ pub(crate) fn spawn_agent_terminal(
         true,
     )?;
 
-    let capabilities = match kind {
-        AgentKind::Terminal => AgentCapabilities::terminal_defaults(),
-        AgentKind::Verifier => AgentCapabilities::verifier_defaults(),
-    };
+    let capabilities = kind.capabilities();
     let agent_id = agent_catalog.create_agent(label, kind, capabilities);
     let runtime = terminal_manager
         .get(terminal_id)
@@ -104,10 +100,7 @@ pub(crate) fn attach_restored_terminal(
         session_name.clone(),
         focus,
     )?;
-    let capabilities = match kind {
-        AgentKind::Terminal => AgentCapabilities::terminal_defaults(),
-        AgentKind::Verifier => AgentCapabilities::verifier_defaults(),
-    };
+    let capabilities = kind.capabilities();
     let agent_id = agent_catalog.create_agent(None, kind, capabilities);
     if let Some(label) = label {
         match agent_catalog.validate_rename_label(agent_id, &label) {

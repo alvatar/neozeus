@@ -436,7 +436,10 @@ fn register_startup_loading_terminal(
 /// leak orphan sessions.
 fn setup_verifier_terminal(ctx: &mut SceneSetupContext, config: AutoVerifyConfig) {
     // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
-    let session_name = match ctx.runtime_spawner.create_session(VERIFIER_SESSION_PREFIX) {
+    let session_name = match ctx
+        .runtime_spawner
+        .create_session(VERIFIER_SESSION_PREFIX, None)
+    {
         Ok(session_name) => session_name,
         Err(error) => {
             append_debug_log(format!("verifier terminal spawn failed: {error}"));

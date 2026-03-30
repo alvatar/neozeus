@@ -66,12 +66,9 @@ pub(crate) fn sync_agents_from_terminals(
                 let kind = if terminal.session_name.starts_with(VERIFIER_SESSION_PREFIX) {
                     AgentKind::Verifier
                 } else {
-                    AgentKind::Terminal
+                    AgentKind::Pi
                 };
-                let capabilities = match kind {
-                    AgentKind::Terminal => crate::agents::AgentCapabilities::terminal_defaults(),
-                    AgentKind::Verifier => crate::agents::AgentCapabilities::verifier_defaults(),
-                };
+                let capabilities = kind.capabilities();
                 let agent_id = agent_catalog.create_agent(None, kind, capabilities);
                 runtime_index.link_terminal(
                     agent_id,
@@ -146,7 +143,7 @@ pub(super) fn apply_app_commands(
             AppCommand::Agent(command) => match command {
                 AgentCommand::Create {
                     label,
-                    spawn_shell_only,
+                    kind,
                     working_directory,
                 } => {
                     if let Err(error) = use_cases::spawn_agent_terminal(
@@ -163,8 +160,7 @@ pub(super) fn apply_app_commands(
                         ctx.startup_loading.as_deref_mut(),
                         &ctx.time,
                         PERSISTENT_SESSION_PREFIX,
-                        *spawn_shell_only,
-                        AgentKind::Terminal,
+                        *kind,
                         label.clone(),
                         Some(working_directory.as_str()),
                         &mut ctx.redraws,

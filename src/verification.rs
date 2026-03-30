@@ -241,7 +241,10 @@ pub(crate) fn run_verification_scenario(world: &mut World) {
         _ => 1,
     };
     while config.terminal_ids.len() < required_terminals {
-        let session_name = match ctx.runtime_spawner.create_session(VERIFIER_SESSION_PREFIX) {
+        let session_name = match ctx
+            .runtime_spawner
+            .create_session(VERIFIER_SESSION_PREFIX, None)
+        {
             Ok(session_name) => session_name,
             Err(error) => {
                 append_debug_log(format!("verification scenario spawn failed: {error}"));

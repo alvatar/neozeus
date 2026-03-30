@@ -72,27 +72,45 @@ fn surface_to_text(surface: &TerminalSurface) -> String {
     text
 }
 
-/// Verifies that persistent-session bootstrap sends exactly the plain `pi` bootstrap command, while
-/// verifier sessions do not get the same bootstrap.
+/// Verifies that runtime bootstrap sends the requested agent CLI command and leaves raw/verifier
+/// sessions plain.
 #[test]
-fn runtime_spawner_bootstraps_persistent_sessions_with_plain_pi_only() {
+fn runtime_spawner_bootstraps_requested_agent_commands_only() {
     let client = Arc::new(FakeDaemonClient::default());
     let spawner = fake_runtime_spawner(client.clone());
 
-    let persistent = spawner
-        .create_session(PERSISTENT_SESSION_PREFIX)
-        .expect("persistent session should be created");
+    let pi = spawner
+        .create_session(PERSISTENT_SESSION_PREFIX, Some("pi"))
+        .expect("pi session should be created");
+    let claude = spawner
+        .create_session(PERSISTENT_SESSION_PREFIX, Some("claude"))
+        .expect("claude session should be created");
+    let codex = spawner
+        .create_session(PERSISTENT_SESSION_PREFIX, Some("codex"))
+        .expect("codex session should be created");
+    let terminal = spawner
+        .create_session(PERSISTENT_SESSION_PREFIX, None)
+        .expect("terminal session should be created");
     let _verifier = spawner
-        .create_session(VERIFIER_SESSION_PREFIX)
+        .create_session(VERIFIER_SESSION_PREFIX, None)
         .expect("verifier session should be created");
 
     let commands = client.sent_commands.lock().unwrap().clone();
-    assert_eq!(commands.len(), 1);
-    assert_eq!(commands[0].0, persistent);
-    assert!(matches!(
-        &commands[0].1,
-        TerminalCommand::SendCommand(command) if command == "pi"
-    ));
+    assert_eq!(commands.len(), 3);
+    assert!(commands.iter().any(|(session_id, command)| {
+        session_id == &pi && matches!(command, TerminalCommand::SendCommand(value) if value == "pi")
+    }));
+    assert!(commands.iter().any(|(session_id, command)| {
+        session_id == &claude
+            && matches!(command, TerminalCommand::SendCommand(value) if value == "claude")
+    }));
+    assert!(commands.iter().any(|(session_id, command)| {
+        session_id == &codex
+            && matches!(command, TerminalCommand::SendCommand(value) if value == "codex")
+    }));
+    assert!(!commands
+        .iter()
+        .any(|(session_id, _)| session_id == &terminal));
 }
 
 /// Verifies that the runtime spawner's daemon bridge exposes the initial snapshot as a status update

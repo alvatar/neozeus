@@ -13,8 +13,39 @@ use super::super::{
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) enum CreateAgentKind {
     #[default]
-    Agent,
-    Shell,
+    Pi,
+    Claude,
+    Codex,
+    Terminal,
+}
+
+impl CreateAgentKind {
+    pub(crate) const fn label(self) -> &'static str {
+        match self {
+            Self::Pi => "pi",
+            Self::Claude => "claude",
+            Self::Codex => "codex",
+            Self::Terminal => "terminal",
+        }
+    }
+
+    pub(crate) const fn agent_kind(self) -> crate::agents::AgentKind {
+        match self {
+            Self::Pi => crate::agents::AgentKind::Pi,
+            Self::Claude => crate::agents::AgentKind::Claude,
+            Self::Codex => crate::agents::AgentKind::Codex,
+            Self::Terminal => crate::agents::AgentKind::Terminal,
+        }
+    }
+
+    pub(crate) const fn next(self) -> Self {
+        match self {
+            Self::Pi => Self::Claude,
+            Self::Claude => Self::Codex,
+            Self::Codex => Self::Terminal,
+            Self::Terminal => Self::Pi,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -357,11 +388,6 @@ impl CreateAgentDialogState {
         self.cwd_field.field.text.trim().to_owned()
     }
 
-    /// Returns whether the selected creation kind should spawn a raw shell.
-    pub(crate) fn spawn_shell_only(&self) -> bool {
-        matches!(self.kind, CreateAgentKind::Shell)
-    }
-
     /// Builds the app command that should create the configured agent, validating required fields.
     pub(crate) fn build_create_command(&mut self) -> Option<AppCommand> {
         let working_directory = self.starting_folder();
@@ -372,7 +398,7 @@ impl CreateAgentDialogState {
         self.error = None;
         Some(AppCommand::Agent(AgentCommand::Create {
             label: self.label(),
-            spawn_shell_only: self.spawn_shell_only(),
+            kind: self.kind.agent_kind(),
             working_directory,
         }))
     }

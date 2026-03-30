@@ -1,5 +1,5 @@
 use crate::{
-    app::{AppCommand, AppSessionState, ComposerCommand, CreateAgentDialogField, CreateAgentKind},
+    app::{AppCommand, AppSessionState, ComposerCommand, CreateAgentDialogField},
     composer::{MessageDialogFocus, TaskDialogFocus},
 };
 use bevy::{
@@ -92,11 +92,9 @@ pub(super) fn handle_create_agent_dialog_key(
         ),
         CreateAgentDialogField::Kind => {
             if modifiers.plain() && event.key_code == KeyCode::Space {
-                let next_kind = match app_session.create_agent_dialog.kind {
-                    CreateAgentKind::Agent => CreateAgentKind::Shell,
-                    CreateAgentKind::Shell => CreateAgentKind::Agent,
-                };
-                app_session.create_agent_dialog.set_kind(next_kind);
+                app_session
+                    .create_agent_dialog
+                    .set_kind(app_session.create_agent_dialog.kind.next());
                 (true, false)
             } else {
                 (false, false)

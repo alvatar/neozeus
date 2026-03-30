@@ -4,10 +4,44 @@ use std::{env, path::PathBuf};
 pub const APP_STATE_FILENAME: &str = "neozeus-state.v1";
 pub const APP_STATE_VERSION_V1: &str = "neozeus state version 1";
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum PersistedAgentKind {
+    #[default]
+    Pi,
+    Claude,
+    Codex,
+    Terminal,
+    Verifier,
+}
+
+impl PersistedAgentKind {
+    pub const fn persistence_key(self) -> &'static str {
+        match self {
+            Self::Pi => "pi",
+            Self::Claude => "claude",
+            Self::Codex => "codex",
+            Self::Terminal => "terminal",
+            Self::Verifier => "verifier",
+        }
+    }
+
+    pub fn from_persistence_key(value: &str) -> Option<Self> {
+        match value.trim() {
+            "pi" => Some(Self::Pi),
+            "claude" => Some(Self::Claude),
+            "codex" => Some(Self::Codex),
+            "terminal" => Some(Self::Terminal),
+            "verifier" => Some(Self::Verifier),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PersistedAgentState {
     pub session_name: String,
     pub label: Option<String>,
+    pub kind: PersistedAgentKind,
     pub order_index: u64,
     pub last_focused: bool,
 }
@@ -70,6 +104,7 @@ pub fn parse_persisted_app_state(text: &str) -> PersistedAppState {
     let mut persisted = PersistedAppState::default();
     let mut session_name = None;
     let mut label = None;
+    let mut kind = None;
     let mut order_index = None;
     let mut last_focused = None;
     let mut in_agent = false;
@@ -87,6 +122,7 @@ pub fn parse_persisted_app_state(text: &str) -> PersistedAppState {
                 in_agent = true;
                 session_name = None;
                 label = None;
+                kind = None;
                 order_index = None;
                 last_focused = None;
             }
@@ -98,6 +134,7 @@ pub fn parse_persisted_app_state(text: &str) -> PersistedAppState {
                         persisted.agents.push(PersistedAgentState {
                             session_name,
                             label: label.take(),
+                            kind: kind.take().unwrap_or(PersistedAgentKind::Pi),
                             order_index,
                             last_focused,
                         });
@@ -116,6 +153,10 @@ pub fn parse_persisted_app_state(text: &str) -> PersistedAppState {
                     }
                     "label" => {
                         label = unquote_escaped_string(value, EXTENDED_QUOTED_STRING_ESCAPES)
+                    }
+                    "kind" => {
+                        kind = unquote_escaped_string(value, EXTENDED_QUOTED_STRING_ESCAPES)
+                            .and_then(|value| PersistedAgentKind::from_persistence_key(&value))
                     }
                     "order_index" => order_index = value.parse::<u64>().ok(),
                     "focused" => last_focused = value.parse::<u8>().ok().map(|flag| flag != 0),

@@ -124,7 +124,7 @@ pub(crate) fn handle_global_terminal_spawn_shortcut(
 
     for event in messages.read() {
         if should_spawn_terminal_globally(event, &keys) {
-            app_session.create_agent_dialog.open(CreateAgentKind::Agent);
+            app_session.create_agent_dialog.open(CreateAgentKind::Pi);
             redraws.write(RequestRedraw);
             break;
         }

@@ -1,6 +1,7 @@
 use super::*;
 use crate::{
-    agents::{AgentCapabilities, AgentCatalog, AgentKind, AgentRuntimeIndex},
+    agents::{AgentCatalog, AgentKind, AgentRuntimeIndex},
+    shared::app_state_file::PersistedAgentKind,
     tests::{insert_terminal_manager_resources, temp_dir, test_bridge},
 };
 use bevy::{
@@ -40,12 +41,14 @@ fn app_state_parse_and_serialize_roundtrip() {
             PersistedAgentState {
                 session_name: "neozeus-session-a\rtab\tquoted\"".into(),
                 label: Some("agent 1\nrow\rand\ttabs\\slash".into()),
+                kind: PersistedAgentKind::Claude,
                 order_index: 0,
                 last_focused: true,
             },
             PersistedAgentState {
                 session_name: "neozeus-session-b".into(),
                 label: None,
+                kind: PersistedAgentKind::Terminal,
                 order_index: 1,
                 last_focused: false,
             },
@@ -54,6 +57,17 @@ fn app_state_parse_and_serialize_roundtrip() {
 
     let serialized = serialize_persisted_app_state(&persisted);
     assert_eq!(parse_persisted_app_state(&serialized), persisted);
+}
+
+/// Verifies that older app-state files without explicit kind metadata default to `pi`.
+#[test]
+fn app_state_parse_defaults_missing_kind_to_pi() {
+    let parsed = parse_persisted_app_state(
+        "neozeus state version 1\n[agent]\nsession_name=\"neozeus-session-a\"\norder_index=0\nfocused=1\n[/agent]\n",
+    );
+
+    assert_eq!(parsed.agents.len(), 1);
+    assert_eq!(parsed.agents[0].kind, PersistedAgentKind::Pi);
 }
 
 /// Verifies that legacy terminal-session state migrates into the new app-state model on read.
@@ -72,6 +86,7 @@ fn app_state_load_falls_back_to_legacy_terminal_sessions() {
     assert_eq!(persisted.agents.len(), 1);
     assert_eq!(persisted.agents[0].session_name, "neozeus-session-a");
     assert_eq!(persisted.agents[0].label.as_deref(), Some("agent 1"));
+    assert_eq!(persisted.agents[0].kind, PersistedAgentKind::Pi);
     assert_eq!(persisted.agents[0].order_index, 0);
     assert!(persisted.agents[0].last_focused);
 }
@@ -84,12 +99,14 @@ fn reconcile_persisted_agents_restores_prunes_and_imports() {
             PersistedAgentState {
                 session_name: "neozeus-session-a".into(),
                 label: Some("one".into()),
+                kind: PersistedAgentKind::Pi,
                 order_index: 0,
                 last_focused: true,
             },
             PersistedAgentState {
                 session_name: "neozeus-session-b".into(),
                 label: None,
+                kind: PersistedAgentKind::Terminal,
                 order_index: 1,
                 last_focused: false,
             },
@@ -111,10 +128,11 @@ fn reconcile_persisted_agents_restores_prunes_and_imports() {
     assert_eq!(prune[0].session_name, "neozeus-session-b");
     assert_eq!(import.len(), 1);
     assert_eq!(import[0].session_name, "neozeus-session-c");
+    assert_eq!(import[0].kind, PersistedAgentKind::Pi);
     assert_eq!(import[0].order_index, 2);
 }
 
-/// Verifies that saving app state preserves user agent order, labels, and the focused session.
+/// Verifies that saving app state preserves user agent order, labels, kinds, and the focused session.
 #[test]
 fn saving_app_state_persists_agent_order_labels_and_focus() {
     let dir = temp_dir("neozeus-app-state-save");
@@ -130,13 +148,13 @@ fn saving_app_state_persists_agent_order_labels_and_focus() {
     let mut runtime_index = AgentRuntimeIndex::default();
     let alpha = agent_catalog.create_agent(
         Some("alpha".into()),
-        AgentKind::Terminal,
-        AgentCapabilities::terminal_defaults(),
+        AgentKind::Claude,
+        AgentKind::Claude.capabilities(),
     );
     let beta = agent_catalog.create_agent(
         Some("beta".into()),
         AgentKind::Terminal,
-        AgentCapabilities::terminal_defaults(),
+        AgentKind::Terminal.capabilities(),
     );
     runtime_index.link_terminal(alpha, id_one, "neozeus-session-a".into(), None);
     runtime_index.link_terminal(beta, id_two, "neozeus-session-b".into(), None);
@@ -160,9 +178,11 @@ fn saving_app_state_persists_agent_order_labels_and_focus() {
     assert_eq!(persisted.agents.len(), 2);
     assert_eq!(persisted.agents[0].session_name, "neozeus-session-b");
     assert_eq!(persisted.agents[0].label.as_deref(), Some("beta"));
+    assert_eq!(persisted.agents[0].kind, PersistedAgentKind::Terminal);
     assert!(persisted.agents[0].last_focused);
     assert_eq!(persisted.agents[1].session_name, "neozeus-session-a");
     assert_eq!(persisted.agents[1].label.as_deref(), Some("alpha"));
+    assert_eq!(persisted.agents[1].kind, PersistedAgentKind::Claude);
     assert!(!persisted.agents[1].last_focused);
 }
 
