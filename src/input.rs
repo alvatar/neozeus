@@ -23,6 +23,7 @@ use bevy::{
     prelude::*,
     window::{PrimaryWindow, RequestRedraw},
 };
+use bevy_egui::EguiClipboard;
 
 /// Reads the three modifier families that matter to NeoZeus shortcut handling.
 ///
@@ -574,6 +575,8 @@ pub(crate) fn handle_terminal_message_box_keyboard(
     runtime_index: Res<AgentRuntimeIndex>,
     mut app_session: ResMut<AppSessionState>,
     input_capture: Res<HudInputCaptureState>,
+    mut clipboard: Option<ResMut<EguiClipboard>>,
+    mut clipboard_ingress: Local<modal_dialogs::MessageDialogClipboardIngressState>,
     mut app_commands: MessageWriter<AppCommand>,
     mut redraws: MessageWriter<RequestRedraw>,
 ) {
@@ -621,6 +624,15 @@ pub(crate) fn handle_terminal_message_box_keyboard(
         return;
     }
 
+    let current_clipboard_text = clipboard
+        .as_deref_mut()
+        .and_then(EguiClipboard::get_text)
+        .filter(|text| !text.is_empty());
+    clipboard_ingress.sync_visibility(
+        app_session.composer.message_editor.visible,
+        current_clipboard_text.as_deref(),
+    );
+
     if app_session.composer.message_editor.visible {
         let mut needs_redraw = false;
         let mut emitted_commands = Vec::new();
@@ -628,10 +640,15 @@ pub(crate) fn handle_terminal_message_box_keyboard(
             if event.state != ButtonState::Pressed {
                 continue;
             }
-            let outcome = modal_dialogs::handle_message_dialog_key(
+            let current_clipboard_text = clipboard
+                .as_deref_mut()
+                .and_then(EguiClipboard::get_text)
+                .filter(|text| !text.is_empty());
+            let outcome = clipboard_ingress.handle_key(
                 &mut app_session,
                 event,
                 modifiers,
+                current_clipboard_text.as_deref(),
                 &mut emitted_commands,
             );
             needs_redraw |= outcome.needs_redraw;

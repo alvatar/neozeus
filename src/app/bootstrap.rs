@@ -39,6 +39,7 @@ use bevy::{
     window::{MonitorSelection, PrimaryWindow, WindowMode},
     winit::{EventLoopProxyWrapper, WinitPlugin, WinitSettings},
 };
+use bevy_egui::EguiClipboard;
 use bevy_vello::VelloPlugin;
 use std::{any::Any, env, sync::Arc, time::Duration};
 
@@ -483,6 +484,7 @@ fn configure_app(app: &mut App) -> Result<(), String> {
         .insert_resource(AgentRuntimeIndex::default())
         .insert_resource(crate::agents::AgentStatusStore::default())
         .insert_resource(AppSessionState::default())
+        .insert_resource(EguiClipboard::default())
         .insert_resource(ConversationStore::default())
         .insert_resource(ConversationPersistenceState::default())
         .insert_resource(AgentTaskStore::default())

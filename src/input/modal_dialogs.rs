@@ -2,7 +2,11 @@ use crate::{
     app::{AppCommand, AppSessionState, ComposerCommand, CreateAgentDialogField, CreateAgentKind},
     composer::{MessageDialogFocus, TaskDialogFocus},
 };
-use bevy::{input::keyboard::KeyboardInput, prelude::KeyCode};
+use bevy::{
+    input::keyboard::{Key, KeyboardInput},
+    prelude::KeyCode,
+};
+use std::time::{Duration, Instant};
 
 #[derive(Clone, Copy)]
 pub(super) struct KeyModifiers {
@@ -25,6 +29,11 @@ impl KeyModifiers {
         self.alt && !self.ctrl && !self.super_key
     }
 }
+
+// Some external text tools update the clipboard and then emit a bogus trailing Escape instead of
+// delivering a real paste event. Keep the compatibility window narrow so only that immediate tail
+// noise is swallowed; later manual Escape presses must still cancel the dialog normally.
+const MESSAGE_DIALOG_CLIPBOARD_ESCAPE_GRACE: Duration = Duration::from_millis(75);
 
 #[derive(Clone, Copy, Default)]
 pub(super) struct ModalKeyResult {
@@ -137,6 +146,163 @@ pub(super) fn handle_create_agent_dialog_key(
         ModalKeyResult::redraw()
     } else {
         ModalKeyResult::default()
+    }
+}
+
+/// Message-box-local compatibility state for clipboard-backed text ingress.
+#[derive(Default)]
+pub(crate) struct MessageDialogClipboardIngressState {
+    was_visible: bool,
+    last_clipboard_text: Option<String>,
+    modifier_prelude_active: bool,
+    clipboard_changed_since_modifier_prelude: bool,
+    suppress_escape_until: Option<Instant>,
+}
+
+impl MessageDialogClipboardIngressState {
+    pub(super) fn sync_visibility(&mut self, visible: bool, current_clipboard_text: Option<&str>) {
+        if !visible {
+            *self = Self::default();
+            return;
+        }
+        if !self.was_visible {
+            self.was_visible = true;
+            self.last_clipboard_text = current_clipboard_text.map(str::to_owned);
+            self.modifier_prelude_active = false;
+            self.clipboard_changed_since_modifier_prelude = false;
+            self.suppress_escape_until = None;
+        }
+    }
+
+    pub(super) fn handle_key(
+        &mut self,
+        app_session: &mut AppSessionState,
+        event: &KeyboardInput,
+        modifiers: KeyModifiers,
+        current_clipboard_text: Option<&str>,
+        emitted_commands: &mut Vec<AppCommand>,
+    ) -> ModalKeyResult {
+        if message_dialog_requests_clipboard_paste(event, modifiers) {
+            return current_clipboard_text.map_or(ModalKeyResult::stop(), |text| {
+                handle_message_dialog_clipboard_text(app_session, text)
+            });
+        }
+
+        match self.handle_event(event, current_clipboard_text, Instant::now()) {
+            ClipboardIngressDecision::InsertClipboard => current_clipboard_text
+                .map_or(ModalKeyResult::stop(), |text| {
+                    handle_message_dialog_clipboard_text(app_session, text)
+                }),
+            ClipboardIngressDecision::Swallow => ModalKeyResult::stop(),
+            ClipboardIngressDecision::None => {
+                handle_message_dialog_key(app_session, event, modifiers, emitted_commands)
+            }
+        }
+    }
+
+    fn handle_event(
+        &mut self,
+        event: &KeyboardInput,
+        current_clipboard_text: Option<&str>,
+        now: Instant,
+    ) -> ClipboardIngressDecision {
+        if let Some(until) = self.suppress_escape_until {
+            if now <= until && event.key_code == KeyCode::Escape {
+                self.suppress_escape_until = None;
+                return ClipboardIngressDecision::Swallow;
+            }
+            if now > until {
+                self.suppress_escape_until = None;
+            }
+        }
+
+        let clipboard_changed =
+            current_clipboard_text.map(str::to_owned) != self.last_clipboard_text;
+        if clipboard_changed {
+            self.last_clipboard_text = current_clipboard_text.map(str::to_owned);
+        }
+
+        if self.modifier_prelude_active && clipboard_changed {
+            self.clipboard_changed_since_modifier_prelude = true;
+        }
+
+        if is_modifier_key(event.key_code) {
+            self.modifier_prelude_active = true;
+            self.clipboard_changed_since_modifier_prelude |= clipboard_changed;
+            return ClipboardIngressDecision::None;
+        }
+
+        if event.key_code == KeyCode::Escape
+            && self.modifier_prelude_active
+            && self.clipboard_changed_since_modifier_prelude
+            && current_clipboard_text.is_some()
+        {
+            self.modifier_prelude_active = false;
+            self.clipboard_changed_since_modifier_prelude = false;
+            self.suppress_escape_until = Some(now + MESSAGE_DIALOG_CLIPBOARD_ESCAPE_GRACE);
+            return ClipboardIngressDecision::InsertClipboard;
+        }
+
+        self.modifier_prelude_active = false;
+        self.clipboard_changed_since_modifier_prelude = false;
+        ClipboardIngressDecision::None
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ClipboardIngressDecision {
+    None,
+    InsertClipboard,
+    Swallow,
+}
+
+fn is_modifier_key(key_code: KeyCode) -> bool {
+    matches!(
+        key_code,
+        KeyCode::ControlLeft
+            | KeyCode::ControlRight
+            | KeyCode::ShiftLeft
+            | KeyCode::ShiftRight
+            | KeyCode::AltLeft
+            | KeyCode::AltRight
+            | KeyCode::SuperLeft
+            | KeyCode::SuperRight
+    )
+}
+
+/// Returns whether this message-dialog key event explicitly requests clipboard paste.
+pub(super) fn message_dialog_requests_clipboard_paste(
+    event: &KeyboardInput,
+    modifiers: KeyModifiers,
+) -> bool {
+    if modifiers.alt || modifiers.super_key {
+        return false;
+    }
+    matches!(event.key_code, KeyCode::Paste)
+        || matches!(event.logical_key, Key::Paste)
+        || (modifiers.ctrl
+            && (matches!(&event.logical_key, Key::Character(text) if text.eq_ignore_ascii_case("v"))
+                || event
+                    .text
+                    .as_ref()
+                    .is_some_and(|text| text.eq_ignore_ascii_case("v"))))
+        || (modifiers.shift && !modifiers.ctrl && event.key_code == KeyCode::Insert)
+}
+
+/// Applies clipboard text ingress to the message dialog when the editor has focus.
+pub(super) fn handle_message_dialog_clipboard_text(
+    app_session: &mut AppSessionState,
+    text: &str,
+) -> ModalKeyResult {
+    if !matches!(
+        app_session.composer.message_dialog_focus,
+        MessageDialogFocus::Editor
+    ) {
+        return ModalKeyResult::default();
+    }
+    ModalKeyResult {
+        needs_redraw: app_session.composer.message_editor.insert_text(text),
+        stop: true,
     }
 }
 
@@ -306,5 +472,200 @@ fn handle_text_field_event(
         }
     } else {
         false
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        handle_message_dialog_clipboard_text, handle_message_dialog_key,
+        message_dialog_requests_clipboard_paste, ClipboardIngressDecision, KeyModifiers,
+        MessageDialogClipboardIngressState, MESSAGE_DIALOG_CLIPBOARD_ESCAPE_GRACE,
+    };
+    use crate::{
+        agents::AgentId,
+        app::{AppCommand, AppSessionState, ComposerCommand},
+        composer::MessageDialogFocus,
+    };
+    use bevy::{
+        ecs::entity::Entity,
+        input::{
+            keyboard::{Key, KeyboardInput},
+            ButtonState,
+        },
+        prelude::KeyCode,
+    };
+    use std::time::{Duration, Instant};
+
+    fn pressed(key_code: KeyCode, logical_key: Key, text: Option<&str>) -> KeyboardInput {
+        KeyboardInput {
+            key_code,
+            logical_key,
+            state: ButtonState::Pressed,
+            text: text.map(Into::into),
+            repeat: false,
+            window: Entity::PLACEHOLDER,
+        }
+    }
+
+    fn pressed_ctrl_v() -> KeyboardInput {
+        KeyboardInput {
+            key_code: KeyCode::KeyV,
+            logical_key: Key::Character("v".into()),
+            state: ButtonState::Pressed,
+            text: Some("v".into()),
+            repeat: false,
+            window: Entity::PLACEHOLDER,
+        }
+    }
+
+    #[test]
+    fn clipboard_ingress_state_uses_changed_clipboard_on_modifier_prelude_then_escape() {
+        let mut state = MessageDialogClipboardIngressState::default();
+        let start = Instant::now();
+        state.sync_visibility(true, Some("before"));
+
+        assert_eq!(
+            state.handle_event(
+                &pressed(KeyCode::ControlLeft, Key::Control, None),
+                Some("dictated text"),
+                start,
+            ),
+            ClipboardIngressDecision::None
+        );
+        assert_eq!(
+            state.handle_event(
+                &pressed(KeyCode::Escape, Key::Escape, Some("\u{1b}")),
+                Some("dictated text"),
+                start + Duration::from_millis(10),
+            ),
+            ClipboardIngressDecision::InsertClipboard
+        );
+        assert_eq!(
+            state.handle_event(
+                &pressed(KeyCode::Escape, Key::Escape, Some("\u{1b}")),
+                Some("dictated text"),
+                start + Duration::from_millis(20),
+            ),
+            ClipboardIngressDecision::Swallow
+        );
+    }
+
+    #[test]
+    fn clipboard_ingress_state_does_not_trigger_without_clipboard_change() {
+        let mut state = MessageDialogClipboardIngressState::default();
+        state.sync_visibility(true, Some("before"));
+
+        assert_eq!(
+            state.handle_event(
+                &pressed(KeyCode::ControlLeft, Key::Control, None),
+                Some("before"),
+                Instant::now(),
+            ),
+            ClipboardIngressDecision::None
+        );
+        assert_eq!(
+            state.handle_event(
+                &pressed(KeyCode::Escape, Key::Escape, Some("\u{1b}")),
+                Some("before"),
+                Instant::now(),
+            ),
+            ClipboardIngressDecision::None
+        );
+    }
+
+    #[test]
+    fn clipboard_ingress_state_lets_manual_escape_close_after_grace_window() {
+        let mut state = MessageDialogClipboardIngressState::default();
+        let start = Instant::now();
+        state.sync_visibility(true, Some("before"));
+
+        assert_eq!(
+            state.handle_event(
+                &pressed(KeyCode::ControlLeft, Key::Control, None),
+                Some("dictated text"),
+                start,
+            ),
+            ClipboardIngressDecision::None
+        );
+        assert_eq!(
+            state.handle_event(
+                &pressed(KeyCode::Escape, Key::Escape, Some("\u{1b}")),
+                Some("dictated text"),
+                start + Duration::from_millis(10),
+            ),
+            ClipboardIngressDecision::InsertClipboard
+        );
+        assert_eq!(
+            state.handle_event(
+                &pressed(KeyCode::Escape, Key::Escape, Some("\u{1b}")),
+                Some("dictated text"),
+                start + MESSAGE_DIALOG_CLIPBOARD_ESCAPE_GRACE + Duration::from_millis(20),
+            ),
+            ClipboardIngressDecision::None
+        );
+    }
+
+    #[test]
+    fn ctrl_v_requests_clipboard_paste() {
+        assert!(message_dialog_requests_clipboard_paste(
+            &pressed_ctrl_v(),
+            KeyModifiers {
+                ctrl: true,
+                alt: false,
+                super_key: false,
+                shift: false,
+            },
+        ));
+    }
+
+    #[test]
+    fn clipboard_text_ingress_updates_message_editor_only_when_editor_focused() {
+        let mut app_session = AppSessionState::default();
+        app_session.composer.open_message(AgentId(1));
+
+        let outcome = handle_message_dialog_clipboard_text(&mut app_session, "hello\r\nworld");
+        assert!(outcome.needs_redraw);
+        assert!(outcome.stop);
+        assert_eq!(app_session.composer.message_editor.text, "hello\nworld");
+
+        app_session.composer.message_dialog_focus = MessageDialogFocus::AppendButton;
+        let ignored = handle_message_dialog_clipboard_text(&mut app_session, "ignored");
+        assert!(!ignored.needs_redraw);
+        assert!(!ignored.stop);
+        assert_eq!(app_session.composer.message_editor.text, "hello\nworld");
+    }
+
+    #[test]
+    fn real_escape_still_cancels_message_box() {
+        let mut app_session = AppSessionState::default();
+        app_session.composer.open_message(AgentId(1));
+        let mut commands = Vec::new();
+
+        let outcome = handle_message_dialog_key(
+            &mut app_session,
+            &KeyboardInput {
+                key_code: KeyCode::Escape,
+                logical_key: Key::Escape,
+                state: ButtonState::Pressed,
+                text: Some("\u{1b}".into()),
+                repeat: false,
+                window: Entity::PLACEHOLDER,
+            },
+            KeyModifiers {
+                ctrl: false,
+                alt: false,
+                super_key: false,
+                shift: false,
+            },
+            &mut commands,
+        );
+
+        assert!(!outcome.needs_redraw);
+        assert!(outcome.stop);
+        assert_eq!(
+            commands,
+            vec![AppCommand::Composer(ComposerCommand::Cancel)]
+        );
     }
 }
