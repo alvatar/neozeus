@@ -159,32 +159,52 @@ pub(crate) fn create_agent_name_field_rect(window: &Window) -> HudRect {
 /// Returns the radio-style type option rects within the create-agent dialog.
 pub(crate) fn create_agent_kind_option_rects(
     window: &Window,
-) -> [(CreateAgentKind, HudRect, &'static str); 2] {
+) -> [(CreateAgentKind, HudRect, &'static str); 4] {
     let rect = create_agent_dialog_rect(window);
     let row_y = create_agent_row_y(rect, 1) + 5.0;
     let left_x = rect.x + CREATE_AGENT_DIALOG_INSET_X + CREATE_AGENT_DIALOG_LABEL_W;
-    let first_w = 90.0;
-    let second_x = left_x + first_w + CREATE_AGENT_DIALOG_RADIO_GAP;
+    let total_w = rect.w - (CREATE_AGENT_DIALOG_INSET_X * 2.0 + CREATE_AGENT_DIALOG_LABEL_W);
+    let option_w = (total_w - CREATE_AGENT_DIALOG_RADIO_GAP * 3.0) / 4.0;
     [
         (
-            CreateAgentKind::Agent,
+            CreateAgentKind::Pi,
             HudRect {
                 x: left_x,
                 y: row_y,
-                w: first_w,
+                w: option_w,
                 h: CREATE_AGENT_DIALOG_RADIO_SIZE,
             },
-            "Agent",
+            CreateAgentKind::Pi.label(),
         ),
         (
-            CreateAgentKind::Shell,
+            CreateAgentKind::Claude,
             HudRect {
-                x: second_x,
+                x: left_x + (option_w + CREATE_AGENT_DIALOG_RADIO_GAP),
                 y: row_y,
-                w: 90.0,
+                w: option_w,
                 h: CREATE_AGENT_DIALOG_RADIO_SIZE,
             },
-            "Shell",
+            CreateAgentKind::Claude.label(),
+        ),
+        (
+            CreateAgentKind::Codex,
+            HudRect {
+                x: left_x + (option_w + CREATE_AGENT_DIALOG_RADIO_GAP) * 2.0,
+                y: row_y,
+                w: option_w,
+                h: CREATE_AGENT_DIALOG_RADIO_SIZE,
+            },
+            CreateAgentKind::Codex.label(),
+        ),
+        (
+            CreateAgentKind::Terminal,
+            HudRect {
+                x: left_x + (option_w + CREATE_AGENT_DIALOG_RADIO_GAP) * 3.0,
+                y: row_y,
+                w: option_w,
+                h: CREATE_AGENT_DIALOG_RADIO_SIZE,
+            },
+            CreateAgentKind::Terminal.label(),
         ),
     ]
 }

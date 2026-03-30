@@ -325,7 +325,7 @@ fn global_spawn_shortcut_opens_create_agent_dialog_even_with_active_terminal() {
 
     let session = world.resource::<AppSessionState>();
     assert!(session.create_agent_dialog.visible);
-    assert_eq!(session.create_agent_dialog.kind, CreateAgentKind::Agent);
+    assert_eq!(session.create_agent_dialog.kind, CreateAgentKind::Pi);
     assert_eq!(session.create_agent_dialog.name_field.text, "");
     assert_eq!(session.create_agent_dialog.cwd_field.field.text, "~/code");
     assert_eq!(
@@ -344,7 +344,7 @@ fn create_agent_dialog_tab_advances_focus() {
     world
         .resource_mut::<AppSessionState>()
         .create_agent_dialog
-        .open(CreateAgentKind::Agent);
+        .open(CreateAgentKind::Pi);
     world.spawn((
         Window {
             focused: true,
@@ -389,7 +389,7 @@ fn create_agent_dialog_space_toggles_type() {
     world.insert_resource(AppSessionState::default());
     {
         let mut session = world.resource_mut::<AppSessionState>();
-        session.create_agent_dialog.open(CreateAgentKind::Agent);
+        session.create_agent_dialog.open(CreateAgentKind::Pi);
         session.create_agent_dialog.focus = CreateAgentDialogField::Kind;
     }
     world.spawn((
@@ -403,7 +403,7 @@ fn create_agent_dialog_space_toggles_type() {
     dispatch_message_box_key(&mut world, pressed_text(KeyCode::Space, Some(" ")));
 
     let session = world.resource::<AppSessionState>();
-    assert_eq!(session.create_agent_dialog.kind, CreateAgentKind::Shell);
+    assert_eq!(session.create_agent_dialog.kind, CreateAgentKind::Claude);
     assert_eq!(
         session.create_agent_dialog.focus,
         CreateAgentDialogField::Kind
@@ -422,7 +422,7 @@ fn create_agent_dialog_ctrl_space_cycles_cwd_completions() {
     world.insert_resource(AppSessionState::default());
     {
         let mut session = world.resource_mut::<AppSessionState>();
-        session.create_agent_dialog.open(CreateAgentKind::Agent);
+        session.create_agent_dialog.open(CreateAgentKind::Pi);
         session.create_agent_dialog.focus = CreateAgentDialogField::StartingFolder;
         session
             .create_agent_dialog
@@ -472,7 +472,7 @@ fn create_agent_dialog_enter_descends_into_selected_cwd_completion() {
     world.insert_resource(AppSessionState::default());
     {
         let mut session = world.resource_mut::<AppSessionState>();
-        session.create_agent_dialog.open(CreateAgentKind::Agent);
+        session.create_agent_dialog.open(CreateAgentKind::Pi);
         session.create_agent_dialog.focus = CreateAgentDialogField::StartingFolder;
         session
             .create_agent_dialog
@@ -523,7 +523,7 @@ fn create_agent_dialog_escape_closes_without_spawning() {
     world
         .resource_mut::<AppSessionState>()
         .create_agent_dialog
-        .open(CreateAgentKind::Agent);
+        .open(CreateAgentKind::Pi);
     world.spawn((
         Window {
             focused: true,
@@ -550,7 +550,7 @@ fn create_agent_dialog_submit_emits_create_command() {
     world.insert_resource(AppSessionState::default());
     {
         let mut session = world.resource_mut::<AppSessionState>();
-        session.create_agent_dialog.open(CreateAgentKind::Shell);
+        session.create_agent_dialog.open(CreateAgentKind::Terminal);
         session.create_agent_dialog.name_field.load_text("oracle");
         session.create_agent_dialog.cwd_field.load_text("~/code");
         session.create_agent_dialog.focus = CreateAgentDialogField::CreateButton;
@@ -578,7 +578,7 @@ fn create_agent_dialog_submit_emits_create_command() {
         drain_hud_commands(&mut world),
         vec![AppCommand::Agent(AppAgentCommand::Create {
             label: Some("oracle".into()),
-            spawn_shell_only: true,
+            kind: crate::agents::AgentKind::Terminal,
             working_directory: "~/code".into(),
         })]
     );

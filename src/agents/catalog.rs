@@ -6,6 +6,9 @@ pub(crate) struct AgentId(pub(crate) u64);
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) enum AgentKind {
+    Pi,
+    Claude,
+    Codex,
     #[default]
     Terminal,
     Verifier,
@@ -32,6 +35,26 @@ impl AgentCapabilities {
             can_message: false,
             has_tasks: false,
             shell_spawnable: false,
+        }
+    }
+}
+
+impl AgentKind {
+    pub(crate) const fn capabilities(self) -> AgentCapabilities {
+        match self {
+            Self::Pi | Self::Claude | Self::Codex | Self::Terminal => {
+                AgentCapabilities::terminal_defaults()
+            }
+            Self::Verifier => AgentCapabilities::verifier_defaults(),
+        }
+    }
+
+    pub(crate) const fn bootstrap_command(self) -> Option<&'static str> {
+        match self {
+            Self::Pi => Some("pi"),
+            Self::Claude => Some("claude"),
+            Self::Codex => Some("codex"),
+            Self::Terminal | Self::Verifier => None,
         }
     }
 }

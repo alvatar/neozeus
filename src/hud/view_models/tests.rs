@@ -106,13 +106,16 @@ fn sync_hud_view_models_carries_agent_working_status_into_rows() {
     let mut catalog = AgentCatalog::default();
     let agent_id = catalog.create_agent(
         Some("alpha".into()),
-        crate::agents::AgentKind::Terminal,
-        crate::agents::AgentCapabilities::terminal_defaults(),
+        crate::agents::AgentKind::Pi,
+        crate::agents::AgentKind::Pi.capabilities(),
     );
     let mut runtime_index = AgentRuntimeIndex::default();
     runtime_index.link_terminal(agent_id, terminal_id, "session-1".into(), None);
 
     let mut world = World::default();
+    let mut time = Time::<()>::default();
+    time.advance_by(std::time::Duration::from_secs(1));
+    world.insert_resource(time);
     world.insert_resource(catalog);
     world.insert_resource(runtime_index);
     world.insert_resource(AppSessionState::default());

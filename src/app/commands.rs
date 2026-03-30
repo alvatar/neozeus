@@ -1,4 +1,8 @@
-use crate::{agents::AgentId, composer::ComposerMode, hud::HudWidgetKey};
+use crate::{
+    agents::{AgentId, AgentKind},
+    composer::ComposerMode,
+    hud::HudWidgetKey,
+};
 use bevy::prelude::Message;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -18,7 +22,7 @@ pub(crate) enum AppCommand {
 pub(crate) enum AgentCommand {
     Create {
         label: Option<String>,
-        spawn_shell_only: bool,
+        kind: AgentKind,
         working_directory: String,
     },
     Focus(AgentId),

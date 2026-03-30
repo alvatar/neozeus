@@ -2,7 +2,8 @@ use crate::{
     agents::{AgentCatalog, AgentRuntimeIndex},
     shared::{
         app_state_file::{
-            parse_persisted_app_state, PersistedAgentState, PersistedAppState, APP_STATE_VERSION_V1,
+            parse_persisted_app_state, PersistedAgentKind, PersistedAgentState, PersistedAppState,
+            APP_STATE_VERSION_V1,
         },
         text_escape::{quote_escaped_string, EXTENDED_QUOTED_STRING_ESCAPES},
     },
@@ -39,6 +40,13 @@ pub(crate) fn serialize_persisted_app_state(state: &PersistedAppState) -> String
                 quote_escaped_string(&label, EXTENDED_QUOTED_STRING_ESCAPES)
             ));
         }
+        output.push_str(&format!(
+            "kind={}\n",
+            quote_escaped_string(
+                record.kind.persistence_key(),
+                EXTENDED_QUOTED_STRING_ESCAPES
+            )
+        ));
         output.push_str(&format!("order_index={}\n", record.order_index));
         output.push_str(&format!("focused={}\n", u8::from(record.last_focused)));
         output.push_str("[/agent]\n");
@@ -70,6 +78,7 @@ fn map_legacy_sessions_to_app_state(
             .map(|record| PersistedAgentState {
                 session_name: record.session_name.clone(),
                 label: record.label.clone(),
+                kind: PersistedAgentKind::Pi,
                 order_index: record.creation_index,
                 last_focused: record.last_focused,
             })
@@ -134,6 +143,16 @@ fn build_persisted_app_state(
             Some(PersistedAgentState {
                 session_name: session_name.to_owned(),
                 label: agent_catalog.label(*agent_id).map(str::to_owned),
+                kind: match agent_catalog
+                    .kind(*agent_id)
+                    .unwrap_or(crate::agents::AgentKind::Pi)
+                {
+                    crate::agents::AgentKind::Pi => PersistedAgentKind::Pi,
+                    crate::agents::AgentKind::Claude => PersistedAgentKind::Claude,
+                    crate::agents::AgentKind::Codex => PersistedAgentKind::Codex,
+                    crate::agents::AgentKind::Terminal => PersistedAgentKind::Terminal,
+                    crate::agents::AgentKind::Verifier => PersistedAgentKind::Verifier,
+                },
                 order_index: index as u64,
                 last_focused: terminal_id
                     .is_some_and(|terminal_id| focus_state.active_id() == Some(terminal_id)),
@@ -230,6 +249,7 @@ pub(crate) fn reconcile_persisted_agents(
             let record = PersistedAgentState {
                 session_name,
                 label: None,
+                kind: PersistedAgentKind::Pi,
                 order_index: next_order_index,
                 last_focused: false,
             };

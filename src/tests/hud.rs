@@ -754,7 +754,7 @@ fn create_agent_dialog_pointer_click_persists_focus_cleanup_and_redraw() {
 
     {
         let mut session = world.resource_mut::<AppSessionState>();
-        session.create_agent_dialog.open(AppCreateAgentKind::Agent);
+        session.create_agent_dialog.open(AppCreateAgentKind::Pi);
         session.create_agent_dialog.focus = CreateAgentDialogField::Kind;
         session.create_agent_dialog.error = Some("stale error".into());
         session.create_agent_dialog.cwd_field.field.load_text("s");
@@ -1180,12 +1180,12 @@ fn create_agent_rejects_duplicate_name_without_creating_session() {
     world
         .resource_mut::<AppSessionState>()
         .create_agent_dialog
-        .open(crate::app::CreateAgentKind::Agent);
+        .open(crate::app::CreateAgentKind::Pi);
     world
         .resource_mut::<Messages<AppCommand>>()
         .write(AppCommand::Agent(AppAgentCommand::Create {
             label: Some("oracle".into()),
-            spawn_shell_only: false,
+            kind: crate::agents::AgentKind::Pi,
             working_directory: "~/code".into(),
         }));
 
@@ -1209,10 +1209,58 @@ fn create_agent_rejects_duplicate_name_without_creating_session() {
     assert!(client.created_sessions.lock().unwrap().is_empty());
 }
 
-/// Verifies that creating a shell agent creates a session without injecting any bootstrap command
-/// payload.
+/// Verifies that creating agent sessions bootstraps the selected CLI command.
 #[test]
-fn create_shell_agent_request_does_not_send_pi_command() {
+fn create_agent_request_bootstraps_selected_cli_command() {
+    let client = Arc::new(FakeDaemonClient::default());
+    let mut world = World::default();
+    let mut time = Time::<()>::default();
+    time.advance_by(Duration::from_secs(1));
+    world.insert_resource(time);
+    world.insert_resource(Assets::<Image>::default());
+    insert_terminal_manager_resources(&mut world, TerminalManager::default());
+    insert_default_hud_resources(&mut world);
+    world.insert_resource(TerminalPresentationStore::default());
+    world.insert_resource(AgentListView::default());
+    world.insert_resource(fake_runtime_spawner(client.clone()));
+    world.insert_resource(AppStatePersistenceState::default());
+    world.insert_resource(TerminalVisibilityState::default());
+    world.insert_resource(TerminalViewState::default());
+    world.init_resource::<Messages<AppCommand>>();
+    world.init_resource::<Messages<RequestRedraw>>();
+
+    for (label, kind) in [
+        ("pi-agent", crate::agents::AgentKind::Pi),
+        ("claude-agent", crate::agents::AgentKind::Claude),
+        ("codex-agent", crate::agents::AgentKind::Codex),
+    ] {
+        world
+            .resource_mut::<Messages<AppCommand>>()
+            .write(AppCommand::Agent(AppAgentCommand::Create {
+                label: Some(label.into()),
+                kind,
+                working_directory: "~/code".into(),
+            }));
+    }
+
+    run_app_commands(&mut world);
+
+    let commands = client.sent_commands.lock().unwrap().clone();
+    assert_eq!(commands.len(), 3);
+    assert!(commands.iter().any(|(_, command)| {
+        matches!(command, crate::terminals::TerminalCommand::SendCommand(value) if value == "pi")
+    }));
+    assert!(commands.iter().any(|(_, command)| {
+        matches!(command, crate::terminals::TerminalCommand::SendCommand(value) if value == "claude")
+    }));
+    assert!(commands.iter().any(|(_, command)| {
+        matches!(command, crate::terminals::TerminalCommand::SendCommand(value) if value == "codex")
+    }));
+}
+
+/// Verifies that creating a terminal session does not inject any agent bootstrap command payload.
+#[test]
+fn create_terminal_agent_request_does_not_send_bootstrap_command() {
     // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let client = Arc::new(FakeDaemonClient::default());
     let mut world = World::default();
@@ -1225,7 +1273,7 @@ fn create_shell_agent_request_does_not_send_pi_command() {
     world
         .resource_mut::<AppSessionState>()
         .create_agent_dialog
-        .open(crate::app::CreateAgentKind::Shell);
+        .open(crate::app::CreateAgentKind::Terminal);
     world.insert_resource(TerminalPresentationStore::default());
     world.insert_resource(AgentListView::default());
     world.insert_resource(fake_runtime_spawner(client.clone()));
@@ -1239,7 +1287,7 @@ fn create_shell_agent_request_does_not_send_pi_command() {
         .resource_mut::<Messages<AppCommand>>()
         .write(AppCommand::Agent(AppAgentCommand::Create {
             label: Some("shell".into()),
-            spawn_shell_only: true,
+            kind: crate::agents::AgentKind::Terminal,
             working_directory: "~/code".into(),
         }));
 

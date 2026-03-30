@@ -26,10 +26,10 @@ fn create_agent_dialog_open_resets_defaults() {
     dialog.cwd_field.load_text("/tmp");
     dialog.error = Some("old error".into());
 
-    dialog.open(CreateAgentKind::Shell);
+    dialog.open(CreateAgentKind::Terminal);
 
     assert!(dialog.visible);
-    assert_eq!(dialog.kind, CreateAgentKind::Shell);
+    assert_eq!(dialog.kind, CreateAgentKind::Terminal);
     assert_eq!(dialog.focus, CreateAgentDialogField::Name);
     assert_eq!(dialog.name_field.text, "");
     assert_eq!(dialog.cwd_field.field.text, "~/code");
@@ -40,7 +40,7 @@ fn create_agent_dialog_open_resets_defaults() {
 #[test]
 fn create_agent_dialog_cycles_focus_forward_and_backward() {
     let mut dialog = CreateAgentDialogState::default();
-    dialog.open(CreateAgentKind::Agent);
+    dialog.open(CreateAgentKind::Pi);
 
     dialog.cycle_focus(false);
     assert_eq!(dialog.focus, CreateAgentDialogField::Kind);
@@ -60,7 +60,7 @@ fn create_agent_dialog_cycles_focus_forward_and_backward() {
 fn create_agent_dialog_counts_as_keyboard_capture() {
     let mut session = AppSessionState::default();
     assert!(!session.keyboard_capture_active(&HudInputCaptureState::default()));
-    session.create_agent_dialog.open(CreateAgentKind::Agent);
+    session.create_agent_dialog.open(CreateAgentKind::Pi);
     assert!(session.keyboard_capture_active(&HudInputCaptureState::default()));
 }
 
@@ -100,7 +100,7 @@ fn text_field_word_motion_uses_whitespace_boundaries() {
 #[test]
 fn cwd_field_mutate_text_clears_completion_state() {
     let mut dialog = CreateAgentDialogState::default();
-    dialog.open(CreateAgentKind::Agent);
+    dialog.open(CreateAgentKind::Pi);
     assert!(dialog.cwd_field.start_or_cycle_completion(false));
     assert!(dialog.cwd_field.completion.is_some());
 
