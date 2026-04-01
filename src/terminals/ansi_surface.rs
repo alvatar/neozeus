@@ -1,5 +1,6 @@
 use super::types::{
-    TerminalCell, TerminalCellContent, TerminalCursor, TerminalCursorShape, TerminalSurface,
+    TerminalCell, TerminalCellContent, TerminalCellStyle, TerminalCursor, TerminalCursorShape,
+    TerminalSurface, TerminalUnderlineStyle,
 };
 use alacritty_terminal::{
     event::VoidListener,
@@ -17,12 +18,12 @@ use bevy_egui::egui;
 /// raster path can reason about wide characters without depending on Alacritty types.
 pub(crate) fn build_surface(term: &Term<VoidListener>) -> TerminalSurface {
     // Process the input incrementally so each transformation stays local and malformed data fails at the narrowest point.
-    let content = term.renderable_content();
+    let renderable = term.renderable_content();
     let cols = term.columns();
     let rows = term.screen_lines();
     let mut surface = TerminalSurface::new(cols, rows);
 
-    for indexed in content.display_iter {
+    for indexed in renderable.display_iter {
         let x = indexed.point.column.0;
         let y_i32 = indexed.point.line.0;
         if y_i32 < 0 {
@@ -33,8 +34,8 @@ pub(crate) fn build_surface(term: &Term<VoidListener>) -> TerminalSurface {
             continue;
         }
 
-        let mut fg = resolve_alacritty_color(indexed.cell.fg, content.colors, true);
-        let mut bg = resolve_alacritty_color(indexed.cell.bg, content.colors, false);
+        let mut fg = resolve_alacritty_color(indexed.cell.fg, renderable.colors, true);
+        let mut bg = resolve_alacritty_color(indexed.cell.bg, renderable.colors, false);
         if indexed.cell.flags.contains(Flags::INVERSE) {
             std::mem::swap(&mut fg, &mut bg);
         }
@@ -67,17 +68,26 @@ pub(crate) fn build_surface(term: &Term<VoidListener>) -> TerminalSurface {
                 content,
                 fg,
                 bg,
+                style: terminal_cell_style(
+                    indexed.cell.flags,
+                    indexed.cell.underline_color(),
+                    renderable.colors,
+                ),
                 width,
             },
         );
     }
 
     surface.cursor = Some(TerminalCursor {
-        x: content.cursor.point.column.0.min(cols.saturating_sub(1)),
-        y: content.cursor.point.line.0.max(0) as usize,
-        shape: map_cursor_shape(content.cursor.shape),
-        visible: content.cursor.shape != CursorShape::Hidden,
-        color: resolve_alacritty_color(AnsiColor::Named(NamedColor::Cursor), content.colors, true),
+        x: renderable.cursor.point.column.0.min(cols.saturating_sub(1)),
+        y: renderable.cursor.point.line.0.max(0) as usize,
+        shape: map_cursor_shape(renderable.cursor.shape),
+        visible: renderable.cursor.shape != CursorShape::Hidden,
+        color: resolve_alacritty_color(
+            AnsiColor::Named(NamedColor::Cursor),
+            renderable.colors,
+            true,
+        ),
     });
     surface
 }
@@ -93,6 +103,39 @@ fn map_cursor_shape(shape: CursorShape) -> TerminalCursorShape {
         CursorShape::Block | CursorShape::HollowBlock | CursorShape::Hidden => {
             TerminalCursorShape::Block
         }
+    }
+}
+
+/// Converts Alacritty style flags plus optional underline color into NeoZeus cell styling metadata.
+fn terminal_cell_style(
+    flags: Flags,
+    underline_color: Option<AnsiColor>,
+    colors: &Colors,
+) -> TerminalCellStyle {
+    TerminalCellStyle {
+        bold: flags.intersects(Flags::BOLD | Flags::BOLD_ITALIC | Flags::DIM_BOLD),
+        italic: flags.intersects(Flags::ITALIC | Flags::BOLD_ITALIC),
+        dim: flags.intersects(Flags::DIM | Flags::DIM_BOLD),
+        underline: terminal_underline_style(flags),
+        strikeout: flags.contains(Flags::STRIKEOUT),
+        underline_color: underline_color.map(|color| resolve_alacritty_color(color, colors, true)),
+    }
+}
+
+/// Maps Alacritty's underline-variant flags to NeoZeus's underline-style enum.
+fn terminal_underline_style(flags: Flags) -> TerminalUnderlineStyle {
+    if flags.contains(Flags::UNDERCURL) {
+        TerminalUnderlineStyle::Curly
+    } else if flags.contains(Flags::DOTTED_UNDERLINE) {
+        TerminalUnderlineStyle::Dotted
+    } else if flags.contains(Flags::DASHED_UNDERLINE) {
+        TerminalUnderlineStyle::Dashed
+    } else if flags.contains(Flags::DOUBLE_UNDERLINE) {
+        TerminalUnderlineStyle::Double
+    } else if flags.contains(Flags::UNDERLINE) {
+        TerminalUnderlineStyle::Single
+    } else {
+        TerminalUnderlineStyle::None
     }
 }
 
@@ -325,3 +368,6 @@ pub(crate) fn xterm_indexed_rgb(index: u8) -> Rgb {
         b: grey,
     }
 }
+
+#[cfg(test)]
+mod tests;

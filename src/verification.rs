@@ -140,6 +140,7 @@ fn seeded_inspect_surface(label: &str, accent: egui::Color32) -> TerminalSurface
                         content: TerminalCellContent::Single(ch),
                         fg: egui::Color32::WHITE,
                         bg: accent,
+                        style: Default::default(),
                         width: 1,
                     },
                 );

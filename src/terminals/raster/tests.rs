@@ -9,6 +9,7 @@ use crate::{
 };
 use bevy::{ecs::system::RunSystemOnce, prelude::*, window::PrimaryWindow};
 use bevy_egui::egui;
+use cosmic_text::{Style as CtStyle, Weight as CtWeight};
 use std::{
     fs,
     path::Path,
@@ -30,8 +31,8 @@ use super::super::{
     },
     registry::TerminalManager,
     types::{
-        TerminalCell, TerminalCellContent, TerminalDamage, TerminalDimensions, TerminalFontReport,
-        TerminalSurface,
+        TerminalCell, TerminalCellContent, TerminalCellStyle, TerminalDamage, TerminalDimensions,
+        TerminalFontReport, TerminalSurface, TerminalUnderlineStyle,
     },
 };
 
@@ -128,6 +129,7 @@ fn set_colored_text(
                 content: TerminalCellContent::Single(ch),
                 fg,
                 bg: DEFAULT_BG,
+                style: Default::default(),
                 width: 1,
             },
         );
@@ -322,6 +324,77 @@ fn count_non_background_pixels_in_band(image: &Image, y_start: u32, y_end: u32) 
         }
     }
     count
+}
+
+/// Verifies combined bold+italic styling keeps both font attributes instead of silently dropping italics.
+#[test]
+fn terminal_text_attrs_preserve_bold_and_italic_together() {
+    let font_state = TerminalFontState::default();
+    let attrs = terminal_text_attrs(TerminalFontRole::Primary, true, true, &font_state);
+
+    assert_eq!(attrs.weight, CtWeight::BOLD);
+    assert_eq!(attrs.style, CtStyle::Italic);
+}
+
+/// Counts non-background pixels inside a rectangular cell-aligned crop.
+fn count_non_background_pixels_in_rect(
+    image: &Image,
+    x_start: u32,
+    y_start: u32,
+    width: u32,
+    height: u32,
+) -> usize {
+    let size = image.texture_descriptor.size;
+    let data = image.data.as_ref().expect("image data should exist");
+    let mut count = 0;
+    for y in y_start..(y_start + height).min(size.height) {
+        for x in x_start..(x_start + width).min(size.width) {
+            let idx = ((y * size.width + x) * 4) as usize;
+            let pixel = &data[idx..idx + 4];
+            if pixel
+                != [
+                    DEFAULT_BG.r(),
+                    DEFAULT_BG.g(),
+                    DEFAULT_BG.b(),
+                    DEFAULT_BG.a(),
+                ]
+            {
+                count += 1;
+            }
+        }
+    }
+    count
+}
+
+/// Sums visible ink intensity inside a rectangular crop while ignoring untouched background pixels.
+fn summed_non_background_rgb(
+    image: &Image,
+    x_start: u32,
+    y_start: u32,
+    width: u32,
+    height: u32,
+) -> u64 {
+    let size = image.texture_descriptor.size;
+    let data = image.data.as_ref().expect("image data should exist");
+    let mut total = 0u64;
+    for y in y_start..(y_start + height).min(size.height) {
+        for x in x_start..(x_start + width).min(size.width) {
+            let idx = ((y * size.width + x) * 4) as usize;
+            let pixel = &data[idx..idx + 4];
+            if pixel
+                == [
+                    DEFAULT_BG.r(),
+                    DEFAULT_BG.g(),
+                    DEFAULT_BG.b(),
+                    DEFAULT_BG.a(),
+                ]
+            {
+                continue;
+            }
+            total += u64::from(pixel[0]) + u64::from(pixel[1]) + u64::from(pixel[2]);
+        }
+    }
+    total
 }
 
 /// Reads a binary `P6` PPM image from disk.
@@ -625,6 +698,130 @@ fn sync_terminal_texture_promotes_active_terminal_once_resized_surface_arrives()
     assert_eq!(presented.texture_state, active_texture_state);
     assert_eq!(presented.desired_texture_state, active_texture_state);
     assert_eq!(presented.uploaded_revision, 2);
+}
+
+/// Verifies underline decoration paints visible pixels even when the cell carries only styling.
+#[test]
+fn sync_terminal_texture_draws_underline_for_styled_blank_cell() {
+    let mut surface = TerminalSurface::new(2, 1);
+    surface.set_cell(
+        0,
+        0,
+        TerminalCell {
+            content: TerminalCellContent::Empty,
+            fg: egui::Color32::from_rgb(170, 220, 200),
+            bg: DEFAULT_BG,
+            style: TerminalCellStyle {
+                underline: TerminalUnderlineStyle::Single,
+                underline_color: Some(egui::Color32::from_rgb(32, 180, 140)),
+                ..Default::default()
+            },
+            width: 1,
+        },
+    );
+
+    let (image, texture_state) = render_surface_to_terminal_image(surface);
+    let underline_band_y = texture_state
+        .cell_size
+        .y
+        .saturating_sub((texture_state.cell_size.y / 4).max(1));
+    let underline_pixels = count_non_background_pixels_in_rect(
+        &image,
+        0,
+        underline_band_y,
+        texture_state.cell_size.x,
+        (texture_state.cell_size.y / 4).max(1),
+    );
+    assert!(
+        underline_pixels > 0,
+        "styled blank cell should paint underline pixels"
+    );
+}
+
+/// Verifies strikeout decoration paints visible pixels even when the cell carries only styling.
+#[test]
+fn sync_terminal_texture_draws_strikeout_for_styled_blank_cell() {
+    let mut surface = TerminalSurface::new(2, 1);
+    surface.set_cell(
+        0,
+        0,
+        TerminalCell {
+            content: TerminalCellContent::Empty,
+            fg: egui::Color32::from_rgb(210, 210, 210),
+            bg: DEFAULT_BG,
+            style: TerminalCellStyle {
+                strikeout: true,
+                ..Default::default()
+            },
+            width: 1,
+        },
+    );
+
+    let (image, texture_state) = render_surface_to_terminal_image(surface);
+    let strike_y = texture_state.cell_size.y / 2;
+    let strike_pixels = count_non_background_pixels_in_rect(
+        &image,
+        0,
+        strike_y.saturating_sub(1),
+        texture_state.cell_size.x,
+        3,
+    );
+    assert!(
+        strike_pixels > 0,
+        "styled blank cell should paint strikeout pixels"
+    );
+}
+
+/// Verifies dim styling darkens the visible glyph output compared with the same un-dimmed glyph.
+#[test]
+fn sync_terminal_texture_dims_foreground_ink() {
+    let mut surface = TerminalSurface::new(2, 1);
+    let fg = egui::Color32::from_rgb(220, 220, 220);
+    surface.set_cell(
+        0,
+        0,
+        TerminalCell {
+            content: TerminalCellContent::Single('A'),
+            fg,
+            bg: DEFAULT_BG,
+            style: TerminalCellStyle::default(),
+            width: 1,
+        },
+    );
+    surface.set_cell(
+        1,
+        0,
+        TerminalCell {
+            content: TerminalCellContent::Single('A'),
+            fg,
+            bg: DEFAULT_BG,
+            style: TerminalCellStyle {
+                dim: true,
+                ..Default::default()
+            },
+            width: 1,
+        },
+    );
+
+    let (image, texture_state) = render_surface_to_terminal_image(surface);
+    let normal_sum = summed_non_background_rgb(
+        &image,
+        0,
+        0,
+        texture_state.cell_size.x,
+        texture_state.cell_size.y,
+    );
+    let dim_sum = summed_non_background_rgb(
+        &image,
+        texture_state.cell_size.x,
+        0,
+        texture_state.cell_size.x,
+        texture_state.cell_size.y,
+    );
+    assert!(
+        dim_sum < normal_sum,
+        "dim glyph should emit less visible ink than regular glyph"
+    );
 }
 
 /// Verifies every non-empty character cell in the provided `pi` screenshot crop exactly.

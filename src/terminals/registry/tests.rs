@@ -37,6 +37,7 @@ fn surface_with_text(rows: usize, cols: usize, y: usize, text: &str) -> Terminal
                 content: TerminalCellContent::Single(ch),
                 fg: bevy_egui::egui::Color32::from_rgb(220, 220, 220),
                 bg: crate::app_config::DEFAULT_BG,
+                style: Default::default(),
                 width: 1,
             },
         );

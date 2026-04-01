@@ -13,8 +13,8 @@ use super::{
     },
     registry::{TerminalFocusState, TerminalManager},
     types::{
-        TerminalCellContent, TerminalCursor, TerminalCursorShape, TerminalDamage,
-        TerminalDimensions, TerminalSurface,
+        TerminalCell, TerminalCellContent, TerminalCursor, TerminalCursorShape, TerminalDamage,
+        TerminalDimensions, TerminalSurface, TerminalUnderlineStyle,
     },
 };
 use bevy::{
@@ -27,7 +27,7 @@ use bevy::{
 use bevy_egui::egui;
 use cosmic_text::{
     Attrs as CtAttrs, Buffer as CtBuffer, Color as CtColor, Family as CtFamily,
-    Shaping as CtShaping,
+    Shaping as CtShaping, Style as CtStyle, Weight as CtWeight,
 };
 use std::{env, fs, path::Path};
 
@@ -42,6 +42,8 @@ pub(crate) enum TerminalFontRole {
 pub(crate) struct TerminalGlyphCacheKey {
     pub(crate) content: super::types::TerminalCellContent,
     pub(crate) font_role: TerminalFontRole,
+    pub(crate) bold: bool,
+    pub(crate) italic: bool,
     pub(crate) width_cells: u8,
     pub(crate) cell_width: u32,
     pub(crate) cell_height: u32,
@@ -313,7 +315,10 @@ pub(crate) fn sync_terminal_texture(
                 .note_compose(dirty_rows.len(), compose_elapsed.as_micros() as u64);
 
             if env::var_os("NEOZEUS_DUMP_TEXTURE").is_some() {
-                let _ = dump_terminal_image_ppm(target_image, Path::new(DEBUG_TEXTURE_DUMP_PATH));
+                let dump_path = env::var_os("NEOZEUS_DUMP_TEXTURE_PATH")
+                    .map(std::path::PathBuf::from)
+                    .unwrap_or_else(|| std::path::PathBuf::from(DEBUG_TEXTURE_DUMP_PATH));
+                let _ = dump_terminal_image_ppm(target_image, dump_path.as_path());
             }
 
             presented_terminal.texture_state = upload_state;
@@ -367,6 +372,7 @@ fn repaint_terminal_pixels(
             let cell = surface.cell(x, y);
             let origin_x = x as u32 * cell_size.x;
             let origin_y = y as u32 * cell_size.y;
+            let effective_fg = effective_foreground_color(cell);
             fill_rect_in_buffer(
                 buffer,
                 stride,
@@ -374,38 +380,59 @@ fn repaint_terminal_pixels(
                 origin_y,
                 cell_size.x,
                 cell_size.y,
-                cell.bg,
+                effective_background_color(cell),
             );
 
-            if cell.width == 0 || cell.content.is_empty() {
-                continue;
+            if cell.width != 0 && !cell.content.is_empty() {
+                let (font_role, preserve_color) =
+                    select_terminal_font_role(&cell.content, font_state);
+                let cache_key = TerminalGlyphCacheKey {
+                    content: cell.content.clone(),
+                    font_role,
+                    bold: cell.style.bold,
+                    italic: cell.style.italic,
+                    width_cells: cell.width,
+                    cell_width: cell_size.x,
+                    cell_height: cell_size.y,
+                };
+
+                if !glyph_cache.glyphs.contains_key(&cache_key) {
+                    let glyph =
+                        try_rasterize_box_drawing(&cell.content, cell_size).unwrap_or_else(|| {
+                            rasterize_terminal_glyph(
+                                &cache_key,
+                                font_role,
+                                preserve_color,
+                                text_renderer,
+                                font_state,
+                            )
+                        });
+                    glyph_cache.glyphs.insert(cache_key.clone(), glyph);
+                }
+
+                if let Some(glyph) = glyph_cache.glyphs.get(&cache_key) {
+                    blit_cached_glyph_in_buffer(
+                        buffer,
+                        stride,
+                        origin_x,
+                        origin_y,
+                        glyph,
+                        effective_fg,
+                        1.0,
+                    );
+                }
             }
 
-            let (font_role, preserve_color) = select_terminal_font_role(&cell.content, font_state);
-            let cache_key = TerminalGlyphCacheKey {
-                content: cell.content.clone(),
-                font_role,
-                width_cells: cell.width,
-                cell_width: cell_size.x,
-                cell_height: cell_size.y,
-            };
-
-            if !glyph_cache.glyphs.contains_key(&cache_key) {
-                let glyph =
-                    try_rasterize_box_drawing(&cell.content, cell_size).unwrap_or_else(|| {
-                        rasterize_terminal_glyph(
-                            &cache_key,
-                            font_role,
-                            preserve_color,
-                            text_renderer,
-                            font_state,
-                        )
-                    });
-                glyph_cache.glyphs.insert(cache_key.clone(), glyph);
-            }
-
-            if let Some(glyph) = glyph_cache.glyphs.get(&cache_key) {
-                blit_cached_glyph_in_buffer(buffer, stride, origin_x, origin_y, glyph, cell.fg);
+            if cell.width != 0 {
+                paint_cell_decorations(
+                    buffer,
+                    stride,
+                    origin_x,
+                    origin_y,
+                    cell_size,
+                    cell,
+                    effective_fg,
+                );
             }
         }
     }
@@ -415,6 +442,190 @@ fn repaint_terminal_pixels(
             draw_cursor_in_buffer(buffer, stride, cursor, cell_size);
         }
     }
+}
+
+fn effective_foreground_color(cell: &TerminalCell) -> egui::Color32 {
+    apply_dim_to_color(cell.fg, cell.bg, cell.style.dim)
+}
+
+fn effective_background_color(cell: &TerminalCell) -> egui::Color32 {
+    cell.bg
+}
+
+fn effective_underline_color(cell: &TerminalCell) -> egui::Color32 {
+    apply_dim_to_color(
+        cell.style.underline_color.unwrap_or(cell.fg),
+        cell.bg,
+        cell.style.dim,
+    )
+}
+
+fn apply_dim_to_color(color: egui::Color32, background: egui::Color32, dim: bool) -> egui::Color32 {
+    if dim {
+        blend_color_toward_background(color, background, 10, 11)
+    } else {
+        color
+    }
+}
+
+fn blend_color_toward_background(
+    color: egui::Color32,
+    background: egui::Color32,
+    color_weight: u16,
+    total_weight: u16,
+) -> egui::Color32 {
+    let bg_weight = total_weight.saturating_sub(color_weight);
+    let blend_channel = |fg: u8, bg: u8| -> u8 {
+        (((u16::from(fg) * color_weight) + (u16::from(bg) * bg_weight)) / total_weight) as u8
+    };
+    egui::Color32::from_rgba_unmultiplied(
+        blend_channel(color.r(), background.r()),
+        blend_channel(color.g(), background.g()),
+        blend_channel(color.b(), background.b()),
+        color.a(),
+    )
+}
+
+fn paint_cell_decorations(
+    buffer: &mut [u8],
+    stride: usize,
+    origin_x: u32,
+    origin_y: u32,
+    cell_size: UVec2,
+    cell: &TerminalCell,
+    effective_fg: egui::Color32,
+) {
+    let width = cell_size.x * u32::from(cell.width.max(1));
+    if width == 0 {
+        return;
+    }
+
+    draw_underline_in_buffer(
+        buffer,
+        stride,
+        origin_x,
+        origin_y,
+        width,
+        cell_size.y,
+        cell.style.underline,
+        effective_underline_color(cell),
+    );
+
+    if cell.style.strikeout {
+        draw_strikeout_in_buffer(
+            buffer,
+            stride,
+            origin_x,
+            origin_y,
+            width,
+            cell_size.y,
+            effective_fg,
+        );
+    }
+}
+
+#[allow(
+    clippy::too_many_arguments,
+    reason = "underline painting needs buffer geometry plus per-cell style inputs together"
+)]
+fn draw_underline_in_buffer(
+    buffer: &mut [u8],
+    stride: usize,
+    origin_x: u32,
+    origin_y: u32,
+    width: u32,
+    cell_height: u32,
+    underline: TerminalUnderlineStyle,
+    color: egui::Color32,
+) {
+    if underline == TerminalUnderlineStyle::None {
+        return;
+    }
+
+    let thickness = (cell_height / 16).max(1);
+    let baseline_y =
+        origin_y + cell_height.saturating_sub((cell_height / 9).max(1).saturating_add(thickness));
+    match underline {
+        TerminalUnderlineStyle::None => {}
+        TerminalUnderlineStyle::Single => {
+            fill_rect_in_buffer(
+                buffer, stride, origin_x, baseline_y, width, thickness, color,
+            );
+        }
+        TerminalUnderlineStyle::Double => {
+            let gap = thickness.max(1);
+            fill_rect_in_buffer(
+                buffer, stride, origin_x, baseline_y, width, thickness, color,
+            );
+            fill_rect_in_buffer(
+                buffer,
+                stride,
+                origin_x,
+                baseline_y.saturating_sub(gap + thickness),
+                width,
+                thickness,
+                color,
+            );
+        }
+        TerminalUnderlineStyle::Curly => {
+            let period = (thickness * 4).max(4);
+            let crest_y = baseline_y.saturating_sub(thickness.max(1));
+            for dx in 0..width {
+                let phase = (dx % period) * 4 / period;
+                let wave_y = if phase == 1 || phase == 2 {
+                    crest_y
+                } else {
+                    baseline_y
+                };
+                fill_rect_in_buffer(buffer, stride, origin_x + dx, wave_y, 1, thickness, color);
+            }
+        }
+        TerminalUnderlineStyle::Dotted => {
+            let dot = thickness.max(1);
+            let step = (dot * 2).max(2) as usize;
+            for dx in (0..width).step_by(step) {
+                fill_rect_in_buffer(
+                    buffer,
+                    stride,
+                    origin_x + dx,
+                    baseline_y,
+                    dot,
+                    thickness,
+                    color,
+                );
+            }
+        }
+        TerminalUnderlineStyle::Dashed => {
+            let dash = (thickness * 4).max(3);
+            let gap = (thickness * 2).max(2);
+            let step = (dash + gap) as usize;
+            for dx in (0..width).step_by(step) {
+                fill_rect_in_buffer(
+                    buffer,
+                    stride,
+                    origin_x + dx,
+                    baseline_y,
+                    dash.min(width - dx),
+                    thickness,
+                    color,
+                );
+            }
+        }
+    }
+}
+
+fn draw_strikeout_in_buffer(
+    buffer: &mut [u8],
+    stride: usize,
+    origin_x: u32,
+    origin_y: u32,
+    width: u32,
+    cell_height: u32,
+    color: egui::Color32,
+) {
+    let thickness = (cell_height / 16).max(1);
+    let strike_y = origin_y + (cell_height / 2).saturating_sub(thickness / 2);
+    fill_rect_in_buffer(buffer, stride, origin_x, strike_y, width, thickness, color);
 }
 
 /// Attempts to rasterize a box-drawing glyph without going through font shaping.
@@ -452,6 +663,8 @@ fn select_terminal_font_role(
 /// Handles text attrs.
 fn terminal_text_attrs<'a>(
     font_role: TerminalFontRole,
+    bold: bool,
+    italic: bool,
     font_state: &'a TerminalFontState,
 ) -> CtAttrs<'a> {
     let family = match font_role {
@@ -465,7 +678,18 @@ fn terminal_text_attrs<'a>(
             .map(CtFamily::Name)
             .unwrap_or(CtFamily::Monospace),
     };
-    CtAttrs::new().family(family)
+    CtAttrs::new()
+        .family(family)
+        .weight(if bold {
+            CtWeight::BOLD
+        } else {
+            CtWeight::NORMAL
+        })
+        .style(if italic {
+            CtStyle::Italic
+        } else {
+            CtStyle::Normal
+        })
 }
 
 /// Rasterizes one glyph-cache entry into an RGBA pixel buffer using cosmic-text and swash.
@@ -498,7 +722,8 @@ pub(crate) fn rasterize_terminal_glyph(
     {
         let mut borrowed = buffer.borrow_with(font_system);
         borrowed.set_size(Some(width as f32), Some(height as f32));
-        let attrs = terminal_text_attrs(font_role, font_state).metrics(metrics);
+        let attrs = terminal_text_attrs(font_role, cache_key.bold, cache_key.italic, font_state)
+            .metrics(metrics);
         let text = cache_key.content.to_owned_string();
         borrowed.set_text(text.as_str(), &attrs, CtShaping::Advanced, None);
         borrowed.shape_until_scroll(false);
@@ -555,6 +780,7 @@ fn blit_cached_glyph_in_buffer(
     origin_y: u32,
     glyph: &CachedTerminalGlyph,
     fg: egui::Color32,
+    alpha_scale: f32,
 ) {
     // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
     let max_height = buffer.len() / stride;
@@ -572,10 +798,11 @@ fn blit_cached_glyph_in_buffer(
                 continue;
             }
 
+            let scaled_alpha = (src[3] as f32 * alpha_scale).round().clamp(0.0, 255.0) as u8;
             let source = if glyph.preserve_color {
-                [src[0], src[1], src[2], src[3]]
+                [src[0], src[1], src[2], scaled_alpha]
             } else {
-                [fg.r(), fg.g(), fg.b(), src[3]]
+                [fg.r(), fg.g(), fg.b(), scaled_alpha]
             };
             let dst_start = (origin_x as usize + x) * 4;
             if dst_start + 4 > dst_row.len() {
@@ -622,7 +849,7 @@ fn draw_cursor_in_buffer(
     // Build the geometry or layout decisions first, then emit the matching draw operations against the prepared state.
     let origin_x = cursor.x as u32 * cell_size.x;
     let origin_y = cursor.y as u32 * cell_size.y;
-    let color = [cursor.color.r(), cursor.color.g(), cursor.color.b(), 160];
+    let color = [cursor.color.r(), cursor.color.g(), cursor.color.b(), 255];
 
     match cursor.shape {
         TerminalCursorShape::Block => {
@@ -645,7 +872,7 @@ fn draw_cursor_in_buffer(
                 origin_y + cell_size.y.saturating_sub(height),
                 cell_size.x,
                 height,
-                [cursor.color.r(), cursor.color.g(), cursor.color.b(), 255],
+                color,
             );
         }
         TerminalCursorShape::Beam => {
@@ -657,7 +884,7 @@ fn draw_cursor_in_buffer(
                 origin_y,
                 width,
                 cell_size.y,
-                [cursor.color.r(), cursor.color.g(), cursor.color.b(), 255],
+                color,
             );
         }
     }

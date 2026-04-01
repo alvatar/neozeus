@@ -65,21 +65,44 @@ impl TerminalCellContent {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub(crate) enum TerminalUnderlineStyle {
+    #[default]
+    None,
+    Single,
+    Double,
+    Curly,
+    Dotted,
+    Dashed,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub(crate) struct TerminalCellStyle {
+    pub(crate) bold: bool,
+    pub(crate) italic: bool,
+    pub(crate) dim: bool,
+    pub(crate) underline: TerminalUnderlineStyle,
+    pub(crate) strikeout: bool,
+    pub(crate) underline_color: Option<egui::Color32>,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct TerminalCell {
     pub(crate) content: TerminalCellContent,
     pub(crate) fg: egui::Color32,
     pub(crate) bg: egui::Color32,
+    pub(crate) style: TerminalCellStyle,
     pub(crate) width: u8,
 }
 
 impl Default for TerminalCell {
-    /// Creates a blank terminal cell with default foreground/background colors and width 1.
+    /// Creates a blank terminal cell with default foreground/background colors, no styling, and width 1.
     fn default() -> Self {
         Self {
             content: TerminalCellContent::Empty,
             fg: egui::Color32::from_rgb(220, 220, 220),
             bg: crate::app_config::DEFAULT_BG,
+            style: TerminalCellStyle::default(),
             width: 1,
         }
     }
