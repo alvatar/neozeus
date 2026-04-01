@@ -1,4 +1,7 @@
-use super::super::super::types::{TerminalLifecycle, TerminalRuntimeState};
+use super::super::super::types::{
+    TerminalCell, TerminalCellContent, TerminalCellStyle, TerminalLifecycle, TerminalRuntimeState,
+    TerminalSnapshot, TerminalSurface, TerminalUnderlineStyle,
+};
 use super::*;
 use std::io::Cursor;
 
@@ -99,4 +102,69 @@ fn session_list_wire_format_omits_created_order_for_v1_compatibility() {
     assert_eq!(sessions[0].session_id, "neozeus-session-3");
     assert_eq!(sessions[0].revision, 5);
     assert_eq!(sessions[0].created_order, 0);
+}
+
+/// Verifies daemon protocol round-trips full cell styling metadata together with ordinary surface data.
+#[test]
+fn snapshot_wire_roundtrip_preserves_cell_style() {
+    let snapshot = TerminalSnapshot {
+        surface: Some(TerminalSurface {
+            cols: 2,
+            rows: 1,
+            cells: vec![
+                TerminalCell {
+                    content: TerminalCellContent::Single('X'),
+                    fg: egui::Color32::from_rgb(200, 210, 220),
+                    bg: egui::Color32::from_rgb(10, 20, 30),
+                    style: TerminalCellStyle {
+                        bold: true,
+                        italic: true,
+                        dim: true,
+                        underline: TerminalUnderlineStyle::Curly,
+                        strikeout: true,
+                        underline_color: Some(egui::Color32::from_rgb(1, 2, 3)),
+                    },
+                    width: 1,
+                },
+                TerminalCell::default(),
+            ],
+            cursor: None,
+        }),
+        runtime: TerminalRuntimeState::running("running"),
+    };
+
+    let message = ServerMessage::Response {
+        request_id: 4,
+        response: Ok(DaemonResponse::SessionAttached {
+            session_id: "neozeus-session-style".into(),
+            snapshot: snapshot.clone(),
+            revision: 7,
+        }),
+    };
+
+    let mut bytes = Vec::new();
+    write_server_message(&mut bytes, &message).expect("message should encode");
+    let decoded = read_server_message(&mut Cursor::new(bytes)).expect("message should decode");
+    let ServerMessage::Response {
+        response: Ok(DaemonResponse::SessionAttached { snapshot, .. }),
+        ..
+    } = decoded
+    else {
+        panic!("expected attach-session response");
+    };
+
+    let cell = snapshot
+        .surface
+        .expect("snapshot surface should exist")
+        .cell(0, 0)
+        .clone();
+    assert!(cell.style.bold);
+    assert!(cell.style.italic);
+    assert!(cell.style.dim);
+    assert_eq!(cell.style.underline, TerminalUnderlineStyle::Curly);
+    assert!(cell.style.strikeout);
+    assert_eq!(
+        cell.style.underline_color,
+        Some(egui::Color32::from_rgb(1, 2, 3))
+    );
 }

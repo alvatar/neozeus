@@ -1,7 +1,8 @@
 use super::super::types::{
-    TerminalCell, TerminalCellContent, TerminalCommand, TerminalCursor, TerminalCursorShape,
-    TerminalDamage, TerminalFrameUpdate, TerminalLifecycle, TerminalRuntimeState, TerminalSnapshot,
-    TerminalSurface, TerminalUpdate,
+    TerminalCell, TerminalCellContent, TerminalCellStyle, TerminalCommand, TerminalCursor,
+    TerminalCursorShape, TerminalDamage, TerminalFrameUpdate, TerminalLifecycle,
+    TerminalRuntimeState, TerminalSnapshot, TerminalSurface, TerminalUnderlineStyle,
+    TerminalUpdate,
 };
 use crate::shared::daemon_wire as wire;
 use bevy_egui::egui;
@@ -504,6 +505,7 @@ fn encode_cell(buffer: &mut Vec<u8>, cell: &TerminalCell) {
     encode_cell_content(buffer, &cell.content);
     encode_color(buffer, cell.fg);
     encode_color(buffer, cell.bg);
+    encode_cell_style(buffer, &cell.style);
     push_u8(buffer, cell.width);
 }
 
@@ -513,8 +515,58 @@ fn decode_cell(decoder: &mut Decoder<'_>) -> Result<TerminalCell, String> {
         content: decode_cell_content(decoder)?,
         fg: decode_color(decoder)?,
         bg: decode_color(decoder)?,
+        style: decode_cell_style(decoder)?,
         width: decoder.read_u8()?,
     })
+}
+
+/// Encodes cell styling metadata that survives parser → daemon → renderer round-trips.
+fn encode_cell_style(buffer: &mut Vec<u8>, style: &TerminalCellStyle) {
+    push_bool(buffer, style.bold);
+    push_bool(buffer, style.italic);
+    push_bool(buffer, style.dim);
+    encode_underline_style(buffer, style.underline);
+    push_bool(buffer, style.strikeout);
+    push_option(buffer, style.underline_color.as_ref(), |buffer, color| {
+        encode_color(buffer, *color)
+    });
+}
+
+/// Decodes cell styling metadata from the payload stream.
+fn decode_cell_style(decoder: &mut Decoder<'_>) -> Result<TerminalCellStyle, String> {
+    Ok(TerminalCellStyle {
+        bold: decoder.read_bool()?,
+        italic: decoder.read_bool()?,
+        dim: decoder.read_bool()?,
+        underline: decode_underline_style(decoder)?,
+        strikeout: decoder.read_bool()?,
+        underline_color: decoder.read_option(decode_color)?,
+    })
+}
+
+/// Encodes the underline-style enum as a tiny wire tag.
+fn encode_underline_style(buffer: &mut Vec<u8>, underline: TerminalUnderlineStyle) {
+    match underline {
+        TerminalUnderlineStyle::None => push_u8(buffer, 0),
+        TerminalUnderlineStyle::Single => push_u8(buffer, 1),
+        TerminalUnderlineStyle::Double => push_u8(buffer, 2),
+        TerminalUnderlineStyle::Curly => push_u8(buffer, 3),
+        TerminalUnderlineStyle::Dotted => push_u8(buffer, 4),
+        TerminalUnderlineStyle::Dashed => push_u8(buffer, 5),
+    }
+}
+
+/// Decodes the underline-style enum from its wire tag.
+fn decode_underline_style(decoder: &mut Decoder<'_>) -> Result<TerminalUnderlineStyle, String> {
+    match decoder.read_u8()? {
+        0 => Ok(TerminalUnderlineStyle::None),
+        1 => Ok(TerminalUnderlineStyle::Single),
+        2 => Ok(TerminalUnderlineStyle::Double),
+        3 => Ok(TerminalUnderlineStyle::Curly),
+        4 => Ok(TerminalUnderlineStyle::Dotted),
+        5 => Ok(TerminalUnderlineStyle::Dashed),
+        tag => Err(format!("unknown underline style tag {tag}")),
+    }
 }
 
 /// Encodes the compact terminal cell-content enum used by the surface grid.

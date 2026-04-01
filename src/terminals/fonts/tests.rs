@@ -198,6 +198,7 @@ fn set_colored_text(
                 content: TerminalCellContent::Single(ch),
                 fg,
                 bg: crate::app_config::DEFAULT_BG,
+                style: Default::default(),
                 width: 1,
             },
         );
@@ -312,6 +313,8 @@ fn standalone_text_renderer_rasterizes_ascii_glyph() {
         &TerminalGlyphCacheKey {
             content: TerminalCellContent::Single('A'),
             font_role: TerminalFontRole::Primary,
+            bold: false,
+            italic: false,
             width_cells: 1,
             cell_width: 14,
             cell_height: 24,
@@ -324,6 +327,66 @@ fn standalone_text_renderer_rasterizes_ascii_glyph() {
     assert_glyph_has_visible_pixels(&glyph);
 }
 
+/// Verifies bold/italic shaping paths do not collapse onto the plain glyph cache entry.
+#[test]
+fn styled_ascii_glyphs_rasterize_differently_from_plain_text() {
+    let report = test_terminal_font_report();
+    let mut renderer = TerminalTextRenderer::default();
+    initialize_test_terminal_text_renderer(&report, &mut renderer);
+    let font_state = TerminalFontState {
+        report: Some(Ok(report)),
+        ..Default::default()
+    };
+    let plain_key = TerminalGlyphCacheKey {
+        content: TerminalCellContent::Single('A'),
+        font_role: TerminalFontRole::Primary,
+        bold: false,
+        italic: false,
+        width_cells: 1,
+        cell_width: 14,
+        cell_height: 24,
+    };
+    let bold_key = TerminalGlyphCacheKey {
+        bold: true,
+        ..plain_key.clone()
+    };
+    let italic_key = TerminalGlyphCacheKey {
+        italic: true,
+        ..plain_key.clone()
+    };
+
+    let plain = rasterize_terminal_glyph(
+        &plain_key,
+        TerminalFontRole::Primary,
+        false,
+        &mut renderer,
+        &font_state,
+    );
+    let bold = rasterize_terminal_glyph(
+        &bold_key,
+        TerminalFontRole::Primary,
+        false,
+        &mut renderer,
+        &font_state,
+    );
+    let italic = rasterize_terminal_glyph(
+        &italic_key,
+        TerminalFontRole::Primary,
+        false,
+        &mut renderer,
+        &font_state,
+    );
+
+    assert_ne!(
+        bold.pixels, plain.pixels,
+        "bold glyph should differ from plain glyph"
+    );
+    assert_ne!(
+        italic.pixels, plain.pixels,
+        "italic glyph should differ from plain glyph"
+    );
+}
+
 /// Verifies that glyph rasterization snaps fractional baseline to the same pixels.
 #[test]
 fn glyph_rasterization_snaps_fractional_baseline_to_same_pixels() {
@@ -334,6 +397,8 @@ fn glyph_rasterization_snaps_fractional_baseline_to_same_pixels() {
     let cache_key = TerminalGlyphCacheKey {
         content: TerminalCellContent::Single('A'),
         font_role: TerminalFontRole::Primary,
+        bold: false,
+        italic: false,
         width_cells: 1,
         cell_width: base.cell_metrics.cell_width,
         cell_height: base.cell_metrics.cell_height,
