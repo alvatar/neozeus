@@ -186,12 +186,12 @@ fn inspect_switch_scenario_spawns_two_terminals_and_focuses_second() {
     assert!(world.resource::<VerificationScenarioConfig>().applied);
 }
 
-/// Verifies that the kill-disconnected-terminal scenario removes the active red/disconnected
-/// terminal after a single queued kill command.
+/// Verifies that the kill-disconnected-terminal scenario removes the active terminal after one
+/// queued kill command even when the daemon session has already been torn down before the UI's kill
+/// intent runs.
 #[test]
 fn kill_disconnected_terminal_scenario_removes_terminal_after_one_kill() {
     let client = Arc::new(crate::tests::FakeDaemonClient::default());
-    *client.fail_kill.lock().unwrap() = true;
     let mut world = World::default();
     world.insert_resource(VerificationScenarioConfig {
         scenario: VerificationScenario::KillDisconnectedTerminal,

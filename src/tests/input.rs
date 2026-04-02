@@ -664,6 +664,57 @@ fn ctrl_k_removes_disconnected_active_terminal_in_one_press() {
     );
 }
 
+/// Verifies that one plain `Ctrl+k` still removes the active terminal when the local runtime
+/// snapshot is stale but the daemon already reports that session as disconnected.
+#[test]
+fn ctrl_k_removes_terminal_when_daemon_runtime_is_disconnected_but_local_snapshot_is_stale() {
+    let client = std::sync::Arc::new(FakeDaemonClient::default());
+    *client.fail_kill.lock().unwrap() = true;
+    let (mut world, terminal_id) =
+        world_with_active_terminal(Vec2::new(10.0, 10.0), false, Vec2::ZERO);
+    let session_name = world
+        .resource::<TerminalManager>()
+        .get(terminal_id)
+        .expect("terminal should exist")
+        .session_name
+        .clone();
+    client.set_session_runtime(
+        &session_name,
+        crate::terminals::TerminalRuntimeState::disconnected("dead session"),
+    );
+    world.insert_resource(fake_runtime_spawner(client));
+    let agent_id = world
+        .resource::<AgentRuntimeIndex>()
+        .agent_for_terminal(terminal_id)
+        .expect("agent should be linked");
+    world.resource_mut::<AppSessionState>().active_agent = Some(agent_id);
+
+    let mut keys = ButtonInput::<KeyCode>::default();
+    keys.press(KeyCode::ControlLeft);
+    world.insert_resource(keys);
+    world.init_resource::<Messages<KeyboardInput>>();
+    world.init_resource::<Messages<AppExit>>();
+    world
+        .resource_mut::<Messages<KeyboardInput>>()
+        .write(pressed_text(KeyCode::KeyK, Some("k")));
+
+    world
+        .run_system_once(handle_terminal_lifecycle_shortcuts)
+        .unwrap();
+    run_app_command_cycle(&mut world);
+
+    assert!(world
+        .resource::<TerminalManager>()
+        .terminal_ids()
+        .is_empty());
+    assert_eq!(
+        world
+            .resource::<crate::terminals::TerminalFocusState>()
+            .active_id(),
+        None
+    );
+}
+
 /// Verifies that the lifecycle shortcut handler turns `F10` into an app-exit message.
 #[test]
 fn f10_enqueues_app_exit() {
