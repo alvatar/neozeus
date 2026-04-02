@@ -409,15 +409,19 @@ pub(crate) fn run_verification_scenario(world: &mut World) {
                 let Some(agent_id) = ctx.runtime_index.agent_for_terminal(terminal_id) else {
                     finish!();
                 };
+                let Some(session_name) = ctx
+                    .terminal_manager
+                    .get(terminal_id)
+                    .map(|terminal| terminal.session_name.clone())
+                else {
+                    finish!();
+                };
                 ctx.app_session.active_agent = Some(agent_id);
                 ctx.focus_state
                     .focus_terminal(&ctx.terminal_manager, terminal_id);
                 ctx.visibility_state.policy = TerminalVisibilityPolicy::Isolate(terminal_id);
                 ctx.view_state.focus_terminal(Some(terminal_id));
-                if let Some(terminal) = ctx.terminal_manager.get_mut(terminal_id) {
-                    terminal.snapshot.runtime =
-                        crate::terminals::TerminalRuntimeState::disconnected("verify kill cleanup");
-                }
+                let _ = ctx.runtime_spawner.kill_session(&session_name);
                 ctx.app_commands
                     .write(AppCommand::Agent(AppAgentCommand::KillActive));
                 config.primed = true;

@@ -80,12 +80,33 @@ pub(crate) fn kill_active_terminal_session_and_remove(
         return Ok(None);
     };
     if let Err(error) = runtime_spawner.kill_session(&session_name) {
-        if runtime_state.is_interactive() {
+        let daemon_runtime = runtime_spawner
+            .list_session_infos()
+            .ok()
+            .and_then(|sessions| {
+                sessions
+                    .into_iter()
+                    .find(|session| session.session_id == session_name)
+                    .map(|session| session.runtime)
+            });
+        let local_runtime = terminal_manager
+            .get(active_id)
+            .map(|terminal| terminal.snapshot.runtime.clone());
+        let terminal_is_non_interactive = local_runtime
+            .as_ref()
+            .or(Some(&runtime_state))
+            .is_some_and(|runtime| !runtime.is_interactive());
+        let daemon_is_gone_or_non_interactive = daemon_runtime
+            .as_ref()
+            .is_none_or(|runtime| !runtime.is_interactive());
+        if runtime_state.is_interactive()
+            && !terminal_is_non_interactive
+            && !daemon_is_gone_or_non_interactive
+        {
             return Err(error);
         }
         append_debug_log(format!(
-            "best-effort kill failed for non-interactive terminal {}: {error}",
-            session_name
+            "best-effort kill failed after terminal already stopped {session_name}: {error}"
         ));
     }
 
