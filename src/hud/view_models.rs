@@ -135,7 +135,8 @@ pub(crate) fn sync_hud_view_models(
                     terminal
                         .and_then(|terminal| terminal.snapshot.surface.as_ref())
                         .and_then(|surface| parse_agent_context_pct_milli(kind, surface))
-                });
+                })
+                .or_else(|| terminal_id.map(|_| 100_000));
             AgentListRowView {
                 agent_id,
                 terminal_id,
