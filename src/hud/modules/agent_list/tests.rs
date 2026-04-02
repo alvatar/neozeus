@@ -214,7 +214,6 @@ fn agent_rows_use_derived_agent_view_labels() {
 
     assert_eq!(rows[0].label, "agent-1");
     assert_eq!(rows[1].label, "oracle");
-    assert_eq!(rows[1].display_label, "ORACLE");
     assert!(rows[1].focused);
     assert!(rows[1].has_tasks);
 }

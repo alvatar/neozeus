@@ -388,7 +388,7 @@ pub(crate) fn render_content(
         draw_label(
             painter,
             Vec2::new(main_rect.x + 12.0, main_rect.y + 2.0),
-            &row.display_label,
+            &row.label,
             16.0,
             agent_label_color(row.status, row.focused, row.dragging),
             VelloTextAnchor::TopLeft,

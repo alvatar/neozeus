@@ -38,7 +38,6 @@ pub(in crate::hud) struct AgentRow {
     pub(in crate::hud) agent_id: AgentId,
     pub(in crate::hud) terminal_id: Option<TerminalId>,
     pub(in crate::hud) label: String,
-    pub(in crate::hud) display_label: String,
     pub(in crate::hud) rect: HudRect,
     pub(in crate::hud) focused: bool,
     pub(in crate::hud) hovered: bool,
@@ -140,7 +139,6 @@ pub(in crate::hud) fn projected_agent_rows(
             .map(|(index, row)| AgentRow {
                 agent_id: row.agent_id,
                 terminal_id: row.terminal_id,
-                display_label: row.label.to_uppercase(),
                 label: row.label.clone(),
                 rect: HudRect {
                     x: content_x,
@@ -183,7 +181,6 @@ pub(in crate::hud) fn projected_agent_rows(
         rows.push(AgentRow {
             agent_id: row.agent_id,
             terminal_id: row.terminal_id,
-            display_label: row.label.to_uppercase(),
             label: row.label.clone(),
             rect: HudRect {
                 x: content_x,
@@ -204,7 +201,6 @@ pub(in crate::hud) fn projected_agent_rows(
     rows.push(AgentRow {
         agent_id: dragged_row.agent_id,
         terminal_id: dragged_row.terminal_id,
-        display_label: dragged_row.label.to_uppercase(),
         label: dragged_row.label.clone(),
         rect: HudRect {
             x: content_x,
