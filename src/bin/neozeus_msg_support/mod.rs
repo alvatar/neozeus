@@ -119,14 +119,26 @@ fn load_existing_persisted_app_state(path: &Path) -> Result<PersistedAppState, S
     Ok(app_state_file::parse_persisted_app_state(&text))
 }
 
+fn normalize_agent_label(label: &str) -> String {
+    label.trim().to_uppercase()
+}
+
 fn resolve_session_from_agent_label(
     persisted: &PersistedAppState,
     label: &str,
 ) -> Result<String, String> {
+    let label = normalize_agent_label(label);
     let matches = persisted
         .agents
         .iter()
-        .filter(|record| record.label.as_deref() == Some(label))
+        .filter(|record| {
+            record
+                .label
+                .as_deref()
+                .map(normalize_agent_label)
+                .as_deref()
+                == Some(label.as_str())
+        })
         .map(|record| record.session_name.clone())
         .collect::<Vec<_>>();
     match matches.len() {
@@ -317,7 +329,7 @@ mod tests {
     #[test]
     fn resolve_session_from_agent_label_uses_persisted_mapping() {
         let persisted =
-            persisted_with_agents(&[("session-a", Some("alpha")), ("session-b", Some("beta"))]);
+            persisted_with_agents(&[("session-a", Some("ALPHA")), ("session-b", Some("BETA"))]);
         assert_eq!(
             resolve_session_from_agent_label(&persisted, "beta").unwrap(),
             "session-b"
@@ -325,17 +337,26 @@ mod tests {
     }
 
     #[test]
+    fn resolve_session_from_agent_label_normalizes_mixed_case_input() {
+        let persisted = persisted_with_agents(&[("session-a", Some("ALPHA"))]);
+        assert_eq!(
+            resolve_session_from_agent_label(&persisted, " aLpHa ").unwrap(),
+            "session-a"
+        );
+    }
+
+    #[test]
     fn resolve_session_from_agent_label_rejects_unknown_labels() {
-        let persisted = persisted_with_agents(&[("session-a", Some("alpha"))]);
+        let persisted = persisted_with_agents(&[("session-a", Some("ALPHA"))]);
         let error = resolve_session_from_agent_label(&persisted, "missing")
             .expect_err("unknown label should fail");
-        assert_eq!(error, "unknown agent `missing`");
+        assert_eq!(error, "unknown agent `MISSING`");
     }
 
     #[test]
     fn resolve_session_from_agent_label_rejects_duplicate_labels() {
         let persisted =
-            persisted_with_agents(&[("session-a", Some("alpha")), ("session-b", Some("alpha"))]);
+            persisted_with_agents(&[("session-a", Some("ALPHA")), ("session-b", Some("alpha"))]);
         let error = resolve_session_from_agent_label(&persisted, "alpha")
             .expect_err("duplicate labels should fail");
         assert!(error.contains("resolves to multiple sessions"));
@@ -370,7 +391,7 @@ mod tests {
             sessions: vec![session_info("session-b")],
             ..Default::default()
         };
-        let persisted = persisted_with_agents(&[("session-b", Some("beta"))]);
+        let persisted = persisted_with_agents(&[("session-b", Some("BETA"))]);
         let request = SendRequest {
             target: SendTarget::Agent("beta".into()),
             message: "status".into(),
@@ -392,9 +413,10 @@ mod tests {
     #[test]
     fn dispatch_send_rejects_stale_agent_mapping_when_session_is_not_live() {
         let daemon = FakeDaemon::default();
-        let persisted = persisted_with_agents(&[("session-b", Some("beta"))]);
+        let persisted = persisted_with_agents(&[("session-b", Some("BETA"))]);
+        let request = SendTarget::Agent("beta".into());
         let request = SendRequest {
-            target: SendTarget::Agent("beta".into()),
+            target: request,
             message: "status".into(),
         };
 
@@ -431,7 +453,7 @@ mod tests {
         let path = temp_path("load-current-app-state");
         fs::write(
             &path,
-            "neozeus state version 1\n[agent]\nsession_name=\"session-a\"\nlabel=\"alpha\"\norder_index=0\nfocused=1\n[/agent]\n",
+            "neozeus state version 1\n[agent]\nsession_name=\"session-a\"\nlabel=\"ALPHA\"\norder_index=0\nfocused=1\n[/agent]\n",
         )
         .unwrap();
 
@@ -440,6 +462,6 @@ mod tests {
 
         assert_eq!(persisted.agents.len(), 1);
         assert_eq!(persisted.agents[0].session_name, "session-a");
-        assert_eq!(persisted.agents[0].label.as_deref(), Some("alpha"));
+        assert_eq!(persisted.agents[0].label.as_deref(), Some("ALPHA"));
     }
 }
