@@ -1410,6 +1410,105 @@ fn killing_disconnected_active_terminal_removes_local_state_even_if_daemon_kill_
     assert_eq!(frame_count, 0);
 }
 
+/// Verifies the stale-snapshot cleanup path: if the local terminal still looks interactive but the
+/// daemon already reports the session as disconnected, one kill still removes the local terminal.
+#[test]
+fn killing_active_terminal_removes_local_state_when_daemon_already_reports_disconnected() {
+    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
+    let client = Arc::new(FakeDaemonClient::default());
+    *client.fail_kill.lock().unwrap() = true;
+    client.set_session_runtime(
+        "neozeus-session-a",
+        crate::terminals::TerminalRuntimeState::disconnected("dead session"),
+    );
+
+    let (bridge, _) = test_bridge();
+    let mut manager = TerminalManager::default();
+    let id = manager.create_terminal_with_session(bridge, "neozeus-session-a".into());
+    manager
+        .get_mut(id)
+        .expect("missing terminal")
+        .snapshot
+        .runtime = crate::terminals::TerminalRuntimeState::running("stale local snapshot");
+    manager.focus_terminal(id);
+
+    let mut store = TerminalPresentationStore::default();
+    store.register(
+        id,
+        crate::terminals::PresentedTerminal {
+            image: Default::default(),
+            texture_state: Default::default(),
+            desired_texture_state: Default::default(),
+            display_mode: Default::default(),
+            uploaded_revision: 0,
+            panel_entity: Entity::PLACEHOLDER,
+            frame_entity: Entity::PLACEHOLDER,
+        },
+    );
+
+    let mut world = World::default();
+    let mut time = Time::<()>::default();
+    time.advance_by(Duration::from_secs(1));
+    world.insert_resource(time);
+    insert_terminal_manager_resources(&mut world, manager);
+    world.insert_resource(store);
+    world.insert_resource(fake_runtime_spawner(client.clone()));
+    world.insert_resource(AppStatePersistenceState::default());
+    world.insert_resource(TerminalVisibilityState {
+        policy: TerminalVisibilityPolicy::Isolate(id),
+    });
+    world.insert_resource(TerminalViewState::default());
+    let panel_entity = world.spawn((TerminalPanel { id },)).id();
+    let frame_entity = world.spawn((TerminalPanelFrame { id },)).id();
+    {
+        let mut store = world.resource_mut::<TerminalPresentationStore>();
+        let presented = store.get_mut(id).expect("missing presented terminal");
+        presented.panel_entity = panel_entity;
+        presented.frame_entity = frame_entity;
+    }
+
+    world
+        .run_system_once(
+            |time: Res<Time>,
+             mut terminal_manager: ResMut<TerminalManager>,
+             mut focus_state: ResMut<crate::terminals::TerminalFocusState>,
+             runtime_spawner: Res<crate::terminals::TerminalRuntimeSpawner>,
+             mut session_persistence: ResMut<AppStatePersistenceState>,
+             _visibility_state: ResMut<TerminalVisibilityState>,
+             _view_state: ResMut<TerminalViewState>| {
+                let _ = kill_active_terminal(
+                    &time,
+                    &mut terminal_manager,
+                    &mut focus_state,
+                    &runtime_spawner,
+                    &mut session_persistence,
+                );
+            },
+        )
+        .unwrap();
+    world.insert_resource(Assets::<Image>::default());
+    world
+        .run_system_once(crate::terminals::sync_terminal_projection_entities)
+        .unwrap();
+
+    assert!(world
+        .resource::<TerminalManager>()
+        .terminal_ids()
+        .is_empty());
+    assert!(world
+        .resource::<TerminalPresentationStore>()
+        .get(id)
+        .is_none());
+    assert!(world
+        .resource::<AppStatePersistenceState>()
+        .dirty_since_secs
+        .is_some());
+    let panel_count = world.query::<&TerminalPanel>().iter(&world).count();
+    let frame_count = world.query::<&TerminalPanelFrame>().iter(&world).count();
+    assert_eq!(panel_count, 0);
+    assert_eq!(frame_count, 0);
+}
+
 /// Verifies that a kill failure for an otherwise live terminal preserves all local state instead of
 /// tearing presentation/labels down prematurely.
 #[test]
