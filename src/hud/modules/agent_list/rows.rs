@@ -45,6 +45,7 @@ pub(in crate::hud) struct AgentRow {
     pub(in crate::hud) has_tasks: bool,
     pub(in crate::hud) interactive: bool,
     pub(in crate::hud) status: AgentStatus,
+    pub(in crate::hud) context_pct_milli: Option<i32>,
     pub(in crate::hud) dragging: bool,
 }
 
@@ -58,9 +59,9 @@ pub(in crate::hud) struct AgentListDragPreview {
 
 /// Derives one sub-rectangle of an agent row for rendering or hit-testing.
 ///
-/// A logical row is split into the main label box, the narrow status marker, and a tiny accent strip.
-/// The helper bakes in the EVA-specific padding constants and clamps dimensions so very small rows do
-/// not collapse to negative sizes.
+/// A logical row is split into the main label box, the narrow right-side indicator strip, and a
+/// tiny accent strip. The helper bakes in the EVA-specific padding constants and clamps dimensions
+/// so very small rows do not collapse to negative sizes.
 pub(crate) fn agent_row_rect(rect: HudRect, section: AgentListRowSection) -> HudRect {
     match section {
         AgentListRowSection::Main => HudRect {
@@ -152,6 +153,7 @@ pub(in crate::hud) fn projected_agent_rows(
                 has_tasks: row.has_tasks,
                 interactive: row.interactive,
                 status: row.status,
+                context_pct_milli: row.context_pct_milli,
                 dragging: false,
             })
             .collect();
@@ -194,6 +196,7 @@ pub(in crate::hud) fn projected_agent_rows(
             has_tasks: row.has_tasks,
             interactive: row.interactive,
             status: row.status,
+            context_pct_milli: row.context_pct_milli,
             dragging: false,
         });
     }
@@ -214,6 +217,7 @@ pub(in crate::hud) fn projected_agent_rows(
         has_tasks: dragged_row.has_tasks,
         interactive: dragged_row.interactive,
         status: dragged_row.status,
+        context_pct_milli: dragged_row.context_pct_milli,
         dragging: true,
     });
 

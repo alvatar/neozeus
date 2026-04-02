@@ -208,6 +208,7 @@ pub(super) fn insert_terminal_manager_resources(
                     has_tasks: false,
                     interactive: true,
                     status: crate::agents::AgentStatus::Unknown,
+                    context_pct_milli: None,
                 })
                 .collect::<Vec<_>>();
             (active_agent, rows)

@@ -1,6 +1,6 @@
 use crate::agents::AgentStatus;
 
-use super::super::super::render::{apply_alpha, HudPainter, HudRenderInputs};
+use super::super::super::render::{apply_alpha, HudColors, HudPainter, HudRenderInputs};
 use super::super::super::state::{AgentListUiState, HudRect, HUD_MODULE_PADDING};
 use bevy::prelude::Vec2;
 use bevy_vello::{prelude::VelloTextAnchor, vello::peniko};
@@ -47,6 +47,7 @@ const WORKING_ROW_COLOR: peniko::Color = peniko::Color::from_rgba8(
     AGENT_LIST_WORKING_GREEN_B,
     255,
 );
+const CONTEXT_BAR_TRACK_COLOR: peniko::Color = HudColors::BUTTON;
 
 #[allow(
     clippy::too_many_arguments,
@@ -118,6 +119,120 @@ fn marker_fill(status: AgentStatus, has_tasks: bool, interactive: bool) -> penik
         TASK_RED
     } else {
         EVA_BLACK
+    }
+}
+
+fn context_track_rect(main_rect: HudRect, marker_rect: HudRect) -> HudRect {
+    let gap_left = main_rect.x + main_rect.w;
+    let gap_right = marker_rect.x;
+    HudRect {
+        x: gap_left + 1.0,
+        y: main_rect.y + 1.0,
+        w: (gap_right - gap_left - 2.0).max(6.0),
+        h: (main_rect.h - 2.0).max(12.0),
+    }
+}
+
+fn context_segment_count(track_rect: HudRect) -> usize {
+    let count = ((track_rect.h / 4.0).floor() as usize).clamp(1, 63);
+    if count <= 1 {
+        1
+    } else if count.is_multiple_of(2) {
+        count - 1
+    } else {
+        count
+    }
+}
+
+fn context_segment_rect(
+    track_rect: HudRect,
+    segment_index: usize,
+    segment_count: usize,
+) -> HudRect {
+    let slot_h = track_rect.h / segment_count as f32;
+    let y0 = track_rect.y + slot_h * segment_index as f32;
+    let y1 = if segment_index + 1 == segment_count {
+        track_rect.y + track_rect.h
+    } else {
+        track_rect.y + slot_h * (segment_index + 1) as f32
+    };
+    HudRect {
+        x: track_rect.x,
+        y: y0,
+        w: track_rect.w,
+        h: (y1 - y0).max(1.0),
+    }
+}
+
+fn context_active_segment_range(
+    segment_count: usize,
+    pct_milli: i32,
+) -> std::ops::RangeInclusive<usize> {
+    let clamped = pct_milli.clamp(0, 100_000) as f32 / 100_000.0;
+    let center = segment_count / 2;
+    let max_radius = segment_count / 2;
+    let radius = (clamped * max_radius as f32).round() as usize;
+    (center - radius)..=(center + radius)
+}
+
+fn mix_color(a: peniko::Color, b: peniko::Color, t: f32) -> peniko::Color {
+    let a = a.to_rgba8();
+    let b = b.to_rgba8();
+    let t = t.clamp(0.0, 1.0);
+    peniko::Color::from_rgba8(
+        (a.r as f32 + (b.r as f32 - a.r as f32) * t).round() as u8,
+        (a.g as f32 + (b.g as f32 - a.g as f32) * t).round() as u8,
+        (a.b as f32 + (b.b as f32 - a.b as f32) * t).round() as u8,
+        (a.a as f32 + (b.a as f32 - a.a as f32) * t).round() as u8,
+    )
+}
+
+fn context_bar_color(pct_milli: i32) -> peniko::Color {
+    let clamped = pct_milli.clamp(0, 100_000) as f32 / 100_000.0;
+    let low = peniko::Color::from_rgba8(216, 160, 96, 255);
+    let mid = peniko::Color::from_rgba8(255, 148, 64, 255);
+    let high = peniko::Color::from_rgba8(255, 36, 28, 255);
+    if clamped < 0.60 {
+        mix_color(low, mid, clamped / 0.60)
+    } else {
+        mix_color(mid, high, (clamped - 0.60) / 0.40)
+    }
+}
+
+fn draw_context_bar(
+    painter: &mut HudPainter,
+    main_rect: HudRect,
+    marker_rect: HudRect,
+    pct_milli: i32,
+) {
+    let track_rect = context_track_rect(main_rect, marker_rect);
+    let segment_count = context_segment_count(track_rect);
+    let active_range = context_active_segment_range(segment_count, pct_milli);
+    let fill_color = context_bar_color(pct_milli);
+    painter.fill_rect(track_rect, CONTEXT_BAR_TRACK_COLOR, 0.0);
+
+    for segment_index in 0..segment_count {
+        if active_range.contains(&segment_index) {
+            painter.fill_rect(
+                context_segment_rect(track_rect, segment_index, segment_count),
+                fill_color,
+                0.0,
+            );
+        }
+    }
+
+    for stripe_index in 1..segment_count {
+        let y = track_rect.y + stripe_index as f32 * (track_rect.h / segment_count as f32);
+        painter.fill_rect(
+            HudRect {
+                x: track_rect.x,
+                y,
+                w: track_rect.w,
+                h: 1.0,
+            },
+            peniko::Color::from_rgba8(46, 43, 39, 255),
+            0.0,
+        );
     }
 }
 
@@ -262,6 +377,8 @@ pub(crate) fn render_content(
         let stroke = agent_row_stroke(row.status, row.focused, row.hovered, row.dragging);
         let fill = agent_fill_color(row.status, row.focused, row.hovered, row.dragging);
 
+        let context_pct_milli = row.context_pct_milli;
+
         draw_button_rect(painter, main_rect, stroke, fill);
         draw_button_rect(
             painter,
@@ -269,6 +386,9 @@ pub(crate) fn render_content(
             stroke,
             marker_fill(row.status, row.has_tasks, row.interactive),
         );
+        if let Some(context_pct_milli) = context_pct_milli {
+            draw_context_bar(painter, main_rect, marker_rect, context_pct_milli);
+        }
         if let Some(accent_fill) = agent_accent_color(row.status, row.focused, row.dragging) {
             painter.fill_rect(accent_rect, accent_fill, 0.0);
         }
@@ -289,8 +409,9 @@ pub(crate) fn render_content(
 #[cfg(test)]
 mod tests {
     use super::{
-        agent_accent_color, agent_fill_color, agent_label_color, agent_row_stroke, marker_fill,
-        EVA_CYAN, WORKING_ROW_COLOR,
+        agent_accent_color, agent_fill_color, agent_label_color, agent_row_stroke,
+        context_active_segment_range, context_bar_color, context_segment_count,
+        context_segment_rect, context_track_rect, marker_fill, EVA_CYAN, WORKING_ROW_COLOR,
     };
     use crate::agents::AgentStatus;
 
@@ -328,5 +449,47 @@ mod tests {
             agent_row_stroke(AgentStatus::Working, true, true, true),
             EVA_CYAN
         );
+    }
+
+    #[test]
+    fn context_bar_expands_from_center_to_borders() {
+        let track = context_track_rect(
+            crate::hud::HudRect {
+                x: 10.0,
+                y: 40.0,
+                w: 80.0,
+                h: 30.0,
+            },
+            crate::hud::HudRect {
+                x: 100.0,
+                y: 40.0,
+                w: 12.0,
+                h: 30.0,
+            },
+        );
+        let segment_count = context_segment_count(track);
+        let zero = context_active_segment_range(segment_count, 0);
+        let full = context_active_segment_range(segment_count, 100_000);
+
+        assert_eq!(segment_count % 2, 1);
+        assert_eq!(zero.start(), zero.end());
+        assert_eq!(*zero.start(), segment_count / 2);
+        assert_eq!(*full.start(), 0);
+        assert_eq!(*full.end(), segment_count - 1);
+
+        let top = context_segment_rect(track, 0, segment_count);
+        let bottom = context_segment_rect(track, segment_count - 1, segment_count);
+        assert_eq!(top.y, track.y);
+        assert_eq!(bottom.y + bottom.h, track.y + track.h);
+    }
+
+    #[test]
+    fn context_bar_reaches_hot_red_at_maximum() {
+        let low = context_bar_color(0).to_rgba8();
+        let high = context_bar_color(100_000).to_rgba8();
+
+        assert!(high.r >= low.r);
+        assert!(high.g < low.g);
+        assert!(high.b < low.b);
     }
 }

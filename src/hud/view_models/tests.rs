@@ -1,12 +1,12 @@
 use super::{
-    sync_hud_view_models, sync_info_bar_view_model, AgentListView, ComposerView,
-    ConversationListView, InfoBarView, ThreadView,
+    forced_context_pct_milli_from_env, sync_hud_view_models, sync_info_bar_view_model,
+    AgentListView, ComposerView, ConversationListView, InfoBarView, ThreadView,
 };
 use crate::{
     agents::{AgentCatalog, AgentRuntimeIndex, AgentStatus, AgentStatusStore},
     app::AppSessionState,
     conversations::{AgentTaskStore, ConversationStore, MessageAuthor, MessageDeliveryState},
-    tests::{insert_terminal_manager_resources, test_bridge},
+    tests::{insert_terminal_manager_resources, surface_with_text, test_bridge},
     usage::{ClaudeUsageData, OpenAiUsageData, UsagePersistenceState, UsageSnapshot},
 };
 use bevy::{ecs::system::RunSystemOnce, prelude::*};
@@ -135,6 +135,119 @@ fn sync_hud_view_models_carries_agent_working_status_into_rows() {
 
     let agent_list = world.resource::<AgentListView>();
     assert_eq!(agent_list.rows[0].status, AgentStatus::Working);
+}
+
+#[test]
+fn sync_hud_view_models_parses_pi_footer_context_percentage() {
+    let (bridge, _) = test_bridge();
+    let mut manager = crate::terminals::TerminalManager::default();
+    let terminal_id = manager.create_terminal(bridge);
+    manager
+        .get_mut(terminal_id)
+        .expect("terminal should exist")
+        .snapshot
+        .surface = Some({
+        let mut surface = surface_with_text(8, 120, 0, "header");
+        surface.set_text_cell(
+            0,
+            7,
+            "claude-opus-4-6 (high) Ctx(auto):░░░░░░░░░░(42.5%) Session:██████░░░░(59.0%) Week:█░░░░░░░░░(14.0%) ↑0 ↓0",
+        );
+        surface
+    });
+
+    let mut catalog = AgentCatalog::default();
+    let agent_id = catalog.create_agent(
+        Some("alpha".into()),
+        crate::agents::AgentKind::Pi,
+        crate::agents::AgentKind::Pi.capabilities(),
+    );
+    let mut runtime_index = AgentRuntimeIndex::default();
+    runtime_index.link_terminal(agent_id, terminal_id, "session-1".into(), None);
+
+    let mut world = World::default();
+    world.insert_resource(catalog);
+    world.insert_resource(runtime_index);
+    world.insert_resource(AppSessionState::default());
+    world.insert_resource(AgentTaskStore::default());
+    world.insert_resource(ConversationStore::default());
+    world.insert_resource(AgentListView::default());
+    world.insert_resource(ConversationListView::default());
+    world.insert_resource(ThreadView::default());
+    world.insert_resource(ComposerView::default());
+    world.insert_resource(AgentStatusStore::default());
+    insert_terminal_manager_resources(&mut world, manager);
+
+    world.run_system_once(sync_hud_view_models).unwrap();
+
+    let agent_list = world.resource::<AgentListView>();
+    assert_eq!(agent_list.rows[0].context_pct_milli, Some(42_500));
+}
+
+#[test]
+fn sync_hud_view_models_parses_codex_footer_remaining_context() {
+    let (bridge, _) = test_bridge();
+    let mut manager = crate::terminals::TerminalManager::default();
+    let terminal_id = manager.create_terminal(bridge);
+    manager
+        .get_mut(terminal_id)
+        .expect("terminal should exist")
+        .snapshot
+        .surface = Some({
+        let mut surface = surface_with_text(8, 120, 0, "header");
+        surface.set_text_cell(0, 7, "  gpt-5.4 default · 83% left · ~/code");
+        surface
+    });
+
+    let mut catalog = AgentCatalog::default();
+    let agent_id = catalog.create_agent(
+        Some("codex".into()),
+        crate::agents::AgentKind::Codex,
+        crate::agents::AgentKind::Codex.capabilities(),
+    );
+    let mut runtime_index = AgentRuntimeIndex::default();
+    runtime_index.link_terminal(agent_id, terminal_id, "session-1".into(), None);
+
+    let mut world = World::default();
+    world.insert_resource(catalog);
+    world.insert_resource(runtime_index);
+    world.insert_resource(AppSessionState::default());
+    world.insert_resource(AgentTaskStore::default());
+    world.insert_resource(ConversationStore::default());
+    world.insert_resource(AgentListView::default());
+    world.insert_resource(ConversationListView::default());
+    world.insert_resource(ThreadView::default());
+    world.insert_resource(ComposerView::default());
+    world.insert_resource(AgentStatusStore::default());
+    insert_terminal_manager_resources(&mut world, manager);
+
+    world.run_system_once(sync_hud_view_models).unwrap();
+
+    let agent_list = world.resource::<AgentListView>();
+    assert_eq!(agent_list.rows[0].context_pct_milli, Some(17_000));
+}
+
+#[test]
+fn forced_context_pct_milli_from_env_parses_debug_override() {
+    unsafe {
+        std::env::set_var("NEOZEUS_DEBUG_AGENT_CONTEXT_BAR_PCT", "0");
+    }
+    assert_eq!(forced_context_pct_milli_from_env(), Some(0));
+
+    unsafe {
+        std::env::set_var("NEOZEUS_DEBUG_AGENT_CONTEXT_BAR_PCT", "100");
+    }
+    assert_eq!(forced_context_pct_milli_from_env(), Some(100_000));
+
+    unsafe {
+        std::env::remove_var("NEOZEUS_DEBUG_AGENT_CONTEXT_BAR_PCT");
+        std::env::set_var("NEOZEUS_DEBUG_AGENT_CONTEXT_BAR_FULL", "1");
+    }
+    assert_eq!(forced_context_pct_milli_from_env(), Some(100_000));
+
+    unsafe {
+        std::env::remove_var("NEOZEUS_DEBUG_AGENT_CONTEXT_BAR_FULL");
+    }
 }
 
 fn temp_path(name: &str) -> PathBuf {

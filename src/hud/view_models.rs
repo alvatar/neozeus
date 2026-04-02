@@ -1,12 +1,15 @@
 use crate::{
-    agents::{AgentCatalog, AgentId, AgentRuntimeIndex, AgentStatus, AgentStatusStore},
+    agents::{AgentCatalog, AgentId, AgentKind, AgentRuntimeIndex, AgentStatus, AgentStatusStore},
     app::AppSessionState,
     conversations::{AgentTaskStore, ConversationStore, MessageDeliveryState},
-    terminals::TerminalManager,
+    terminals::{TerminalManager, TerminalSurface},
     usage::{claude_backoff_active, time_left, UsagePersistenceState, UsageSnapshot},
 };
 use bevy::prelude::*;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::{
+    env,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct AgentListRowView {
@@ -17,6 +20,7 @@ pub(crate) struct AgentListRowView {
     pub(crate) has_tasks: bool,
     pub(crate) interactive: bool,
     pub(crate) status: AgentStatus,
+    pub(crate) context_pct_milli: Option<i32>,
 }
 
 #[derive(Resource, Default, Clone, Debug, PartialEq, Eq)]
@@ -115,13 +119,23 @@ pub(crate) fn sync_hud_view_models(
     mut composer_view: ResMut<ComposerView>,
 ) {
     // Rebuild the derived or projected state from the authoritative resources in one pass so partial updates cannot drift.
+    let forced_context_pct_milli = forced_context_pct_milli_from_env();
+
     agent_list.rows = agent_catalog
         .iter()
         .map(|(agent_id, label)| {
             let terminal_id = runtime_index.primary_terminal(agent_id);
-            let interactive = terminal_id
-                .and_then(|terminal_id| terminal_manager.get(terminal_id))
-                .is_some_and(|terminal| terminal.snapshot.runtime.is_interactive());
+            let kind = agent_catalog.kind(agent_id).unwrap_or(AgentKind::Terminal);
+            let terminal = terminal_id.and_then(|terminal_id| terminal_manager.get(terminal_id));
+            let interactive =
+                terminal.is_some_and(|terminal| terminal.snapshot.runtime.is_interactive());
+            let context_pct_milli = forced_context_pct_milli
+                .and_then(|pct_milli| terminal_id.map(|_| pct_milli))
+                .or_else(|| {
+                    terminal
+                        .and_then(|terminal| terminal.snapshot.surface.as_ref())
+                        .and_then(|surface| parse_agent_context_pct_milli(kind, surface))
+                });
             AgentListRowView {
                 agent_id,
                 terminal_id,
@@ -132,6 +146,7 @@ pub(crate) fn sync_hud_view_models(
                     .is_some_and(|text| !text.trim().is_empty()),
                 interactive,
                 status: status_store.status(agent_id),
+                context_pct_milli,
             }
         })
         .collect();
@@ -190,6 +205,71 @@ pub(crate) fn sync_hud_view_models(
     } else {
         String::new()
     };
+}
+
+fn forced_context_pct_milli_from_env() -> Option<i32> {
+    env::var("NEOZEUS_DEBUG_AGENT_CONTEXT_BAR_PCT")
+        .ok()
+        .and_then(|value| parse_percent_milli(&value))
+        .or_else(|| {
+            env::var("NEOZEUS_DEBUG_AGENT_CONTEXT_BAR_FULL")
+                .ok()
+                .filter(|value| value != "0")
+                .map(|_| 100_000)
+        })
+}
+
+fn parse_agent_context_pct_milli(_kind: AgentKind, surface: &TerminalSurface) -> Option<i32> {
+    extract_visible_rows(surface)
+        .into_iter()
+        .rev()
+        .take(8)
+        .find_map(|line| parse_context_pct_milli(&line))
+}
+
+fn parse_context_pct_milli(line: &str) -> Option<i32> {
+    parse_pi_footer_context_pct_milli(line).or_else(|| parse_codex_footer_context_pct_milli(line))
+}
+
+fn parse_pi_footer_context_pct_milli(line: &str) -> Option<i32> {
+    let ctx_start = line.find("Ctx(")?;
+    let tail = &line[ctx_start..];
+    let pct_end = tail.find("%)")?;
+    let pct_start = tail[..pct_end].rfind('(')? + 1;
+    parse_percent_milli(&tail[pct_start..pct_end])
+}
+
+fn parse_codex_footer_context_pct_milli(line: &str) -> Option<i32> {
+    let pct_end = line.find("% left")?;
+    let prefix = line[..pct_end].trim_end();
+    let pct_start = prefix
+        .rfind(|ch: char| !(ch.is_ascii_digit() || ch == '.'))
+        .map_or(0, |index| index + 1);
+    let remaining = parse_percent_milli(prefix[pct_start..].trim())?;
+    Some((100_000 - remaining).clamp(0, 100_000))
+}
+
+fn parse_percent_milli(raw: &str) -> Option<i32> {
+    let pct = raw.trim().parse::<f32>().ok()?;
+    ((0.0..=100.0).contains(&pct)).then_some((pct * 1000.0).round() as i32)
+}
+
+fn extract_visible_rows(surface: &TerminalSurface) -> Vec<String> {
+    (0..surface.rows)
+        .map(|row| row_text(surface, row))
+        .collect::<Vec<_>>()
+}
+
+fn row_text(surface: &TerminalSurface, row: usize) -> String {
+    let mut text = String::new();
+    for col in 0..surface.cols {
+        let cell = surface.cell(col, row);
+        if cell.width == 0 {
+            continue;
+        }
+        text.push_str(&cell.content.to_owned_string());
+    }
+    text.trim_end().to_owned()
 }
 
 /// Derives the render-ready info-bar usage rows from the normalized usage snapshot.
