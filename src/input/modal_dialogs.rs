@@ -86,7 +86,7 @@ pub(super) fn handle_create_agent_dialog_key(
 
     let (changed, clear_error) = match app_session.create_agent_dialog.focus {
         CreateAgentDialogField::Name => (
-            handle_text_field_event(
+            handle_agent_name_field_event(
                 &mut app_session.create_agent_dialog.name_field,
                 event,
                 modifiers,
@@ -169,7 +169,7 @@ pub(super) fn handle_rename_agent_dialog_key(
 
     let (changed, clear_error) = match app_session.rename_agent_dialog.focus {
         RenameAgentDialogField::Name => (
-            handle_text_field_event(
+            handle_agent_name_field_event(
                 &mut app_session.rename_agent_dialog.name_field,
                 event,
                 modifiers,
@@ -482,10 +482,11 @@ fn handle_text_editor_result(changed: bool) -> ModalKeyResult {
 ///
 /// This keeps the form-control behavior intentionally small: no multiline editing, no selection,
 /// and no generic `Tab` handling because dialogs reserve `Tab` for focus traversal.
-fn handle_text_field_event(
+fn handle_text_field_event_impl(
     field: &mut crate::app::TextFieldState,
     event: &KeyboardInput,
     modifiers: KeyModifiers,
+    uppercase_inserted_text: bool,
 ) -> bool {
     if modifiers.ctrl_only() {
         match event.key_code {
@@ -517,11 +518,34 @@ fn handle_text_field_event(
             KeyCode::ArrowUp | KeyCode::ArrowDown | KeyCode::Enter | KeyCode::Tab => false,
             _ => super::message_box_event_text(event)
                 .filter(|text| !text.contains(['\n', '\r', '\t']))
+                .map(|text| {
+                    if uppercase_inserted_text {
+                        crate::agents::uppercase_agent_label_text(&text)
+                    } else {
+                        text
+                    }
+                })
                 .is_some_and(|text| field.insert_text(&text)),
         }
     } else {
         false
     }
+}
+
+fn handle_text_field_event(
+    field: &mut crate::app::TextFieldState,
+    event: &KeyboardInput,
+    modifiers: KeyModifiers,
+) -> bool {
+    handle_text_field_event_impl(field, event, modifiers, false)
+}
+
+fn handle_agent_name_field_event(
+    field: &mut crate::app::TextFieldState,
+    event: &KeyboardInput,
+    modifiers: KeyModifiers,
+) -> bool {
+    handle_text_field_event_impl(field, event, modifiers, true)
 }
 
 #[cfg(test)]

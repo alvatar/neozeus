@@ -73,6 +73,10 @@ pub(crate) struct AgentCatalog {
     pub(crate) order: Vec<AgentId>,
 }
 
+pub(crate) fn uppercase_agent_label_text(text: &str) -> String {
+    text.to_uppercase()
+}
+
 impl AgentCatalog {
     /// Validates that one explicit user-facing create label is non-empty after trimming and unique.
     pub(crate) fn validate_new_label(&self, label: Option<&str>) -> Result<Option<String>, String> {
@@ -189,7 +193,7 @@ impl AgentCatalog {
     fn next_default_label(&self) -> String {
         let mut display_index = self.order.len() + 1;
         loop {
-            let candidate = format!("agent-{display_index}");
+            let candidate = format!("AGENT-{display_index}");
             if !self.label_exists(&candidate, None) {
                 return candidate;
             }
@@ -200,5 +204,5 @@ impl AgentCatalog {
 
 fn normalize_requested_label(label: Option<&str>) -> Option<String> {
     let label = label.map(str::trim)?;
-    (!label.is_empty()).then(|| label.to_owned())
+    (!label.is_empty()).then(|| uppercase_agent_label_text(label))
 }
