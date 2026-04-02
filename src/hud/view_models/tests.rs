@@ -138,6 +138,45 @@ fn sync_hud_view_models_carries_agent_working_status_into_rows() {
 }
 
 #[test]
+fn sync_hud_view_models_defaults_missing_context_to_full() {
+    let (bridge, _) = test_bridge();
+    let mut manager = crate::terminals::TerminalManager::default();
+    let terminal_id = manager.create_terminal(bridge);
+    manager
+        .get_mut(terminal_id)
+        .expect("terminal should exist")
+        .snapshot
+        .surface = Some(surface_with_text(8, 120, 0, "header"));
+
+    let mut catalog = AgentCatalog::default();
+    let agent_id = catalog.create_agent(
+        Some("alpha".into()),
+        crate::agents::AgentKind::Terminal,
+        crate::agents::AgentKind::Terminal.capabilities(),
+    );
+    let mut runtime_index = AgentRuntimeIndex::default();
+    runtime_index.link_terminal(agent_id, terminal_id, "session-1".into(), None);
+
+    let mut world = World::default();
+    world.insert_resource(catalog);
+    world.insert_resource(runtime_index);
+    world.insert_resource(AppSessionState::default());
+    world.insert_resource(AgentTaskStore::default());
+    world.insert_resource(ConversationStore::default());
+    world.insert_resource(AgentListView::default());
+    world.insert_resource(ConversationListView::default());
+    world.insert_resource(ThreadView::default());
+    world.insert_resource(ComposerView::default());
+    world.insert_resource(AgentStatusStore::default());
+    insert_terminal_manager_resources(&mut world, manager);
+
+    world.run_system_once(sync_hud_view_models).unwrap();
+
+    let agent_list = world.resource::<AgentListView>();
+    assert_eq!(agent_list.rows[0].context_pct_milli, Some(100_000));
+}
+
+#[test]
 fn sync_hud_view_models_parses_pi_footer_context_percentage() {
     let (bridge, _) = test_bridge();
     let mut manager = crate::terminals::TerminalManager::default();
