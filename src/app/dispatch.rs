@@ -172,6 +172,30 @@ pub(super) fn apply_app_commands(
                         ctx.app_session.create_agent_dialog.close();
                     }
                 }
+                AgentCommand::Rename { agent_id, label } => {
+                    match ctx.agent_catalog.validate_rename_label(*agent_id, label) {
+                        Ok(label) => match ctx.agent_catalog.rename_agent(*agent_id, label) {
+                            Ok(()) => {
+                                ctx.app_session.rename_agent_dialog.close();
+                                mark_app_state_dirty(
+                                    &mut ctx.app_state_persistence,
+                                    Some(&ctx.time),
+                                );
+                                ctx.redraws.write(RequestRedraw);
+                            }
+                            Err(error) => {
+                                ctx.app_session.rename_agent_dialog.error = Some(error.clone());
+                                append_debug_log(format!("rename agent failed: {error}"));
+                                ctx.redraws.write(RequestRedraw);
+                            }
+                        },
+                        Err(error) => {
+                            ctx.app_session.rename_agent_dialog.error = Some(error.clone());
+                            append_debug_log(format!("rename agent failed: {error}"));
+                            ctx.redraws.write(RequestRedraw);
+                        }
+                    }
+                }
                 AgentCommand::Focus(agent_id) => {
                     ctx.app_session.visibility_mode = VisibilityMode::ShowAll;
                     use_cases::focus_agent(

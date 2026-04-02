@@ -1,5 +1,8 @@
 use crate::{
-    app::{AppCommand, AppSessionState, ComposerCommand, CreateAgentDialogField},
+    app::{
+        AppCommand, AppSessionState, ComposerCommand, CreateAgentDialogField,
+        RenameAgentDialogField,
+    },
     composer::{MessageDialogFocus, TaskDialogFocus},
 };
 use bevy::{
@@ -140,6 +143,54 @@ pub(super) fn handle_create_agent_dialog_key(
     if changed {
         if clear_error {
             app_session.create_agent_dialog.error = None;
+        }
+        ModalKeyResult::redraw()
+    } else {
+        ModalKeyResult::default()
+    }
+}
+
+/// Handles one key press while the rename-agent dialog owns keyboard capture.
+pub(super) fn handle_rename_agent_dialog_key(
+    app_session: &mut AppSessionState,
+    event: &KeyboardInput,
+    modifiers: KeyModifiers,
+    emitted_commands: &mut Vec<AppCommand>,
+) -> ModalKeyResult {
+    if event.key_code == KeyCode::Escape {
+        app_session.rename_agent_dialog.close();
+        return ModalKeyResult::redraw_and_stop();
+    }
+
+    if modifiers.plain() && event.key_code == KeyCode::Tab {
+        app_session.rename_agent_dialog.cycle_focus(modifiers.shift);
+        return ModalKeyResult::redraw();
+    }
+
+    let (changed, clear_error) = match app_session.rename_agent_dialog.focus {
+        RenameAgentDialogField::Name => (
+            handle_text_field_event(
+                &mut app_session.rename_agent_dialog.name_field,
+                event,
+                modifiers,
+            ),
+            true,
+        ),
+        RenameAgentDialogField::RenameButton => {
+            if modifiers.plain() && matches!(event.key_code, KeyCode::Enter | KeyCode::Space) {
+                if let Some(command) = app_session.rename_agent_dialog.build_rename_command() {
+                    emitted_commands.push(command);
+                }
+                (true, false)
+            } else {
+                (false, false)
+            }
+        }
+    };
+
+    if changed {
+        if clear_error {
+            app_session.rename_agent_dialog.error = None;
         }
         ModalKeyResult::redraw()
     } else {

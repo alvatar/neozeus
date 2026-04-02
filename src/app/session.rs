@@ -4,7 +4,8 @@ use crate::{agents::AgentId, hud::HudInputCaptureState, terminals::TerminalId};
 use bevy::prelude::Resource;
 
 pub(crate) use create_agent_dialog::{
-    CreateAgentDialogField, CreateAgentDialogState, CreateAgentKind, TextFieldState,
+    CreateAgentDialogField, CreateAgentDialogState, CreateAgentKind, RenameAgentDialogField,
+    RenameAgentDialogState, TextFieldState,
 };
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -20,6 +21,7 @@ pub(crate) struct AppSessionState {
     pub(crate) visibility_mode: VisibilityMode,
     pub(crate) composer: crate::composer::ComposerState,
     pub(crate) create_agent_dialog: CreateAgentDialogState,
+    pub(crate) rename_agent_dialog: RenameAgentDialogState,
     pub(crate) direct_input_terminal: Option<TerminalId>,
 }
 
@@ -28,6 +30,7 @@ impl AppSessionState {
     pub(crate) fn keyboard_capture_active(&self, input_capture: &HudInputCaptureState) -> bool {
         self.composer.keyboard_capture_active(input_capture)
             || self.create_agent_dialog.keyboard_capture_active()
+            || self.rename_agent_dialog.keyboard_capture_active()
     }
 
     /// Returns whether any HUD modal is visible.
@@ -35,6 +38,7 @@ impl AppSessionState {
         self.composer.message_editor.visible
             || self.composer.task_editor.visible
             || self.create_agent_dialog.visible
+            || self.rename_agent_dialog.visible
     }
 }
 
