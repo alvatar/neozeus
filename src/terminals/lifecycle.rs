@@ -96,22 +96,24 @@ pub(crate) fn kill_active_terminal_session_and_remove(
         return Ok(None);
     };
     if let Err(error) = runtime_spawner.kill_session(&session_name) {
-        let daemon_session_stopped = match daemon_runtime_after_kill_attempt(
-            runtime_spawner,
-            &session_name,
-        ) {
-            Ok(daemon_runtime) => daemon_runtime
-                .as_ref()
-                .is_none_or(|runtime| !runtime.is_interactive()),
-            Err(query_error) => {
-                append_debug_log(format!(
-                    "failed to verify daemon runtime for {session_name} after kill error: {query_error}"
-                ));
-                false
+        if runtime_state.is_interactive() {
+            let daemon_session_stopped = match daemon_runtime_after_kill_attempt(
+                runtime_spawner,
+                &session_name,
+            ) {
+                Ok(daemon_runtime) => daemon_runtime
+                    .as_ref()
+                    .is_none_or(|runtime| !runtime.is_interactive()),
+                Err(query_error) => {
+                    append_debug_log(format!(
+                        "failed to verify daemon runtime for {session_name} after kill error: {query_error}"
+                    ));
+                    false
+                }
+            };
+            if !daemon_session_stopped {
+                return Err(error);
             }
-        };
-        if runtime_state.is_interactive() && !daemon_session_stopped {
-            return Err(error);
         }
         append_debug_log(format!(
             "best-effort kill failed after terminal already stopped {session_name}: {error}"
@@ -119,8 +121,6 @@ pub(crate) fn kill_active_terminal_session_and_remove(
     }
 
     remove_terminal_with_projection(terminal_manager, focus_state, active_id);
-    #[cfg(test)]
-    terminal_manager.replace_test_focus_state(focus_state);
     mark_app_state_dirty(app_state_persistence, Some(time));
     Ok(Some((active_id, session_name)))
 }
