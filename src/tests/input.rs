@@ -618,6 +618,52 @@ fn exit_application_shortcut_only_uses_plain_f10() {
     assert!(!should_exit_application(&event, &alt_keys));
 }
 
+/// Verifies that one plain `Ctrl+k` removes a disconnected active terminal in one shot.
+#[test]
+fn ctrl_k_removes_disconnected_active_terminal_in_one_press() {
+    let client = std::sync::Arc::new(FakeDaemonClient::default());
+    *client.fail_kill.lock().unwrap() = true;
+    let (mut world, terminal_id) =
+        world_with_active_terminal(Vec2::new(10.0, 10.0), false, Vec2::ZERO);
+    world.insert_resource(fake_runtime_spawner(client));
+    let agent_id = world
+        .resource::<AgentRuntimeIndex>()
+        .agent_for_terminal(terminal_id)
+        .expect("agent should be linked");
+    world.resource_mut::<AppSessionState>().active_agent = Some(agent_id);
+    world
+        .resource_mut::<TerminalManager>()
+        .get_mut(terminal_id)
+        .expect("terminal should exist")
+        .snapshot
+        .runtime = crate::terminals::TerminalRuntimeState::disconnected("dead session");
+
+    let mut keys = ButtonInput::<KeyCode>::default();
+    keys.press(KeyCode::ControlLeft);
+    world.insert_resource(keys);
+    world.init_resource::<Messages<KeyboardInput>>();
+    world.init_resource::<Messages<AppExit>>();
+    world
+        .resource_mut::<Messages<KeyboardInput>>()
+        .write(pressed_text(KeyCode::KeyK, Some("k")));
+
+    world
+        .run_system_once(handle_terminal_lifecycle_shortcuts)
+        .unwrap();
+    run_app_command_cycle(&mut world);
+
+    assert!(world
+        .resource::<TerminalManager>()
+        .terminal_ids()
+        .is_empty());
+    assert_eq!(
+        world
+            .resource::<crate::terminals::TerminalFocusState>()
+            .active_id(),
+        None
+    );
+}
+
 /// Verifies that the lifecycle shortcut handler turns `F10` into an app-exit message.
 #[test]
 fn f10_enqueues_app_exit() {
