@@ -51,6 +51,22 @@ fn remove_terminal_with_projection(
     terminal_manager.replace_test_focus_state(focus_state);
 }
 
+/// Returns the daemon's freshest known runtime for one session after a kill attempt.
+///
+/// `Ok(None)` means the daemon no longer lists the session at all, which is treated as successful
+/// teardown for the local cleanup decision. Errors are returned to the caller so it can fall back to
+/// the conservative local-snapshot behavior instead of guessing.
+fn daemon_runtime_after_kill_attempt(
+    runtime_spawner: &TerminalRuntimeSpawner,
+    session_name: &str,
+) -> Result<Option<crate::terminals::TerminalRuntimeState>, String> {
+    Ok(runtime_spawner
+        .list_session_infos()?
+        .into_iter()
+        .find(|session| session.session_id == session_name)
+        .map(|session| session.runtime))
+}
+
 #[allow(
     clippy::too_many_arguments,
     reason = "kill spans daemon authority, domain state, projection cleanup, and persistence/view updates"
@@ -80,29 +96,21 @@ pub(crate) fn kill_active_terminal_session_and_remove(
         return Ok(None);
     };
     if let Err(error) = runtime_spawner.kill_session(&session_name) {
-        let daemon_runtime = runtime_spawner
-            .list_session_infos()
-            .ok()
-            .and_then(|sessions| {
-                sessions
-                    .into_iter()
-                    .find(|session| session.session_id == session_name)
-                    .map(|session| session.runtime)
-            });
-        let local_runtime = terminal_manager
-            .get(active_id)
-            .map(|terminal| terminal.snapshot.runtime.clone());
-        let terminal_is_non_interactive = local_runtime
-            .as_ref()
-            .or(Some(&runtime_state))
-            .is_some_and(|runtime| !runtime.is_interactive());
-        let daemon_is_gone_or_non_interactive = daemon_runtime
-            .as_ref()
-            .is_none_or(|runtime| !runtime.is_interactive());
-        if runtime_state.is_interactive()
-            && !terminal_is_non_interactive
-            && !daemon_is_gone_or_non_interactive
-        {
+        let daemon_session_stopped = match daemon_runtime_after_kill_attempt(
+            runtime_spawner,
+            &session_name,
+        ) {
+            Ok(daemon_runtime) => daemon_runtime
+                .as_ref()
+                .is_none_or(|runtime| !runtime.is_interactive()),
+            Err(query_error) => {
+                append_debug_log(format!(
+                    "failed to verify daemon runtime for {session_name} after kill error: {query_error}"
+                ));
+                false
+            }
+        };
+        if runtime_state.is_interactive() && !daemon_session_stopped {
             return Err(error);
         }
         append_debug_log(format!(

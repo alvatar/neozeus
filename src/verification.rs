@@ -1,6 +1,6 @@
 use crate::{
     agents::{AgentCapabilities, AgentCatalog, AgentKind, AgentRuntimeIndex},
-    app::{AgentCommand as AppAgentCommand, AppCommand, AppSessionState},
+    app::AppSessionState,
     conversations::AgentTaskStore,
     hud::{HudInputCaptureState, TerminalVisibilityPolicy, TerminalVisibilityState},
     terminals::{
@@ -42,7 +42,6 @@ pub(crate) enum VerificationScenario {
     TaskDialogBloom,
     AgentListBloom,
     InspectSwitchLatency,
-    KillDisconnectedTerminal,
 }
 
 /// Parses the named built-in verification scenario from an optional raw string.
@@ -62,9 +61,6 @@ fn resolve_verification_scenario(raw: Option<&str>) -> Option<VerificationScenar
         }
         Some(value) if value.eq_ignore_ascii_case("inspect-switch-latency") => {
             Some(VerificationScenario::InspectSwitchLatency)
-        }
-        Some(value) if value.eq_ignore_ascii_case("kill-disconnected-terminal") => {
-            Some(VerificationScenario::KillDisconnectedTerminal)
         }
         _ => None,
     }
@@ -207,7 +203,6 @@ struct VerificationScenarioContext<'w> {
     view_state: ResMut<'w, TerminalViewState>,
     notes_state: ResMut<'w, TerminalNotesState>,
     redraws: MessageWriter<'w, RequestRedraw>,
-    app_commands: MessageWriter<'w, AppCommand>,
 }
 
 /// Advances the deterministic verification-scenario state machine during update.
@@ -399,54 +394,6 @@ pub(crate) fn run_verification_scenario(world: &mut World) {
                 .focus_terminal(&ctx.terminal_manager, second);
             ctx.visibility_state.policy = TerminalVisibilityPolicy::Isolate(second);
             ctx.view_state.focus_terminal(Some(second));
-        }
-        VerificationScenario::KillDisconnectedTerminal => {
-            let terminal_id = config.terminal_ids[0];
-            ctx.app_session.composer.discard_current_message();
-            ctx.app_session.composer.close_task_editor();
-            ctx.input_capture.close_direct_terminal_input();
-            if !config.primed {
-                let Some(agent_id) = ctx.runtime_index.agent_for_terminal(terminal_id) else {
-                    finish!();
-                };
-                let Some(session_name) = ctx
-                    .terminal_manager
-                    .get(terminal_id)
-                    .map(|terminal| terminal.session_name.clone())
-                else {
-                    finish!();
-                };
-                ctx.app_session.active_agent = Some(agent_id);
-                ctx.focus_state
-                    .focus_terminal(&ctx.terminal_manager, terminal_id);
-                ctx.visibility_state.policy = TerminalVisibilityPolicy::Isolate(terminal_id);
-                ctx.view_state.focus_terminal(Some(terminal_id));
-                let _ = ctx.runtime_spawner.kill_session(&session_name);
-                ctx.app_commands
-                    .write(AppCommand::Agent(AppAgentCommand::KillActive));
-                config.primed = true;
-                #[cfg(test)]
-                ctx.terminal_manager
-                    .replace_test_focus_state(&ctx.focus_state);
-                ctx.redraws.write(RequestRedraw);
-                finish!();
-            }
-            if ctx.terminal_manager.get(terminal_id).is_none()
-                || ctx.runtime_index.agent_for_terminal(terminal_id).is_none()
-            {
-                config.applied = true;
-                #[cfg(test)]
-                ctx.terminal_manager
-                    .replace_test_focus_state(&ctx.focus_state);
-                append_debug_log(format!(
-                    "verification scenario applied: {:?}",
-                    config.scenario
-                ));
-                ctx.redraws.write(RequestRedraw);
-                finish!();
-            }
-            ctx.redraws.write(RequestRedraw);
-            finish!();
         }
     }
     #[cfg(test)]

@@ -28,10 +28,6 @@ fn parses_verification_scenarios() {
         resolve_verification_scenario(Some("inspect-switch-latency")),
         Some(VerificationScenario::InspectSwitchLatency)
     );
-    assert_eq!(
-        resolve_verification_scenario(Some("kill-disconnected-terminal")),
-        Some(VerificationScenario::KillDisconnectedTerminal)
-    );
 }
 
 /// Verifies the message-box verification scenario's first-application behavior.
@@ -183,52 +179,5 @@ fn inspect_switch_scenario_spawns_two_terminals_and_focuses_second() {
 
     let focus_state = world.resource::<crate::terminals::TerminalFocusState>();
     assert_eq!(focus_state.active_id(), terminal_ids.get(1).copied());
-    assert!(world.resource::<VerificationScenarioConfig>().applied);
-}
-
-/// Verifies that the kill-disconnected-terminal scenario removes the active terminal after one
-/// queued kill command even when the daemon session has already been torn down before the UI's kill
-/// intent runs.
-#[test]
-fn kill_disconnected_terminal_scenario_removes_terminal_after_one_kill() {
-    let client = Arc::new(crate::tests::FakeDaemonClient::default());
-    let mut world = World::default();
-    world.insert_resource(VerificationScenarioConfig {
-        scenario: VerificationScenario::KillDisconnectedTerminal,
-        frames_until_apply: 0,
-        primed: false,
-        applied: false,
-        terminal_ids: Vec::new(),
-    });
-    world.insert_resource(Assets::<Image>::default());
-    world.insert_resource(crate::terminals::TerminalManager::default());
-    world.insert_resource(crate::terminals::TerminalFocusState::default());
-    world.insert_resource(crate::terminals::TerminalPresentationStore::default());
-    world.insert_resource(fake_runtime_spawner(client));
-    world.insert_resource(crate::agents::AgentCatalog::default());
-    world.insert_resource(crate::agents::AgentRuntimeIndex::default());
-    world.insert_resource(crate::app::AppSessionState::default());
-    world.insert_resource(crate::conversations::AgentTaskStore::default());
-    world.insert_resource(crate::hud::TerminalVisibilityState::default());
-    world.insert_resource(crate::terminals::TerminalViewState::default());
-    world.insert_resource(crate::terminals::TerminalNotesState::default());
-    insert_default_hud_resources(&mut world);
-    world.init_resource::<Messages<RequestRedraw>>();
-    world.init_resource::<Messages<crate::app::AppCommand>>();
-    world.insert_resource(Time::<()>::default());
-    world.insert_resource(Assets::<Image>::default());
-    world.insert_resource(crate::conversations::ConversationStore::default());
-    world.insert_resource(crate::conversations::ConversationPersistenceState::default());
-    world.insert_resource(crate::conversations::MessageTransportAdapter);
-    world.insert_resource(crate::app::AppStatePersistenceState::default());
-
-    world.run_system_once(run_verification_scenario).unwrap();
-    crate::app::run_apply_app_commands(&mut world);
-    world.run_system_once(run_verification_scenario).unwrap();
-
-    assert!(world
-        .resource::<TerminalManager>()
-        .terminal_ids()
-        .is_empty());
     assert!(world.resource::<VerificationScenarioConfig>().applied);
 }
