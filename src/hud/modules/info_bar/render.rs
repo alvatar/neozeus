@@ -1,4 +1,4 @@
-use super::super::super::render::{HudColors, HudPainter, HudRenderInputs};
+use super::super::super::render::{interpolate_color, HudColors, HudPainter, HudRenderInputs};
 use super::super::super::state::HudRect;
 use super::super::super::view_models::UsageBarView;
 use bevy::prelude::Vec2;
@@ -90,22 +90,10 @@ pub(in crate::hud) fn usage_gradient_color(pct: f32) -> peniko::Color {
     let mid = HudColors::TEXT;
     let high = peniko::Color::from_rgba8(255, 96, 48, 255);
     if clamped < 0.70 {
-        mix_color(low, mid, clamped / 0.70)
+        interpolate_color(low, mid, clamped / 0.70)
     } else {
-        mix_color(mid, high, (clamped - 0.70) / 0.30)
+        interpolate_color(mid, high, (clamped - 0.70) / 0.30)
     }
-}
-
-fn mix_color(a: peniko::Color, b: peniko::Color, t: f32) -> peniko::Color {
-    let a = a.to_rgba8();
-    let b = b.to_rgba8();
-    let t = t.clamp(0.0, 1.0);
-    peniko::Color::from_rgba8(
-        (a.r as f32 + (b.r as f32 - a.r as f32) * t).round() as u8,
-        (a.g as f32 + (b.g as f32 - a.g as f32) * t).round() as u8,
-        (a.b as f32 + (b.b as f32 - a.b as f32) * t).round() as u8,
-        (a.a as f32 + (b.a as f32 - a.a as f32) * t).round() as u8,
-    )
 }
 
 /// Chooses the density policy for the current info-bar width while keeping the reference layout.
@@ -355,7 +343,7 @@ fn render_usage_bar(bar_rect: HudRect, pct: f32, painter: &mut HudPainter) {
                 w: 1.0,
                 h: bar_rect.h,
             },
-            mix_color(INFO_BAR_TRACK_SEPARATOR, INFO_BAR_TRACK_COLOR, 0.3),
+            interpolate_color(INFO_BAR_TRACK_SEPARATOR, INFO_BAR_TRACK_COLOR, 0.3),
             0.0,
         );
     }

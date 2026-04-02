@@ -1,6 +1,8 @@
 use crate::agents::AgentStatus;
 
-use super::super::super::render::{apply_alpha, HudColors, HudPainter, HudRenderInputs};
+use super::super::super::render::{
+    apply_alpha, interpolate_color, HudColors, HudPainter, HudRenderInputs,
+};
 use super::super::super::state::{AgentListUiState, HudRect, HUD_MODULE_PADDING};
 use bevy::prelude::Vec2;
 use bevy_vello::{prelude::VelloTextAnchor, vello::peniko};
@@ -175,27 +177,15 @@ fn context_active_segment_range(
     (center - radius)..=(center + radius)
 }
 
-fn mix_color(a: peniko::Color, b: peniko::Color, t: f32) -> peniko::Color {
-    let a = a.to_rgba8();
-    let b = b.to_rgba8();
-    let t = t.clamp(0.0, 1.0);
-    peniko::Color::from_rgba8(
-        (a.r as f32 + (b.r as f32 - a.r as f32) * t).round() as u8,
-        (a.g as f32 + (b.g as f32 - a.g as f32) * t).round() as u8,
-        (a.b as f32 + (b.b as f32 - a.b as f32) * t).round() as u8,
-        (a.a as f32 + (b.a as f32 - a.a as f32) * t).round() as u8,
-    )
-}
-
 fn context_bar_color(pct_milli: i32) -> peniko::Color {
     let clamped = pct_milli.clamp(0, 100_000) as f32 / 100_000.0;
     let low = peniko::Color::from_rgba8(216, 160, 96, 255);
     let mid = peniko::Color::from_rgba8(255, 148, 64, 255);
     let high = peniko::Color::from_rgba8(255, 36, 28, 255);
     if clamped < 0.60 {
-        mix_color(low, mid, clamped / 0.60)
+        interpolate_color(low, mid, clamped / 0.60)
     } else {
-        mix_color(mid, high, (clamped - 0.60) / 0.40)
+        interpolate_color(mid, high, (clamped - 0.60) / 0.40)
     }
 }
 

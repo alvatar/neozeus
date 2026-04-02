@@ -65,6 +65,19 @@ pub(crate) fn apply_alpha(color: peniko::Color, factor: f32) -> peniko::Color {
     peniko::Color::from_rgba8(rgba.r, rgba.g, rgba.b, alpha)
 }
 
+/// Linearly interpolates between two HUD colors in RGBA space.
+pub(crate) fn interpolate_color(a: peniko::Color, b: peniko::Color, t: f32) -> peniko::Color {
+    let a = a.to_rgba8();
+    let b = b.to_rgba8();
+    let t = t.clamp(0.0, 1.0);
+    peniko::Color::from_rgba8(
+        (a.r as f32 + (b.r as f32 - a.r as f32) * t).round() as u8,
+        (a.g as f32 + (b.g as f32 - a.g as f32) * t).round() as u8,
+        (a.b as f32 + (b.b as f32 - a.b as f32) * t).round() as u8,
+        (a.a as f32 + (b.a as f32 - a.a as f32) * t).round() as u8,
+    )
+}
+
 /// Converts a HUD-space point into Vello scene coordinates centered on the window.
 ///
 /// HUD layout uses a top-left origin; the vector scene is centered at window midpoint.
