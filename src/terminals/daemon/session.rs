@@ -201,9 +201,16 @@ impl DaemonSession {
         let Some(shutdown_rx) = shutdown_rx else {
             return Ok(());
         };
-        shutdown_rx
-            .recv_timeout(DAEMON_KILL_WAIT_TIMEOUT)
-            .map_err(|_| format!("daemon session `{}` kill timed out", self.session_id))?
+        match shutdown_rx.recv_timeout(DAEMON_KILL_WAIT_TIMEOUT) {
+            Ok(Ok(())) => Ok(()),
+            Ok(Err(error)) if !self.current_runtime().is_interactive() => Ok(()),
+            Ok(Err(error)) => Err(error),
+            Err(_) => Err(format!("daemon session `{}` kill timed out", self.session_id)),
+        }
+    }
+
+    fn current_runtime(&self) -> TerminalRuntimeState {
+        lock(&self.state).snapshot.runtime.clone()
     }
 }
 
@@ -722,5 +729,56 @@ fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     match mutex.lock() {
         Ok(guard) => guard,
         Err(poisoned) => poisoned.into_inner(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn session_with_shutdown_result(
+        runtime: TerminalRuntimeState,
+        result: Result<(), String>,
+    ) -> DaemonSession {
+        let (command_tx, _command_rx) = mpsc::channel();
+        let (shutdown_tx, shutdown_rx) = mpsc::channel();
+        shutdown_tx.send(result).expect("shutdown result should send");
+        DaemonSession {
+            session_id: "test-session".into(),
+            created_order: 1,
+            state: Arc::new(Mutex::new(DaemonSessionState {
+                snapshot: TerminalSnapshot {
+                    surface: None,
+                    runtime,
+                },
+                revision: 0,
+                subscribers: HashMap::new(),
+            })),
+            command_tx,
+            shutdown_rx: Mutex::new(Some(shutdown_rx)),
+        }
+    }
+
+    #[test]
+    fn kill_ignores_worker_error_when_runtime_is_already_non_interactive() {
+        let session = session_with_shutdown_result(
+            TerminalRuntimeState::disconnected("dead session"),
+            Err("daemon session kill failed: already exited".into()),
+        );
+
+        assert_eq!(session.kill(), Ok(()));
+    }
+
+    #[test]
+    fn kill_propagates_worker_error_when_runtime_is_still_interactive() {
+        let session = session_with_shutdown_result(
+            TerminalRuntimeState::running("daemon"),
+            Err("daemon session kill failed: transport error".into()),
+        );
+
+        assert_eq!(
+            session.kill(),
+            Err("daemon session kill failed: transport error".into())
+        );
     }
 }
