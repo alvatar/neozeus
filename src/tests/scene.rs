@@ -550,6 +550,62 @@ fn startup_leaves_only_disconnected_sessions_visible_and_unfocused() {
     assert_eq!(client.sessions.lock().unwrap().len(), 1);
 }
 
+/// Verifies that startup reaps an unpersisted disconnected persistent session instead of importing
+/// it back as a dead agent, then falls back to spawning a fresh initial terminal.
+#[test]
+fn startup_reaps_unpersisted_disconnected_session_instead_of_restoring_it() {
+    let client = Arc::new(crate::tests::FakeDaemonClient::default());
+    client.set_session_runtime(
+        "neozeus-session-dead",
+        crate::terminals::TerminalRuntimeState::disconnected("dead session"),
+    );
+
+    let mut world = World::default();
+    world.insert_resource(Assets::<Image>::default());
+    world.insert_resource(crate::terminals::TerminalManager::default());
+    world.insert_resource(crate::terminals::TerminalFocusState::default());
+    world.insert_resource(crate::terminals::TerminalPresentationStore::default());
+    world.insert_resource(crate::agents::AgentCatalog::default());
+    world.insert_resource(crate::agents::AgentRuntimeIndex::default());
+    world.insert_resource(crate::app::AppSessionState::default());
+    world.insert_resource(crate::conversations::ConversationStore::default());
+    world.insert_resource(crate::conversations::ConversationPersistenceState::default());
+    world.insert_resource(crate::hud::HudInputCaptureState::default());
+    world.insert_resource(crate::terminals::TerminalViewState::default());
+    world.init_resource::<Messages<RequestRedraw>>();
+    world.insert_resource(Time::<()>::default());
+    world.insert_resource(fake_runtime_spawner(client.clone()));
+    world.insert_resource(crate::app::AppStatePersistenceState::default());
+    world.insert_resource(crate::terminals::TerminalNotesState::default());
+    world.insert_resource(crate::hud::TerminalVisibilityState::default());
+    world.insert_resource(crate::startup::StartupConnectState::default());
+
+    world.run_system_once(crate::startup::setup_scene).unwrap();
+
+    let manager = world.resource::<crate::terminals::TerminalManager>();
+    assert_eq!(manager.terminal_ids().len(), 1);
+    let session_names = manager
+        .terminal_ids()
+        .iter()
+        .map(|terminal_id| {
+            manager
+                .get(*terminal_id)
+                .expect("terminal should exist")
+                .session_name
+                .clone()
+        })
+        .collect::<Vec<_>>();
+    assert!(!session_names
+        .iter()
+        .any(|name| name == "neozeus-session-dead"));
+    assert!(!client
+        .sessions
+        .lock()
+        .unwrap()
+        .contains("neozeus-session-dead"));
+    assert_eq!(client.created_sessions.lock().unwrap().len(), 1);
+}
+
 /// Verifies the cold-start fallback path that spawns a brand-new initial terminal when restore/import
 /// finds nothing usable.
 #[test]

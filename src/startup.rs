@@ -306,9 +306,15 @@ pub(crate) fn setup_scene(world: &mut World) {
         TerminalHudSurfaceMarker,
     ));
 
-    ctx.app_state_persistence.path = resolve_app_state_path();
-    ctx.notes_state.path = resolve_terminal_notes_path();
-    ctx.conversation_persistence.path = resolve_conversations_path();
+    if ctx.app_state_persistence.path.is_none() {
+        ctx.app_state_persistence.path = resolve_app_state_path();
+    }
+    if ctx.notes_state.path.is_none() {
+        ctx.notes_state.path = resolve_terminal_notes_path();
+    }
+    if ctx.conversation_persistence.path.is_none() {
+        ctx.conversation_persistence.path = resolve_conversations_path();
+    }
     if let Some(path) = ctx.notes_state.path.as_ref() {
         let notes = crate::terminals::load_terminal_notes_from(path);
         ctx.notes_state.load(notes);

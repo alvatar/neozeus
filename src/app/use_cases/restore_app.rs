@@ -81,11 +81,35 @@ pub(crate) fn restore_app(
         .map(|session| session.session_id.clone())
         .collect::<Vec<_>>();
     let (restore, import, prune) = reconcile_persisted_agents(&persisted, &live_sessions);
-    if !prune.is_empty() || !import.is_empty() {
+    let live_session_lookup = live_session_infos
+        .iter()
+        .map(|session| (session.session_id.as_str(), session))
+        .collect::<std::collections::HashMap<_, _>>();
+    let mut importable = Vec::new();
+    for record in import {
+        let keep = live_session_lookup
+            .get(record.session_name.as_str())
+            .is_some_and(|session| startup_focus_candidate_is_interactive(session));
+        if keep {
+            importable.push(record);
+            continue;
+        }
+        match runtime_spawner.kill_session(&record.session_name) {
+            Ok(()) => append_debug_log(format!(
+                "startup reaped disconnected unpersisted session {}",
+                record.session_name
+            )),
+            Err(error) => append_debug_log(format!(
+                "startup skipped disconnected unpersisted session {} after reap failed: {error}",
+                record.session_name
+            )),
+        }
+    }
+    if !prune.is_empty() || !importable.is_empty() {
         mark_app_state_dirty(app_state_persistence, None);
     }
 
-    for record in ordered_reconciled_persisted_agents(&restore, &import) {
+    for record in ordered_reconciled_persisted_agents(&restore, &importable) {
         let startup_loading_slot = startup_loading.as_deref_mut();
         if let Err(error) = attach_restored_terminal(
             agent_catalog,
@@ -113,10 +137,6 @@ pub(crate) fn restore_app(
         }
     }
 
-    let live_session_lookup = live_session_infos
-        .iter()
-        .map(|session| (session.session_id.as_str(), session))
-        .collect::<std::collections::HashMap<_, _>>();
     let restored_focus_session = restore
         .iter()
         .find(|record| {
@@ -135,13 +155,8 @@ pub(crate) fn restore_app(
         })
         .map(|record| record.session_name.as_str())
         .collect::<Vec<_>>();
-    let imported_session_names = import
+    let imported_session_names = importable
         .iter()
-        .filter(|record| {
-            live_session_lookup
-                .get(record.session_name.as_str())
-                .is_some_and(|session| startup_focus_candidate_is_interactive(session))
-        })
         .map(|record| record.session_name.as_str())
         .collect::<Vec<_>>();
 
