@@ -1,10 +1,11 @@
 use crate::{
-    app::{AppSessionState, CreateAgentDialogField, TextFieldState},
+    app::{AppSessionState, CreateAgentDialogField, RenameAgentDialogField, TextFieldState},
     composer::{
         create_agent_create_button_rect, create_agent_dialog_rect, create_agent_kind_option_rects,
         create_agent_name_field_rect, create_agent_starting_folder_rect,
-        message_box_action_buttons, message_box_rect, task_dialog_action_buttons, task_dialog_rect,
-        MessageDialogFocus, TaskDialogFocus, TextEditorState,
+        message_box_action_buttons, message_box_rect, rename_agent_dialog_rect,
+        rename_agent_name_field_rect, rename_agent_submit_button_rect, task_dialog_action_buttons,
+        task_dialog_rect, MessageDialogFocus, TaskDialogFocus, TextEditorState,
     },
     startup::StartupConnectState,
 };
@@ -672,6 +673,63 @@ fn draw_create_agent_dialog(
     }
 }
 
+/// Draws the centered rename-agent dialog modal.
+fn draw_rename_agent_dialog(
+    painter: &mut HudPainter,
+    window: &Window,
+    app_session: &AppSessionState,
+) {
+    if !app_session.rename_agent_dialog.visible {
+        return;
+    }
+
+    let dialog = &app_session.rename_agent_dialog;
+    let rect = rename_agent_dialog_rect(window);
+    let name_rect = rename_agent_name_field_rect(window);
+    let rename_rect = rename_agent_submit_button_rect(window);
+
+    painter.fill_rect(rect, HudColors::MESSAGE_BOX, 12.0);
+    painter.stroke_rect(rect, HudColors::BORDER, 12.0);
+    painter.label(
+        Vec2::new(rect.x + 24.0, rect.y + 14.0),
+        "Rename agent",
+        20.0,
+        HudColors::TEXT,
+        VelloTextAnchor::TopLeft,
+    );
+    painter.label(
+        Vec2::new(rect.x + 24.0, name_rect.y + 7.0),
+        "Name",
+        15.0,
+        HudColors::TEXT_MUTED,
+        VelloTextAnchor::TopLeft,
+    );
+    draw_single_line_dialog_field(
+        painter,
+        &dialog.name_field,
+        name_rect,
+        dialog.focus == RenameAgentDialogField::Name,
+    );
+    draw_dialog_button_row(
+        painter,
+        [(
+            rename_rect,
+            "Rename",
+            dialog.focus == RenameAgentDialogField::RenameButton,
+        )],
+    );
+
+    if let Some(error) = dialog.error.as_deref() {
+        painter.label(
+            Vec2::new(rect.x + 24.0, rename_rect.y - 26.0),
+            error,
+            14.0,
+            peniko::Color::from_rgba8(220, 80, 80, 255),
+            VelloTextAnchor::TopLeft,
+        );
+    }
+}
+
 /// Draws the message-box modal, including title, editor body, buttons, and status line.
 ///
 /// Rendering is skipped entirely when the modal is not visible.
@@ -1051,6 +1109,7 @@ pub(crate) fn render_hud_modal_scene(
         draw_startup_connect_overlay(&mut painter, &primary_window, startup_connect);
     }
     draw_create_agent_dialog(&mut painter, &primary_window, &app_session);
+    draw_rename_agent_dialog(&mut painter, &primary_window, &app_session);
     draw_message_box(
         &mut painter,
         &primary_window,

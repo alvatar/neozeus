@@ -7,7 +7,8 @@ use crate::{
     agents::{AgentCatalog, AgentRuntimeIndex},
     app::{
         AgentCommand as AppAgentCommand, AppCommand, AppSessionState, AppStatePersistenceState,
-        CreateAgentDialogField, CreateAgentKind, TaskCommand as AppTaskCommand,
+        CreateAgentDialogField, CreateAgentKind, RenameAgentDialogField,
+        TaskCommand as AppTaskCommand,
     },
     composer::{MessageDialogFocus, TaskDialogFocus},
     conversations::{AgentTaskStore, ConversationStore, MessageTransportAdapter},
@@ -879,6 +880,114 @@ fn plain_t_opens_task_dialog_for_active_terminal_with_saved_text() {
     assert_eq!(hud_state.task_dialog.target_terminal, Some(terminal_id));
     assert_eq!(hud_state.task_dialog.text, "- [ ] first task\n  detail");
     assert_eq!(world.resource::<Messages<RequestRedraw>>().len(), 1);
+}
+
+/// Verifies that plain `r` opens the rename-agent dialog prefilled from the active agent label.
+#[test]
+fn plain_r_opens_rename_dialog_for_active_terminal() {
+    let (mut world, terminal_id) =
+        world_with_active_terminal(Vec2::new(10.0, 10.0), false, Vec2::ZERO);
+    world.init_resource::<Messages<KeyboardInput>>();
+    world.init_resource::<Messages<RequestRedraw>>();
+    world
+        .resource_mut::<Messages<KeyboardInput>>()
+        .write(pressed_text(KeyCode::KeyR, Some("r")));
+
+    world
+        .run_system_once(handle_terminal_message_box_keyboard)
+        .unwrap();
+
+    let agent_id = world
+        .resource::<crate::agents::AgentRuntimeIndex>()
+        .agent_for_terminal(terminal_id)
+        .expect("agent should be linked");
+    let app_session = world.resource::<AppSessionState>();
+    assert!(app_session.rename_agent_dialog.visible);
+    assert_eq!(app_session.rename_agent_dialog.target_agent, Some(agent_id));
+    assert_eq!(app_session.rename_agent_dialog.name_field.text, "agent-1");
+    assert_eq!(
+        app_session.rename_agent_dialog.focus,
+        RenameAgentDialogField::Name
+    );
+    assert_eq!(world.resource::<Messages<RequestRedraw>>().len(), 1);
+}
+
+/// Verifies that confirming the rename dialog renames the active agent and closes the modal.
+#[test]
+fn rename_dialog_enter_submits_agent_rename() {
+    let (mut world, terminal_id) =
+        world_with_active_terminal(Vec2::new(10.0, 10.0), false, Vec2::ZERO);
+    let agent_id = world
+        .resource::<crate::agents::AgentRuntimeIndex>()
+        .agent_for_terminal(terminal_id)
+        .expect("agent should be linked");
+    {
+        let mut app_session = world.resource_mut::<AppSessionState>();
+        app_session.rename_agent_dialog.open(agent_id, "agent-1");
+        app_session
+            .rename_agent_dialog
+            .name_field
+            .load_text("renamed");
+        app_session.rename_agent_dialog.focus = RenameAgentDialogField::RenameButton;
+    }
+    init_hud_commands(&mut world);
+    world.init_resource::<Messages<RequestRedraw>>();
+
+    dispatch_message_box_key(&mut world, pressed_key(KeyCode::Enter, Key::Enter));
+
+    assert_eq!(
+        world
+            .resource::<crate::agents::AgentCatalog>()
+            .label(agent_id),
+        Some("renamed")
+    );
+    assert!(
+        !world
+            .resource::<AppSessionState>()
+            .rename_agent_dialog
+            .visible
+    );
+}
+
+/// Verifies that duplicate rename targets are rejected and keep the rename dialog open.
+#[test]
+fn rename_dialog_rejects_duplicate_agent_name() {
+    let (mut world, terminal_id) =
+        world_with_active_terminal(Vec2::new(10.0, 10.0), false, Vec2::ZERO);
+    let agent_id = world
+        .resource::<crate::agents::AgentRuntimeIndex>()
+        .agent_for_terminal(terminal_id)
+        .expect("agent should be linked");
+    world
+        .resource_mut::<crate::agents::AgentCatalog>()
+        .create_agent(
+            Some("beta".into()),
+            crate::agents::AgentKind::Terminal,
+            crate::agents::AgentCapabilities::terminal_defaults(),
+        );
+    {
+        let mut app_session = world.resource_mut::<AppSessionState>();
+        app_session.rename_agent_dialog.open(agent_id, "agent-1");
+        app_session.rename_agent_dialog.name_field.load_text("beta");
+        app_session.rename_agent_dialog.focus = RenameAgentDialogField::RenameButton;
+    }
+    init_hud_commands(&mut world);
+    world.init_resource::<Messages<RequestRedraw>>();
+
+    dispatch_message_box_key(&mut world, pressed_key(KeyCode::Enter, Key::Enter));
+
+    assert_eq!(
+        world
+            .resource::<crate::agents::AgentCatalog>()
+            .label(agent_id),
+        Some("agent-1")
+    );
+    let app_session = world.resource::<AppSessionState>();
+    assert!(app_session.rename_agent_dialog.visible);
+    assert_eq!(
+        app_session.rename_agent_dialog.error.as_deref(),
+        Some("agent `beta` already exists")
+    );
 }
 
 /// Verifies that plain `n` enqueues the consume-next-task intent for the active terminal.

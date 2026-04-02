@@ -328,6 +328,17 @@ impl CwdFieldState {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum RenameAgentDialogField {
+    #[default]
+    Name,
+    RenameButton,
+}
+
+impl DialogTabOrder for RenameAgentDialogField {
+    const TAB_ORDER: &'static [Self] = &[Self::Name, Self::RenameButton];
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct CreateAgentDialogState {
     pub(crate) visible: bool,
@@ -335,6 +346,15 @@ pub(crate) struct CreateAgentDialogState {
     pub(crate) cwd_field: CwdFieldState,
     pub(crate) kind: CreateAgentKind,
     pub(crate) focus: CreateAgentDialogField,
+    pub(crate) error: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct RenameAgentDialogState {
+    pub(crate) visible: bool,
+    pub(crate) target_agent: Option<crate::agents::AgentId>,
+    pub(crate) name_field: TextFieldState,
+    pub(crate) focus: RenameAgentDialogField,
     pub(crate) error: Option<String>,
 }
 
@@ -400,6 +420,54 @@ impl CreateAgentDialogState {
             label: self.label(),
             kind: self.kind.agent_kind(),
             working_directory,
+        }))
+    }
+}
+
+impl RenameAgentDialogState {
+    /// Opens the rename-agent dialog for the provided target and current label.
+    pub(crate) fn open(&mut self, agent_id: crate::agents::AgentId, current_label: &str) {
+        self.visible = true;
+        self.target_agent = Some(agent_id);
+        self.focus = RenameAgentDialogField::Name;
+        self.error = None;
+        self.name_field.load_text(current_label);
+    }
+
+    /// Closes the dialog and discards all current field state.
+    pub(crate) fn close(&mut self) {
+        self.visible = false;
+        self.target_agent = None;
+        self.focus = RenameAgentDialogField::Name;
+        self.error = None;
+        self.name_field.clear();
+    }
+
+    /// Returns whether this dialog currently owns keyboard capture.
+    pub(crate) fn keyboard_capture_active(&self) -> bool {
+        self.visible
+    }
+
+    /// Advances focus to the next or previous field in the dialog's shared tab order.
+    pub(crate) fn cycle_focus(&mut self, reverse: bool) {
+        cycle_dialog_focus(&mut self.focus, reverse);
+    }
+
+    /// Builds the app command that should rename the configured agent, validating required fields.
+    pub(crate) fn build_rename_command(&mut self) -> Option<AppCommand> {
+        let Some(agent_id) = self.target_agent else {
+            self.error = Some("missing rename target".to_owned());
+            return None;
+        };
+        let label = self.name_field.text.trim();
+        if label.is_empty() {
+            self.error = Some("agent name is required".to_owned());
+            return None;
+        }
+        self.error = None;
+        Some(AppCommand::Agent(AgentCommand::Rename {
+            agent_id,
+            label: label.to_owned(),
         }))
     }
 }

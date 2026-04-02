@@ -1,7 +1,7 @@
 mod modal_dialogs;
 
 use crate::{
-    agents::AgentRuntimeIndex,
+    agents::{AgentCatalog, AgentRuntimeIndex},
     app::{
         AgentCommand as AppAgentCommand, AppCommand, AppSessionState, ComposerCommand,
         ComposerRequest, CreateAgentKind, TaskCommand as AppTaskCommand,
@@ -573,6 +573,7 @@ pub(crate) fn handle_terminal_message_box_keyboard(
     _terminal_manager: Res<TerminalManager>,
     focus_state: Res<TerminalFocusState>,
     runtime_index: Res<AgentRuntimeIndex>,
+    agent_catalog: Res<AgentCatalog>,
     mut app_session: ResMut<AppSessionState>,
     input_capture: Res<HudInputCaptureState>,
     mut clipboard: Option<ResMut<EguiClipboard>>,
@@ -596,6 +597,33 @@ pub(crate) fn handle_terminal_message_box_keyboard(
         super_key,
         shift: keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight),
     };
+
+    if app_session.rename_agent_dialog.visible {
+        let mut needs_redraw = false;
+        let mut emitted_commands = Vec::new();
+        for event in messages.read() {
+            if event.state != ButtonState::Pressed {
+                continue;
+            }
+            let outcome = modal_dialogs::handle_rename_agent_dialog_key(
+                &mut app_session,
+                event,
+                modifiers,
+                &mut emitted_commands,
+            );
+            needs_redraw |= outcome.needs_redraw;
+            if outcome.stop {
+                break;
+            }
+        }
+        for command in emitted_commands {
+            app_commands.write(command);
+        }
+        if needs_redraw {
+            redraws.write(RequestRedraw);
+        }
+        return;
+    }
 
     if app_session.create_agent_dialog.visible {
         let mut needs_redraw = false;
@@ -729,6 +757,17 @@ pub(crate) fn handle_terminal_message_box_keyboard(
                             mode: crate::composer::ComposerMode::TaskEdit { agent_id },
                         },
                     )));
+                }
+                break;
+            }
+            KeyCode::KeyR => {
+                if let Some(agent_id) = runtime_index.agent_for_terminal(active_id) {
+                    let current_label =
+                        agent_catalog.label(agent_id).unwrap_or_default().to_owned();
+                    app_session
+                        .rename_agent_dialog
+                        .open(agent_id, &current_label);
+                    redraws.write(RequestRedraw);
                 }
                 break;
             }

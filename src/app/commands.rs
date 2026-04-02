@@ -25,6 +25,10 @@ pub(crate) enum AgentCommand {
         kind: AgentKind,
         working_directory: String,
     },
+    Rename {
+        agent_id: AgentId,
+        label: String,
+    },
     Focus(AgentId),
     Inspect(AgentId),
     Reorder {

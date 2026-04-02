@@ -8,6 +8,7 @@ const TOP_GAP: f32 = 8.0;
 const MESSAGE_BOX_HEIGHT_RATIO: f32 = 0.52;
 const CREATE_AGENT_DIALOG_WIDTH_RATIO: f32 = 0.48;
 const CREATE_AGENT_DIALOG_HEIGHT_RATIO: f32 = 0.36;
+const RENAME_AGENT_DIALOG_HEIGHT_RATIO: f32 = 0.22;
 const CREATE_AGENT_DIALOG_FIELD_HEIGHT: f32 = 32.0;
 const CREATE_AGENT_DIALOG_INSET_X: f32 = 24.0;
 const CREATE_AGENT_DIALOG_LABEL_W: f32 = 136.0;
@@ -32,6 +33,12 @@ pub(crate) enum CreateAgentDialogTarget {
     Kind(CreateAgentKind),
     StartingFolderField,
     CreateButton,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum RenameAgentDialogTarget {
+    NameField,
+    RenameButton,
 }
 
 /// Computes the outer rectangle for the message-box modal.
@@ -139,10 +146,46 @@ pub(crate) fn create_agent_dialog_rect(window: &Window) -> HudRect {
     }
 }
 
+/// Computes the centered modal rectangle used by the rename-agent dialog.
+pub(crate) fn rename_agent_dialog_rect(window: &Window) -> HudRect {
+    let size = Vec2::new(
+        (window.width() * CREATE_AGENT_DIALOG_WIDTH_RATIO).clamp(560.0, 960.0),
+        (window.height() * RENAME_AGENT_DIALOG_HEIGHT_RATIO).clamp(180.0, 240.0),
+    );
+    HudRect {
+        x: window.width() * 0.5 - size.x * 0.5,
+        y: window.height() * 0.5 - size.y * 0.5,
+        w: size.x,
+        h: size.y,
+    }
+}
+
 fn create_agent_row_y(rect: HudRect, row_index: usize) -> f32 {
     rect.y
         + 68.0
         + row_index as f32 * (CREATE_AGENT_DIALOG_FIELD_HEIGHT + CREATE_AGENT_DIALOG_ROW_GAP)
+}
+
+/// Returns the editable name field rectangle within the rename-agent dialog.
+pub(crate) fn rename_agent_name_field_rect(window: &Window) -> HudRect {
+    let rect = rename_agent_dialog_rect(window);
+    HudRect {
+        x: rect.x + CREATE_AGENT_DIALOG_INSET_X + CREATE_AGENT_DIALOG_LABEL_W,
+        y: rect.y + 68.0,
+        w: rect.w - (CREATE_AGENT_DIALOG_INSET_X * 2.0 + CREATE_AGENT_DIALOG_LABEL_W),
+        h: CREATE_AGENT_DIALOG_FIELD_HEIGHT,
+    }
+}
+
+/// Returns the submit button rectangle for the rename-agent dialog.
+pub(crate) fn rename_agent_submit_button_rect(window: &Window) -> HudRect {
+    let rect = rename_agent_dialog_rect(window);
+    HudRect {
+        x: rect.x + rect.w - 24.0 - ACTION_BUTTON_W,
+        y: rect.y + rect.h - 40.0,
+        w: ACTION_BUTTON_W,
+        h: ACTION_BUTTON_H,
+    }
 }
 
 /// Returns the editable name field rectangle within the create-agent dialog.
@@ -252,6 +295,22 @@ pub(crate) fn create_agent_dialog_target_at(
     let create_rect = create_agent_create_button_rect(window);
     if create_rect.contains(point) {
         return Some(CreateAgentDialogTarget::CreateButton);
+    }
+    None
+}
+
+/// Hit-tests the rename-agent dialog controls and returns the target under the pointer.
+pub(crate) fn rename_agent_dialog_target_at(
+    window: &Window,
+    point: Vec2,
+) -> Option<RenameAgentDialogTarget> {
+    let name_rect = rename_agent_name_field_rect(window);
+    if name_rect.contains(point) {
+        return Some(RenameAgentDialogTarget::NameField);
+    }
+    let rename_rect = rename_agent_submit_button_rect(window);
+    if rename_rect.contains(point) {
+        return Some(RenameAgentDialogTarget::RenameButton);
     }
     None
 }

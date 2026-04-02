@@ -1,6 +1,6 @@
 use super::{
     AppSessionState, CreateAgentDialogField, CreateAgentDialogState, CreateAgentKind,
-    TextFieldState, VisibilityMode,
+    RenameAgentDialogField, RenameAgentDialogState, TextFieldState, VisibilityMode,
 };
 use crate::{agents::AgentId, hud::HudInputCaptureState};
 
@@ -61,6 +61,38 @@ fn create_agent_dialog_counts_as_keyboard_capture() {
     let mut session = AppSessionState::default();
     assert!(!session.keyboard_capture_active(&HudInputCaptureState::default()));
     session.create_agent_dialog.open(CreateAgentKind::Pi);
+    assert!(session.keyboard_capture_active(&HudInputCaptureState::default()));
+}
+
+#[test]
+fn rename_agent_dialog_open_prefills_name_and_focus() {
+    let mut dialog = RenameAgentDialogState {
+        error: Some("stale".into()),
+        ..Default::default()
+    };
+
+    dialog.open(crate::agents::AgentId(7), "alpha");
+
+    assert!(dialog.visible);
+    assert_eq!(dialog.target_agent, Some(crate::agents::AgentId(7)));
+    assert_eq!(dialog.name_field.text, "alpha");
+    assert_eq!(dialog.focus, RenameAgentDialogField::Name);
+    assert_eq!(dialog.error, None);
+}
+
+#[test]
+fn rename_agent_dialog_cycles_focus_and_counts_as_keyboard_capture() {
+    let mut dialog = RenameAgentDialogState::default();
+    dialog.open(crate::agents::AgentId(1), "alpha");
+    dialog.cycle_focus(false);
+    assert_eq!(dialog.focus, RenameAgentDialogField::RenameButton);
+    dialog.cycle_focus(false);
+    assert_eq!(dialog.focus, RenameAgentDialogField::Name);
+
+    let session = AppSessionState {
+        rename_agent_dialog: dialog,
+        ..Default::default()
+    };
     assert!(session.keyboard_capture_active(&HudInputCaptureState::default()));
 }
 
