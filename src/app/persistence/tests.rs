@@ -177,11 +177,11 @@ fn saving_app_state_persists_agent_order_labels_and_focus() {
     let persisted = parse_persisted_app_state(&serialized);
     assert_eq!(persisted.agents.len(), 2);
     assert_eq!(persisted.agents[0].session_name, "neozeus-session-b");
-    assert_eq!(persisted.agents[0].label.as_deref(), Some("beta"));
+    assert_eq!(persisted.agents[0].label.as_deref(), Some("BETA"));
     assert_eq!(persisted.agents[0].kind, PersistedAgentKind::Terminal);
     assert!(persisted.agents[0].last_focused);
     assert_eq!(persisted.agents[1].session_name, "neozeus-session-a");
-    assert_eq!(persisted.agents[1].label.as_deref(), Some("alpha"));
+    assert_eq!(persisted.agents[1].label.as_deref(), Some("ALPHA"));
     assert_eq!(persisted.agents[1].kind, PersistedAgentKind::Claude);
     assert!(!persisted.agents[1].last_focused);
 }

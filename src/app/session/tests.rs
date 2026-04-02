@@ -75,7 +75,7 @@ fn rename_agent_dialog_open_prefills_name_and_focus() {
 
     assert!(dialog.visible);
     assert_eq!(dialog.target_agent, Some(crate::agents::AgentId(7)));
-    assert_eq!(dialog.name_field.text, "alpha");
+    assert_eq!(dialog.name_field.text, "ALPHA");
     assert_eq!(dialog.focus, RenameAgentDialogField::Name);
     assert_eq!(dialog.error, None);
 }
@@ -94,6 +94,37 @@ fn rename_agent_dialog_cycles_focus_and_counts_as_keyboard_capture() {
         ..Default::default()
     };
     assert!(session.keyboard_capture_active(&HudInputCaptureState::default()));
+}
+
+#[test]
+fn agent_dialog_commands_normalize_labels_to_uppercase() {
+    let mut create = CreateAgentDialogState::default();
+    create.open(CreateAgentKind::Terminal);
+    create.name_field.load_text("oracle");
+    create.cwd_field.load_text("~/code");
+    assert_eq!(
+        create.build_create_command(),
+        Some(crate::app::AppCommand::Agent(
+            crate::app::AgentCommand::Create {
+                label: Some("ORACLE".into()),
+                kind: crate::agents::AgentKind::Terminal,
+                working_directory: "~/code".into(),
+            }
+        ))
+    );
+
+    let mut rename = RenameAgentDialogState::default();
+    rename.open(crate::agents::AgentId(1), "alpha");
+    rename.name_field.load_text("beta");
+    assert_eq!(
+        rename.build_rename_command(),
+        Some(crate::app::AppCommand::Agent(
+            crate::app::AgentCommand::Rename {
+                agent_id: crate::agents::AgentId(1),
+                label: "BETA".into(),
+            }
+        ))
+    );
 }
 
 /// Verifies that single-line field character motion and deletion respect UTF-8 codepoint

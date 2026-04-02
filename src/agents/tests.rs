@@ -20,8 +20,8 @@ fn catalog_assigns_stable_default_labels_in_creation_order() {
 
     assert_eq!(alpha, AgentId(1));
     assert_eq!(beta, AgentId(2));
-    assert_eq!(catalog.label(alpha), Some("agent-1"));
-    assert_eq!(catalog.label(beta), Some("agent-2"));
+    assert_eq!(catalog.label(alpha), Some("AGENT-1"));
+    assert_eq!(catalog.label(beta), Some("AGENT-2"));
 }
 
 /// Verifies that explicit agent labels must be unique while default labels skip occupied names.
@@ -29,6 +29,7 @@ fn catalog_assigns_stable_default_labels_in_creation_order() {
 fn catalog_rejects_duplicate_labels_and_skips_taken_default_names() {
     let mut catalog = AgentCatalog::default();
     let initial_label = catalog.validate_new_label(Some("agent-1")).unwrap();
+    assert_eq!(initial_label, Some("AGENT-1".into()));
     let _ = catalog.create_agent(
         initial_label,
         AgentKind::Terminal,
@@ -41,10 +42,14 @@ fn catalog_rejects_duplicate_labels_and_skips_taken_default_names() {
         AgentCapabilities::terminal_defaults(),
     );
 
-    assert_eq!(catalog.label(generated), Some("agent-2"));
+    assert_eq!(catalog.label(generated), Some("AGENT-2"));
     assert_eq!(
         catalog.validate_new_label(Some("agent-1")),
-        Err("agent `agent-1` already exists".into())
+        Err("agent `AGENT-1` already exists".into())
+    );
+    assert_eq!(
+        catalog.validate_new_label(Some("AGENT-1")),
+        Err("agent `AGENT-1` already exists".into())
     );
 }
 
@@ -65,12 +70,12 @@ fn catalog_rename_rejects_duplicates() {
 
     assert_eq!(
         catalog.validate_rename_label(beta, " alpha "),
-        Err("agent `alpha` already exists".into())
+        Err("agent `ALPHA` already exists".into())
     );
     let label = catalog.validate_rename_label(beta, " gamma ").unwrap();
     catalog.rename_agent(beta, label).unwrap();
-    assert_eq!(catalog.label(beta), Some("gamma"));
-    assert_eq!(catalog.label(alpha), Some("alpha"));
+    assert_eq!(catalog.label(beta), Some("GAMMA"));
+    assert_eq!(catalog.label(alpha), Some("ALPHA"));
 }
 
 /// Verifies that moving one agent updates the retained display order deterministically.

@@ -515,6 +515,37 @@ fn create_agent_dialog_enter_descends_into_selected_cwd_completion() {
     let _ = std::fs::remove_dir_all(root);
 }
 
+/// Verifies that typed create-agent names are uppercased immediately in the field.
+#[test]
+fn create_agent_dialog_typing_uppercases_name_field() {
+    let mut world = World::default();
+    world.insert_resource(ButtonInput::<KeyCode>::default());
+    world.insert_resource(AppSessionState::default());
+    world
+        .resource_mut::<AppSessionState>()
+        .create_agent_dialog
+        .open(CreateAgentKind::Pi);
+    world.spawn((
+        Window {
+            focused: true,
+            ..Default::default()
+        },
+        PrimaryWindow,
+    ));
+
+    dispatch_message_box_key(&mut world, pressed_text(KeyCode::KeyA, Some("a")));
+    dispatch_message_box_key(&mut world, pressed_text(KeyCode::KeyB, Some("b")));
+
+    assert_eq!(
+        world
+            .resource::<AppSessionState>()
+            .create_agent_dialog
+            .name_field
+            .text,
+        "AB"
+    );
+}
+
 /// Verifies that `Escape` cancels the create-agent dialog without spawning anything.
 #[test]
 fn create_agent_dialog_escape_closes_without_spawning() {
@@ -578,7 +609,7 @@ fn create_agent_dialog_submit_emits_create_command() {
     assert_eq!(
         drain_hud_commands(&mut world),
         vec![AppCommand::Agent(AppAgentCommand::Create {
-            label: Some("oracle".into()),
+            label: Some("ORACLE".into()),
             kind: crate::agents::AgentKind::Terminal,
             working_directory: "~/code".into(),
         })]
@@ -1001,7 +1032,7 @@ fn plain_r_opens_rename_dialog_for_active_terminal() {
     let app_session = world.resource::<AppSessionState>();
     assert!(app_session.rename_agent_dialog.visible);
     assert_eq!(app_session.rename_agent_dialog.target_agent, Some(agent_id));
-    assert_eq!(app_session.rename_agent_dialog.name_field.text, "agent-1");
+    assert_eq!(app_session.rename_agent_dialog.name_field.text, "AGENT-1");
     assert_eq!(
         app_session.rename_agent_dialog.focus,
         RenameAgentDialogField::Name
@@ -1020,7 +1051,7 @@ fn rename_dialog_enter_submits_agent_rename() {
         .expect("agent should be linked");
     {
         let mut app_session = world.resource_mut::<AppSessionState>();
-        app_session.rename_agent_dialog.open(agent_id, "agent-1");
+        app_session.rename_agent_dialog.open(agent_id, "AGENT-1");
         app_session
             .rename_agent_dialog
             .name_field
@@ -1036,13 +1067,44 @@ fn rename_dialog_enter_submits_agent_rename() {
         world
             .resource::<crate::agents::AgentCatalog>()
             .label(agent_id),
-        Some("renamed")
+        Some("RENAMED")
     );
     assert!(
         !world
             .resource::<AppSessionState>()
             .rename_agent_dialog
             .visible
+    );
+}
+
+/// Verifies that typed rename values are uppercased immediately in the field.
+#[test]
+fn rename_dialog_typing_uppercases_name_field() {
+    let (mut world, terminal_id) =
+        world_with_active_terminal(Vec2::new(10.0, 10.0), false, Vec2::ZERO);
+    let agent_id = world
+        .resource::<crate::agents::AgentRuntimeIndex>()
+        .agent_for_terminal(terminal_id)
+        .expect("agent should be linked");
+    {
+        let mut app_session = world.resource_mut::<AppSessionState>();
+        app_session.rename_agent_dialog.open(agent_id, "AGENT-1");
+        app_session.rename_agent_dialog.name_field.clear();
+        app_session.rename_agent_dialog.focus = RenameAgentDialogField::Name;
+    }
+    world.init_resource::<Messages<RequestRedraw>>();
+    world.init_resource::<Messages<KeyboardInput>>();
+
+    dispatch_message_box_key(&mut world, pressed_text(KeyCode::KeyA, Some("a")));
+    dispatch_message_box_key(&mut world, pressed_text(KeyCode::KeyB, Some("b")));
+
+    assert_eq!(
+        world
+            .resource::<AppSessionState>()
+            .rename_agent_dialog
+            .name_field
+            .text,
+        "AB"
     );
 }
 
@@ -1064,7 +1126,7 @@ fn rename_dialog_rejects_duplicate_agent_name() {
         );
     {
         let mut app_session = world.resource_mut::<AppSessionState>();
-        app_session.rename_agent_dialog.open(agent_id, "agent-1");
+        app_session.rename_agent_dialog.open(agent_id, "AGENT-1");
         app_session.rename_agent_dialog.name_field.load_text("beta");
         app_session.rename_agent_dialog.focus = RenameAgentDialogField::RenameButton;
     }
@@ -1077,13 +1139,13 @@ fn rename_dialog_rejects_duplicate_agent_name() {
         world
             .resource::<crate::agents::AgentCatalog>()
             .label(agent_id),
-        Some("agent-1")
+        Some("AGENT-1")
     );
     let app_session = world.resource::<AppSessionState>();
     assert!(app_session.rename_agent_dialog.visible);
     assert_eq!(
         app_session.rename_agent_dialog.error.as_deref(),
-        Some("agent `beta` already exists")
+        Some("agent `BETA` already exists")
     );
 }
 

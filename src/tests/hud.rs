@@ -1204,7 +1204,7 @@ fn create_agent_rejects_duplicate_name_without_creating_session() {
             .create_agent_dialog
             .error
             .as_deref(),
-        Some("agent `oracle` already exists")
+        Some("agent `ORACLE` already exists")
     );
     assert!(client.created_sessions.lock().unwrap().is_empty());
 }

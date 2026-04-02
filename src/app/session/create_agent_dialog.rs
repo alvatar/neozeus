@@ -400,7 +400,7 @@ impl CreateAgentDialogState {
     /// Returns the label entered by the user, trimmed and normalized to optional form.
     pub(crate) fn label(&self) -> Option<String> {
         let trimmed = self.name_field.text.trim();
-        (!trimmed.is_empty()).then(|| trimmed.to_owned())
+        (!trimmed.is_empty()).then(|| crate::agents::uppercase_agent_label_text(trimmed))
     }
 
     /// Returns the raw cwd field text after outer trimming.
@@ -431,7 +431,8 @@ impl RenameAgentDialogState {
         self.target_agent = Some(agent_id);
         self.focus = RenameAgentDialogField::Name;
         self.error = None;
-        self.name_field.load_text(current_label);
+        self.name_field
+            .load_text(&crate::agents::uppercase_agent_label_text(current_label));
     }
 
     /// Closes the dialog and discards all current field state.
@@ -467,7 +468,7 @@ impl RenameAgentDialogState {
         self.error = None;
         Some(AppCommand::Agent(AgentCommand::Rename {
             agent_id,
-            label: label.to_owned(),
+            label: crate::agents::uppercase_agent_label_text(label),
         }))
     }
 }
