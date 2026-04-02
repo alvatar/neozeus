@@ -205,7 +205,10 @@ impl DaemonSession {
             Ok(Ok(())) => Ok(()),
             Ok(Err(error)) if !self.current_runtime().is_interactive() => Ok(()),
             Ok(Err(error)) => Err(error),
-            Err(_) => Err(format!("daemon session `{}` kill timed out", self.session_id)),
+            Err(_) => Err(format!(
+                "daemon session `{}` kill timed out",
+                self.session_id
+            )),
         }
     }
 
@@ -742,7 +745,9 @@ mod tests {
     ) -> DaemonSession {
         let (command_tx, _command_rx) = mpsc::channel();
         let (shutdown_tx, shutdown_rx) = mpsc::channel();
-        shutdown_tx.send(result).expect("shutdown result should send");
+        shutdown_tx
+            .send(result)
+            .expect("shutdown result should send");
         DaemonSession {
             session_id: "test-session".into(),
             created_order: 1,
