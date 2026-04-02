@@ -60,6 +60,7 @@ fn reorder_target_index_tracks_row_midpoints() {
                 has_tasks: false,
                 interactive: true,
                 status: crate::agents::AgentStatus::Unknown,
+                context_pct_milli: None,
             },
             AgentListRowView {
                 agent_id: AgentId(2),
@@ -69,6 +70,7 @@ fn reorder_target_index_tracks_row_midpoints() {
                 has_tasks: false,
                 interactive: true,
                 status: crate::agents::AgentStatus::Unknown,
+                context_pct_milli: None,
             },
         ],
     };
@@ -114,6 +116,7 @@ fn projected_agent_rows_follow_drag_cursor_and_reflow_other_rows() {
                 has_tasks: false,
                 interactive: true,
                 status: crate::agents::AgentStatus::Unknown,
+                context_pct_milli: None,
             },
             AgentListRowView {
                 agent_id: AgentId(2),
@@ -123,6 +126,7 @@ fn projected_agent_rows_follow_drag_cursor_and_reflow_other_rows() {
                 has_tasks: false,
                 interactive: true,
                 status: crate::agents::AgentStatus::Unknown,
+                context_pct_milli: None,
             },
             AgentListRowView {
                 agent_id: AgentId(3),
@@ -132,6 +136,7 @@ fn projected_agent_rows_follow_drag_cursor_and_reflow_other_rows() {
                 has_tasks: true,
                 interactive: true,
                 status: crate::agents::AgentStatus::Unknown,
+                context_pct_milli: None,
             },
         ],
     };
@@ -191,6 +196,7 @@ fn agent_rows_use_derived_agent_view_labels() {
                     has_tasks: false,
                     interactive: true,
                     status: crate::agents::AgentStatus::Unknown,
+                    context_pct_milli: None,
                 },
                 AgentListRowView {
                     agent_id: crate::agents::AgentId(2),
@@ -200,6 +206,7 @@ fn agent_rows_use_derived_agent_view_labels() {
                     has_tasks: true,
                     interactive: true,
                     status: crate::agents::AgentStatus::Unknown,
+                    context_pct_milli: None,
                 },
             ],
         },
@@ -242,6 +249,7 @@ fn agent_rows_follow_terminal_order_and_focus() {
                     has_tasks: false,
                     interactive: true,
                     status: crate::agents::AgentStatus::Unknown,
+                    context_pct_milli: None,
                 },
                 AgentListRowView {
                     agent_id: crate::agents::AgentId(2),
@@ -251,6 +259,7 @@ fn agent_rows_follow_terminal_order_and_focus() {
                     has_tasks: false,
                     interactive: true,
                     status: crate::agents::AgentStatus::Unknown,
+                    context_pct_milli: None,
                 },
             ],
         },
@@ -293,6 +302,7 @@ fn agent_rows_mark_hovered_agent() {
                     has_tasks: false,
                     interactive: true,
                     status: crate::agents::AgentStatus::Unknown,
+                    context_pct_milli: None,
                 },
                 AgentListRowView {
                     agent_id: crate::agents::AgentId(2),
@@ -302,6 +312,7 @@ fn agent_rows_mark_hovered_agent() {
                     has_tasks: false,
                     interactive: true,
                     status: crate::agents::AgentStatus::Unknown,
+                    context_pct_milli: None,
                 },
             ],
         },
@@ -389,6 +400,7 @@ fn clicking_agent_list_row_emits_focus_and_isolate_commands() {
                 has_tasks: false,
                 interactive: true,
                 status: crate::agents::AgentStatus::Unknown,
+                context_pct_milli: None,
             },
             AgentListRowView {
                 agent_id: crate::agents::AgentId(2),
@@ -398,6 +410,7 @@ fn clicking_agent_list_row_emits_focus_and_isolate_commands() {
                 has_tasks: false,
                 interactive: true,
                 status: crate::agents::AgentStatus::Unknown,
+                context_pct_milli: None,
             },
         ],
     };
@@ -476,6 +489,7 @@ fn agent_list_scroll_clamps_to_content_height() {
                     has_tasks: false,
                     interactive: true,
                     status: crate::agents::AgentStatus::Unknown,
+                    context_pct_milli: None,
                 })
                 .collect(),
         },
