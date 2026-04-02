@@ -189,6 +189,10 @@ fn context_bar_color(pct_milli: i32) -> peniko::Color {
     }
 }
 
+fn rendered_context_pct_milli(context_pct_milli: Option<i32>) -> i32 {
+    context_pct_milli.unwrap_or(0)
+}
+
 fn draw_context_bar(
     painter: &mut HudPainter,
     main_rect: HudRect,
@@ -367,7 +371,7 @@ pub(crate) fn render_content(
         let stroke = agent_row_stroke(row.status, row.focused, row.hovered, row.dragging);
         let fill = agent_fill_color(row.status, row.focused, row.hovered, row.dragging);
 
-        let context_pct_milli = row.context_pct_milli;
+        let context_pct_milli = rendered_context_pct_milli(row.context_pct_milli);
 
         draw_button_rect(painter, main_rect, stroke, fill);
         draw_button_rect(
@@ -376,9 +380,7 @@ pub(crate) fn render_content(
             stroke,
             marker_fill(row.status, row.has_tasks, row.interactive),
         );
-        if let Some(context_pct_milli) = context_pct_milli {
-            draw_context_bar(painter, main_rect, marker_rect, context_pct_milli);
-        }
+        draw_context_bar(painter, main_rect, marker_rect, context_pct_milli);
         if let Some(accent_fill) = agent_accent_color(row.status, row.focused, row.dragging) {
             painter.fill_rect(accent_rect, accent_fill, 0.0);
         }
@@ -401,7 +403,8 @@ mod tests {
     use super::{
         agent_accent_color, agent_fill_color, agent_label_color, agent_row_stroke,
         context_active_segment_range, context_bar_color, context_segment_count,
-        context_segment_rect, context_track_rect, marker_fill, EVA_CYAN, WORKING_ROW_COLOR,
+        context_segment_rect, context_track_rect, marker_fill, rendered_context_pct_milli,
+        EVA_CYAN, WORKING_ROW_COLOR,
     };
     use crate::agents::AgentStatus;
 
@@ -481,5 +484,11 @@ mod tests {
         assert!(high.r >= low.r);
         assert!(high.g < low.g);
         assert!(high.b < low.b);
+    }
+
+    #[test]
+    fn missing_context_renders_as_zero_percent() {
+        assert_eq!(rendered_context_pct_milli(None), 0);
+        assert_eq!(rendered_context_pct_milli(Some(17_000)), 17_000);
     }
 }
