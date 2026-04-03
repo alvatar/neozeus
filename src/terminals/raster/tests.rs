@@ -794,6 +794,20 @@ fn sync_terminal_texture_draws_strikeout_for_styled_blank_cell() {
     );
 }
 
+/// Verifies selected-foreground luminance computation does not overflow on bright cells.
+#[test]
+fn selected_foreground_color_handles_bright_selection_without_overflow() {
+    let cell = TerminalCell {
+        content: TerminalCellContent::Single('A'),
+        fg: egui::Color32::from_rgb(255, 255, 255),
+        bg: egui::Color32::from_rgb(255, 255, 255),
+        style: TerminalCellStyle::default(),
+        width: 1,
+    };
+
+    assert_eq!(selected_foreground_color(&cell, true), egui::Color32::BLACK);
+}
+
 /// Verifies dim styling darkens the visible glyph output compared with the same un-dimmed glyph.
 #[test]
 fn sync_terminal_texture_dims_foreground_ink() {

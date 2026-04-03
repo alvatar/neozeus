@@ -495,7 +495,7 @@ fn selected_foreground_color(cell: &TerminalCell, selected: bool) -> egui::Color
         return effective_foreground_color(cell);
     }
     let bg = selected_background_color(cell, true);
-    let luminance = (u16::from(bg.r()) * 212 + u16::from(bg.g()) * 715 + u16::from(bg.b()) * 72)
+    let luminance = (u32::from(bg.r()) * 212 + u32::from(bg.g()) * 715 + u32::from(bg.b()) * 72)
         / 1000;
     if luminance > 140 {
         egui::Color32::BLACK
