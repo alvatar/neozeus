@@ -236,11 +236,23 @@ pub(super) fn kill_owned_tmux_session(session_uid: &str) -> Result<(), String> {
         .into_iter()
         .find(|session| session.session_uid == session_uid)
         .ok_or_else(|| format!("owned tmux session `{session_uid}` not found"))?;
-    run_tmux(
+    let pane_pid = pane_pid(&session.tmux_name).ok().flatten();
+    if let Some(pid) = pane_pid {
+        let _ = signal_process_group(pid, "TERM");
+        let _ = wait_for_process_exit_until(pid, std::time::Instant::now() + Duration::from_millis(200));
+    }
+    match run_tmux(
         ["kill-session", "-t", session.tmux_name.as_str()],
         TMUX_MUTATION_TIMEOUT,
-    )
-    .map(|_| ())
+    ) {
+        Ok(_) => {}
+        Err(error) if is_tmux_missing_error(&error) => {}
+        Err(error) => return Err(error),
+    }
+    if let Some(pid) = pane_pid {
+        wait_for_process_exit(pid, TMUX_MUTATION_TIMEOUT)?;
+    }
+    Ok(())
 }
 
 pub(super) fn kill_owned_tmux_sessions_for_agent(owner_agent_uid: &str) -> Result<(), String> {
@@ -317,6 +329,65 @@ fn pane_start_command_and_cwd(tmux_name: &str) -> Result<(String, String), Strin
     let start_command = parts.next().unwrap_or_default().trim().to_owned();
     let cwd = parts.next().unwrap_or_default().trim().to_owned();
     Ok((start_command, cwd))
+}
+
+fn pane_pid(tmux_name: &str) -> Result<Option<u32>, String> {
+    let pane = run_tmux(
+        ["list-panes", "-t", tmux_name, "-F", "#{pane_pid}"],
+        TMUX_DISCOVER_TIMEOUT,
+    )?;
+    Ok(pane.lines().next().and_then(|line| line.trim().parse::<u32>().ok()))
+}
+
+fn wait_for_process_exit(pid: u32, timeout: Duration) -> Result<(), String> {
+    let deadline = std::time::Instant::now() + timeout;
+    if wait_for_process_exit_until(pid, deadline) {
+        return Ok(());
+    }
+
+    let _ = signal_process_group(pid, "TERM");
+    let term_deadline = std::time::Instant::now() + Duration::from_millis(500);
+    if wait_for_process_exit_until(pid, term_deadline.min(deadline)) {
+        return Ok(());
+    }
+
+    let _ = signal_process_group(pid, "KILL");
+    if wait_for_process_exit_until(pid, deadline) {
+        return Ok(());
+    }
+
+    Err(format!("tmux pane pid {pid} still alive after kill-session"))
+}
+
+fn wait_for_process_exit_until(pid: u32, deadline: std::time::Instant) -> bool {
+    while std::time::Instant::now() < deadline {
+        if !std::path::Path::new(&format!("/proc/{pid}")).exists() {
+            return true;
+        }
+        thread::sleep(Duration::from_millis(20));
+    }
+    !std::path::Path::new(&format!("/proc/{pid}")).exists()
+}
+
+fn signal_process_group(pid: u32, signal: &str) -> Result<(), String> {
+    let output = Command::new("kill")
+        .arg(format!("-{signal}"))
+        .arg("--")
+        .arg(format!("-{pid}"))
+        .output()
+        .map_err(|error| format!("kill -{signal} -- -{pid} failed: {error}"))?;
+    if output.status.success() {
+        Ok(())
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_owned();
+        let stdout = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+        let detail = if !stderr.is_empty() { stderr } else { stdout };
+        Err(if detail.is_empty() {
+            format!("kill -{signal} -- -{pid} exited with status {}", output.status)
+        } else {
+            format!("kill -{signal} -- -{pid} failed: {detail}")
+        })
+    }
 }
 
 fn read_tmux_option(tmux_name: &str, option: &str) -> Result<String, String> {
