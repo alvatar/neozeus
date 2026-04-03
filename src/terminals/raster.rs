@@ -237,9 +237,10 @@ pub(crate) fn sync_terminal_texture(
             cached
         };
 
-        let active_override_revision = active_terminal_content
-            .presentation_override_revision_for(terminal_id);
-        let terminal_selection_revision = terminal_text_selection.presentation_revision_for(terminal_id);
+        let active_override_revision =
+            active_terminal_content.presentation_override_revision_for(terminal_id);
+        let terminal_selection_revision =
+            terminal_text_selection.presentation_revision_for(terminal_id);
         let has_pending_surface = terminal.surface_revision != presented_terminal.uploaded_revision
             || presented_terminal.uploaded_active_override_revision != active_override_revision
             || presented_terminal.uploaded_text_selection_revision != terminal_selection_revision;
@@ -388,7 +389,8 @@ fn repaint_terminal_pixels(
             let cell = surface.cell(x, y);
             let origin_x = x as u32 * cell_size.x;
             let origin_y = y as u32 * cell_size.y;
-            let selected = selection.is_some_and(|selection| terminal_cell_selected(selection, x, y));
+            let selected =
+                selection.is_some_and(|selection| terminal_cell_selected(selection, x, y));
             let effective_fg = selected_foreground_color(cell, selected);
             fill_rect_in_buffer(
                 buffer,
@@ -495,8 +497,8 @@ fn selected_foreground_color(cell: &TerminalCell, selected: bool) -> egui::Color
         return effective_foreground_color(cell);
     }
     let bg = selected_background_color(cell, true);
-    let luminance = (u32::from(bg.r()) * 212 + u32::from(bg.g()) * 715 + u32::from(bg.b()) * 72)
-        / 1000;
+    let luminance =
+        (u32::from(bg.r()) * 212 + u32::from(bg.g()) * 715 + u32::from(bg.b()) * 72) / 1000;
     if luminance > 140 {
         egui::Color32::BLACK
     } else {

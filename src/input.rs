@@ -13,14 +13,14 @@ use crate::{
         CreateAgentDialogTarget, MessageDialogFocus, RenameAgentDialogTarget, TaskDialogFocus,
     },
     hud::{HudInputCaptureState, HudLayoutState},
-    text_selection::{
-        extract_terminal_selection_text, PrimarySelectionOwnerState, TerminalSelectionPoint,
-        TerminalTextSelectionState,
-    },
     terminals::{
         terminal_texture_screen_size, ActiveTerminalContentState, TerminalCommand,
         TerminalDisplayMode, TerminalFocusState, TerminalManager, TerminalPanel,
         TerminalPointerState, TerminalPresentation, TerminalPresentationStore, TerminalViewState,
+    },
+    text_selection::{
+        extract_terminal_selection_text, PrimarySelectionOwnerState, TerminalSelectionPoint,
+        TerminalTextSelectionState,
     },
 };
 use bevy::{
@@ -34,7 +34,10 @@ use bevy::{
     window::{PrimaryWindow, RequestRedraw},
 };
 use bevy_egui::EguiClipboard;
-use std::{io::Write, process::{Command, Stdio}};
+use std::{
+    io::Write,
+    process::{Command, Stdio},
+};
 
 /// Reads the three modifier families that matter to NeoZeus shortcut handling.
 ///
@@ -186,7 +189,10 @@ pub(crate) fn handle_terminal_lifecycle_shortcuts(
 /// Terminal presentations are stored around the scene center, while the cursor arrives in window
 /// coordinates with an upper-left origin. The function converts the panel's centered presentation
 /// rectangle into the same window coordinate system and then performs a simple bounds check.
-fn terminal_panel_screen_rect(window: &Window, presentation: &TerminalPresentation) -> (Vec2, Vec2) {
+fn terminal_panel_screen_rect(
+    window: &Window,
+    presentation: &TerminalPresentation,
+) -> (Vec2, Vec2) {
     let min = Vec2::new(
         window.width() * 0.5 + presentation.current_position.x - presentation.current_size.x * 0.5,
         window.height() * 0.5 - presentation.current_position.y - presentation.current_size.y * 0.5,
@@ -517,10 +523,7 @@ fn stop_primary_selection_owner(owner: &mut PrimarySelectionOwnerState) {
 }
 
 #[cfg(target_os = "linux")]
-fn write_linux_primary_selection_text(
-    owner: &mut PrimarySelectionOwnerState,
-    text: &str,
-) -> bool {
+fn write_linux_primary_selection_text(owner: &mut PrimarySelectionOwnerState, text: &str) -> bool {
     let success = write_linux_primary_selection_text_with(
         std::env::var("XDG_SESSION_TYPE").ok().as_deref(),
         std::env::var_os("WAYLAND_DISPLAY")
@@ -701,15 +704,19 @@ pub(crate) fn handle_terminal_text_selection(
     let panel_hit = panels
         .iter()
         .filter(|(_, _, visibility)| **visibility == Visibility::Visible)
-        .filter(|(_, presentation, _)| terminal_panel_contains_cursor(&primary_window, presentation, cursor))
+        .filter(|(_, presentation, _)| {
+            terminal_panel_contains_cursor(&primary_window, presentation, cursor)
+        })
         .max_by(|(_, left, _), (_, right, _)| left.current_z.total_cmp(&right.current_z))
         .map(|(panel, presentation, _)| (*panel, *presentation));
 
     if mouse_buttons.just_pressed(MouseButton::Left) {
         if let Some((panel, presentation)) = panel_hit.as_ref() {
-            if let Some(surface) =
-                selection_surface_for_terminal(&terminal_manager, &active_terminal_content, panel.id)
-            {
+            if let Some(surface) = selection_surface_for_terminal(
+                &terminal_manager,
+                &active_terminal_content,
+                panel.id,
+            ) {
                 terminal_text_selection.clear_selection();
                 agent_list_text_selection.clear_selection();
                 terminal_text_selection.begin_drag(
@@ -745,8 +752,12 @@ pub(crate) fn handle_terminal_text_selection(
                         if let Some(text) =
                             extract_terminal_selection_text(surface, drag.anchor, focus)
                         {
-                            terminal_text_selection
-                                .set_selection(panel.id, drag.anchor, focus, text);
+                            terminal_text_selection.set_selection(
+                                panel.id,
+                                drag.anchor,
+                                focus,
+                                text,
+                            );
                             redraws.write(RequestRedraw);
                         }
                         return;

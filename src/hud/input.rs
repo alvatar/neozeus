@@ -3,11 +3,11 @@ use crate::{
         AgentCommand, AppCommand, AppSessionState, CreateAgentDialogField, RenameAgentDialogField,
         WidgetCommand,
     },
-    text_selection::AgentListTextSelectionState,
     composer::{
         create_agent_dialog_target_at, message_box_action_at, rename_agent_dialog_target_at,
         task_dialog_action_at, CreateAgentDialogTarget, RenameAgentDialogTarget,
     },
+    text_selection::AgentListTextSelectionState,
 };
 
 use super::{
@@ -518,7 +518,8 @@ fn handle_general_release(
                                 crate::app::OwnedTmuxCommand::ClearSelection,
                             ));
                             emitted_commands.push(AppCommand::Agent(AgentCommand::Focus(agent_id)));
-                            emitted_commands.push(AppCommand::Agent(AgentCommand::Inspect(agent_id)));
+                            emitted_commands
+                                .push(AppCommand::Agent(AgentCommand::Inspect(agent_id)));
                         }
                         AgentListRowKey::OwnedTmux(session_uid) => {
                             emitted_commands.push(AppCommand::OwnedTmux(

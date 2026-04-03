@@ -544,7 +544,10 @@ fn create_agent_dialog_ctrl_u_clears_name_field() {
     let mut ctrl_keys = ButtonInput::<KeyCode>::default();
     ctrl_keys.press(KeyCode::ControlLeft);
     world.insert_resource(ctrl_keys);
-    dispatch_message_box_key(&mut world, pressed_key(KeyCode::KeyU, Key::Character("u".into())));
+    dispatch_message_box_key(
+        &mut world,
+        pressed_key(KeyCode::KeyU, Key::Character("u".into())),
+    );
 
     let session = world.resource::<AppSessionState>();
     assert_eq!(session.create_agent_dialog.name_field.text, "");
@@ -964,7 +967,9 @@ fn dragging_over_terminal_panel_selects_terminal_text() {
     world
         .resource_mut::<ButtonInput<MouseButton>>()
         .press(MouseButton::Left);
-    world.run_system_once(handle_terminal_text_selection).unwrap();
+    world
+        .run_system_once(handle_terminal_text_selection)
+        .unwrap();
     world
         .resource_mut::<ButtonInput<MouseButton>>()
         .clear_just_pressed(MouseButton::Left);
@@ -974,7 +979,9 @@ fn dragging_over_terminal_panel_selects_terminal_text() {
         .single_mut(&mut world)
         .expect("window should exist")
         .set_cursor_position(Some(Vec2::new(645.0, 305.0)));
-    world.run_system_once(handle_terminal_text_selection).unwrap();
+    world
+        .run_system_once(handle_terminal_text_selection)
+        .unwrap();
 
     let selection = world
         .resource::<crate::text_selection::TerminalTextSelectionState>()
@@ -1209,7 +1216,10 @@ fn create_agent_dialog_ctrl_u_clears_cwd_field() {
     {
         let mut session = world.resource_mut::<AppSessionState>();
         session.create_agent_dialog.open(CreateAgentKind::Pi);
-        session.create_agent_dialog.cwd_field.load_text("~/code/project");
+        session
+            .create_agent_dialog
+            .cwd_field
+            .load_text("~/code/project");
         session.create_agent_dialog.focus = CreateAgentDialogField::StartingFolder;
     }
     world.spawn((
@@ -1223,7 +1233,10 @@ fn create_agent_dialog_ctrl_u_clears_cwd_field() {
     let mut ctrl_keys = ButtonInput::<KeyCode>::default();
     ctrl_keys.press(KeyCode::ControlLeft);
     world.insert_resource(ctrl_keys);
-    dispatch_message_box_key(&mut world, pressed_key(KeyCode::KeyU, Key::Character("u".into())));
+    dispatch_message_box_key(
+        &mut world,
+        pressed_key(KeyCode::KeyU, Key::Character("u".into())),
+    );
 
     let session = world.resource::<AppSessionState>();
     assert_eq!(session.create_agent_dialog.cwd_field.field.text, "");
@@ -1272,7 +1285,10 @@ fn rename_dialog_ctrl_u_clears_name_field() {
     {
         let mut app_session = world.resource_mut::<AppSessionState>();
         app_session.rename_agent_dialog.open(agent_id, "AGENT-1");
-        app_session.rename_agent_dialog.name_field.load_text("RENAMED");
+        app_session
+            .rename_agent_dialog
+            .name_field
+            .load_text("RENAMED");
         app_session.rename_agent_dialog.focus = RenameAgentDialogField::Name;
     }
     world.init_resource::<Messages<RequestRedraw>>();
@@ -1281,7 +1297,10 @@ fn rename_dialog_ctrl_u_clears_name_field() {
     let mut ctrl_keys = ButtonInput::<KeyCode>::default();
     ctrl_keys.press(KeyCode::ControlLeft);
     world.insert_resource(ctrl_keys);
-    dispatch_message_box_key(&mut world, pressed_key(KeyCode::KeyU, Key::Character("u".into())));
+    dispatch_message_box_key(
+        &mut world,
+        pressed_key(KeyCode::KeyU, Key::Character("u".into())),
+    );
 
     let app_session = world.resource::<AppSessionState>();
     assert_eq!(app_session.rename_agent_dialog.name_field.text, "");
@@ -1743,10 +1762,16 @@ fn task_dialog_ctrl_u_cuts_all_contents() {
     let mut keys = ButtonInput::<KeyCode>::default();
     keys.press(KeyCode::ControlLeft);
     world.insert_resource(keys);
-    dispatch_message_box_key(&mut world, pressed_key(KeyCode::KeyU, Key::Character("u".into())));
+    dispatch_message_box_key(
+        &mut world,
+        pressed_key(KeyCode::KeyU, Key::Character("u".into())),
+    );
     assert_eq!(snapshot_test_hud_state(&world).task_dialog.text, "");
 
-    dispatch_message_box_key(&mut world, pressed_key(KeyCode::KeyY, Key::Character("y".into())));
+    dispatch_message_box_key(
+        &mut world,
+        pressed_key(KeyCode::KeyY, Key::Character("y".into())),
+    );
     assert_eq!(
         snapshot_test_hud_state(&world).task_dialog.text,
         "- [ ] first\n- [ ] second"
@@ -2177,11 +2202,20 @@ fn message_box_ctrl_u_cuts_all_contents() {
     let mut ctrl_keys = ButtonInput::<KeyCode>::default();
     ctrl_keys.press(KeyCode::ControlLeft);
     world.insert_resource(ctrl_keys);
-    dispatch_message_box_key(&mut world, pressed_key(KeyCode::KeyU, Key::Character("u".into())));
+    dispatch_message_box_key(
+        &mut world,
+        pressed_key(KeyCode::KeyU, Key::Character("u".into())),
+    );
     assert_eq!(snapshot_test_hud_state(&world).message_box.text, "");
 
-    dispatch_message_box_key(&mut world, pressed_key(KeyCode::KeyY, Key::Character("y".into())));
-    assert_eq!(snapshot_test_hud_state(&world).message_box.text, "alpha\nbeta");
+    dispatch_message_box_key(
+        &mut world,
+        pressed_key(KeyCode::KeyY, Key::Character("y".into())),
+    );
+    assert_eq!(
+        snapshot_test_hud_state(&world).message_box.text,
+        "alpha\nbeta"
+    );
 }
 
 /// Verifies the editor's `Ctrl+O` open-line and `Ctrl+J` newline-and-indent behaviors.

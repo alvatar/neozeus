@@ -6,10 +6,7 @@ use super::super::super::{
 };
 use bevy::prelude::Vec2;
 
-use super::{
-    agent_list_content_height, agent_row_rect, agent_row_text_hit_rect, agent_rows,
-    AgentListRowSection,
-};
+use super::{agent_list_content_height, agent_row_text_hit_rect, agent_rows, row_main_rect};
 
 /// Returns the agent-list row currently under the pointer, if any.
 pub(crate) fn row_at_point(
@@ -42,10 +39,7 @@ pub(crate) fn text_row_at_point(
         agent_list_view,
     )
     .into_iter()
-    .find(|row| {
-        let main_rect = agent_row_rect(row.rect, AgentListRowSection::Main);
-        agent_row_text_hit_rect(main_rect).contains(point)
-    })
+    .find(|row| agent_row_text_hit_rect(row_main_rect(row)).contains(point))
     .map(|row| row.key)
 }
 
@@ -54,9 +48,19 @@ pub(crate) fn selected_text_for_rows(
     anchor: &AgentListRowKey,
     focus: &AgentListRowKey,
 ) -> Option<String> {
-    let start = agent_list_view.rows.iter().position(|row| &row.key == anchor)?;
-    let end = agent_list_view.rows.iter().position(|row| &row.key == focus)?;
-    let (start, end) = if start <= end { (start, end) } else { (end, start) };
+    let start = agent_list_view
+        .rows
+        .iter()
+        .position(|row| &row.key == anchor)?;
+    let end = agent_list_view
+        .rows
+        .iter()
+        .position(|row| &row.key == focus)?;
+    let (start, end) = if start <= end {
+        (start, end)
+    } else {
+        (end, start)
+    };
     let text = agent_list_view.rows[start..=end]
         .iter()
         .map(|row| match row.kind {

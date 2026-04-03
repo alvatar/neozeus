@@ -15,9 +15,10 @@ pub(crate) use rows::{
 };
 pub(crate) use rows::{
     agent_row_label_position, agent_row_label_text, agent_row_rect, agent_row_text_hit_rect,
-    AgentListRowSection, AGENT_LIST_BLOOM_RED_B, AGENT_LIST_BLOOM_RED_G,
+    row_main_rect, AgentListRowSection, AGENT_LIST_BLOOM_RED_B, AGENT_LIST_BLOOM_RED_G,
     AGENT_LIST_BLOOM_RED_R, AGENT_ROW_LABEL_SCALE_X, AGENT_ROW_LABEL_SCALE_Y,
-    AGENT_ROW_LABEL_TEXT_SIZE,
+    AGENT_ROW_LABEL_TEXT_SIZE, TMUX_ROW_LABEL_SCALE_X, TMUX_ROW_LABEL_SCALE_Y,
+    TMUX_ROW_LABEL_TEXT_SIZE,
 };
 pub(in crate::hud) use rows::{agent_rows, projected_agent_rows, AgentListDragPreview};
 

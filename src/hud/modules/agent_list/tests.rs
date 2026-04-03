@@ -80,11 +80,53 @@ fn agent_row_rect_splits_main_and_marker_geometry() {
 }
 
 #[test]
+fn tmux_child_rows_render_as_compact_indented_boxes() {
+    let rows = rows::agent_rows(
+        HudRect {
+            x: 24.0,
+            y: 96.0,
+            w: 300.0,
+            h: 420.0,
+        },
+        0.0,
+        None,
+        &AgentListView {
+            rows: vec![
+                agent_row_view(
+                    crate::agents::AgentId(1),
+                    Some(crate::terminals::TerminalId(1)),
+                    "AGENT-1",
+                ),
+                tmux_row_view(
+                    OwnedTmuxOwnerBinding::Bound(crate::agents::AgentId(1)),
+                    "tmux-1",
+                    "BUILD",
+                    "neozeus-tmux-1",
+                ),
+            ],
+        },
+    );
+
+    let agent_main = row_main_rect(&rows[0]);
+    let tmux_main = row_main_rect(&rows[1]);
+
+    assert!(rows[1].is_tmux_child);
+    assert!(tmux_main.x > agent_main.x);
+    assert!(tmux_main.h < agent_main.h);
+    assert!(tmux_main.w < rows[1].rect.w);
+}
+
+#[test]
 fn selected_text_for_rows_prefixes_tmux_children() {
     let view = AgentListView {
         rows: vec![
             agent_row_view(AgentId(1), None, "ALPHA"),
-            tmux_row_view(OwnedTmuxOwnerBinding::Bound(AgentId(1)), "tmux-1", "BUILD", "neozeus-tmux-1"),
+            tmux_row_view(
+                OwnedTmuxOwnerBinding::Bound(AgentId(1)),
+                "tmux-1",
+                "BUILD",
+                "neozeus-tmux-1",
+            ),
         ],
     };
 
