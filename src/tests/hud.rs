@@ -4,9 +4,9 @@ use super::{
 };
 use crate::agents::{AgentCatalog, AgentRuntimeIndex, AgentStatusStore};
 use crate::terminals::{
-    kill_active_terminal_session_and_remove as kill_active_terminal, TerminalManager,
-    TerminalNotesState, TerminalPanel, TerminalPanelFrame, TerminalPresentationStore,
-    TerminalViewState,
+    kill_active_terminal_session_and_remove as kill_active_terminal, TerminalFontState,
+    TerminalGlyphCache, TerminalManager, TerminalNotesState, TerminalPanel, TerminalPanelFrame,
+    TerminalPresentationStore, TerminalTextRenderer, TerminalViewState,
 };
 use crate::{
     app::{
@@ -14,6 +14,7 @@ use crate::{
         ComposerCommand as AppComposerCommand, CreateAgentDialogField,
         CreateAgentKind as AppCreateAgentKind, TaskCommand as AppTaskCommand, WidgetCommand,
     },
+    app_config::DEFAULT_BG,
     composer::{
         create_agent_name_field_rect, message_box_action_buttons, message_box_rect,
         task_dialog_action_buttons,
@@ -27,11 +28,27 @@ use crate::{
 };
 use bevy::{
     ecs::system::RunSystemOnce,
-    input::{keyboard::KeyboardInput, mouse::MouseWheel},
+    image::Image,
+    input::{
+        keyboard::{Key, KeyboardInput},
+        mouse::MouseWheel,
+        ButtonState,
+    },
     prelude::*,
     window::{PrimaryWindow, RequestRedraw},
 };
 use std::{sync::Arc, time::Duration};
+
+fn pressed_key(key_code: KeyCode, logical_key: Key) -> KeyboardInput {
+    KeyboardInput {
+        key_code,
+        logical_key,
+        state: ButtonState::Pressed,
+        text: None,
+        repeat: false,
+        window: Entity::PLACEHOLDER,
+    }
+}
 
 /// Initializes the app-command message resource in a test world.
 fn init_hud_commands(world: &mut World) {
@@ -2029,6 +2046,162 @@ fn killing_selected_owned_tmux_session_preserves_selection_on_failure() {
     assert_eq!(
         inspect.last_error.as_deref(),
         Some("owned tmux kill failed")
+    );
+}
+
+/// Verifies that navigating onto an owned tmux row renders the tmux capture in the main terminal panel.
+#[test]
+fn navigating_to_owned_tmux_should_render_capture_in_terminal_panel() {
+    let client = Arc::new(FakeDaemonClient::default());
+    client
+        .owned_tmux_sessions
+        .lock()
+        .unwrap()
+        .push(crate::terminals::OwnedTmuxSessionInfo {
+            session_uid: "tmux-session-1".into(),
+            owner_agent_uid: "agent-uid-1".into(),
+            tmux_name: "neozeus-tmux-1".into(),
+            display_name: "BUILD".into(),
+            cwd: "/tmp/work".into(),
+            attached: true,
+            created_unix: 0,
+        });
+    client
+        .tmux_captures
+        .lock()
+        .unwrap()
+        .insert("tmux-session-1".into(), "TMUX VERIFY\nline two\n".into());
+
+    let mut catalog = AgentCatalog::default();
+    let agent_id = catalog.create_agent(
+        Some("alpha".into()),
+        crate::agents::AgentKind::Terminal,
+        crate::agents::AgentKind::Terminal.capabilities(),
+    );
+    let agent_uid = catalog.uid(agent_id).unwrap().to_owned();
+    client.owned_tmux_sessions.lock().unwrap()[0].owner_agent_uid = agent_uid;
+
+    let (bridge, _) = test_bridge();
+    let mut manager = TerminalManager::default();
+    let terminal_id = manager.create_terminal(bridge);
+    manager.focus_terminal(terminal_id);
+    let terminal = manager.get_mut(terminal_id).expect("terminal should exist");
+    terminal.snapshot.surface = Some(crate::terminals::TerminalSurface::new(80, 24));
+    terminal.surface_revision = 1;
+
+    let mut runtime_index = AgentRuntimeIndex::default();
+    runtime_index.link_terminal(agent_id, terminal_id, "agent-session".into(), None);
+
+    let mut world = World::default();
+    insert_default_hud_resources(&mut world);
+    insert_terminal_manager_resources(&mut world, manager);
+    world.insert_resource(catalog);
+    world.insert_resource(runtime_index);
+    world.insert_resource(AppSessionState {
+        active_agent: Some(agent_id),
+        ..Default::default()
+    });
+    world.insert_resource(fake_runtime_spawner(client));
+    world.insert_resource(crate::terminals::OwnedTmuxSessionStore::default());
+    world.insert_resource(crate::terminals::OwnedTmuxInspectState::default());
+    world.insert_resource(TerminalPresentationStore::default());
+    world.insert_resource(TerminalViewState::default());
+    world.insert_resource(TerminalFontState::default());
+    world.insert_resource(TerminalTextRenderer::default());
+    world.insert_resource(TerminalGlyphCache::default());
+    world.insert_resource(Assets::<Image>::default());
+    let mut time = Time::<()>::default();
+    time.advance_by(Duration::from_secs(1));
+    world.insert_resource(time);
+    world.spawn((
+        Window {
+            resolution: (1400, 900).into(),
+            ..Default::default()
+        },
+        PrimaryWindow,
+    ));
+    world.insert_resource(crate::hud::AgentListView {
+        rows: vec![
+            crate::hud::AgentListRowView {
+                key: crate::hud::AgentListRowKey::Agent(agent_id),
+                label: "ALPHA".into(),
+                focused: true,
+                kind: crate::hud::AgentListRowKind::Agent {
+                    agent_id,
+                    terminal_id: Some(terminal_id),
+                    has_tasks: false,
+                    interactive: true,
+                    status: crate::agents::AgentStatus::Unknown,
+                    context_pct_milli: None,
+                },
+            },
+            crate::hud::AgentListRowView {
+                key: crate::hud::AgentListRowKey::OwnedTmux("tmux-session-1".into()),
+                label: "BUILD".into(),
+                focused: false,
+                kind: crate::hud::AgentListRowKind::OwnedTmux {
+                    session_uid: "tmux-session-1".into(),
+                    owner_agent_id: Some(agent_id),
+                    tmux_name: "neozeus-tmux-1".into(),
+                    cwd: "/tmp/work".into(),
+                    attached: true,
+                    orphan: false,
+                },
+            },
+        ],
+    });
+    world.insert_resource(ButtonInput::<KeyCode>::default());
+    world.init_resource::<Messages<KeyboardInput>>();
+    world.init_resource::<Messages<AppCommand>>();
+    world.init_resource::<Messages<RequestRedraw>>();
+
+    world
+        .resource_mut::<Messages<KeyboardInput>>()
+        .write(pressed_key(KeyCode::KeyJ, Key::Character("j".into())));
+    world.run_system_once(handle_hud_module_shortcuts).unwrap();
+    run_app_commands(&mut world);
+    world
+        .run_system_once(crate::terminals::sync_owned_tmux_sessions)
+        .unwrap();
+    world
+        .run_system_once(crate::terminals::sync_owned_tmux_inspect)
+        .unwrap();
+    world
+        .run_system_once(crate::terminals::sync_terminal_projection_entities)
+        .unwrap();
+    world
+        .run_system_once(crate::terminals::configure_terminal_fonts)
+        .unwrap();
+    world
+        .run_system_once(crate::terminals::sync_terminal_texture)
+        .unwrap();
+
+    let store = world.resource::<TerminalPresentationStore>();
+    let presented = store
+        .get(terminal_id)
+        .expect("presented terminal should exist");
+    let images = world.resource::<Assets<Image>>();
+    let image = images
+        .get(&presented.image)
+        .expect("terminal image should exist");
+    let has_visible_tmux_pixels = image
+        .data
+        .as_ref()
+        .expect("image data should exist")
+        .chunks_exact(4)
+        .any(|pixel| {
+            pixel
+                != [
+                    DEFAULT_BG.r(),
+                    DEFAULT_BG.g(),
+                    DEFAULT_BG.b(),
+                    DEFAULT_BG.a(),
+                ]
+        });
+
+    assert!(
+        has_visible_tmux_pixels,
+        "navigating to selected tmux should render into the main terminal panel"
     );
 }
 

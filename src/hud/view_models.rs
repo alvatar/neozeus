@@ -213,7 +213,7 @@ pub(crate) fn sync_hud_view_models(
     for session in orphan_tmux {
         rows.push(AgentListRowView {
             key: AgentListRowKey::OwnedTmux(session.session_uid.clone()),
-            label: format!("ORPHAN {}", session.display_name),
+            label: session.display_name,
             focused: selected_tmux_session == Some(session.session_uid.as_str()),
             kind: AgentListRowKind::OwnedTmux {
                 session_uid: session.session_uid,
@@ -279,12 +279,9 @@ pub(crate) fn sync_hud_view_models(
                     delivered: true,
                 });
             }
+            let _ = orphan;
             messages.push(ThreadMessageView {
-                body: format!(
-                    "attached: {}{}",
-                    attached,
-                    if *orphan { "  orphan" } else { "" }
-                ),
+                body: format!("attached: {}", attached),
                 delivered: true,
             });
         }

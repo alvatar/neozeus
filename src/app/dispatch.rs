@@ -281,6 +281,29 @@ pub(super) fn apply_app_commands(
             AppCommand::OwnedTmux(command) => match command {
                 OwnedTmuxCommand::Select { session_uid } => {
                     ctx.owned_tmux_inspect.select(session_uid.clone());
+                    if let Some(session) = ctx
+                        .owned_tmux_sessions
+                        .sessions
+                        .iter()
+                        .find(|session| session.session_uid == *session_uid)
+                    {
+                        if let Some(agent_id) =
+                            ctx.agent_catalog.find_by_uid(&session.owner_agent_uid)
+                        {
+                            ctx.app_session.active_agent = Some(agent_id);
+                            if let Some(terminal_id) = ctx.runtime_index.primary_terminal(agent_id)
+                            {
+                                ctx.focus_state
+                                    .focus_terminal(&ctx.terminal_manager, terminal_id);
+                                #[cfg(test)]
+                                ctx.terminal_manager
+                                    .replace_test_focus_state(&ctx.focus_state);
+                                ctx.view_state.focus_terminal(Some(terminal_id));
+                                ctx.input_capture
+                                    .reconcile_direct_terminal_input(ctx.focus_state.active_id());
+                            }
+                        }
+                    }
                     ctx.redraws.write(RequestRedraw);
                 }
                 OwnedTmuxCommand::ClearSelection => {

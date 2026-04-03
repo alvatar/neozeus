@@ -310,7 +310,7 @@ fn agent_rows_include_tmux_children_and_orphan_flags() {
                     "neozeus-tmux-1",
                     false,
                 ),
-                tmux_row_view(None, "tmux-2", "ORPHAN BUILD", "neozeus-tmux-2", true),
+                tmux_row_view(None, "tmux-2", "BUILD", "neozeus-tmux-2", true),
             ],
         },
     );

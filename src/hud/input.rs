@@ -500,40 +500,46 @@ fn emit_app_commands(ctx: &mut HudPointerContext<'_, '_>, emitted_commands: Vec<
     }
 }
 
-/// Chooses the next or previous agent id for keyboard navigation through the agent list.
-fn adjacent_agent_id(
+enum AgentListNavigationTarget {
+    Agent(crate::agents::AgentId),
+    OwnedTmux(String),
+}
+
+/// Chooses the next or previous visible row target for keyboard navigation through the agent list.
+fn adjacent_agent_list_target(
     app_session: &AppSessionState,
     agent_list_view: &AgentListView,
+    owned_tmux_inspect: &crate::terminals::OwnedTmuxInspectState,
     step: isize,
-) -> Option<crate::agents::AgentId> {
-    // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
+) -> Option<AgentListNavigationTarget> {
     if agent_list_view.rows.is_empty() {
         return None;
     }
 
-    let agent_rows = agent_list_view
-        .rows
-        .iter()
-        .filter_map(|row| match row.key {
-            AgentListRowKey::Agent(agent_id) => Some(agent_id),
-            AgentListRowKey::OwnedTmux(_) => None,
-        })
-        .collect::<Vec<_>>();
-    if agent_rows.is_empty() {
-        return None;
-    }
-
-    let current_index = match app_session.active_agent {
-        Some(active_agent) => agent_rows
-            .iter()
-            .position(|agent_id| *agent_id == active_agent)?,
-        None => {
-            return Some(if step < 0 {
-                *agent_rows.last()?
-            } else {
-                agent_rows[0]
-            });
-        }
+    let current_index = if let Some(session_uid) =
+        owned_tmux_inspect.selected_session_uid.as_deref()
+    {
+        agent_list_view.rows.iter().position(
+            |row| matches!(&row.key, AgentListRowKey::OwnedTmux(row_uid) if row_uid == session_uid),
+        )?
+    } else if let Some(active_agent) = app_session.active_agent {
+        agent_list_view.rows.iter().position(
+            |row| matches!(row.key, AgentListRowKey::Agent(agent_id) if agent_id == active_agent),
+        )?
+    } else {
+        return match agent_list_view.rows[if step < 0 {
+            agent_list_view.rows.len() - 1
+        } else {
+            0
+        }]
+        .key
+        .clone()
+        {
+            AgentListRowKey::Agent(agent_id) => Some(AgentListNavigationTarget::Agent(agent_id)),
+            AgentListRowKey::OwnedTmux(session_uid) => {
+                Some(AgentListNavigationTarget::OwnedTmux(session_uid))
+            }
+        };
     };
 
     let next_index = if step < 0 {
@@ -543,7 +549,16 @@ fn adjacent_agent_id(
             .saturating_add(step as usize)
             .min(agent_list_view.rows.len().saturating_sub(1))
     };
-    (next_index != current_index).then_some(agent_rows[next_index])
+    if next_index == current_index {
+        return None;
+    }
+
+    match agent_list_view.rows[next_index].key.clone() {
+        AgentListRowKey::Agent(agent_id) => Some(AgentListNavigationTarget::Agent(agent_id)),
+        AgentListRowKey::OwnedTmux(session_uid) => {
+            Some(AgentListNavigationTarget::OwnedTmux(session_uid))
+        }
+    }
 }
 
 /// Handles keyboard shortcuts that toggle/reset HUD modules and navigate the agent list.
@@ -557,6 +572,7 @@ pub(crate) fn handle_hud_module_shortcuts(
     app_session: Res<AppSessionState>,
     input_capture: Res<HudInputCaptureState>,
     agent_list_view: Res<AgentListView>,
+    owned_tmux_inspect: Option<Res<crate::terminals::OwnedTmuxInspectState>>,
     mut app_commands: MessageWriter<AppCommand>,
 ) {
     // Keep the control flow staged so each branch owns one behavior path and later branches only run when earlier capture rules do not apply.
@@ -584,6 +600,10 @@ pub(crate) fn handle_hud_module_shortcuts(
     let Some(action) = action else {
         return;
     };
+    let default_tmux_inspect = crate::terminals::OwnedTmuxInspectState::default();
+    let owned_tmux_inspect = owned_tmux_inspect
+        .as_deref()
+        .unwrap_or(&default_tmux_inspect);
 
     for event in messages.read() {
         if event.state != ButtonState::Pressed {
@@ -592,17 +612,33 @@ pub(crate) fn handle_hud_module_shortcuts(
 
         if matches!(action, ShortcutAction::Toggle) {
             let navigation_target = match event.key_code {
-                KeyCode::KeyJ | KeyCode::ArrowDown => {
-                    adjacent_agent_id(&app_session, &agent_list_view, 1)
-                }
-                KeyCode::KeyK | KeyCode::ArrowUp => {
-                    adjacent_agent_id(&app_session, &agent_list_view, -1)
-                }
+                KeyCode::KeyJ | KeyCode::ArrowDown => Some(adjacent_agent_list_target(
+                    &app_session,
+                    &agent_list_view,
+                    owned_tmux_inspect,
+                    1,
+                )),
+                KeyCode::KeyK | KeyCode::ArrowUp => Some(adjacent_agent_list_target(
+                    &app_session,
+                    &agent_list_view,
+                    owned_tmux_inspect,
+                    -1,
+                )),
                 _ => None,
-            };
-            if let Some(agent_id) = navigation_target {
-                app_commands.write(AppCommand::Agent(AgentCommand::Focus(agent_id)));
-                app_commands.write(AppCommand::Agent(AgentCommand::Inspect(agent_id)));
+            }
+            .flatten();
+            if let Some(target) = navigation_target {
+                match target {
+                    AgentListNavigationTarget::Agent(agent_id) => {
+                        app_commands.write(AppCommand::Agent(AgentCommand::Focus(agent_id)));
+                        app_commands.write(AppCommand::Agent(AgentCommand::Inspect(agent_id)));
+                    }
+                    AgentListNavigationTarget::OwnedTmux(session_uid) => {
+                        app_commands.write(AppCommand::OwnedTmux(
+                            crate::app::OwnedTmuxCommand::Select { session_uid },
+                        ));
+                    }
+                }
                 continue;
             }
         }

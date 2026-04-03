@@ -227,7 +227,7 @@ fn sync_hud_view_models_orders_multiple_owned_tmux_rows_and_marks_selected_child
     assert_eq!(rows[2].label, "ALPHA TEST");
     assert_eq!(rows[3].label, "BETA");
     assert_eq!(rows[4].label, "BETA BUILD");
-    assert_eq!(rows[5].label, "ORPHAN BUILD");
+    assert_eq!(rows[5].label, "BUILD");
     assert!(!rows[0].focused);
     assert!(!rows[1].focused);
     assert!(rows[2].focused);
@@ -269,7 +269,7 @@ fn sync_hud_view_models_routes_unknown_owned_tmux_to_orphan_row() {
     world.run_system_once(sync_hud_view_models).unwrap();
     let rows = &world.resource::<AgentListView>().rows;
     assert_eq!(rows.len(), 1);
-    assert_eq!(rows[0].label, "ORPHAN BUILD");
+    assert_eq!(rows[0].label, "BUILD");
 }
 
 #[test]

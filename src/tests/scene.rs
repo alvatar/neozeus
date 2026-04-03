@@ -794,7 +794,7 @@ fn startup_restore_rebinds_multiple_owned_tmux_children_under_correct_agents_and
     assert_eq!(rows[2].label, "TEST");
     assert_eq!(rows[3].label, "BETA");
     assert_eq!(rows[4].label, "BETA BUILD");
-    assert_eq!(rows[5].label, "ORPHAN LOST");
+    assert_eq!(rows[5].label, "LOST");
     assert!(matches!(
         rows[1].key,
         crate::hud::AgentListRowKey::OwnedTmux(_)
