@@ -291,7 +291,7 @@ pub(super) fn apply_app_commands(
                         &mut ctx.view_state,
                         &mut ctx.visibility_state,
                         &ctx.runtime_spawner,
-                        &ctx.owned_tmux_sessions,
+                        &mut ctx.owned_tmux_sessions,
                         &mut ctx.active_terminal_content,
                         &mut ctx.redraws,
                     );

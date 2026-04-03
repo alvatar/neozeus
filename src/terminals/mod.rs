@@ -35,7 +35,9 @@ pub(crate) use notes::{
     resolve_terminal_notes_path, save_terminal_notes_if_dirty, task_entry_from_text,
     TerminalNotesState,
 };
-pub(crate) use owned_tmux_state::{sync_owned_tmux_sessions, OwnedTmuxSessionStore};
+pub(crate) use owned_tmux_state::{
+    refresh_owned_tmux_sessions_now, sync_owned_tmux_sessions, OwnedTmuxSessionStore,
+};
 pub(crate) use presentation::{
     sync_active_terminal_dimensions, sync_terminal_hud_surface, sync_terminal_panel_frames,
     sync_terminal_presentations, sync_terminal_projection_entities, terminal_texture_screen_size,

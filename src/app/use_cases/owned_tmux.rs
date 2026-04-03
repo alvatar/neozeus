@@ -3,7 +3,7 @@ use crate::{
     app::session::{AppSessionState, VisibilityMode},
     hud::{HudInputCaptureState, TerminalVisibilityPolicy, TerminalVisibilityState},
     terminals::{
-        ActiveTerminalContentState, OwnedTmuxSessionInfo, OwnedTmuxSessionStore,
+        refresh_owned_tmux_sessions_now, ActiveTerminalContentState, OwnedTmuxSessionStore,
         TerminalFocusState, TerminalManager, TerminalRuntimeSpawner, TerminalViewState,
     },
 };
@@ -25,27 +25,16 @@ pub(crate) fn select_owned_tmux(
     view_state: &mut TerminalViewState,
     visibility_state: &mut TerminalVisibilityState,
     runtime_spawner: &TerminalRuntimeSpawner,
-    owned_tmux_sessions: &OwnedTmuxSessionStore,
+    owned_tmux_sessions: &mut OwnedTmuxSessionStore,
     active_terminal_content: &mut ActiveTerminalContentState,
     redraws: &mut MessageWriter<RequestRedraw>,
 ) {
-    let selected_session = owned_tmux_sessions
-        .sessions
-        .iter()
-        .find(|session| session.session_uid == session_uid)
-        .cloned()
-        .or_else(|| {
-            runtime_spawner
-                .list_owned_tmux_sessions()
-                .ok()?
-                .into_iter()
-                .find(|session| session.session_uid == session_uid)
-        });
-    let owner_agent_id = selected_session
-        .as_ref()
-        .and_then(|session: &OwnedTmuxSessionInfo| {
-            agent_catalog.find_by_uid(&session.owner_agent_uid)
-        });
+    if owned_tmux_sessions.session(session_uid).is_none() {
+        let _ = refresh_owned_tmux_sessions_now(runtime_spawner, owned_tmux_sessions);
+    }
+    let owner_agent_id = owned_tmux_sessions
+        .session(session_uid)
+        .and_then(|session| agent_catalog.find_by_uid(&session.owner_agent_uid));
     let owner_terminal_id =
         owner_agent_id.and_then(|agent_id| runtime_index.primary_terminal(agent_id));
 
@@ -85,34 +74,13 @@ pub(crate) fn kill_selected_owned_tmux(
 
     match runtime_spawner.kill_owned_tmux_session(&session_uid) {
         Ok(()) => {
-            owned_tmux_sessions
-                .sessions
-                .retain(|session| session.session_uid != session_uid);
+            owned_tmux_sessions.record_removed_session(&session_uid);
+            let _ = refresh_owned_tmux_sessions_now(runtime_spawner, owned_tmux_sessions);
             active_terminal_content.clear();
         }
         Err(error) => {
-            let listed_sessions = runtime_spawner.list_owned_tmux_sessions().ok();
-            let session_still_exists = listed_sessions
-                .as_ref()
-                .map(|sessions| {
-                    sessions
-                        .iter()
-                        .any(|session| session.session_uid == session_uid)
-                })
-                .unwrap_or_else(|| {
-                    owned_tmux_sessions
-                        .sessions
-                        .iter()
-                        .any(|session| session.session_uid == session_uid)
-                });
-            if let Some(sessions) = listed_sessions {
-                owned_tmux_sessions.sessions = sessions;
-            } else if !session_still_exists {
-                owned_tmux_sessions
-                    .sessions
-                    .retain(|session| session.session_uid != session_uid);
-            }
-            if session_still_exists {
+            let _ = refresh_owned_tmux_sessions_now(runtime_spawner, owned_tmux_sessions);
+            if owned_tmux_sessions.session(&session_uid).is_some() {
                 active_terminal_content.set_last_error(error);
             } else {
                 active_terminal_content.clear();
