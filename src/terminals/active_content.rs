@@ -7,6 +7,11 @@ use bevy::prelude::*;
 const ACTIVE_TMUX_SYNC_INTERVAL_SECS: f32 = 0.5;
 const OWNED_TMUX_CAPTURE_LINES: usize = 200;
 
+#[derive(Resource, Default, Clone, Debug, PartialEq)]
+pub(crate) struct ActiveTerminalContentSyncState {
+    last_sync_secs: Option<f32>,
+}
+
 /// Holds the currently selected terminal-content override for the active terminal panel.
 ///
 /// The default mode is the focused agent terminal. When a tmux child row is selected, the app
@@ -16,9 +21,10 @@ const OWNED_TMUX_CAPTURE_LINES: usize = 200;
 pub(crate) struct ActiveTerminalContentState {
     selected_owned_tmux_session_uid: Option<String>,
     owner_terminal_id: Option<TerminalId>,
+    owned_tmux_capture_text: Option<String>,
     owned_tmux_surface: Option<TerminalSurface>,
     last_error: Option<String>,
-    last_sync_secs: Option<f32>,
+    presentation_revision: u64,
 }
 
 impl ActiveTerminalContentState {
@@ -30,18 +36,20 @@ impl ActiveTerminalContentState {
     ) {
         self.selected_owned_tmux_session_uid = Some(session_uid);
         self.owner_terminal_id = owner_terminal_id;
+        self.owned_tmux_capture_text = None;
         self.owned_tmux_surface = None;
         self.last_error = None;
-        self.last_sync_secs = None;
+        self.bump_presentation_revision();
     }
 
     /// Clears any active tmux override and returns control to the focused agent terminal.
     pub(crate) fn clear(&mut self) {
         self.selected_owned_tmux_session_uid = None;
         self.owner_terminal_id = None;
+        self.owned_tmux_capture_text = None;
         self.owned_tmux_surface = None;
         self.last_error = None;
-        self.last_sync_secs = None;
+        self.bump_presentation_revision();
     }
 
     /// Returns the selected owned tmux session uid, if the terminal panel is currently overridden.
@@ -67,6 +75,66 @@ impl ActiveTerminalContentState {
     pub(crate) fn set_last_error(&mut self, error: String) {
         self.last_error = Some(error);
     }
+
+    pub(crate) fn presentation_override_revision_for(
+        &self,
+        terminal_id: TerminalId,
+    ) -> Option<u64> {
+        (self.owner_terminal_id == Some(terminal_id)
+            && self.selected_owned_tmux_session_uid.is_some())
+            .then_some(self.presentation_revision)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn presentation_revision(&self) -> u64 {
+        self.presentation_revision
+    }
+
+    fn bump_presentation_revision(&mut self) {
+        self.presentation_revision = self.presentation_revision.wrapping_add(1);
+    }
+
+    fn set_missing_session_error(&mut self) {
+        let error = Some("Owned tmux session is no longer available".to_owned());
+        if self.owned_tmux_capture_text.is_none()
+            && self.owned_tmux_surface.is_none()
+            && self.last_error == error
+        {
+            return;
+        }
+        self.owned_tmux_capture_text = None;
+        self.owned_tmux_surface = None;
+        self.last_error = error;
+        self.bump_presentation_revision();
+    }
+
+    fn update_capture(&mut self, text: String) {
+        if self.owned_tmux_capture_text.as_deref() == Some(text.as_str())
+            && self.last_error.is_none()
+            && self.owned_tmux_surface.is_some()
+        {
+            return;
+        }
+        let mut surface = surface_from_ansi_text_auto_size(&text);
+        surface.cursor = None;
+        self.owned_tmux_capture_text = Some(text);
+        self.owned_tmux_surface = Some(surface);
+        self.last_error = None;
+        self.bump_presentation_revision();
+    }
+
+    fn update_capture_error(&mut self, error: String) {
+        if self.owned_tmux_capture_text.is_none()
+            && self.owned_tmux_surface.is_none()
+            && self.last_error.as_deref() == Some(error.as_str())
+        {
+            return;
+        }
+        self.owned_tmux_capture_text = None;
+        self.owned_tmux_surface = None;
+        self.last_error = Some(error);
+        self.bump_presentation_revision();
+    }
 }
 
 /// Refreshes the active terminal-content override from the currently selected owned tmux session.
@@ -74,40 +142,32 @@ pub(crate) fn sync_active_terminal_content(
     time: Res<Time>,
     runtime_spawner: Res<TerminalRuntimeSpawner>,
     session_store: Res<OwnedTmuxSessionStore>,
+    mut sync_state: ResMut<ActiveTerminalContentSyncState>,
     mut active_content: ResMut<ActiveTerminalContentState>,
 ) {
     let Some(session_uid) = active_content.selected_owned_tmux_session_uid.clone() else {
         return;
     };
     let now_secs = time.elapsed_secs();
-    if active_content
+    if sync_state
         .last_sync_secs
         .is_some_and(|last_sync_secs| now_secs - last_sync_secs < ACTIVE_TMUX_SYNC_INTERVAL_SECS)
     {
         return;
     }
-    active_content.last_sync_secs = Some(now_secs);
+    sync_state.last_sync_secs = Some(now_secs);
 
     if !session_store
         .sessions
         .iter()
         .any(|session| session.session_uid == session_uid)
     {
-        active_content.owned_tmux_surface = None;
-        active_content.last_error = Some("Owned tmux session is no longer available".to_owned());
+        active_content.set_missing_session_error();
         return;
     }
 
     match runtime_spawner.capture_owned_tmux_session(&session_uid, OWNED_TMUX_CAPTURE_LINES) {
-        Ok(text) => {
-            let mut surface = surface_from_ansi_text_auto_size(&text);
-            surface.cursor = None;
-            active_content.owned_tmux_surface = Some(surface);
-            active_content.last_error = None;
-        }
-        Err(error) => {
-            active_content.owned_tmux_surface = None;
-            active_content.last_error = Some(error);
-        }
+        Ok(text) => active_content.update_capture(text),
+        Err(error) => active_content.update_capture_error(error),
     }
 }

@@ -109,6 +109,7 @@ fn spawn_terminal_presentation(
             },
             display_mode: TerminalDisplayMode::Smooth,
             uploaded_revision: 0,
+            uploaded_active_override_revision: None,
             panel_entity,
             frame_entity,
         },

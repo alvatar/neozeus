@@ -2147,6 +2147,7 @@ fn hud_navigation_selects_owned_tmux_child_row() {
         ],
     });
     world.insert_resource(crate::terminals::ActiveTerminalContentState::default());
+    world.insert_resource(crate::terminals::ActiveTerminalContentSyncState::default());
     world.insert_resource(ButtonInput::<KeyCode>::default());
     init_hud_commands(&mut world);
     world.init_resource::<Messages<KeyboardInput>>();

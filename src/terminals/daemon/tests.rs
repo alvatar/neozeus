@@ -618,6 +618,56 @@ fn daemon_owned_tmux_discovery_ignores_unstamped_tmux_sessions() {
     kill_tmux_session_if_exists(&raw_tmux_name);
 }
 
+/// Verifies that owner-wide tmux kill reuses the hardened child-exit semantics and does not return
+/// while matching pane processes are still alive.
+#[test]
+fn daemon_owned_tmux_kill_for_owner_uid_waits_for_child_process_exit() {
+    let (_server, socket_path) = start_test_daemon("neozeus-owned-tmux-owner-kill-wait");
+    let client =
+        SocketTerminalDaemonClient::connect(&socket_path).expect("daemon client should connect");
+    let pid_file = temp_dir("neozeus-owned-tmux-owner-kill-pid").join("tmux-child.pid");
+    let owner_a = client
+        .create_owned_tmux_session(
+            "agent-owner-a",
+            "A-1",
+            None,
+            &format!(
+                "exec sh -c {}",
+                shell_quote(&format!("echo $$ > {}; trap '' HUP; sleep 60", pid_file.display()))
+            ),
+        )
+        .expect("owned tmux session should create");
+    let owner_b = client
+        .create_owned_tmux_session("agent-owner-b", "B-1", None, "printf b1")
+        .expect("other owner session should create");
+
+    let pid_text = wait_for_file_text(&pid_file);
+    let pid: u32 = pid_text.parse().expect("tmux child pid should parse");
+    assert!(process_exists(pid), "tmux child pid {pid} should exist before owner kill");
+
+    client
+        .kill_owned_tmux_sessions_for_agent("agent-owner-a")
+        .expect("owner kill should succeed");
+
+    assert!(
+        !process_exists(pid),
+        "tmux child pid {pid} should be gone after kill_owned_tmux_sessions_for_agent returns"
+    );
+    let listed = client
+        .list_owned_tmux_sessions()
+        .expect("owned tmux sessions should relist");
+    assert!(!listed
+        .iter()
+        .any(|candidate| candidate.session_uid == owner_a.session_uid));
+    assert!(listed
+        .iter()
+        .any(|candidate| candidate.session_uid == owner_b.session_uid));
+
+    client
+        .kill_owned_tmux_session(&owner_b.session_uid)
+        .expect("owned tmux cleanup should succeed");
+}
+
 /// Verifies that killing by owner agent uid removes only that owner's tmux child sessions.
 #[test]
 fn daemon_owned_tmux_kill_for_owner_uid_is_scoped() {

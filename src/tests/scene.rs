@@ -655,6 +655,7 @@ fn startup_restore_rebinds_owned_tmux_children_under_agent() {
     world.insert_resource(crate::agents::AgentStatusStore::default());
     world.insert_resource(crate::terminals::OwnedTmuxSessionStore::default());
     world.insert_resource(crate::terminals::ActiveTerminalContentState::default());
+    world.insert_resource(crate::terminals::ActiveTerminalContentSyncState::default());
     world.init_resource::<Messages<RequestRedraw>>();
     world.insert_resource(Time::<()>::default());
     world.insert_resource(fake_runtime_spawner(client));
@@ -765,6 +766,7 @@ fn startup_restore_rebinds_multiple_owned_tmux_children_under_correct_agents_and
     world.insert_resource(crate::agents::AgentStatusStore::default());
     world.insert_resource(crate::terminals::OwnedTmuxSessionStore::default());
     world.insert_resource(crate::terminals::ActiveTerminalContentState::default());
+    world.insert_resource(crate::terminals::ActiveTerminalContentSyncState::default());
     world.init_resource::<Messages<RequestRedraw>>();
     world.insert_resource(Time::<()>::default());
     world.insert_resource(fake_runtime_spawner(client));

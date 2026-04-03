@@ -236,23 +236,7 @@ pub(super) fn kill_owned_tmux_session(session_uid: &str) -> Result<(), String> {
         .into_iter()
         .find(|session| session.session_uid == session_uid)
         .ok_or_else(|| format!("owned tmux session `{session_uid}` not found"))?;
-    let pane_pid = pane_pid(&session.tmux_name).ok().flatten();
-    if let Some(pid) = pane_pid {
-        let _ = signal_process_group(pid, "TERM");
-        let _ = wait_for_process_exit_until(pid, std::time::Instant::now() + Duration::from_millis(200));
-    }
-    match run_tmux(
-        ["kill-session", "-t", session.tmux_name.as_str()],
-        TMUX_MUTATION_TIMEOUT,
-    ) {
-        Ok(_) => {}
-        Err(error) if is_tmux_missing_error(&error) => {}
-        Err(error) => return Err(error),
-    }
-    if let Some(pid) = pane_pid {
-        wait_for_process_exit(pid, TMUX_MUTATION_TIMEOUT)?;
-    }
-    Ok(())
+    kill_discovered_owned_tmux_session(&session)
 }
 
 pub(super) fn kill_owned_tmux_sessions_for_agent(owner_agent_uid: &str) -> Result<(), String> {
@@ -262,10 +246,7 @@ pub(super) fn kill_owned_tmux_sessions_for_agent(owner_agent_uid: &str) -> Resul
         .into_iter()
         .filter(|session| session.owner_agent_uid == owner_agent_uid)
     {
-        if let Err(error) = run_tmux(
-            ["kill-session", "-t", session.tmux_name.as_str()],
-            TMUX_MUTATION_TIMEOUT,
-        ) {
+        if let Err(error) = kill_discovered_owned_tmux_session(&session) {
             failures.push(format!("{}: {error}", session.tmux_name));
         }
     }
@@ -308,6 +289,29 @@ fn owned_tmux_session_name(session_uid: &str) -> String {
         compact = "session".to_owned();
     }
     format!("neozeus-tmux-{compact}")
+}
+
+fn kill_discovered_owned_tmux_session(session: &OwnedTmuxSessionInfo) -> Result<(), String> {
+    let pane_pid = pane_pid(&session.tmux_name).ok().flatten();
+    if let Some(pid) = pane_pid {
+        let _ = signal_process_group(pid, "TERM");
+        let _ = wait_for_process_exit_until(
+            pid,
+            std::time::Instant::now() + Duration::from_millis(200),
+        );
+    }
+    match run_tmux(
+        ["kill-session", "-t", session.tmux_name.as_str()],
+        TMUX_MUTATION_TIMEOUT,
+    ) {
+        Ok(_) => {}
+        Err(error) if is_tmux_missing_error(&error) => {}
+        Err(error) => return Err(error),
+    }
+    if let Some(pid) = pane_pid {
+        wait_for_process_exit(pid, TMUX_MUTATION_TIMEOUT)?;
+    }
+    Ok(())
 }
 
 fn pane_start_command_and_cwd(tmux_name: &str) -> Result<(String, String), String> {

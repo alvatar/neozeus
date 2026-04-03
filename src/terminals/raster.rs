@@ -235,8 +235,10 @@ pub(crate) fn sync_terminal_texture(
             cached
         };
 
+        let active_override_revision = active_terminal_content
+            .presentation_override_revision_for(terminal_id);
         let has_pending_surface = terminal.surface_revision != presented_terminal.uploaded_revision
-            || (Some(terminal_id) == active_id && active_terminal_content.is_changed());
+            || presented_terminal.uploaded_active_override_revision != active_override_revision;
         let mut full_redraw =
             font_state.is_changed() || presented_terminal.texture_state != upload_state;
         let mut dirty_rows = if full_redraw {
@@ -329,6 +331,7 @@ pub(crate) fn sync_terminal_texture(
 
             presented_terminal.texture_state = upload_state;
             presented_terminal.uploaded_revision = terminal.surface_revision;
+            presented_terminal.uploaded_active_override_revision = active_override_revision;
             terminal.pending_damage = None;
         } else {
             append_debug_log("texture sync: target image missing in assets");

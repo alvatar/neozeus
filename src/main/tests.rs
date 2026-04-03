@@ -144,6 +144,9 @@ pub(super) fn insert_default_hud_resources(world: &mut World) {
     if !world.contains_resource::<crate::terminals::ActiveTerminalContentState>() {
         world.insert_resource(crate::terminals::ActiveTerminalContentState::default());
     }
+    if !world.contains_resource::<crate::terminals::ActiveTerminalContentSyncState>() {
+        world.insert_resource(crate::terminals::ActiveTerminalContentSyncState::default());
+    }
     if !world.contains_resource::<crate::terminals::TerminalFocusState>() {
         world.insert_resource(crate::terminals::TerminalFocusState::default());
     }
@@ -322,6 +325,9 @@ pub(super) fn insert_test_hud_state(world: &mut World, hud_state: crate::hud::Hu
     }
     if !world.contains_resource::<crate::terminals::ActiveTerminalContentState>() {
         world.insert_resource(crate::terminals::ActiveTerminalContentState::default());
+    }
+    if !world.contains_resource::<crate::terminals::ActiveTerminalContentSyncState>() {
+        world.insert_resource(crate::terminals::ActiveTerminalContentSyncState::default());
     }
     if !world.contains_resource::<crate::terminals::TerminalFocusState>() {
         world.insert_resource(crate::terminals::TerminalFocusState::default());

@@ -170,6 +170,7 @@ fn render_surface_to_terminal_image(surface: TerminalSurface) -> (Image, Termina
             desired_texture_state: Default::default(),
             display_mode: TerminalDisplayMode::Smooth,
             uploaded_revision: 0,
+            uploaded_active_override_revision: None,
             panel_entity: Entity::PLACEHOLDER,
             frame_entity: Entity::PLACEHOLDER,
         },
@@ -182,6 +183,7 @@ fn render_surface_to_terminal_image(surface: TerminalSurface) -> (Image, Termina
     world.insert_resource(view_state);
     world.insert_resource(hud_state.layout_state());
     world.insert_resource(crate::terminals::ActiveTerminalContentState::default());
+    world.insert_resource(crate::terminals::ActiveTerminalContentSyncState::default());
     world.insert_resource(TerminalGlyphCache::default());
     world.insert_resource(renderer);
     world.insert_resource(images);
@@ -272,6 +274,7 @@ fn render_surface_to_terminal_image_with_presentation_state(
             desired_texture_state: presentation_state.clone(),
             display_mode: TerminalDisplayMode::Smooth,
             uploaded_revision: 1,
+            uploaded_active_override_revision: None,
             panel_entity: Entity::PLACEHOLDER,
             frame_entity: Entity::PLACEHOLDER,
         },
@@ -284,6 +287,7 @@ fn render_surface_to_terminal_image_with_presentation_state(
     world.insert_resource(view_state);
     world.insert_resource(hud_state.layout_state());
     world.insert_resource(crate::terminals::ActiveTerminalContentState::default());
+    world.insert_resource(crate::terminals::ActiveTerminalContentSyncState::default());
     world.insert_resource(TerminalGlyphCache::default());
     world.insert_resource(renderer);
     world.insert_resource(images);
@@ -564,6 +568,7 @@ fn sync_terminal_texture_keeps_cached_switch_frame_until_resized_surface_arrives
             desired_texture_state: active_texture_state.clone(),
             display_mode: TerminalDisplayMode::Smooth,
             uploaded_revision: 1,
+            uploaded_active_override_revision: None,
             panel_entity: Entity::PLACEHOLDER,
             frame_entity: Entity::PLACEHOLDER,
         },
@@ -576,6 +581,7 @@ fn sync_terminal_texture_keeps_cached_switch_frame_until_resized_surface_arrives
             desired_texture_state: cached_background_state.clone(),
             display_mode: TerminalDisplayMode::Smooth,
             uploaded_revision: 1,
+            uploaded_active_override_revision: None,
             panel_entity: Entity::PLACEHOLDER,
             frame_entity: Entity::PLACEHOLDER,
         },
@@ -588,6 +594,7 @@ fn sync_terminal_texture_keeps_cached_switch_frame_until_resized_surface_arrives
     world.insert_resource(view_state);
     world.insert_resource(hud_state.layout_state());
     world.insert_resource(crate::terminals::ActiveTerminalContentState::default());
+    world.insert_resource(crate::terminals::ActiveTerminalContentSyncState::default());
     world.insert_resource(TerminalGlyphCache::default());
     world.insert_resource(renderer);
     world.insert_resource(Assets::<Image>::default());
@@ -678,6 +685,7 @@ fn sync_terminal_texture_promotes_active_terminal_once_resized_surface_arrives()
             desired_texture_state: cached_background_state,
             display_mode: TerminalDisplayMode::Smooth,
             uploaded_revision: 1,
+            uploaded_active_override_revision: None,
             panel_entity: Entity::PLACEHOLDER,
             frame_entity: Entity::PLACEHOLDER,
         },
@@ -690,6 +698,7 @@ fn sync_terminal_texture_promotes_active_terminal_once_resized_surface_arrives()
     world.insert_resource(view_state);
     world.insert_resource(hud_state.layout_state());
     world.insert_resource(crate::terminals::ActiveTerminalContentState::default());
+    world.insert_resource(crate::terminals::ActiveTerminalContentSyncState::default());
     world.insert_resource(TerminalGlyphCache::default());
     world.insert_resource(renderer);
     world.insert_resource(images);
