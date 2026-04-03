@@ -1,4 +1,4 @@
-use crate::{agents::AgentId, terminals::TerminalId};
+use crate::{agents::AgentId, hud::view_models::AgentListRowKey, terminals::TerminalId};
 
 use super::widgets::{HudWidgetDefinition, HudWidgetKey, HUD_WIDGET_DEFINITIONS};
 use bevy::prelude::*;
@@ -91,7 +91,7 @@ impl AgentListDragState {
 #[derive(Resource, Clone, Debug, Default, PartialEq)]
 pub(crate) struct AgentListUiState {
     pub(crate) scroll_offset: f32,
-    pub(crate) hovered_agent: Option<AgentId>,
+    pub(crate) hovered_row: Option<AgentListRowKey>,
     pub(crate) drag: AgentListDragState,
 }
 

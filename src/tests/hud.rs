@@ -2,6 +2,7 @@ use super::{
     fake_runtime_spawner, insert_default_hud_resources, insert_terminal_manager_resources,
     insert_test_hud_state, pressed_text, snapshot_test_hud_state, test_bridge, FakeDaemonClient,
 };
+use crate::agents::{AgentCatalog, AgentRuntimeIndex, AgentStatusStore};
 use crate::terminals::{
     kill_active_terminal_session_and_remove as kill_active_terminal, TerminalManager,
     TerminalNotesState, TerminalPanel, TerminalPanelFrame, TerminalPresentationStore,
@@ -17,10 +18,11 @@ use crate::{
         create_agent_name_field_rect, message_box_action_buttons, message_box_rect,
         task_dialog_action_buttons,
     },
+    conversations::{AgentTaskStore, ConversationStore},
     hud::{
         handle_hud_module_shortcuts, handle_hud_pointer_input, AgentListDragState,
-        AgentListUiState, AgentListView, HudDragState, HudRect, HudState, HudWidgetKey,
-        TerminalVisibilityPolicy, TerminalVisibilityState,
+        AgentListUiState, AgentListView, ComposerView, ConversationListView, HudDragState, HudRect,
+        HudState, HudWidgetKey, TerminalVisibilityPolicy, TerminalVisibilityState, ThreadView,
     },
 };
 use bevy::{
@@ -845,7 +847,7 @@ fn releasing_pointer_without_cursor_clears_agent_drag_state() {
 
     world.insert_resource(AgentListUiState {
         scroll_offset: 0.0,
-        hovered_agent: None,
+        hovered_row: None,
         drag: AgentListDragState {
             pressed_agent: Some(crate::agents::AgentId(11)),
             press_origin: Some(Vec2::new(10.0, 12.0)),
@@ -1625,6 +1627,429 @@ fn killing_active_terminal_preserves_local_state_when_tmux_kill_fails() {
     let frame_count = world.query::<&TerminalPanelFrame>().iter(&world).count();
     assert_eq!(panel_count, 1);
     assert_eq!(frame_count, 1);
+}
+
+/// Verifies that killing an agent also cascade-kills any owned tmux child sessions.
+#[test]
+fn killing_agent_cascade_kills_owned_tmux_children() {
+    let client = Arc::new(FakeDaemonClient::default());
+    client
+        .sessions
+        .lock()
+        .unwrap()
+        .insert("neozeus-session-a".into());
+
+    let (bridge, _) = test_bridge();
+    let mut manager = TerminalManager::default();
+    let terminal_id = manager.create_terminal_with_session(bridge, "neozeus-session-a".into());
+    manager.focus_terminal(terminal_id);
+
+    let mut world = World::default();
+    let mut time = Time::<()>::default();
+    time.advance_by(Duration::from_secs(1));
+    world.insert_resource(time);
+    insert_terminal_manager_resources(&mut world, manager);
+    insert_default_hud_resources(&mut world);
+    world.insert_resource(TerminalPresentationStore::default());
+    world.insert_resource(fake_runtime_spawner(client.clone()));
+    world.insert_resource(AppStatePersistenceState::default());
+    world.insert_resource(TerminalVisibilityState::default());
+    world.insert_resource(TerminalViewState::default());
+    world.init_resource::<Messages<AppCommand>>();
+    world.init_resource::<Messages<RequestRedraw>>();
+
+    let mut catalog = AgentCatalog::default();
+    let agent_id = catalog.create_agent(
+        Some("alpha".into()),
+        crate::agents::AgentKind::Terminal,
+        crate::agents::AgentKind::Terminal.capabilities(),
+    );
+    let agent_uid = catalog.uid(agent_id).unwrap().to_owned();
+    world.insert_resource(catalog);
+    let mut runtime_index = AgentRuntimeIndex::default();
+    runtime_index.link_terminal(agent_id, terminal_id, "neozeus-session-a".into(), None);
+    world.insert_resource(runtime_index);
+    world.resource_mut::<AppSessionState>().active_agent = Some(agent_id);
+
+    client
+        .owned_tmux_sessions
+        .lock()
+        .unwrap()
+        .push(crate::terminals::OwnedTmuxSessionInfo {
+            session_uid: "tmux-session-1".into(),
+            owner_agent_uid: agent_uid,
+            tmux_name: "neozeus-tmux-1".into(),
+            display_name: "BUILD".into(),
+            cwd: "/tmp/work".into(),
+            attached: false,
+            created_unix: 0,
+        });
+
+    world
+        .resource_mut::<Messages<AppCommand>>()
+        .write(AppCommand::Agent(AppAgentCommand::KillActive));
+    run_app_commands(&mut world);
+
+    assert!(world.resource::<AgentCatalog>().order.is_empty());
+    assert!(world
+        .resource::<TerminalManager>()
+        .terminal_ids()
+        .is_empty());
+    assert!(client.owned_tmux_sessions.lock().unwrap().is_empty());
+}
+
+/// Verifies that parent deletion aborts when owned tmux child cleanup fails and the child still exists.
+#[test]
+fn killing_agent_aborts_when_owned_tmux_child_kill_fails() {
+    let client = Arc::new(FakeDaemonClient::default());
+    *client.fail_owned_tmux_kill.lock().unwrap() = true;
+    client
+        .sessions
+        .lock()
+        .unwrap()
+        .insert("neozeus-session-a".into());
+
+    let (bridge, _) = test_bridge();
+    let mut manager = TerminalManager::default();
+    let terminal_id = manager.create_terminal_with_session(bridge, "neozeus-session-a".into());
+    manager.focus_terminal(terminal_id);
+
+    let mut world = World::default();
+    let mut time = Time::<()>::default();
+    time.advance_by(Duration::from_secs(1));
+    world.insert_resource(time);
+    insert_terminal_manager_resources(&mut world, manager);
+    insert_default_hud_resources(&mut world);
+    world.insert_resource(TerminalPresentationStore::default());
+    world.insert_resource(fake_runtime_spawner(client.clone()));
+    world.insert_resource(AppStatePersistenceState::default());
+    world.insert_resource(TerminalVisibilityState::default());
+    world.insert_resource(TerminalViewState::default());
+    world.init_resource::<Messages<AppCommand>>();
+    world.init_resource::<Messages<RequestRedraw>>();
+
+    let mut catalog = AgentCatalog::default();
+    let agent_id = catalog.create_agent(
+        Some("alpha".into()),
+        crate::agents::AgentKind::Terminal,
+        crate::agents::AgentKind::Terminal.capabilities(),
+    );
+    let agent_uid = catalog.uid(agent_id).unwrap().to_owned();
+    world.insert_resource(catalog);
+    let mut runtime_index = AgentRuntimeIndex::default();
+    runtime_index.link_terminal(agent_id, terminal_id, "neozeus-session-a".into(), None);
+    world.insert_resource(runtime_index);
+    world.resource_mut::<AppSessionState>().active_agent = Some(agent_id);
+
+    client
+        .owned_tmux_sessions
+        .lock()
+        .unwrap()
+        .push(crate::terminals::OwnedTmuxSessionInfo {
+            session_uid: "tmux-session-1".into(),
+            owner_agent_uid: agent_uid,
+            tmux_name: "neozeus-tmux-1".into(),
+            display_name: "BUILD".into(),
+            cwd: "/tmp/work".into(),
+            attached: false,
+            created_unix: 0,
+        });
+
+    world
+        .resource_mut::<Messages<AppCommand>>()
+        .write(AppCommand::Agent(AppAgentCommand::KillActive));
+    run_app_commands(&mut world);
+
+    assert!(!world.resource::<AgentCatalog>().order.is_empty());
+    assert_eq!(
+        world.resource::<TerminalManager>().terminal_ids(),
+        &[terminal_id]
+    );
+    assert_eq!(client.owned_tmux_sessions.lock().unwrap().len(), 1);
+}
+
+/// Verifies that explicit owned tmux kill clears selection after successful child deletion.
+#[test]
+fn killing_selected_owned_tmux_session_clears_selection_on_success() {
+    let client = Arc::new(FakeDaemonClient::default());
+    client
+        .owned_tmux_sessions
+        .lock()
+        .unwrap()
+        .push(crate::terminals::OwnedTmuxSessionInfo {
+            session_uid: "tmux-session-1".into(),
+            owner_agent_uid: "agent-uid-1".into(),
+            tmux_name: "neozeus-tmux-1".into(),
+            display_name: "BUILD".into(),
+            cwd: "/tmp/work".into(),
+            attached: false,
+            created_unix: 0,
+        });
+
+    let mut world = World::default();
+    insert_default_hud_resources(&mut world);
+    world.insert_resource(fake_runtime_spawner(client.clone()));
+    world.insert_resource(AppStatePersistenceState::default());
+    world.insert_resource(TerminalManager::default());
+    world.insert_resource(TerminalPresentationStore::default());
+    world.insert_resource(TerminalVisibilityState::default());
+    world.insert_resource(TerminalViewState::default());
+    world.insert_resource(AgentCatalog::default());
+    world.insert_resource(AgentRuntimeIndex::default());
+    world.init_resource::<Messages<AppCommand>>();
+    world.init_resource::<Messages<RequestRedraw>>();
+    world
+        .resource_mut::<crate::terminals::OwnedTmuxInspectState>()
+        .select("tmux-session-1".into());
+
+    world
+        .resource_mut::<Messages<AppCommand>>()
+        .write(AppCommand::OwnedTmux(
+            crate::app::OwnedTmuxCommand::KillSelected,
+        ));
+    run_app_commands(&mut world);
+
+    assert!(world
+        .resource::<crate::terminals::OwnedTmuxInspectState>()
+        .selected_session_uid
+        .is_none());
+    assert!(client.owned_tmux_sessions.lock().unwrap().is_empty());
+}
+
+/// Verifies that an already-gone owned tmux child clears selection after daemon recheck.
+#[test]
+fn killing_selected_owned_tmux_session_treats_missing_child_as_success() {
+    let client = Arc::new(FakeDaemonClient::default());
+
+    let mut world = World::default();
+    insert_default_hud_resources(&mut world);
+    world.insert_resource(fake_runtime_spawner(client.clone()));
+    world.insert_resource(AppStatePersistenceState::default());
+    world.insert_resource(TerminalManager::default());
+    world.insert_resource(TerminalPresentationStore::default());
+    world.insert_resource(TerminalVisibilityState::default());
+    world.insert_resource(TerminalViewState::default());
+    world.insert_resource(AgentCatalog::default());
+    world.insert_resource(AgentRuntimeIndex::default());
+    world.init_resource::<Messages<AppCommand>>();
+    world.init_resource::<Messages<RequestRedraw>>();
+    world
+        .resource_mut::<crate::terminals::OwnedTmuxSessionStore>()
+        .sessions
+        .push(crate::terminals::OwnedTmuxSessionInfo {
+            session_uid: "tmux-session-1".into(),
+            owner_agent_uid: "agent-uid-1".into(),
+            tmux_name: "neozeus-tmux-1".into(),
+            display_name: "BUILD".into(),
+            cwd: "/tmp/work".into(),
+            attached: false,
+            created_unix: 0,
+        });
+    world
+        .resource_mut::<crate::terminals::OwnedTmuxInspectState>()
+        .select("tmux-session-1".into());
+
+    world
+        .resource_mut::<Messages<AppCommand>>()
+        .write(AppCommand::OwnedTmux(
+            crate::app::OwnedTmuxCommand::KillSelected,
+        ));
+    run_app_commands(&mut world);
+
+    assert!(world
+        .resource::<crate::terminals::OwnedTmuxInspectState>()
+        .selected_session_uid
+        .is_none());
+}
+
+/// Verifies that a real owned tmux kill failure preserves selection and surfaces the error.
+#[test]
+fn killing_selected_owned_tmux_session_preserves_selection_on_failure() {
+    let client = Arc::new(FakeDaemonClient::default());
+    *client.fail_owned_tmux_kill.lock().unwrap() = true;
+    client
+        .owned_tmux_sessions
+        .lock()
+        .unwrap()
+        .push(crate::terminals::OwnedTmuxSessionInfo {
+            session_uid: "tmux-session-1".into(),
+            owner_agent_uid: "agent-uid-1".into(),
+            tmux_name: "neozeus-tmux-1".into(),
+            display_name: "BUILD".into(),
+            cwd: "/tmp/work".into(),
+            attached: false,
+            created_unix: 0,
+        });
+
+    let mut world = World::default();
+    insert_default_hud_resources(&mut world);
+    world.insert_resource(fake_runtime_spawner(client.clone()));
+    world.insert_resource(AppStatePersistenceState::default());
+    world.insert_resource(TerminalManager::default());
+    world.insert_resource(TerminalPresentationStore::default());
+    world.insert_resource(TerminalVisibilityState::default());
+    world.insert_resource(TerminalViewState::default());
+    world.insert_resource(AgentCatalog::default());
+    world.insert_resource(AgentRuntimeIndex::default());
+    world.init_resource::<Messages<AppCommand>>();
+    world.init_resource::<Messages<RequestRedraw>>();
+    world
+        .resource_mut::<crate::terminals::OwnedTmuxInspectState>()
+        .select("tmux-session-1".into());
+
+    world
+        .resource_mut::<Messages<AppCommand>>()
+        .write(AppCommand::OwnedTmux(
+            crate::app::OwnedTmuxCommand::KillSelected,
+        ));
+    run_app_commands(&mut world);
+
+    let inspect = world.resource::<crate::terminals::OwnedTmuxInspectState>();
+    assert_eq!(
+        inspect.selected_session_uid.as_deref(),
+        Some("tmux-session-1")
+    );
+    assert_eq!(
+        inspect.last_error.as_deref(),
+        Some("owned tmux kill failed")
+    );
+}
+
+/// Verifies that owned tmux inspection loads captured pane text into the thread view.
+#[test]
+fn owned_tmux_inspection_populates_thread_view() {
+    let client = Arc::new(FakeDaemonClient::default());
+    client
+        .owned_tmux_sessions
+        .lock()
+        .unwrap()
+        .push(crate::terminals::OwnedTmuxSessionInfo {
+            session_uid: "tmux-session-1".into(),
+            owner_agent_uid: "agent-uid-1".into(),
+            tmux_name: "neozeus-tmux-1".into(),
+            display_name: "BUILD".into(),
+            cwd: "/tmp/work".into(),
+            attached: true,
+            created_unix: 0,
+        });
+    client
+        .tmux_captures
+        .lock()
+        .unwrap()
+        .insert("tmux-session-1".into(), "line one\nline two".into());
+
+    let mut catalog = AgentCatalog::default();
+    let agent_id = catalog.create_agent(
+        Some("alpha".into()),
+        crate::agents::AgentKind::Terminal,
+        crate::agents::AgentKind::Terminal.capabilities(),
+    );
+    let agent_uid = catalog.uid(agent_id).unwrap().to_owned();
+    client.owned_tmux_sessions.lock().unwrap()[0].owner_agent_uid = agent_uid;
+
+    let mut world = World::default();
+    world.insert_resource(catalog);
+    world.insert_resource(AgentRuntimeIndex::default());
+    world.insert_resource(AppSessionState::default());
+    world.insert_resource(AgentTaskStore::default());
+    world.insert_resource(ConversationStore::default());
+    world.insert_resource(AgentListView::default());
+    world.insert_resource(ConversationListView::default());
+    world.insert_resource(ThreadView::default());
+    world.insert_resource(ComposerView::default());
+    world.insert_resource(AgentStatusStore::default());
+    world.insert_resource(fake_runtime_spawner(client));
+    world.insert_resource(crate::terminals::OwnedTmuxSessionStore::default());
+    world.insert_resource(crate::terminals::OwnedTmuxInspectState::default());
+    world.insert_resource(TerminalManager::default());
+    let mut time = Time::<()>::default();
+    time.advance_by(Duration::from_secs(1));
+    world.insert_resource(time);
+
+    world
+        .resource_mut::<crate::terminals::OwnedTmuxInspectState>()
+        .select("tmux-session-1".into());
+    world
+        .run_system_once(crate::terminals::sync_owned_tmux_sessions)
+        .unwrap();
+    world
+        .run_system_once(crate::terminals::sync_owned_tmux_inspect)
+        .unwrap();
+    world
+        .run_system_once(crate::hud::sync_hud_view_models)
+        .unwrap();
+
+    let thread = world.resource::<ThreadView>();
+    assert!(thread.header.contains("BUILD"));
+    let rows = thread.message_rows();
+    assert!(rows
+        .iter()
+        .any(|(body, _)| body.contains("attach: tmux attach -t neozeus-tmux-1")));
+    assert!(rows.iter().any(|(body, _)| body == "line one"));
+    assert!(rows.iter().any(|(body, _)| body == "line two"));
+}
+
+/// Verifies that owned tmux inspection reports disappearance instead of rendering stale content.
+#[test]
+fn owned_tmux_inspection_reports_missing_session() {
+    let client = Arc::new(FakeDaemonClient::default());
+
+    let mut world = World::default();
+    world.insert_resource(fake_runtime_spawner(client));
+    world.insert_resource(crate::terminals::OwnedTmuxSessionStore::default());
+    world.insert_resource(crate::terminals::OwnedTmuxInspectState::default());
+    let mut time = Time::<()>::default();
+    time.advance_by(Duration::from_secs(1));
+    world.insert_resource(time);
+
+    world
+        .resource_mut::<crate::terminals::OwnedTmuxInspectState>()
+        .select("tmux-missing".into());
+    world
+        .run_system_once(crate::terminals::sync_owned_tmux_inspect)
+        .unwrap();
+
+    let inspect = world.resource::<crate::terminals::OwnedTmuxInspectState>();
+    assert_eq!(
+        inspect.last_error.as_deref(),
+        Some("Owned tmux session is no longer available")
+    );
+}
+
+/// Verifies that focusing an agent clears any owned tmux inspection selection.
+#[test]
+fn focusing_agent_clears_owned_tmux_selection() {
+    let mut world = World::default();
+    insert_default_hud_resources(&mut world);
+    world.insert_resource(fake_runtime_spawner(Arc::new(FakeDaemonClient::default())));
+    world.insert_resource(AppStatePersistenceState::default());
+    world.insert_resource(TerminalManager::default());
+    world.insert_resource(TerminalPresentationStore::default());
+    world.insert_resource(TerminalVisibilityState::default());
+    world.insert_resource(TerminalViewState::default());
+    let mut catalog = AgentCatalog::default();
+    let agent_id = catalog.create_agent(
+        Some("alpha".into()),
+        crate::agents::AgentKind::Terminal,
+        crate::agents::AgentKind::Terminal.capabilities(),
+    );
+    world.insert_resource(catalog);
+    world.insert_resource(AgentRuntimeIndex::default());
+    world.init_resource::<Messages<AppCommand>>();
+    world.init_resource::<Messages<RequestRedraw>>();
+    world
+        .resource_mut::<crate::terminals::OwnedTmuxInspectState>()
+        .select("tmux-session-1".into());
+
+    world
+        .resource_mut::<Messages<AppCommand>>()
+        .write(AppCommand::Agent(AppAgentCommand::Focus(agent_id)));
+    run_app_commands(&mut world);
+
+    assert!(world
+        .resource::<crate::terminals::OwnedTmuxInspectState>()
+        .selected_session_uid
+        .is_none());
 }
 
 /// Verifies the enum default for terminal visibility policy is the non-isolating `ShowAll` mode.

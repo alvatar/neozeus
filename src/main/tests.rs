@@ -18,8 +18,8 @@ use crate::{
         HudModalState, InfoBarView, ThreadView,
     },
     terminals::{
-        AttachedDaemonSession, DaemonSessionInfo, TerminalBridge, TerminalCommand,
-        TerminalDaemonClient, TerminalDaemonClientResource, TerminalDebugStats,
+        AttachedDaemonSession, DaemonSessionInfo, OwnedTmuxSessionInfo, TerminalBridge,
+        TerminalCommand, TerminalDaemonClient, TerminalDaemonClientResource, TerminalDebugStats,
         TerminalRuntimeSpawner, TerminalRuntimeState, TerminalSnapshot, TerminalSurface,
         TerminalUpdate, TerminalUpdateMailbox,
     },
@@ -138,6 +138,12 @@ pub(super) fn insert_default_hud_resources(world: &mut World) {
     if !world.contains_resource::<crate::usage::UsagePersistenceState>() {
         world.insert_resource(crate::usage::default_usage_persistence_state());
     }
+    if !world.contains_resource::<crate::terminals::OwnedTmuxSessionStore>() {
+        world.insert_resource(crate::terminals::OwnedTmuxSessionStore::default());
+    }
+    if !world.contains_resource::<crate::terminals::OwnedTmuxInspectState>() {
+        world.insert_resource(crate::terminals::OwnedTmuxInspectState::default());
+    }
     if !world.contains_resource::<crate::terminals::TerminalFocusState>() {
         world.insert_resource(crate::terminals::TerminalFocusState::default());
     }
@@ -201,14 +207,17 @@ pub(super) fn insert_terminal_manager_resources(
             let rows = catalog
                 .iter()
                 .map(|(agent_id, label)| crate::hud::AgentListRowView {
-                    agent_id,
-                    terminal_id: runtime_index.primary_terminal(agent_id),
+                    key: crate::hud::AgentListRowKey::Agent(agent_id),
                     label: label.to_owned(),
                     focused: active_agent == Some(agent_id),
-                    has_tasks: false,
-                    interactive: true,
-                    status: crate::agents::AgentStatus::Unknown,
-                    context_pct_milli: None,
+                    kind: crate::hud::AgentListRowKind::Agent {
+                        agent_id,
+                        terminal_id: runtime_index.primary_terminal(agent_id),
+                        has_tasks: false,
+                        interactive: true,
+                        status: crate::agents::AgentStatus::Unknown,
+                        context_pct_milli: None,
+                    },
                 })
                 .collect::<Vec<_>>();
             (active_agent, rows)
@@ -308,6 +317,12 @@ pub(super) fn insert_test_hud_state(world: &mut World, hud_state: crate::hud::Hu
     if !world.contains_resource::<crate::usage::UsagePersistenceState>() {
         world.insert_resource(crate::usage::default_usage_persistence_state());
     }
+    if !world.contains_resource::<crate::terminals::OwnedTmuxSessionStore>() {
+        world.insert_resource(crate::terminals::OwnedTmuxSessionStore::default());
+    }
+    if !world.contains_resource::<crate::terminals::OwnedTmuxInspectState>() {
+        world.insert_resource(crate::terminals::OwnedTmuxInspectState::default());
+    }
     if !world.contains_resource::<crate::terminals::TerminalFocusState>() {
         world.insert_resource(crate::terminals::TerminalFocusState::default());
     }
@@ -349,15 +364,20 @@ pub(super) fn snapshot_test_hud_state(world: &World) -> crate::hud::HudState {
     )
 }
 
+type CreatedSessionRecord = (String, Option<String>, Vec<(String, String)>);
+
 #[derive(Default)]
 pub(super) struct FakeDaemonClient {
     pub(super) sessions: Mutex<BTreeSet<String>>,
     pub(super) session_runtimes: Mutex<std::collections::HashMap<String, TerminalRuntimeState>>,
     pub(super) sent_commands: Mutex<Vec<(String, TerminalCommand)>>,
     pub(super) resize_requests: Mutex<Vec<(String, usize, usize)>>,
-    pub(super) created_sessions: Mutex<Vec<(String, Option<String>, Vec<(String, String)>)>>,
+    pub(super) created_sessions: Mutex<Vec<CreatedSessionRecord>>,
     pub(super) fail_kill: Mutex<bool>,
+    pub(super) fail_owned_tmux_kill: Mutex<bool>,
     pub(super) next_session_index: Mutex<u64>,
+    pub(super) owned_tmux_sessions: Mutex<Vec<OwnedTmuxSessionInfo>>,
+    pub(super) tmux_captures: Mutex<std::collections::HashMap<String, String>>,
     updates: Mutex<std::collections::HashMap<String, Vec<mpsc::Sender<TerminalUpdate>>>>,
 }
 
@@ -447,6 +467,84 @@ impl TerminalDaemonClient for FakeDaemonClient {
         ));
         self.set_session_runtime(&session_id, TerminalRuntimeState::running("fake daemon"));
         Ok(session_id)
+    }
+
+    fn list_owned_tmux_sessions(&self) -> Result<Vec<OwnedTmuxSessionInfo>, String> {
+        Ok(self.owned_tmux_sessions.lock().unwrap().clone())
+    }
+
+    fn create_owned_tmux_session(
+        &self,
+        owner_agent_uid: &str,
+        display_name: &str,
+        cwd: Option<&str>,
+        _command: &str,
+    ) -> Result<OwnedTmuxSessionInfo, String> {
+        let mut sessions = self.owned_tmux_sessions.lock().unwrap();
+        let index = sessions.len();
+        let session = OwnedTmuxSessionInfo {
+            session_uid: format!("tmux-session-{index}"),
+            owner_agent_uid: owner_agent_uid.to_owned(),
+            tmux_name: format!("neozeus-tmux-{index}"),
+            display_name: display_name.to_owned(),
+            cwd: cwd.unwrap_or_default().to_owned(),
+            attached: false,
+            created_unix: index as u64,
+        };
+        self.tmux_captures
+            .lock()
+            .unwrap()
+            .insert(session.session_uid.clone(), String::new());
+        sessions.push(session.clone());
+        Ok(session)
+    }
+
+    fn capture_owned_tmux_session(
+        &self,
+        session_uid: &str,
+        _lines: usize,
+    ) -> Result<String, String> {
+        self.tmux_captures
+            .lock()
+            .unwrap()
+            .get(session_uid)
+            .cloned()
+            .ok_or_else(|| format!("owned tmux session `{session_uid}` not found"))
+    }
+
+    fn kill_owned_tmux_session(&self, session_uid: &str) -> Result<(), String> {
+        if *self.fail_owned_tmux_kill.lock().unwrap() {
+            return Err("owned tmux kill failed".into());
+        }
+        let mut sessions = self.owned_tmux_sessions.lock().unwrap();
+        let before = sessions.len();
+        sessions.retain(|session| session.session_uid != session_uid);
+        self.tmux_captures.lock().unwrap().remove(session_uid);
+        if sessions.len() == before {
+            return Err(format!("owned tmux session `{session_uid}` not found"));
+        }
+        Ok(())
+    }
+
+    fn kill_owned_tmux_sessions_for_agent(&self, owner_agent_uid: &str) -> Result<(), String> {
+        if *self.fail_owned_tmux_kill.lock().unwrap() {
+            return Err("owned tmux kill failed".into());
+        }
+        let mut sessions = self.owned_tmux_sessions.lock().unwrap();
+        let removed_uids = sessions
+            .iter()
+            .filter(|session| session.owner_agent_uid == owner_agent_uid)
+            .map(|session| session.session_uid.clone())
+            .collect::<Vec<_>>();
+        sessions.retain(|session| session.owner_agent_uid != owner_agent_uid);
+        let removed = removed_uids
+            .into_iter()
+            .collect::<std::collections::BTreeSet<_>>();
+        self.tmux_captures
+            .lock()
+            .unwrap()
+            .retain(|session_uid, _| !removed.contains(session_uid));
+        Ok(())
     }
 
     /// Attaches to a fake session by registering a new update receiver and returning an initial

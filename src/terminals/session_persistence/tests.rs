@@ -199,7 +199,7 @@ fn saving_terminal_sessions_persists_focus_order_and_labels() {
     let persisted = parse_persisted_terminal_sessions(&serialized);
     assert_eq!(persisted.sessions.len(), 2);
     assert_eq!(persisted.sessions[0].session_name, "neozeus-session-a");
-    assert_eq!(persisted.sessions[0].label.as_deref(), Some("oracle one"));
+    assert_eq!(persisted.sessions[0].label.as_deref(), Some("ORACLE ONE"));
     assert!(!persisted.sessions[0].last_focused);
     assert_eq!(persisted.sessions[1].session_name, "neozeus-session-b");
     assert!(persisted.sessions[1].last_focused);

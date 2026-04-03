@@ -496,7 +496,7 @@ fn additive_blend_state() -> BlendState {
 fn build_bloom_specs(
     content_rect: HudRect,
     scroll_offset: f32,
-    hovered_agent: Option<crate::agents::AgentId>,
+    hovered_row: Option<&crate::hud::view_models::AgentListRowKey>,
     agent_list_view: &AgentListView,
     focus_state: &crate::terminals::TerminalFocusState,
 ) -> Vec<BloomSourceSpec> {
@@ -506,7 +506,7 @@ fn build_bloom_specs(
     };
 
     let mut specs = Vec::new();
-    for row in agent_rows(content_rect, scroll_offset, hovered_agent, agent_list_view) {
+    for row in agent_rows(content_rect, scroll_offset, hovered_row, agent_list_view) {
         if row.terminal_id != Some(active_id)
             || row.rect.y + row.rect.h < content_rect.y
             || row.rect.y > content_rect.y + content_rect.h
@@ -1064,7 +1064,7 @@ pub(crate) fn sync_hud_widget_bloom(world: &mut World) {
         build_bloom_specs(
             module.shell.current_rect,
             ctx.agent_list_state.scroll_offset,
-            ctx.agent_list_state.hovered_agent,
+            ctx.agent_list_state.hovered_row.as_ref(),
             &ctx.agent_list_view,
             &ctx.focus_state,
         )

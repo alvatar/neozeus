@@ -1,5 +1,9 @@
 use super::super::debug::append_debug_log;
 use super::{
+    owned_tmux::{
+        capture_owned_tmux_session, create_owned_tmux_session, kill_owned_tmux_session,
+        kill_owned_tmux_sessions_for_agent, owned_tmux_sessions_by_uid, OwnedTmuxSessionInfo,
+    },
     protocol::{
         read_client_message, write_server_message, ClientMessage, DaemonRequest, DaemonResponse,
         DaemonSessionInfo, ServerMessage,
@@ -26,6 +30,7 @@ struct DaemonRegistry {
 struct DaemonRegistryInner {
     next_session_counter: u64,
     sessions: HashMap<String, Arc<DaemonSession>>,
+    owned_tmux_sessions: HashMap<String, OwnedTmuxSessionInfo>,
 }
 
 impl Default for DaemonRegistry {
@@ -35,6 +40,7 @@ impl Default for DaemonRegistry {
             inner: Arc::new(Mutex::new(DaemonRegistryInner {
                 next_session_counter: 1,
                 sessions: HashMap::new(),
+                owned_tmux_sessions: owned_tmux_sessions_by_uid().unwrap_or_default(),
             })),
         }
     }
@@ -55,6 +61,62 @@ impl DaemonRegistry {
             .collect::<Vec<_>>();
         sessions.sort_by_key(|session| session.created_order);
         sessions
+    }
+
+    fn refresh_owned_tmux_sessions(&self) -> Result<(), String> {
+        let sessions = owned_tmux_sessions_by_uid()?;
+        lock(&self.inner).owned_tmux_sessions = sessions;
+        Ok(())
+    }
+
+    fn list_owned_tmux_sessions(&self) -> Result<Vec<OwnedTmuxSessionInfo>, String> {
+        self.refresh_owned_tmux_sessions()?;
+        let mut sessions = lock(&self.inner)
+            .owned_tmux_sessions
+            .values()
+            .cloned()
+            .collect::<Vec<_>>();
+        sessions.sort_by(|left, right| {
+            left.created_unix
+                .cmp(&right.created_unix)
+                .then_with(|| left.tmux_name.cmp(&right.tmux_name))
+        });
+        Ok(sessions)
+    }
+
+    fn create_owned_tmux_session(
+        &self,
+        owner_agent_uid: &str,
+        display_name: &str,
+        cwd: Option<&str>,
+        command: &str,
+    ) -> Result<OwnedTmuxSessionInfo, String> {
+        let session = create_owned_tmux_session(owner_agent_uid, display_name, cwd, command)?;
+        self.refresh_owned_tmux_sessions()?;
+        Ok(session)
+    }
+
+    fn capture_owned_tmux_session(
+        &self,
+        session_uid: &str,
+        lines: usize,
+    ) -> Result<String, String> {
+        self.refresh_owned_tmux_sessions()?;
+        capture_owned_tmux_session(session_uid, lines)
+    }
+
+    fn kill_owned_tmux_session(&self, session_uid: &str) -> Result<(), String> {
+        self.refresh_owned_tmux_sessions()?;
+        kill_owned_tmux_session(session_uid)?;
+        self.refresh_owned_tmux_sessions()?;
+        Ok(())
+    }
+
+    fn kill_owned_tmux_sessions_for_agent(&self, owner_agent_uid: &str) -> Result<(), String> {
+        self.refresh_owned_tmux_sessions()?;
+        kill_owned_tmux_sessions_for_agent(owner_agent_uid)?;
+        self.refresh_owned_tmux_sessions()?;
+        Ok(())
     }
 
     /// Allocates a fresh daemon session id, starts the session worker, and registers it.
@@ -269,6 +331,28 @@ fn handle_request(
         } => Ok(DaemonResponse::SessionCreated {
             session_id: registry.create_session(&prefix, cwd.as_deref(), &env_overrides)?,
         }),
+        DaemonRequest::ListOwnedTmuxSessions => Ok(DaemonResponse::OwnedTmuxSessionList {
+            sessions: registry.list_owned_tmux_sessions()?,
+        }),
+        DaemonRequest::CreateOwnedTmuxSession {
+            owner_agent_uid,
+            display_name,
+            cwd,
+            command,
+        } => Ok(DaemonResponse::OwnedTmuxSessionCreated {
+            session: registry.create_owned_tmux_session(
+                &owner_agent_uid,
+                &display_name,
+                cwd.as_deref(),
+                &command,
+            )?,
+        }),
+        DaemonRequest::CaptureOwnedTmuxSession { session_uid, lines } => {
+            Ok(DaemonResponse::OwnedTmuxSessionCapture {
+                session_uid: session_uid.clone(),
+                text: registry.capture_owned_tmux_session(&session_uid, lines)?,
+            })
+        }
         DaemonRequest::AttachSession { session_id } => {
             let session = registry.session(&session_id)?;
             let subscriber_id = subscriber_ids.next();
@@ -305,6 +389,14 @@ fn handle_request(
                     true
                 }
             });
+            Ok(DaemonResponse::Ack)
+        }
+        DaemonRequest::KillOwnedTmuxSession { session_uid } => {
+            registry.kill_owned_tmux_session(&session_uid)?;
+            Ok(DaemonResponse::Ack)
+        }
+        DaemonRequest::KillOwnedTmuxSessionsForAgent { owner_agent_uid } => {
+            registry.kill_owned_tmux_sessions_for_agent(&owner_agent_uid)?;
             Ok(DaemonResponse::Ack)
         }
     }

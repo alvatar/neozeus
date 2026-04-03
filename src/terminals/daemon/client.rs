@@ -1,5 +1,6 @@
 use super::super::debug::append_debug_log;
 use super::super::types::{TerminalCommand, TerminalSnapshot, TerminalUpdate};
+use super::owned_tmux::OwnedTmuxSessionInfo;
 use super::protocol::{
     read_server_message, write_client_message, ClientMessage, DaemonEvent, DaemonRequest,
     DaemonResponse, DaemonSessionInfo, ServerMessage,
@@ -40,10 +41,35 @@ pub(crate) trait TerminalDaemonClient: Send + Sync {
         cwd: Option<&str>,
         env_overrides: &[(String, String)],
     ) -> Result<String, String>;
+    #[allow(
+        dead_code,
+        reason = "trait convenience helper remains available for tests and direct clients"
+    )]
     /// Asks the daemon to create a new session id using the provided prefix and optional working directory.
     fn create_session(&self, prefix: &str, cwd: Option<&str>) -> Result<String, String> {
         self.create_session_with_env(prefix, cwd, &[])
     }
+    /// Lists all persistent agent-owned tmux child sessions currently discoverable by the daemon.
+    fn list_owned_tmux_sessions(&self) -> Result<Vec<OwnedTmuxSessionInfo>, String>;
+    #[allow(
+        dead_code,
+        reason = "owned tmux creation is exercised through the concrete socket client and helper CLI"
+    )]
+    /// Creates one persistent agent-owned tmux session.
+    fn create_owned_tmux_session(
+        &self,
+        owner_agent_uid: &str,
+        display_name: &str,
+        cwd: Option<&str>,
+        command: &str,
+    ) -> Result<OwnedTmuxSessionInfo, String>;
+    /// Captures one owned tmux session's pane text for read-only inspection.
+    fn capture_owned_tmux_session(&self, session_uid: &str, lines: usize)
+        -> Result<String, String>;
+    /// Kills one owned tmux session by stable uid.
+    fn kill_owned_tmux_session(&self, session_uid: &str) -> Result<(), String>;
+    /// Kills all owned tmux sessions belonging to one agent uid.
+    fn kill_owned_tmux_sessions_for_agent(&self, owner_agent_uid: &str) -> Result<(), String>;
     /// Attaches to one daemon session and returns its current snapshot plus a live update stream.
     fn attach_session(&self, session_id: &str) -> Result<AttachedDaemonSession, String>;
     /// Sends one terminal command into the named daemon session.
@@ -247,6 +273,72 @@ impl TerminalDaemonClient for SocketTerminalDaemonClient {
         })? {
             DaemonResponse::SessionCreated { session_id } => Ok(session_id),
             response => Err(format!("unexpected daemon create response: {response:?}")),
+        }
+    }
+
+    fn list_owned_tmux_sessions(&self) -> Result<Vec<OwnedTmuxSessionInfo>, String> {
+        match self.request(DaemonRequest::ListOwnedTmuxSessions)? {
+            DaemonResponse::OwnedTmuxSessionList { sessions } => Ok(sessions),
+            response => Err(format!("unexpected owned tmux list response: {response:?}")),
+        }
+    }
+
+    fn create_owned_tmux_session(
+        &self,
+        owner_agent_uid: &str,
+        display_name: &str,
+        cwd: Option<&str>,
+        command: &str,
+    ) -> Result<OwnedTmuxSessionInfo, String> {
+        match self.request(DaemonRequest::CreateOwnedTmuxSession {
+            owner_agent_uid: owner_agent_uid.to_owned(),
+            display_name: display_name.to_owned(),
+            cwd: cwd.map(str::to_owned),
+            command: command.to_owned(),
+        })? {
+            DaemonResponse::OwnedTmuxSessionCreated { session } => Ok(session),
+            response => Err(format!(
+                "unexpected owned tmux create response: {response:?}"
+            )),
+        }
+    }
+
+    fn capture_owned_tmux_session(
+        &self,
+        session_uid: &str,
+        lines: usize,
+    ) -> Result<String, String> {
+        match self.request(DaemonRequest::CaptureOwnedTmuxSession {
+            session_uid: session_uid.to_owned(),
+            lines,
+        })? {
+            DaemonResponse::OwnedTmuxSessionCapture {
+                session_uid: _,
+                text,
+            } => Ok(text),
+            response => Err(format!(
+                "unexpected owned tmux capture response: {response:?}"
+            )),
+        }
+    }
+
+    fn kill_owned_tmux_session(&self, session_uid: &str) -> Result<(), String> {
+        match self.request(DaemonRequest::KillOwnedTmuxSession {
+            session_uid: session_uid.to_owned(),
+        })? {
+            DaemonResponse::Ack => Ok(()),
+            response => Err(format!("unexpected owned tmux kill response: {response:?}")),
+        }
+    }
+
+    fn kill_owned_tmux_sessions_for_agent(&self, owner_agent_uid: &str) -> Result<(), String> {
+        match self.request(DaemonRequest::KillOwnedTmuxSessionsForAgent {
+            owner_agent_uid: owner_agent_uid.to_owned(),
+        })? {
+            DaemonResponse::Ack => Ok(()),
+            response => Err(format!(
+                "unexpected owned tmux owner-kill response: {response:?}"
+            )),
         }
     }
 

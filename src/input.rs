@@ -4,13 +4,13 @@ use crate::{
     agents::{AgentCatalog, AgentRuntimeIndex},
     app::{
         AgentCommand as AppAgentCommand, AppCommand, AppSessionState, ComposerCommand,
-        ComposerRequest, CreateAgentKind, TaskCommand as AppTaskCommand,
+        ComposerRequest, CreateAgentKind, OwnedTmuxCommand, TaskCommand as AppTaskCommand,
     },
     hud::{HudInputCaptureState, HudLayoutState},
     terminals::{
-        terminal_texture_screen_size, TerminalCommand, TerminalDisplayMode, TerminalFocusState,
-        TerminalManager, TerminalPanel, TerminalPointerState, TerminalPresentation,
-        TerminalPresentationStore, TerminalViewState,
+        terminal_texture_screen_size, OwnedTmuxInspectState, TerminalCommand, TerminalDisplayMode,
+        TerminalFocusState, TerminalManager, TerminalPanel, TerminalPointerState,
+        TerminalPresentation, TerminalPresentationStore, TerminalViewState,
     },
 };
 use bevy::{
@@ -142,6 +142,7 @@ pub(crate) fn handle_terminal_lifecycle_shortcuts(
     keys: Res<ButtonInput<KeyCode>>,
     app_session: Res<AppSessionState>,
     input_capture: Res<HudInputCaptureState>,
+    owned_tmux_inspect: Res<OwnedTmuxInspectState>,
     mut app_commands: MessageWriter<AppCommand>,
     mut app_exits: MessageWriter<AppExit>,
 ) {
@@ -156,7 +157,11 @@ pub(crate) fn handle_terminal_lifecycle_shortcuts(
             break;
         }
         if should_kill_active_terminal(event, &keys) {
-            app_commands.write(AppCommand::Agent(AppAgentCommand::KillActive));
+            if owned_tmux_inspect.selected_session_uid.is_some() {
+                app_commands.write(AppCommand::OwnedTmux(OwnedTmuxCommand::KillSelected));
+            } else {
+                app_commands.write(AppCommand::Agent(AppAgentCommand::KillActive));
+            }
         }
     }
 }

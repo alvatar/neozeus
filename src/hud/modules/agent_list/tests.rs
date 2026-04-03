@@ -1,10 +1,11 @@
 use super::*;
 use crate::{
     agents::AgentId,
-    app::{AgentCommand as AppAgentCommand, AppCommand},
+    app::{AgentCommand as AppAgentCommand, AppCommand, OwnedTmuxCommand},
     hud::{
-        AgentListRowView, AgentListUiState, AgentListView, ConversationListUiState,
-        ConversationListView, HudRect, HudState, HudWidgetKey, InfoBarView,
+        AgentListRowKey, AgentListRowKind, AgentListRowView, AgentListUiState, AgentListView,
+        ConversationListUiState, ConversationListView, HudRect, HudState, HudWidgetKey,
+        InfoBarView,
     },
     terminals::{TerminalManager, TerminalPresentationStore, TerminalViewState},
     tests::{insert_test_hud_state, snapshot_test_hud_state, test_bridge},
@@ -16,8 +17,48 @@ use bevy::{
     window::{PrimaryWindow, RequestRedraw},
 };
 
-/// Verifies the fixed geometry split between the main body, marker strip, and accent strip of an
-/// agent-list row.
+fn agent_row_view(
+    agent_id: AgentId,
+    terminal_id: Option<crate::terminals::TerminalId>,
+    label: &str,
+) -> AgentListRowView {
+    AgentListRowView {
+        key: AgentListRowKey::Agent(agent_id),
+        label: label.into(),
+        focused: false,
+        kind: AgentListRowKind::Agent {
+            agent_id,
+            terminal_id,
+            has_tasks: false,
+            interactive: true,
+            status: crate::agents::AgentStatus::Unknown,
+            context_pct_milli: None,
+        },
+    }
+}
+
+fn tmux_row_view(
+    owner_agent_id: Option<AgentId>,
+    session_uid: &str,
+    label: &str,
+    tmux_name: &str,
+    orphan: bool,
+) -> AgentListRowView {
+    AgentListRowView {
+        key: AgentListRowKey::OwnedTmux(session_uid.into()),
+        label: label.into(),
+        focused: false,
+        kind: AgentListRowKind::OwnedTmux {
+            session_uid: session_uid.into(),
+            owner_agent_id,
+            tmux_name: tmux_name.into(),
+            cwd: "/tmp/work".into(),
+            attached: false,
+            orphan,
+        },
+    }
+}
+
 #[test]
 fn agent_row_rect_splits_main_and_marker_geometry() {
     let row = HudRect {
@@ -40,7 +81,6 @@ fn agent_row_rect_splits_main_and_marker_geometry() {
     assert_eq!(accent.h, row.h - 6.0);
 }
 
-/// Verifies that reorder hit-testing chooses the first row whose midpoint is below the cursor.
 #[test]
 fn reorder_target_index_tracks_row_midpoints() {
     let state = AgentListUiState::default();
@@ -52,26 +92,8 @@ fn reorder_target_index_tracks_row_midpoints() {
     };
     let view = AgentListView {
         rows: vec![
-            AgentListRowView {
-                agent_id: AgentId(1),
-                terminal_id: None,
-                label: "alpha".into(),
-                focused: false,
-                has_tasks: false,
-                interactive: true,
-                status: crate::agents::AgentStatus::Unknown,
-                context_pct_milli: None,
-            },
-            AgentListRowView {
-                agent_id: AgentId(2),
-                terminal_id: None,
-                label: "beta".into(),
-                focused: false,
-                has_tasks: false,
-                interactive: true,
-                status: crate::agents::AgentStatus::Unknown,
-                context_pct_milli: None,
-            },
+            agent_row_view(AgentId(1), None, "alpha"),
+            agent_row_view(AgentId(2), None, "beta"),
         ],
     };
     let rows = rows::agent_rows(shell, 0.0, None, &view);
@@ -96,8 +118,6 @@ fn reorder_target_index_tracks_row_midpoints() {
     );
 }
 
-/// Verifies that the dragged row follows the cursor while the remaining rows reflow around the
-/// live insertion slot.
 #[test]
 fn projected_agent_rows_follow_drag_cursor_and_reflow_other_rows() {
     let shell = HudRect {
@@ -106,39 +126,15 @@ fn projected_agent_rows_follow_drag_cursor_and_reflow_other_rows() {
         w: 300.0,
         h: 420.0,
     };
+    let alpha = agent_row_view(AgentId(1), None, "alpha");
+    let mut beta = agent_row_view(AgentId(2), None, "beta");
+    beta.focused = true;
+    let mut gamma = agent_row_view(AgentId(3), None, "gamma");
+    if let AgentListRowKind::Agent { has_tasks, .. } = &mut gamma.kind {
+        *has_tasks = true;
+    }
     let view = AgentListView {
-        rows: vec![
-            AgentListRowView {
-                agent_id: AgentId(1),
-                terminal_id: None,
-                label: "alpha".into(),
-                focused: false,
-                has_tasks: false,
-                interactive: true,
-                status: crate::agents::AgentStatus::Unknown,
-                context_pct_milli: None,
-            },
-            AgentListRowView {
-                agent_id: AgentId(2),
-                terminal_id: None,
-                label: "beta".into(),
-                focused: true,
-                has_tasks: false,
-                interactive: true,
-                status: crate::agents::AgentStatus::Unknown,
-                context_pct_milli: None,
-            },
-            AgentListRowView {
-                agent_id: AgentId(3),
-                terminal_id: None,
-                label: "gamma".into(),
-                focused: false,
-                has_tasks: true,
-                interactive: true,
-                status: crate::agents::AgentStatus::Unknown,
-                context_pct_milli: None,
-            },
-        ],
+        rows: vec![alpha, beta, gamma],
     };
 
     let rows = rows::projected_agent_rows(
@@ -156,15 +152,15 @@ fn projected_agent_rows_follow_drag_cursor_and_reflow_other_rows() {
 
     let alpha = rows
         .iter()
-        .find(|row| row.agent_id == AgentId(1))
+        .find(|row| row.agent_id == Some(AgentId(1)))
         .expect("alpha row should exist");
     let gamma = rows
         .iter()
-        .find(|row| row.agent_id == AgentId(3))
+        .find(|row| row.agent_id == Some(AgentId(3)))
         .expect("gamma row should exist");
     let beta = rows
         .iter()
-        .find(|row| row.agent_id == AgentId(2))
+        .find(|row| row.agent_id == Some(AgentId(2)))
         .expect("beta row should exist");
 
     assert!(!alpha.dragging);
@@ -174,9 +170,17 @@ fn projected_agent_rows_follow_drag_cursor_and_reflow_other_rows() {
     assert_eq!(beta.rect.y, 250.0);
 }
 
-/// Verifies that explicit agent-directory labels override the synthetic `agent-N` fallback names.
 #[test]
 fn agent_rows_use_derived_agent_view_labels() {
+    let mut oracle = agent_row_view(
+        crate::agents::AgentId(2),
+        Some(crate::terminals::TerminalId(2)),
+        "oracle",
+    );
+    oracle.focused = true;
+    if let AgentListRowKind::Agent { has_tasks, .. } = &mut oracle.kind {
+        *has_tasks = true;
+    }
     let rows = rows::agent_rows(
         HudRect {
             x: 24.0,
@@ -188,26 +192,12 @@ fn agent_rows_use_derived_agent_view_labels() {
         None,
         &AgentListView {
             rows: vec![
-                AgentListRowView {
-                    agent_id: crate::agents::AgentId(1),
-                    terminal_id: Some(crate::terminals::TerminalId(1)),
-                    label: "agent-1".into(),
-                    focused: false,
-                    has_tasks: false,
-                    interactive: true,
-                    status: crate::agents::AgentStatus::Unknown,
-                    context_pct_milli: None,
-                },
-                AgentListRowView {
-                    agent_id: crate::agents::AgentId(2),
-                    terminal_id: Some(crate::terminals::TerminalId(2)),
-                    label: "oracle".into(),
-                    focused: true,
-                    has_tasks: true,
-                    interactive: true,
-                    status: crate::agents::AgentStatus::Unknown,
-                    context_pct_milli: None,
-                },
+                agent_row_view(
+                    crate::agents::AgentId(1),
+                    Some(crate::terminals::TerminalId(1)),
+                    "agent-1",
+                ),
+                oracle,
             ],
         },
     );
@@ -218,7 +208,6 @@ fn agent_rows_use_derived_agent_view_labels() {
     assert!(rows[1].has_tasks);
 }
 
-/// Verifies that agent-row generation follows terminal creation order and annotates the focused row.
 #[test]
 fn agent_rows_follow_terminal_order_and_focus() {
     let (bridge_one, _) = test_bridge();
@@ -234,32 +223,16 @@ fn agent_rows_follow_terminal_order_and_focus() {
         w: 300.0,
         h: 420.0,
     };
+    let mut second = agent_row_view(crate::agents::AgentId(2), Some(id_two), "agent-2");
+    second.focused = true;
     let rows = rows::agent_rows(
         shell_rect,
         0.0,
         None,
         &AgentListView {
             rows: vec![
-                AgentListRowView {
-                    agent_id: crate::agents::AgentId(1),
-                    terminal_id: Some(id_one),
-                    label: "agent-1".into(),
-                    focused: false,
-                    has_tasks: false,
-                    interactive: true,
-                    status: crate::agents::AgentStatus::Unknown,
-                    context_pct_milli: None,
-                },
-                AgentListRowView {
-                    agent_id: crate::agents::AgentId(2),
-                    terminal_id: Some(id_two),
-                    label: "agent-2".into(),
-                    focused: true,
-                    has_tasks: false,
-                    interactive: true,
-                    status: crate::agents::AgentStatus::Unknown,
-                    context_pct_milli: None,
-                },
+                agent_row_view(crate::agents::AgentId(1), Some(id_one), "agent-1"),
+                second,
             ],
         },
     );
@@ -273,7 +246,6 @@ fn agent_rows_follow_terminal_order_and_focus() {
     assert_eq!(rows[1].rect.y - rows[0].rect.y, 42.0);
 }
 
-/// Verifies that agent-row generation marks only the explicitly hovered agent as hovered.
 #[test]
 fn agent_rows_mark_hovered_agent() {
     let (bridge_one, _) = test_bridge();
@@ -290,29 +262,11 @@ fn agent_rows_mark_hovered_agent() {
             h: 420.0,
         },
         0.0,
-        Some(crate::agents::AgentId(1)),
+        Some(&AgentListRowKey::Agent(crate::agents::AgentId(1))),
         &AgentListView {
             rows: vec![
-                AgentListRowView {
-                    agent_id: crate::agents::AgentId(1),
-                    terminal_id: Some(id_one),
-                    label: "agent-1".into(),
-                    focused: false,
-                    has_tasks: false,
-                    interactive: true,
-                    status: crate::agents::AgentStatus::Unknown,
-                    context_pct_milli: None,
-                },
-                AgentListRowView {
-                    agent_id: crate::agents::AgentId(2),
-                    terminal_id: Some(id_two),
-                    label: "agent-2".into(),
-                    focused: false,
-                    has_tasks: false,
-                    interactive: true,
-                    status: crate::agents::AgentStatus::Unknown,
-                    context_pct_milli: None,
-                },
+                agent_row_view(crate::agents::AgentId(1), Some(id_one), "agent-1"),
+                agent_row_view(crate::agents::AgentId(2), Some(id_two), "agent-2"),
             ],
         },
     );
@@ -331,8 +285,43 @@ fn agent_rows_mark_hovered_agent() {
     );
 }
 
-/// Verifies that clicking the agent-list title region does not start drag state like ordinary HUD
-/// modules do.
+#[test]
+fn agent_rows_include_tmux_children_and_orphan_flags() {
+    let rows = rows::agent_rows(
+        HudRect {
+            x: 24.0,
+            y: 96.0,
+            w: 300.0,
+            h: 420.0,
+        },
+        0.0,
+        Some(&AgentListRowKey::OwnedTmux("tmux-2".into())),
+        &AgentListView {
+            rows: vec![
+                agent_row_view(
+                    crate::agents::AgentId(1),
+                    Some(crate::terminals::TerminalId(1)),
+                    "agent-1",
+                ),
+                tmux_row_view(
+                    Some(crate::agents::AgentId(1)),
+                    "tmux-1",
+                    "BUILD",
+                    "neozeus-tmux-1",
+                    false,
+                ),
+                tmux_row_view(None, "tmux-2", "ORPHAN BUILD", "neozeus-tmux-2", true),
+            ],
+        },
+    );
+    assert_eq!(rows.len(), 3);
+    assert!(rows[1].is_tmux_child);
+    assert!(!rows[1].is_orphan_tmux);
+    assert!(rows[2].is_tmux_child);
+    assert!(rows[2].is_orphan_tmux);
+    assert!(rows[2].hovered);
+}
+
 #[test]
 fn agent_list_is_not_draggable() {
     let mut world = World::default();
@@ -374,8 +363,6 @@ fn agent_list_is_not_draggable() {
     assert!(!hud_state.dirty_layout);
 }
 
-/// Verifies that clicking an agent-list row emits the standard focus-plus-isolate command pair for
-/// that terminal.
 #[test]
 fn clicking_agent_list_row_emits_focus_and_isolate_commands() {
     let (bridge_one, _) = test_bridge();
@@ -391,26 +378,12 @@ fn clicking_agent_list_row_emits_focus_and_isolate_commands() {
     let mut emitted_commands = Vec::new();
     let agent_list_view = AgentListView {
         rows: vec![
-            AgentListRowView {
-                agent_id: crate::agents::AgentId(1),
-                terminal_id: Some(crate::terminals::TerminalId(1)),
-                label: "agent-1".into(),
-                focused: false,
-                has_tasks: false,
-                interactive: true,
-                status: crate::agents::AgentStatus::Unknown,
-                context_pct_milli: None,
-            },
-            AgentListRowView {
-                agent_id: crate::agents::AgentId(2),
-                terminal_id: Some(id_two),
-                label: "agent-2".into(),
-                focused: false,
-                has_tasks: false,
-                interactive: true,
-                status: crate::agents::AgentStatus::Unknown,
-                context_pct_milli: None,
-            },
+            agent_row_view(
+                crate::agents::AgentId(1),
+                Some(crate::terminals::TerminalId(1)),
+                "agent-1",
+            ),
+            agent_row_view(crate::agents::AgentId(2), Some(id_two), "agent-2"),
         ],
     };
     let rows = rows::agent_rows(
@@ -454,14 +427,83 @@ fn clicking_agent_list_row_emits_focus_and_isolate_commands() {
     assert_eq!(
         emitted_commands,
         vec![
+            AppCommand::OwnedTmux(OwnedTmuxCommand::ClearSelection),
             AppCommand::Agent(AppAgentCommand::Focus(crate::agents::AgentId(2))),
             AppCommand::Agent(AppAgentCommand::Inspect(crate::agents::AgentId(2))),
         ]
     );
 }
 
-/// Verifies that agent-list wheel scrolling clamps at the maximum content offset rather than running
-/// past the last row.
+#[test]
+fn clicking_owned_tmux_row_selects_tmux_inspection() {
+    let mut hud_state = HudState::default();
+    hud_state.insert(
+        HudWidgetKey::AgentList,
+        crate::hud::default_hud_module_instance(&crate::hud::HUD_MODULE_DEFINITIONS[1]),
+    );
+    let mut emitted_commands = Vec::new();
+    let agent_list_view = AgentListView {
+        rows: vec![
+            agent_row_view(
+                crate::agents::AgentId(1),
+                Some(crate::terminals::TerminalId(1)),
+                "agent-1",
+            ),
+            tmux_row_view(
+                Some(crate::agents::AgentId(1)),
+                "tmux-1",
+                "BUILD",
+                "neozeus-tmux-1",
+                false,
+            ),
+        ],
+    };
+    let rows = rows::agent_rows(
+        HudRect {
+            x: 24.0,
+            y: 132.0,
+            w: 300.0,
+            h: 392.0,
+        },
+        0.0,
+        None,
+        &agent_list_view,
+    );
+    let target_row = rows
+        .iter()
+        .find(|row| row.is_tmux_child)
+        .expect("tmux row should exist");
+    let click_point = Vec2::new(
+        target_row.rect.x + target_row.rect.w * 0.5,
+        target_row.rect.y + target_row.rect.h * 0.5,
+    );
+
+    crate::hud::handle_pointer_click(
+        HudWidgetKey::AgentList,
+        HudRect {
+            x: 24.0,
+            y: 132.0,
+            w: 300.0,
+            h: 392.0,
+        },
+        click_point,
+        &AgentListUiState::default(),
+        &ConversationListUiState::default(),
+        &agent_list_view,
+        &ConversationListView::default(),
+        &InfoBarView::default(),
+        &hud_state.layout_state(),
+        &mut emitted_commands,
+    );
+
+    assert_eq!(
+        emitted_commands,
+        vec![AppCommand::OwnedTmux(OwnedTmuxCommand::Select {
+            session_uid: "tmux-1".into(),
+        })]
+    );
+}
+
 #[test]
 fn agent_list_scroll_clamps_to_content_height() {
     let mut agent_list_state = AgentListUiState::default();
@@ -480,15 +522,12 @@ fn agent_list_scroll_clamps_to_content_height() {
         &mut conversation_list_state,
         &AgentListView {
             rows: (0..5)
-                .map(|index| AgentListRowView {
-                    agent_id: crate::agents::AgentId(index + 1),
-                    terminal_id: Some(crate::terminals::TerminalId(index + 1)),
-                    label: format!("agent-{}", index + 1),
-                    focused: false,
-                    has_tasks: false,
-                    interactive: true,
-                    status: crate::agents::AgentStatus::Unknown,
-                    context_pct_milli: None,
+                .map(|index| {
+                    agent_row_view(
+                        crate::agents::AgentId(index + 1),
+                        Some(crate::terminals::TerminalId(index + 1)),
+                        &format!("agent-{}", index + 1),
+                    )
                 })
                 .collect(),
         },

@@ -5,6 +5,7 @@ use crate::terminals::{
 use std::{
     fs,
     path::PathBuf,
+    process::Command,
     sync::mpsc,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -30,6 +31,36 @@ fn start_test_daemon(prefix: &str) -> (DaemonServerHandle, PathBuf) {
 }
 
 /// Flattens a terminal surface into newline-separated text for daemon integration assertions.
+fn run_tmux(args: &[&str]) -> Result<String, String> {
+    let output = Command::new("tmux")
+        .args(args)
+        .output()
+        .map_err(|error| format!("tmux {:?} failed: {error}", args))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_owned();
+        let stdout = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+        let detail = if !stderr.is_empty() { stderr } else { stdout };
+        return Err(if detail.is_empty() {
+            format!("tmux {:?} exited with status {}", args, output.status)
+        } else {
+            format!("tmux {:?} failed: {detail}", args)
+        });
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).to_string())
+}
+
+fn kill_tmux_session_if_exists(session_name: &str) {
+    let _ = run_tmux(&["kill-session", "-t", session_name]);
+}
+
+fn unique_tmux_name(prefix: &str) -> String {
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("time went backwards")
+        .as_nanos();
+    format!("{prefix}-{nanos}")
+}
+
 fn surface_to_text(surface: &TerminalSurface) -> String {
     let mut text = String::new();
     for y in 0..surface.rows {
@@ -333,6 +364,212 @@ fn daemon_create_session_without_env_overrides_leaves_agent_env_unset() {
         .expect("env command should send");
     let surface = wait_for_surface_containing(&attached.updates, "env:unset");
     assert!(surface_to_text(&surface).contains("env:unset"));
+}
+
+/// Verifies that owned tmux sessions are created, stamped, capturable, and explicitly killable.
+#[test]
+fn daemon_owned_tmux_create_list_capture_and_kill_roundtrip() {
+    let (_server, socket_path) = start_test_daemon("neozeus-owned-tmux-roundtrip");
+    let client =
+        SocketTerminalDaemonClient::connect(&socket_path).expect("daemon client should connect");
+    let cwd = temp_dir("neozeus-owned-tmux-cwd");
+    let session = client
+        .create_owned_tmux_session(
+            "agent-uid-roundtrip",
+            "BUILD",
+            Some(cwd.to_str().expect("cwd should be utf-8")),
+            "printf 'owned-tmux-roundtrip'",
+        )
+        .expect("owned tmux session should create");
+    assert!(session.tmux_name.starts_with("neozeus-tmux-"));
+    assert!(!session.tmux_name.contains(' '));
+
+    let listed = client
+        .list_owned_tmux_sessions()
+        .expect("owned tmux sessions should list");
+    let listed_session = listed
+        .iter()
+        .find(|candidate| candidate.session_uid == session.session_uid)
+        .expect("created owned tmux session should list");
+    assert_eq!(listed_session.owner_agent_uid, "agent-uid-roundtrip");
+    assert_eq!(listed_session.display_name, "BUILD");
+    assert_eq!(listed_session.cwd, cwd.to_string_lossy());
+
+    let backend = run_tmux(&[
+        "show-options",
+        "-t",
+        session.tmux_name.as_str(),
+        "-qv",
+        "@neozeus_backend",
+    ])
+    .expect("backend option should read");
+    assert_eq!(backend.trim(), "agent-owned-tmux");
+    let stamped_uid = run_tmux(&[
+        "show-options",
+        "-t",
+        session.tmux_name.as_str(),
+        "-qv",
+        "@neozeus_id",
+    ])
+    .expect("session uid option should read");
+    assert_eq!(stamped_uid.trim(), session.session_uid);
+
+    let capture = client
+        .capture_owned_tmux_session(&session.session_uid, 80)
+        .expect("owned tmux capture should succeed");
+    assert!(capture.contains("owned-tmux-roundtrip"));
+
+    client
+        .kill_owned_tmux_session(&session.session_uid)
+        .expect("owned tmux kill should succeed");
+    let listed = client
+        .list_owned_tmux_sessions()
+        .expect("owned tmux sessions should relist");
+    assert!(!listed
+        .iter()
+        .any(|candidate| candidate.session_uid == session.session_uid));
+}
+
+/// Verifies that daemon restart rediscovers owned tmux sessions from tmux metadata.
+#[test]
+fn daemon_owned_tmux_sessions_survive_daemon_restart_and_rediscover() {
+    let dir = temp_dir("neozeus-owned-tmux-recover");
+    let socket_path = dir.join("daemon.sock");
+    let session = {
+        let _server = DaemonServerHandle::start(socket_path.clone()).expect("daemon should start");
+        let client = SocketTerminalDaemonClient::connect(&socket_path)
+            .expect("daemon client should connect");
+        client
+            .create_owned_tmux_session(
+                "agent-uid-recover",
+                "RECOVER",
+                None,
+                "printf 'recover-owned-tmux'",
+            )
+            .expect("owned tmux session should create")
+    };
+
+    let _server = DaemonServerHandle::start(socket_path.clone()).expect("daemon should restart");
+    let client =
+        SocketTerminalDaemonClient::connect(&socket_path).expect("daemon client should reconnect");
+    let listed = client
+        .list_owned_tmux_sessions()
+        .expect("owned tmux sessions should list after restart");
+    assert!(listed.iter().any(|candidate| {
+        candidate.session_uid == session.session_uid && candidate.tmux_name == session.tmux_name
+    }));
+
+    client
+        .kill_owned_tmux_session(&session.session_uid)
+        .expect("owned tmux cleanup should succeed");
+}
+
+/// Verifies that discovery ignores arbitrary unstamped tmux sessions.
+#[test]
+fn daemon_owned_tmux_discovery_ignores_unstamped_tmux_sessions() {
+    let raw_tmux_name = unique_tmux_name("neozeus-raw-tmux");
+    run_tmux(&[
+        "new-session",
+        "-d",
+        "-s",
+        raw_tmux_name.as_str(),
+        "exec zsh -il",
+    ])
+    .expect("raw tmux session should create");
+
+    let (_server, socket_path) = start_test_daemon("neozeus-owned-tmux-ignore");
+    let client =
+        SocketTerminalDaemonClient::connect(&socket_path).expect("daemon client should connect");
+    let listed = client
+        .list_owned_tmux_sessions()
+        .expect("owned tmux sessions should list");
+    assert!(!listed
+        .iter()
+        .any(|candidate| candidate.tmux_name == raw_tmux_name));
+
+    kill_tmux_session_if_exists(&raw_tmux_name);
+}
+
+/// Verifies that killing by owner agent uid removes only that owner's tmux child sessions.
+#[test]
+fn daemon_owned_tmux_kill_for_owner_uid_is_scoped() {
+    let (_server, socket_path) = start_test_daemon("neozeus-owned-tmux-owner-kill");
+    let client =
+        SocketTerminalDaemonClient::connect(&socket_path).expect("daemon client should connect");
+    let owner_a_one = client
+        .create_owned_tmux_session("agent-owner-a", "A-1", None, "printf a1")
+        .expect("first owned tmux should create");
+    let owner_a_two = client
+        .create_owned_tmux_session("agent-owner-a", "A-2", None, "printf a2")
+        .expect("second owned tmux should create");
+    let owner_b = client
+        .create_owned_tmux_session("agent-owner-b", "B-1", None, "printf b1")
+        .expect("third owned tmux should create");
+
+    client
+        .kill_owned_tmux_sessions_for_agent("agent-owner-a")
+        .expect("owner kill should succeed");
+
+    let listed = client
+        .list_owned_tmux_sessions()
+        .expect("owned tmux sessions should relist");
+    assert!(!listed
+        .iter()
+        .any(|candidate| candidate.session_uid == owner_a_one.session_uid));
+    assert!(!listed
+        .iter()
+        .any(|candidate| candidate.session_uid == owner_a_two.session_uid));
+    assert!(listed
+        .iter()
+        .any(|candidate| candidate.session_uid == owner_b.session_uid));
+
+    client
+        .kill_owned_tmux_session(&owner_b.session_uid)
+        .expect("owned tmux cleanup should succeed");
+}
+
+/// Verifies that rediscovery keys owned tmux sessions by stable uid rather than tmux session name.
+#[test]
+fn daemon_owned_tmux_rediscovery_tracks_stable_uid_across_tmux_rename() {
+    let dir = temp_dir("neozeus-owned-tmux-rename");
+    let socket_path = dir.join("daemon.sock");
+    let session = {
+        let _server = DaemonServerHandle::start(socket_path.clone()).expect("daemon should start");
+        let client = SocketTerminalDaemonClient::connect(&socket_path)
+            .expect("daemon client should connect");
+        client
+            .create_owned_tmux_session(
+                "agent-uid-rename",
+                "RENAMED",
+                None,
+                "printf 'rename-owned-tmux'",
+            )
+            .expect("owned tmux session should create")
+    };
+    let renamed_tmux_name = unique_tmux_name("neozeus-owned-renamed");
+    run_tmux(&[
+        "rename-session",
+        "-t",
+        session.tmux_name.as_str(),
+        renamed_tmux_name.as_str(),
+    ])
+    .expect("tmux session should rename");
+
+    let _server = DaemonServerHandle::start(socket_path.clone()).expect("daemon should restart");
+    let client =
+        SocketTerminalDaemonClient::connect(&socket_path).expect("daemon client should reconnect");
+    let listed = client
+        .list_owned_tmux_sessions()
+        .expect("owned tmux sessions should list after rename");
+    let renamed = listed
+        .iter()
+        .find(|candidate| candidate.session_uid == session.session_uid)
+        .expect("renamed session should rediscover by stable uid");
+    assert_eq!(renamed.tmux_name, renamed_tmux_name);
+
+    client
+        .kill_owned_tmux_session(&session.session_uid)
+        .expect("owned tmux cleanup should succeed");
 }
 
 /// Verifies that daemon-created sessions honor the requested initial working directory.

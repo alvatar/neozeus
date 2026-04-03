@@ -156,7 +156,16 @@ pub(crate) fn configure_app_schedule(app: &mut App) {
         Update,
         (handle_hud_pointer_input, handle_hud_module_shortcuts).in_set(NeoZeusSet::HudInput),
     )
-    .add_systems(Update, sync_hud_view_models.before(NeoZeusSet::HudRender))
+    .add_systems(
+        Update,
+        (
+            crate::terminals::sync_owned_tmux_sessions,
+            crate::terminals::sync_owned_tmux_inspect,
+            sync_hud_view_models,
+        )
+            .chain()
+            .before(NeoZeusSet::HudRender),
+    )
     .add_systems(
         Update,
         (

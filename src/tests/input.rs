@@ -12,7 +12,7 @@ use crate::{
     },
     composer::{MessageDialogFocus, TaskDialogFocus},
     conversations::{AgentTaskStore, ConversationStore, MessageTransportAdapter},
-    hud::TerminalVisibilityState,
+    hud::{handle_hud_module_shortcuts, TerminalVisibilityState},
     input::{
         ctrl_sequence, focus_terminal_on_panel_click, handle_global_terminal_spawn_shortcut,
         handle_terminal_direct_input_keyboard, handle_terminal_lifecycle_shortcuts,
@@ -1916,6 +1916,77 @@ fn message_box_alt_word_motion_and_ctrl_d_work() {
     assert_eq!(snapshot_test_hud_state(&world).message_box.text, "one tw");
 }
 
+/// Verifies that agent-list keyboard navigation skips owned tmux child rows and moves between
+/// real agents only.
+#[test]
+fn hud_navigation_skips_owned_tmux_child_rows() {
+    let mut world = World::default();
+    insert_default_hud_resources(&mut world);
+    world.insert_resource(AppSessionState {
+        active_agent: Some(crate::agents::AgentId(1)),
+        ..Default::default()
+    });
+    world.insert_resource(crate::hud::AgentListView {
+        rows: vec![
+            crate::hud::AgentListRowView {
+                key: crate::hud::AgentListRowKey::Agent(crate::agents::AgentId(1)),
+                label: "ALPHA".into(),
+                focused: true,
+                kind: crate::hud::AgentListRowKind::Agent {
+                    agent_id: crate::agents::AgentId(1),
+                    terminal_id: None,
+                    has_tasks: false,
+                    interactive: true,
+                    status: crate::agents::AgentStatus::Unknown,
+                    context_pct_milli: None,
+                },
+            },
+            crate::hud::AgentListRowView {
+                key: crate::hud::AgentListRowKey::OwnedTmux("tmux-1".into()),
+                label: "BUILD".into(),
+                focused: false,
+                kind: crate::hud::AgentListRowKind::OwnedTmux {
+                    session_uid: "tmux-1".into(),
+                    owner_agent_id: Some(crate::agents::AgentId(1)),
+                    tmux_name: "neozeus-tmux-1".into(),
+                    cwd: "/tmp/work".into(),
+                    attached: false,
+                    orphan: false,
+                },
+            },
+            crate::hud::AgentListRowView {
+                key: crate::hud::AgentListRowKey::Agent(crate::agents::AgentId(2)),
+                label: "BETA".into(),
+                focused: false,
+                kind: crate::hud::AgentListRowKind::Agent {
+                    agent_id: crate::agents::AgentId(2),
+                    terminal_id: None,
+                    has_tasks: false,
+                    interactive: true,
+                    status: crate::agents::AgentStatus::Unknown,
+                    context_pct_milli: None,
+                },
+            },
+        ],
+    });
+    world.insert_resource(ButtonInput::<KeyCode>::default());
+    init_hud_commands(&mut world);
+    world.init_resource::<Messages<KeyboardInput>>();
+    world
+        .resource_mut::<Messages<KeyboardInput>>()
+        .write(pressed_key(KeyCode::KeyJ, Key::Character("j".into())));
+
+    world.run_system_once(handle_hud_module_shortcuts).unwrap();
+
+    assert_eq!(
+        drain_hud_commands(&mut world),
+        vec![
+            AppCommand::Agent(crate::app::AgentCommand::Focus(crate::agents::AgentId(2))),
+            AppCommand::Agent(crate::app::AgentCommand::Inspect(crate::agents::AgentId(2))),
+        ]
+    );
+}
+
 /// Verifies that global lifecycle shortcuts are ignored while the message box owns keyboard capture.
 #[test]
 fn lifecycle_shortcuts_are_suppressed_while_message_box_is_open() {
@@ -1942,8 +2013,38 @@ fn lifecycle_shortcuts_are_suppressed_while_message_box_is_open() {
     assert_eq!(world.resource::<Messages<AppExit>>().len(), 0);
 }
 
-/// Verifies that global lifecycle shortcuts are ignored while direct terminal input owns keyboard
-/// capture.
+/// Verifies that `Ctrl+k` kills the selected owned tmux row before touching the active agent.
+#[test]
+fn ctrl_k_kills_selected_owned_tmux_session_before_active_agent() {
+    let mut world = World::default();
+    insert_default_hud_resources(&mut world);
+    world.insert_resource(ButtonInput::<KeyCode>::default());
+    world.init_resource::<Messages<KeyboardInput>>();
+    world.init_resource::<Messages<AppExit>>();
+    world
+        .resource_mut::<ButtonInput<KeyCode>>()
+        .press(KeyCode::ControlLeft);
+    world
+        .resource_mut::<crate::terminals::OwnedTmuxInspectState>()
+        .select("tmux-session-1".into());
+    init_hud_commands(&mut world);
+    world
+        .resource_mut::<Messages<KeyboardInput>>()
+        .write(pressed_text(KeyCode::KeyK, Some("k")));
+
+    world
+        .run_system_once(handle_terminal_lifecycle_shortcuts)
+        .unwrap();
+
+    assert_eq!(
+        drain_hud_commands(&mut world),
+        vec![AppCommand::OwnedTmux(
+            crate::app::OwnedTmuxCommand::KillSelected
+        )]
+    );
+    assert_eq!(world.resource::<Messages<AppExit>>().len(), 0);
+}
+
 #[test]
 fn lifecycle_shortcuts_are_suppressed_while_direct_input_is_open() {
     // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
