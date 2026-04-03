@@ -4,9 +4,9 @@ use crate::terminals::{
 };
 use std::{
     fs,
-    path::PathBuf,
+    path::{Path, PathBuf},
     process::Command,
-    sync::mpsc,
+    sync::{mpsc, Arc, OnceLock},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
@@ -51,6 +51,97 @@ fn run_tmux(args: &[&str]) -> Result<String, String> {
 
 fn kill_tmux_session_if_exists(session_name: &str) {
     let _ = run_tmux(&["kill-session", "-t", session_name]);
+}
+
+fn repo_root() -> &'static Path {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+}
+
+fn test_target_dir(name: &str) -> PathBuf {
+    repo_root().join(".tmpbuild").join(name)
+}
+
+fn build_test_binary(bin_name: &str, target_dir_name: &str) -> PathBuf {
+    let target_dir = test_target_dir(target_dir_name);
+    fs::create_dir_all(&target_dir).expect("test target dir should create");
+    let output = Command::new("cargo")
+        .current_dir(repo_root())
+        .env("TMPDIR", repo_root().join(".tmpbuild"))
+        .arg("build")
+        .arg("--quiet")
+        .arg("--bin")
+        .arg(bin_name)
+        .arg("--target-dir")
+        .arg(&target_dir)
+        .output()
+        .expect("cargo build should start");
+    if !output.status.success() {
+        panic!(
+            "failed to build {bin_name}: stdout={} stderr={}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr),
+        );
+    }
+    target_dir.join("debug").join(bin_name)
+}
+
+fn neozeus_tmux_binary() -> &'static PathBuf {
+    static PATH: OnceLock<PathBuf> = OnceLock::new();
+    PATH.get_or_init(|| build_test_binary("neozeus-tmux", "tmux-helper-e2e-target"))
+}
+
+fn shell_quote(value: &str) -> String {
+    if !value.is_empty()
+        && value
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '/' | '.' | '_' | '-' | ':'))
+    {
+        value.to_owned()
+    } else {
+        format!("'{}'", value.replace('\'', "'\\''"))
+    }
+}
+
+fn wait_for_owned_tmux_session(
+    client: &SocketTerminalDaemonClient,
+    owner_agent_uid: &str,
+) -> OwnedTmuxSessionInfo {
+    let deadline = std::time::Instant::now() + Duration::from_secs(30);
+    loop {
+        if let Ok(sessions) = client.list_owned_tmux_sessions() {
+            if let Some(session) = sessions
+                .into_iter()
+                .find(|session| session.owner_agent_uid == owner_agent_uid)
+            {
+                return session;
+            }
+        }
+        if std::time::Instant::now() >= deadline {
+            panic!("timed out waiting for owned tmux session for {owner_agent_uid}");
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+fn wait_for_owned_tmux_capture_containing(
+    client: &SocketTerminalDaemonClient,
+    session_uid: &str,
+    needle: &str,
+) -> String {
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    loop {
+        if let Ok(text) = client.capture_owned_tmux_session(session_uid, 200) {
+            if text.contains(needle) {
+                return text;
+            }
+        }
+        if std::time::Instant::now() >= deadline {
+            panic!(
+                "timed out waiting for owned tmux capture for {session_uid} to contain {needle}"
+            );
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
 }
 
 fn unique_tmux_name(prefix: &str) -> String {
@@ -570,6 +661,148 @@ fn daemon_owned_tmux_rediscovery_tracks_stable_uid_across_tmux_rename() {
     client
         .kill_owned_tmux_session(&session.session_uid)
         .expect("owned tmux cleanup should succeed");
+}
+
+/// Verifies the true end-to-end helper path: a real agent shell with injected ownership env runs
+/// `neozeus-tmux`, which creates a daemon-visible tmux child and yields capturable output.
+#[test]
+fn daemon_owned_tmux_helper_runs_inside_real_agent_shell() {
+    let (_server, socket_path) = start_test_daemon("neozeus-owned-tmux-helper-shell");
+    let client = Arc::new(
+        SocketTerminalDaemonClient::connect(&socket_path).expect("daemon client should connect"),
+    );
+    let runtime_spawner = crate::terminals::TerminalRuntimeSpawner::for_tests(
+        TerminalDaemonClientResource::from_client(client.clone()),
+    );
+    let owner_agent_uid = unique_tmux_name("agent-uid-helper");
+    let helper_output_marker = unique_tmux_name("helper-output");
+    let child_cwd = temp_dir("neozeus-owned-helper-child-cwd");
+    let parent_cwd = repo_root().to_string_lossy().into_owned();
+    let session_id = runtime_spawner
+        .create_shell_session_with_cwd_and_env(
+            "neozeus-agent-shell-",
+            Some(&parent_cwd),
+            &[
+                ("NEOZEUS_AGENT_UID".into(), owner_agent_uid.clone()),
+                (
+                    "NEOZEUS_DAEMON_SOCKET".into(),
+                    socket_path.to_string_lossy().into_owned(),
+                ),
+                ("NEOZEUS_AGENT_LABEL".into(), "ALPHA".into()),
+                ("NEOZEUS_AGENT_KIND".into(), "terminal".into()),
+            ],
+        )
+        .expect("agent shell should create");
+    let attached = client
+        .attach_session(&session_id)
+        .expect("agent shell should attach");
+    let helper_command = format!(
+        "cd {} && {} run --name BUILD --cwd {} -- bash -lc {}",
+        shell_quote(&parent_cwd),
+        shell_quote(&neozeus_tmux_binary().display().to_string()),
+        shell_quote(&child_cwd.display().to_string()),
+        shell_quote(&format!("printf '{helper_output_marker}'; pwd; sleep 60")),
+    );
+    client
+        .send_command(&session_id, TerminalCommand::SendCommand(helper_command))
+        .expect("helper command should send");
+
+    let parent_surface = wait_for_surface_containing(&attached.updates, "tmux attach -t");
+    assert!(surface_to_text(&parent_surface).contains("tmux attach -t"));
+
+    let session = wait_for_owned_tmux_session(&client, &owner_agent_uid);
+    assert_eq!(session.display_name, "BUILD");
+    assert_eq!(session.cwd, child_cwd.display().to_string());
+    let capture = wait_for_owned_tmux_capture_containing(
+        &client,
+        &session.session_uid,
+        &helper_output_marker,
+    );
+    assert!(capture.contains(&helper_output_marker));
+
+    client
+        .kill_owned_tmux_session(&session.session_uid)
+        .expect("owned tmux cleanup should succeed");
+    client
+        .kill_session(&session_id)
+        .expect("parent shell cleanup should succeed");
+}
+
+/// Verifies that helper-created tmux children survive daemon restart and rediscover with the same
+/// stable uid and captured content.
+#[test]
+fn daemon_owned_tmux_helper_created_session_survives_daemon_restart() {
+    let dir = temp_dir("neozeus-owned-tmux-helper-restart");
+    let socket_path = dir.join("daemon.sock");
+    let server = DaemonServerHandle::start(socket_path.clone()).expect("daemon should start");
+    let client = Arc::new(
+        SocketTerminalDaemonClient::connect(&socket_path).expect("daemon client should connect"),
+    );
+    let runtime_spawner = crate::terminals::TerminalRuntimeSpawner::for_tests(
+        TerminalDaemonClientResource::from_client(client.clone()),
+    );
+    let owner_agent_uid = unique_tmux_name("agent-uid-restart");
+    let helper_output_marker = unique_tmux_name("helper-restart-output");
+    let child_cwd = temp_dir("neozeus-owned-helper-restart-cwd");
+    let parent_cwd = repo_root().to_string_lossy().into_owned();
+    let session_id = runtime_spawner
+        .create_shell_session_with_cwd_and_env(
+            "neozeus-agent-shell-",
+            Some(&parent_cwd),
+            &[
+                ("NEOZEUS_AGENT_UID".into(), owner_agent_uid.clone()),
+                (
+                    "NEOZEUS_DAEMON_SOCKET".into(),
+                    socket_path.to_string_lossy().into_owned(),
+                ),
+                ("NEOZEUS_AGENT_LABEL".into(), "BETA".into()),
+                ("NEOZEUS_AGENT_KIND".into(), "terminal".into()),
+            ],
+        )
+        .expect("agent shell should create");
+    let helper_command = format!(
+        "cd {} && {} run --name RESTART --cwd {} -- bash -lc {}",
+        shell_quote(&parent_cwd),
+        shell_quote(&neozeus_tmux_binary().display().to_string()),
+        shell_quote(&child_cwd.display().to_string()),
+        shell_quote(&format!("printf '{helper_output_marker}'; pwd; sleep 60")),
+    );
+    client
+        .send_command(&session_id, TerminalCommand::SendCommand(helper_command))
+        .expect("helper command should send");
+
+    let created = wait_for_owned_tmux_session(&client, &owner_agent_uid);
+    let created_capture = wait_for_owned_tmux_capture_containing(
+        &client,
+        &created.session_uid,
+        &helper_output_marker,
+    );
+    assert!(created_capture.contains(&helper_output_marker));
+
+    client
+        .kill_session(&session_id)
+        .expect("parent shell cleanup should succeed");
+    drop(server);
+
+    let restarted_server =
+        DaemonServerHandle::start(socket_path.clone()).expect("daemon should restart");
+    let restarted_client =
+        SocketTerminalDaemonClient::connect(&socket_path).expect("daemon client should reconnect");
+    let rebuilt = wait_for_owned_tmux_session(&restarted_client, &owner_agent_uid);
+    assert_eq!(rebuilt.session_uid, created.session_uid);
+    assert_eq!(rebuilt.display_name, "RESTART");
+    assert_eq!(rebuilt.cwd, child_cwd.display().to_string());
+    let rebuilt_capture = wait_for_owned_tmux_capture_containing(
+        &restarted_client,
+        &rebuilt.session_uid,
+        &helper_output_marker,
+    );
+    assert!(rebuilt_capture.contains(&helper_output_marker));
+
+    restarted_client
+        .kill_owned_tmux_session(&rebuilt.session_uid)
+        .expect("owned tmux cleanup should succeed");
+    drop(restarted_server);
 }
 
 /// Verifies that daemon-created sessions honor the requested initial working directory.

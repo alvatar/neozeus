@@ -145,6 +145,99 @@ fn sync_hud_view_models_places_owned_tmux_rows_under_matching_agent() {
 }
 
 #[test]
+fn sync_hud_view_models_orders_multiple_owned_tmux_rows_and_marks_selected_child() {
+    let mut catalog = AgentCatalog::default();
+    let alpha = catalog.create_agent(
+        Some("ALPHA".into()),
+        AgentKind::Terminal,
+        AgentKind::Terminal.capabilities(),
+    );
+    let beta = catalog.create_agent(
+        Some("BETA".into()),
+        AgentKind::Terminal,
+        AgentKind::Terminal.capabilities(),
+    );
+    let alpha_uid = catalog.uid(alpha).unwrap().to_owned();
+    let beta_uid = catalog.uid(beta).unwrap().to_owned();
+
+    let mut world = World::default();
+    world.insert_resource(catalog);
+    world.insert_resource(AgentRuntimeIndex::default());
+    world.insert_resource(AppSessionState {
+        active_agent: Some(alpha),
+        ..Default::default()
+    });
+    world.insert_resource(AgentTaskStore::default());
+    world.insert_resource(ConversationStore::default());
+    world.insert_resource(AgentListView::default());
+    world.insert_resource(ConversationListView::default());
+    world.insert_resource(ThreadView::default());
+    world.insert_resource(ComposerView::default());
+    world.insert_resource(AgentStatusStore::default());
+    world.insert_resource(crate::terminals::TerminalManager::default());
+    let mut owned_tmux = crate::terminals::OwnedTmuxSessionStore::default();
+    owned_tmux.sessions = vec![
+        crate::terminals::OwnedTmuxSessionInfo {
+            session_uid: "tmux-b1".into(),
+            owner_agent_uid: beta_uid,
+            tmux_name: "neozeus-tmux-b1".into(),
+            display_name: "BETA BUILD".into(),
+            cwd: "/tmp/beta".into(),
+            attached: false,
+            created_unix: 3,
+        },
+        crate::terminals::OwnedTmuxSessionInfo {
+            session_uid: "tmux-a2".into(),
+            owner_agent_uid: alpha_uid.clone(),
+            tmux_name: "neozeus-tmux-a2".into(),
+            display_name: "ALPHA TEST".into(),
+            cwd: "/tmp/alpha-2".into(),
+            attached: true,
+            created_unix: 2,
+        },
+        crate::terminals::OwnedTmuxSessionInfo {
+            session_uid: "tmux-orphan".into(),
+            owner_agent_uid: "missing-agent".into(),
+            tmux_name: "neozeus-tmux-orphan".into(),
+            display_name: "BUILD".into(),
+            cwd: "/tmp/orphan".into(),
+            attached: false,
+            created_unix: 4,
+        },
+        crate::terminals::OwnedTmuxSessionInfo {
+            session_uid: "tmux-a1".into(),
+            owner_agent_uid: alpha_uid,
+            tmux_name: "neozeus-tmux-a1".into(),
+            display_name: "ALPHA BUILD".into(),
+            cwd: "/tmp/alpha-1".into(),
+            attached: false,
+            created_unix: 1,
+        },
+    ];
+    world.insert_resource(owned_tmux);
+    let mut inspect = crate::terminals::OwnedTmuxInspectState::default();
+    inspect.select("tmux-a2".into());
+    world.insert_resource(inspect);
+
+    world.run_system_once(sync_hud_view_models).unwrap();
+    let rows = &world.resource::<AgentListView>().rows;
+    assert_eq!(rows.len(), 6);
+    assert_eq!(rows[0].label, "ALPHA");
+    assert_eq!(rows[1].label, "ALPHA BUILD");
+    assert_eq!(rows[2].label, "ALPHA TEST");
+    assert_eq!(rows[3].label, "BETA");
+    assert_eq!(rows[4].label, "BETA BUILD");
+    assert_eq!(rows[5].label, "ORPHAN BUILD");
+    assert!(!rows[0].focused);
+    assert!(!rows[1].focused);
+    assert!(rows[2].focused);
+    assert!(matches!(
+        rows[5].kind,
+        AgentListRowKind::OwnedTmux { orphan: true, .. }
+    ));
+}
+
+#[test]
 fn sync_hud_view_models_routes_unknown_owned_tmux_to_orphan_row() {
     let mut world = World::default();
     world.insert_resource(AgentCatalog::default());

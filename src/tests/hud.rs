@@ -1698,6 +1698,123 @@ fn killing_agent_cascade_kills_owned_tmux_children() {
     assert!(client.owned_tmux_sessions.lock().unwrap().is_empty());
 }
 
+/// Verifies that parent deletion cascades only the active agent's owned tmux children and leaves
+/// other agents plus orphan rows untouched.
+#[test]
+fn killing_agent_cascade_kills_only_selected_agent_owned_tmux_children() {
+    let client = Arc::new(FakeDaemonClient::default());
+    client
+        .sessions
+        .lock()
+        .unwrap()
+        .extend(["neozeus-session-a".into(), "neozeus-session-b".into()]);
+
+    let (bridge_a, _) = test_bridge();
+    let (bridge_b, _) = test_bridge();
+    let mut manager = TerminalManager::default();
+    let terminal_a = manager.create_terminal_with_session(bridge_a, "neozeus-session-a".into());
+    let terminal_b = manager.create_terminal_with_session(bridge_b, "neozeus-session-b".into());
+    manager.focus_terminal(terminal_a);
+
+    let mut world = World::default();
+    let mut time = Time::<()>::default();
+    time.advance_by(Duration::from_secs(1));
+    world.insert_resource(time);
+    insert_terminal_manager_resources(&mut world, manager);
+    insert_default_hud_resources(&mut world);
+    world.insert_resource(TerminalPresentationStore::default());
+    world.insert_resource(fake_runtime_spawner(client.clone()));
+    world.insert_resource(AppStatePersistenceState::default());
+    world.insert_resource(TerminalVisibilityState::default());
+    world.insert_resource(TerminalViewState::default());
+    world.init_resource::<Messages<AppCommand>>();
+    world.init_resource::<Messages<RequestRedraw>>();
+
+    let mut catalog = AgentCatalog::default();
+    let agent_a = catalog.create_agent(
+        Some("alpha".into()),
+        crate::agents::AgentKind::Terminal,
+        crate::agents::AgentKind::Terminal.capabilities(),
+    );
+    let agent_b = catalog.create_agent(
+        Some("beta".into()),
+        crate::agents::AgentKind::Terminal,
+        crate::agents::AgentKind::Terminal.capabilities(),
+    );
+    let agent_a_uid = catalog.uid(agent_a).unwrap().to_owned();
+    let agent_b_uid = catalog.uid(agent_b).unwrap().to_owned();
+    world.insert_resource(catalog);
+    let mut runtime_index = AgentRuntimeIndex::default();
+    runtime_index.link_terminal(agent_a, terminal_a, "neozeus-session-a".into(), None);
+    runtime_index.link_terminal(agent_b, terminal_b, "neozeus-session-b".into(), None);
+    world.insert_resource(runtime_index);
+    world.resource_mut::<AppSessionState>().active_agent = Some(agent_a);
+
+    client.owned_tmux_sessions.lock().unwrap().extend([
+        crate::terminals::OwnedTmuxSessionInfo {
+            session_uid: "tmux-a1".into(),
+            owner_agent_uid: agent_a_uid.clone(),
+            tmux_name: "neozeus-tmux-a1".into(),
+            display_name: "A-1".into(),
+            cwd: "/tmp/a1".into(),
+            attached: false,
+            created_unix: 1,
+        },
+        crate::terminals::OwnedTmuxSessionInfo {
+            session_uid: "tmux-a2".into(),
+            owner_agent_uid: agent_a_uid,
+            tmux_name: "neozeus-tmux-a2".into(),
+            display_name: "A-2".into(),
+            cwd: "/tmp/a2".into(),
+            attached: false,
+            created_unix: 2,
+        },
+        crate::terminals::OwnedTmuxSessionInfo {
+            session_uid: "tmux-b1".into(),
+            owner_agent_uid: agent_b_uid,
+            tmux_name: "neozeus-tmux-b1".into(),
+            display_name: "B-1".into(),
+            cwd: "/tmp/b1".into(),
+            attached: false,
+            created_unix: 3,
+        },
+        crate::terminals::OwnedTmuxSessionInfo {
+            session_uid: "tmux-orphan".into(),
+            owner_agent_uid: "missing-agent".into(),
+            tmux_name: "neozeus-tmux-orphan".into(),
+            display_name: "ORPHAN".into(),
+            cwd: "/tmp/orphan".into(),
+            attached: false,
+            created_unix: 4,
+        },
+    ]);
+
+    world
+        .resource_mut::<Messages<AppCommand>>()
+        .write(AppCommand::Agent(AppAgentCommand::KillActive));
+    run_app_commands(&mut world);
+
+    let remaining = client.owned_tmux_sessions.lock().unwrap().clone();
+    assert_eq!(remaining.len(), 2);
+    assert!(remaining
+        .iter()
+        .any(|session| session.session_uid == "tmux-b1"));
+    assert!(remaining
+        .iter()
+        .any(|session| session.session_uid == "tmux-orphan"));
+    assert!(!remaining
+        .iter()
+        .any(|session| session.session_uid == "tmux-a1"));
+    assert!(!remaining
+        .iter()
+        .any(|session| session.session_uid == "tmux-a2"));
+    assert_eq!(world.resource::<AgentCatalog>().order, vec![agent_b]);
+    assert_eq!(
+        world.resource::<TerminalManager>().terminal_ids(),
+        &[terminal_b]
+    );
+}
+
 /// Verifies that parent deletion aborts when owned tmux child cleanup fails and the child still exists.
 #[test]
 fn killing_agent_aborts_when_owned_tmux_child_kill_fails() {
