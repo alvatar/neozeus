@@ -20,7 +20,9 @@ mod runtime;
 mod session_persistence;
 mod types;
 
-pub(crate) use active_content::{sync_active_terminal_content, ActiveTerminalContentState};
+pub(crate) use active_content::{
+    sync_active_terminal_content, ActiveTerminalContentState, ActiveTerminalContentSyncState,
+};
 pub(crate) use ansi_surface::surface_from_ansi_text_auto_size;
 pub(crate) use bridge::TerminalBridge;
 pub(crate) use daemon::{

@@ -937,6 +937,7 @@ fn killing_active_terminal_selects_previous_terminal_in_creation_order() {
                 desired_texture_state: Default::default(),
                 display_mode: Default::default(),
                 uploaded_revision: 0,
+            uploaded_active_override_revision: None,
                 panel_entity: Entity::PLACEHOLDER,
                 frame_entity: Entity::PLACEHOLDER,
             },
@@ -1022,6 +1023,7 @@ fn killing_first_active_terminal_selects_next_terminal() {
                 desired_texture_state: Default::default(),
                 display_mode: Default::default(),
                 uploaded_revision: 0,
+            uploaded_active_override_revision: None,
                 panel_entity: Entity::PLACEHOLDER,
                 frame_entity: Entity::PLACEHOLDER,
             },
@@ -1105,6 +1107,7 @@ fn killing_active_terminal_removes_runtime_presentation_and_labels() {
             desired_texture_state: Default::default(),
             display_mode: Default::default(),
             uploaded_revision: 0,
+            uploaded_active_override_revision: None,
             panel_entity: Entity::PLACEHOLDER,
             frame_entity: Entity::PLACEHOLDER,
         },
@@ -1382,6 +1385,7 @@ fn killing_disconnected_active_terminal_removes_local_state_even_if_daemon_kill_
             desired_texture_state: Default::default(),
             display_mode: Default::default(),
             uploaded_revision: 0,
+            uploaded_active_override_revision: None,
             panel_entity: Entity::PLACEHOLDER,
             frame_entity: Entity::PLACEHOLDER,
         },
@@ -1485,6 +1489,7 @@ fn killing_active_terminal_removes_local_state_when_daemon_already_reports_disco
             desired_texture_state: Default::default(),
             display_mode: Default::default(),
             uploaded_revision: 0,
+            uploaded_active_override_revision: None,
             panel_entity: Entity::PLACEHOLDER,
             frame_entity: Entity::PLACEHOLDER,
         },
@@ -1580,6 +1585,7 @@ fn killing_active_terminal_preserves_local_state_when_tmux_kill_fails() {
             desired_texture_state: Default::default(),
             display_mode: Default::default(),
             uploaded_revision: 0,
+            uploaded_active_override_revision: None,
             panel_entity: Entity::PLACEHOLDER,
             frame_entity: Entity::PLACEHOLDER,
         },
@@ -2248,6 +2254,7 @@ fn navigating_to_owned_tmux_should_render_capture_in_terminal_panel() {
     world.insert_resource(fake_runtime_spawner(client));
     world.insert_resource(crate::terminals::OwnedTmuxSessionStore::default());
     world.insert_resource(crate::terminals::ActiveTerminalContentState::default());
+    world.insert_resource(crate::terminals::ActiveTerminalContentSyncState::default());
     world.insert_resource(TerminalPresentationStore::default());
     world.insert_resource(TerminalViewState::default());
     world.insert_resource(TerminalFontState::default());
@@ -2357,6 +2364,7 @@ fn active_terminal_content_reports_missing_selected_tmux_session() {
     world.insert_resource(fake_runtime_spawner(client));
     world.insert_resource(crate::terminals::OwnedTmuxSessionStore::default());
     world.insert_resource(crate::terminals::ActiveTerminalContentState::default());
+    world.insert_resource(crate::terminals::ActiveTerminalContentSyncState::default());
     let mut time = Time::<()>::default();
     time.advance_by(Duration::from_secs(1));
     world.insert_resource(time);
@@ -2372,6 +2380,76 @@ fn active_terminal_content_reports_missing_selected_tmux_session() {
     assert_eq!(
         active_terminal_content.last_error(),
         Some("Owned tmux session is no longer available")
+    );
+}
+
+/// Verifies that identical tmux recaptures do not mark the active terminal content dirty again.
+#[test]
+fn active_terminal_content_ignores_identical_recapture() {
+    let client = Arc::new(FakeDaemonClient::default());
+    client
+        .owned_tmux_sessions
+        .lock()
+        .unwrap()
+        .push(crate::terminals::OwnedTmuxSessionInfo {
+            session_uid: "tmux-session-1".into(),
+            owner_agent_uid: "agent-uid-1".into(),
+            tmux_name: "neozeus-tmux-1".into(),
+            display_name: "BUILD".into(),
+            cwd: "/tmp/work".into(),
+            attached: false,
+            created_unix: 0,
+        });
+    client
+        .tmux_captures
+        .lock()
+        .unwrap()
+        .insert("tmux-session-1".into(), "same\ncontent\n".into());
+
+    let mut world = World::default();
+    world.insert_resource(fake_runtime_spawner(client));
+    let mut owned_tmux_sessions = crate::terminals::OwnedTmuxSessionStore::default();
+    owned_tmux_sessions.sessions.push(crate::terminals::OwnedTmuxSessionInfo {
+        session_uid: "tmux-session-1".into(),
+        owner_agent_uid: "agent-uid-1".into(),
+        tmux_name: "neozeus-tmux-1".into(),
+        display_name: "BUILD".into(),
+        cwd: "/tmp/work".into(),
+        attached: false,
+        created_unix: 0,
+    });
+    world.insert_resource(owned_tmux_sessions);
+    world.insert_resource(crate::terminals::ActiveTerminalContentState::default());
+    world.insert_resource(crate::terminals::ActiveTerminalContentSyncState::default());
+    let mut time = Time::<()>::default();
+    time.advance_by(Duration::from_secs(1));
+    world.insert_resource(time);
+
+    world
+        .resource_mut::<crate::terminals::ActiveTerminalContentState>()
+        .select_owned_tmux("tmux-session-1".into(), None);
+    world
+        .run_system_once(crate::terminals::sync_active_terminal_content)
+        .unwrap();
+    let revision_after_first_sync = world
+        .resource::<crate::terminals::ActiveTerminalContentState>()
+        .presentation_revision();
+
+    world.clear_trackers();
+    world
+        .resource_mut::<Time<()>>()
+        .advance_by(Duration::from_secs(1));
+    world
+        .run_system_once(crate::terminals::sync_active_terminal_content)
+        .unwrap();
+
+    let revision_after_second_sync = world
+        .resource::<crate::terminals::ActiveTerminalContentState>()
+        .presentation_revision();
+    assert_eq!(
+        revision_after_second_sync,
+        revision_after_first_sync,
+        "identical tmux recapture should not bump the terminal presentation revision"
     );
 }
 

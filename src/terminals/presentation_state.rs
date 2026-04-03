@@ -107,6 +107,7 @@ pub(crate) struct PresentedTerminal {
     pub(crate) desired_texture_state: TerminalTextureState,
     pub(crate) display_mode: TerminalDisplayMode,
     pub(crate) uploaded_revision: u64,
+    pub(crate) uploaded_active_override_revision: Option<u64>,
     pub(crate) panel_entity: Entity,
     pub(crate) frame_entity: Entity,
 }

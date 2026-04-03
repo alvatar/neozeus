@@ -52,6 +52,9 @@ pub(crate) fn run_apply_app_commands(world: &mut bevy::prelude::World) {
     if !world.contains_resource::<crate::terminals::ActiveTerminalContentState>() {
         world.insert_resource(crate::terminals::ActiveTerminalContentState::default());
     }
+    if !world.contains_resource::<crate::terminals::ActiveTerminalContentSyncState>() {
+        world.insert_resource(crate::terminals::ActiveTerminalContentSyncState::default());
+    }
 
     world.run_system_once(dispatch::apply_app_commands).unwrap();
 }
