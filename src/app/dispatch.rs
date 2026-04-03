@@ -7,7 +7,7 @@ use crate::{
     hud::{HudInputCaptureState, HudLayoutState, TerminalVisibilityState},
     startup::StartupLoadingState,
     terminals::{
-        append_debug_log, OwnedTmuxInspectState, OwnedTmuxSessionStore, TerminalFocusState,
+        append_debug_log, ActiveTerminalContentState, OwnedTmuxSessionStore, TerminalFocusState,
         TerminalManager, TerminalRuntimeSpawner, TerminalViewState, PERSISTENT_SESSION_PREFIX,
         VERIFIER_SESSION_PREFIX,
     },
@@ -118,7 +118,7 @@ pub(super) struct AppCommandContext<'w> {
     focus_state: ResMut<'w, TerminalFocusState>,
     runtime_spawner: Res<'w, TerminalRuntimeSpawner>,
     owned_tmux_sessions: Res<'w, OwnedTmuxSessionStore>,
-    owned_tmux_inspect: ResMut<'w, OwnedTmuxInspectState>,
+    active_terminal_content: ResMut<'w, ActiveTerminalContentState>,
     input_capture: ResMut<'w, HudInputCaptureState>,
     layout_state: ResMut<'w, HudLayoutState>,
     task_store: ResMut<'w, AgentTaskStore>,
@@ -201,7 +201,7 @@ pub(super) fn apply_app_commands(
                     }
                 }
                 AgentCommand::Focus(agent_id) => {
-                    ctx.owned_tmux_inspect.clear();
+                    ctx.active_terminal_content.clear();
                     ctx.app_session.visibility_mode = VisibilityMode::ShowAll;
                     use_cases::focus_agent(
                         *agent_id,
@@ -218,7 +218,7 @@ pub(super) fn apply_app_commands(
                     );
                 }
                 AgentCommand::Inspect(agent_id) => {
-                    ctx.owned_tmux_inspect.clear();
+                    ctx.active_terminal_content.clear();
                     ctx.app_session.visibility_mode = VisibilityMode::FocusedOnly;
                     use_cases::focus_agent(
                         *agent_id,
@@ -244,7 +244,7 @@ pub(super) fn apply_app_commands(
                     }
                 }
                 AgentCommand::ClearFocus => {
-                    ctx.owned_tmux_inspect.clear();
+                    ctx.active_terminal_content.clear();
                     ctx.app_session.active_agent = None;
                     let _ = ctx.focus_state.clear_active_terminal();
                     #[cfg(test)]
@@ -258,7 +258,7 @@ pub(super) fn apply_app_commands(
                     ctx.redraws.write(RequestRedraw);
                 }
                 AgentCommand::KillActive => {
-                    ctx.owned_tmux_inspect.clear();
+                    ctx.active_terminal_content.clear();
                     if let Err(error) = use_cases::kill_active_agent(
                         &ctx.time,
                         &mut ctx.agent_catalog,
@@ -280,69 +280,35 @@ pub(super) fn apply_app_commands(
             },
             AppCommand::OwnedTmux(command) => match command {
                 OwnedTmuxCommand::Select { session_uid } => {
-                    ctx.owned_tmux_inspect.select(session_uid.clone());
-                    if let Some(session) = ctx
-                        .owned_tmux_sessions
-                        .sessions
-                        .iter()
-                        .find(|session| session.session_uid == *session_uid)
-                    {
-                        if let Some(agent_id) =
-                            ctx.agent_catalog.find_by_uid(&session.owner_agent_uid)
-                        {
-                            ctx.app_session.active_agent = Some(agent_id);
-                            if let Some(terminal_id) = ctx.runtime_index.primary_terminal(agent_id)
-                            {
-                                ctx.focus_state
-                                    .focus_terminal(&ctx.terminal_manager, terminal_id);
-                                #[cfg(test)]
-                                ctx.terminal_manager
-                                    .replace_test_focus_state(&ctx.focus_state);
-                                ctx.view_state.focus_terminal(Some(terminal_id));
-                                ctx.input_capture
-                                    .reconcile_direct_terminal_input(ctx.focus_state.active_id());
-                            }
-                        }
-                    }
-                    ctx.redraws.write(RequestRedraw);
+                    use_cases::select_owned_tmux(
+                        session_uid,
+                        &ctx.agent_catalog,
+                        &ctx.runtime_index,
+                        &mut ctx.app_session,
+                        &mut ctx.terminal_manager,
+                        &mut ctx.focus_state,
+                        &mut ctx.input_capture,
+                        &mut ctx.view_state,
+                        &mut ctx.visibility_state,
+                        &ctx.runtime_spawner,
+                        &ctx.owned_tmux_sessions,
+                        &mut ctx.active_terminal_content,
+                        &mut ctx.redraws,
+                    );
                 }
                 OwnedTmuxCommand::ClearSelection => {
-                    ctx.owned_tmux_inspect.clear();
+                    ctx.active_terminal_content.clear();
                     ctx.redraws.write(RequestRedraw);
                 }
                 OwnedTmuxCommand::KillSelected => {
-                    let Some(session_uid) = ctx.owned_tmux_inspect.selected_session_uid.clone()
-                    else {
-                        continue;
-                    };
-                    match ctx.runtime_spawner.kill_owned_tmux_session(&session_uid) {
-                        Ok(()) => {
-                            ctx.owned_tmux_inspect.clear();
-                            ctx.redraws.write(RequestRedraw);
-                        }
-                        Err(error) => {
-                            let session_still_exists = ctx
-                                .runtime_spawner
-                                .list_owned_tmux_sessions()
-                                .map(|sessions| {
-                                    sessions
-                                        .iter()
-                                        .any(|session| session.session_uid == session_uid)
-                                })
-                                .unwrap_or_else(|_| {
-                                    ctx.owned_tmux_sessions
-                                        .sessions
-                                        .iter()
-                                        .any(|session| session.session_uid == session_uid)
-                                });
-                            if !session_still_exists {
-                                ctx.owned_tmux_inspect.clear();
-                            } else {
-                                ctx.owned_tmux_inspect.last_error = Some(error.clone());
-                                append_debug_log(format!("kill owned tmux failed: {error}"));
-                            }
-                            ctx.redraws.write(RequestRedraw);
-                        }
+                    use_cases::kill_selected_owned_tmux(
+                        &ctx.runtime_spawner,
+                        &ctx.owned_tmux_sessions,
+                        &mut ctx.active_terminal_content,
+                        &mut ctx.redraws,
+                    );
+                    if let Some(error) = ctx.active_terminal_content.last_error() {
+                        append_debug_log(format!("kill owned tmux failed: {error}"));
                     }
                 }
             },

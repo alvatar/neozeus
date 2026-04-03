@@ -72,3 +72,13 @@ fn build_surface_preserves_underline_color_and_background() {
     );
     assert_eq!(surface.cell(1, 0).bg, egui::Color32::from_rgb(10, 20, 30));
 }
+
+#[test]
+fn surface_from_ansi_text_auto_size_preserves_multiline_rows() {
+    let surface = surface_from_ansi_text_auto_size("line one\nline two\n");
+
+    assert_eq!(surface.rows, 3);
+    assert_eq!(surface.cols, 8);
+    assert_eq!(surface.cell(0, 0).content.to_owned_string(), "l");
+    assert_eq!(surface.cell(5, 1).content.to_owned_string(), "t");
+}

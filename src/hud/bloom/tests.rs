@@ -283,7 +283,7 @@ fn sync_hud_widget_bloom_spawns_agent_list_source_sprites() {
     world.insert_resource(ComposerView::default());
     world.insert_resource(crate::agents::AgentStatusStore::default());
     world.insert_resource(crate::terminals::OwnedTmuxSessionStore::default());
-    world.insert_resource(crate::terminals::OwnedTmuxInspectState::default());
+    world.insert_resource(crate::terminals::ActiveTerminalContentState::default());
     world.run_system_once(sync_hud_view_models).unwrap();
     insert_test_hud_state(&mut world, hud_state);
     world.insert_resource(HudBloomSettings::default());
@@ -419,7 +419,7 @@ fn sync_hud_widget_bloom_hides_sources_and_composite_while_modal_is_visible() {
     world.insert_resource(ComposerView::default());
     world.insert_resource(crate::agents::AgentStatusStore::default());
     world.insert_resource(crate::terminals::OwnedTmuxSessionStore::default());
-    world.insert_resource(crate::terminals::OwnedTmuxInspectState::default());
+    world.insert_resource(crate::terminals::ActiveTerminalContentState::default());
     world.run_system_once(sync_hud_view_models).unwrap();
     insert_test_hud_state(&mut world, hud_state);
     world.insert_resource(HudBloomSettings::default());
@@ -478,7 +478,7 @@ fn sync_hud_widget_bloom_only_uses_active_agent_source() {
     world.insert_resource(ComposerView::default());
     world.insert_resource(crate::agents::AgentStatusStore::default());
     world.insert_resource(crate::terminals::OwnedTmuxSessionStore::default());
-    world.insert_resource(crate::terminals::OwnedTmuxInspectState::default());
+    world.insert_resource(crate::terminals::ActiveTerminalContentState::default());
     world.run_system_once(sync_hud_view_models).unwrap();
     insert_test_hud_state(&mut world, hud_state);
     world.insert_resource(HudBloomSettings::default());

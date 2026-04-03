@@ -1,3 +1,4 @@
+mod active_content;
 mod ansi_surface;
 mod backend;
 mod box_drawing;
@@ -19,7 +20,8 @@ mod runtime;
 mod session_persistence;
 mod types;
 
-pub(crate) use ansi_surface::surface_from_ansi_text;
+pub(crate) use active_content::{sync_active_terminal_content, ActiveTerminalContentState};
+pub(crate) use ansi_surface::surface_from_ansi_text_auto_size;
 pub(crate) use bridge::TerminalBridge;
 pub(crate) use daemon::{
     resolve_daemon_socket_path, run_daemon_server, DaemonSessionInfo, OwnedTmuxSessionInfo,
@@ -33,9 +35,7 @@ pub(crate) use notes::{
     resolve_terminal_notes_path, save_terminal_notes_if_dirty, task_entry_from_text,
     TerminalNotesState,
 };
-pub(crate) use owned_tmux_state::{
-    sync_owned_tmux_inspect, sync_owned_tmux_sessions, OwnedTmuxInspectState, OwnedTmuxSessionStore,
-};
+pub(crate) use owned_tmux_state::{sync_owned_tmux_sessions, OwnedTmuxSessionStore};
 pub(crate) use presentation::{
     sync_active_terminal_dimensions, sync_terminal_hud_surface, sync_terminal_panel_frames,
     sync_terminal_presentations, sync_terminal_projection_entities, terminal_texture_screen_size,

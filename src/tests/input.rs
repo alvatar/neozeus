@@ -2125,11 +2125,10 @@ fn hud_navigation_selects_owned_tmux_child_row() {
                 focused: false,
                 kind: crate::hud::AgentListRowKind::OwnedTmux {
                     session_uid: "tmux-1".into(),
-                    owner_agent_id: Some(crate::agents::AgentId(1)),
+                    owner: crate::hud::OwnedTmuxOwnerBinding::Bound(crate::agents::AgentId(1)),
                     tmux_name: "neozeus-tmux-1".into(),
                     cwd: "/tmp/work".into(),
                     attached: false,
-                    orphan: false,
                 },
             },
             crate::hud::AgentListRowView {
@@ -2147,7 +2146,7 @@ fn hud_navigation_selects_owned_tmux_child_row() {
             },
         ],
     });
-    world.insert_resource(crate::terminals::OwnedTmuxInspectState::default());
+    world.insert_resource(crate::terminals::ActiveTerminalContentState::default());
     world.insert_resource(ButtonInput::<KeyCode>::default());
     init_hud_commands(&mut world);
     world.init_resource::<Messages<KeyboardInput>>();
@@ -2205,8 +2204,8 @@ fn ctrl_k_kills_selected_owned_tmux_session_before_active_agent() {
         .resource_mut::<ButtonInput<KeyCode>>()
         .press(KeyCode::ControlLeft);
     world
-        .resource_mut::<crate::terminals::OwnedTmuxInspectState>()
-        .select("tmux-session-1".into());
+        .resource_mut::<crate::terminals::ActiveTerminalContentState>()
+        .select_owned_tmux("tmux-session-1".into(), None);
     init_hud_commands(&mut world);
     world
         .resource_mut::<Messages<KeyboardInput>>()

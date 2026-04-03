@@ -108,6 +108,21 @@ pub(crate) fn surface_from_ansi_text(text: &str, cols: usize, rows: usize) -> Te
     build_surface(&terminal)
 }
 
+/// Builds a NeoZeus terminal surface from ANSI text after inferring a minimal grid size.
+pub(crate) fn surface_from_ansi_text_auto_size(text: &str) -> TerminalSurface {
+    let normalized = text.replace("\r\n", "\n").replace('\r', "\n");
+    let lines = normalized.split('\n').collect::<Vec<_>>();
+    let rows = lines.len().max(1);
+    let cols = lines
+        .iter()
+        .map(|line| line.chars().count())
+        .max()
+        .unwrap_or(1)
+        .max(1);
+    let parser_text = normalized.replace('\n', "\r\n");
+    surface_from_ansi_text(&parser_text, cols, rows)
+}
+
 /// Maps Alacritty cursor-shape variants onto NeoZeus's smaller cursor-shape enum.
 ///
 /// Hidden and hollow-block cursors are both represented as block cursors here; visibility is carried

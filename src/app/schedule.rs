@@ -161,7 +161,7 @@ pub(crate) fn configure_app_schedule(app: &mut App) {
         Update,
         (
             crate::terminals::sync_owned_tmux_sessions,
-            crate::terminals::sync_owned_tmux_inspect,
+            crate::terminals::sync_active_terminal_content,
             sync_hud_view_models,
         )
             .chain()

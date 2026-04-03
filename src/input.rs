@@ -14,9 +14,9 @@ use crate::{
     },
     hud::{HudInputCaptureState, HudLayoutState},
     terminals::{
-        terminal_texture_screen_size, OwnedTmuxInspectState, TerminalCommand, TerminalDisplayMode,
-        TerminalFocusState, TerminalManager, TerminalPanel, TerminalPointerState,
-        TerminalPresentation, TerminalPresentationStore, TerminalViewState,
+        terminal_texture_screen_size, ActiveTerminalContentState, TerminalCommand,
+        TerminalDisplayMode, TerminalFocusState, TerminalManager, TerminalPanel,
+        TerminalPointerState, TerminalPresentation, TerminalPresentationStore, TerminalViewState,
     },
 };
 use bevy::{
@@ -141,15 +141,15 @@ pub(crate) fn handle_global_terminal_spawn_shortcut(
 /// Applies the global lifecycle shortcuts that are allowed outside modal text entry.
 ///
 /// The system is intentionally small and imperative: if a modal has keyboard capture, do nothing;
-/// otherwise scan the frame's key presses for `F10` to exit or `Ctrl+k` to kill the active terminal.
-/// Exit short-circuits the loop because the rest of the frame does not matter once shutdown is
-/// requested.
+/// otherwise scan the frame's key presses for `F10` to exit or `Ctrl+k` to kill the selected tmux
+/// child when one is active, falling back to the active agent terminal otherwise. Exit short-circuits
+/// the loop because the rest of the frame does not matter once shutdown is requested.
 pub(crate) fn handle_terminal_lifecycle_shortcuts(
     mut messages: MessageReader<KeyboardInput>,
     keys: Res<ButtonInput<KeyCode>>,
     app_session: Res<AppSessionState>,
     input_capture: Res<HudInputCaptureState>,
-    owned_tmux_inspect: Res<OwnedTmuxInspectState>,
+    active_terminal_content: Res<ActiveTerminalContentState>,
     mut app_commands: MessageWriter<AppCommand>,
     mut app_exits: MessageWriter<AppExit>,
 ) {
@@ -164,7 +164,10 @@ pub(crate) fn handle_terminal_lifecycle_shortcuts(
             break;
         }
         if should_kill_active_terminal(event, &keys) {
-            if owned_tmux_inspect.selected_session_uid.is_some() {
+            if active_terminal_content
+                .selected_owned_tmux_session_uid()
+                .is_some()
+            {
                 app_commands.write(AppCommand::OwnedTmux(OwnedTmuxCommand::KillSelected));
             } else {
                 app_commands.write(AppCommand::Agent(AppAgentCommand::KillActive));
