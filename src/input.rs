@@ -13,6 +13,10 @@ use crate::{
         CreateAgentDialogTarget, MessageDialogFocus, RenameAgentDialogTarget, TaskDialogFocus,
     },
     hud::{HudInputCaptureState, HudLayoutState},
+    text_selection::{
+        extract_terminal_selection_text, PrimarySelectionOwnerState, TerminalSelectionPoint,
+        TerminalTextSelectionState,
+    },
     terminals::{
         terminal_texture_screen_size, ActiveTerminalContentState, TerminalCommand,
         TerminalDisplayMode, TerminalFocusState, TerminalManager, TerminalPanel,
@@ -30,7 +34,7 @@ use bevy::{
     window::{PrimaryWindow, RequestRedraw},
 };
 use bevy_egui::EguiClipboard;
-use std::process::Command;
+use std::{io::Write, process::{Command, Stdio}};
 
 /// Reads the three modifier families that matter to NeoZeus shortcut handling.
 ///
@@ -182,16 +186,21 @@ pub(crate) fn handle_terminal_lifecycle_shortcuts(
 /// Terminal presentations are stored around the scene center, while the cursor arrives in window
 /// coordinates with an upper-left origin. The function converts the panel's centered presentation
 /// rectangle into the same window coordinate system and then performs a simple bounds check.
-fn terminal_panel_contains_cursor(
-    window: &Window,
-    presentation: &TerminalPresentation,
-    cursor: Vec2,
-) -> bool {
+fn terminal_panel_screen_rect(window: &Window, presentation: &TerminalPresentation) -> (Vec2, Vec2) {
     let min = Vec2::new(
         window.width() * 0.5 + presentation.current_position.x - presentation.current_size.x * 0.5,
         window.height() * 0.5 - presentation.current_position.y - presentation.current_size.y * 0.5,
     );
     let max = min + presentation.current_size;
+    (min, max)
+}
+
+fn terminal_panel_contains_cursor(
+    window: &Window,
+    presentation: &TerminalPresentation,
+    cursor: Vec2,
+) -> bool {
+    let (min, max) = terminal_panel_screen_rect(window, presentation);
     cursor.x >= min.x && cursor.x <= max.x && cursor.y >= min.y && cursor.y <= max.y
 }
 
@@ -211,6 +220,39 @@ fn topmost_terminal_panel_at_cursor(
         .filter(|(_, presentation, _)| terminal_panel_contains_cursor(window, presentation, cursor))
         .max_by(|(_, left, _), (_, right, _)| left.current_z.total_cmp(&right.current_z))
         .map(|(panel, _, _)| *panel)
+}
+
+fn selection_surface_for_terminal<'a>(
+    terminal_manager: &'a TerminalManager,
+    active_terminal_content: &'a ActiveTerminalContentState,
+    terminal_id: crate::terminals::TerminalId,
+) -> Option<&'a crate::terminals::TerminalSurface> {
+    active_terminal_content
+        .owned_tmux_surface_for(terminal_id)
+        .or_else(|| {
+            terminal_manager
+                .get(terminal_id)
+                .and_then(|terminal| terminal.snapshot.surface.as_ref())
+        })
+}
+
+fn terminal_selection_point_from_cursor(
+    window: &Window,
+    presentation: &TerminalPresentation,
+    surface: &crate::terminals::TerminalSurface,
+    cursor: Vec2,
+) -> TerminalSelectionPoint {
+    let (min, max) = terminal_panel_screen_rect(window, presentation);
+    let clamped_x = cursor.x.clamp(min.x, max.x.max(min.x + 1.0) - 1.0);
+    let clamped_y = cursor.y.clamp(min.y, max.y.max(min.y + 1.0) - 1.0);
+    let local_x = (clamped_x - min.x).max(0.0);
+    let local_y = (clamped_y - min.y).max(0.0);
+    let cell_w = (presentation.current_size.x / surface.cols.max(1) as f32).max(1.0);
+    let cell_h = (presentation.current_size.y / surface.rows.max(1) as f32).max(1.0);
+    TerminalSelectionPoint {
+        col: ((local_x / cell_w).floor() as usize).min(surface.cols.saturating_sub(1)),
+        row: ((local_y / cell_h).floor() as usize).min(surface.rows.saturating_sub(1)),
+    }
 }
 
 /// Turns a left-click on a visible terminal panel into focus + isolate intents.
@@ -435,6 +477,91 @@ fn read_linux_primary_selection_text() -> Option<String> {
     )
 }
 
+#[cfg(target_os = "linux")]
+fn write_linux_primary_selection_text_with(
+    session_type: Option<&str>,
+    wayland_display: Option<&str>,
+    display: Option<&str>,
+    text: &str,
+    mut run_command: impl FnMut(&str, &[&str], &str) -> bool,
+) -> bool {
+    let prefer_wayland = wayland_display.is_some()
+        || session_type.is_some_and(|value| value.eq_ignore_ascii_case("wayland"));
+    let prefer_x11 =
+        display.is_some() || session_type.is_some_and(|value| value.eq_ignore_ascii_case("x11"));
+    let mut candidates = Vec::new();
+    if prefer_wayland {
+        candidates.push(("wl-copy", ["--primary", "--type", "text/plain"].as_slice()));
+    }
+    if prefer_x11 {
+        candidates.push(("xclip", ["-selection", "primary", "-in"].as_slice()));
+        candidates.push(("xsel", ["--primary", "--input"].as_slice()));
+    }
+    if !prefer_wayland && !prefer_x11 {
+        candidates.push(("wl-copy", ["--primary", "--type", "text/plain"].as_slice()));
+        candidates.push(("xclip", ["-selection", "primary", "-in"].as_slice()));
+        candidates.push(("xsel", ["--primary", "--input"].as_slice()));
+    }
+
+    candidates
+        .into_iter()
+        .any(|(program, args)| run_command(program, args, text))
+}
+
+#[cfg(target_os = "linux")]
+fn stop_primary_selection_owner(owner: &mut PrimarySelectionOwnerState) {
+    if let Some(mut child) = owner.child.take() {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn write_linux_primary_selection_text(
+    owner: &mut PrimarySelectionOwnerState,
+    text: &str,
+) -> bool {
+    let success = write_linux_primary_selection_text_with(
+        std::env::var("XDG_SESSION_TYPE").ok().as_deref(),
+        std::env::var_os("WAYLAND_DISPLAY")
+            .as_deref()
+            .and_then(|value| value.to_str()),
+        std::env::var_os("DISPLAY")
+            .as_deref()
+            .and_then(|value| value.to_str()),
+        text,
+        |program, args, text| {
+            stop_primary_selection_owner(owner);
+            let Ok(mut child) = Command::new(program)
+                .args(args)
+                .stdin(Stdio::piped())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+            else {
+                return false;
+            };
+            let Some(mut stdin) = child.stdin.take() else {
+                let _ = child.kill();
+                let _ = child.wait();
+                return false;
+            };
+            if stdin.write_all(text.as_bytes()).is_err() {
+                let _ = child.kill();
+                let _ = child.wait();
+                return false;
+            }
+            drop(stdin);
+            owner.child = Some(child);
+            true
+        },
+    );
+    if !success {
+        stop_primary_selection_owner(owner);
+    }
+    success
+}
+
 fn middle_click_paste_text(clipboard: Option<&mut EguiClipboard>) -> Option<String> {
     #[cfg(target_os = "linux")]
     if let Some(text) = read_linux_primary_selection_text().filter(|text| !text.is_empty()) {
@@ -538,6 +665,127 @@ pub(crate) fn handle_middle_click_paste(
         &panels,
         &text,
     );
+}
+
+#[allow(
+    clippy::too_many_arguments,
+    reason = "terminal text selection needs cursor hit-testing, panel geometry, surface state, and redraws together"
+)]
+pub(crate) fn handle_terminal_text_selection(
+    mouse_buttons: Res<ButtonInput<MouseButton>>,
+    primary_window: Single<&Window, With<PrimaryWindow>>,
+    layout_state: Res<HudLayoutState>,
+    terminal_manager: Res<TerminalManager>,
+    active_terminal_content: Res<ActiveTerminalContentState>,
+    mut terminal_text_selection: ResMut<TerminalTextSelectionState>,
+    mut agent_list_text_selection: ResMut<crate::text_selection::AgentListTextSelectionState>,
+    mut redraws: MessageWriter<RequestRedraw>,
+    panels: Query<(&TerminalPanel, &TerminalPresentation, &Visibility)>,
+) {
+    if !primary_window.focused {
+        return;
+    }
+    let Some(cursor) = primary_window.cursor_position() else {
+        if mouse_buttons.just_released(MouseButton::Left) {
+            terminal_text_selection.clear_drag();
+        }
+        return;
+    };
+    if layout_state.topmost_enabled_at(cursor).is_some() {
+        if mouse_buttons.just_released(MouseButton::Left) {
+            terminal_text_selection.clear_drag();
+        }
+        return;
+    }
+
+    let panel_hit = panels
+        .iter()
+        .filter(|(_, _, visibility)| **visibility == Visibility::Visible)
+        .filter(|(_, presentation, _)| terminal_panel_contains_cursor(&primary_window, presentation, cursor))
+        .max_by(|(_, left, _), (_, right, _)| left.current_z.total_cmp(&right.current_z))
+        .map(|(panel, presentation, _)| (*panel, *presentation));
+
+    if mouse_buttons.just_pressed(MouseButton::Left) {
+        if let Some((panel, presentation)) = panel_hit.as_ref() {
+            if let Some(surface) =
+                selection_surface_for_terminal(&terminal_manager, &active_terminal_content, panel.id)
+            {
+                terminal_text_selection.clear_selection();
+                agent_list_text_selection.clear_selection();
+                terminal_text_selection.begin_drag(
+                    panel.id,
+                    terminal_selection_point_from_cursor(
+                        &primary_window,
+                        presentation,
+                        surface,
+                        cursor,
+                    ),
+                );
+                redraws.write(RequestRedraw);
+            }
+        }
+        return;
+    }
+
+    if let Some(drag) = terminal_text_selection.drag {
+        if mouse_buttons.pressed(MouseButton::Left) {
+            if let Some((panel, presentation)) = panel_hit.as_ref() {
+                if panel.id == drag.terminal_id {
+                    if let Some(surface) = selection_surface_for_terminal(
+                        &terminal_manager,
+                        &active_terminal_content,
+                        panel.id,
+                    ) {
+                        let focus = terminal_selection_point_from_cursor(
+                            &primary_window,
+                            presentation,
+                            surface,
+                            cursor,
+                        );
+                        if let Some(text) =
+                            extract_terminal_selection_text(surface, drag.anchor, focus)
+                        {
+                            terminal_text_selection
+                                .set_selection(panel.id, drag.anchor, focus, text);
+                            redraws.write(RequestRedraw);
+                        }
+                        return;
+                    }
+                }
+            }
+        }
+        if mouse_buttons.just_released(MouseButton::Left) {
+            terminal_text_selection.clear_drag();
+        }
+    }
+}
+
+pub(crate) fn sync_primary_selection_from_ui_text_selection(
+    terminal_text_selection: Res<TerminalTextSelectionState>,
+    agent_list_text_selection: Res<crate::text_selection::AgentListTextSelectionState>,
+    mut owner: ResMut<PrimarySelectionOwnerState>,
+) {
+    if !terminal_text_selection.is_changed() && !agent_list_text_selection.is_changed() {
+        return;
+    }
+
+    let selection_text = terminal_text_selection
+        .selection()
+        .map(|selection| selection.text.as_str())
+        .or_else(|| {
+            agent_list_text_selection
+                .selection()
+                .map(|selection| selection.text.as_str())
+        });
+
+    #[cfg(target_os = "linux")]
+    {
+        if let Some(text) = selection_text.filter(|text| !text.is_empty()) {
+            let _ = write_linux_primary_selection_text(&mut owner, text);
+        } else {
+            stop_primary_selection_owner(&mut owner);
+        }
+    }
 }
 
 #[allow(
@@ -1143,7 +1391,7 @@ pub(crate) fn ctrl_sequence(key_code: KeyCode) -> Option<&'static str> {
 #[cfg(test)]
 mod tests {
     #[cfg(target_os = "linux")]
-    use super::read_linux_primary_selection_text_with;
+    use super::{read_linux_primary_selection_text_with, write_linux_primary_selection_text_with};
 
     #[cfg(target_os = "linux")]
     #[test]
@@ -1192,5 +1440,30 @@ mod tests {
         assert_eq!(calls.len(), 2);
         assert_eq!(calls[0].0, "wl-paste");
         assert_eq!(calls[1].0, "xclip");
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_primary_selection_write_prefers_wayland_before_x11_tools() {
+        let mut calls = Vec::new();
+        let success = write_linux_primary_selection_text_with(
+            Some("wayland"),
+            Some("wayland-1"),
+            Some(":0"),
+            "copied text",
+            |program, args, text| {
+                calls.push((
+                    program.to_owned(),
+                    args.iter().map(|arg| (*arg).to_owned()).collect::<Vec<_>>(),
+                    text.to_owned(),
+                ));
+                program == "wl-copy"
+            },
+        );
+
+        assert!(success);
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].0, "wl-copy");
+        assert_eq!(calls[0].2, "copied text");
     }
 }

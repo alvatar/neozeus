@@ -80,6 +80,25 @@ fn agent_row_rect_splits_main_and_marker_geometry() {
 }
 
 #[test]
+fn selected_text_for_rows_prefixes_tmux_children() {
+    let view = AgentListView {
+        rows: vec![
+            agent_row_view(AgentId(1), None, "ALPHA"),
+            tmux_row_view(OwnedTmuxOwnerBinding::Bound(AgentId(1)), "tmux-1", "BUILD", "neozeus-tmux-1"),
+        ],
+    };
+
+    let text = selected_text_for_rows(
+        &view,
+        &AgentListRowKey::Agent(AgentId(1)),
+        &AgentListRowKey::OwnedTmux("tmux-1".into()),
+    )
+    .expect("selected text should exist");
+
+    assert_eq!(text, "ALPHA\n↳ BUILD");
+}
+
+#[test]
 fn reorder_target_index_tracks_row_midpoints() {
     let state = AgentListUiState::default();
     let shell = HudRect {

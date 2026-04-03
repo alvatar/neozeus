@@ -14,7 +14,8 @@ use crate::{
         drag_terminal_view, focus_terminal_on_panel_click, handle_global_terminal_spawn_shortcut,
         handle_middle_click_paste, handle_terminal_direct_input_keyboard,
         handle_terminal_lifecycle_shortcuts, handle_terminal_message_box_keyboard,
-        hide_terminal_on_background_click, zoom_terminal_view,
+        handle_terminal_text_selection, hide_terminal_on_background_click,
+        sync_primary_selection_from_ui_text_selection, zoom_terminal_view,
     },
     startup::{advance_startup_connecting, request_redraw_while_visuals_active, setup_scene},
     terminals::{
@@ -146,6 +147,7 @@ pub(crate) fn configure_app_schedule(app: &mut App) {
             handle_terminal_direct_input_keyboard,
             handle_terminal_message_box_keyboard,
             handle_middle_click_paste,
+            handle_terminal_text_selection,
             focus_terminal_on_panel_click,
             hide_terminal_on_background_click,
             drag_terminal_view,
@@ -156,6 +158,10 @@ pub(crate) fn configure_app_schedule(app: &mut App) {
     .add_systems(
         Update,
         (handle_hud_pointer_input, handle_hud_module_shortcuts).in_set(NeoZeusSet::HudInput),
+    )
+    .add_systems(
+        Update,
+        sync_primary_selection_from_ui_text_selection.after(NeoZeusSet::HudInput),
     )
     .add_systems(
         Update,

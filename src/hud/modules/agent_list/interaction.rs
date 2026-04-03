@@ -2,11 +2,14 @@ use crate::app::{AgentCommand, AppCommand, OwnedTmuxCommand};
 
 use super::super::super::{
     state::{AgentListUiState, HudRect},
-    view_models::{AgentListRowKey, AgentListView},
+    view_models::{AgentListRowKey, AgentListRowKind, AgentListView},
 };
 use bevy::prelude::Vec2;
 
-use super::{agent_list_content_height, agent_rows};
+use super::{
+    agent_list_content_height, agent_row_rect, agent_row_text_hit_rect, agent_rows,
+    AgentListRowSection,
+};
 
 /// Returns the agent-list row currently under the pointer, if any.
 pub(crate) fn row_at_point(
@@ -24,6 +27,45 @@ pub(crate) fn row_at_point(
     .into_iter()
     .find(|row| row.rect.contains(point))
     .map(|row| row.key)
+}
+
+pub(crate) fn text_row_at_point(
+    state: &AgentListUiState,
+    shell_rect: HudRect,
+    point: Vec2,
+    agent_list_view: &AgentListView,
+) -> Option<AgentListRowKey> {
+    agent_rows(
+        shell_rect,
+        state.scroll_offset,
+        state.hovered_row.as_ref(),
+        agent_list_view,
+    )
+    .into_iter()
+    .find(|row| {
+        let main_rect = agent_row_rect(row.rect, AgentListRowSection::Main);
+        agent_row_text_hit_rect(main_rect).contains(point)
+    })
+    .map(|row| row.key)
+}
+
+pub(crate) fn selected_text_for_rows(
+    agent_list_view: &AgentListView,
+    anchor: &AgentListRowKey,
+    focus: &AgentListRowKey,
+) -> Option<String> {
+    let start = agent_list_view.rows.iter().position(|row| &row.key == anchor)?;
+    let end = agent_list_view.rows.iter().position(|row| &row.key == focus)?;
+    let (start, end) = if start <= end { (start, end) } else { (end, start) };
+    let text = agent_list_view.rows[start..=end]
+        .iter()
+        .map(|row| match row.kind {
+            AgentListRowKind::OwnedTmux { .. } => format!("↳ {}", row.label),
+            AgentListRowKind::Agent { .. } => row.label.clone(),
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    (!text.is_empty()).then_some(text)
 }
 
 /// Computes the display-order slot the cursor currently points at during a drag reorder.

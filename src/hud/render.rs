@@ -286,6 +286,7 @@ pub(crate) struct HudRenderInputs<'a> {
     pub(crate) conversation_list_view: &'a ConversationListView,
     pub(crate) thread_view: &'a ThreadView,
     pub(crate) info_bar_view: &'a InfoBarView,
+    pub(crate) agent_list_text_selection: &'a crate::text_selection::AgentListTextSelectionState,
 }
 
 /// Logs a low-level color-presence diagnostic for HUD draw data when explicitly requested.
@@ -1038,6 +1039,7 @@ pub(crate) fn render_hud_scene(
     conversation_list_view: Res<ConversationListView>,
     thread_view: Res<ThreadView>,
     info_bar_view: Res<InfoBarView>,
+    agent_list_text_selection: Res<crate::text_selection::AgentListTextSelectionState>,
     fonts: Res<Assets<VelloFont>>,
     startup_connect: Option<Res<StartupConnectState>>,
     mut scene: Single<&mut VelloScene2d, With<HudVectorSceneMarker>>,
@@ -1053,6 +1055,7 @@ pub(crate) fn render_hud_scene(
         conversation_list_view: &conversation_list_view,
         thread_view: &thread_view,
         info_bar_view: &info_bar_view,
+        agent_list_text_selection: &agent_list_text_selection,
     };
 
     for module_id in layout_state.iter_z_order() {

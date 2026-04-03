@@ -68,6 +68,7 @@ impl HudModuleShell {
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub(crate) struct AgentListDragState {
+    pub(crate) pressed_row: Option<AgentListRowKey>,
     pub(crate) pressed_agent: Option<AgentId>,
     pub(crate) press_origin: Option<Vec2>,
     pub(crate) dragging_agent: Option<AgentId>,
@@ -79,6 +80,7 @@ pub(crate) struct AgentListDragState {
 impl AgentListDragState {
     /// Clears the transient press/drag preview state for the agent list.
     pub(crate) fn clear(&mut self) {
+        self.pressed_row = None;
         self.pressed_agent = None;
         self.press_origin = None;
         self.dragging_agent = None;

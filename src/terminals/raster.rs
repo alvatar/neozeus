@@ -1,6 +1,7 @@
 use crate::{
     app_config::{DEBUG_TEXTURE_DUMP_PATH, DEFAULT_BG},
     hud::HudLayoutState,
+    text_selection::TerminalTextSelectionState,
 };
 
 use super::{
@@ -163,6 +164,7 @@ pub(crate) fn sync_terminal_texture(
     view_state: Res<TerminalViewState>,
     layout_state: Res<HudLayoutState>,
     active_terminal_content: Res<ActiveTerminalContentState>,
+    terminal_text_selection: Res<TerminalTextSelectionState>,
     primary_window: Single<&Window, With<PrimaryWindow>>,
     mut glyph_cache: ResMut<TerminalGlyphCache>,
     mut images: ResMut<Assets<Image>>,
@@ -237,8 +239,10 @@ pub(crate) fn sync_terminal_texture(
 
         let active_override_revision = active_terminal_content
             .presentation_override_revision_for(terminal_id);
+        let terminal_selection_revision = terminal_text_selection.presentation_revision_for(terminal_id);
         let has_pending_surface = terminal.surface_revision != presented_terminal.uploaded_revision
-            || presented_terminal.uploaded_active_override_revision != active_override_revision;
+            || presented_terminal.uploaded_active_override_revision != active_override_revision
+            || presented_terminal.uploaded_text_selection_revision != terminal_selection_revision;
         let mut full_redraw =
             font_state.is_changed() || presented_terminal.texture_state != upload_state;
         let mut dirty_rows = if full_redraw {
@@ -311,6 +315,7 @@ pub(crate) fn sync_terminal_texture(
                 pixels,
                 upload_state.texture_size.x,
                 surface,
+                terminal_text_selection.selection_for(terminal_id),
                 &dirty_rows,
                 upload_state.cell_size,
                 &mut text_renderer,
@@ -332,6 +337,7 @@ pub(crate) fn sync_terminal_texture(
             presented_terminal.texture_state = upload_state;
             presented_terminal.uploaded_revision = terminal.surface_revision;
             presented_terminal.uploaded_active_override_revision = active_override_revision;
+            presented_terminal.uploaded_text_selection_revision = terminal_selection_revision;
             terminal.pending_damage = None;
         } else {
             append_debug_log("texture sync: target image missing in assets");
@@ -363,6 +369,7 @@ fn repaint_terminal_pixels(
     buffer: &mut [u8],
     texture_width: u32,
     surface: &TerminalSurface,
+    selection: Option<&crate::text_selection::TerminalTextSelection>,
     rows: &[usize],
     cell_size: UVec2,
     text_renderer: &mut TerminalTextRenderer,
@@ -381,7 +388,8 @@ fn repaint_terminal_pixels(
             let cell = surface.cell(x, y);
             let origin_x = x as u32 * cell_size.x;
             let origin_y = y as u32 * cell_size.y;
-            let effective_fg = effective_foreground_color(cell);
+            let selected = selection.is_some_and(|selection| terminal_cell_selected(selection, x, y));
+            let effective_fg = selected_foreground_color(cell, selected);
             fill_rect_in_buffer(
                 buffer,
                 stride,
@@ -389,7 +397,7 @@ fn repaint_terminal_pixels(
                 origin_y,
                 cell_size.x,
                 cell_size.y,
-                effective_background_color(cell),
+                selected_background_color(cell, selected),
             );
 
             if cell.width != 0 && !cell.content.is_empty() {
@@ -450,6 +458,49 @@ fn repaint_terminal_pixels(
         if cursor.visible && rows.binary_search(&cursor.y).is_ok() {
             draw_cursor_in_buffer(buffer, stride, cursor, cell_size);
         }
+    }
+}
+
+fn terminal_cell_selected(
+    selection: &crate::text_selection::TerminalTextSelection,
+    x: usize,
+    y: usize,
+) -> bool {
+    let start = (selection.anchor.row, selection.anchor.col);
+    let end = (selection.focus.row, selection.focus.col);
+    let ((start_row, start_col), (end_row, end_col)) = if start <= end {
+        (start, end)
+    } else {
+        (end, start)
+    };
+    (y, x) >= (start_row, start_col) && (y, x) <= (end_row, end_col)
+}
+
+fn selected_background_color(cell: &TerminalCell, selected: bool) -> egui::Color32 {
+    if !selected {
+        return effective_background_color(cell);
+    }
+    let bg = effective_background_color(cell);
+    let fg = effective_foreground_color(cell);
+    egui::Color32::from_rgba_unmultiplied(
+        ((u16::from(bg.r()) + u16::from(fg.r()) + 255) / 3) as u8,
+        ((u16::from(bg.g()) + u16::from(fg.g()) + 255) / 3) as u8,
+        ((u16::from(bg.b()) + u16::from(fg.b()) + 255) / 3) as u8,
+        255,
+    )
+}
+
+fn selected_foreground_color(cell: &TerminalCell, selected: bool) -> egui::Color32 {
+    if !selected {
+        return effective_foreground_color(cell);
+    }
+    let bg = selected_background_color(cell, true);
+    let luminance = (u16::from(bg.r()) * 212 + u16::from(bg.g()) * 715 + u16::from(bg.b()) * 72)
+        / 1000;
+    if luminance > 140 {
+        egui::Color32::BLACK
+    } else {
+        egui::Color32::WHITE
     }
 }
 
