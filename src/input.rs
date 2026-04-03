@@ -30,6 +30,7 @@ use bevy::{
     window::{PrimaryWindow, RequestRedraw},
 };
 use bevy_egui::EguiClipboard;
+use std::process::Command;
 
 /// Reads the three modifier families that matter to NeoZeus shortcut handling.
 ///
@@ -377,6 +378,69 @@ pub(crate) fn paste_into_task_dialog(
     app_session.composer.task_editor.insert_text(text)
 }
 
+#[cfg(target_os = "linux")]
+fn read_linux_primary_selection_text_with(
+    session_type: Option<&str>,
+    wayland_display: Option<&str>,
+    display: Option<&str>,
+    mut run_command: impl FnMut(&str, &[&str]) -> Option<Vec<u8>>,
+) -> Option<String> {
+    let prefer_wayland = wayland_display.is_some()
+        || session_type.is_some_and(|value| value.eq_ignore_ascii_case("wayland"));
+    let prefer_x11 =
+        display.is_some() || session_type.is_some_and(|value| value.eq_ignore_ascii_case("x11"));
+    let mut candidates = Vec::new();
+    if prefer_wayland {
+        candidates.push(("wl-paste", ["--primary", "--no-newline"].as_slice()));
+    }
+    if prefer_x11 {
+        candidates.push(("xclip", ["-selection", "primary", "-o"].as_slice()));
+        candidates.push(("xsel", ["--primary", "--output"].as_slice()));
+    }
+    if !prefer_wayland && !prefer_x11 {
+        candidates.push(("wl-paste", ["--primary", "--no-newline"].as_slice()));
+        candidates.push(("xclip", ["-selection", "primary", "-o"].as_slice()));
+        candidates.push(("xsel", ["--primary", "--output"].as_slice()));
+    }
+
+    candidates.into_iter().find_map(|(program, args)| {
+        let output = run_command(program, args)?;
+        if output.is_empty() {
+            return None;
+        }
+        Some(String::from_utf8_lossy(&output).into_owned())
+    })
+}
+
+#[cfg(target_os = "linux")]
+fn read_linux_primary_selection_text() -> Option<String> {
+    read_linux_primary_selection_text_with(
+        std::env::var("XDG_SESSION_TYPE").ok().as_deref(),
+        std::env::var_os("WAYLAND_DISPLAY")
+            .as_deref()
+            .and_then(|value| value.to_str()),
+        std::env::var_os("DISPLAY")
+            .as_deref()
+            .and_then(|value| value.to_str()),
+        |program, args| {
+            let output = Command::new(program).args(args).output().ok()?;
+            if !output.status.success() {
+                return None;
+            }
+            Some(output.stdout)
+        },
+    )
+}
+
+fn middle_click_paste_text(clipboard: Option<&mut EguiClipboard>) -> Option<String> {
+    #[cfg(target_os = "linux")]
+    if let Some(text) = read_linux_primary_selection_text().filter(|text| !text.is_empty()) {
+        return Some(text);
+    }
+
+    clipboard.and_then(|clipboard| clipboard.get_text().filter(|text| !text.is_empty()))
+}
+
 #[allow(
     clippy::too_many_arguments,
     reason = "terminal middle-click paste needs layout, focus, hit-testing, runtime, and text together"
@@ -441,11 +505,7 @@ pub(crate) fn handle_middle_click_paste(
     let Some(cursor) = primary_window.cursor_position() else {
         return;
     };
-    let Some(text) = clipboard
-        .as_deref_mut()
-        .and_then(EguiClipboard::get_text)
-        .filter(|text| !text.is_empty())
-    else {
+    let Some(text) = middle_click_paste_text(clipboard.as_deref_mut()) else {
         return;
     };
 
@@ -1074,5 +1134,60 @@ pub(crate) fn ctrl_sequence(key_code: KeyCode) -> Option<&'static str> {
         KeyCode::KeyY => Some("\u{19}"),
         KeyCode::KeyZ => Some("\u{1a}"),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[cfg(target_os = "linux")]
+    use super::read_linux_primary_selection_text_with;
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_primary_selection_prefers_wayland_primary_over_clipboard_tools() {
+        let mut calls = Vec::new();
+        let text = read_linux_primary_selection_text_with(
+            Some("wayland"),
+            Some("wayland-1"),
+            Some(":0"),
+            |program, args| {
+                calls.push((
+                    program.to_owned(),
+                    args.iter().map(|arg| (*arg).to_owned()).collect::<Vec<_>>(),
+                ));
+                (program == "wl-paste").then(|| b"primary text".to_vec())
+            },
+        );
+
+        assert_eq!(text.as_deref(), Some("primary text"));
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].0, "wl-paste");
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_primary_selection_falls_back_to_xclip_when_wayland_primary_is_unavailable() {
+        let mut calls = Vec::new();
+        let text = read_linux_primary_selection_text_with(
+            Some("wayland"),
+            Some("wayland-1"),
+            Some(":0"),
+            |program, args| {
+                calls.push((
+                    program.to_owned(),
+                    args.iter().map(|arg| (*arg).to_owned()).collect::<Vec<_>>(),
+                ));
+                match program {
+                    "wl-paste" => None,
+                    "xclip" => Some(b"x11 primary".to_vec()),
+                    _ => None,
+                }
+            },
+        );
+
+        assert_eq!(text.as_deref(), Some("x11 primary"));
+        assert_eq!(calls.len(), 2);
+        assert_eq!(calls[0].0, "wl-paste");
+        assert_eq!(calls[1].0, "xclip");
     }
 }
