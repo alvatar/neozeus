@@ -213,6 +213,15 @@ impl TextFieldState {
         self.text.truncate(self.cursor);
         true
     }
+
+    /// Deletes the entire field contents and resets the cursor.
+    pub(crate) fn kill_all(&mut self) -> bool {
+        if self.text.is_empty() {
+            return false;
+        }
+        self.clear();
+        true
+    }
 }
 
 /// Active cwd-completion session state for the create-agent dialog.

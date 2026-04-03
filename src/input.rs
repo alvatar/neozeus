@@ -1028,6 +1028,7 @@ fn handle_text_editor_event(
             KeyCode::KeyJ => editor.newline_and_indent(),
             KeyCode::KeyK => editor.kill_to_end_of_line(),
             KeyCode::KeyN => editor.move_down(),
+            KeyCode::KeyU => editor.kill_all(),
             KeyCode::KeyO => editor.open_line(),
             KeyCode::KeyP => editor.move_up(),
             KeyCode::KeyW => editor.kill_region(),

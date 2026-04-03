@@ -300,6 +300,16 @@ impl TextEditorState {
         self.push_kill(killed)
     }
 
+    /// Deletes the entire editor contents and pushes them onto the kill ring.
+    pub(crate) fn kill_all(&mut self) -> bool {
+        let Some(killed) = self.delete_range_internal(0, self.text.len(), true) else {
+            return false;
+        };
+        self.mark = None;
+        self.preferred_column = None;
+        self.push_kill(killed)
+    }
+
     /// Inserts the most recent kill-ring entry at the cursor.
     pub(crate) fn yank(&mut self) -> bool {
         let Some(payload) = self.kill_ring.first().cloned() else {
