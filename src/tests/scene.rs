@@ -689,6 +689,131 @@ fn startup_restore_rebinds_owned_tmux_children_under_agent() {
 /// Verifies that startup reaps an unpersisted disconnected persistent session instead of importing
 /// it back as a dead agent, then falls back to spawning a fresh initial terminal.
 #[test]
+fn startup_restore_rebinds_multiple_owned_tmux_children_under_correct_agents_and_orphans() {
+    let client = Arc::new(crate::tests::FakeDaemonClient::default());
+    client.set_session_runtime(
+        "neozeus-session-a",
+        crate::terminals::TerminalRuntimeState::running("restored-a"),
+    );
+    client.set_session_runtime(
+        "neozeus-session-b",
+        crate::terminals::TerminalRuntimeState::running("restored-b"),
+    );
+    let dir = temp_dir("neozeus-startup-owned-tmux-multi-bind");
+    let app_state_path = dir.join("neozeus-state.v1");
+    std::fs::write(
+        &app_state_path,
+        "neozeus state version 1\n[agent]\nagent_uid=\"agent-uid-1\"\nsession_name=\"neozeus-session-a\"\nlabel=\"ALPHA\"\nkind=\"pi\"\norder_index=0\nfocused=1\n[/agent]\n[agent]\nagent_uid=\"agent-uid-2\"\nsession_name=\"neozeus-session-b\"\nlabel=\"BETA\"\nkind=\"terminal\"\norder_index=1\nfocused=0\n[/agent]\n",
+    )
+    .expect("app state should write");
+    client.owned_tmux_sessions.lock().unwrap().extend([
+        crate::terminals::OwnedTmuxSessionInfo {
+            session_uid: "tmux-session-2".into(),
+            owner_agent_uid: "agent-uid-1".into(),
+            tmux_name: "neozeus-tmux-2".into(),
+            display_name: "TEST".into(),
+            cwd: "/tmp/a-2".into(),
+            attached: false,
+            created_unix: 2,
+        },
+        crate::terminals::OwnedTmuxSessionInfo {
+            session_uid: "tmux-session-1".into(),
+            owner_agent_uid: "agent-uid-1".into(),
+            tmux_name: "neozeus-tmux-1".into(),
+            display_name: "BUILD".into(),
+            cwd: "/tmp/a-1".into(),
+            attached: false,
+            created_unix: 1,
+        },
+        crate::terminals::OwnedTmuxSessionInfo {
+            session_uid: "tmux-session-3".into(),
+            owner_agent_uid: "agent-uid-2".into(),
+            tmux_name: "neozeus-tmux-3".into(),
+            display_name: "BETA BUILD".into(),
+            cwd: "/tmp/b-1".into(),
+            attached: true,
+            created_unix: 3,
+        },
+        crate::terminals::OwnedTmuxSessionInfo {
+            session_uid: "tmux-session-4".into(),
+            owner_agent_uid: "missing-agent".into(),
+            tmux_name: "neozeus-tmux-4".into(),
+            display_name: "LOST".into(),
+            cwd: "/tmp/orphan".into(),
+            attached: false,
+            created_unix: 4,
+        },
+    ]);
+
+    let mut world = World::default();
+    world.insert_resource(Assets::<Image>::default());
+    world.insert_resource(crate::terminals::TerminalManager::default());
+    world.insert_resource(crate::terminals::TerminalFocusState::default());
+    world.insert_resource(crate::terminals::TerminalPresentationStore::default());
+    world.insert_resource(crate::agents::AgentCatalog::default());
+    world.insert_resource(crate::agents::AgentRuntimeIndex::default());
+    world.insert_resource(crate::app::AppSessionState::default());
+    world.insert_resource(crate::conversations::ConversationStore::default());
+    world.insert_resource(crate::conversations::ConversationPersistenceState::default());
+    world.insert_resource(crate::conversations::AgentTaskStore::default());
+    world.insert_resource(crate::hud::HudInputCaptureState::default());
+    world.insert_resource(crate::terminals::TerminalViewState::default());
+    world.insert_resource(crate::hud::AgentListView::default());
+    world.insert_resource(crate::hud::ConversationListView::default());
+    world.insert_resource(crate::hud::ThreadView::default());
+    world.insert_resource(crate::hud::ComposerView::default());
+    world.insert_resource(crate::agents::AgentStatusStore::default());
+    world.insert_resource(crate::terminals::OwnedTmuxSessionStore::default());
+    world.insert_resource(crate::terminals::OwnedTmuxInspectState::default());
+    world.init_resource::<Messages<RequestRedraw>>();
+    world.insert_resource(Time::<()>::default());
+    world.insert_resource(fake_runtime_spawner(client));
+    world.insert_resource(crate::app::AppStatePersistenceState {
+        path: Some(app_state_path),
+        dirty_since_secs: None,
+    });
+    world.insert_resource(crate::terminals::TerminalNotesState::default());
+    world.insert_resource(crate::hud::TerminalVisibilityState::default());
+    world.insert_resource(crate::startup::StartupConnectState::default());
+
+    world.run_system_once(crate::startup::setup_scene).unwrap();
+    world
+        .resource_mut::<Time<()>>()
+        .advance_by(std::time::Duration::from_secs(1));
+    world
+        .run_system_once(crate::terminals::sync_owned_tmux_sessions)
+        .unwrap();
+    world
+        .run_system_once(crate::hud::sync_hud_view_models)
+        .unwrap();
+
+    let rows = &world.resource::<crate::hud::AgentListView>().rows;
+    assert_eq!(rows.len(), 6);
+    assert_eq!(rows[0].label, "ALPHA");
+    assert_eq!(rows[1].label, "BUILD");
+    assert_eq!(rows[2].label, "TEST");
+    assert_eq!(rows[3].label, "BETA");
+    assert_eq!(rows[4].label, "BETA BUILD");
+    assert_eq!(rows[5].label, "ORPHAN LOST");
+    assert!(matches!(
+        rows[1].key,
+        crate::hud::AgentListRowKey::OwnedTmux(_)
+    ));
+    assert!(matches!(
+        rows[2].key,
+        crate::hud::AgentListRowKey::OwnedTmux(_)
+    ));
+    assert!(matches!(
+        rows[4].key,
+        crate::hud::AgentListRowKey::OwnedTmux(_)
+    ));
+    assert!(matches!(
+        rows[5].kind,
+        crate::hud::AgentListRowKind::OwnedTmux { orphan: true, .. }
+    ));
+}
+
+#[test]
 fn startup_reaps_unpersisted_disconnected_session_instead_of_restoring_it() {
     let client = Arc::new(crate::tests::FakeDaemonClient::default());
     client.set_session_runtime(
