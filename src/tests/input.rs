@@ -521,6 +521,36 @@ fn create_agent_dialog_enter_descends_into_selected_cwd_completion() {
     let _ = std::fs::remove_dir_all(root);
 }
 
+/// Verifies that `Ctrl+U` clears the create-agent name field.
+#[test]
+fn create_agent_dialog_ctrl_u_clears_name_field() {
+    let mut world = World::default();
+    world.insert_resource(ButtonInput::<KeyCode>::default());
+    world.insert_resource(AppSessionState::default());
+    {
+        let mut session = world.resource_mut::<AppSessionState>();
+        session.create_agent_dialog.open(CreateAgentKind::Pi);
+        session.create_agent_dialog.name_field.load_text("ORACLE");
+        session.create_agent_dialog.focus = CreateAgentDialogField::Name;
+    }
+    world.spawn((
+        Window {
+            focused: true,
+            ..Default::default()
+        },
+        PrimaryWindow,
+    ));
+
+    let mut ctrl_keys = ButtonInput::<KeyCode>::default();
+    ctrl_keys.press(KeyCode::ControlLeft);
+    world.insert_resource(ctrl_keys);
+    dispatch_message_box_key(&mut world, pressed_key(KeyCode::KeyU, Key::Character("u".into())));
+
+    let session = world.resource::<AppSessionState>();
+    assert_eq!(session.create_agent_dialog.name_field.text, "");
+    assert_eq!(session.create_agent_dialog.name_field.cursor, 0);
+}
+
 /// Verifies that typed create-agent names are uppercased immediately in the field.
 #[test]
 fn create_agent_dialog_typing_uppercases_name_field() {
@@ -1170,6 +1200,36 @@ fn rename_dialog_enter_submits_agent_rename() {
     );
 }
 
+/// Verifies that `Ctrl+U` clears the create-agent cwd field.
+#[test]
+fn create_agent_dialog_ctrl_u_clears_cwd_field() {
+    let mut world = World::default();
+    world.insert_resource(ButtonInput::<KeyCode>::default());
+    world.insert_resource(AppSessionState::default());
+    {
+        let mut session = world.resource_mut::<AppSessionState>();
+        session.create_agent_dialog.open(CreateAgentKind::Pi);
+        session.create_agent_dialog.cwd_field.load_text("~/code/project");
+        session.create_agent_dialog.focus = CreateAgentDialogField::StartingFolder;
+    }
+    world.spawn((
+        Window {
+            focused: true,
+            ..Default::default()
+        },
+        PrimaryWindow,
+    ));
+
+    let mut ctrl_keys = ButtonInput::<KeyCode>::default();
+    ctrl_keys.press(KeyCode::ControlLeft);
+    world.insert_resource(ctrl_keys);
+    dispatch_message_box_key(&mut world, pressed_key(KeyCode::KeyU, Key::Character("u".into())));
+
+    let session = world.resource::<AppSessionState>();
+    assert_eq!(session.create_agent_dialog.cwd_field.field.text, "");
+    assert_eq!(session.create_agent_dialog.cwd_field.field.cursor, 0);
+}
+
 /// Verifies that typed rename values are uppercased immediately in the field.
 #[test]
 fn rename_dialog_typing_uppercases_name_field() {
@@ -1199,6 +1259,33 @@ fn rename_dialog_typing_uppercases_name_field() {
             .text,
         "AB"
     );
+}
+
+#[test]
+fn rename_dialog_ctrl_u_clears_name_field() {
+    let (mut world, terminal_id) =
+        world_with_active_terminal(Vec2::new(10.0, 10.0), false, Vec2::ZERO);
+    let agent_id = world
+        .resource::<crate::agents::AgentRuntimeIndex>()
+        .agent_for_terminal(terminal_id)
+        .expect("agent should be linked");
+    {
+        let mut app_session = world.resource_mut::<AppSessionState>();
+        app_session.rename_agent_dialog.open(agent_id, "AGENT-1");
+        app_session.rename_agent_dialog.name_field.load_text("RENAMED");
+        app_session.rename_agent_dialog.focus = RenameAgentDialogField::Name;
+    }
+    world.init_resource::<Messages<RequestRedraw>>();
+    world.init_resource::<Messages<KeyboardInput>>();
+
+    let mut ctrl_keys = ButtonInput::<KeyCode>::default();
+    ctrl_keys.press(KeyCode::ControlLeft);
+    world.insert_resource(ctrl_keys);
+    dispatch_message_box_key(&mut world, pressed_key(KeyCode::KeyU, Key::Character("u".into())));
+
+    let app_session = world.resource::<AppSessionState>();
+    assert_eq!(app_session.rename_agent_dialog.name_field.text, "");
+    assert_eq!(app_session.rename_agent_dialog.name_field.cursor, 0);
 }
 
 #[test]
@@ -1641,6 +1728,31 @@ fn ctrl_t_clears_done_tasks_for_active_terminal_when_dialog_is_closed() {
     );
 }
 
+/// Verifies that `Ctrl+U` cuts the entire task-dialog contents into the kill ring.
+#[test]
+fn task_dialog_ctrl_u_cuts_all_contents() {
+    let (mut world, terminal_id) =
+        world_with_active_terminal(Vec2::new(10.0, 10.0), false, Vec2::ZERO);
+    let mut hud_state = crate::hud::HudState::default();
+    hud_state.open_task_dialog(terminal_id, "- [ ] first\n- [ ] second");
+    insert_test_hud_state(&mut world, hud_state);
+    init_hud_commands(&mut world);
+    world.init_resource::<Messages<KeyboardInput>>();
+    world.init_resource::<Messages<RequestRedraw>>();
+
+    let mut keys = ButtonInput::<KeyCode>::default();
+    keys.press(KeyCode::ControlLeft);
+    world.insert_resource(keys);
+    dispatch_message_box_key(&mut world, pressed_key(KeyCode::KeyU, Key::Character("u".into())));
+    assert_eq!(snapshot_test_hud_state(&world).task_dialog.text, "");
+
+    dispatch_message_box_key(&mut world, pressed_key(KeyCode::KeyY, Key::Character("y".into())));
+    assert_eq!(
+        snapshot_test_hud_state(&world).task_dialog.text,
+        "- [ ] first\n- [ ] second"
+    );
+}
+
 /// Verifies that `Ctrl+T` stays live inside the task dialog and emits a clear-done request without
 /// closing the dialog.
 #[test]
@@ -2047,6 +2159,29 @@ fn message_box_meta_copy_kill_ring_history_and_backward_kill_word_work() {
         .len();
     dispatch_message_box_key(&mut world, pressed_text(KeyCode::Backspace, None));
     assert_eq!(snapshot_test_hud_state(&world).message_box.text, "one two ");
+}
+
+/// Verifies that `Ctrl+U` cuts the entire message-box contents into the kill ring.
+#[test]
+fn message_box_ctrl_u_cuts_all_contents() {
+    let (mut world, terminal_id) =
+        world_with_active_terminal(Vec2::new(10.0, 10.0), false, Vec2::ZERO);
+    let mut hud_state = crate::hud::HudState::default();
+    hud_state.open_message_box(terminal_id);
+    hud_state.message_box.insert_text("alpha\nbeta");
+    insert_test_hud_state(&mut world, hud_state);
+    init_hud_commands(&mut world);
+    world.init_resource::<Messages<KeyboardInput>>();
+    world.init_resource::<Messages<RequestRedraw>>();
+
+    let mut ctrl_keys = ButtonInput::<KeyCode>::default();
+    ctrl_keys.press(KeyCode::ControlLeft);
+    world.insert_resource(ctrl_keys);
+    dispatch_message_box_key(&mut world, pressed_key(KeyCode::KeyU, Key::Character("u".into())));
+    assert_eq!(snapshot_test_hud_state(&world).message_box.text, "");
+
+    dispatch_message_box_key(&mut world, pressed_key(KeyCode::KeyY, Key::Character("y".into())));
+    assert_eq!(snapshot_test_hud_state(&world).message_box.text, "alpha\nbeta");
 }
 
 /// Verifies the editor's `Ctrl+O` open-line and `Ctrl+J` newline-and-indent behaviors.

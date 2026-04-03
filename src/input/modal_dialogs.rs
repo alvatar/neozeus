@@ -497,6 +497,7 @@ fn handle_text_field_event_impl(
             KeyCode::KeyF => field.move_right(),
             KeyCode::KeyH => field.delete_backward_char(),
             KeyCode::KeyK => field.kill_to_end(),
+            KeyCode::KeyU => field.kill_all(),
             _ => false,
         }
     } else if modifiers.alt_only() {
