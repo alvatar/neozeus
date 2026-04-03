@@ -433,7 +433,7 @@ pub(crate) fn render_content(
                 .and_then(|agent_id| parent_main_rects.get(&agent_id).copied())
             {
                 let (start, end) = tmux_child_connector(parent_main_rect, main_rect);
-                painter.stroke_line(start, end, apply_alpha(TMUX_CHILD_ORANGE, 0.72), 1.5);
+                painter.stroke_line(start, end, apply_alpha(TMUX_CHILD_ORANGE, 0.72), 2.5);
             }
             let stroke = if row.is_orphan_tmux {
                 EVA_EMISSIVE_RED
