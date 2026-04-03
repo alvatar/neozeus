@@ -4,8 +4,8 @@ use crate::{
     hud::{HudInputCaptureState, TerminalVisibilityPolicy, TerminalVisibilityState},
     startup::StartupLoadingState,
     terminals::{
-        append_debug_log, attach_terminal_session, TerminalFocusState, TerminalManager,
-        TerminalRuntimeSpawner, TerminalViewState,
+        append_debug_log, attach_terminal_session, resolve_daemon_socket_path, TerminalFocusState,
+        TerminalManager, TerminalRuntimeSpawner, TerminalViewState,
     },
 };
 
@@ -37,11 +37,26 @@ pub(crate) fn spawn_agent_terminal(
     redraws: &mut MessageWriter<RequestRedraw>,
 ) -> Result<AgentId, String> {
     // Walk the lifecycle in explicit stages so each side effect happens only after its prerequisites have been established.
-    let label = agent_catalog.validate_new_label(label.as_deref())?;
-    let session_name = runtime_spawner.create_session_with_cwd(
+    let identity = agent_catalog.allocate_identity(label.as_deref(), kind, kind.capabilities())?;
+    let mut env_overrides = vec![
+        ("NEOZEUS_AGENT_UID".to_owned(), identity.uid.clone()),
+        ("NEOZEUS_AGENT_LABEL".to_owned(), identity.label.clone()),
+        (
+            "NEOZEUS_AGENT_KIND".to_owned(),
+            identity.kind.env_name().to_owned(),
+        ),
+    ];
+    if let Some(socket_path) = resolve_daemon_socket_path() {
+        env_overrides.push((
+            "NEOZEUS_DAEMON_SOCKET".to_owned(),
+            socket_path.to_string_lossy().into_owned(),
+        ));
+    }
+    let session_name = runtime_spawner.create_session_with_cwd_and_env(
         prefix,
         working_directory,
         kind.bootstrap_command(),
+        &env_overrides,
     )?;
     let (terminal_id, _) = attach_terminal_session(
         terminal_manager,
@@ -51,8 +66,7 @@ pub(crate) fn spawn_agent_terminal(
         true,
     )?;
 
-    let capabilities = kind.capabilities();
-    let agent_id = agent_catalog.create_agent(label, kind, capabilities);
+    let agent_id = agent_catalog.create_agent_from_identity(identity);
     let runtime = terminal_manager
         .get(terminal_id)
         .map(|terminal| &terminal.snapshot.runtime);
@@ -91,6 +105,7 @@ pub(crate) fn attach_restored_terminal(
     focus: bool,
     kind: AgentKind,
     label: Option<String>,
+    agent_uid: Option<String>,
 ) -> Result<(AgentId, crate::terminals::TerminalId), String> {
     // Walk the lifecycle in explicit stages so each side effect happens only after its prerequisites have been established.
     let (terminal_id, _) = attach_terminal_session(
@@ -101,7 +116,10 @@ pub(crate) fn attach_restored_terminal(
         focus,
     )?;
     let capabilities = kind.capabilities();
-    let agent_id = agent_catalog.create_agent(None, kind, capabilities);
+    let agent_id = match agent_uid {
+        Some(agent_uid) => agent_catalog.create_agent_with_uid(agent_uid, None, kind, capabilities),
+        None => agent_catalog.create_agent(None, kind, capabilities),
+    };
     if let Some(label) = label {
         match agent_catalog.validate_rename_label(agent_id, &label) {
             Ok(label) => {

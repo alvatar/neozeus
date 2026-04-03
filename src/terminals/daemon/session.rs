@@ -92,13 +92,14 @@ impl DaemonSession {
         session_id: String,
         created_order: u64,
         cwd: Option<&str>,
+        env_overrides: &[(String, String)],
     ) -> Result<Arc<Self>, String> {
         // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
         let PtySession {
             master,
             writer,
             child,
-        } = spawn_pty(DEFAULT_COLS, DEFAULT_ROWS, cwd)?;
+        } = spawn_pty(DEFAULT_COLS, DEFAULT_ROWS, cwd, env_overrides)?;
         let state = Arc::new(Mutex::new(DaemonSessionState {
             snapshot: TerminalSnapshot {
                 surface: Some(TerminalSurface::new(

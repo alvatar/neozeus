@@ -39,6 +39,7 @@ fn app_state_parse_and_serialize_roundtrip() {
     let persisted = PersistedAppState {
         agents: vec![
             PersistedAgentState {
+                agent_uid: Some("agent-uid-a".into()),
                 session_name: "neozeus-session-a\rtab\tquoted\"".into(),
                 label: Some("agent 1\nrow\rand\ttabs\\slash".into()),
                 kind: PersistedAgentKind::Claude,
@@ -46,6 +47,7 @@ fn app_state_parse_and_serialize_roundtrip() {
                 last_focused: true,
             },
             PersistedAgentState {
+                agent_uid: Some("agent-uid-b".into()),
                 session_name: "neozeus-session-b".into(),
                 label: None,
                 kind: PersistedAgentKind::Terminal,
@@ -68,6 +70,7 @@ fn app_state_parse_defaults_missing_kind_to_pi() {
 
     assert_eq!(parsed.agents.len(), 1);
     assert_eq!(parsed.agents[0].kind, PersistedAgentKind::Pi);
+    assert_eq!(parsed.agents[0].agent_uid, None);
 }
 
 /// Verifies that legacy terminal-session state migrates into the new app-state model on read.
@@ -84,6 +87,7 @@ fn app_state_load_falls_back_to_legacy_terminal_sessions() {
     let persisted =
         map_legacy_sessions_to_app_state(&load_persisted_terminal_sessions_from(&legacy_path));
     assert_eq!(persisted.agents.len(), 1);
+    assert_eq!(persisted.agents[0].agent_uid, None);
     assert_eq!(persisted.agents[0].session_name, "neozeus-session-a");
     assert_eq!(persisted.agents[0].label.as_deref(), Some("agent 1"));
     assert_eq!(persisted.agents[0].kind, PersistedAgentKind::Pi);
@@ -97,6 +101,7 @@ fn reconcile_persisted_agents_restores_prunes_and_imports() {
     let persisted = PersistedAppState {
         agents: vec![
             PersistedAgentState {
+                agent_uid: Some("agent-uid-a".into()),
                 session_name: "neozeus-session-a".into(),
                 label: Some("one".into()),
                 kind: PersistedAgentKind::Pi,
@@ -104,6 +109,7 @@ fn reconcile_persisted_agents_restores_prunes_and_imports() {
                 last_focused: true,
             },
             PersistedAgentState {
+                agent_uid: Some("agent-uid-b".into()),
                 session_name: "neozeus-session-b".into(),
                 label: None,
                 kind: PersistedAgentKind::Terminal,
@@ -124,17 +130,19 @@ fn reconcile_persisted_agents_restores_prunes_and_imports() {
 
     assert_eq!(restore.len(), 1);
     assert_eq!(restore[0].session_name, "neozeus-session-a");
+    assert_eq!(restore[0].agent_uid.as_deref(), Some("agent-uid-a"));
     assert_eq!(prune.len(), 1);
     assert_eq!(prune[0].session_name, "neozeus-session-b");
     assert_eq!(import.len(), 1);
     assert_eq!(import[0].session_name, "neozeus-session-c");
+    assert_eq!(import[0].agent_uid, None);
     assert_eq!(import[0].kind, PersistedAgentKind::Pi);
     assert_eq!(import[0].order_index, 2);
 }
 
-/// Verifies that saving app state preserves user agent order, labels, kinds, and the focused session.
+/// Verifies that saving app state preserves user agent order, labels, kinds, focus, and stable ids.
 #[test]
-fn saving_app_state_persists_agent_order_labels_and_focus() {
+fn saving_app_state_persists_agent_order_labels_focus_and_uids() {
     let dir = temp_dir("neozeus-app-state-save");
     let path = dir.join("neozeus-state.v1");
     let (bridge_one, _) = test_bridge();
@@ -156,6 +164,8 @@ fn saving_app_state_persists_agent_order_labels_and_focus() {
         AgentKind::Terminal,
         AgentKind::Terminal.capabilities(),
     );
+    let alpha_uid = agent_catalog.uid(alpha).unwrap().to_owned();
+    let beta_uid = agent_catalog.uid(beta).unwrap().to_owned();
     runtime_index.link_terminal(alpha, id_one, "neozeus-session-a".into(), None);
     runtime_index.link_terminal(beta, id_two, "neozeus-session-b".into(), None);
     agent_catalog.move_to_index(beta, 0);
@@ -176,10 +186,18 @@ fn saving_app_state_persists_agent_order_labels_and_focus() {
     let serialized = fs::read_to_string(&path).expect("app state file missing");
     let persisted = parse_persisted_app_state(&serialized);
     assert_eq!(persisted.agents.len(), 2);
+    assert_eq!(
+        persisted.agents[0].agent_uid.as_deref(),
+        Some(beta_uid.as_str())
+    );
     assert_eq!(persisted.agents[0].session_name, "neozeus-session-b");
     assert_eq!(persisted.agents[0].label.as_deref(), Some("BETA"));
     assert_eq!(persisted.agents[0].kind, PersistedAgentKind::Terminal);
     assert!(persisted.agents[0].last_focused);
+    assert_eq!(
+        persisted.agents[1].agent_uid.as_deref(),
+        Some(alpha_uid.as_str())
+    );
     assert_eq!(persisted.agents[1].session_name, "neozeus-session-a");
     assert_eq!(persisted.agents[1].label.as_deref(), Some("ALPHA"));
     assert_eq!(persisted.agents[1].kind, PersistedAgentKind::Claude);

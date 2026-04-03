@@ -81,6 +81,10 @@ pub(crate) fn restore_app(
         .map(|session| session.session_id.clone())
         .collect::<Vec<_>>();
     let (restore, import, prune) = reconcile_persisted_agents(&persisted, &live_sessions);
+    let persisted_missing_agent_uid = persisted
+        .agents
+        .iter()
+        .any(|record| record.agent_uid.is_none());
     let live_session_lookup = live_session_infos
         .iter()
         .map(|session| (session.session_id.as_str(), session))
@@ -105,7 +109,7 @@ pub(crate) fn restore_app(
             )),
         }
     }
-    if !prune.is_empty() || !importable.is_empty() {
+    if persisted_missing_agent_uid || !prune.is_empty() || !importable.is_empty() {
         mark_app_state_dirty(app_state_persistence, None);
     }
 
@@ -129,6 +133,7 @@ pub(crate) fn restore_app(
                 crate::shared::app_state_file::PersistedAgentKind::Verifier => AgentKind::Verifier,
             },
             record.label,
+            record.agent_uid,
         ) {
             append_debug_log(format!(
                 "startup attach failed for {}: {error}",

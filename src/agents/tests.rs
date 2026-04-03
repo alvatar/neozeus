@@ -22,6 +22,12 @@ fn catalog_assigns_stable_default_labels_in_creation_order() {
     assert_eq!(beta, AgentId(2));
     assert_eq!(catalog.label(alpha), Some("AGENT-1"));
     assert_eq!(catalog.label(beta), Some("AGENT-2"));
+    assert_ne!(catalog.uid(alpha), catalog.uid(beta));
+    assert_eq!(
+        catalog.find_by_uid(catalog.uid(alpha).unwrap()),
+        Some(alpha)
+    );
+    assert_eq!(catalog.find_by_uid(catalog.uid(beta).unwrap()), Some(beta));
 }
 
 /// Verifies that explicit agent labels must be unique while default labels skip occupied names.
@@ -67,6 +73,8 @@ fn catalog_rename_rejects_duplicates() {
         AgentKind::Terminal,
         AgentCapabilities::terminal_defaults(),
     );
+    let alpha_uid = catalog.uid(alpha).unwrap().to_owned();
+    let beta_uid = catalog.uid(beta).unwrap().to_owned();
 
     assert_eq!(
         catalog.validate_rename_label(beta, " alpha "),
@@ -76,6 +84,8 @@ fn catalog_rename_rejects_duplicates() {
     catalog.rename_agent(beta, label).unwrap();
     assert_eq!(catalog.label(beta), Some("GAMMA"));
     assert_eq!(catalog.label(alpha), Some("ALPHA"));
+    assert_eq!(catalog.uid(alpha), Some(alpha_uid.as_str()));
+    assert_eq!(catalog.uid(beta), Some(beta_uid.as_str()));
 }
 
 /// Verifies that moving one agent updates the retained display order deterministically.
@@ -97,10 +107,18 @@ fn catalog_move_to_index_reorders_agents() {
         AgentKind::Terminal,
         AgentCapabilities::terminal_defaults(),
     );
+    let original_uids = [
+        catalog.uid(alpha).unwrap().to_owned(),
+        catalog.uid(beta).unwrap().to_owned(),
+        catalog.uid(gamma).unwrap().to_owned(),
+    ];
 
     assert!(catalog.move_to_index(gamma, 0));
     assert_eq!(catalog.order, vec![gamma, alpha, beta]);
     assert!(!catalog.move_to_index(gamma, 0));
+    assert_eq!(catalog.uid(alpha), Some(original_uids[0].as_str()));
+    assert_eq!(catalog.uid(beta), Some(original_uids[1].as_str()));
+    assert_eq!(catalog.uid(gamma), Some(original_uids[2].as_str()));
 }
 
 /// Verifies that runtime index links terminal session and runtime state.

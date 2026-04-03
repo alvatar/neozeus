@@ -24,6 +24,7 @@ pub(crate) enum DaemonRequest {
     CreateSession {
         prefix: String,
         cwd: Option<String>,
+        env_overrides: Vec<(String, String)>,
     },
     AttachSession {
         session_id: String,
@@ -197,13 +198,21 @@ fn encode_request(buffer: &mut Vec<u8>, request: &DaemonRequest) {
     // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
     match request {
         DaemonRequest::ListSessions => push_u8(buffer, 1),
-        DaemonRequest::CreateSession { prefix, cwd } => {
+        DaemonRequest::CreateSession {
+            prefix,
+            cwd,
+            env_overrides,
+        } => {
             push_u8(buffer, 2);
             push_string(buffer, prefix);
             push_bool(buffer, cwd.is_some());
             if let Some(cwd) = cwd {
                 push_string(buffer, cwd);
             }
+            push_vec(buffer, env_overrides, |buffer, (key, value)| {
+                push_string(buffer, key);
+                push_string(buffer, value);
+            });
         }
         DaemonRequest::AttachSession { session_id } => {
             push_u8(buffer, 3);
@@ -246,7 +255,13 @@ fn decode_request(decoder: &mut Decoder<'_>) -> Result<DaemonRequest, String> {
             } else {
                 None
             };
-            Ok(DaemonRequest::CreateSession { prefix, cwd })
+            let env_overrides =
+                decoder.read_vec(|decoder| Ok((decoder.read_string()?, decoder.read_string()?)))?;
+            Ok(DaemonRequest::CreateSession {
+                prefix,
+                cwd,
+                env_overrides,
+            })
         }
         3 => Ok(DaemonRequest::AttachSession {
             session_id: decoder.read_string()?,
