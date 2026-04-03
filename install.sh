@@ -3,7 +3,7 @@ set -euo pipefail
 
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 repo_root=$script_dir
-install_dir="$HOME/local/bin"
+install_dir="$HOME/.local/bin"
 
 if [[ $# -ne 0 ]]; then
     printf 'usage: %s\n' "$0" >&2
