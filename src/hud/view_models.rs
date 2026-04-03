@@ -2,7 +2,9 @@ use crate::{
     agents::{AgentCatalog, AgentId, AgentRuntimeIndex, AgentStatus, AgentStatusStore},
     app::AppSessionState,
     conversations::{AgentTaskStore, ConversationStore, MessageDeliveryState},
-    terminals::{OwnedTmuxInspectState, OwnedTmuxSessionStore, TerminalManager, TerminalSurface},
+    terminals::{
+        ActiveTerminalContentState, OwnedTmuxSessionStore, TerminalManager, TerminalSurface,
+    },
     usage::{claude_backoff_active, time_left, UsagePersistenceState, UsageSnapshot},
 };
 use bevy::prelude::*;
@@ -17,6 +19,12 @@ pub(crate) enum AgentListRowKey {
     OwnedTmux(String),
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum OwnedTmuxOwnerBinding {
+    Bound(AgentId),
+    Orphan,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum AgentListRowKind {
     Agent {
@@ -29,11 +37,10 @@ pub(crate) enum AgentListRowKind {
     },
     OwnedTmux {
         session_uid: String,
-        owner_agent_id: Option<AgentId>,
+        owner: OwnedTmuxOwnerBinding,
         tmux_name: String,
         cwd: String,
         attached: bool,
-        orphan: bool,
     },
 }
 
@@ -137,7 +144,7 @@ pub(crate) fn sync_hud_view_models(
     conversations: Res<ConversationStore>,
     status_store: Res<AgentStatusStore>,
     owned_tmux_sessions: Res<OwnedTmuxSessionStore>,
-    owned_tmux_inspect: Res<OwnedTmuxInspectState>,
+    active_terminal_content: Res<ActiveTerminalContentState>,
     mut agent_list: ResMut<AgentListView>,
     mut conversation_list: ResMut<ConversationListView>,
     mut thread_view: ResMut<ThreadView>,
@@ -169,7 +176,7 @@ pub(crate) fn sync_hud_view_models(
             .then_with(|| left.tmux_name.cmp(&right.tmux_name))
     });
 
-    let selected_tmux_session = owned_tmux_inspect.selected_session_uid.as_deref();
+    let selected_tmux_session = active_terminal_content.selected_owned_tmux_session_uid();
     let mut rows = Vec::new();
     for (agent_id, label) in agent_catalog.iter() {
         let terminal_id = runtime_index.primary_terminal(agent_id);
@@ -201,11 +208,10 @@ pub(crate) fn sync_hud_view_models(
                 focused: selected_tmux_session == Some(session.session_uid.as_str()),
                 kind: AgentListRowKind::OwnedTmux {
                     session_uid: session.session_uid,
-                    owner_agent_id: Some(agent_id),
+                    owner: OwnedTmuxOwnerBinding::Bound(agent_id),
                     tmux_name: session.tmux_name,
                     cwd: session.cwd,
                     attached: session.attached,
-                    orphan: false,
                 },
             });
         }
@@ -217,11 +223,10 @@ pub(crate) fn sync_hud_view_models(
             focused: selected_tmux_session == Some(session.session_uid.as_str()),
             kind: AgentListRowKind::OwnedTmux {
                 session_uid: session.session_uid,
-                owner_agent_id: None,
+                owner: OwnedTmuxOwnerBinding::Orphan,
                 tmux_name: session.tmux_name,
                 cwd: session.cwd,
                 attached: session.attached,
-                orphan: true,
             },
         });
     }
@@ -242,73 +247,26 @@ pub(crate) fn sync_hud_view_models(
         })
         .collect();
 
-    if let Some(selected_session_uid) = selected_tmux_session {
-        let selected_row = agent_list.rows.iter().find(|row| {
-            matches!(
-                &row.kind,
-                AgentListRowKind::OwnedTmux { session_uid, .. } if session_uid == selected_session_uid
-            )
-        });
-        thread_view.header = selected_row
-            .map(|row| format!("tmux {}", row.label))
-            .unwrap_or_else(|| "tmux session".to_owned());
-        thread_view.empty_message = owned_tmux_inspect
-            .last_error
-            .clone()
-            .unwrap_or_else(|| "No tmux output yet".to_owned());
-        let mut messages = Vec::new();
-        if let Some(AgentListRowView {
-            kind:
-                AgentListRowKind::OwnedTmux {
-                    tmux_name,
-                    cwd,
-                    attached,
-                    orphan,
-                    ..
-                },
-            ..
-        }) = selected_row
-        {
-            messages.push(ThreadMessageView {
-                body: format!("attach: tmux attach -t {tmux_name}"),
-                delivered: true,
-            });
-            if !cwd.trim().is_empty() {
-                messages.push(ThreadMessageView {
-                    body: format!("cwd: {cwd}"),
-                    delivered: true,
-                });
-            }
-            let _ = orphan;
-            messages.push(ThreadMessageView {
-                body: format!("attached: {}", attached),
-                delivered: true,
-            });
-        }
-        messages.extend(build_thread_lines(&owned_tmux_inspect.text, true));
-        thread_view.messages = messages;
-    } else {
-        thread_view.header = app_session
-            .active_agent
-            .and_then(|agent_id| agent_catalog.label(agent_id))
-            .map(str::to_owned)
-            .unwrap_or_else(|| "No thread selected".to_owned());
-        thread_view.empty_message = "No messages yet".to_owned();
-        thread_view.messages = app_session
-            .active_agent
-            .and_then(|agent_id| conversations.conversation_for_agent(agent_id))
-            .map(|conversation_id| {
-                conversations
-                    .messages_for(conversation_id)
-                    .into_iter()
-                    .map(|(body, delivery)| ThreadMessageView {
-                        body,
-                        delivered: matches!(delivery, MessageDeliveryState::Delivered),
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
-    }
+    thread_view.header = app_session
+        .active_agent
+        .and_then(|agent_id| agent_catalog.label(agent_id))
+        .map(str::to_owned)
+        .unwrap_or_else(|| "No thread selected".to_owned());
+    thread_view.empty_message = "No messages yet".to_owned();
+    thread_view.messages = app_session
+        .active_agent
+        .and_then(|agent_id| conversations.conversation_for_agent(agent_id))
+        .map(|conversation_id| {
+            conversations
+                .messages_for(conversation_id)
+                .into_iter()
+                .map(|(body, delivery)| ThreadMessageView {
+                    body,
+                    delivered: matches!(delivery, MessageDeliveryState::Delivered),
+                })
+                .collect()
+        })
+        .unwrap_or_default();
 
     composer_view.visible = app_session.composer.session.is_some();
     composer_view.title = app_session
@@ -333,17 +291,6 @@ pub(crate) fn sync_hud_view_models(
     } else {
         String::new()
     };
-}
-
-fn build_thread_lines(text: &str, delivered: bool) -> Vec<ThreadMessageView> {
-    text.lines()
-        .map(str::trim_end)
-        .filter(|line| !line.is_empty())
-        .map(|body| ThreadMessageView {
-            body: body.to_owned(),
-            delivered,
-        })
-        .collect()
 }
 
 fn parse_agent_context_pct_milli(surface: &TerminalSurface) -> Option<i32> {

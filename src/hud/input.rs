@@ -509,7 +509,7 @@ enum AgentListNavigationTarget {
 fn adjacent_agent_list_target(
     app_session: &AppSessionState,
     agent_list_view: &AgentListView,
-    owned_tmux_inspect: &crate::terminals::OwnedTmuxInspectState,
+    active_terminal_content: &crate::terminals::ActiveTerminalContentState,
     step: isize,
 ) -> Option<AgentListNavigationTarget> {
     if agent_list_view.rows.is_empty() {
@@ -517,7 +517,7 @@ fn adjacent_agent_list_target(
     }
 
     let current_index = if let Some(session_uid) =
-        owned_tmux_inspect.selected_session_uid.as_deref()
+        active_terminal_content.selected_owned_tmux_session_uid()
     {
         agent_list_view.rows.iter().position(
             |row| matches!(&row.key, AgentListRowKey::OwnedTmux(row_uid) if row_uid == session_uid),
@@ -564,15 +564,16 @@ fn adjacent_agent_list_target(
 /// Handles keyboard shortcuts that toggle/reset HUD modules and navigate the agent list.
 ///
 /// Plain digit keys toggle modules, `Alt+Shift+digit` resets them, and plain `j`/`k` or up/down
-/// arrows navigate between agents by emitting focus/inspect app commands. All of it is suppressed
-/// while any modal/editor state owns keyboard capture.
+/// arrows walk the visible mixed agent/tmux rows. Agent rows emit focus/inspect commands; tmux rows
+/// emit tmux-selection commands. All of it is suppressed while any modal/editor state owns keyboard
+/// capture.
 pub(crate) fn handle_hud_module_shortcuts(
     mut messages: MessageReader<KeyboardInput>,
     keys: Res<ButtonInput<KeyCode>>,
     app_session: Res<AppSessionState>,
     input_capture: Res<HudInputCaptureState>,
     agent_list_view: Res<AgentListView>,
-    owned_tmux_inspect: Option<Res<crate::terminals::OwnedTmuxInspectState>>,
+    active_terminal_content: Option<Res<crate::terminals::ActiveTerminalContentState>>,
     mut app_commands: MessageWriter<AppCommand>,
 ) {
     // Keep the control flow staged so each branch owns one behavior path and later branches only run when earlier capture rules do not apply.
@@ -600,10 +601,10 @@ pub(crate) fn handle_hud_module_shortcuts(
     let Some(action) = action else {
         return;
     };
-    let default_tmux_inspect = crate::terminals::OwnedTmuxInspectState::default();
-    let owned_tmux_inspect = owned_tmux_inspect
+    let default_active_terminal_content = crate::terminals::ActiveTerminalContentState::default();
+    let active_terminal_content = active_terminal_content
         .as_deref()
-        .unwrap_or(&default_tmux_inspect);
+        .unwrap_or(&default_active_terminal_content);
 
     for event in messages.read() {
         if event.state != ButtonState::Pressed {
@@ -615,13 +616,13 @@ pub(crate) fn handle_hud_module_shortcuts(
                 KeyCode::KeyJ | KeyCode::ArrowDown => Some(adjacent_agent_list_target(
                     &app_session,
                     &agent_list_view,
-                    owned_tmux_inspect,
+                    active_terminal_content,
                     1,
                 )),
                 KeyCode::KeyK | KeyCode::ArrowUp => Some(adjacent_agent_list_target(
                     &app_session,
                     &agent_list_view,
-                    owned_tmux_inspect,
+                    active_terminal_content,
                     -1,
                 )),
                 _ => None,

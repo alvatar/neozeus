@@ -49,8 +49,8 @@ pub(crate) fn run_apply_app_commands(world: &mut bevy::prelude::World) {
     if !world.contains_resource::<crate::terminals::OwnedTmuxSessionStore>() {
         world.insert_resource(crate::terminals::OwnedTmuxSessionStore::default());
     }
-    if !world.contains_resource::<crate::terminals::OwnedTmuxInspectState>() {
-        world.insert_resource(crate::terminals::OwnedTmuxInspectState::default());
+    if !world.contains_resource::<crate::terminals::ActiveTerminalContentState>() {
+        world.insert_resource(crate::terminals::ActiveTerminalContentState::default());
     }
 
     world.run_system_once(dispatch::apply_app_commands).unwrap();

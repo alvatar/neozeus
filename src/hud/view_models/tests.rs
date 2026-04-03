@@ -1,6 +1,7 @@
 use super::{
     parse_agent_context_pct_milli, sync_hud_view_models, sync_info_bar_view_model,
-    AgentListRowKind, AgentListView, ComposerView, ConversationListView, InfoBarView, ThreadView,
+    AgentListRowKind, AgentListView, ComposerView, ConversationListView, InfoBarView,
+    OwnedTmuxOwnerBinding, ThreadView,
 };
 use crate::{
     agents::{AgentCatalog, AgentKind, AgentRuntimeIndex, AgentStatus, AgentStatusStore},
@@ -65,7 +66,7 @@ fn sync_hud_view_models_derives_agent_rows_and_threads() {
     world.insert_resource(ComposerView::default());
     world.insert_resource(AgentStatusStore::default());
     world.insert_resource(crate::terminals::OwnedTmuxSessionStore::default());
-    world.insert_resource(crate::terminals::OwnedTmuxInspectState::default());
+    world.insert_resource(crate::terminals::ActiveTerminalContentState::default());
     insert_terminal_manager_resources(&mut world, manager);
 
     world.run_system_once(sync_hud_view_models).unwrap();
@@ -134,7 +135,7 @@ fn sync_hud_view_models_places_owned_tmux_rows_under_matching_agent() {
             created_unix: 1,
         });
     world.insert_resource(owned_tmux);
-    world.insert_resource(crate::terminals::OwnedTmuxInspectState::default());
+    world.insert_resource(crate::terminals::ActiveTerminalContentState::default());
     world.insert_resource(crate::terminals::TerminalManager::default());
 
     world.run_system_once(sync_hud_view_models).unwrap();
@@ -215,9 +216,9 @@ fn sync_hud_view_models_orders_multiple_owned_tmux_rows_and_marks_selected_child
         },
     ];
     world.insert_resource(owned_tmux);
-    let mut inspect = crate::terminals::OwnedTmuxInspectState::default();
-    inspect.select("tmux-a2".into());
-    world.insert_resource(inspect);
+    let mut active_terminal_content = crate::terminals::ActiveTerminalContentState::default();
+    active_terminal_content.select_owned_tmux("tmux-a2".into(), None);
+    world.insert_resource(active_terminal_content);
 
     world.run_system_once(sync_hud_view_models).unwrap();
     let rows = &world.resource::<AgentListView>().rows;
@@ -233,7 +234,10 @@ fn sync_hud_view_models_orders_multiple_owned_tmux_rows_and_marks_selected_child
     assert!(rows[2].focused);
     assert!(matches!(
         rows[5].kind,
-        AgentListRowKind::OwnedTmux { orphan: true, .. }
+        AgentListRowKind::OwnedTmux {
+            owner: OwnedTmuxOwnerBinding::Orphan,
+            ..
+        }
     ));
 }
 
@@ -263,7 +267,7 @@ fn sync_hud_view_models_routes_unknown_owned_tmux_to_orphan_row() {
             created_unix: 1,
         });
     world.insert_resource(owned_tmux);
-    world.insert_resource(crate::terminals::OwnedTmuxInspectState::default());
+    world.insert_resource(crate::terminals::ActiveTerminalContentState::default());
     world.insert_resource(crate::terminals::TerminalManager::default());
 
     world.run_system_once(sync_hud_view_models).unwrap();
@@ -311,7 +315,7 @@ fn sync_hud_view_models_carries_agent_working_status_into_rows() {
     world.insert_resource(ComposerView::default());
     world.insert_resource(AgentStatusStore::default());
     world.insert_resource(crate::terminals::OwnedTmuxSessionStore::default());
-    world.insert_resource(crate::terminals::OwnedTmuxInspectState::default());
+    world.insert_resource(crate::terminals::ActiveTerminalContentState::default());
     insert_terminal_manager_resources(&mut world, manager);
 
     world
@@ -381,7 +385,7 @@ fn synced_context_pct(kind: AgentKind, surface: crate::terminals::TerminalSurfac
     world.insert_resource(ComposerView::default());
     world.insert_resource(AgentStatusStore::default());
     world.insert_resource(crate::terminals::OwnedTmuxSessionStore::default());
-    world.insert_resource(crate::terminals::OwnedTmuxInspectState::default());
+    world.insert_resource(crate::terminals::ActiveTerminalContentState::default());
     insert_terminal_manager_resources(&mut world, manager);
 
     world.run_system_once(sync_hud_view_models).unwrap();

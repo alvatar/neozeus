@@ -5,7 +5,7 @@ use crate::{
     hud::{
         AgentListRowKey, AgentListRowKind, AgentListRowView, AgentListUiState, AgentListView,
         ConversationListUiState, ConversationListView, HudRect, HudState, HudWidgetKey,
-        InfoBarView,
+        InfoBarView, OwnedTmuxOwnerBinding,
     },
     terminals::{TerminalManager, TerminalPresentationStore, TerminalViewState},
     tests::{insert_test_hud_state, snapshot_test_hud_state, test_bridge},
@@ -38,11 +38,10 @@ fn agent_row_view(
 }
 
 fn tmux_row_view(
-    owner_agent_id: Option<AgentId>,
+    owner: OwnedTmuxOwnerBinding,
     session_uid: &str,
     label: &str,
     tmux_name: &str,
-    orphan: bool,
 ) -> AgentListRowView {
     AgentListRowView {
         key: AgentListRowKey::OwnedTmux(session_uid.into()),
@@ -50,11 +49,10 @@ fn tmux_row_view(
         focused: false,
         kind: AgentListRowKind::OwnedTmux {
             session_uid: session_uid.into(),
-            owner_agent_id,
+            owner,
             tmux_name: tmux_name.into(),
             cwd: "/tmp/work".into(),
             attached: false,
-            orphan,
         },
     }
 }
@@ -304,13 +302,17 @@ fn agent_rows_include_tmux_children_and_orphan_flags() {
                     "agent-1",
                 ),
                 tmux_row_view(
-                    Some(crate::agents::AgentId(1)),
+                    OwnedTmuxOwnerBinding::Bound(crate::agents::AgentId(1)),
                     "tmux-1",
                     "BUILD",
                     "neozeus-tmux-1",
-                    false,
                 ),
-                tmux_row_view(None, "tmux-2", "BUILD", "neozeus-tmux-2", true),
+                tmux_row_view(
+                    OwnedTmuxOwnerBinding::Orphan,
+                    "tmux-2",
+                    "BUILD",
+                    "neozeus-tmux-2",
+                ),
             ],
         },
     );
@@ -435,7 +437,7 @@ fn clicking_agent_list_row_emits_focus_and_isolate_commands() {
 }
 
 #[test]
-fn clicking_owned_tmux_row_selects_tmux_inspection() {
+fn clicking_owned_tmux_row_selects_tmux_content() {
     let mut hud_state = HudState::default();
     hud_state.insert(
         HudWidgetKey::AgentList,
@@ -450,11 +452,10 @@ fn clicking_owned_tmux_row_selects_tmux_inspection() {
                 "agent-1",
             ),
             tmux_row_view(
-                Some(crate::agents::AgentId(1)),
+                OwnedTmuxOwnerBinding::Bound(crate::agents::AgentId(1)),
                 "tmux-1",
                 "BUILD",
                 "neozeus-tmux-1",
-                false,
             ),
         ],
     };

@@ -498,7 +498,7 @@ fn configure_app(app: &mut App) -> Result<(), String> {
         .insert_resource(default_usage_persistence_state())
         .insert_resource(TerminalVisibilityState::default())
         .insert_resource(crate::terminals::OwnedTmuxSessionStore::default())
-        .insert_resource(crate::terminals::OwnedTmuxInspectState::default())
+        .insert_resource(crate::terminals::ActiveTerminalContentState::default())
         .insert_resource(crate::startup::StartupLoadingState::default())
         .insert_resource(crate::startup::StartupConnectState::default())
         .add_message::<AppCommand>();

@@ -4,10 +4,10 @@ use crate::{
 };
 
 use super::{
+    active_content::ActiveTerminalContentState,
     box_drawing::{is_box_drawing, rasterize_box_drawing},
     debug::append_debug_log,
     fonts::{is_emoji_like, is_private_use_like, TerminalFontState, TerminalTextRenderer},
-    owned_tmux_state::OwnedTmuxInspectState,
     presentation::{active_terminal_layout_for_dimensions, target_active_terminal_dimensions},
     presentation_state::{
         PresentedTerminal, TerminalPresentationStore, TerminalTextureState, TerminalViewState,
@@ -162,7 +162,7 @@ pub(crate) fn sync_terminal_texture(
     font_state: Res<TerminalFontState>,
     view_state: Res<TerminalViewState>,
     layout_state: Res<HudLayoutState>,
-    owned_tmux_inspect: Res<OwnedTmuxInspectState>,
+    active_terminal_content: Res<ActiveTerminalContentState>,
     primary_window: Single<&Window, With<PrimaryWindow>>,
     mut glyph_cache: ResMut<TerminalGlyphCache>,
     mut images: ResMut<Assets<Image>>,
@@ -199,7 +199,7 @@ pub(crate) fn sync_terminal_texture(
     });
     for (terminal_id, terminal) in terminal_manager.iter_mut() {
         let override_surface = (Some(terminal_id) == active_id)
-            .then_some(owned_tmux_inspect.surface.as_ref())
+            .then_some(active_terminal_content.owned_tmux_surface_for(terminal_id))
             .flatten();
         let Some(surface) = override_surface.or(terminal.snapshot.surface.as_ref()) else {
             terminal.pending_damage = None;
@@ -236,7 +236,7 @@ pub(crate) fn sync_terminal_texture(
         };
 
         let has_pending_surface = terminal.surface_revision != presented_terminal.uploaded_revision
-            || (Some(terminal_id) == active_id && owned_tmux_inspect.is_changed());
+            || (Some(terminal_id) == active_id && active_terminal_content.is_changed());
         let mut full_redraw =
             font_state.is_changed() || presented_terminal.texture_state != upload_state;
         let mut dirty_rows = if full_redraw {

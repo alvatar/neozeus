@@ -1,6 +1,6 @@
 use crate::{
     agents::{AgentId, AgentStatus},
-    hud::view_models::{AgentListRowKey, AgentListRowKind, AgentListView},
+    hud::view_models::{AgentListRowKey, AgentListRowKind, AgentListView, OwnedTmuxOwnerBinding},
     terminals::TerminalId,
 };
 
@@ -155,14 +155,16 @@ pub(in crate::hud) fn projected_agent_rows(
                     false,
                 ),
                 AgentListRowKind::OwnedTmux {
-                    owner_agent_id,
+                    owner,
                     tmux_name,
                     cwd,
                     attached,
-                    orphan,
                     ..
                 } => (
-                    *owner_agent_id,
+                    match owner {
+                        OwnedTmuxOwnerBinding::Bound(agent_id) => Some(*agent_id),
+                        OwnedTmuxOwnerBinding::Orphan => None,
+                    },
                     None,
                     Some(format!("{}  {}", tmux_name, cwd)),
                     false,
@@ -170,7 +172,7 @@ pub(in crate::hud) fn projected_agent_rows(
                     AgentStatus::Unknown,
                     None,
                     true,
-                    *orphan,
+                    matches!(owner, OwnedTmuxOwnerBinding::Orphan),
                     *attached,
                 ),
             };
