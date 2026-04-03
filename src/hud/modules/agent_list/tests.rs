@@ -117,6 +117,30 @@ fn tmux_child_rows_render_as_compact_indented_boxes() {
 }
 
 #[test]
+fn tmux_child_visible_label_has_no_prefix_glyph() {
+    let rows = rows::agent_rows(
+        HudRect {
+            x: 24.0,
+            y: 96.0,
+            w: 300.0,
+            h: 420.0,
+        },
+        0.0,
+        None,
+        &AgentListView {
+            rows: vec![tmux_row_view(
+                OwnedTmuxOwnerBinding::Bound(AgentId(1)),
+                "tmux-1",
+                "BUILD",
+                "neozeus-tmux-1",
+            )],
+        },
+    );
+
+    assert_eq!(agent_row_label_text(&rows[0]), "BUILD");
+}
+
+#[test]
 fn selected_text_for_rows_prefixes_tmux_children() {
     let view = AgentListView {
         rows: vec![

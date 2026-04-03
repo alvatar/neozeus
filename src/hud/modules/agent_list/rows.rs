@@ -92,11 +92,7 @@ pub(crate) fn agent_row_rect(rect: HudRect, section: AgentListRowSection) -> Hud
 }
 
 pub(crate) fn agent_row_label_text(row: &AgentRow) -> String {
-    if row.is_tmux_child {
-        format!("↳ {}", row.label)
-    } else {
-        row.label.clone()
-    }
+    row.label.clone()
 }
 
 pub(crate) fn row_main_rect(row: &AgentRow) -> HudRect {
