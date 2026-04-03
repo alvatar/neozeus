@@ -72,7 +72,7 @@ pub(crate) fn select_owned_tmux(
 /// Kills the currently selected owned tmux child session.
 pub(crate) fn kill_selected_owned_tmux(
     runtime_spawner: &TerminalRuntimeSpawner,
-    owned_tmux_sessions: &OwnedTmuxSessionStore,
+    owned_tmux_sessions: &mut OwnedTmuxSessionStore,
     active_terminal_content: &mut ActiveTerminalContentState,
     redraws: &mut MessageWriter<RequestRedraw>,
 ) {
@@ -84,21 +84,34 @@ pub(crate) fn kill_selected_owned_tmux(
     };
 
     match runtime_spawner.kill_owned_tmux_session(&session_uid) {
-        Ok(()) => active_terminal_content.clear(),
+        Ok(()) => {
+            owned_tmux_sessions
+                .sessions
+                .retain(|session| session.session_uid != session_uid);
+            active_terminal_content.clear();
+        }
         Err(error) => {
-            let session_still_exists = runtime_spawner
-                .list_owned_tmux_sessions()
+            let listed_sessions = runtime_spawner.list_owned_tmux_sessions().ok();
+            let session_still_exists = listed_sessions
+                .as_ref()
                 .map(|sessions| {
                     sessions
                         .iter()
                         .any(|session| session.session_uid == session_uid)
                 })
-                .unwrap_or_else(|_| {
+                .unwrap_or_else(|| {
                     owned_tmux_sessions
                         .sessions
                         .iter()
                         .any(|session| session.session_uid == session_uid)
                 });
+            if let Some(sessions) = listed_sessions {
+                owned_tmux_sessions.sessions = sessions;
+            } else if !session_still_exists {
+                owned_tmux_sessions
+                    .sessions
+                    .retain(|session| session.session_uid != session_uid);
+            }
             if session_still_exists {
                 active_terminal_content.set_last_error(error);
             } else {

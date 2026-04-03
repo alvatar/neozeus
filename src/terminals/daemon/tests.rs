@@ -262,6 +262,10 @@ fn wait_for_file_text(path: &std::path::Path) -> String {
     }
 }
 
+fn process_exists(pid: u32) -> bool {
+    std::path::Path::new(&format!("/proc/{pid}")).exists()
+}
+
 /// Verifies daemon socket-path resolution precedence: explicit override, then XDG runtime, then the
 /// per-user temp-dir fallback.
 #[test]
@@ -519,6 +523,39 @@ fn daemon_owned_tmux_create_list_capture_and_kill_roundtrip() {
     assert!(!listed
         .iter()
         .any(|candidate| candidate.session_uid == session.session_uid));
+}
+
+/// Verifies that owned tmux kill does not return until the child pane process is actually gone.
+#[test]
+fn daemon_owned_tmux_kill_waits_for_child_process_exit() {
+    let (_server, socket_path) = start_test_daemon("neozeus-owned-tmux-kill-wait");
+    let client =
+        SocketTerminalDaemonClient::connect(&socket_path).expect("daemon client should connect");
+    let pid_file = temp_dir("neozeus-owned-tmux-kill-pid").join("tmux-child.pid");
+    let session = client
+        .create_owned_tmux_session(
+            "agent-uid-kill-wait",
+            "BUILD",
+            None,
+            &format!(
+                "exec sh -c {}",
+                shell_quote(&format!("echo $$ > {}; trap '' HUP; sleep 60", pid_file.display()))
+            ),
+        )
+        .expect("owned tmux session should create");
+
+    let pid_text = wait_for_file_text(&pid_file);
+    let pid: u32 = pid_text.parse().expect("tmux child pid should parse");
+    assert!(process_exists(pid), "tmux child pid {pid} should exist before kill");
+
+    client
+        .kill_owned_tmux_session(&session.session_uid)
+        .expect("owned tmux kill should succeed");
+
+    assert!(
+        !process_exists(pid),
+        "tmux child pid {pid} should be gone after kill_owned_tmux_session returns"
+    );
 }
 
 /// Verifies that daemon restart rediscovers owned tmux sessions from tmux metadata.

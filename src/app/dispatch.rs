@@ -117,7 +117,7 @@ pub(super) struct AppCommandContext<'w> {
     terminal_manager: ResMut<'w, TerminalManager>,
     focus_state: ResMut<'w, TerminalFocusState>,
     runtime_spawner: Res<'w, TerminalRuntimeSpawner>,
-    owned_tmux_sessions: Res<'w, OwnedTmuxSessionStore>,
+    owned_tmux_sessions: ResMut<'w, OwnedTmuxSessionStore>,
     active_terminal_content: ResMut<'w, ActiveTerminalContentState>,
     input_capture: ResMut<'w, HudInputCaptureState>,
     layout_state: ResMut<'w, HudLayoutState>,
@@ -303,7 +303,7 @@ pub(super) fn apply_app_commands(
                 OwnedTmuxCommand::KillSelected => {
                     use_cases::kill_selected_owned_tmux(
                         &ctx.runtime_spawner,
-                        &ctx.owned_tmux_sessions,
+                        &mut ctx.owned_tmux_sessions,
                         &mut ctx.active_terminal_content,
                         &mut ctx.redraws,
                     );
