@@ -2,6 +2,7 @@ use super::super::super::types::{
     TerminalCell, TerminalCellContent, TerminalCellStyle, TerminalLifecycle, TerminalRuntimeState,
     TerminalSnapshot, TerminalSurface, TerminalUnderlineStyle,
 };
+use super::super::owned_tmux::OwnedTmuxSessionInfo;
 use super::*;
 use std::io::Cursor;
 
@@ -102,6 +103,70 @@ fn session_list_wire_format_omits_created_order_for_v1_compatibility() {
     assert_eq!(sessions[0].session_id, "neozeus-session-3");
     assert_eq!(sessions[0].revision, 5);
     assert_eq!(sessions[0].created_order, 0);
+}
+
+/// Verifies that owned tmux request/response payloads round-trip through the daemon protocol.
+#[test]
+fn owned_tmux_wire_roundtrip_preserves_session_metadata() {
+    let session = OwnedTmuxSessionInfo {
+        session_uid: "tmux-session-1".into(),
+        owner_agent_uid: "agent-uid-1".into(),
+        tmux_name: "neozeus-tmux-1".into(),
+        display_name: "BUILD".into(),
+        cwd: "/tmp/work".into(),
+        attached: true,
+        created_unix: 42,
+    };
+
+    let response = ServerMessage::Response {
+        request_id: 12,
+        response: Ok(DaemonResponse::OwnedTmuxSessionCreated {
+            session: session.clone(),
+        }),
+    };
+    let mut bytes = Vec::new();
+    write_server_message(&mut bytes, &response).expect("owned tmux response should encode");
+    let decoded =
+        read_server_message(&mut Cursor::new(bytes)).expect("owned tmux response should decode");
+    let ServerMessage::Response {
+        response: Ok(DaemonResponse::OwnedTmuxSessionCreated { session: decoded }),
+        ..
+    } = decoded
+    else {
+        panic!("expected owned tmux create response");
+    };
+    assert_eq!(decoded, session);
+
+    let request = ClientMessage::Request {
+        request_id: 33,
+        request: DaemonRequest::CreateOwnedTmuxSession {
+            owner_agent_uid: "agent-uid-1".into(),
+            display_name: "BUILD".into(),
+            cwd: Some("/tmp/work".into()),
+            command: "cargo test".into(),
+        },
+    };
+    let mut request_bytes = Vec::new();
+    write_client_message(&mut request_bytes, &request).expect("owned tmux request should encode");
+    let decoded = read_client_message(&mut Cursor::new(request_bytes))
+        .expect("owned tmux request should decode");
+    let ClientMessage::Request {
+        request:
+            DaemonRequest::CreateOwnedTmuxSession {
+                owner_agent_uid,
+                display_name,
+                cwd,
+                command,
+            },
+        ..
+    } = decoded
+    else {
+        panic!("expected owned tmux create request");
+    };
+    assert_eq!(owner_agent_uid, "agent-uid-1");
+    assert_eq!(display_name, "BUILD");
+    assert_eq!(cwd.as_deref(), Some("/tmp/work"));
+    assert_eq!(command, "cargo test");
 }
 
 /// Verifies daemon protocol round-trips full cell styling metadata together with ordinary surface data.

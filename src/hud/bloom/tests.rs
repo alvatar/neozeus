@@ -282,6 +282,8 @@ fn sync_hud_widget_bloom_spawns_agent_list_source_sprites() {
     world.insert_resource(ThreadView::default());
     world.insert_resource(ComposerView::default());
     world.insert_resource(crate::agents::AgentStatusStore::default());
+    world.insert_resource(crate::terminals::OwnedTmuxSessionStore::default());
+    world.insert_resource(crate::terminals::OwnedTmuxInspectState::default());
     world.run_system_once(sync_hud_view_models).unwrap();
     insert_test_hud_state(&mut world, hud_state);
     world.insert_resource(HudBloomSettings::default());
@@ -343,7 +345,7 @@ fn sync_hud_widget_bloom_spawns_agent_list_source_sprites() {
         let row = agent_rows(
             module.shell.current_rect,
             agent_list_state.scroll_offset,
-            agent_list_state.hovered_agent,
+            agent_list_state.hovered_row.as_ref(),
             agent_list_view,
         )
         .into_iter()
@@ -416,6 +418,8 @@ fn sync_hud_widget_bloom_hides_sources_and_composite_while_modal_is_visible() {
     world.insert_resource(ThreadView::default());
     world.insert_resource(ComposerView::default());
     world.insert_resource(crate::agents::AgentStatusStore::default());
+    world.insert_resource(crate::terminals::OwnedTmuxSessionStore::default());
+    world.insert_resource(crate::terminals::OwnedTmuxInspectState::default());
     world.run_system_once(sync_hud_view_models).unwrap();
     insert_test_hud_state(&mut world, hud_state);
     world.insert_resource(HudBloomSettings::default());
@@ -473,6 +477,8 @@ fn sync_hud_widget_bloom_only_uses_active_agent_source() {
     world.insert_resource(ThreadView::default());
     world.insert_resource(ComposerView::default());
     world.insert_resource(crate::agents::AgentStatusStore::default());
+    world.insert_resource(crate::terminals::OwnedTmuxSessionStore::default());
+    world.insert_resource(crate::terminals::OwnedTmuxInspectState::default());
     world.run_system_once(sync_hud_view_models).unwrap();
     insert_test_hud_state(&mut world, hud_state);
     world.insert_resource(HudBloomSettings::default());

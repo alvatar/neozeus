@@ -9,6 +9,7 @@ mod fonts;
 mod lifecycle;
 mod mailbox;
 mod notes;
+mod owned_tmux_state;
 mod presentation;
 mod presentation_state;
 mod pty_spawn;
@@ -20,8 +21,8 @@ mod types;
 
 pub(crate) use bridge::TerminalBridge;
 pub(crate) use daemon::{
-    resolve_daemon_socket_path, run_daemon_server, DaemonSessionInfo, TerminalDaemonClientResource,
-    PERSISTENT_SESSION_PREFIX, VERIFIER_SESSION_PREFIX,
+    resolve_daemon_socket_path, run_daemon_server, DaemonSessionInfo, OwnedTmuxSessionInfo,
+    TerminalDaemonClientResource, PERSISTENT_SESSION_PREFIX, VERIFIER_SESSION_PREFIX,
 };
 pub(crate) use debug::append_debug_log;
 pub(crate) use fonts::{configure_terminal_fonts, TerminalFontState, TerminalTextRenderer};
@@ -30,6 +31,9 @@ pub(crate) use notes::{
     clear_done_tasks, extract_next_task, load_terminal_notes_from, mark_terminal_notes_dirty,
     resolve_terminal_notes_path, save_terminal_notes_if_dirty, task_entry_from_text,
     TerminalNotesState,
+};
+pub(crate) use owned_tmux_state::{
+    sync_owned_tmux_inspect, sync_owned_tmux_sessions, OwnedTmuxInspectState, OwnedTmuxSessionStore,
 };
 pub(crate) use presentation::{
     sync_active_terminal_dimensions, sync_terminal_hud_surface, sync_terminal_panel_frames,

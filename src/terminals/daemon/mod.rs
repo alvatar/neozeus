@@ -1,4 +1,5 @@
 mod client;
+mod owned_tmux;
 mod protocol;
 mod server;
 mod session;
@@ -12,6 +13,7 @@ pub(crate) use crate::shared::daemon_socket::resolve_daemon_socket_path_with;
 pub(crate) use client::{AttachedDaemonSession, TerminalDaemonClientResource};
 #[cfg(test)]
 pub(crate) use client::{SocketTerminalDaemonClient, TerminalDaemonClient};
+pub(crate) use owned_tmux::OwnedTmuxSessionInfo;
 pub(crate) use protocol::DaemonSessionInfo;
 #[cfg(test)]
 pub(crate) use protocol::{

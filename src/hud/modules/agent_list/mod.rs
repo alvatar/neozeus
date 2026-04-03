@@ -3,8 +3,8 @@ mod render;
 mod rows;
 
 pub(crate) use interaction::{
-    agent_at_point, clear_hover, handle_hover, handle_pointer_click, handle_scroll,
-    reorder_target_index,
+    clear_hover, handle_hover, handle_pointer_click, handle_scroll, reorder_target_index,
+    row_at_point,
 };
 pub(crate) use render::render_content;
 pub(crate) use rows::{

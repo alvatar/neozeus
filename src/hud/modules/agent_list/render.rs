@@ -353,7 +353,7 @@ pub(crate) fn render_content(
     let mut rows = projected_agent_rows(
         content_rect,
         state.scroll_offset,
-        state.hovered_agent,
+        state.hovered_row.as_ref(),
         inputs.agent_list_view,
         drag_preview,
     );
@@ -368,29 +368,80 @@ pub(crate) fn render_content(
         let main_rect = agent_row_rect(row.rect, AgentListRowSection::Main);
         let marker_rect = agent_row_rect(row.rect, AgentListRowSection::Marker);
         let accent_rect = agent_row_rect(row.rect, AgentListRowSection::Accent);
-        let stroke = agent_row_stroke(row.status, row.focused, row.hovered, row.dragging);
-        let fill = agent_fill_color(row.status, row.focused, row.hovered, row.dragging);
-
-        let context_pct_milli = rendered_context_pct_milli(row.context_pct_milli);
+        let stroke = if row.is_tmux_child {
+            if row.is_orphan_tmux {
+                EVA_EMISSIVE_RED
+            } else if row.focused {
+                EVA_ORANGE_BRIGHT
+            } else {
+                apply_alpha(EVA_CYAN, 0.8)
+            }
+        } else {
+            agent_row_stroke(row.status, row.focused, row.hovered, row.dragging)
+        };
+        let fill = if row.is_tmux_child {
+            apply_alpha(EVA_BLACK, if row.hovered { 0.88 } else { 0.84 })
+        } else {
+            agent_fill_color(row.status, row.focused, row.hovered, row.dragging)
+        };
 
         draw_button_rect(painter, main_rect, stroke, fill);
         draw_button_rect(
             painter,
             marker_rect,
             stroke,
-            marker_fill(row.status, row.has_tasks, row.interactive),
+            if row.is_tmux_child {
+                if row.is_orphan_tmux {
+                    DISCONNECTED_RED
+                } else if row.tmux_attached {
+                    EVA_ORANGE_BRIGHT
+                } else {
+                    EVA_BLACK
+                }
+            } else {
+                marker_fill(row.status, row.has_tasks, row.interactive)
+            },
         );
-        draw_context_bar(painter, main_rect, marker_rect, context_pct_milli);
-        if let Some(accent_fill) = agent_accent_color(row.status, row.focused, row.dragging) {
-            painter.fill_rect(accent_rect, accent_fill, 0.0);
+        if row.is_tmux_child {
+            painter.fill_rect(
+                accent_rect,
+                if row.focused {
+                    EVA_ORANGE_BRIGHT
+                } else {
+                    apply_alpha(EVA_CYAN, 0.5)
+                },
+                0.0,
+            );
+        } else {
+            let context_pct_milli = rendered_context_pct_milli(row.context_pct_milli);
+            draw_context_bar(painter, main_rect, marker_rect, context_pct_milli);
+            if let Some(accent_fill) = agent_accent_color(row.status, row.focused, row.dragging) {
+                painter.fill_rect(accent_rect, accent_fill, 0.0);
+            }
         }
 
+        let label_text = if row.is_tmux_child {
+            format!("↳ {}", row.label)
+        } else {
+            row.label.clone()
+        };
         draw_label(
             painter,
-            Vec2::new(main_rect.x + 12.0, main_rect.y + 2.0),
-            &row.label,
+            Vec2::new(
+                main_rect.x + if row.is_tmux_child { 18.0 } else { 12.0 },
+                main_rect.y + 2.0,
+            ),
+            &label_text,
             16.0,
-            agent_label_color(row.status, row.focused, row.dragging),
+            if row.is_tmux_child {
+                if row.is_orphan_tmux {
+                    EVA_EMISSIVE_RED
+                } else {
+                    EVA_CYAN
+                }
+            } else {
+                agent_label_color(row.status, row.focused, row.dragging)
+            },
             VelloTextAnchor::TopLeft,
             0.76,
             1.14,

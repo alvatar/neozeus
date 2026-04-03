@@ -1,29 +1,29 @@
-use crate::app::{AgentCommand, AppCommand};
+use crate::app::{AgentCommand, AppCommand, OwnedTmuxCommand};
 
 use super::super::super::{
     state::{AgentListUiState, HudRect},
-    view_models::AgentListView,
+    view_models::{AgentListRowKey, AgentListView},
 };
 use bevy::prelude::Vec2;
 
 use super::{agent_list_content_height, agent_rows};
 
-/// Returns the agent row currently under the pointer, if any.
-pub(crate) fn agent_at_point(
+/// Returns the agent-list row currently under the pointer, if any.
+pub(crate) fn row_at_point(
     state: &AgentListUiState,
     shell_rect: HudRect,
     point: Vec2,
     agent_list_view: &AgentListView,
-) -> Option<crate::agents::AgentId> {
+) -> Option<AgentListRowKey> {
     agent_rows(
         shell_rect,
         state.scroll_offset,
-        state.hovered_agent,
+        state.hovered_row.as_ref(),
         agent_list_view,
     )
     .into_iter()
     .find(|row| row.rect.contains(point))
-    .map(|row| row.agent_id)
+    .map(|row| row.key)
 }
 
 /// Computes the display-order slot the cursor currently points at during a drag reorder.
@@ -36,9 +36,12 @@ pub(crate) fn reorder_target_index(
     let rows = agent_rows(
         shell_rect,
         state.scroll_offset,
-        state.hovered_agent,
+        state.hovered_row.as_ref(),
         agent_list_view,
-    );
+    )
+    .into_iter()
+    .filter(|row| !row.is_tmux_child)
+    .collect::<Vec<_>>();
     if rows.is_empty() {
         return None;
     }
@@ -49,7 +52,7 @@ pub(crate) fn reorder_target_index(
     )
 }
 
-/// Converts a click on an agent-list row into focus + inspect commands.
+/// Converts a click on an agent-list row into the appropriate app command(s).
 pub(crate) fn handle_pointer_click(
     state: &AgentListUiState,
     shell_rect: HudRect,
@@ -57,25 +60,36 @@ pub(crate) fn handle_pointer_click(
     agent_list_view: &AgentListView,
     emitted_commands: &mut Vec<AppCommand>,
 ) {
-    if let Some(agent_id) = agent_at_point(state, shell_rect, point, agent_list_view) {
-        emitted_commands.push(AppCommand::Agent(AgentCommand::Focus(agent_id)));
-        emitted_commands.push(AppCommand::Agent(AgentCommand::Inspect(agent_id)));
+    let Some(key) = row_at_point(state, shell_rect, point, agent_list_view) else {
+        return;
+    };
+    match key {
+        AgentListRowKey::Agent(agent_id) => {
+            emitted_commands.push(AppCommand::OwnedTmux(OwnedTmuxCommand::ClearSelection));
+            emitted_commands.push(AppCommand::Agent(AgentCommand::Focus(agent_id)));
+            emitted_commands.push(AppCommand::Agent(AgentCommand::Inspect(agent_id)));
+        }
+        AgentListRowKey::OwnedTmux(session_uid) => {
+            emitted_commands.push(AppCommand::OwnedTmux(OwnedTmuxCommand::Select {
+                session_uid,
+            }));
+        }
     }
 }
 
-/// Updates the retained hovered-agent id for the agent list and reports whether it changed.
+/// Updates the retained hovered-row key for the agent list and reports whether it changed.
 pub(crate) fn handle_hover(
     state: &mut AgentListUiState,
     shell_rect: HudRect,
     point: Option<Vec2>,
     agent_list_view: &AgentListView,
 ) -> bool {
-    let hovered_agent =
-        point.and_then(|point| agent_at_point(state, shell_rect, point, agent_list_view));
-    if state.hovered_agent == hovered_agent {
+    let hovered_row =
+        point.and_then(|point| row_at_point(state, shell_rect, point, agent_list_view));
+    if state.hovered_row == hovered_row {
         return false;
     }
-    state.hovered_agent = hovered_agent;
+    state.hovered_row = hovered_row;
     true
 }
 
@@ -93,9 +107,9 @@ pub(crate) fn handle_scroll(
 
 /// Clears any retained hover target from the agent list and reports whether that changed state.
 pub(crate) fn clear_hover(state: &mut AgentListUiState) -> bool {
-    if state.hovered_agent.is_none() {
+    if state.hovered_row.is_none() {
         return false;
     }
-    state.hovered_agent = None;
+    state.hovered_row = None;
     true
 }

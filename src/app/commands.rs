@@ -13,6 +13,7 @@ pub(crate) struct ComposerRequest {
 #[derive(Clone, Debug, Message, PartialEq, Eq)]
 pub(crate) enum AppCommand {
     Agent(AgentCommand),
+    OwnedTmux(OwnedTmuxCommand),
     Task(TaskCommand),
     Composer(ComposerCommand),
     Widget(WidgetCommand),
@@ -37,6 +38,13 @@ pub(crate) enum AgentCommand {
     },
     ClearFocus,
     KillActive,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum OwnedTmuxCommand {
+    Select { session_uid: String },
+    ClearSelection,
+    KillSelected,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

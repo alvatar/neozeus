@@ -50,6 +50,23 @@ pub(crate) fn kill_active_agent(
         return Ok(None);
     };
     let replacement_agent = adjacent_agent_in_catalog(agent_catalog, active_agent);
+    let owner_agent_uid = agent_catalog
+        .uid(active_agent)
+        .map(str::to_owned)
+        .ok_or_else(|| format!("missing stable uid for agent {}", active_agent.0))?;
+    if let Err(error) = runtime_spawner.kill_owned_tmux_sessions_for_agent(&owner_agent_uid) {
+        let owner_tmux_still_exists = runtime_spawner
+            .list_owned_tmux_sessions()
+            .map(|sessions| {
+                sessions
+                    .iter()
+                    .any(|session| session.owner_agent_uid == owner_agent_uid)
+            })
+            .unwrap_or(true);
+        if owner_tmux_still_exists {
+            return Err(error);
+        }
+    }
     let removed = kill_active_terminal_session_and_remove(
         time,
         terminal_manager,

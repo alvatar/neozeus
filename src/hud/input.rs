@@ -15,7 +15,7 @@ use super::{
         AgentListUiState, ConversationListUiState, HudDragState, HudInputCaptureState,
         HudLayoutState, HudRect, HUD_TITLEBAR_HEIGHT,
     },
-    view_models::{AgentListView, ConversationListView, InfoBarView},
+    view_models::{AgentListRowKey, AgentListView, ConversationListView, InfoBarView},
     widgets::HudWidgetKey,
 };
 use bevy::{
@@ -285,12 +285,15 @@ fn handle_general_left_click(
         return;
     }
     if module_id == HudWidgetKey::AgentList {
-        ctx.agent_list_state.drag.pressed_agent = modules::agent_at_point(
+        ctx.agent_list_state.drag.pressed_agent = match modules::row_at_point(
             &ctx.agent_list_state,
             content_rect,
             cursor,
             &ctx.agent_list_view,
-        );
+        ) {
+            Some(AgentListRowKey::Agent(agent_id)) => Some(agent_id),
+            _ => None,
+        };
         ctx.agent_list_state.drag.press_origin = Some(cursor);
         ctx.agent_list_state.drag.dragging_agent = None;
         ctx.agent_list_state.drag.drag_cursor = None;
@@ -302,11 +305,11 @@ fn handle_general_left_click(
                 modules::agent_rows(
                     content_rect,
                     ctx.agent_list_state.scroll_offset,
-                    ctx.agent_list_state.hovered_agent,
+                    ctx.agent_list_state.hovered_row.as_ref(),
                     &ctx.agent_list_view,
                 )
                 .into_iter()
-                .find(|row| row.agent_id == agent_id)
+                .find(|row| row.agent_id == Some(agent_id))
                 .map(|row| cursor.y - row.rect.y)
             })
             .unwrap_or(0.0);
@@ -318,7 +321,7 @@ fn handle_general_left_click(
                 ctx.agent_list_view
                     .rows
                     .iter()
-                    .position(|row| row.agent_id == agent_id)
+                    .position(|row| row.key == AgentListRowKey::Agent(agent_id))
             });
         return;
     }
@@ -403,13 +406,16 @@ fn handle_general_release(
             if let Some(module) = ctx.layout_state.get(HudWidgetKey::AgentList) {
                 let content_rect =
                     content_hit_rect(HudWidgetKey::AgentList, module.shell.current_rect);
-                if modules::agent_at_point(
+                if modules::row_at_point(
                     &ctx.agent_list_state,
                     content_rect,
                     cursor,
                     &ctx.agent_list_view,
-                ) == Some(pressed_agent)
+                ) == Some(AgentListRowKey::Agent(pressed_agent))
                 {
+                    emitted_commands.push(AppCommand::OwnedTmux(
+                        crate::app::OwnedTmuxCommand::ClearSelection,
+                    ));
                     emitted_commands.push(AppCommand::Agent(AgentCommand::Focus(pressed_agent)));
                     emitted_commands.push(AppCommand::Agent(AgentCommand::Inspect(pressed_agent)));
                 }
@@ -505,16 +511,27 @@ fn adjacent_agent_id(
         return None;
     }
 
+    let agent_rows = agent_list_view
+        .rows
+        .iter()
+        .filter_map(|row| match row.key {
+            AgentListRowKey::Agent(agent_id) => Some(agent_id),
+            AgentListRowKey::OwnedTmux(_) => None,
+        })
+        .collect::<Vec<_>>();
+    if agent_rows.is_empty() {
+        return None;
+    }
+
     let current_index = match app_session.active_agent {
-        Some(active_agent) => agent_list_view
-            .rows
+        Some(active_agent) => agent_rows
             .iter()
-            .position(|row| row.agent_id == active_agent)?,
+            .position(|agent_id| *agent_id == active_agent)?,
         None => {
             return Some(if step < 0 {
-                agent_list_view.rows.last()?.agent_id
+                *agent_rows.last()?
             } else {
-                agent_list_view.rows[0].agent_id
+                agent_rows[0]
             });
         }
     };
@@ -526,7 +543,7 @@ fn adjacent_agent_id(
             .saturating_add(step as usize)
             .min(agent_list_view.rows.len().saturating_sub(1))
     };
-    (next_index != current_index).then_some(agent_list_view.rows[next_index].agent_id)
+    (next_index != current_index).then_some(agent_rows[next_index])
 }
 
 /// Handles keyboard shortcuts that toggle/reset HUD modules and navigate the agent list.

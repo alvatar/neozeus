@@ -14,7 +14,7 @@ use std::{
 use super::super::{
     bridge::TerminalBridge,
     daemon::{
-        AttachedDaemonSession, DaemonSessionInfo, TerminalDaemonClient,
+        AttachedDaemonSession, DaemonSessionInfo, OwnedTmuxSessionInfo, TerminalDaemonClient,
         TerminalDaemonClientResource,
     },
     debug::TerminalDebugStats,
@@ -185,6 +185,36 @@ impl TerminalDaemonClient for FakeDaemonClient {
         let session_id = format!("{prefix}1");
         self.sessions.lock().unwrap().insert(session_id.clone());
         Ok(session_id)
+    }
+
+    fn list_owned_tmux_sessions(&self) -> Result<Vec<OwnedTmuxSessionInfo>, String> {
+        Ok(Vec::new())
+    }
+
+    fn create_owned_tmux_session(
+        &self,
+        _owner_agent_uid: &str,
+        _display_name: &str,
+        _cwd: Option<&str>,
+        _command: &str,
+    ) -> Result<OwnedTmuxSessionInfo, String> {
+        Err("owned tmux not needed in presentation tests".into())
+    }
+
+    fn capture_owned_tmux_session(
+        &self,
+        _session_uid: &str,
+        _lines: usize,
+    ) -> Result<String, String> {
+        Err("owned tmux not needed in presentation tests".into())
+    }
+
+    fn kill_owned_tmux_session(&self, _session_uid: &str) -> Result<(), String> {
+        Err("owned tmux not needed in presentation tests".into())
+    }
+
+    fn kill_owned_tmux_sessions_for_agent(&self, _owner_agent_uid: &str) -> Result<(), String> {
+        Err("owned tmux not needed in presentation tests".into())
     }
 
     /// Returns a dummy attached session with an empty snapshot and a disconnected update channel.

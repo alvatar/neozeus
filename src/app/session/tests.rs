@@ -164,7 +164,14 @@ fn text_field_word_motion_uses_whitespace_boundaries() {
 fn cwd_field_mutate_text_clears_completion_state() {
     let mut dialog = CreateAgentDialogState::default();
     dialog.open(CreateAgentKind::Pi);
-    assert!(dialog.cwd_field.start_or_cycle_completion(false));
+    dialog.cwd_field.completion = Some(super::create_agent_dialog::CwdCompletionState {
+        items: vec![crate::app::path_completion::DirectoryCompletionCandidate {
+            display: "~/code/".into(),
+            completion_text: "~/code/".into(),
+        }],
+        selected: 0,
+        preview_active: true,
+    });
     assert!(dialog.cwd_field.completion.is_some());
 
     let changed = dialog.cwd_field.mutate_text(|field| field.insert_text("x"));

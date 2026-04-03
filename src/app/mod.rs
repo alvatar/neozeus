@@ -9,7 +9,8 @@ mod session;
 mod use_cases;
 
 pub(crate) use commands::{
-    AgentCommand, AppCommand, ComposerCommand, ComposerRequest, TaskCommand, WidgetCommand,
+    AgentCommand, AppCommand, ComposerCommand, ComposerRequest, OwnedTmuxCommand, TaskCommand,
+    WidgetCommand,
 };
 pub(crate) use persistence::{
     load_persisted_app_state_from, mark_app_state_dirty, ordered_reconciled_persisted_agents,
@@ -44,6 +45,13 @@ pub(crate) use {
 #[cfg(test)]
 pub(crate) fn run_apply_app_commands(world: &mut bevy::prelude::World) {
     use bevy::ecs::system::RunSystemOnce;
+
+    if !world.contains_resource::<crate::terminals::OwnedTmuxSessionStore>() {
+        world.insert_resource(crate::terminals::OwnedTmuxSessionStore::default());
+    }
+    if !world.contains_resource::<crate::terminals::OwnedTmuxInspectState>() {
+        world.insert_resource(crate::terminals::OwnedTmuxInspectState::default());
+    }
 
     world.run_system_once(dispatch::apply_app_commands).unwrap();
 }

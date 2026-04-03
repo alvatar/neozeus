@@ -40,7 +40,7 @@ pub(crate) use view_models::{
 };
 
 #[cfg(test)]
-pub(crate) use view_models::UsageBarView;
+pub(crate) use view_models::{AgentListRowKey, AgentListRowKind, UsageBarView};
 pub(crate) use widgets::HudWidgetKey;
 
 #[cfg(test)]

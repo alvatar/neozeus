@@ -1,8 +1,11 @@
-use super::super::types::{
-    TerminalCell, TerminalCellContent, TerminalCellStyle, TerminalCommand, TerminalCursor,
-    TerminalCursorShape, TerminalDamage, TerminalFrameUpdate, TerminalLifecycle,
-    TerminalRuntimeState, TerminalSnapshot, TerminalSurface, TerminalUnderlineStyle,
-    TerminalUpdate,
+use super::{
+    super::types::{
+        TerminalCell, TerminalCellContent, TerminalCellStyle, TerminalCommand, TerminalCursor,
+        TerminalCursorShape, TerminalDamage, TerminalFrameUpdate, TerminalLifecycle,
+        TerminalRuntimeState, TerminalSnapshot, TerminalSurface, TerminalUnderlineStyle,
+        TerminalUpdate,
+    },
+    owned_tmux::OwnedTmuxSessionInfo,
 };
 use crate::shared::daemon_wire as wire;
 use bevy_egui::egui;
@@ -26,6 +29,17 @@ pub(crate) enum DaemonRequest {
         cwd: Option<String>,
         env_overrides: Vec<(String, String)>,
     },
+    ListOwnedTmuxSessions,
+    CreateOwnedTmuxSession {
+        owner_agent_uid: String,
+        display_name: String,
+        cwd: Option<String>,
+        command: String,
+    },
+    CaptureOwnedTmuxSession {
+        session_uid: String,
+        lines: usize,
+    },
     AttachSession {
         session_id: String,
     },
@@ -40,6 +54,12 @@ pub(crate) enum DaemonRequest {
     },
     KillSession {
         session_id: String,
+    },
+    KillOwnedTmuxSession {
+        session_uid: String,
+    },
+    KillOwnedTmuxSessionsForAgent {
+        owner_agent_uid: String,
     },
 }
 
@@ -59,6 +79,16 @@ pub(crate) enum DaemonResponse {
     },
     SessionCreated {
         session_id: String,
+    },
+    OwnedTmuxSessionList {
+        sessions: Vec<OwnedTmuxSessionInfo>,
+    },
+    OwnedTmuxSessionCreated {
+        session: OwnedTmuxSessionInfo,
+    },
+    OwnedTmuxSessionCapture {
+        session_uid: String,
+        text: String,
     },
     SessionAttached {
         session_id: String,
@@ -214,6 +244,27 @@ fn encode_request(buffer: &mut Vec<u8>, request: &DaemonRequest) {
                 push_string(buffer, value);
             });
         }
+        DaemonRequest::ListOwnedTmuxSessions => push_u8(buffer, 7),
+        DaemonRequest::CreateOwnedTmuxSession {
+            owner_agent_uid,
+            display_name,
+            cwd,
+            command,
+        } => {
+            push_u8(buffer, 8);
+            push_string(buffer, owner_agent_uid);
+            push_string(buffer, display_name);
+            push_bool(buffer, cwd.is_some());
+            if let Some(cwd) = cwd {
+                push_string(buffer, cwd);
+            }
+            push_string(buffer, command);
+        }
+        DaemonRequest::CaptureOwnedTmuxSession { session_uid, lines } => {
+            push_u8(buffer, 9);
+            push_string(buffer, session_uid);
+            push_usize(buffer, *lines);
+        }
         DaemonRequest::AttachSession { session_id } => {
             push_u8(buffer, 3);
             push_string(buffer, session_id);
@@ -239,6 +290,14 @@ fn encode_request(buffer: &mut Vec<u8>, request: &DaemonRequest) {
         DaemonRequest::KillSession { session_id } => {
             push_u8(buffer, 6);
             push_string(buffer, session_id);
+        }
+        DaemonRequest::KillOwnedTmuxSession { session_uid } => {
+            push_u8(buffer, 10);
+            push_string(buffer, session_uid);
+        }
+        DaemonRequest::KillOwnedTmuxSessionsForAgent { owner_agent_uid } => {
+            push_u8(buffer, 11);
+            push_string(buffer, owner_agent_uid);
         }
     }
 }
@@ -278,6 +337,23 @@ fn decode_request(decoder: &mut Decoder<'_>) -> Result<DaemonRequest, String> {
         6 => Ok(DaemonRequest::KillSession {
             session_id: decoder.read_string()?,
         }),
+        7 => Ok(DaemonRequest::ListOwnedTmuxSessions),
+        8 => Ok(DaemonRequest::CreateOwnedTmuxSession {
+            owner_agent_uid: decoder.read_string()?,
+            display_name: decoder.read_string()?,
+            cwd: decoder.read_option(|decoder| decoder.read_string())?,
+            command: decoder.read_string()?,
+        }),
+        9 => Ok(DaemonRequest::CaptureOwnedTmuxSession {
+            session_uid: decoder.read_string()?,
+            lines: decoder.read_usize()?,
+        }),
+        10 => Ok(DaemonRequest::KillOwnedTmuxSession {
+            session_uid: decoder.read_string()?,
+        }),
+        11 => Ok(DaemonRequest::KillOwnedTmuxSessionsForAgent {
+            owner_agent_uid: decoder.read_string()?,
+        }),
         tag => Err(format!("unknown daemon request tag {tag}")),
     }
 }
@@ -301,7 +377,6 @@ fn encode_server_message(buffer: &mut Vec<u8>, message: &ServerMessage) {
         }
     }
 }
-
 /// Decodes one server message from the payload stream.
 fn decode_server_message(decoder: &mut Decoder<'_>) -> Result<ServerMessage, String> {
     match decoder.read_u8()? {
@@ -337,6 +412,19 @@ fn encode_response(buffer: &mut Vec<u8>, response: &DaemonResponse) {
             push_u64(buffer, *revision);
         }
         DaemonResponse::Ack => push_u8(buffer, 4),
+        DaemonResponse::OwnedTmuxSessionList { sessions } => {
+            push_u8(buffer, 5);
+            push_vec(buffer, sessions, encode_owned_tmux_session_info);
+        }
+        DaemonResponse::OwnedTmuxSessionCreated { session } => {
+            push_u8(buffer, 6);
+            encode_owned_tmux_session_info(buffer, session);
+        }
+        DaemonResponse::OwnedTmuxSessionCapture { session_uid, text } => {
+            push_u8(buffer, 7);
+            push_string(buffer, session_uid);
+            push_string(buffer, text);
+        }
     }
 }
 
@@ -355,6 +443,16 @@ fn decode_response(decoder: &mut Decoder<'_>) -> Result<DaemonResponse, String> 
             revision: decoder.read_u64()?,
         }),
         4 => Ok(DaemonResponse::Ack),
+        5 => Ok(DaemonResponse::OwnedTmuxSessionList {
+            sessions: decoder.read_vec(decode_owned_tmux_session_info)?,
+        }),
+        6 => Ok(DaemonResponse::OwnedTmuxSessionCreated {
+            session: decode_owned_tmux_session_info(decoder)?,
+        }),
+        7 => Ok(DaemonResponse::OwnedTmuxSessionCapture {
+            session_uid: decoder.read_string()?,
+            text: decoder.read_string()?,
+        }),
         tag => Err(format!("unknown daemon response tag {tag}")),
     }
 }
@@ -362,6 +460,30 @@ fn decode_response(decoder: &mut Decoder<'_>) -> Result<DaemonResponse, String> 
 /// Encodes the subset of session metadata that belongs on the daemon wire format.
 ///
 /// `created_order` intentionally stays off-wire for protocol v1 compatibility.
+fn encode_owned_tmux_session_info(buffer: &mut Vec<u8>, info: &OwnedTmuxSessionInfo) {
+    push_string(buffer, &info.session_uid);
+    push_string(buffer, &info.owner_agent_uid);
+    push_string(buffer, &info.tmux_name);
+    push_string(buffer, &info.display_name);
+    push_string(buffer, &info.cwd);
+    push_bool(buffer, info.attached);
+    push_u64(buffer, info.created_unix);
+}
+
+fn decode_owned_tmux_session_info(
+    decoder: &mut Decoder<'_>,
+) -> Result<OwnedTmuxSessionInfo, String> {
+    Ok(OwnedTmuxSessionInfo {
+        session_uid: decoder.read_string()?,
+        owner_agent_uid: decoder.read_string()?,
+        tmux_name: decoder.read_string()?,
+        display_name: decoder.read_string()?,
+        cwd: decoder.read_string()?,
+        attached: decoder.read_bool()?,
+        created_unix: decoder.read_u64()?,
+    })
+}
+
 fn encode_session_info(buffer: &mut Vec<u8>, info: &DaemonSessionInfo) {
     push_string(buffer, &info.session_id);
     encode_runtime_state(buffer, &info.runtime);

@@ -10,21 +10,9 @@ pub(crate) fn render_content(
     inputs: &HudRenderInputs,
 ) {
     // Build the geometry or layout decisions first, then emit the matching draw operations against the prepared state.
-    let header = inputs
-        .thread_view
-        .agent_id
-        .and_then(|agent_id| {
-            inputs
-                .agent_list_view
-                .rows
-                .iter()
-                .find(|row| row.agent_id == agent_id)
-                .map(|row| row.label.clone())
-        })
-        .unwrap_or_else(|| "No thread selected".to_owned());
     painter.label(
         Vec2::new(content_rect.x + 8.0, content_rect.y + 6.0),
-        &header,
+        &inputs.thread_view.header,
         15.0,
         HudColors::TEXT,
         VelloTextAnchor::TopLeft,
@@ -33,7 +21,7 @@ pub(crate) fn render_content(
     if inputs.thread_view.is_empty() {
         painter.label(
             Vec2::new(content_rect.x + 8.0, content_rect.y + HUD_ROW_HEIGHT + 12.0),
-            "No messages yet",
+            &inputs.thread_view.empty_message,
             14.0,
             HudColors::TEXT_MUTED,
             VelloTextAnchor::TopLeft,

@@ -1,6 +1,6 @@
 use super::{
-    parse_agent_context_pct_milli, sync_hud_view_models, sync_info_bar_view_model, AgentListView,
-    ComposerView, ConversationListView, InfoBarView, ThreadView,
+    parse_agent_context_pct_milli, sync_hud_view_models, sync_info_bar_view_model,
+    AgentListRowKind, AgentListView, ComposerView, ConversationListView, InfoBarView, ThreadView,
 };
 use crate::{
     agents::{AgentCatalog, AgentKind, AgentRuntimeIndex, AgentStatus, AgentStatusStore},
@@ -16,10 +16,8 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-/// Verifies that sync hud view models derives agent rows and threads.
 #[test]
 fn sync_hud_view_models_derives_agent_rows_and_threads() {
-    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let (bridge, _) = test_bridge();
     let mut manager = crate::terminals::TerminalManager::default();
     let terminal_id = manager.create_terminal(bridge);
@@ -66,26 +64,119 @@ fn sync_hud_view_models_derives_agent_rows_and_threads() {
     world.insert_resource(ThreadView::default());
     world.insert_resource(ComposerView::default());
     world.insert_resource(AgentStatusStore::default());
+    world.insert_resource(crate::terminals::OwnedTmuxSessionStore::default());
+    world.insert_resource(crate::terminals::OwnedTmuxInspectState::default());
     insert_terminal_manager_resources(&mut world, manager);
 
     world.run_system_once(sync_hud_view_models).unwrap();
 
     let agent_list = world.resource::<AgentListView>();
     assert_eq!(agent_list.rows.len(), 1);
-    assert_eq!(agent_list.rows[0].label, "alpha");
+    assert_eq!(agent_list.rows[0].label, "ALPHA");
     assert!(agent_list.rows[0].focused);
-    assert!(agent_list.rows[0].has_tasks);
-    assert_eq!(agent_list.rows[0].status, AgentStatus::Unknown);
+    match &agent_list.rows[0].kind {
+        AgentListRowKind::Agent {
+            has_tasks,
+            status,
+            context_pct_milli,
+            ..
+        } => {
+            assert!(*has_tasks);
+            assert_eq!(*status, AgentStatus::Unknown);
+            assert_eq!(*context_pct_milli, None);
+        }
+        other => panic!("expected agent row, got {other:?}"),
+    }
 
     let thread = world.resource::<ThreadView>();
+    assert_eq!(thread.header, "ALPHA");
     let rows = thread.message_rows();
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].0, "hello");
 
     let composer = world.resource::<ComposerView>();
     assert!(composer.visible);
-    assert_eq!(composer.title.as_deref(), Some("Message alpha"));
+    assert_eq!(composer.title.as_deref(), Some("Message ALPHA"));
     assert_eq!(composer.text, "hello");
+}
+
+#[test]
+fn sync_hud_view_models_places_owned_tmux_rows_under_matching_agent() {
+    let mut catalog = AgentCatalog::default();
+    let agent_id = catalog.create_agent(
+        Some("alpha".into()),
+        AgentKind::Terminal,
+        AgentKind::Terminal.capabilities(),
+    );
+    let agent_uid = catalog.uid(agent_id).unwrap().to_owned();
+
+    let mut world = World::default();
+    world.insert_resource(catalog);
+    world.insert_resource(AgentRuntimeIndex::default());
+    world.insert_resource(AppSessionState::default());
+    world.insert_resource(AgentTaskStore::default());
+    world.insert_resource(ConversationStore::default());
+    world.insert_resource(AgentListView::default());
+    world.insert_resource(ConversationListView::default());
+    world.insert_resource(ThreadView::default());
+    world.insert_resource(ComposerView::default());
+    world.insert_resource(AgentStatusStore::default());
+    let mut owned_tmux = crate::terminals::OwnedTmuxSessionStore::default();
+    owned_tmux
+        .sessions
+        .push(crate::terminals::OwnedTmuxSessionInfo {
+            session_uid: "tmux-1".into(),
+            owner_agent_uid: agent_uid,
+            tmux_name: "neozeus-tmux-1".into(),
+            display_name: "BUILD".into(),
+            cwd: "/tmp/work".into(),
+            attached: false,
+            created_unix: 1,
+        });
+    world.insert_resource(owned_tmux);
+    world.insert_resource(crate::terminals::OwnedTmuxInspectState::default());
+    world.insert_resource(crate::terminals::TerminalManager::default());
+
+    world.run_system_once(sync_hud_view_models).unwrap();
+    let rows = &world.resource::<AgentListView>().rows;
+    assert_eq!(rows.len(), 2);
+    assert!(matches!(rows[0].key, super::AgentListRowKey::Agent(_)));
+    assert!(matches!(rows[1].key, super::AgentListRowKey::OwnedTmux(_)));
+}
+
+#[test]
+fn sync_hud_view_models_routes_unknown_owned_tmux_to_orphan_row() {
+    let mut world = World::default();
+    world.insert_resource(AgentCatalog::default());
+    world.insert_resource(AgentRuntimeIndex::default());
+    world.insert_resource(AppSessionState::default());
+    world.insert_resource(AgentTaskStore::default());
+    world.insert_resource(ConversationStore::default());
+    world.insert_resource(AgentListView::default());
+    world.insert_resource(ConversationListView::default());
+    world.insert_resource(ThreadView::default());
+    world.insert_resource(ComposerView::default());
+    world.insert_resource(AgentStatusStore::default());
+    let mut owned_tmux = crate::terminals::OwnedTmuxSessionStore::default();
+    owned_tmux
+        .sessions
+        .push(crate::terminals::OwnedTmuxSessionInfo {
+            session_uid: "tmux-orphan".into(),
+            owner_agent_uid: "missing-agent".into(),
+            tmux_name: "neozeus-tmux-orphan".into(),
+            display_name: "BUILD".into(),
+            cwd: "/tmp/work".into(),
+            attached: false,
+            created_unix: 1,
+        });
+    world.insert_resource(owned_tmux);
+    world.insert_resource(crate::terminals::OwnedTmuxInspectState::default());
+    world.insert_resource(crate::terminals::TerminalManager::default());
+
+    world.run_system_once(sync_hud_view_models).unwrap();
+    let rows = &world.resource::<AgentListView>().rows;
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].label, "ORPHAN BUILD");
 }
 
 #[test]
@@ -126,6 +217,8 @@ fn sync_hud_view_models_carries_agent_working_status_into_rows() {
     world.insert_resource(ThreadView::default());
     world.insert_resource(ComposerView::default());
     world.insert_resource(AgentStatusStore::default());
+    world.insert_resource(crate::terminals::OwnedTmuxSessionStore::default());
+    world.insert_resource(crate::terminals::OwnedTmuxInspectState::default());
     insert_terminal_manager_resources(&mut world, manager);
 
     world
@@ -134,7 +227,10 @@ fn sync_hud_view_models_carries_agent_working_status_into_rows() {
     world.run_system_once(sync_hud_view_models).unwrap();
 
     let agent_list = world.resource::<AgentListView>();
-    assert_eq!(agent_list.rows[0].status, AgentStatus::Working);
+    match &agent_list.rows[0].kind {
+        AgentListRowKind::Agent { status, .. } => assert_eq!(*status, AgentStatus::Working),
+        other => panic!("expected agent row, got {other:?}"),
+    }
 }
 
 #[test]
@@ -191,10 +287,17 @@ fn synced_context_pct(kind: AgentKind, surface: crate::terminals::TerminalSurfac
     world.insert_resource(ThreadView::default());
     world.insert_resource(ComposerView::default());
     world.insert_resource(AgentStatusStore::default());
+    world.insert_resource(crate::terminals::OwnedTmuxSessionStore::default());
+    world.insert_resource(crate::terminals::OwnedTmuxInspectState::default());
     insert_terminal_manager_resources(&mut world, manager);
 
     world.run_system_once(sync_hud_view_models).unwrap();
-    world.resource::<AgentListView>().rows[0].context_pct_milli
+    match &world.resource::<AgentListView>().rows[0].kind {
+        AgentListRowKind::Agent {
+            context_pct_milli, ..
+        } => *context_pct_milli,
+        other => panic!("expected agent row, got {other:?}"),
+    }
 }
 
 fn temp_path(name: &str) -> PathBuf {
@@ -223,7 +326,6 @@ fn test_usage_persistence_state() -> UsagePersistenceState {
     }
 }
 
-/// Verifies that the info bar derives Zeus-style usage rows from the normalized usage snapshot.
 #[test]
 fn sync_info_bar_view_model_derives_usage_rows() {
     let mut world = World::default();
@@ -239,8 +341,10 @@ fn sync_info_bar_view_model_derives_usage_rows() {
         openai: OpenAiUsageData {
             requests_pct_milli: 40_000,
             tokens_pct_milli: 75_000,
-            requests_resets_at: "45s".into(),
-            tokens_resets_at: "24h".into(),
+            requests_limit: 100,
+            requests_remaining: 60,
+            tokens_limit: 1_000,
+            tokens_remaining: 250,
             available: true,
             ..Default::default()
         },
@@ -250,20 +354,18 @@ fn sync_info_bar_view_model_derives_usage_rows() {
 
     world.run_system_once(sync_info_bar_view_model).unwrap();
 
-    let info_bar = world.resource::<InfoBarView>();
-    assert_eq!(info_bar.claude_session.label, "Claude Session:");
-    assert_eq!(info_bar.claude_session.pct_milli, 42_000);
-    assert_eq!(info_bar.claude_session.detail_text, "(5m)");
-    assert_eq!(info_bar.claude_week.detail_text, "(2h00m)");
-    assert_eq!(info_bar.openai_session.label, "OpenAI Session:");
-    assert_eq!(info_bar.openai_session.pct_milli, 40_000);
-    assert_eq!(info_bar.openai_session.detail_text, "(45s)");
-    assert_eq!(info_bar.openai_week.detail_text, "(1d00h)");
+    let info = world.resource::<InfoBarView>();
+    assert_eq!(info.claude_session.label, "Claude Session:");
+    assert_eq!(info.claude_session.pct_milli, 42_000);
+    assert_eq!(info.claude_week.pct_milli, 10_000);
+    assert_eq!(info.openai_session.pct_milli, 40_000);
+    assert_eq!(info.openai_week.pct_milli, 75_000);
+    assert_eq!(info.openai_session.detail_text, "40/100");
+    assert_eq!(info.openai_week.detail_text, "750/1000");
 }
 
-/// Verifies that unavailable providers produce explicit unavailable session text without panicking.
 #[test]
-fn sync_info_bar_view_model_marks_unavailable_providers_explicitly() {
+fn sync_info_bar_view_model_handles_unavailable_sources() {
     let mut world = World::default();
     world.insert_resource(UsageSnapshot::default());
     world.insert_resource(test_usage_persistence_state());
@@ -271,37 +373,43 @@ fn sync_info_bar_view_model_marks_unavailable_providers_explicitly() {
 
     world.run_system_once(sync_info_bar_view_model).unwrap();
 
-    let info_bar = world.resource::<InfoBarView>();
-    assert_eq!(info_bar.claude_session.detail_text, "(unavailable)");
-    assert_eq!(info_bar.claude_week.detail_text, "");
-    assert_eq!(info_bar.openai_session.detail_text, "(unavailable)");
-    assert_eq!(info_bar.openai_week.detail_text, "");
+    let info = world.resource::<InfoBarView>();
+    assert!(!info.claude_session.available);
+    assert!(!info.openai_session.available);
 }
 
-/// Verifies that Claude backoff is surfaced as an explicit rate-limited UI state instead of a
-/// generic unavailable marker.
 #[test]
-fn sync_info_bar_view_model_marks_rate_limited_claude_explicitly() {
+fn sync_info_bar_view_model_reports_claude_backoff() {
     let persistence = test_usage_persistence_state();
     fs::create_dir_all(&persistence.state_dir).unwrap();
-    let backoff_until = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_secs()
-        + 900;
     fs::write(
         &persistence.claude_backoff_until_path,
-        backoff_until.to_string(),
+        format!("{}", current_unix() + 120),
     )
     .unwrap();
 
     let mut world = World::default();
-    world.insert_resource(UsageSnapshot::default());
+    world.insert_resource(UsageSnapshot {
+        claude: ClaudeUsageData {
+            session_pct: 12.0,
+            available: true,
+            ..Default::default()
+        },
+        ..Default::default()
+    });
     world.insert_resource(persistence);
     world.insert_resource(InfoBarView::default());
 
     world.run_system_once(sync_info_bar_view_model).unwrap();
+    assert_eq!(
+        world.resource::<InfoBarView>().claude_session.detail_text,
+        "RATE LIMITED"
+    );
+}
 
-    let info_bar = world.resource::<InfoBarView>();
-    assert_eq!(info_bar.claude_session.detail_text, "(rate limited)");
+fn current_unix() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
 }

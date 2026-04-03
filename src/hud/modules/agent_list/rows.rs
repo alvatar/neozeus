@@ -1,12 +1,10 @@
 use crate::{
     agents::{AgentId, AgentStatus},
+    hud::view_models::{AgentListRowKey, AgentListRowKind, AgentListView},
     terminals::TerminalId,
 };
 
-use super::super::super::{
-    state::{HudRect, HUD_MODULE_PADDING, HUD_ROW_HEIGHT},
-    view_models::AgentListView,
-};
+use super::super::super::state::{HudRect, HUD_MODULE_PADDING, HUD_ROW_HEIGHT};
 
 pub(crate) const AGENT_LIST_HEADER_HEIGHT: f32 = 52.0;
 pub(crate) const AGENT_LIST_LEFT_RAIL_WIDTH: f32 = 20.0;
@@ -35,9 +33,11 @@ pub(crate) enum AgentListRowSection {
 
 #[derive(Clone, Debug, PartialEq)]
 pub(in crate::hud) struct AgentRow {
-    pub(in crate::hud) agent_id: AgentId,
+    pub(in crate::hud) key: AgentListRowKey,
+    pub(in crate::hud) agent_id: Option<AgentId>,
     pub(in crate::hud) terminal_id: Option<TerminalId>,
     pub(in crate::hud) label: String,
+    pub(in crate::hud) detail: Option<String>,
     pub(in crate::hud) rect: HudRect,
     pub(in crate::hud) focused: bool,
     pub(in crate::hud) hovered: bool,
@@ -46,6 +46,9 @@ pub(in crate::hud) struct AgentRow {
     pub(in crate::hud) status: AgentStatus,
     pub(in crate::hud) context_pct_milli: Option<i32>,
     pub(in crate::hud) dragging: bool,
+    pub(in crate::hud) is_tmux_child: bool,
+    pub(in crate::hud) is_orphan_tmux: bool,
+    pub(in crate::hud) tmux_attached: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -57,10 +60,6 @@ pub(in crate::hud) struct AgentListDragPreview {
 }
 
 /// Derives one sub-rectangle of an agent row for rendering or hit-testing.
-///
-/// A logical row is split into the main label box, the narrow right-side indicator strip, and a
-/// tiny accent strip. The helper bakes in the EVA-specific padding constants and clamps dimensions
-/// so very small rows do not collapse to negative sizes.
 pub(crate) fn agent_row_rect(rect: HudRect, section: AgentListRowSection) -> HudRect {
     match section {
         AgentListRowSection::Main => HudRect {
@@ -84,12 +83,10 @@ pub(crate) fn agent_row_rect(rect: HudRect, section: AgentListRowSection) -> Hud
     }
 }
 
-/// Returns the vertical distance from one agent row origin to the next.
 fn agent_row_stride() -> f32 {
     HUD_ROW_HEIGHT + AGENT_LIST_ROW_GAP
 }
 
-/// Computes the total scrollable content height for a given number of agent rows.
 pub(crate) fn agent_list_content_height(row_count: usize) -> f32 {
     match row_count {
         0 => 0.0,
@@ -97,27 +94,25 @@ pub(crate) fn agent_list_content_height(row_count: usize) -> f32 {
     }
 }
 
-/// Builds the retained row descriptors needed to render and interact with the agent list.
 pub(in crate::hud) fn agent_rows(
     shell_rect: HudRect,
     scroll_offset: f32,
-    hovered_agent: Option<AgentId>,
+    hovered_row: Option<&AgentListRowKey>,
     agent_list_view: &AgentListView,
 ) -> Vec<AgentRow> {
     projected_agent_rows(
         shell_rect,
         scroll_offset,
-        hovered_agent,
+        hovered_row,
         agent_list_view,
         None,
     )
 }
 
-/// Builds the retained row descriptors, optionally projecting one row into a live drag preview.
 pub(in crate::hud) fn projected_agent_rows(
     shell_rect: HudRect,
     scroll_offset: f32,
-    hovered_agent: Option<AgentId>,
+    hovered_row: Option<&AgentListRowKey>,
     agent_list_view: &AgentListView,
     drag_preview: Option<AgentListDragPreview>,
 ) -> Vec<AgentRow> {
@@ -126,20 +121,65 @@ pub(in crate::hud) fn projected_agent_rows(
     let content_w = (shell_rect.w - AGENT_LIST_LEFT_RAIL_WIDTH - 3.0).max(0.0);
     let row_stride = agent_row_stride();
 
-    let Some(drag_preview) = drag_preview.filter(|preview| {
-        agent_list_view
-            .rows
-            .iter()
-            .any(|row| row.agent_id == preview.agent_id)
-    }) else {
-        return agent_list_view
-            .rows
-            .iter()
-            .enumerate()
-            .map(|(index, row)| AgentRow {
-                agent_id: row.agent_id,
-                terminal_id: row.terminal_id,
+    let build_row =
+        |index: usize, row: &crate::hud::view_models::AgentListRowView, dragging: bool| {
+            let (
+                agent_id,
+                terminal_id,
+                detail,
+                has_tasks,
+                interactive,
+                status,
+                context_pct_milli,
+                is_tmux_child,
+                is_orphan_tmux,
+                tmux_attached,
+            ) = match &row.kind {
+                AgentListRowKind::Agent {
+                    agent_id,
+                    terminal_id,
+                    has_tasks,
+                    interactive,
+                    status,
+                    context_pct_milli,
+                } => (
+                    Some(*agent_id),
+                    *terminal_id,
+                    None,
+                    *has_tasks,
+                    *interactive,
+                    *status,
+                    *context_pct_milli,
+                    false,
+                    false,
+                    false,
+                ),
+                AgentListRowKind::OwnedTmux {
+                    owner_agent_id,
+                    tmux_name,
+                    cwd,
+                    attached,
+                    orphan,
+                    ..
+                } => (
+                    *owner_agent_id,
+                    None,
+                    Some(format!("{}  {}", tmux_name, cwd)),
+                    false,
+                    true,
+                    AgentStatus::Unknown,
+                    None,
+                    true,
+                    *orphan,
+                    *attached,
+                ),
+            };
+            AgentRow {
+                key: row.key.clone(),
+                agent_id,
+                terminal_id,
                 label: row.label.clone(),
+                detail,
                 rect: HudRect {
                     x: content_x,
                     y: content_y + index as f32 * row_stride - scroll_offset,
@@ -147,74 +187,85 @@ pub(in crate::hud) fn projected_agent_rows(
                     h: HUD_ROW_HEIGHT,
                 },
                 focused: row.focused,
-                hovered: hovered_agent == Some(row.agent_id),
-                has_tasks: row.has_tasks,
-                interactive: row.interactive,
-                status: row.status,
-                context_pct_milli: row.context_pct_milli,
-                dragging: false,
-            })
+                hovered: hovered_row == Some(&row.key),
+                has_tasks,
+                interactive,
+                status,
+                context_pct_milli,
+                dragging,
+                is_tmux_child,
+                is_orphan_tmux,
+                tmux_attached,
+            }
+        };
+
+    let Some(drag_preview) = drag_preview.filter(|preview| {
+        agent_list_view.rows.iter().any(|row| {
+            matches!(
+                row.kind,
+                AgentListRowKind::Agent { agent_id, .. } if agent_id == preview.agent_id
+            )
+        })
+    }) else {
+        return agent_list_view
+            .rows
+            .iter()
+            .enumerate()
+            .map(|(index, row)| build_row(index, row, false))
             .collect();
     };
 
+    let agent_rows_only = agent_list_view
+        .rows
+        .iter()
+        .filter(|row| matches!(row.kind, AgentListRowKind::Agent { .. }))
+        .collect::<Vec<_>>();
     let target_index = drag_preview
         .target_index
-        .min(agent_list_view.rows.len().saturating_sub(1));
-    let dragged_row = agent_list_view
-        .rows
-        .iter()
-        .find(|row| row.agent_id == drag_preview.agent_id)
-        .expect("validated drag preview should reference an existing row");
-    let mut rows = Vec::with_capacity(agent_list_view.rows.len());
+        .min(agent_rows_only.len().saturating_sub(1));
+    let dragged_row = agent_rows_only
+        .into_iter()
+        .find(|row| {
+            matches!(
+                row.kind,
+                AgentListRowKind::Agent { agent_id, .. } if agent_id == drag_preview.agent_id
+            )
+        })
+        .expect("validated drag preview should reference an existing agent row");
 
-    for (index, row) in agent_list_view
-        .rows
-        .iter()
-        .filter(|row| row.agent_id != drag_preview.agent_id)
-        .enumerate()
-    {
-        let projected_index = if index < target_index {
-            index
-        } else {
-            index + 1
+    let mut rows = Vec::with_capacity(agent_list_view.rows.len());
+    let mut projected_agent_index = 0usize;
+    for row in agent_list_view.rows.iter() {
+        if matches!(
+            row.kind,
+            AgentListRowKind::Agent { agent_id, .. } if agent_id == drag_preview.agent_id
+        ) {
+            continue;
+        }
+        let row_index = match row.kind {
+            AgentListRowKind::Agent { .. } => {
+                let index = if projected_agent_index < target_index {
+                    projected_agent_index
+                } else {
+                    projected_agent_index + 1
+                };
+                projected_agent_index += 1;
+                index
+            }
+            AgentListRowKind::OwnedTmux { .. } => projected_agent_index,
         };
-        rows.push(AgentRow {
-            agent_id: row.agent_id,
-            terminal_id: row.terminal_id,
-            label: row.label.clone(),
-            rect: HudRect {
-                x: content_x,
-                y: content_y + projected_index as f32 * row_stride - scroll_offset,
-                w: content_w,
-                h: HUD_ROW_HEIGHT,
-            },
-            focused: row.focused,
-            hovered: hovered_agent == Some(row.agent_id),
-            has_tasks: row.has_tasks,
-            interactive: row.interactive,
-            status: row.status,
-            context_pct_milli: row.context_pct_milli,
-            dragging: false,
-        });
+        rows.push(build_row(row_index, row, false));
     }
 
     rows.push(AgentRow {
-        agent_id: dragged_row.agent_id,
-        terminal_id: dragged_row.terminal_id,
-        label: dragged_row.label.clone(),
         rect: HudRect {
             x: content_x,
             y: drag_preview.cursor_y - drag_preview.grab_offset_y,
             w: content_w,
             h: HUD_ROW_HEIGHT,
         },
-        focused: dragged_row.focused,
-        hovered: hovered_agent == Some(dragged_row.agent_id),
-        has_tasks: dragged_row.has_tasks,
-        interactive: dragged_row.interactive,
-        status: dragged_row.status,
-        context_pct_milli: dragged_row.context_pct_milli,
         dragging: true,
+        ..build_row(target_index, dragged_row, true)
     });
 
     rows

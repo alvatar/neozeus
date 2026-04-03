@@ -1,6 +1,9 @@
 use super::{
     bridge::TerminalBridge,
-    daemon::{AttachedDaemonSession, DaemonSessionInfo, TerminalDaemonClientResource},
+    daemon::{
+        AttachedDaemonSession, DaemonSessionInfo, OwnedTmuxSessionInfo,
+        TerminalDaemonClientResource,
+    },
     debug::{append_debug_log, note_terminal_error, with_debug_stats, TerminalDebugStats},
     mailbox::TerminalUpdateMailbox,
     types::{TerminalCommand, TerminalRuntimeState, TerminalSnapshot, TerminalUpdate},
@@ -200,6 +203,39 @@ impl TerminalRuntimeSpawner {
     /// spawner as the single runtime/session façade.
     pub(crate) fn kill_session(&self, session_id: &str) -> Result<(), String> {
         self.daemon_client()?.client().kill_session(session_id)
+    }
+
+    /// Lists all persistent agent-owned tmux child sessions currently known to the daemon.
+    pub(crate) fn list_owned_tmux_sessions(&self) -> Result<Vec<OwnedTmuxSessionInfo>, String> {
+        self.daemon_client()?.client().list_owned_tmux_sessions()
+    }
+
+    /// Captures one agent-owned tmux child session for read-only inspection.
+    pub(crate) fn capture_owned_tmux_session(
+        &self,
+        session_uid: &str,
+        lines: usize,
+    ) -> Result<String, String> {
+        self.daemon_client()?
+            .client()
+            .capture_owned_tmux_session(session_uid, lines)
+    }
+
+    /// Kills one agent-owned tmux child session by stable uid.
+    pub(crate) fn kill_owned_tmux_session(&self, session_uid: &str) -> Result<(), String> {
+        self.daemon_client()?
+            .client()
+            .kill_owned_tmux_session(session_uid)
+    }
+
+    /// Kills all agent-owned tmux child sessions belonging to one stable agent uid.
+    pub(crate) fn kill_owned_tmux_sessions_for_agent(
+        &self,
+        owner_agent_uid: &str,
+    ) -> Result<(), String> {
+        self.daemon_client()?
+            .client()
+            .kill_owned_tmux_sessions_for_agent(owner_agent_uid)
     }
 
     /// Attaches to an existing daemon session and launches the local runtime bridge threads for it.

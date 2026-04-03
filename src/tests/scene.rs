@@ -605,6 +605,87 @@ fn startup_restore_backfills_missing_agent_uid_and_marks_app_state_dirty() {
     );
 }
 
+/// Verifies that startup restore plus owned-tmux sync rebinds recovered tmux children under the
+/// restored agent using the stable persisted agent uid.
+#[test]
+fn startup_restore_rebinds_owned_tmux_children_under_agent() {
+    let client = Arc::new(crate::tests::FakeDaemonClient::default());
+    client.set_session_runtime(
+        "neozeus-session-a",
+        crate::terminals::TerminalRuntimeState::running("restored"),
+    );
+    let dir = temp_dir("neozeus-startup-owned-tmux-bind");
+    let app_state_path = dir.join("neozeus-state.v1");
+    std::fs::write(
+        &app_state_path,
+        "neozeus state version 1\n[agent]\nagent_uid=\"agent-uid-1\"\nsession_name=\"neozeus-session-a\"\nlabel=\"ALPHA\"\nkind=\"pi\"\norder_index=0\nfocused=1\n[/agent]\n",
+    )
+    .expect("app state should write");
+    client
+        .owned_tmux_sessions
+        .lock()
+        .unwrap()
+        .push(crate::terminals::OwnedTmuxSessionInfo {
+            session_uid: "tmux-session-1".into(),
+            owner_agent_uid: "agent-uid-1".into(),
+            tmux_name: "neozeus-tmux-1".into(),
+            display_name: "BUILD".into(),
+            cwd: "/tmp/work".into(),
+            attached: false,
+            created_unix: 0,
+        });
+
+    let mut world = World::default();
+    world.insert_resource(Assets::<Image>::default());
+    world.insert_resource(crate::terminals::TerminalManager::default());
+    world.insert_resource(crate::terminals::TerminalFocusState::default());
+    world.insert_resource(crate::terminals::TerminalPresentationStore::default());
+    world.insert_resource(crate::agents::AgentCatalog::default());
+    world.insert_resource(crate::agents::AgentRuntimeIndex::default());
+    world.insert_resource(crate::app::AppSessionState::default());
+    world.insert_resource(crate::conversations::ConversationStore::default());
+    world.insert_resource(crate::conversations::ConversationPersistenceState::default());
+    world.insert_resource(crate::conversations::AgentTaskStore::default());
+    world.insert_resource(crate::hud::HudInputCaptureState::default());
+    world.insert_resource(crate::terminals::TerminalViewState::default());
+    world.insert_resource(crate::hud::AgentListView::default());
+    world.insert_resource(crate::hud::ConversationListView::default());
+    world.insert_resource(crate::hud::ThreadView::default());
+    world.insert_resource(crate::hud::ComposerView::default());
+    world.insert_resource(crate::agents::AgentStatusStore::default());
+    world.insert_resource(crate::terminals::OwnedTmuxSessionStore::default());
+    world.insert_resource(crate::terminals::OwnedTmuxInspectState::default());
+    world.init_resource::<Messages<RequestRedraw>>();
+    world.insert_resource(Time::<()>::default());
+    world.insert_resource(fake_runtime_spawner(client));
+    world.insert_resource(crate::app::AppStatePersistenceState {
+        path: Some(app_state_path),
+        dirty_since_secs: None,
+    });
+    world.insert_resource(crate::terminals::TerminalNotesState::default());
+    world.insert_resource(crate::hud::TerminalVisibilityState::default());
+    world.insert_resource(crate::startup::StartupConnectState::default());
+
+    world.run_system_once(crate::startup::setup_scene).unwrap();
+    world
+        .resource_mut::<Time<()>>()
+        .advance_by(std::time::Duration::from_secs(1));
+    world
+        .run_system_once(crate::terminals::sync_owned_tmux_sessions)
+        .unwrap();
+    world
+        .run_system_once(crate::hud::sync_hud_view_models)
+        .unwrap();
+
+    let rows = &world.resource::<crate::hud::AgentListView>().rows;
+    assert_eq!(rows.len(), 2);
+    assert!(matches!(rows[0].key, crate::hud::AgentListRowKey::Agent(_)));
+    assert!(matches!(
+        rows[1].key,
+        crate::hud::AgentListRowKey::OwnedTmux(_)
+    ));
+}
+
 /// Verifies that startup reaps an unpersisted disconnected persistent session instead of importing
 /// it back as a dead agent, then falls back to spawning a fresh initial terminal.
 #[test]
