@@ -10,15 +10,20 @@ use crate::{
         CreateAgentDialogField, CreateAgentKind, RenameAgentDialogField,
         TaskCommand as AppTaskCommand,
     },
-    composer::{MessageDialogFocus, TaskDialogFocus},
+    composer::{
+        create_agent_name_field_rect, create_agent_starting_folder_rect, message_box_rect,
+        rename_agent_name_field_rect, task_dialog_rect, MessageDialogFocus, TaskDialogFocus,
+    },
     conversations::{AgentTaskStore, ConversationStore, MessageTransportAdapter},
     hud::{handle_hud_module_shortcuts, TerminalVisibilityState},
     input::{
         ctrl_sequence, focus_terminal_on_panel_click, handle_global_terminal_spawn_shortcut,
         handle_terminal_direct_input_keyboard, handle_terminal_lifecycle_shortcuts,
         handle_terminal_message_box_keyboard, hide_terminal_on_background_click,
-        keyboard_input_to_terminal_command, should_exit_application, should_kill_active_terminal,
-        should_spawn_terminal_globally,
+        keyboard_input_to_terminal_command, paste_into_create_agent_dialog,
+        paste_into_direct_input_terminal, paste_into_message_dialog,
+        paste_into_rename_agent_dialog, paste_into_task_dialog, should_exit_application,
+        should_kill_active_terminal, should_spawn_terminal_globally,
     },
     terminals::{
         TerminalCommand, TerminalManager, TerminalNotesState, TerminalPanel, TerminalPresentation,
@@ -33,7 +38,8 @@ use bevy::{
         ButtonInput, ButtonState,
     },
     prelude::{
-        Entity, Image, KeyCode, Messages, MouseButton, Time, Vec2, Visibility, Window, World,
+        Entity, Image, KeyCode, Messages, MouseButton, Query, Res, Single, Time, Vec2, Visibility,
+        Window, With, World,
     },
     window::{PrimaryWindow, RequestRedraw},
 };
@@ -543,6 +549,52 @@ fn create_agent_dialog_typing_uppercases_name_field() {
             .name_field
             .text,
         "AB"
+    );
+}
+
+#[test]
+fn middle_click_paste_in_create_agent_dialog_inserts_into_text_fields() {
+    let mut world = World::default();
+    world.insert_resource(ButtonInput::<KeyCode>::default());
+    world.insert_resource(AppSessionState::default());
+    world
+        .resource_mut::<AppSessionState>()
+        .create_agent_dialog
+        .open(CreateAgentKind::Pi);
+    world.spawn((
+        Window {
+            focused: true,
+            ..Default::default()
+        },
+        PrimaryWindow,
+    ));
+
+    let window = world
+        .query_filtered::<&Window, With<PrimaryWindow>>()
+        .single(&world)
+        .expect("primary window should exist")
+        .clone();
+    let name_rect = create_agent_name_field_rect(&window);
+    let cwd_rect = create_agent_starting_folder_rect(&window);
+    let mut app_session = world.resource_mut::<AppSessionState>();
+
+    assert!(paste_into_create_agent_dialog(
+        &mut app_session,
+        &window,
+        Vec2::new(name_rect.x + 4.0, name_rect.y + 4.0),
+        "mixedCase",
+    ));
+    assert!(paste_into_create_agent_dialog(
+        &mut app_session,
+        &window,
+        Vec2::new(cwd_rect.x + 4.0, cwd_rect.y + 4.0),
+        "/tmp/work",
+    ));
+
+    assert_eq!(app_session.create_agent_dialog.name_field.text, "MIXEDCASE");
+    assert_eq!(
+        app_session.create_agent_dialog.cwd_field.field.text,
+        "~/code/tmp/work"
     );
 }
 
@@ -1108,6 +1160,37 @@ fn rename_dialog_typing_uppercases_name_field() {
     );
 }
 
+#[test]
+fn middle_click_paste_in_rename_dialog_uppercases_text() {
+    let (mut world, terminal_id) =
+        world_with_active_terminal(Vec2::new(10.0, 10.0), false, Vec2::ZERO);
+    let agent_id = world
+        .resource::<crate::agents::AgentRuntimeIndex>()
+        .agent_for_terminal(terminal_id)
+        .expect("agent should be linked");
+    {
+        let mut app_session = world.resource_mut::<AppSessionState>();
+        app_session.rename_agent_dialog.open(agent_id, "AGENT-1");
+        app_session.rename_agent_dialog.name_field.clear();
+    }
+
+    let window = world
+        .query_filtered::<&Window, With<PrimaryWindow>>()
+        .single(&world)
+        .expect("primary window should exist")
+        .clone();
+    let rect = rename_agent_name_field_rect(&window);
+    let mut app_session = world.resource_mut::<AppSessionState>();
+
+    assert!(paste_into_rename_agent_dialog(
+        &mut app_session,
+        &window,
+        Vec2::new(rect.x + 4.0, rect.y + 4.0),
+        "renamed",
+    ));
+    assert_eq!(app_session.rename_agent_dialog.name_field.text, "RENAMED");
+}
+
 /// Verifies that duplicate rename targets are rejected and keep the rename dialog open.
 #[test]
 fn rename_dialog_rejects_duplicate_agent_name() {
@@ -1228,6 +1311,42 @@ fn direct_input_mode_sends_keys_to_terminal_without_opening_message_box() {
         TerminalCommand::InputEvent("\r".into())
     );
     assert!(!snapshot_test_hud_state(&world).message_box.visible);
+}
+
+#[test]
+fn middle_click_paste_sends_clipboard_to_direct_input_terminal() {
+    let (mut world, terminal_id, input_rx) =
+        world_with_active_terminal_and_receiver(Vec2::new(640.0, 360.0), true, Vec2::ZERO);
+    let mut hud_state = crate::hud::HudState::default();
+    hud_state.open_direct_terminal_input(terminal_id);
+    insert_test_hud_state(&mut world, hud_state);
+
+    world
+        .run_system_once(
+            |primary_window: Single<&Window, With<PrimaryWindow>>,
+             layout_state: Res<crate::hud::HudLayoutState>,
+             terminal_manager: Res<TerminalManager>,
+             focus_state: Res<crate::terminals::TerminalFocusState>,
+             input_capture: Res<crate::hud::HudInputCaptureState>,
+             panels: Query<(&TerminalPanel, &TerminalPresentation, &Visibility)>| {
+                assert!(paste_into_direct_input_terminal(
+                    &primary_window,
+                    Vec2::new(640.0, 360.0),
+                    &layout_state,
+                    &terminal_manager,
+                    &focus_state,
+                    &input_capture,
+                    &panels,
+                    "hello from paste",
+                ));
+            },
+        )
+        .unwrap();
+
+    assert_eq!(
+        input_rx.try_recv().unwrap(),
+        TerminalCommand::InputText("hello from paste".into())
+    );
 }
 
 /// Verifies that `Ctrl+Enter` refuses to open direct-input mode for a disconnected terminal.
@@ -1361,6 +1480,36 @@ fn message_box_supports_multiline_typing_and_ctrl_s_send() {
     let hud_state = snapshot_test_hud_state(&world);
     assert!(hud_state.message_box.visible);
     assert!(hud_state.message_box.text.is_empty());
+}
+
+#[test]
+fn middle_click_paste_in_message_box_inserts_clipboard_text() {
+    let (mut world, terminal_id) =
+        world_with_active_terminal(Vec2::new(10.0, 10.0), false, Vec2::ZERO);
+    let mut hud_state = crate::hud::HudState::default();
+    hud_state.open_message_box(terminal_id);
+    insert_test_hud_state(&mut world, hud_state);
+
+    let window = world
+        .query_filtered::<&Window, With<PrimaryWindow>>()
+        .single(&world)
+        .expect("primary window should exist")
+        .clone();
+    let rect = message_box_rect(&window);
+    let mut app_session = world.resource_mut::<AppSessionState>();
+
+    assert!(paste_into_message_dialog(
+        &mut app_session,
+        &window,
+        Vec2::new(rect.x + 12.0, rect.y + 24.0),
+        "hello
+world",
+    ));
+    assert_eq!(
+        app_session.composer.message_editor.text,
+        "hello
+world"
+    );
 }
 
 /// Verifies that `Tab` in the message box cycles focus from the editor into the action buttons.
@@ -1532,6 +1681,36 @@ fn task_dialog_escape_persists_tasks_and_closes() {
     );
     let hud_state = snapshot_test_hud_state(&world);
     assert!(!hud_state.task_dialog.visible);
+}
+
+#[test]
+fn middle_click_paste_in_task_dialog_inserts_clipboard_text() {
+    let (mut world, terminal_id) =
+        world_with_active_terminal(Vec2::new(10.0, 10.0), false, Vec2::ZERO);
+    let mut hud_state = crate::hud::HudState::default();
+    hud_state.open_task_dialog(terminal_id, "- [ ] keep");
+    insert_test_hud_state(&mut world, hud_state);
+
+    let window = world
+        .query_filtered::<&Window, With<PrimaryWindow>>()
+        .single(&world)
+        .expect("primary window should exist")
+        .clone();
+    let rect = task_dialog_rect(&window);
+    let mut app_session = world.resource_mut::<AppSessionState>();
+
+    assert!(paste_into_task_dialog(
+        &mut app_session,
+        &window,
+        Vec2::new(rect.x + 12.0, rect.y + 24.0),
+        "
+- [ ] pasted",
+    ));
+    assert_eq!(
+        app_session.composer.task_editor.text,
+        "- [ ] keep
+- [ ] pasted"
+    );
 }
 
 /// Verifies that `Tab` in the task dialog cycles focus from the editor into the clear-done button.
