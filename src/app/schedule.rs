@@ -12,9 +12,9 @@ use crate::{
     },
     input::{
         drag_terminal_view, focus_terminal_on_panel_click, handle_global_terminal_spawn_shortcut,
-        handle_terminal_direct_input_keyboard, handle_terminal_lifecycle_shortcuts,
-        handle_terminal_message_box_keyboard, hide_terminal_on_background_click,
-        zoom_terminal_view,
+        handle_middle_click_paste, handle_terminal_direct_input_keyboard,
+        handle_terminal_lifecycle_shortcuts, handle_terminal_message_box_keyboard,
+        hide_terminal_on_background_click, zoom_terminal_view,
     },
     startup::{advance_startup_connecting, request_redraw_while_visuals_active, setup_scene},
     terminals::{
@@ -145,6 +145,7 @@ pub(crate) fn configure_app_schedule(app: &mut App) {
             handle_terminal_lifecycle_shortcuts,
             handle_terminal_direct_input_keyboard,
             handle_terminal_message_box_keyboard,
+            handle_middle_click_paste,
             focus_terminal_on_panel_click,
             hide_terminal_on_background_click,
             drag_terminal_view,

@@ -4,7 +4,13 @@ use crate::{
     agents::{AgentCatalog, AgentRuntimeIndex},
     app::{
         AgentCommand as AppAgentCommand, AppCommand, AppSessionState, ComposerCommand,
-        ComposerRequest, CreateAgentKind, OwnedTmuxCommand, TaskCommand as AppTaskCommand,
+        ComposerRequest, CreateAgentDialogField, CreateAgentKind, OwnedTmuxCommand,
+        RenameAgentDialogField, TaskCommand as AppTaskCommand,
+    },
+    composer::{
+        create_agent_dialog_target_at, message_box_action_at, message_box_rect,
+        rename_agent_dialog_target_at, task_dialog_action_at, task_dialog_rect,
+        CreateAgentDialogTarget, MessageDialogFocus, RenameAgentDialogTarget, TaskDialogFocus,
     },
     hud::{HudInputCaptureState, HudLayoutState},
     terminals::{
@@ -278,6 +284,197 @@ pub(crate) fn hide_terminal_on_background_click(
         return;
     }
     app_commands.write(AppCommand::Agent(AppAgentCommand::ClearFocus));
+}
+
+#[allow(
+    clippy::too_many_arguments,
+    reason = "mouse drag needs input, geometry, pointer state, and terminal bridge"
+)]
+/// Handles middle-mouse dragging for either viewport panning or terminal scrollback.
+///
+/// The mode split is deliberate:
+/// - `Shift + middle-drag` pans the presented terminal by mutating the view offset directly.
+/// - plain `middle-drag` is translated into line-based scrollback commands sent to the active
+///   terminal bridge.
+///
+/// For scrollback, the function converts pixel motion into logical terminal lines using the current
+/// presented cell height and carries sub-line remainder in [`TerminalPointerState`] so slow drags do
+/// not lose precision.
+pub(crate) fn paste_into_create_agent_dialog(
+    app_session: &mut AppSessionState,
+    window: &Window,
+    cursor: Vec2,
+    text: &str,
+) -> bool {
+    match create_agent_dialog_target_at(window, cursor) {
+        Some(CreateAgentDialogTarget::NameField) => {
+            app_session.create_agent_dialog.focus = CreateAgentDialogField::Name;
+            app_session.create_agent_dialog.cwd_field.clear_completion();
+            app_session.create_agent_dialog.error = None;
+            let text = crate::agents::uppercase_agent_label_text(text);
+            app_session
+                .create_agent_dialog
+                .name_field
+                .insert_text(&text)
+        }
+        Some(CreateAgentDialogTarget::StartingFolderField) => {
+            app_session.create_agent_dialog.focus = CreateAgentDialogField::StartingFolder;
+            app_session.create_agent_dialog.error = None;
+            app_session
+                .create_agent_dialog
+                .cwd_field
+                .mutate_text(|field| field.insert_text(text))
+        }
+        _ => false,
+    }
+}
+
+pub(crate) fn paste_into_rename_agent_dialog(
+    app_session: &mut AppSessionState,
+    window: &Window,
+    cursor: Vec2,
+    text: &str,
+) -> bool {
+    match rename_agent_dialog_target_at(window, cursor) {
+        Some(RenameAgentDialogTarget::NameField) => {
+            app_session.rename_agent_dialog.focus = RenameAgentDialogField::Name;
+            app_session.rename_agent_dialog.error = None;
+            let text = crate::agents::uppercase_agent_label_text(text);
+            app_session
+                .rename_agent_dialog
+                .name_field
+                .insert_text(&text)
+        }
+        _ => false,
+    }
+}
+
+pub(crate) fn paste_into_message_dialog(
+    app_session: &mut AppSessionState,
+    window: &Window,
+    cursor: Vec2,
+    text: &str,
+) -> bool {
+    if message_box_action_at(window, cursor).is_some() || !message_box_rect(window).contains(cursor)
+    {
+        return false;
+    }
+    app_session.composer.message_dialog_focus = MessageDialogFocus::Editor;
+    app_session.composer.message_editor.insert_text(text)
+}
+
+pub(crate) fn paste_into_task_dialog(
+    app_session: &mut AppSessionState,
+    window: &Window,
+    cursor: Vec2,
+    text: &str,
+) -> bool {
+    if task_dialog_action_at(window, cursor).is_some() || !task_dialog_rect(window).contains(cursor)
+    {
+        return false;
+    }
+    app_session.composer.task_dialog_focus = TaskDialogFocus::Editor;
+    app_session.composer.task_editor.insert_text(text)
+}
+
+#[allow(
+    clippy::too_many_arguments,
+    reason = "terminal middle-click paste needs layout, focus, hit-testing, runtime, and text together"
+)]
+pub(crate) fn paste_into_direct_input_terminal(
+    window: &Window,
+    cursor: Vec2,
+    layout_state: &HudLayoutState,
+    terminal_manager: &TerminalManager,
+    focus_state: &TerminalFocusState,
+    input_capture: &HudInputCaptureState,
+    panels: &Query<(&TerminalPanel, &TerminalPresentation, &Visibility)>,
+    text: &str,
+) -> bool {
+    if layout_state.topmost_enabled_at(cursor).is_some() {
+        return false;
+    }
+
+    let Some(target_terminal) = input_capture.direct_input_terminal else {
+        return false;
+    };
+    if Some(target_terminal) != focus_state.active_id() {
+        return false;
+    }
+    let Some(panel) = topmost_terminal_panel_at_cursor(window, panels, cursor) else {
+        return false;
+    };
+    if panel.id != target_terminal {
+        return false;
+    }
+    let Some(terminal) = terminal_manager.get(target_terminal) else {
+        return false;
+    };
+    if !terminal_is_interactive(&terminal.snapshot.runtime) {
+        return false;
+    }
+    terminal
+        .bridge
+        .send(TerminalCommand::InputText(text.to_owned()));
+    true
+}
+
+#[allow(
+    clippy::too_many_arguments,
+    reason = "middle-click paste needs clipboard, writable target hit-testing, terminal state, and redraws together"
+)]
+pub(crate) fn handle_middle_click_paste(
+    mouse_buttons: Res<ButtonInput<MouseButton>>,
+    primary_window: Single<&Window, With<PrimaryWindow>>,
+    layout_state: Res<HudLayoutState>,
+    terminal_manager: Res<TerminalManager>,
+    focus_state: Res<TerminalFocusState>,
+    mut app_session: ResMut<AppSessionState>,
+    input_capture: Res<HudInputCaptureState>,
+    mut clipboard: Option<ResMut<EguiClipboard>>,
+    mut redraws: MessageWriter<RequestRedraw>,
+    panels: Query<(&TerminalPanel, &TerminalPresentation, &Visibility)>,
+) {
+    if !primary_window.focused || !mouse_buttons.just_pressed(MouseButton::Middle) {
+        return;
+    }
+    let Some(cursor) = primary_window.cursor_position() else {
+        return;
+    };
+    let Some(text) = clipboard
+        .as_deref_mut()
+        .and_then(EguiClipboard::get_text)
+        .filter(|text| !text.is_empty())
+    else {
+        return;
+    };
+
+    let pasted_into_dialog = if app_session.create_agent_dialog.visible {
+        paste_into_create_agent_dialog(&mut app_session, &primary_window, cursor, &text)
+    } else if app_session.rename_agent_dialog.visible {
+        paste_into_rename_agent_dialog(&mut app_session, &primary_window, cursor, &text)
+    } else if app_session.composer.message_editor.visible {
+        paste_into_message_dialog(&mut app_session, &primary_window, cursor, &text)
+    } else if app_session.composer.task_editor.visible {
+        paste_into_task_dialog(&mut app_session, &primary_window, cursor, &text)
+    } else {
+        false
+    };
+    if pasted_into_dialog {
+        redraws.write(RequestRedraw);
+        return;
+    }
+
+    let _ = paste_into_direct_input_terminal(
+        &primary_window,
+        cursor,
+        &layout_state,
+        &terminal_manager,
+        &focus_state,
+        &input_capture,
+        &panels,
+        &text,
+    );
 }
 
 #[allow(
