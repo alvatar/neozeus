@@ -5,10 +5,16 @@ use std::{ffi::OsString, io::Write, path::PathBuf};
 /// Allocates a new PTY pair and starts the configured shell inside it.
 ///
 /// The function opens the PTY at the requested cell size, builds the shell command, sets the
-/// terminal environment NeoZeus expects (`TERM=xterm-kitty`, `COLORTERM=truecolor`), applies an
-/// optional working directory, spawns the child on the slave side, drops the slave handle, and
-/// returns a [`PtySession`] containing the master, a writable handle, and the child process.
-pub(crate) fn spawn_pty(cols: u16, rows: u16, cwd: Option<&str>) -> Result<PtySession, String> {
+/// terminal environment NeoZeus expects (`TERM=xterm-kitty`, `COLORTERM=truecolor`), applies any
+/// caller-supplied per-session environment overrides, applies an optional working directory, spawns
+/// the child on the slave side, drops the slave handle, and returns a [`PtySession`] containing the
+/// master, a writable handle, and the child process.
+pub(crate) fn spawn_pty(
+    cols: u16,
+    rows: u16,
+    cwd: Option<&str>,
+    env_overrides: &[(String, String)],
+) -> Result<PtySession, String> {
     let pty_system = native_pty_system();
     let pair = pty_system
         .openpty(PtySize {
@@ -22,6 +28,9 @@ pub(crate) fn spawn_pty(cols: u16, rows: u16, cwd: Option<&str>) -> Result<PtySe
     let mut command = build_shell_command();
     command.env("TERM", "xterm-kitty");
     command.env("COLORTERM", "truecolor");
+    for (key, value) in env_overrides {
+        command.env(key, value);
+    }
     if let Some(cwd) = resolve_shell_cwd(cwd)? {
         command.cwd(cwd);
     }

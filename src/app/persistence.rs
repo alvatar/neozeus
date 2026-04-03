@@ -30,6 +30,12 @@ pub(crate) fn serialize_persisted_app_state(state: &PersistedAppState) -> String
     ordered.sort_by_key(|record| record.order_index);
     for record in ordered {
         output.push_str("[agent]\n");
+        if let Some(agent_uid) = record.agent_uid {
+            output.push_str(&format!(
+                "agent_uid={}\n",
+                quote_escaped_string(&agent_uid, EXTENDED_QUOTED_STRING_ESCAPES)
+            ));
+        }
         output.push_str(&format!(
             "session_name={}\n",
             quote_escaped_string(&record.session_name, EXTENDED_QUOTED_STRING_ESCAPES)
@@ -76,6 +82,7 @@ fn map_legacy_sessions_to_app_state(
             .sessions
             .iter()
             .map(|record| PersistedAgentState {
+                agent_uid: None,
                 session_name: record.session_name.clone(),
                 label: record.label.clone(),
                 kind: PersistedAgentKind::Pi,
@@ -141,6 +148,7 @@ fn build_persisted_app_state(
             let session_name = runtime_index.session_name(*agent_id)?;
             let terminal_id = runtime_index.primary_terminal(*agent_id);
             Some(PersistedAgentState {
+                agent_uid: agent_catalog.uid(*agent_id).map(str::to_owned),
                 session_name: session_name.to_owned(),
                 label: agent_catalog.label(*agent_id).map(str::to_owned),
                 kind: match agent_catalog
@@ -247,6 +255,7 @@ pub(crate) fn reconcile_persisted_agents(
         .into_iter()
         .map(|session_name| {
             let record = PersistedAgentState {
+                agent_uid: None,
                 session_name,
                 label: None,
                 kind: PersistedAgentKind::Pi,

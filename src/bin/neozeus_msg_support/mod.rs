@@ -250,6 +250,7 @@ mod tests {
                 .iter()
                 .enumerate()
                 .map(|(index, (session_name, label))| PersistedAgentState {
+                    agent_uid: Some(format!("agent-uid-{index}")),
                     session_name: (*session_name).to_owned(),
                     label: label.map(str::to_owned),
                     kind: neozeus::shared::app_state_file::PersistedAgentKind::Pi,

@@ -280,6 +280,61 @@ fn daemon_create_attach_command_output_and_kill_roundtrip() {
         .any(|session| session.session_id == session_id));
 }
 
+/// Verifies that daemon-created sessions expose explicit per-session env overrides to the shell.
+#[test]
+fn daemon_create_session_exposes_env_overrides_to_shell() {
+    let (_server, socket_path) = start_test_daemon("neozeus-daemon-env");
+    let client =
+        SocketTerminalDaemonClient::connect(&socket_path).expect("daemon client should connect");
+    let session_id = client
+        .create_session_with_env(
+            PERSISTENT_SESSION_PREFIX,
+            None,
+            &[
+                ("NEOZEUS_AGENT_UID".into(), "agent-uid-test".into()),
+                ("NEOZEUS_AGENT_LABEL".into(), "AGENT-X".into()),
+            ],
+        )
+        .expect("daemon session should be created");
+    let attached = client
+        .attach_session(&session_id)
+        .expect("daemon session should attach");
+
+    client
+        .send_command(
+            &session_id,
+            TerminalCommand::SendCommand(
+                "printf 'env:%s|%s' \"$NEOZEUS_AGENT_UID\" \"$NEOZEUS_AGENT_LABEL\"".into(),
+            ),
+        )
+        .expect("env command should send");
+    let surface = wait_for_surface_containing(&attached.updates, "env:agent-uid-test|AGENT-X");
+    assert!(surface_to_text(&surface).contains("env:agent-uid-test|AGENT-X"));
+}
+
+/// Verifies that ordinary daemon sessions do not receive fake agent owner env by default.
+#[test]
+fn daemon_create_session_without_env_overrides_leaves_agent_env_unset() {
+    let (_server, socket_path) = start_test_daemon("neozeus-daemon-env-empty");
+    let client =
+        SocketTerminalDaemonClient::connect(&socket_path).expect("daemon client should connect");
+    let session_id = client
+        .create_session(PERSISTENT_SESSION_PREFIX, None)
+        .expect("daemon session should be created");
+    let attached = client
+        .attach_session(&session_id)
+        .expect("daemon session should attach");
+
+    client
+        .send_command(
+            &session_id,
+            TerminalCommand::SendCommand("printf 'env:%s' \"${NEOZEUS_AGENT_UID-unset}\"".into()),
+        )
+        .expect("env command should send");
+    let surface = wait_for_surface_containing(&attached.updates, "env:unset");
+    assert!(surface_to_text(&surface).contains("env:unset"));
+}
+
 /// Verifies that daemon-created sessions honor the requested initial working directory.
 #[test]
 fn daemon_create_session_honors_requested_cwd() {

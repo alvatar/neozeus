@@ -176,7 +176,12 @@ impl TerminalDaemonClient for FakeDaemonClient {
     }
 
     /// Creates a fake session with a fixed suffix and inserts it into the set.
-    fn create_session(&self, prefix: &str, _cwd: Option<&str>) -> Result<String, String> {
+    fn create_session_with_env(
+        &self,
+        prefix: &str,
+        _cwd: Option<&str>,
+        _env_overrides: &[(String, String)],
+    ) -> Result<String, String> {
         let session_id = format!("{prefix}1");
         self.sessions.lock().unwrap().insert(session_id.clone());
         Ok(session_id)

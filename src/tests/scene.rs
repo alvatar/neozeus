@@ -550,6 +550,61 @@ fn startup_leaves_only_disconnected_sessions_visible_and_unfocused() {
     assert_eq!(client.sessions.lock().unwrap().len(), 1);
 }
 
+/// Verifies that restoring legacy app-state entries without stable agent uids backfills a new uid
+/// and marks app state dirty for rewrite.
+#[test]
+fn startup_restore_backfills_missing_agent_uid_and_marks_app_state_dirty() {
+    let client = Arc::new(crate::tests::FakeDaemonClient::default());
+    client.set_session_runtime(
+        "neozeus-session-a",
+        crate::terminals::TerminalRuntimeState::running("restored"),
+    );
+    let dir = temp_dir("neozeus-startup-agent-uid-backfill");
+    let app_state_path = dir.join("neozeus-state.v1");
+    std::fs::write(
+        &app_state_path,
+        "neozeus state version 1\n[agent]\nsession_name=\"neozeus-session-a\"\nlabel=\"ALPHA\"\nkind=\"pi\"\norder_index=0\nfocused=1\n[/agent]\n",
+    )
+    .expect("legacy app state should write");
+
+    let mut world = World::default();
+    world.insert_resource(Assets::<Image>::default());
+    world.insert_resource(crate::terminals::TerminalManager::default());
+    world.insert_resource(crate::terminals::TerminalFocusState::default());
+    world.insert_resource(crate::terminals::TerminalPresentationStore::default());
+    world.insert_resource(crate::agents::AgentCatalog::default());
+    world.insert_resource(crate::agents::AgentRuntimeIndex::default());
+    world.insert_resource(crate::app::AppSessionState::default());
+    world.insert_resource(crate::conversations::ConversationStore::default());
+    world.insert_resource(crate::conversations::ConversationPersistenceState::default());
+    world.insert_resource(crate::hud::HudInputCaptureState::default());
+    world.insert_resource(crate::terminals::TerminalViewState::default());
+    world.init_resource::<Messages<RequestRedraw>>();
+    world.insert_resource(Time::<()>::default());
+    world.insert_resource(fake_runtime_spawner(client));
+    world.insert_resource(crate::app::AppStatePersistenceState {
+        path: Some(app_state_path),
+        dirty_since_secs: None,
+    });
+    world.insert_resource(crate::terminals::TerminalNotesState::default());
+    world.insert_resource(crate::hud::TerminalVisibilityState::default());
+    world.insert_resource(crate::startup::StartupConnectState::default());
+
+    world.run_system_once(crate::startup::setup_scene).unwrap();
+
+    let catalog = world.resource::<crate::agents::AgentCatalog>();
+    let restored_agent = *catalog.order.first().expect("restored agent should exist");
+    let restored_uid = catalog.uid(restored_agent).expect("uid should backfill");
+    assert!(!restored_uid.trim().is_empty());
+    assert_eq!(catalog.find_by_uid(restored_uid), Some(restored_agent));
+    assert_eq!(
+        world
+            .resource::<crate::app::AppStatePersistenceState>()
+            .dirty_since_secs,
+        Some(0.0)
+    );
+}
+
 /// Verifies that startup reaps an unpersisted disconnected persistent session instead of importing
 /// it back as a dead agent, then falls back to spawning a fresh initial terminal.
 #[test]

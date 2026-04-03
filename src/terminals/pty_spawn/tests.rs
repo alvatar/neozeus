@@ -1,5 +1,11 @@
 use super::*;
-use std::{ffi::OsString, fs, path::PathBuf};
+use std::{
+    ffi::OsString,
+    fs,
+    io::Read,
+    path::PathBuf,
+    time::{Duration, Instant},
+};
 
 /// Rewrites the shell environment so tests run against an isolated temporary home/config tree.
 ///
@@ -63,5 +69,45 @@ fn resolve_shell_cwd_expands_home_and_ignores_empty_values() {
     assert_eq!(
         resolve_shell_cwd(Some("/tmp/work")).unwrap(),
         Some(PathBuf::from("/tmp/work"))
+    );
+}
+
+/// Verifies that per-session env overrides are present from shell process start.
+#[test]
+fn spawn_pty_applies_env_overrides() {
+    let mut session = spawn_pty(
+        80,
+        24,
+        None,
+        &[("NEOZEUS_AGENT_UID".into(), "agent-uid-test".into())],
+    )
+    .expect("pty should spawn");
+    let mut reader = session
+        .master
+        .try_clone_reader()
+        .expect("reader should clone");
+
+    write_input(
+        &mut *session.writer,
+        b"printf 'env:%s' \"$NEOZEUS_AGENT_UID\"\r",
+    )
+    .expect("env command should write");
+
+    let deadline = Instant::now() + Duration::from_secs(3);
+    let mut output = String::new();
+    while Instant::now() < deadline && !output.contains("env:agent-uid-test") {
+        let mut buffer = [0_u8; 1024];
+        let read = reader.read(&mut buffer).expect("pty read should succeed");
+        if read == 0 {
+            break;
+        }
+        output.push_str(&String::from_utf8_lossy(&buffer[..read]));
+    }
+
+    write_input(&mut *session.writer, b"exit\r").expect("exit should write");
+    let _ = session.child.wait();
+    assert!(
+        output.contains("env:agent-uid-test"),
+        "expected env override in shell output, got: {output:?}"
     );
 }

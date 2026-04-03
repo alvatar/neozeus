@@ -355,7 +355,7 @@ pub(super) struct FakeDaemonClient {
     pub(super) session_runtimes: Mutex<std::collections::HashMap<String, TerminalRuntimeState>>,
     pub(super) sent_commands: Mutex<Vec<(String, TerminalCommand)>>,
     pub(super) resize_requests: Mutex<Vec<(String, usize, usize)>>,
-    pub(super) created_sessions: Mutex<Vec<(String, Option<String>)>>,
+    pub(super) created_sessions: Mutex<Vec<(String, Option<String>, Vec<(String, String)>)>>,
     pub(super) fail_kill: Mutex<bool>,
     pub(super) next_session_index: Mutex<u64>,
     updates: Mutex<std::collections::HashMap<String, Vec<mpsc::Sender<TerminalUpdate>>>>,
@@ -431,14 +431,20 @@ impl TerminalDaemonClient for FakeDaemonClient {
     ///
     /// The implementation just increments an in-memory counter and seeds the new session with a
     /// default running runtime state, which is enough for tests that only need unique session names.
-    fn create_session(&self, prefix: &str, cwd: Option<&str>) -> Result<String, String> {
+    fn create_session_with_env(
+        &self,
+        prefix: &str,
+        cwd: Option<&str>,
+        env_overrides: &[(String, String)],
+    ) -> Result<String, String> {
         let mut next = self.next_session_index.lock().unwrap();
         let session_id = format!("{prefix}{}", *next);
         *next += 1;
-        self.created_sessions
-            .lock()
-            .unwrap()
-            .push((session_id.clone(), cwd.map(str::to_owned)));
+        self.created_sessions.lock().unwrap().push((
+            session_id.clone(),
+            cwd.map(str::to_owned),
+            env_overrides.to_vec(),
+        ));
         self.set_session_runtime(&session_id, TerminalRuntimeState::running("fake daemon"));
         Ok(session_id)
     }

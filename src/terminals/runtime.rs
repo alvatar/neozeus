@@ -139,8 +139,20 @@ impl TerminalRuntimeSpawner {
         cwd: Option<&str>,
         startup_command: Option<&str>,
     ) -> Result<String, String> {
+        self.create_session_with_cwd_and_env(prefix, cwd, startup_command, &[])
+    }
+
+    /// Creates a new session in the requested working directory with explicit env overrides and
+    /// optionally bootstraps one agent CLI.
+    pub(crate) fn create_session_with_cwd_and_env(
+        &self,
+        prefix: &str,
+        cwd: Option<&str>,
+        startup_command: Option<&str>,
+        env_overrides: &[(String, String)],
+    ) -> Result<String, String> {
         let daemon = self.daemon_client()?;
-        let session_id = self.create_shell_session_with_cwd(prefix, cwd)?;
+        let session_id = self.create_shell_session_with_cwd_and_env(prefix, cwd, env_overrides)?;
         if let Some(startup_command) = startup_command {
             if let Err(error) = daemon.client().send_command(
                 &session_id,
@@ -158,17 +170,16 @@ impl TerminalRuntimeSpawner {
         Ok(session_id)
     }
 
-    /// Creates a raw shell session without any NeoZeus bootstrapping command.
-    ///
-    /// This is the low-level creation path used both directly and as the first step of
-    /// [`create_session`].
-    /// Creates a raw shell session in the requested working directory without bootstrapping `pi`.
-    pub(crate) fn create_shell_session_with_cwd(
+    /// Creates a raw shell session with explicit env overrides.
+    pub(crate) fn create_shell_session_with_cwd_and_env(
         &self,
         prefix: &str,
         cwd: Option<&str>,
+        env_overrides: &[(String, String)],
     ) -> Result<String, String> {
-        self.daemon_client()?.client().create_session(prefix, cwd)
+        self.daemon_client()?
+            .client()
+            .create_session_with_env(prefix, cwd, env_overrides)
     }
 
     /// Asks the daemon to resize one named session to the requested terminal grid.

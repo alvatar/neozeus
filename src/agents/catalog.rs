@@ -1,8 +1,16 @@
 use bevy::prelude::Resource;
-use std::collections::BTreeMap;
+use std::{
+    collections::BTreeMap,
+    sync::atomic::{AtomicU64, Ordering},
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub(crate) struct AgentId(pub(crate) u64);
+
+pub(crate) type AgentUid = String;
+
+static NEXT_AGENT_UID_COUNTER: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) enum AgentKind {
@@ -57,10 +65,29 @@ impl AgentKind {
             Self::Terminal | Self::Verifier => None,
         }
     }
+
+    pub(crate) const fn env_name(self) -> &'static str {
+        match self {
+            Self::Pi => "pi",
+            Self::Claude => "claude",
+            Self::Codex => "codex",
+            Self::Terminal => "terminal",
+            Self::Verifier => "verifier",
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct PendingAgentIdentity {
+    pub(crate) uid: AgentUid,
+    pub(crate) label: String,
+    pub(crate) kind: AgentKind,
+    pub(crate) capabilities: AgentCapabilities,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct AgentRecord {
+    pub(crate) uid: AgentUid,
     pub(crate) label: String,
     pub(crate) kind: AgentKind,
     pub(crate) capabilities: AgentCapabilities,
@@ -75,6 +102,15 @@ pub(crate) struct AgentCatalog {
 
 pub(crate) fn uppercase_agent_label_text(text: &str) -> String {
     text.to_uppercase()
+}
+
+fn generate_agent_uid() -> AgentUid {
+    let now_nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or(0);
+    let counter = NEXT_AGENT_UID_COUNTER.fetch_add(1, Ordering::Relaxed);
+    format!("agent-{now_nanos:032x}-{counter:016x}")
 }
 
 impl AgentCatalog {
@@ -103,9 +139,66 @@ impl AgentCatalog {
         Ok(label)
     }
 
+    /// Allocates a stable pending identity without inserting the agent yet.
+    pub(crate) fn allocate_identity(
+        &self,
+        label: Option<&str>,
+        kind: AgentKind,
+        capabilities: AgentCapabilities,
+    ) -> Result<PendingAgentIdentity, String> {
+        let label = self
+            .validate_new_label(label)?
+            .unwrap_or_else(|| self.next_default_label());
+        Ok(PendingAgentIdentity {
+            uid: generate_agent_uid(),
+            label,
+            kind,
+            capabilities,
+        })
+    }
+
+    /// Creates one agent from a prevalidated pending identity.
+    pub(crate) fn create_agent_from_identity(&mut self, identity: PendingAgentIdentity) -> AgentId {
+        debug_assert!(
+            !self.label_exists(&identity.label, None),
+            "create_agent_from_identity requires a unique label"
+        );
+        debug_assert!(
+            self.find_by_uid(&identity.uid).is_none(),
+            "create_agent_from_identity requires a unique uid"
+        );
+        let id = AgentId(self.next_id.max(1));
+        self.next_id = id.0 + 1;
+        self.agents.insert(
+            id,
+            AgentRecord {
+                uid: identity.uid,
+                label: identity.label,
+                kind: identity.kind,
+                capabilities: identity.capabilities,
+            },
+        );
+        self.order.push(id);
+        id
+    }
+
     /// Creates one agent with either a prevalidated explicit label or the next unique default label.
     pub(crate) fn create_agent(
         &mut self,
+        label: Option<String>,
+        kind: AgentKind,
+        capabilities: AgentCapabilities,
+    ) -> AgentId {
+        let identity = self
+            .allocate_identity(label.as_deref(), kind, capabilities)
+            .expect("create_agent label allocation should only fail on duplicate labels");
+        self.create_agent_from_identity(identity)
+    }
+
+    /// Creates one agent with an explicit stable uid.
+    pub(crate) fn create_agent_with_uid(
+        &mut self,
+        uid: AgentUid,
         label: Option<String>,
         kind: AgentKind,
         capabilities: AgentCapabilities,
@@ -114,13 +207,18 @@ impl AgentCatalog {
             .unwrap_or_else(|| self.next_default_label());
         debug_assert!(
             !self.label_exists(&label, None),
-            "create_agent requires a prevalidated unique label"
+            "create_agent_with_uid requires a unique label"
+        );
+        debug_assert!(
+            self.find_by_uid(&uid).is_none(),
+            "create_agent_with_uid requires a unique uid"
         );
         let id = AgentId(self.next_id.max(1));
         self.next_id = id.0 + 1;
         self.agents.insert(
             id,
             AgentRecord {
+                uid,
                 label,
                 kind,
                 capabilities,
@@ -161,6 +259,18 @@ impl AgentCatalog {
             self.order.retain(|existing| *existing != agent_id);
         }
         removed
+    }
+
+    /// Returns the stable uid.
+    pub(crate) fn uid(&self, agent_id: AgentId) -> Option<&str> {
+        self.agents.get(&agent_id).map(|record| record.uid.as_str())
+    }
+
+    /// Resolves one runtime agent id from a stable uid.
+    pub(crate) fn find_by_uid(&self, uid: &str) -> Option<AgentId> {
+        self.agents
+            .iter()
+            .find_map(|(agent_id, record)| (record.uid == uid).then_some(*agent_id))
     }
 
     /// Returns the label.

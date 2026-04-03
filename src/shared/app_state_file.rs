@@ -39,6 +39,7 @@ impl PersistedAgentKind {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PersistedAgentState {
+    pub agent_uid: Option<String>,
     pub session_name: String,
     pub label: Option<String>,
     pub kind: PersistedAgentKind,
@@ -102,6 +103,7 @@ pub fn parse_persisted_app_state(text: &str) -> PersistedAppState {
     }
 
     let mut persisted = PersistedAppState::default();
+    let mut agent_uid = None;
     let mut session_name = None;
     let mut label = None;
     let mut kind = None;
@@ -120,6 +122,7 @@ pub fn parse_persisted_app_state(text: &str) -> PersistedAppState {
         match line {
             "[agent]" => {
                 in_agent = true;
+                agent_uid = None;
                 session_name = None;
                 label = None;
                 kind = None;
@@ -132,6 +135,7 @@ pub fn parse_persisted_app_state(text: &str) -> PersistedAppState {
                         (session_name.take(), order_index.take(), last_focused.take())
                     {
                         persisted.agents.push(PersistedAgentState {
+                            agent_uid: agent_uid.take(),
                             session_name,
                             label: label.take(),
                             kind: kind.take().unwrap_or(PersistedAgentKind::Pi),
@@ -148,6 +152,9 @@ pub fn parse_persisted_app_state(text: &str) -> PersistedAppState {
                     continue;
                 };
                 match key {
+                    "agent_uid" => {
+                        agent_uid = unquote_escaped_string(value, EXTENDED_QUOTED_STRING_ESCAPES)
+                    }
                     "session_name" => {
                         session_name = unquote_escaped_string(value, EXTENDED_QUOTED_STRING_ESCAPES)
                     }

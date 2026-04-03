@@ -1245,6 +1245,20 @@ fn create_agent_request_bootstraps_selected_cli_command() {
 
     run_app_commands(&mut world);
 
+    let created_sessions = client.created_sessions.lock().unwrap().clone();
+    assert_eq!(created_sessions.len(), 3);
+    for (_, _, env_overrides) in &created_sessions {
+        assert!(env_overrides
+            .iter()
+            .any(|(key, _)| key == "NEOZEUS_AGENT_UID"));
+        assert!(env_overrides
+            .iter()
+            .any(|(key, _)| key == "NEOZEUS_AGENT_LABEL"));
+        assert!(env_overrides
+            .iter()
+            .any(|(key, _)| key == "NEOZEUS_AGENT_KIND"));
+    }
+
     let commands = client.sent_commands.lock().unwrap().clone();
     assert_eq!(commands.len(), 3);
     assert!(commands.iter().any(|(_, command)| {
@@ -1301,10 +1315,22 @@ fn create_terminal_agent_request_does_not_send_bootstrap_command() {
             .visible
     );
     assert!(client.sent_commands.lock().unwrap().is_empty());
-    assert_eq!(
-        client.created_sessions.lock().unwrap().as_slice(),
-        &[("neozeus-session-0".to_owned(), Some("~/code".to_owned()))]
-    );
+    let created_sessions = client.created_sessions.lock().unwrap().clone();
+    assert_eq!(created_sessions.len(), 1);
+    assert_eq!(created_sessions[0].0, "neozeus-session-0");
+    assert_eq!(created_sessions[0].1.as_deref(), Some("~/code"));
+    assert!(created_sessions[0]
+        .2
+        .iter()
+        .any(|(key, value)| key == "NEOZEUS_AGENT_LABEL" && value == "SHELL"));
+    assert!(created_sessions[0]
+        .2
+        .iter()
+        .any(|(key, value)| key == "NEOZEUS_AGENT_KIND" && value == "terminal"));
+    assert!(created_sessions[0]
+        .2
+        .iter()
+        .any(|(key, _)| key == "NEOZEUS_AGENT_UID"));
 }
 
 /// Verifies the special-case cleanup path for disconnected terminals: local state is removed even if
