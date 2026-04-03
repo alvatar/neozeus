@@ -2095,10 +2095,9 @@ fn message_box_alt_word_motion_and_ctrl_d_work() {
     assert_eq!(snapshot_test_hud_state(&world).message_box.text, "one tw");
 }
 
-/// Verifies that agent-list keyboard navigation skips owned tmux child rows and moves between
-/// real agents only.
+/// Verifies that agent-list keyboard navigation lands on owned tmux child rows.
 #[test]
-fn hud_navigation_skips_owned_tmux_child_rows() {
+fn hud_navigation_selects_owned_tmux_child_row() {
     let mut world = World::default();
     insert_default_hud_resources(&mut world);
     world.insert_resource(AppSessionState {
@@ -2148,6 +2147,7 @@ fn hud_navigation_skips_owned_tmux_child_rows() {
             },
         ],
     });
+    world.insert_resource(crate::terminals::OwnedTmuxInspectState::default());
     world.insert_resource(ButtonInput::<KeyCode>::default());
     init_hud_commands(&mut world);
     world.init_resource::<Messages<KeyboardInput>>();
@@ -2159,10 +2159,11 @@ fn hud_navigation_skips_owned_tmux_child_rows() {
 
     assert_eq!(
         drain_hud_commands(&mut world),
-        vec![
-            AppCommand::Agent(crate::app::AgentCommand::Focus(crate::agents::AgentId(2))),
-            AppCommand::Agent(crate::app::AgentCommand::Inspect(crate::agents::AgentId(2))),
-        ]
+        vec![AppCommand::OwnedTmux(
+            crate::app::OwnedTmuxCommand::Select {
+                session_uid: "tmux-1".into(),
+            }
+        )]
     );
 }
 

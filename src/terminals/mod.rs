@@ -19,6 +19,7 @@ mod runtime;
 mod session_persistence;
 mod types;
 
+pub(crate) use ansi_surface::surface_from_ansi_text;
 pub(crate) use bridge::TerminalBridge;
 pub(crate) use daemon::{
     resolve_daemon_socket_path, run_daemon_server, DaemonSessionInfo, OwnedTmuxSessionInfo,

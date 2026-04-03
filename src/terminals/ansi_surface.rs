@@ -92,6 +92,22 @@ pub(crate) fn build_surface(term: &Term<VoidListener>) -> TerminalSurface {
     surface
 }
 
+/// Builds a NeoZeus terminal surface by feeding ANSI text through the normal Alacritty parser path.
+pub(crate) fn surface_from_ansi_text(text: &str, cols: usize, rows: usize) -> TerminalSurface {
+    let dimensions = crate::terminals::types::TerminalDimensions { cols, rows };
+    let config = alacritty_terminal::term::Config {
+        scrolling_history: 128,
+        ..alacritty_terminal::term::Config::default()
+    };
+    let mut terminal =
+        alacritty_terminal::term::Term::<VoidListener>::new(config, &dimensions, VoidListener);
+    let mut parser = alacritty_terminal::vte::ansi::Processor::<
+        alacritty_terminal::vte::ansi::StdSyncHandler,
+    >::new();
+    parser.advance(&mut terminal, text.as_bytes());
+    build_surface(&terminal)
+}
+
 /// Maps Alacritty cursor-shape variants onto NeoZeus's smaller cursor-shape enum.
 ///
 /// Hidden and hollow-block cursors are both represented as block cursors here; visibility is carried
