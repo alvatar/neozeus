@@ -9,6 +9,7 @@ mod input;
 pub use neozeus::shared;
 mod startup;
 mod terminals;
+mod text_selection;
 mod usage;
 mod verification;
 

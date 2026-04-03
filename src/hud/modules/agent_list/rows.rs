@@ -11,6 +11,9 @@ pub(crate) const AGENT_LIST_LEFT_RAIL_WIDTH: f32 = 20.0;
 const AGENT_LIST_ROW_MARKER_WIDTH: f32 = 12.0;
 const AGENT_LIST_ROW_MARKER_GAP: f32 = 10.0;
 const AGENT_LIST_ROW_GAP: f32 = 14.0;
+pub(crate) const AGENT_ROW_LABEL_TEXT_SIZE: f32 = 16.0;
+pub(crate) const AGENT_ROW_LABEL_SCALE_X: f32 = 0.76;
+pub(crate) const AGENT_ROW_LABEL_SCALE_Y: f32 = 1.14;
 pub(crate) const AGENT_LIST_BORDER_ORANGE_R: u8 = 225;
 pub(crate) const AGENT_LIST_BORDER_ORANGE_G: u8 = 129;
 pub(crate) const AGENT_LIST_BORDER_ORANGE_B: u8 = 10;
@@ -80,6 +83,30 @@ pub(crate) fn agent_row_rect(rect: HudRect, section: AgentListRowSection) -> Hud
             w: 8.0,
             h: (rect.h - 6.0).max(10.0),
         },
+    }
+}
+
+pub(crate) fn agent_row_label_text(row: &AgentRow) -> String {
+    if row.is_tmux_child {
+        format!("↳ {}", row.label)
+    } else {
+        row.label.clone()
+    }
+}
+
+pub(crate) fn agent_row_label_position(main_rect: HudRect, row: &AgentRow) -> bevy::prelude::Vec2 {
+    bevy::prelude::Vec2::new(
+        main_rect.x + if row.is_tmux_child { 18.0 } else { 12.0 },
+        main_rect.y + 2.0,
+    )
+}
+
+pub(crate) fn agent_row_text_hit_rect(main_rect: HudRect) -> HudRect {
+    HudRect {
+        x: main_rect.x + 10.0,
+        y: main_rect.y + 1.0,
+        w: (main_rect.w * 0.62).max(64.0),
+        h: (main_rect.h - 2.0).max(10.0),
     }
 }
 

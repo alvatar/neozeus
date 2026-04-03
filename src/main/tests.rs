@@ -150,6 +150,15 @@ pub(super) fn insert_default_hud_resources(world: &mut World) {
     if !world.contains_resource::<crate::terminals::TerminalFocusState>() {
         world.insert_resource(crate::terminals::TerminalFocusState::default());
     }
+    if !world.contains_resource::<crate::text_selection::TerminalTextSelectionState>() {
+        world.insert_resource(crate::text_selection::TerminalTextSelectionState::default());
+    }
+    if !world.contains_resource::<crate::text_selection::AgentListTextSelectionState>() {
+        world.insert_resource(crate::text_selection::AgentListTextSelectionState::default());
+    }
+    if !world.contains_resource::<crate::text_selection::PrimarySelectionOwnerState>() {
+        world.insert_resource(crate::text_selection::PrimarySelectionOwnerState::default());
+    }
 }
 
 /// Inserts a prepared terminal manager into a test world, along with the mirrored test focus state
@@ -331,6 +340,15 @@ pub(super) fn insert_test_hud_state(world: &mut World, hud_state: crate::hud::Hu
     }
     if !world.contains_resource::<crate::terminals::TerminalFocusState>() {
         world.insert_resource(crate::terminals::TerminalFocusState::default());
+    }
+    if !world.contains_resource::<crate::text_selection::TerminalTextSelectionState>() {
+        world.insert_resource(crate::text_selection::TerminalTextSelectionState::default());
+    }
+    if !world.contains_resource::<crate::text_selection::AgentListTextSelectionState>() {
+        world.insert_resource(crate::text_selection::AgentListTextSelectionState::default());
+    }
+    if !world.contains_resource::<crate::text_selection::PrimarySelectionOwnerState>() {
+        world.insert_resource(crate::text_selection::PrimarySelectionOwnerState::default());
     }
 }
 

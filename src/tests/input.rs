@@ -19,11 +19,11 @@ use crate::{
     input::{
         ctrl_sequence, focus_terminal_on_panel_click, handle_global_terminal_spawn_shortcut,
         handle_terminal_direct_input_keyboard, handle_terminal_lifecycle_shortcuts,
-        handle_terminal_message_box_keyboard, hide_terminal_on_background_click,
-        keyboard_input_to_terminal_command, paste_into_create_agent_dialog,
-        paste_into_direct_input_terminal, paste_into_message_dialog,
-        paste_into_rename_agent_dialog, paste_into_task_dialog, should_exit_application,
-        should_kill_active_terminal, should_spawn_terminal_globally,
+        handle_terminal_message_box_keyboard, handle_terminal_text_selection,
+        hide_terminal_on_background_click, keyboard_input_to_terminal_command,
+        paste_into_create_agent_dialog, paste_into_direct_input_terminal,
+        paste_into_message_dialog, paste_into_rename_agent_dialog, paste_into_task_dialog,
+        should_exit_application, should_kill_active_terminal, should_spawn_terminal_globally,
     },
     terminals::{
         TerminalCommand, TerminalManager, TerminalNotesState, TerminalPanel, TerminalPresentation,
@@ -912,6 +912,47 @@ fn clicking_shifted_visible_terminal_does_not_hide_it() {
         .resource::<AppStatePersistenceState>()
         .dirty_since_secs
         .is_none());
+}
+
+/// Verifies that dragging across terminal cells produces selectable terminal text.
+#[test]
+fn dragging_over_terminal_panel_selects_terminal_text() {
+    let (mut world, terminal_id) =
+        world_with_active_terminal(Vec2::new(545.0, 305.0), true, Vec2::ZERO);
+    let mut surface = crate::terminals::TerminalSurface::new(4, 2);
+    surface.set_text_cell(0, 0, "A");
+    surface.set_text_cell(1, 0, "B");
+    surface.set_text_cell(2, 0, "C");
+    world
+        .resource_mut::<TerminalManager>()
+        .get_mut(terminal_id)
+        .expect("terminal should exist")
+        .snapshot
+        .surface = Some(surface);
+
+    world.init_resource::<Messages<RequestRedraw>>();
+    world
+        .resource_mut::<ButtonInput<MouseButton>>()
+        .press(MouseButton::Left);
+    world.run_system_once(handle_terminal_text_selection).unwrap();
+    world
+        .resource_mut::<ButtonInput<MouseButton>>()
+        .clear_just_pressed(MouseButton::Left);
+
+    world
+        .query_filtered::<&mut Window, With<PrimaryWindow>>()
+        .single_mut(&mut world)
+        .expect("window should exist")
+        .set_cursor_position(Some(Vec2::new(645.0, 305.0)));
+    world.run_system_once(handle_terminal_text_selection).unwrap();
+
+    let selection = world
+        .resource::<crate::text_selection::TerminalTextSelectionState>()
+        .selection()
+        .cloned()
+        .expect("terminal selection should exist");
+    assert_eq!(selection.terminal_id, terminal_id);
+    assert_eq!(selection.text, "ABC");
 }
 
 /// Verifies that panel clicks choose the highest-`z` visible terminal panel and emit focus+isolate

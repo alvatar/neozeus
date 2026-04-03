@@ -3,6 +3,7 @@ use crate::{
         AgentCommand, AppCommand, AppSessionState, CreateAgentDialogField, RenameAgentDialogField,
         WidgetCommand,
     },
+    text_selection::AgentListTextSelectionState,
     composer::{
         create_agent_dialog_target_at, message_box_action_at, rename_agent_dialog_target_at,
         task_dialog_action_at, CreateAgentDialogTarget, RenameAgentDialogTarget,
@@ -63,6 +64,7 @@ struct HudPointerContext<'w, 's> {
     app_session: ResMut<'w, AppSessionState>,
     input_capture: Res<'w, HudInputCaptureState>,
     agent_list_state: ResMut<'w, AgentListUiState>,
+    agent_list_text_selection: ResMut<'w, AgentListTextSelectionState>,
     conversation_list_state: ResMut<'w, ConversationListUiState>,
     info_bar_view: Res<'w, InfoBarView>,
     agent_list_view: Res<'w, AgentListView>,
@@ -248,6 +250,7 @@ fn clear_pointer_state_when_cursor_missing(ctx: &mut HudPointerContext<'_, '_>) 
     if ctx.mouse_buttons.just_released(MouseButton::Left) {
         ctx.layout_state.drag = None;
         ctx.agent_list_state.drag.clear();
+        ctx.agent_list_text_selection.clear_drag();
     }
 }
 
@@ -285,12 +288,25 @@ fn handle_general_left_click(
         return;
     }
     if module_id == HudWidgetKey::AgentList {
-        ctx.agent_list_state.drag.pressed_agent = match modules::row_at_point(
+        if let Some(text_row) = modules::text_row_at_point(
             &ctx.agent_list_state,
             content_rect,
             cursor,
             &ctx.agent_list_view,
         ) {
+            ctx.agent_list_text_selection.clear_selection();
+            ctx.agent_list_text_selection.begin_drag(text_row, cursor);
+            ctx.agent_list_state.drag.clear();
+            return;
+        }
+        let pressed_row = modules::row_at_point(
+            &ctx.agent_list_state,
+            content_rect,
+            cursor,
+            &ctx.agent_list_view,
+        );
+        ctx.agent_list_state.drag.pressed_row = pressed_row.clone();
+        ctx.agent_list_state.drag.pressed_agent = match pressed_row {
             Some(AgentListRowKey::Agent(agent_id)) => Some(agent_id),
             _ => None,
         };
@@ -347,6 +363,31 @@ fn handle_general_drag_update(
     if !ctx.mouse_buttons.pressed(MouseButton::Left) {
         return;
     }
+    if let Some(drag) = ctx.agent_list_text_selection.drag.clone() {
+        if let Some(module) = ctx.layout_state.get(HudWidgetKey::AgentList) {
+            let content_rect = content_hit_rect(HudWidgetKey::AgentList, module.shell.current_rect);
+            let focus_row = modules::text_row_at_point(
+                &ctx.agent_list_state,
+                content_rect,
+                cursor,
+                &ctx.agent_list_view,
+            )
+            .unwrap_or_else(|| drag.anchor_row.clone());
+            let moved_far_enough = drag.press_origin.distance(cursor) >= 4.0;
+            if focus_row != drag.anchor_row || moved_far_enough {
+                if let Some(text) = modules::selected_text_for_rows(
+                    &ctx.agent_list_view,
+                    &drag.anchor_row,
+                    &focus_row,
+                ) {
+                    ctx.agent_list_text_selection
+                        .set_selection(drag.anchor_row, focus_row, text);
+                    ctx.redraws.write(RequestRedraw);
+                }
+            }
+        }
+        return;
+    }
     if let Some(pressed_agent) = ctx.agent_list_state.drag.pressed_agent {
         let moved_far_enough = ctx
             .agent_list_state
@@ -399,7 +440,65 @@ fn handle_general_release(
     if !ctx.mouse_buttons.just_released(MouseButton::Left) {
         return;
     }
-    if let Some(pressed_agent) = ctx.agent_list_state.drag.pressed_agent {
+    if let Some(drag) = ctx.agent_list_text_selection.drag.clone() {
+        ctx.agent_list_text_selection.clear_drag();
+        if let Some(module) = ctx.layout_state.get(HudWidgetKey::AgentList) {
+            let content_rect = content_hit_rect(HudWidgetKey::AgentList, module.shell.current_rect);
+            let focus_row = modules::text_row_at_point(
+                &ctx.agent_list_state,
+                content_rect,
+                cursor,
+                &ctx.agent_list_view,
+            )
+            .unwrap_or_else(|| drag.anchor_row.clone());
+            let moved_far_enough = drag.press_origin.distance(cursor) >= 4.0;
+            if focus_row != drag.anchor_row || moved_far_enough {
+                if let Some(text) = modules::selected_text_for_rows(
+                    &ctx.agent_list_view,
+                    &drag.anchor_row,
+                    &focus_row,
+                ) {
+                    ctx.agent_list_text_selection
+                        .set_selection(drag.anchor_row, focus_row, text);
+                    ctx.redraws.write(RequestRedraw);
+                }
+            } else {
+                ctx.agent_list_text_selection.clear_selection();
+                match drag.anchor_row {
+                    AgentListRowKey::Agent(agent_id)
+                        if modules::row_at_point(
+                            &ctx.agent_list_state,
+                            content_rect,
+                            cursor,
+                            &ctx.agent_list_view,
+                        ) == Some(AgentListRowKey::Agent(agent_id)) =>
+                    {
+                        emitted_commands.push(AppCommand::OwnedTmux(
+                            crate::app::OwnedTmuxCommand::ClearSelection,
+                        ));
+                        emitted_commands.push(AppCommand::Agent(AgentCommand::Focus(agent_id)));
+                        emitted_commands.push(AppCommand::Agent(AgentCommand::Inspect(agent_id)));
+                    }
+                    AgentListRowKey::OwnedTmux(session_uid)
+                        if modules::row_at_point(
+                            &ctx.agent_list_state,
+                            content_rect,
+                            cursor,
+                            &ctx.agent_list_view,
+                        ) == Some(AgentListRowKey::OwnedTmux(session_uid.clone())) =>
+                    {
+                        emitted_commands.push(AppCommand::OwnedTmux(
+                            crate::app::OwnedTmuxCommand::Select { session_uid },
+                        ));
+                    }
+                    _ => {}
+                }
+            }
+        }
+        ctx.layout_state.drag = None;
+        return;
+    }
+    if let Some(pressed_row) = ctx.agent_list_state.drag.pressed_row.clone() {
         let was_dragging = ctx.agent_list_state.drag.dragging_agent.is_some();
         ctx.agent_list_state.drag.clear();
         if !was_dragging {
@@ -411,13 +510,22 @@ fn handle_general_release(
                     content_rect,
                     cursor,
                     &ctx.agent_list_view,
-                ) == Some(AgentListRowKey::Agent(pressed_agent))
+                ) == Some(pressed_row.clone())
                 {
-                    emitted_commands.push(AppCommand::OwnedTmux(
-                        crate::app::OwnedTmuxCommand::ClearSelection,
-                    ));
-                    emitted_commands.push(AppCommand::Agent(AgentCommand::Focus(pressed_agent)));
-                    emitted_commands.push(AppCommand::Agent(AgentCommand::Inspect(pressed_agent)));
+                    match pressed_row {
+                        AgentListRowKey::Agent(agent_id) => {
+                            emitted_commands.push(AppCommand::OwnedTmux(
+                                crate::app::OwnedTmuxCommand::ClearSelection,
+                            ));
+                            emitted_commands.push(AppCommand::Agent(AgentCommand::Focus(agent_id)));
+                            emitted_commands.push(AppCommand::Agent(AgentCommand::Inspect(agent_id)));
+                        }
+                        AgentListRowKey::OwnedTmux(session_uid) => {
+                            emitted_commands.push(AppCommand::OwnedTmux(
+                                crate::app::OwnedTmuxCommand::Select { session_uid },
+                            ));
+                        }
+                    }
                 }
             }
         }

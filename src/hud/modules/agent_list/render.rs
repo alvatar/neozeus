@@ -8,11 +8,13 @@ use bevy::prelude::Vec2;
 use bevy_vello::{prelude::VelloTextAnchor, vello::peniko};
 
 use super::{
-    agent_row_rect, projected_agent_rows, AgentListDragPreview, AgentListRowSection,
-    AGENT_LIST_BLOOM_RED_B, AGENT_LIST_BLOOM_RED_G, AGENT_LIST_BLOOM_RED_R,
-    AGENT_LIST_BORDER_ORANGE_B, AGENT_LIST_BORDER_ORANGE_G, AGENT_LIST_BORDER_ORANGE_R,
-    AGENT_LIST_HEADER_HEIGHT, AGENT_LIST_LEFT_RAIL_WIDTH, AGENT_LIST_WORKING_GREEN_B,
-    AGENT_LIST_WORKING_GREEN_G, AGENT_LIST_WORKING_GREEN_R,
+    agent_row_label_position, agent_row_label_text, agent_row_rect, projected_agent_rows,
+    AgentListDragPreview, AgentListRowSection, AGENT_LIST_BLOOM_RED_B,
+    AGENT_LIST_BLOOM_RED_G, AGENT_LIST_BLOOM_RED_R, AGENT_LIST_BORDER_ORANGE_B,
+    AGENT_LIST_BORDER_ORANGE_G, AGENT_LIST_BORDER_ORANGE_R, AGENT_LIST_HEADER_HEIGHT,
+    AGENT_LIST_LEFT_RAIL_WIDTH, AGENT_LIST_WORKING_GREEN_B, AGENT_LIST_WORKING_GREEN_G,
+    AGENT_LIST_WORKING_GREEN_R, AGENT_ROW_LABEL_SCALE_X, AGENT_ROW_LABEL_SCALE_Y,
+    AGENT_ROW_LABEL_TEXT_SIZE,
 };
 
 const EVA_ORANGE: peniko::Color = peniko::Color::from_rgba8(
@@ -191,6 +193,24 @@ fn context_bar_color(pct_milli: i32) -> peniko::Color {
 
 fn rendered_context_pct_milli(context_pct_milli: Option<i32>) -> i32 {
     context_pct_milli.unwrap_or(0)
+}
+
+fn draw_agent_row_text_selection(
+    painter: &mut HudPainter,
+    position: Vec2,
+    text: &str,
+) {
+    let text_width = painter.text_size(text, AGENT_ROW_LABEL_TEXT_SIZE).x * AGENT_ROW_LABEL_SCALE_X;
+    painter.fill_rect(
+        HudRect {
+            x: position.x - 1.0,
+            y: position.y + 1.0,
+            w: text_width.max(6.0) + 2.0,
+            h: 18.0,
+        },
+        apply_alpha(EVA_CYAN, 0.24),
+        0.0,
+    );
 }
 
 fn draw_context_bar(
@@ -420,19 +440,42 @@ pub(crate) fn render_content(
             }
         }
 
-        let label_text = if row.is_tmux_child {
-            format!("↳ {}", row.label)
-        } else {
-            row.label.clone()
-        };
+        let label_text = agent_row_label_text(&row);
+        let label_position = agent_row_label_position(main_rect, &row);
+        let selected_agent_list_text = inputs
+            .agent_list_text_selection
+            .selection()
+            .map(|selection| {
+                let start = inputs
+                    .agent_list_view
+                    .rows
+                    .iter()
+                    .position(|candidate| candidate.key == selection.anchor_row)
+                    .unwrap_or(usize::MAX);
+                let end = inputs
+                    .agent_list_view
+                    .rows
+                    .iter()
+                    .position(|candidate| candidate.key == selection.focus_row)
+                    .unwrap_or(usize::MAX);
+                let (start, end) = if start <= end { (start, end) } else { (end, start) };
+                (start, end)
+            });
+        if selected_agent_list_text.is_some_and(|(start, end)| {
+            inputs
+                .agent_list_view
+                .rows
+                .iter()
+                .position(|candidate| candidate.key == row.key)
+                .is_some_and(|index| index >= start && index <= end)
+        }) {
+            draw_agent_row_text_selection(painter, label_position, &label_text);
+        }
         draw_label(
             painter,
-            Vec2::new(
-                main_rect.x + if row.is_tmux_child { 18.0 } else { 12.0 },
-                main_rect.y + 2.0,
-            ),
+            label_position,
             &label_text,
-            16.0,
+            AGENT_ROW_LABEL_TEXT_SIZE,
             if row.is_tmux_child {
                 if row.is_orphan_tmux {
                     EVA_EMISSIVE_RED
@@ -443,8 +486,8 @@ pub(crate) fn render_content(
                 agent_label_color(row.status, row.focused, row.dragging)
             },
             VelloTextAnchor::TopLeft,
-            0.76,
-            1.14,
+            AGENT_ROW_LABEL_SCALE_X,
+            AGENT_ROW_LABEL_SCALE_Y,
         );
     }
 }

@@ -35,12 +35,12 @@ pub(crate) use state::{
     InfoBarUiState, TerminalVisibilityPolicy, TerminalVisibilityState, ThreadPaneUiState,
 };
 pub(crate) use view_models::{
-    sync_hud_view_models, sync_info_bar_view_model, AgentListView, ComposerView,
-    ConversationListView, InfoBarView, ThreadView,
+    sync_hud_view_models, sync_info_bar_view_model, AgentListRowKey, AgentListView,
+    ComposerView, ConversationListView, InfoBarView, ThreadView,
 };
 
 #[cfg(test)]
-pub(crate) use view_models::{AgentListRowKey, AgentListRowKind, OwnedTmuxOwnerBinding, UsageBarView};
+pub(crate) use view_models::{AgentListRowKind, OwnedTmuxOwnerBinding, UsageBarView};
 pub(crate) use widgets::HudWidgetKey;
 
 #[cfg(test)]

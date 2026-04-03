@@ -302,6 +302,7 @@ impl HudState {
 #[test]
 fn agent_list_drag_state_clear_resets_transient_fields() {
     let mut drag = AgentListDragState {
+        pressed_row: None,
         pressed_agent: Some(crate::agents::AgentId(1)),
         press_origin: Some(Vec2::new(5.0, 7.0)),
         dragging_agent: Some(crate::agents::AgentId(1)),
