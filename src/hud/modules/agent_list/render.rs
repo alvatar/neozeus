@@ -227,6 +227,13 @@ fn tmux_child_label_color(focused: bool) -> peniko::Color {
     }
 }
 
+fn tmux_child_connector(parent_main_rect: HudRect, child_main_rect: HudRect) -> (Vec2, Vec2) {
+    (
+        Vec2::new(parent_main_rect.x, parent_main_rect.y + parent_main_rect.h),
+        Vec2::new(child_main_rect.x, child_main_rect.y),
+    )
+}
+
 fn draw_agent_row_text_selection(painter: &mut HudPainter, position: Vec2, text: &str) {
     let text_width = painter.text_size(text, AGENT_ROW_LABEL_TEXT_SIZE).x * AGENT_ROW_LABEL_SCALE_X;
     painter.fill_rect(
@@ -407,6 +414,7 @@ pub(crate) fn render_content(
     );
     rows.sort_by_key(|row| row.dragging);
 
+    let mut parent_main_rects = std::collections::HashMap::new();
     for row in rows {
         if row.rect.y + row.rect.h < content_rect.y || row.rect.y > content_rect.y + content_rect.h
         {
@@ -414,7 +422,19 @@ pub(crate) fn render_content(
         }
 
         let main_rect = row_main_rect(&row);
+        if !row.is_tmux_child {
+            if let Some(agent_id) = row.agent_id {
+                parent_main_rects.insert(agent_id, main_rect);
+            }
+        }
         if row.is_tmux_child {
+            if let Some(parent_main_rect) = row
+                .agent_id
+                .and_then(|agent_id| parent_main_rects.get(&agent_id).copied())
+            {
+                let (start, end) = tmux_child_connector(parent_main_rect, main_rect);
+                painter.stroke_line(start, end, apply_alpha(TMUX_CHILD_ORANGE, 0.72), 1.5);
+            }
             let stroke = if row.is_orphan_tmux {
                 EVA_EMISSIVE_RED
             } else {
@@ -521,8 +541,9 @@ mod tests {
         agent_accent_color, agent_fill_color, agent_label_color, agent_row_stroke,
         context_active_segment_range, context_bar_color, context_segment_count,
         context_segment_rect, context_track_rect, marker_fill, rendered_context_pct_milli,
-        tmux_child_fill_color, tmux_child_label_color, tmux_child_stroke_color, EVA_CYAN,
-        TMUX_CHILD_ORANGE, TMUX_CHILD_ORANGE_BRIGHT, WORKING_ROW_COLOR,
+        tmux_child_connector, tmux_child_fill_color, tmux_child_label_color,
+        tmux_child_stroke_color, EVA_CYAN, TMUX_CHILD_ORANGE, TMUX_CHILD_ORANGE_BRIGHT,
+        WORKING_ROW_COLOR,
     };
     use crate::agents::AgentStatus;
 
@@ -626,5 +647,25 @@ mod tests {
             tmux_child_fill_color(true, false),
             super::apply_alpha(TMUX_CHILD_ORANGE, 0.22)
         );
+    }
+
+    #[test]
+    fn tmux_child_connector_runs_from_parent_bottom_left_to_child_top_left() {
+        let parent = crate::hud::HudRect {
+            x: 30.0,
+            y: 50.0,
+            w: 120.0,
+            h: 24.0,
+        };
+        let child = crate::hud::HudRect {
+            x: 58.0,
+            y: 96.0,
+            w: 100.0,
+            h: 18.0,
+        };
+
+        let (start, end) = tmux_child_connector(parent, child);
+        assert_eq!(start, bevy::prelude::Vec2::new(30.0, 74.0));
+        assert_eq!(end, bevy::prelude::Vec2::new(58.0, 96.0));
     }
 }

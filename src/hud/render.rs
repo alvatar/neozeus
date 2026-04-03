@@ -22,7 +22,7 @@ use bevy::{prelude::*, window::PrimaryWindow};
 use bevy_vello::{
     parley::PositionedLayoutItem,
     prelude::{
-        kurbo::{Affine, Rect, RoundedRect, Stroke},
+        kurbo::{Affine, Line, Rect, RoundedRect, Stroke},
         peniko::{self, Fill},
         vello, VelloFont, VelloScene2d, VelloTextAlign, VelloTextAnchor, VelloTextStyle,
     },
@@ -156,6 +156,19 @@ impl<'scene, 'res> HudPainter<'scene, 'res> {
             apply_alpha(color, self.alpha),
             None,
             &RoundedRect::from_rect(hud_rect_to_scene(self.window, rect), 0.0),
+        );
+    }
+
+    /// Draws a straight HUD line segment with the requested stroke width.
+    pub(crate) fn stroke_line(&mut self, start: Vec2, end: Vec2, color: peniko::Color, width: f64) {
+        let (x0, y0) = hud_to_scene(self.window, start);
+        let (x1, y1) = hud_to_scene(self.window, end);
+        self.scene.stroke(
+            &Stroke::new(width),
+            Affine::IDENTITY,
+            apply_alpha(color, self.alpha),
+            None,
+            &Line::new((x0, y0), (x1, y1)),
         );
     }
 
