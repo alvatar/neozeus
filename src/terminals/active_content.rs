@@ -82,7 +82,7 @@ impl ActiveTerminalContentState {
     ) -> Option<u64> {
         (self.owner_terminal_id == Some(terminal_id)
             && self.selected_owned_tmux_session_uid.is_some())
-            .then_some(self.presentation_revision)
+        .then_some(self.presentation_revision)
     }
 
     #[cfg(test)]

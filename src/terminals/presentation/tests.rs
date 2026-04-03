@@ -1366,7 +1366,7 @@ fn startup_loading_temporarily_overrides_isolate_to_show_all_pending_terminals()
                 desired_texture_state: Default::default(),
                 display_mode: TerminalDisplayMode::Smooth,
                 uploaded_revision: 0,
-            uploaded_active_override_revision: None,
+                uploaded_active_override_revision: None,
                 uploaded_text_selection_revision: None,
                 panel_entity: Entity::PLACEHOLDER,
                 frame_entity: Entity::PLACEHOLDER,

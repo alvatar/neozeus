@@ -539,14 +539,20 @@ fn daemon_owned_tmux_kill_waits_for_child_process_exit() {
             None,
             &format!(
                 "exec sh -c {}",
-                shell_quote(&format!("echo $$ > {}; trap '' HUP; sleep 60", pid_file.display()))
+                shell_quote(&format!(
+                    "echo $$ > {}; trap '' HUP; sleep 60",
+                    pid_file.display()
+                ))
             ),
         )
         .expect("owned tmux session should create");
 
     let pid_text = wait_for_file_text(&pid_file);
     let pid: u32 = pid_text.parse().expect("tmux child pid should parse");
-    assert!(process_exists(pid), "tmux child pid {pid} should exist before kill");
+    assert!(
+        process_exists(pid),
+        "tmux child pid {pid} should exist before kill"
+    );
 
     client
         .kill_owned_tmux_session(&session.session_uid)
@@ -633,7 +639,10 @@ fn daemon_owned_tmux_kill_for_owner_uid_waits_for_child_process_exit() {
             None,
             &format!(
                 "exec sh -c {}",
-                shell_quote(&format!("echo $$ > {}; trap '' HUP; sleep 60", pid_file.display()))
+                shell_quote(&format!(
+                    "echo $$ > {}; trap '' HUP; sleep 60",
+                    pid_file.display()
+                ))
             ),
         )
         .expect("owned tmux session should create");
@@ -643,7 +652,10 @@ fn daemon_owned_tmux_kill_for_owner_uid_waits_for_child_process_exit() {
 
     let pid_text = wait_for_file_text(&pid_file);
     let pid: u32 = pid_text.parse().expect("tmux child pid should parse");
-    assert!(process_exists(pid), "tmux child pid {pid} should exist before owner kill");
+    assert!(
+        process_exists(pid),
+        "tmux child pid {pid} should exist before owner kill"
+    );
 
     client
         .kill_owned_tmux_sessions_for_agent("agent-owner-a")

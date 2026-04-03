@@ -48,7 +48,10 @@ impl TerminalTextSelectionState {
     }
 
     pub(crate) fn begin_drag(&mut self, terminal_id: TerminalId, anchor: TerminalSelectionPoint) {
-        self.drag = Some(TerminalTextSelectionDrag { terminal_id, anchor });
+        self.drag = Some(TerminalTextSelectionDrag {
+            terminal_id,
+            anchor,
+        });
     }
 
     pub(crate) fn clear_drag(&mut self) {

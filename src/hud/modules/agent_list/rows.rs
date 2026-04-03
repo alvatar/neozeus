@@ -11,9 +11,15 @@ pub(crate) const AGENT_LIST_LEFT_RAIL_WIDTH: f32 = 20.0;
 const AGENT_LIST_ROW_MARKER_WIDTH: f32 = 12.0;
 const AGENT_LIST_ROW_MARKER_GAP: f32 = 10.0;
 const AGENT_LIST_ROW_GAP: f32 = 14.0;
+const TMUX_CHILD_ROW_INDENT: f32 = 24.0;
+const TMUX_CHILD_ROW_RIGHT_INSET: f32 = 4.0;
+const TMUX_CHILD_ROW_HEIGHT: f32 = 18.0;
 pub(crate) const AGENT_ROW_LABEL_TEXT_SIZE: f32 = 16.0;
 pub(crate) const AGENT_ROW_LABEL_SCALE_X: f32 = 0.76;
 pub(crate) const AGENT_ROW_LABEL_SCALE_Y: f32 = 1.14;
+pub(crate) const TMUX_ROW_LABEL_TEXT_SIZE: f32 = 14.0;
+pub(crate) const TMUX_ROW_LABEL_SCALE_X: f32 = 0.74;
+pub(crate) const TMUX_ROW_LABEL_SCALE_Y: f32 = 1.04;
 pub(crate) const AGENT_LIST_BORDER_ORANGE_R: u8 = 225;
 pub(crate) const AGENT_LIST_BORDER_ORANGE_G: u8 = 129;
 pub(crate) const AGENT_LIST_BORDER_ORANGE_B: u8 = 10;
@@ -51,7 +57,6 @@ pub(in crate::hud) struct AgentRow {
     pub(in crate::hud) dragging: bool,
     pub(in crate::hud) is_tmux_child: bool,
     pub(in crate::hud) is_orphan_tmux: bool,
-    pub(in crate::hud) tmux_attached: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -94,10 +99,24 @@ pub(crate) fn agent_row_label_text(row: &AgentRow) -> String {
     }
 }
 
+pub(crate) fn row_main_rect(row: &AgentRow) -> HudRect {
+    if row.is_tmux_child {
+        let y = row.rect.y + ((row.rect.h - TMUX_CHILD_ROW_HEIGHT) * 0.5).max(0.0);
+        HudRect {
+            x: row.rect.x + TMUX_CHILD_ROW_INDENT,
+            y,
+            w: (row.rect.w - TMUX_CHILD_ROW_INDENT - TMUX_CHILD_ROW_RIGHT_INSET).max(24.0),
+            h: TMUX_CHILD_ROW_HEIGHT,
+        }
+    } else {
+        agent_row_rect(row.rect, AgentListRowSection::Main)
+    }
+}
+
 pub(crate) fn agent_row_label_position(main_rect: HudRect, row: &AgentRow) -> bevy::prelude::Vec2 {
     bevy::prelude::Vec2::new(
-        main_rect.x + if row.is_tmux_child { 18.0 } else { 12.0 },
-        main_rect.y + 2.0,
+        main_rect.x + 12.0,
+        main_rect.y + if row.is_tmux_child { 1.0 } else { 2.0 },
     )
 }
 
@@ -160,7 +179,6 @@ pub(in crate::hud) fn projected_agent_rows(
                 context_pct_milli,
                 is_tmux_child,
                 is_orphan_tmux,
-                tmux_attached,
             ) = match &row.kind {
                 AgentListRowKind::Agent {
                     agent_id,
@@ -179,13 +197,11 @@ pub(in crate::hud) fn projected_agent_rows(
                     *context_pct_milli,
                     false,
                     false,
-                    false,
                 ),
                 AgentListRowKind::OwnedTmux {
                     owner,
                     tmux_name,
                     cwd,
-                    attached,
                     ..
                 } => (
                     match owner {
@@ -200,7 +216,6 @@ pub(in crate::hud) fn projected_agent_rows(
                     None,
                     true,
                     matches!(owner, OwnedTmuxOwnerBinding::Orphan),
-                    *attached,
                 ),
             };
             AgentRow {
@@ -224,7 +239,6 @@ pub(in crate::hud) fn projected_agent_rows(
                 dragging,
                 is_tmux_child,
                 is_orphan_tmux,
-                tmux_attached,
             }
         };
 

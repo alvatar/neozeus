@@ -938,7 +938,7 @@ fn killing_active_terminal_selects_previous_terminal_in_creation_order() {
                 desired_texture_state: Default::default(),
                 display_mode: Default::default(),
                 uploaded_revision: 0,
-            uploaded_active_override_revision: None,
+                uploaded_active_override_revision: None,
                 uploaded_text_selection_revision: None,
                 panel_entity: Entity::PLACEHOLDER,
                 frame_entity: Entity::PLACEHOLDER,
@@ -1025,7 +1025,7 @@ fn killing_first_active_terminal_selects_next_terminal() {
                 desired_texture_state: Default::default(),
                 display_mode: Default::default(),
                 uploaded_revision: 0,
-            uploaded_active_override_revision: None,
+                uploaded_active_override_revision: None,
                 uploaded_text_selection_revision: None,
                 panel_entity: Entity::PLACEHOLDER,
                 frame_entity: Entity::PLACEHOLDER,
@@ -2416,15 +2416,17 @@ fn active_terminal_content_ignores_identical_recapture() {
     let mut world = World::default();
     world.insert_resource(fake_runtime_spawner(client));
     let mut owned_tmux_sessions = crate::terminals::OwnedTmuxSessionStore::default();
-    owned_tmux_sessions.sessions.push(crate::terminals::OwnedTmuxSessionInfo {
-        session_uid: "tmux-session-1".into(),
-        owner_agent_uid: "agent-uid-1".into(),
-        tmux_name: "neozeus-tmux-1".into(),
-        display_name: "BUILD".into(),
-        cwd: "/tmp/work".into(),
-        attached: false,
-        created_unix: 0,
-    });
+    owned_tmux_sessions
+        .sessions
+        .push(crate::terminals::OwnedTmuxSessionInfo {
+            session_uid: "tmux-session-1".into(),
+            owner_agent_uid: "agent-uid-1".into(),
+            tmux_name: "neozeus-tmux-1".into(),
+            display_name: "BUILD".into(),
+            cwd: "/tmp/work".into(),
+            attached: false,
+            created_unix: 0,
+        });
     world.insert_resource(owned_tmux_sessions);
     world.insert_resource(crate::terminals::ActiveTerminalContentState::default());
     world.insert_resource(crate::terminals::ActiveTerminalContentSyncState::default());
@@ -2454,8 +2456,7 @@ fn active_terminal_content_ignores_identical_recapture() {
         .resource::<crate::terminals::ActiveTerminalContentState>()
         .presentation_revision();
     assert_eq!(
-        revision_after_second_sync,
-        revision_after_first_sync,
+        revision_after_second_sync, revision_after_first_sync,
         "identical tmux recapture should not bump the terminal presentation revision"
     );
 }

@@ -340,7 +340,10 @@ fn pane_pid(tmux_name: &str) -> Result<Option<u32>, String> {
         ["list-panes", "-t", tmux_name, "-F", "#{pane_pid}"],
         TMUX_DISCOVER_TIMEOUT,
     )?;
-    Ok(pane.lines().next().and_then(|line| line.trim().parse::<u32>().ok()))
+    Ok(pane
+        .lines()
+        .next()
+        .and_then(|line| line.trim().parse::<u32>().ok()))
 }
 
 fn wait_for_process_exit(pid: u32, timeout: Duration) -> Result<(), String> {
@@ -360,7 +363,9 @@ fn wait_for_process_exit(pid: u32, timeout: Duration) -> Result<(), String> {
         return Ok(());
     }
 
-    Err(format!("tmux pane pid {pid} still alive after kill-session"))
+    Err(format!(
+        "tmux pane pid {pid} still alive after kill-session"
+    ))
 }
 
 fn wait_for_process_exit_until(pid: u32, deadline: std::time::Instant) -> bool {
@@ -387,7 +392,10 @@ fn signal_process_group(pid: u32, signal: &str) -> Result<(), String> {
         let stdout = String::from_utf8_lossy(&output.stdout).trim().to_owned();
         let detail = if !stderr.is_empty() { stderr } else { stdout };
         Err(if detail.is_empty() {
-            format!("kill -{signal} -- -{pid} exited with status {}", output.status)
+            format!(
+                "kill -{signal} -- -{pid} exited with status {}",
+                output.status
+            )
         } else {
             format!("kill -{signal} -- -{pid} failed: {detail}")
         })
