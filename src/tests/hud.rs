@@ -2070,6 +2070,79 @@ fn killing_selected_owned_tmux_session_treats_missing_child_as_success() {
         .is_none());
 }
 
+/// Verifies that owned tmux kill refreshes the cached session store from daemon truth when the local
+/// store is stale.
+#[test]
+fn killing_selected_owned_tmux_session_refreshes_stale_store_from_daemon_truth() {
+    let client = Arc::new(FakeDaemonClient::default());
+    client
+        .owned_tmux_sessions
+        .lock()
+        .unwrap()
+        .push(crate::terminals::OwnedTmuxSessionInfo {
+            session_uid: "tmux-live".into(),
+            owner_agent_uid: "agent-uid-2".into(),
+            tmux_name: "neozeus-tmux-live".into(),
+            display_name: "LIVE".into(),
+            cwd: "/tmp/live".into(),
+            attached: false,
+            created_unix: 1,
+        });
+
+    let mut world = World::default();
+    insert_default_hud_resources(&mut world);
+    world.insert_resource(fake_runtime_spawner(client));
+    world.insert_resource(AppStatePersistenceState::default());
+    world.insert_resource(TerminalManager::default());
+    world.insert_resource(TerminalPresentationStore::default());
+    world.insert_resource(TerminalVisibilityState::default());
+    world.insert_resource(TerminalViewState::default());
+    world.insert_resource(AgentCatalog::default());
+    world.insert_resource(AgentRuntimeIndex::default());
+    world.init_resource::<Messages<AppCommand>>();
+    world.init_resource::<Messages<RequestRedraw>>();
+    let mut stale_store = crate::terminals::OwnedTmuxSessionStore::default();
+    stale_store.sessions.extend([
+        crate::terminals::OwnedTmuxSessionInfo {
+            session_uid: "tmux-stale-selected".into(),
+            owner_agent_uid: "agent-uid-1".into(),
+            tmux_name: "neozeus-tmux-stale-selected".into(),
+            display_name: "STALE".into(),
+            cwd: "/tmp/stale".into(),
+            attached: false,
+            created_unix: 0,
+        },
+        crate::terminals::OwnedTmuxSessionInfo {
+            session_uid: "tmux-stale-other".into(),
+            owner_agent_uid: "agent-uid-3".into(),
+            tmux_name: "neozeus-tmux-stale-other".into(),
+            display_name: "STALE-OTHER".into(),
+            cwd: "/tmp/stale-other".into(),
+            attached: false,
+            created_unix: 2,
+        },
+    ]);
+    world.insert_resource(stale_store);
+    world
+        .resource_mut::<crate::terminals::ActiveTerminalContentState>()
+        .select_owned_tmux("tmux-stale-selected".into(), None);
+
+    world
+        .resource_mut::<Messages<AppCommand>>()
+        .write(AppCommand::OwnedTmux(
+            crate::app::OwnedTmuxCommand::KillSelected,
+        ));
+    run_app_commands(&mut world);
+
+    assert!(world
+        .resource::<crate::terminals::ActiveTerminalContentState>()
+        .selected_owned_tmux_session_uid()
+        .is_none());
+    let store = world.resource::<crate::terminals::OwnedTmuxSessionStore>();
+    assert_eq!(store.sessions.len(), 1);
+    assert_eq!(store.sessions[0].session_uid, "tmux-live");
+}
+
 /// Verifies that a real owned tmux kill failure preserves selection and surfaces the error.
 #[test]
 fn killing_selected_owned_tmux_session_preserves_selection_on_failure() {
