@@ -94,26 +94,27 @@ impl ActiveTerminalContentState {
         self.presentation_revision = self.presentation_revision.wrapping_add(1);
     }
 
-    fn set_missing_session_error(&mut self) {
+    fn set_missing_session_error(&mut self) -> bool {
         let error = Some("Owned tmux session is no longer available".to_owned());
         if self.owned_tmux_capture_text.is_none()
             && self.owned_tmux_surface.is_none()
             && self.last_error == error
         {
-            return;
+            return false;
         }
         self.owned_tmux_capture_text = None;
         self.owned_tmux_surface = None;
         self.last_error = error;
         self.bump_presentation_revision();
+        true
     }
 
-    fn update_capture(&mut self, text: String) {
+    fn update_capture(&mut self, text: String) -> bool {
         if self.owned_tmux_capture_text.as_deref() == Some(text.as_str())
             && self.last_error.is_none()
             && self.owned_tmux_surface.is_some()
         {
-            return;
+            return false;
         }
         let mut surface = surface_from_ansi_text_auto_size(&text);
         surface.cursor = None;
@@ -121,19 +122,21 @@ impl ActiveTerminalContentState {
         self.owned_tmux_surface = Some(surface);
         self.last_error = None;
         self.bump_presentation_revision();
+        true
     }
 
-    fn update_capture_error(&mut self, error: String) {
+    fn update_capture_error(&mut self, error: String) -> bool {
         if self.owned_tmux_capture_text.is_none()
             && self.owned_tmux_surface.is_none()
             && self.last_error.as_deref() == Some(error.as_str())
         {
-            return;
+            return false;
         }
         self.owned_tmux_capture_text = None;
         self.owned_tmux_surface = None;
         self.last_error = Some(error);
         self.bump_presentation_revision();
+        true
     }
 }
 
@@ -144,6 +147,7 @@ pub(crate) fn sync_active_terminal_content(
     session_store: Res<OwnedTmuxSessionStore>,
     mut sync_state: ResMut<ActiveTerminalContentSyncState>,
     mut active_content: ResMut<ActiveTerminalContentState>,
+    mut redraws: MessageWriter<bevy::window::RequestRedraw>,
 ) {
     let Some(session_uid) = active_content.selected_owned_tmux_session_uid.clone() else {
         return;
@@ -162,12 +166,17 @@ pub(crate) fn sync_active_terminal_content(
         .iter()
         .any(|session| session.session_uid == session_uid)
     {
-        active_content.set_missing_session_error();
+        if active_content.set_missing_session_error() {
+            redraws.write(bevy::window::RequestRedraw);
+        }
         return;
     }
 
-    match runtime_spawner.capture_owned_tmux_session(&session_uid, OWNED_TMUX_CAPTURE_LINES) {
+    let changed = match runtime_spawner.capture_owned_tmux_session(&session_uid, OWNED_TMUX_CAPTURE_LINES) {
         Ok(text) => active_content.update_capture(text),
         Err(error) => active_content.update_capture_error(error),
+    };
+    if changed {
+        redraws.write(bevy::window::RequestRedraw);
     }
 }
