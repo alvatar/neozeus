@@ -41,22 +41,70 @@ pub(crate) enum AgentListRowSection {
 }
 
 #[derive(Clone, Debug, PartialEq)]
+pub(in crate::hud) enum AgentRowKind {
+    Agent {
+        agent_id: AgentId,
+        terminal_id: Option<TerminalId>,
+        has_tasks: bool,
+        interactive: bool,
+        status: AgentStatus,
+        context_pct_milli: Option<i32>,
+    },
+    OwnedTmux {
+        owner_agent_id: Option<AgentId>,
+        orphaned: bool,
+    },
+}
+
+#[derive(Clone, Debug, PartialEq)]
 pub(in crate::hud) struct AgentRow {
     pub(in crate::hud) key: AgentListRowKey,
-    pub(in crate::hud) agent_id: Option<AgentId>,
-    pub(in crate::hud) terminal_id: Option<TerminalId>,
     pub(in crate::hud) label: String,
-    pub(in crate::hud) detail: Option<String>,
     pub(in crate::hud) rect: HudRect,
     pub(in crate::hud) focused: bool,
     pub(in crate::hud) hovered: bool,
-    pub(in crate::hud) has_tasks: bool,
-    pub(in crate::hud) interactive: bool,
-    pub(in crate::hud) status: AgentStatus,
-    pub(in crate::hud) context_pct_milli: Option<i32>,
     pub(in crate::hud) dragging: bool,
-    pub(in crate::hud) is_tmux_child: bool,
-    pub(in crate::hud) is_orphan_tmux: bool,
+    pub(in crate::hud) kind: AgentRowKind,
+}
+
+impl AgentRow {
+    pub(in crate::hud) fn owner_agent_id(&self) -> Option<AgentId> {
+        match self.kind {
+            AgentRowKind::Agent { agent_id, .. } => Some(agent_id),
+            AgentRowKind::OwnedTmux { owner_agent_id, .. } => owner_agent_id,
+        }
+    }
+
+    pub(in crate::hud) fn terminal_id(&self) -> Option<TerminalId> {
+        match self.kind {
+            AgentRowKind::Agent { terminal_id, .. } => terminal_id,
+            AgentRowKind::OwnedTmux { .. } => None,
+        }
+    }
+
+    pub(in crate::hud) fn status(&self) -> AgentStatus {
+        match self.kind {
+            AgentRowKind::Agent { status, .. } => status,
+            AgentRowKind::OwnedTmux { .. } => AgentStatus::Unknown,
+        }
+    }
+
+    #[cfg(test)]
+    pub(in crate::hud) fn has_tasks(&self) -> bool {
+        match self.kind {
+            AgentRowKind::Agent { has_tasks, .. } => has_tasks,
+            AgentRowKind::OwnedTmux { .. } => false,
+        }
+    }
+
+    #[cfg(test)]
+    pub(in crate::hud) fn is_orphan_tmux(&self) -> bool {
+        matches!(self.kind, AgentRowKind::OwnedTmux { orphaned: true, .. })
+    }
+
+    pub(in crate::hud) fn is_tmux_child(&self) -> bool {
+        matches!(self.kind, AgentRowKind::OwnedTmux { .. })
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -96,7 +144,7 @@ pub(crate) fn agent_row_label_text(row: &AgentRow) -> String {
 }
 
 pub(crate) fn row_main_rect(row: &AgentRow) -> HudRect {
-    if row.is_tmux_child {
+    if row.is_tmux_child() {
         let y = row.rect.y + ((row.rect.h - TMUX_CHILD_ROW_HEIGHT) * 0.5).max(0.0);
         HudRect {
             x: row.rect.x + TMUX_CHILD_ROW_INDENT,
@@ -112,7 +160,7 @@ pub(crate) fn row_main_rect(row: &AgentRow) -> HudRect {
 pub(crate) fn agent_row_label_position(main_rect: HudRect, row: &AgentRow) -> bevy::prelude::Vec2 {
     bevy::prelude::Vec2::new(
         main_rect.x + 12.0,
-        main_rect.y + if row.is_tmux_child { 1.0 } else { 2.0 },
+        main_rect.y + if row.is_tmux_child() { 1.0 } else { 2.0 },
     )
 }
 
@@ -165,17 +213,7 @@ pub(in crate::hud) fn projected_agent_rows(
 
     let build_row =
         |index: usize, row: &crate::hud::view_models::AgentListRowView, dragging: bool| {
-            let (
-                agent_id,
-                terminal_id,
-                detail,
-                has_tasks,
-                interactive,
-                status,
-                context_pct_milli,
-                is_tmux_child,
-                is_orphan_tmux,
-            ) = match &row.kind {
+            let kind = match &row.kind {
                 AgentListRowKind::Agent {
                     agent_id,
                     terminal_id,
@@ -183,43 +221,25 @@ pub(in crate::hud) fn projected_agent_rows(
                     interactive,
                     status,
                     context_pct_milli,
-                } => (
-                    Some(*agent_id),
-                    *terminal_id,
-                    None,
-                    *has_tasks,
-                    *interactive,
-                    *status,
-                    *context_pct_milli,
-                    false,
-                    false,
-                ),
-                AgentListRowKind::OwnedTmux {
-                    owner,
-                    tmux_name,
-                    cwd,
-                    ..
-                } => (
-                    match owner {
+                } => AgentRowKind::Agent {
+                    agent_id: *agent_id,
+                    terminal_id: *terminal_id,
+                    has_tasks: *has_tasks,
+                    interactive: *interactive,
+                    status: *status,
+                    context_pct_milli: *context_pct_milli,
+                },
+                AgentListRowKind::OwnedTmux { owner, .. } => AgentRowKind::OwnedTmux {
+                    owner_agent_id: match owner {
                         OwnedTmuxOwnerBinding::Bound(agent_id) => Some(*agent_id),
                         OwnedTmuxOwnerBinding::Orphan => None,
                     },
-                    None,
-                    Some(format!("{}  {}", tmux_name, cwd)),
-                    false,
-                    true,
-                    AgentStatus::Unknown,
-                    None,
-                    true,
-                    matches!(owner, OwnedTmuxOwnerBinding::Orphan),
-                ),
+                    orphaned: matches!(owner, OwnedTmuxOwnerBinding::Orphan),
+                },
             };
             AgentRow {
                 key: row.key.clone(),
-                agent_id,
-                terminal_id,
                 label: row.label.clone(),
-                detail,
                 rect: HudRect {
                     x: content_x,
                     y: content_y + index as f32 * row_stride - scroll_offset,
@@ -228,13 +248,8 @@ pub(in crate::hud) fn projected_agent_rows(
                 },
                 focused: row.focused,
                 hovered: hovered_row == Some(&row.key),
-                has_tasks,
-                interactive,
-                status,
-                context_pct_milli,
                 dragging,
-                is_tmux_child,
-                is_orphan_tmux,
+                kind,
             }
         };
 

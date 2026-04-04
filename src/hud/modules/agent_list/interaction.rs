@@ -86,7 +86,7 @@ pub(crate) fn reorder_target_index(
         agent_list_view,
     )
     .into_iter()
-    .filter(|row| !row.is_tmux_child)
+    .filter(|row| !row.is_tmux_child())
     .collect::<Vec<_>>();
     if rows.is_empty() {
         return None;
