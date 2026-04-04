@@ -504,7 +504,7 @@ fn sync_info_bar_view_model_reports_claude_backoff() {
     world.insert_resource(InfoBarView::default());
 
     world.run_system_once(sync_info_bar_view_model).unwrap();
-    assert_eq!(world.resource::<InfoBarView>().claude_session.detail_text, "RT");
+    assert_eq!(world.resource::<InfoBarView>().claude_session.detail_text, "RL");
 }
 
 fn current_unix() -> u64 {
