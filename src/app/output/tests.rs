@@ -71,6 +71,65 @@ fn create_final_frame_image_uses_renderable_srgb_target() {
     assert!(usage.contains(TextureUsages::TEXTURE_BINDING));
 }
 
+#[test]
+fn resolve_scene_output_target_only_switches_between_window_and_single_image() {
+    let mut images = Assets::<Image>::default();
+    let mut output_state = FinalFrameOutputState::default();
+    let window = primary_window_config_for(&AppOutputConfig {
+        mode: OutputMode::Desktop,
+        width: 1400,
+        height: 900,
+        scale_factor_override: None,
+    });
+
+    let desktop_target = resolve_scene_output_target(
+        &AppOutputConfig {
+            mode: OutputMode::Desktop,
+            width: 1400,
+            height: 900,
+            scale_factor_override: None,
+        },
+        &window,
+        &mut images,
+        &mut output_state,
+    );
+    assert!(matches!(desktop_target, SceneOutputTarget::Window));
+    assert!(!output_state.enabled());
+
+    let offscreen_target = resolve_scene_output_target(
+        &AppOutputConfig {
+            mode: OutputMode::OffscreenVerify,
+            width: 1400,
+            height: 900,
+            scale_factor_override: None,
+        },
+        &window,
+        &mut images,
+        &mut output_state,
+    );
+    let first_image = match offscreen_target {
+        SceneOutputTarget::Image(handle) => handle,
+        SceneOutputTarget::Window => panic!("offscreen mode must resolve to image target"),
+    };
+    assert!(output_state.enabled());
+
+    let reused_target = resolve_scene_output_target(
+        &AppOutputConfig {
+            mode: OutputMode::OffscreenVerify,
+            width: 1400,
+            height: 900,
+            scale_factor_override: None,
+        },
+        &window,
+        &mut images,
+        &mut output_state,
+    );
+    match reused_target {
+        SceneOutputTarget::Image(handle) => assert_eq!(handle, first_image),
+        SceneOutputTarget::Window => panic!("offscreen mode must keep image target"),
+    }
+}
+
 /// Exercises render-target routing as the app flips between offscreen and desktop modes.
 ///
 /// The test first confirms that offscreen mode allocates a shared image target and attaches it to
@@ -119,6 +178,30 @@ fn sync_final_frame_output_target_assigns_targets_only_in_offscreen_mode() {
         world.get::<RenderTarget>(bloom),
         Some(RenderTarget::Window(_))
     ));
+}
+
+#[test]
+fn sync_final_frame_output_target_only_retargets_existing_scene_cameras() {
+    let mut world = World::default();
+    world.insert_resource(AppOutputConfig {
+        mode: OutputMode::OffscreenVerify,
+        width: 1400,
+        height: 900,
+        scale_factor_override: None,
+    });
+    world.insert_resource(FinalFrameOutputState::default());
+    world.insert_resource(Assets::<Image>::default());
+    world.spawn((Window::default(), PrimaryWindow));
+    world.spawn((TerminalCameraMarker,));
+    world.spawn((HudCompositeCameraMarker,));
+    world.spawn((AgentListBloomAdditiveCameraMarker,));
+    let entity_count_before = world.entities().len();
+
+    world
+        .run_system_once(sync_final_frame_output_target)
+        .unwrap();
+
+    assert_eq!(world.entities().len(), entity_count_before);
 }
 
 /// Verifies that capture does not request GPU readback before an output target exists.
