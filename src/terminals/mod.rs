@@ -27,7 +27,8 @@ pub(crate) use ansi_surface::surface_from_ansi_text_auto_size;
 pub(crate) use bridge::TerminalBridge;
 pub(crate) use daemon::{
     resolve_daemon_socket_path, run_daemon_server, DaemonSessionInfo, OwnedTmuxSessionInfo,
-    TerminalDaemonClientResource, PERSISTENT_SESSION_PREFIX, VERIFIER_SESSION_PREFIX,
+    SocketTerminalDaemonClient, TerminalDaemonClient, TerminalDaemonClientResource,
+    PERSISTENT_SESSION_PREFIX, VERIFIER_SESSION_PREFIX,
 };
 pub(crate) use debug::append_debug_log;
 pub(crate) use fonts::{configure_terminal_fonts, TerminalFontState, TerminalTextRenderer};
@@ -63,7 +64,9 @@ pub(crate) use session_persistence::{
 };
 pub(crate) use types::TerminalLifecycle;
 pub(crate) use types::{
-    TerminalCell, TerminalCellContent, TerminalCommand, TerminalRuntimeState, TerminalSurface,
+    TerminalCell, TerminalCellContent, TerminalCellStyle, TerminalCommand, TerminalCursor,
+    TerminalCursorShape, TerminalRuntimeState, TerminalSnapshot, TerminalSurface,
+    TerminalUnderlineStyle,
 };
 
 #[cfg(test)]

@@ -5,6 +5,9 @@ use super::protocol::{
     read_server_message, write_client_message, ClientMessage, DaemonEvent, DaemonRequest,
     DaemonResponse, DaemonSessionInfo, ServerMessage,
 };
+use crate::clone_state::{
+    load_cloned_daemon_state, resolve_cloned_daemon_state_path, ClonedDaemonState,
+};
 use crate::shared::daemon_socket::resolve_daemon_socket_path;
 use bevy::prelude::Resource;
 use std::{
@@ -90,10 +93,17 @@ pub(crate) struct TerminalDaemonClientResource {
 }
 
 impl TerminalDaemonClientResource {
-    /// Builds the Bevy resource wrapper around the default socket-backed daemon client.
+    /// Builds the Bevy resource wrapper around the selected daemon client.
     ///
-    /// Startup uses this to connect to an existing daemon or auto-start one if needed.
+    /// Normal startup connects to a real daemon socket. When a cloned daemon-state bundle is
+    /// configured, startup instead uses a read-only clone-backed client so rendering can target an
+    /// isolated snapshot of live state without touching the real daemon.
     pub(crate) fn system() -> Result<Self, String> {
+        if let Some(path) = resolve_cloned_daemon_state_path() {
+            return Ok(Self {
+                inner: Arc::new(ClonedTerminalDaemonClient::from_path(&path)?),
+            });
+        }
         Ok(Self {
             inner: Arc::new(SocketTerminalDaemonClient::connect_or_start_default()?),
         })
@@ -111,6 +121,113 @@ impl TerminalDaemonClientResource {
     /// Returns the erased daemon-client trait object stored inside the resource.
     pub(crate) fn client(&self) -> &dyn TerminalDaemonClient {
         self.inner.as_ref()
+    }
+}
+
+struct ClonedTerminalDaemonClient {
+    state: ClonedDaemonState,
+}
+
+impl ClonedTerminalDaemonClient {
+    fn from_path(path: &Path) -> Result<Self, String> {
+        Ok(Self {
+            state: load_cloned_daemon_state(path)?,
+        })
+    }
+
+    fn read_only_error(operation: &str) -> String {
+        format!("cloned daemon state is read-only; {operation} is unavailable")
+    }
+}
+
+impl TerminalDaemonClient for ClonedTerminalDaemonClient {
+    fn list_sessions(&self) -> Result<Vec<DaemonSessionInfo>, String> {
+        Ok(self
+            .state
+            .sessions
+            .iter()
+            .map(|session| DaemonSessionInfo {
+                session_id: session.session_id.clone(),
+                runtime: session.snapshot.runtime.clone(),
+                revision: session.revision,
+                created_order: session.order_index,
+            })
+            .collect())
+    }
+
+    fn create_session_with_env(
+        &self,
+        _prefix: &str,
+        _cwd: Option<&str>,
+        _env_overrides: &[(String, String)],
+    ) -> Result<String, String> {
+        Err(Self::read_only_error("session creation"))
+    }
+
+    fn list_owned_tmux_sessions(&self) -> Result<Vec<OwnedTmuxSessionInfo>, String> {
+        Ok(self
+            .state
+            .owned_tmux_sessions
+            .iter()
+            .map(|session| session.info.clone())
+            .collect())
+    }
+
+    fn create_owned_tmux_session(
+        &self,
+        _owner_agent_uid: &str,
+        _display_name: &str,
+        _cwd: Option<&str>,
+        _command: &str,
+    ) -> Result<OwnedTmuxSessionInfo, String> {
+        Err(Self::read_only_error("owned tmux creation"))
+    }
+
+    fn capture_owned_tmux_session(
+        &self,
+        session_uid: &str,
+        _lines: usize,
+    ) -> Result<String, String> {
+        self.state
+            .owned_tmux_sessions
+            .iter()
+            .find(|session| session.info.session_uid == session_uid)
+            .map(|session| session.capture_text.clone())
+            .ok_or_else(|| format!("owned tmux session `{session_uid}` not found in cloned state"))
+    }
+
+    fn kill_owned_tmux_session(&self, _session_uid: &str) -> Result<(), String> {
+        Err(Self::read_only_error("owned tmux kill"))
+    }
+
+    fn kill_owned_tmux_sessions_for_agent(&self, _owner_agent_uid: &str) -> Result<(), String> {
+        Err(Self::read_only_error("owned tmux owner kill"))
+    }
+
+    fn attach_session(&self, session_id: &str) -> Result<AttachedDaemonSession, String> {
+        let session = self
+            .state
+            .sessions
+            .iter()
+            .find(|session| session.session_id == session_id)
+            .ok_or_else(|| format!("cloned daemon session `{session_id}` not found"))?;
+        let (_tx, rx) = mpsc::channel();
+        Ok(AttachedDaemonSession {
+            snapshot: session.snapshot.clone(),
+            updates: rx,
+        })
+    }
+
+    fn send_command(&self, _session_id: &str, _command: TerminalCommand) -> Result<(), String> {
+        Err(Self::read_only_error("send command"))
+    }
+
+    fn resize_session(&self, _session_id: &str, _cols: usize, _rows: usize) -> Result<(), String> {
+        Err(Self::read_only_error("resize session"))
+    }
+
+    fn kill_session(&self, _session_id: &str) -> Result<(), String> {
+        Err(Self::read_only_error("kill session"))
     }
 }
 
