@@ -92,8 +92,11 @@ fn sample_agent_status(
 ) -> AgentStatusSample {
     let visible_rows = extract_visible_rows(surface);
     if visible_rows != activity.last_visible_rows {
+        let has_previous_baseline = !activity.last_visible_rows.is_empty();
         activity.last_visible_rows = visible_rows.clone();
-        activity.last_output_secs = Some(now_secs);
+        if has_previous_baseline {
+            activity.last_output_secs = Some(now_secs);
+        }
     }
     let last_four_lines = visible_rows
         .iter()
@@ -288,13 +291,16 @@ mod tests {
     }
 
     #[test]
-    fn sample_agent_status_terminal_times_out_to_idle_after_quiet_window() {
+    fn sample_agent_status_terminal_starts_idle_then_tracks_real_output_changes() {
         let surface = surface_with_text(4, 40, 0, "shell prompt $");
+        let changed_surface = surface_with_text(4, 40, 0, "shell prompt $ ls");
         let mut activity = AgentActivityState::default();
 
-        let active = sample_agent_status(AgentKind::Terminal, &surface, 0.0, &mut activity);
-        let idle = sample_agent_status(AgentKind::Terminal, &surface, 6.0, &mut activity);
+        let initial = sample_agent_status(AgentKind::Terminal, &surface, 0.0, &mut activity);
+        let active = sample_agent_status(AgentKind::Terminal, &changed_surface, 1.0, &mut activity);
+        let idle = sample_agent_status(AgentKind::Terminal, &changed_surface, 7.0, &mut activity);
 
+        assert_eq!(initial.status, AgentStatus::Idle);
         assert_eq!(active.status, AgentStatus::Working);
         assert_eq!(idle.status, AgentStatus::Idle);
     }
