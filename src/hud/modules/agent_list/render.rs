@@ -418,7 +418,7 @@ pub(crate) fn render_content(
             content_rect.x + AGENT_LIST_LEFT_RAIL_WIDTH + HUD_MODULE_PADDING,
             content_rect.y + 10.0,
         ),
-        "NEOZEUS CONTROL ROOM // 0.1",
+        "NEOZEUS CONTROL // 0.1",
         18.0,
         EVA_ORANGE_BRIGHT,
         VelloTextAnchor::TopLeft,
