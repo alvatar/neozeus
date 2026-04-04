@@ -6,7 +6,8 @@ use super::super::{
     setup::sync_structural_hud_layout,
     state::{default_hud_module_instance, AgentListUiState, HudState},
     view_models::{
-        sync_hud_view_models, AgentListView, ComposerView, ConversationListView, ThreadView,
+        sync_hud_view_models, AgentListRowKey, AgentListRowKind, AgentListRowView, AgentListView,
+        ComposerView, ConversationListView, OwnedTmuxOwnerBinding, ThreadView,
     },
     widgets::{HudWidgetKey, HUD_WIDGET_DEFINITIONS},
 };
@@ -93,6 +94,49 @@ fn working_rows_use_turquoise_bloom_glow() {
     assert!(marker_linear.blue > marker_linear.red);
     assert!(marker_linear.green >= main_linear.green);
     assert!(idle_linear.red > idle_linear.green);
+}
+
+#[test]
+fn selected_tmux_connectors_use_selected_bloom_glow() {
+    let connector = bloom_source_color(
+        AgentStatus::Unknown,
+        true,
+        false,
+        AgentListBloomSourceKind::Connector,
+    );
+    let main = bloom_source_color(
+        AgentStatus::Unknown,
+        true,
+        false,
+        AgentListBloomSourceKind::Main,
+    );
+    let connector_linear = connector.to_linear();
+    let main_linear = main.to_linear();
+    assert!(connector_linear.red >= main_linear.red);
+    assert!(connector_linear.green < connector_linear.red);
+}
+
+#[test]
+fn connector_bloom_rects_follow_tmux_link_path() {
+    let parent = HudRect {
+        x: 30.0,
+        y: 50.0,
+        w: 120.0,
+        h: 24.0,
+    };
+    let child = HudRect {
+        x: 58.0,
+        y: 96.0,
+        w: 100.0,
+        h: 18.0,
+    };
+
+    let rects = connector_bloom_rects(parent, child, 8, 8.0);
+    assert_eq!(rects.len(), 8);
+    assert_eq!(rects.first().unwrap().0, AgentListBloomSourceSegment::Connector0);
+    assert_eq!(rects.last().unwrap().0, AgentListBloomSourceSegment::Connector7);
+    assert!(rects.first().unwrap().1.x < rects.last().unwrap().1.x);
+    assert!(rects.first().unwrap().1.y < rects.last().unwrap().1.y);
 }
 
 /// Verifies the permissive parser for the bloom-intensity override.
@@ -513,4 +557,97 @@ fn sync_hud_widget_bloom_only_uses_active_agent_source() {
     assert!(source_sprites
         .iter()
         .all(|sprite| sprite.terminal_id != id_one));
+}
+
+#[test]
+fn sync_hud_widget_bloom_includes_selected_tmux_connector_glow() {
+    let mut world = World::default();
+    let (bridge, _) = test_bridge();
+    let mut manager = TerminalManager::default();
+    let terminal_id = manager.create_terminal(bridge);
+    manager.focus_terminal(terminal_id);
+
+    let mut hud_state = HudState::default();
+    hud_state.insert(
+        HudWidgetKey::AgentList,
+        default_hud_module_instance(&HUD_WIDGET_DEFINITIONS[1]),
+    );
+    insert_terminal_manager_resources(&mut world, manager);
+    world.insert_resource(AgentListView {
+        rows: vec![
+            AgentListRowView {
+                key: AgentListRowKey::Agent(crate::agents::AgentId(1)),
+                label: "AGENT-1".into(),
+                focused: false,
+                kind: AgentListRowKind::Agent {
+                    agent_id: crate::agents::AgentId(1),
+                    terminal_id: Some(terminal_id),
+                    has_tasks: false,
+                    interactive: true,
+                    status: AgentStatus::Idle,
+                    context_pct_milli: None,
+                },
+            },
+            AgentListRowView {
+                key: AgentListRowKey::OwnedTmux("tmux-1".into()),
+                label: "BUILD".into(),
+                focused: true,
+                kind: AgentListRowKind::OwnedTmux {
+                    session_uid: "tmux-1".into(),
+                    owner: OwnedTmuxOwnerBinding::Bound(crate::agents::AgentId(1)),
+                    tmux_name: "neozeus-tmux-1".into(),
+                    cwd: "/tmp/work".into(),
+                    attached: false,
+                },
+            },
+        ],
+    });
+    world.insert_resource(ConversationListView::default());
+    world.insert_resource(ThreadView::default());
+    world.insert_resource(ComposerView::default());
+    world.insert_resource(crate::agents::AgentStatusStore::default());
+    world.insert_resource(crate::terminals::OwnedTmuxSessionStore::default());
+    world.insert_resource(crate::terminals::ActiveTerminalContentState::default());
+    world.insert_resource(crate::terminals::ActiveTerminalContentSyncState::default());
+    insert_test_hud_state(&mut world, hud_state);
+    world.insert_resource(HudBloomSettings::default());
+    world.insert_resource(HudWidgetBloom::default());
+    world.insert_resource(Assets::<Image>::default());
+    world.insert_resource(Assets::<Mesh>::default());
+    world.insert_resource(Assets::<AgentListBloomBlurMaterial>::default());
+    world.spawn((
+        Window {
+            resolution: (1400, 900).into(),
+            ..default()
+        },
+        PrimaryWindow,
+    ));
+
+    world.run_system_once(setup_hud_widget_bloom).unwrap();
+    world.run_system_once(sync_structural_hud_layout).unwrap();
+    world.run_system_once(sync_hud_widget_bloom).unwrap();
+
+    let source_sprites = world
+        .query::<&AgentListBloomSourceSprite>()
+        .iter(&world)
+        .copied()
+        .collect::<Vec<_>>();
+    assert_eq!(source_sprites.len(), 12);
+    assert_eq!(
+        source_sprites
+            .iter()
+            .filter(|sprite| sprite.kind == AgentListBloomSourceKind::Main)
+            .count(),
+        4
+    );
+    assert_eq!(
+        source_sprites
+            .iter()
+            .filter(|sprite| sprite.kind == AgentListBloomSourceKind::Connector)
+            .count(),
+        8
+    );
+    assert!(source_sprites
+        .iter()
+        .all(|sprite| sprite.terminal_id == terminal_id));
 }
