@@ -17,6 +17,7 @@ use super::{
     AGENT_ROW_LABEL_TEXT_SIZE, TMUX_ROW_LABEL_SCALE_X, TMUX_ROW_LABEL_SCALE_Y,
     TMUX_ROW_LABEL_TEXT_SIZE,
 };
+use super::rows::{AgentRow, AgentRowKind};
 
 const EVA_ORANGE: peniko::Color = peniko::Color::from_rgba8(
     AGENT_LIST_BORDER_ORANGE_R,
@@ -210,6 +211,10 @@ fn tmux_child_fill_color() -> peniko::Color {
     apply_alpha(EVA_BLACK, 0.90)
 }
 
+fn tmux_child_label_color(focused: bool) -> peniko::Color {
+    tmux_child_chrome_color(focused)
+}
+
 fn tmux_child_connector(parent_main_rect: HudRect, child_main_rect: HudRect) -> (Vec2, Vec2) {
     (
         Vec2::new(parent_main_rect.x, parent_main_rect.y + parent_main_rect.h),
@@ -339,6 +344,63 @@ fn agent_row_stroke(
     }
 }
 
+fn render_agent_row(
+    painter: &mut HudPainter,
+    row: &AgentRow,
+    main_rect: HudRect,
+    status: AgentStatus,
+    has_tasks: bool,
+    interactive: bool,
+    context_pct_milli: Option<i32>,
+) {
+    let marker_rect = agent_row_rect(row.rect, AgentListRowSection::Marker);
+    let accent_rect = agent_row_rect(row.rect, AgentListRowSection::Accent);
+    let stroke = agent_row_stroke(status, row.focused, row.hovered, row.dragging);
+    let fill = agent_fill_color(status, row.focused, row.hovered, row.dragging);
+
+    draw_button_rect(painter, main_rect, stroke, fill);
+    draw_button_rect(
+        painter,
+        marker_rect,
+        stroke,
+        marker_fill(status, has_tasks, interactive),
+    );
+    draw_context_bar(
+        painter,
+        main_rect,
+        marker_rect,
+        rendered_context_pct_milli(context_pct_milli),
+    );
+    if let Some(accent_fill) = agent_accent_color(status, row.focused, row.dragging) {
+        painter.fill_rect(accent_rect, accent_fill, 0.0);
+    }
+}
+
+fn render_tmux_child_row(
+    painter: &mut HudPainter,
+    row: &AgentRow,
+    main_rect: HudRect,
+    owner_agent_id: Option<crate::agents::AgentId>,
+    orphaned: bool,
+    parent_main_rects: &std::collections::HashMap<crate::agents::AgentId, HudRect>,
+) {
+    if let Some(parent_main_rect) = owner_agent_id.and_then(|agent_id| parent_main_rects.get(&agent_id).copied()) {
+        let (start, end) = tmux_child_connector(parent_main_rect, main_rect);
+        painter.stroke_line(
+            start,
+            end,
+            apply_alpha(tmux_child_chrome_color(row.focused), 0.72),
+            2.5,
+        );
+    }
+    let stroke = if orphaned {
+        EVA_EMISSIVE_RED
+    } else {
+        tmux_child_chrome_color(row.focused)
+    };
+    draw_button_rect(painter, main_rect, stroke, tmux_child_fill_color());
+}
+
 /// Renders content.
 pub(crate) fn render_content(
     state: &AgentListUiState,
@@ -405,47 +467,39 @@ pub(crate) fn render_content(
         }
 
         let main_rect = row_main_rect(&row);
-        if !row.is_tmux_child {
-            if let Some(agent_id) = row.agent_id {
-                parent_main_rects.insert(agent_id, main_rect);
-            }
-        }
-        if row.is_tmux_child {
-            if let Some(parent_main_rect) = row
-                .agent_id
-                .and_then(|agent_id| parent_main_rects.get(&agent_id).copied())
-            {
-                let (start, end) = tmux_child_connector(parent_main_rect, main_rect);
-                painter.stroke_line(
-                    start,
-                    end,
-                    apply_alpha(tmux_child_chrome_color(row.focused), 0.72),
-                    2.5,
+        match &row.kind {
+            AgentRowKind::Agent {
+                agent_id,
+                has_tasks,
+                interactive,
+                status,
+                context_pct_milli,
+                ..
+            } => {
+                parent_main_rects.insert(*agent_id, main_rect);
+                render_agent_row(
+                    painter,
+                    &row,
+                    main_rect,
+                    *status,
+                    *has_tasks,
+                    *interactive,
+                    *context_pct_milli,
                 );
             }
-            draw_button_rect(
-                painter,
-                main_rect,
-                tmux_child_chrome_color(row.focused),
-                tmux_child_fill_color(),
-            );
-        } else {
-            let marker_rect = agent_row_rect(row.rect, AgentListRowSection::Marker);
-            let accent_rect = agent_row_rect(row.rect, AgentListRowSection::Accent);
-            let stroke = agent_row_stroke(row.status, row.focused, row.hovered, row.dragging);
-            let fill = agent_fill_color(row.status, row.focused, row.hovered, row.dragging);
-
-            draw_button_rect(painter, main_rect, stroke, fill);
-            draw_button_rect(
-                painter,
-                marker_rect,
-                stroke,
-                marker_fill(row.status, row.has_tasks, row.interactive),
-            );
-            let context_pct_milli = rendered_context_pct_milli(row.context_pct_milli);
-            draw_context_bar(painter, main_rect, marker_rect, context_pct_milli);
-            if let Some(accent_fill) = agent_accent_color(row.status, row.focused, row.dragging) {
-                painter.fill_rect(accent_rect, accent_fill, 0.0);
+            AgentRowKind::OwnedTmux {
+                owner_agent_id,
+                orphaned,
+                ..
+            } => {
+                render_tmux_child_row(
+                    painter,
+                    &row,
+                    main_rect,
+                    *owner_agent_id,
+                    *orphaned,
+                    &parent_main_rects,
+                );
             }
         }
 
@@ -489,23 +543,30 @@ pub(crate) fn render_content(
             painter,
             label_position,
             &label_text,
-            if row.is_tmux_child {
+            if row.is_tmux_child() {
                 TMUX_ROW_LABEL_TEXT_SIZE
             } else {
                 AGENT_ROW_LABEL_TEXT_SIZE
             },
-            if row.is_tmux_child {
-                tmux_child_chrome_color(row.focused)
-            } else {
-                agent_label_color(row.status, row.focused, row.dragging)
+            match &row.kind {
+                AgentRowKind::Agent { status, .. } => {
+                    agent_label_color(*status, row.focused, row.dragging)
+                }
+                AgentRowKind::OwnedTmux { orphaned, .. } => {
+                    if *orphaned {
+                        EVA_EMISSIVE_RED
+                    } else {
+                        tmux_child_label_color(row.focused)
+                    }
+                }
             },
             VelloTextAnchor::TopLeft,
-            if row.is_tmux_child {
+            if row.is_tmux_child() {
                 TMUX_ROW_LABEL_SCALE_X
             } else {
                 AGENT_ROW_LABEL_SCALE_X
             },
-            if row.is_tmux_child {
+            if row.is_tmux_child() {
                 TMUX_ROW_LABEL_SCALE_Y
             } else {
                 AGENT_ROW_LABEL_SCALE_Y
@@ -520,8 +581,9 @@ mod tests {
         agent_accent_color, agent_fill_color, agent_label_color, agent_row_stroke,
         context_active_segment_range, context_bar_color, context_segment_count,
         context_segment_rect, context_track_rect, marker_fill, rendered_context_pct_milli,
-        tmux_child_chrome_color, tmux_child_connector, tmux_child_fill_color, EVA_CYAN,
-        TMUX_CHILD_ORANGE, TMUX_CHILD_ORANGE_BRIGHT, WORKING_ROW_COLOR,
+        tmux_child_chrome_color, tmux_child_connector, tmux_child_fill_color,
+        tmux_child_label_color, EVA_CYAN, TMUX_CHILD_ORANGE, TMUX_CHILD_ORANGE_BRIGHT,
+        WORKING_ROW_COLOR,
     };
     use crate::agents::AgentStatus;
 
@@ -613,15 +675,12 @@ mod tests {
     fn tmux_child_rows_only_have_idle_and_selected_colors() {
         assert_eq!(tmux_child_chrome_color(false), TMUX_CHILD_ORANGE);
         assert_eq!(tmux_child_chrome_color(true), TMUX_CHILD_ORANGE_BRIGHT);
+        assert_eq!(tmux_child_label_color(false), TMUX_CHILD_ORANGE);
+        assert_eq!(tmux_child_label_color(true), TMUX_CHILD_ORANGE_BRIGHT);
         assert_eq!(
             tmux_child_fill_color(),
             super::apply_alpha(super::EVA_BLACK, 0.90)
         );
-    }
-
-    #[test]
-    fn tmux_child_hover_does_not_change_color_state() {
-        assert_eq!(tmux_child_chrome_color(false), TMUX_CHILD_ORANGE);
     }
 
     #[test]

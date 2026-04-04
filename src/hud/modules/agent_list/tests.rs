@@ -110,7 +110,7 @@ fn tmux_child_rows_render_as_compact_indented_boxes() {
     let agent_main = row_main_rect(&rows[0]);
     let tmux_main = row_main_rect(&rows[1]);
 
-    assert!(rows[1].is_tmux_child);
+    assert!(rows[1].is_tmux_child());
     assert!(tmux_main.x > agent_main.x);
     assert!(tmux_main.h < agent_main.h);
     assert!(tmux_main.w < rows[1].rect.w);
@@ -235,15 +235,15 @@ fn projected_agent_rows_follow_drag_cursor_and_reflow_other_rows() {
 
     let alpha = rows
         .iter()
-        .find(|row| row.agent_id == Some(AgentId(1)))
+        .find(|row| row.owner_agent_id() == Some(AgentId(1)))
         .expect("alpha row should exist");
     let gamma = rows
         .iter()
-        .find(|row| row.agent_id == Some(AgentId(3)))
+        .find(|row| row.owner_agent_id() == Some(AgentId(3)))
         .expect("gamma row should exist");
     let beta = rows
         .iter()
-        .find(|row| row.agent_id == Some(AgentId(2)))
+        .find(|row| row.owner_agent_id() == Some(AgentId(2)))
         .expect("beta row should exist");
 
     assert!(!alpha.dragging);
@@ -288,7 +288,7 @@ fn agent_rows_use_derived_agent_view_labels() {
     assert_eq!(rows[0].label, "agent-1");
     assert_eq!(rows[1].label, "oracle");
     assert!(rows[1].focused);
-    assert!(rows[1].has_tasks);
+    assert!(rows[1].has_tasks());
 }
 
 #[test]
@@ -320,11 +320,11 @@ fn agent_rows_follow_terminal_order_and_focus() {
         },
     );
     assert_eq!(rows.len(), 2);
-    assert_eq!(rows[0].terminal_id, Some(id_one));
+    assert_eq!(rows[0].terminal_id(), Some(id_one));
     assert_eq!(rows[0].label, "agent-1");
     assert!(rows[0].rect.y > shell_rect.y + 20.0);
     assert!(rows[0].rect.x > shell_rect.x + 20.0);
-    assert_eq!(rows[1].terminal_id, Some(id_two));
+    assert_eq!(rows[1].terminal_id(), Some(id_two));
     assert!(rows[1].focused);
     assert_eq!(rows[1].rect.y - rows[0].rect.y, 42.0);
 }
@@ -355,14 +355,14 @@ fn agent_rows_mark_hovered_agent() {
     );
     assert!(
         rows.iter()
-            .find(|row| row.terminal_id == Some(id_one))
+            .find(|row| row.terminal_id() == Some(id_one))
             .expect("first row should exist")
             .hovered
     );
     assert!(
         !rows
             .iter()
-            .find(|row| row.terminal_id == Some(id_two))
+            .find(|row| row.terminal_id() == Some(id_two))
             .expect("second row should exist")
             .hovered
     );
@@ -402,10 +402,10 @@ fn agent_rows_include_tmux_children_and_orphan_flags() {
         },
     );
     assert_eq!(rows.len(), 3);
-    assert!(rows[1].is_tmux_child);
-    assert!(!rows[1].is_orphan_tmux);
-    assert!(rows[2].is_tmux_child);
-    assert!(rows[2].is_orphan_tmux);
+    assert!(rows[1].is_tmux_child());
+    assert!(!rows[1].is_orphan_tmux());
+    assert!(rows[2].is_tmux_child());
+    assert!(rows[2].is_orphan_tmux());
     assert!(rows[2].hovered);
 }
 
@@ -486,7 +486,7 @@ fn clicking_agent_list_row_emits_focus_and_isolate_commands() {
     );
     let target_row = rows
         .iter()
-        .find(|row| row.terminal_id == Some(id_two))
+        .find(|row| row.terminal_id() == Some(id_two))
         .expect("agent row for second terminal missing");
     let click_point = Vec2::new(
         target_row.rect.x + target_row.rect.w * 0.5,
@@ -557,7 +557,7 @@ fn clicking_owned_tmux_row_selects_tmux_content() {
     );
     let target_row = rows
         .iter()
-        .find(|row| row.is_tmux_child)
+        .find(|row| row.is_tmux_child())
         .expect("tmux row should exist");
     let click_point = Vec2::new(
         target_row.rect.x + target_row.rect.w * 0.5,

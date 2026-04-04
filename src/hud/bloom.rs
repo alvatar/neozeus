@@ -507,7 +507,10 @@ fn build_bloom_specs(
 
     let mut specs = Vec::new();
     for row in agent_rows(content_rect, scroll_offset, hovered_row, agent_list_view) {
-        if row.terminal_id != Some(active_id)
+        let Some(terminal_id) = row.terminal_id() else {
+            continue;
+        };
+        if terminal_id != active_id
             || row.rect.y + row.rect.h < content_rect.y
             || row.rect.y > content_rect.y + content_rect.h
         {
@@ -526,13 +529,11 @@ fn build_bloom_specs(
                 2.5,
             ),
         ] {
-            let color = bloom_source_color(row.status, row.focused, row.hovered, kind);
+            let color = bloom_source_color(row.status(), row.focused, row.hovered, kind);
             for (segment, border_rect) in bloom_border_rects(rect, thickness) {
                 specs.push(BloomSourceSpec {
                     key: AgentListBloomSourceSprite {
-                        terminal_id: row
-                            .terminal_id
-                            .expect("active agent row should stay terminal-backed"),
+                        terminal_id,
                         kind,
                         segment,
                     },

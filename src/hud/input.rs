@@ -325,7 +325,7 @@ fn handle_general_left_click(
                     &ctx.agent_list_view,
                 )
                 .into_iter()
-                .find(|row| row.agent_id == Some(agent_id))
+                .find(|row| !row.is_tmux_child() && row.owner_agent_id() == Some(agent_id))
                 .map(|row| cursor.y - row.rect.y)
             })
             .unwrap_or(0.0);

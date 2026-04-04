@@ -254,12 +254,12 @@ fn resolve_scene_output_target(
         output_state.target_image = Some(images.add(create_final_frame_image(target_size)));
         output_state.size = target_size;
     }
-    SceneOutputTarget::Image(
-        output_state
-            .target_image
-            .clone()
-            .expect("offscreen scene output target must exist after allocation"),
-    )
+    if let Some(target_image) = output_state.target_image.clone() {
+        SceneOutputTarget::Image(target_image)
+    } else {
+        output_state.size = UVec2::ZERO;
+        SceneOutputTarget::Window
+    }
 }
 
 fn apply_scene_output_target(
