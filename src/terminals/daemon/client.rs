@@ -5,6 +5,7 @@ use super::protocol::{
     read_server_message, write_client_message, ClientMessage, DaemonEvent, DaemonRequest,
     DaemonResponse, DaemonSessionInfo, ServerMessage,
 };
+#[cfg(any(test, debug_assertions))]
 use crate::clone_state::{
     load_cloned_daemon_state, resolve_cloned_daemon_state_path, ClonedDaemonState,
 };
@@ -95,10 +96,11 @@ pub(crate) struct TerminalDaemonClientResource {
 impl TerminalDaemonClientResource {
     /// Builds the Bevy resource wrapper around the selected daemon client.
     ///
-    /// Normal startup connects to a real daemon socket. When a cloned daemon-state bundle is
-    /// configured, startup instead uses a read-only clone-backed client so rendering can target an
-    /// isolated snapshot of live state without touching the real daemon.
+    /// Production startup uses the socket-backed daemon client. Debug/test builds additionally honor
+    /// an isolated clone-state bundle so offscreen verification can replay cloned live state without
+    /// touching the Oracle's daemon.
     pub(crate) fn system() -> Result<Self, String> {
+        #[cfg(any(test, debug_assertions))]
         if let Some(path) = resolve_cloned_daemon_state_path() {
             return Ok(Self {
                 inner: Arc::new(ClonedTerminalDaemonClient::from_path(&path)?),
@@ -124,10 +126,12 @@ impl TerminalDaemonClientResource {
     }
 }
 
+#[cfg(any(test, debug_assertions))]
 struct ClonedTerminalDaemonClient {
     state: ClonedDaemonState,
 }
 
+#[cfg(any(test, debug_assertions))]
 impl ClonedTerminalDaemonClient {
     fn from_path(path: &Path) -> Result<Self, String> {
         Ok(Self {
@@ -140,6 +144,7 @@ impl ClonedTerminalDaemonClient {
     }
 }
 
+#[cfg(any(test, debug_assertions))]
 impl TerminalDaemonClient for ClonedTerminalDaemonClient {
     fn list_sessions(&self) -> Result<Vec<DaemonSessionInfo>, String> {
         Ok(self

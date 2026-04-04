@@ -2,6 +2,7 @@ mod agents;
 mod app;
 mod app_config;
 mod composer;
+#[cfg(any(test, debug_assertions))]
 mod clone_state;
 mod conversations;
 mod dialogs;
@@ -21,13 +22,16 @@ mod tests;
 use crate::{
     app::build_app,
     app_config::DEBUG_LOG_PATH,
-    clone_state::{
-        save_cloned_daemon_state, ClonedDaemonSession, ClonedDaemonState,
-        ClonedOwnedTmuxSession, CLONED_DAEMON_STATE_FILENAME, CLONED_DAEMON_STATE_ENV,
-    },
     terminals::{append_debug_log, resolve_daemon_socket_path, run_daemon_server},
 };
-use std::{env, fs, path::{Path, PathBuf}};
+#[cfg(any(test, debug_assertions))]
+use crate::clone_state::{
+    save_cloned_daemon_state, ClonedDaemonSession, ClonedDaemonState, ClonedOwnedTmuxSession,
+    CLONED_DAEMON_STATE_FILENAME, CLONED_DAEMON_STATE_ENV,
+};
+use std::{env, fs, path::PathBuf};
+#[cfg(any(test, debug_assertions))]
+use std::path::Path;
 
 /// Clears the debug log if requested, then dispatches NeoZeus into app mode or daemon mode.
 ///
@@ -54,12 +58,18 @@ fn main() {
         }
         return;
     }
+    #[cfg(any(test, debug_assertions))]
     if args.get(1).is_some_and(|arg| arg == "clone-state") {
         if let Err(error) = run_clone_state_mode(&args[2..]) {
             eprintln!("{error}");
             std::process::exit(1);
         }
         return;
+    }
+    #[cfg(not(any(test, debug_assertions)))]
+    if args.get(1).is_some_and(|arg| arg == "clone-state") {
+        eprintln!("clone-state is only available in debug builds");
+        std::process::exit(1);
     }
 
     append_debug_log("app start");
@@ -99,6 +109,7 @@ fn parse_daemon_socket_path(args: &[String]) -> Option<PathBuf> {
     None
 }
 
+#[cfg(any(test, debug_assertions))]
 fn run_clone_state_mode(args: &[String]) -> Result<(), String> {
     match args.first().map(String::as_str) {
         Some("capture-current") => capture_current_state_clone(&args[1..]),
@@ -108,6 +119,7 @@ fn run_clone_state_mode(args: &[String]) -> Result<(), String> {
     }
 }
 
+#[cfg(any(test, debug_assertions))]
 fn capture_current_state_clone(args: &[String]) -> Result<(), String> {
     use crate::terminals::{SocketTerminalDaemonClient, TerminalDaemonClient};
 
@@ -184,6 +196,7 @@ fn capture_current_state_clone(args: &[String]) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(any(test, debug_assertions))]
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct CloneCurrentRequest {
     out_root: PathBuf,
@@ -194,6 +207,7 @@ struct CloneCurrentRequest {
     xdg_cache_home: Option<PathBuf>,
 }
 
+#[cfg(any(test, debug_assertions))]
 fn parse_clone_current_request(args: &[String]) -> Result<CloneCurrentRequest, String> {
     let mut out_root = None;
     let mut socket_path = None;
@@ -230,6 +244,7 @@ fn parse_clone_current_request(args: &[String]) -> Result<CloneCurrentRequest, S
     })
 }
 
+#[cfg(any(test, debug_assertions))]
 fn resolve_state_home(xdg_state_home: Option<&Path>, home: Option<&Path>) -> Option<PathBuf> {
     xdg_state_home
         .filter(|path| !path.as_os_str().is_empty())
@@ -237,6 +252,7 @@ fn resolve_state_home(xdg_state_home: Option<&Path>, home: Option<&Path>) -> Opt
         .or_else(|| home.map(|home| home.join(".local/state")))
 }
 
+#[cfg(any(test, debug_assertions))]
 fn resolve_config_home(xdg_config_home: Option<&Path>, home: Option<&Path>) -> Option<PathBuf> {
     xdg_config_home
         .filter(|path| !path.as_os_str().is_empty())
@@ -244,6 +260,7 @@ fn resolve_config_home(xdg_config_home: Option<&Path>, home: Option<&Path>) -> O
         .or_else(|| home.map(|home| home.join(".config")))
 }
 
+#[cfg(any(test, debug_assertions))]
 fn resolve_cache_home(xdg_cache_home: Option<&Path>, home: Option<&Path>) -> Option<PathBuf> {
     xdg_cache_home
         .filter(|path| !path.as_os_str().is_empty())
@@ -251,6 +268,7 @@ fn resolve_cache_home(xdg_cache_home: Option<&Path>, home: Option<&Path>) -> Opt
         .or_else(|| home.map(|home| home.join(".cache")))
 }
 
+#[cfg(any(test, debug_assertions))]
 fn copy_dir_if_exists(src: &Path, dst: &Path) -> Result<(), String> {
     if !src.exists() {
         return Ok(());
@@ -281,6 +299,7 @@ fn copy_dir_if_exists(src: &Path, dst: &Path) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(any(test, debug_assertions))]
 fn write_clone_env_file(
     out_root: &Path,
     home: &Path,
@@ -305,6 +324,7 @@ fn write_clone_env_file(
         .map_err(|error| format!("failed to write clone env file {}: {error}", env_path.display()))
 }
 
+#[cfg(any(test, debug_assertions))]
 fn shell_quote_path(path: &Path) -> String {
     path.to_string_lossy().replace('\'', "'\\''")
 }
