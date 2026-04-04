@@ -668,12 +668,11 @@ fn startup_restore_rebinds_owned_tmux_children_under_agent() {
     world.insert_resource(crate::startup::StartupConnectState::default());
 
     world.run_system_once(crate::startup::setup_scene).unwrap();
-    world
-        .resource_mut::<Time<()>>()
-        .advance_by(std::time::Duration::from_secs(1));
-    world
-        .run_system_once(crate::terminals::sync_owned_tmux_sessions)
-        .unwrap();
+    assert_eq!(
+        world.resource::<crate::terminals::OwnedTmuxSessionStore>().sessions.len(),
+        1,
+        "startup should hydrate owned tmux state before the first interactive poke"
+    );
     world
         .run_system_once(crate::hud::sync_hud_view_models)
         .unwrap();
@@ -779,12 +778,11 @@ fn startup_restore_rebinds_multiple_owned_tmux_children_under_correct_agents_and
     world.insert_resource(crate::startup::StartupConnectState::default());
 
     world.run_system_once(crate::startup::setup_scene).unwrap();
-    world
-        .resource_mut::<Time<()>>()
-        .advance_by(std::time::Duration::from_secs(1));
-    world
-        .run_system_once(crate::terminals::sync_owned_tmux_sessions)
-        .unwrap();
+    assert_eq!(
+        world.resource::<crate::terminals::OwnedTmuxSessionStore>().sessions.len(),
+        4,
+        "startup should hydrate every owned tmux child before the first interactive poke"
+    );
     world
         .run_system_once(crate::hud::sync_hud_view_models)
         .unwrap();

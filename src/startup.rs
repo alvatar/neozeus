@@ -10,9 +10,10 @@ use crate::{
         TerminalVisibilityState,
     },
     terminals::{
-        append_debug_log, attach_terminal_session, resolve_terminal_notes_path,
-        TerminalCameraMarker, TerminalFocusState, TerminalHudSurfaceMarker, TerminalManager,
-        TerminalPanel, TerminalPresentation, TerminalPresentationStore, TerminalRuntimeSpawner,
+        append_debug_log, attach_terminal_session, refresh_owned_tmux_sessions_now,
+        resolve_terminal_notes_path, OwnedTmuxSessionStore, TerminalCameraMarker,
+        TerminalFocusState, TerminalHudSurfaceMarker, TerminalManager, TerminalPanel,
+        TerminalPresentation, TerminalPresentationStore, TerminalRuntimeSpawner,
         VERIFIER_SESSION_PREFIX,
     },
     verification::{start_auto_verify_dispatcher, AutoVerifyConfig, VerificationScenarioConfig},
@@ -179,6 +180,7 @@ struct SceneSetupContext<'w, 's> {
     visibility_state: ResMut<'w, TerminalVisibilityState>,
     view_state: ResMut<'w, crate::terminals::TerminalViewState>,
     startup_loading: Option<ResMut<'w, StartupLoadingState>>,
+    owned_tmux_sessions: Option<ResMut<'w, OwnedTmuxSessionStore>>,
     redraws: MessageWriter<'w, RequestRedraw>,
     time: Res<'w, Time>,
 }
@@ -424,6 +426,15 @@ pub(crate) fn advance_startup_connecting(world: &mut World) {
 ///
 /// The helper keeps the call sites terse and centralizes the "resource may be absent" handling used
 /// by tests and stripped-down worlds.
+fn hydrate_startup_owned_tmux_state(ctx: &mut SceneSetupContext) {
+    let Some(owned_tmux_sessions) = ctx.owned_tmux_sessions.as_deref_mut() else {
+        return;
+    };
+    if let Err(error) = refresh_owned_tmux_sessions_now(&ctx.runtime_spawner, owned_tmux_sessions) {
+        append_debug_log(format!("startup owned tmux refresh failed: {error}"));
+    }
+}
+
 fn register_startup_loading_terminal(
     ctx: &mut SceneSetupContext,
     terminal_id: crate::terminals::TerminalId,
@@ -509,6 +520,8 @@ fn restore_startup_terminals(ctx: &mut SceneSetupContext) {
         &ctx.time,
         &mut ctx.redraws,
     );
+
+    hydrate_startup_owned_tmux_state(ctx);
 
     if let Some(task_store) = ctx.task_store.as_deref_mut() {
         for (agent_id, session_name) in ctx.runtime_index.session_bindings() {

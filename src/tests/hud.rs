@@ -2362,6 +2362,55 @@ fn navigating_to_owned_tmux_should_render_capture_in_terminal_panel() {
     );
 }
 
+/// Verifies that syncing owned tmux sessions wakes the renderer when startup or polling discovers new children.
+#[test]
+fn syncing_owned_tmux_sessions_requests_redraw_on_change_only() {
+    let client = Arc::new(FakeDaemonClient::default());
+    client
+        .owned_tmux_sessions
+        .lock()
+        .unwrap()
+        .push(crate::terminals::OwnedTmuxSessionInfo {
+            session_uid: "tmux-session-1".into(),
+            owner_agent_uid: "agent-uid-1".into(),
+            tmux_name: "neozeus-tmux-1".into(),
+            display_name: "BUILD".into(),
+            cwd: "/tmp/work".into(),
+            attached: false,
+            created_unix: 0,
+        });
+
+    let mut world = World::default();
+    world.insert_resource(fake_runtime_spawner(client));
+    world.insert_resource(crate::terminals::OwnedTmuxSessionStore::default());
+    let mut time = Time::<()>::default();
+    time.advance_by(Duration::from_secs(1));
+    world.insert_resource(time);
+    world.init_resource::<Messages<RequestRedraw>>();
+
+    world
+        .run_system_once(crate::terminals::sync_owned_tmux_sessions)
+        .unwrap();
+    assert_eq!(world.resource::<Messages<RequestRedraw>>().len(), 1);
+    assert_eq!(
+        world.resource::<crate::terminals::OwnedTmuxSessionStore>().sessions.len(),
+        1
+    );
+
+    world.clear_trackers();
+    world
+        .resource_mut::<Time<()>>()
+        .advance_by(Duration::from_secs(1));
+    world
+        .run_system_once(crate::terminals::sync_owned_tmux_sessions)
+        .unwrap();
+    assert_eq!(
+        world.resource::<Messages<RequestRedraw>>().len(),
+        1,
+        "unchanged tmux discovery should not spam redraws"
+    );
+}
+
 /// Verifies that active terminal override state reports disappearance instead of rendering stale tmux content.
 #[test]
 fn active_terminal_content_reports_missing_selected_tmux_session() {
@@ -2372,6 +2421,7 @@ fn active_terminal_content_reports_missing_selected_tmux_session() {
     world.insert_resource(crate::terminals::OwnedTmuxSessionStore::default());
     world.insert_resource(crate::terminals::ActiveTerminalContentState::default());
     world.insert_resource(crate::terminals::ActiveTerminalContentSyncState::default());
+    world.init_resource::<Messages<RequestRedraw>>();
     let mut time = Time::<()>::default();
     time.advance_by(Duration::from_secs(1));
     world.insert_resource(time);
@@ -2388,6 +2438,7 @@ fn active_terminal_content_reports_missing_selected_tmux_session() {
         active_terminal_content.last_error(),
         Some("Owned tmux session is no longer available")
     );
+    assert_eq!(world.resource::<Messages<RequestRedraw>>().len(), 1);
 }
 
 /// Verifies that identical tmux recaptures do not mark the active terminal content dirty again.
@@ -2430,6 +2481,7 @@ fn active_terminal_content_ignores_identical_recapture() {
     world.insert_resource(owned_tmux_sessions);
     world.insert_resource(crate::terminals::ActiveTerminalContentState::default());
     world.insert_resource(crate::terminals::ActiveTerminalContentSyncState::default());
+    world.init_resource::<Messages<RequestRedraw>>();
     let mut time = Time::<()>::default();
     time.advance_by(Duration::from_secs(1));
     world.insert_resource(time);
@@ -2443,6 +2495,7 @@ fn active_terminal_content_ignores_identical_recapture() {
     let revision_after_first_sync = world
         .resource::<crate::terminals::ActiveTerminalContentState>()
         .presentation_revision();
+    assert_eq!(world.resource::<Messages<RequestRedraw>>().len(), 1);
 
     world.clear_trackers();
     world
@@ -2458,6 +2511,11 @@ fn active_terminal_content_ignores_identical_recapture() {
     assert_eq!(
         revision_after_second_sync, revision_after_first_sync,
         "identical tmux recapture should not bump the terminal presentation revision"
+    );
+    assert_eq!(
+        world.resource::<Messages<RequestRedraw>>().len(),
+        1,
+        "identical tmux recapture should not spam redraws"
     );
 }
 

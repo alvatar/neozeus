@@ -17,18 +17,22 @@ impl OwnedTmuxSessionStore {
             .find(|session| session.session_uid == session_uid)
     }
 
-    pub(crate) fn replace_sessions(&mut self, mut sessions: Vec<OwnedTmuxSessionInfo>) {
+    pub(crate) fn replace_sessions(&mut self, mut sessions: Vec<OwnedTmuxSessionInfo>) -> bool {
         sessions.sort_by(|left, right| {
             left.created_unix
                 .cmp(&right.created_unix)
                 .then_with(|| left.tmux_name.cmp(&right.tmux_name))
         });
+        let changed = self.sessions != sessions || self.last_error.is_some();
         self.sessions = sessions;
         self.last_error = None;
+        changed
     }
 
-    pub(crate) fn record_refresh_error(&mut self, error: String) {
+    pub(crate) fn record_refresh_error(&mut self, error: String) -> bool {
+        let changed = self.last_error.as_deref() != Some(error.as_str());
         self.last_error = Some(error);
+        changed
     }
 
     pub(crate) fn record_removed_session(&mut self, session_uid: &str) {
@@ -41,15 +45,12 @@ impl OwnedTmuxSessionStore {
 pub(crate) fn refresh_owned_tmux_sessions_now(
     runtime_spawner: &TerminalRuntimeSpawner,
     store: &mut OwnedTmuxSessionStore,
-) -> Result<(), String> {
+) -> Result<bool, String> {
     match runtime_spawner.list_owned_tmux_sessions() {
-        Ok(sessions) => {
-            store.replace_sessions(sessions);
-            Ok(())
-        }
+        Ok(sessions) => Ok(store.replace_sessions(sessions)),
         Err(error) if error == "terminal runtime still connecting" => Err(error),
         Err(error) => {
-            store.record_refresh_error(error.clone());
+            let _ = store.record_refresh_error(error.clone());
             Err(error)
         }
     }
@@ -59,6 +60,7 @@ pub(crate) fn sync_owned_tmux_sessions(
     time: Res<Time>,
     runtime_spawner: Res<TerminalRuntimeSpawner>,
     mut store: ResMut<OwnedTmuxSessionStore>,
+    mut redraws: MessageWriter<bevy::window::RequestRedraw>,
 ) {
     let now_secs = time.elapsed_secs();
     if store
@@ -68,5 +70,10 @@ pub(crate) fn sync_owned_tmux_sessions(
         return;
     }
     store.last_sync_secs = Some(now_secs);
-    let _ = refresh_owned_tmux_sessions_now(&runtime_spawner, &mut store);
+    if matches!(
+        refresh_owned_tmux_sessions_now(&runtime_spawner, &mut store),
+        Ok(true)
+    ) {
+        redraws.write(bevy::window::RequestRedraw);
+    }
 }
