@@ -1,5 +1,5 @@
 pub(crate) use super::ansi_surface::build_surface;
-pub(crate) use super::daemon::{AttachedDaemonSession, TerminalDaemonClient};
+pub(crate) use super::daemon::AttachedDaemonSession;
 pub(crate) use super::debug::TerminalDebugStats;
 pub(crate) use super::mailbox::TerminalUpdateMailbox;
 pub(crate) use super::presentation::{
@@ -8,6 +8,4 @@ pub(crate) use super::presentation::{
 pub(crate) use super::presentation_state::{
     PresentedTerminal, TerminalPanelFrame, TerminalTextureState,
 };
-pub(crate) use super::types::{
-    TerminalDamage, TerminalFrameUpdate, TerminalSnapshot, TerminalUpdate,
-};
+pub(crate) use super::types::{TerminalDamage, TerminalFrameUpdate, TerminalUpdate};
