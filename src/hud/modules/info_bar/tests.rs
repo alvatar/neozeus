@@ -72,10 +72,10 @@ fn usage_gradient_keeps_neozeus_orange_ramp() {
     assert_eq!((high.r, high.g, high.b, high.a), (255, 96, 48, 255));
 }
 
-/// Verifies that the reference layout keeps the Claude row above the OpenAI row and only uses
-/// the left half of the info bar width.
+/// Verifies that the reference layout keeps the Claude row above the OpenAI row and spans the
+/// usable info-bar width instead of collapsing into the left half.
 #[test]
-fn info_bar_rows_keep_provider_order_and_use_left_half_width() {
+fn info_bar_rows_keep_provider_order_and_span_full_width() {
     let rect = HudRect {
         x: 0.0,
         y: 0.0,
@@ -86,7 +86,7 @@ fn info_bar_rows_keep_provider_order_and_use_left_half_width() {
     assert_eq!(rows.len(), 2);
     assert!(rows[0].y < rows[1].y);
     assert_eq!(rows[0].x, rows[1].x);
-    assert!(rows[0].w <= rect.w * 0.5);
+    assert!(rows[0].w > rect.w * 0.9);
 }
 
 /// Verifies that each provider row places `Session` before `Week`.
