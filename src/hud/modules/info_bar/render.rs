@@ -29,7 +29,7 @@ const INFO_BAR_LAYOUT: InfoBarLayoutStyle = InfoBarLayoutStyle {
     padding_x: 4.0,
     padding_y: 10.0,
     row_gap: 8.0,
-    content_width_ratio: 1.0,
+    content_width_ratio: 0.5,
     compact_width_threshold: 1120.0,
     label_gap: 8.0,
     value_gap: 6.0,
@@ -165,10 +165,12 @@ pub(in crate::hud) fn info_bar_metric_group_rects(
 pub(in crate::hud) fn info_bar_metric_layout(
     group_rect: HudRect,
     label_width: f32,
+    desired_percent_width: f32,
+    desired_detail_width: f32,
     density: InfoBarDensity,
 ) -> InfoBarMetricLayout {
-    let mut detail_width = density.detail_width;
-    let mut percent_width = density.percent_width;
+    let percent_width = desired_percent_width.min(density.percent_width).max(0.0);
+    let detail_width = desired_detail_width.min(density.detail_width).max(0.0);
     let base_x = group_rect.x + label_width + INFO_BAR_LAYOUT.label_gap;
     let fixed_width = label_width
         + INFO_BAR_LAYOUT.label_gap
@@ -176,20 +178,7 @@ pub(in crate::hud) fn info_bar_metric_layout(
         + INFO_BAR_LAYOUT.value_gap
         + detail_width
         + INFO_BAR_LAYOUT.value_gap;
-    let mut bar_width = group_rect.w - fixed_width;
-    if bar_width < INFO_BAR_LAYOUT.min_bar_width {
-        let shortage = INFO_BAR_LAYOUT.min_bar_width - bar_width;
-        let detail_take = shortage.min(detail_width - INFO_BAR_LAYOUT.mini_bar_width);
-        detail_width -= detail_take;
-        bar_width += detail_take;
-    }
-    if bar_width < INFO_BAR_LAYOUT.min_bar_width {
-        let shortage = INFO_BAR_LAYOUT.min_bar_width - bar_width;
-        let percent_take = shortage.min(percent_width - INFO_BAR_LAYOUT.mini_bar_width);
-        percent_width -= percent_take;
-        bar_width += percent_take;
-    }
-    bar_width = bar_width.max(INFO_BAR_LAYOUT.mini_bar_width);
+    let bar_width = (group_rect.w - fixed_width).max(0.0);
     let bar_y = group_rect.y + (group_rect.h - INFO_BAR_LAYOUT.bar_height) * 0.5;
     let pct_x = base_x + bar_width + INFO_BAR_LAYOUT.value_gap;
     let detail_x = pct_x + percent_width + INFO_BAR_LAYOUT.value_gap;
@@ -260,7 +249,18 @@ fn render_metric(
     painter: &mut HudPainter,
 ) {
     let label_width = painter.text_size(&bar_view.label, density.label_size).x;
-    let layout = info_bar_metric_layout(group_rect, label_width, density);
+    let pct_text = if bar_view.available {
+        format!("{:.0}%", bar_view.pct())
+    } else {
+        "--".to_owned()
+    };
+    let pct_width = painter.text_size(&pct_text, density.value_size).x;
+    let detail_width = if bar_view.detail_text.is_empty() {
+        0.0
+    } else {
+        painter.text_size(&bar_view.detail_text, density.value_size).x
+    };
+    let layout = info_bar_metric_layout(group_rect, label_width, pct_width, detail_width, density);
 
     painter.label(
         layout.label_position,
@@ -272,12 +272,6 @@ fn render_metric(
 
     render_usage_bar(layout.bar_rect, bar_view.pct(), painter);
 
-    let pct_text = if bar_view.available {
-        format!("{:.0}%", bar_view.pct())
-    } else {
-        "--".to_owned()
-    };
-    let pct_width = painter.text_size(&pct_text, density.value_size).x;
     painter.label(
         Vec2::new(
             layout.pct_rect.x + layout.pct_rect.w - pct_width,
@@ -294,12 +288,9 @@ fn render_metric(
     );
 
     if !bar_view.detail_text.is_empty() {
-        let detail_width = painter
-            .text_size(&bar_view.detail_text, density.value_size)
-            .x;
         painter.label(
             Vec2::new(
-                layout.detail_rect.x + layout.detail_rect.w - detail_width,
+                layout.detail_rect.x + layout.detail_rect.w - layout.detail_rect.w,
                 layout.detail_rect.y + layout.detail_rect.h * 0.5,
             ),
             &bar_view.detail_text,

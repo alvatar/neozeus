@@ -72,10 +72,10 @@ fn usage_gradient_keeps_neozeus_orange_ramp() {
     assert_eq!((high.r, high.g, high.b, high.a), (255, 96, 48, 255));
 }
 
-/// Verifies that the reference layout keeps the Claude row above the OpenAI row and spans the
-/// usable info-bar width instead of collapsing into the left half.
+/// Verifies that the reference layout keeps the Claude row above the OpenAI row and reserves the
+/// right half of the info bar for future modules.
 #[test]
-fn info_bar_rows_keep_provider_order_and_span_full_width() {
+fn info_bar_rows_keep_provider_order_and_use_left_half_width() {
     let rect = HudRect {
         x: 0.0,
         y: 0.0,
@@ -86,7 +86,7 @@ fn info_bar_rows_keep_provider_order_and_span_full_width() {
     assert_eq!(rows.len(), 2);
     assert!(rows[0].y < rows[1].y);
     assert_eq!(rows[0].x, rows[1].x);
-    assert!(rows[0].w > rect.w * 0.9);
+    assert!(rows[0].w <= rect.w * 0.5);
 }
 
 /// Verifies that each provider row places `Session` before `Week`.
@@ -115,10 +115,25 @@ fn info_bar_metric_layout_keeps_geometry_ordered() {
     })[0];
     let density = render::info_bar_density(row);
     let group = render::info_bar_metric_group_rects(row, density)[0];
-    let layout = render::info_bar_metric_layout(group, 120.0, density);
+    let layout = render::info_bar_metric_layout(group, 120.0, 24.0, 56.0, density);
     assert!(layout.bar_rect.x >= group.x);
     assert!(layout.bar_rect.x + layout.bar_rect.w <= layout.pct_rect.x);
     assert!(layout.pct_rect.x + layout.pct_rect.w <= layout.detail_rect.x);
+    assert!(layout.detail_rect.x + layout.detail_rect.w <= group.x + group.w);
+}
+
+#[test]
+fn info_bar_metric_layout_keeps_compact_half_width_metrics_inside_group() {
+    let row = render::info_bar_row_rects(HudRect {
+        x: 0.0,
+        y: 0.0,
+        w: 954.0,
+        h: 60.0,
+    })[0];
+    let density = render::info_bar_density(row);
+    let group = render::info_bar_metric_group_rects(row, density)[0];
+    let layout = render::info_bar_metric_layout(group, 165.0, 18.0, 18.0, density);
+    assert!(layout.detail_rect.x + layout.detail_rect.w <= group.x + group.w);
 }
 
 /// Verifies that narrower widths switch to the compact spacing policy without changing row order.

@@ -356,7 +356,7 @@ pub(crate) fn sync_info_bar_view_model(
             label: "Claude Session:".to_owned(),
             pct_milli: (usage_snapshot.claude.session_pct * 1000.0).round() as i32,
             detail_text: if claude_rate_limited {
-                "RATE LIMITED".to_owned()
+                "RT".to_owned()
             } else {
                 format_usage_reset_detail(time_left(
                     &usage_snapshot.claude.session_resets_at,
