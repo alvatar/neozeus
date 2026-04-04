@@ -11,7 +11,7 @@ pub(crate) use crate::shared::daemon_socket::resolve_daemon_socket_path;
 #[cfg(test)]
 pub(crate) use crate::shared::daemon_socket::resolve_daemon_socket_path_with;
 pub(crate) use client::{AttachedDaemonSession, TerminalDaemonClientResource};
-#[cfg(any(test, debug_assertions))]
+#[cfg(test)]
 pub(crate) use client::{SocketTerminalDaemonClient, TerminalDaemonClient};
 pub(crate) use owned_tmux::OwnedTmuxSessionInfo;
 pub(crate) use protocol::DaemonSessionInfo;
