@@ -198,33 +198,16 @@ fn rendered_context_pct_milli(context_pct_milli: Option<i32>) -> i32 {
     context_pct_milli.unwrap_or(0)
 }
 
-fn tmux_child_stroke_color(focused: bool, hovered: bool) -> peniko::Color {
-    if focused {
-        TMUX_CHILD_ORANGE_BRIGHT
-    } else if hovered {
-        apply_alpha(TMUX_CHILD_ORANGE_BRIGHT, 0.94)
-    } else {
-        apply_alpha(TMUX_CHILD_ORANGE, 0.88)
-    }
-}
-
-fn tmux_child_fill_color(focused: bool, hovered: bool) -> peniko::Color {
-    let alpha = if focused {
-        0.22
-    } else if hovered {
-        0.18
-    } else {
-        0.14
-    };
-    apply_alpha(TMUX_CHILD_ORANGE, alpha)
-}
-
-fn tmux_child_label_color(focused: bool) -> peniko::Color {
+fn tmux_child_chrome_color(focused: bool) -> peniko::Color {
     if focused {
         TMUX_CHILD_ORANGE_BRIGHT
     } else {
         TMUX_CHILD_ORANGE
     }
+}
+
+fn tmux_child_fill_color() -> peniko::Color {
+    apply_alpha(EVA_BLACK, 0.90)
 }
 
 fn tmux_child_connector(parent_main_rect: HudRect, child_main_rect: HudRect) -> (Vec2, Vec2) {
@@ -433,19 +416,19 @@ pub(crate) fn render_content(
                 .and_then(|agent_id| parent_main_rects.get(&agent_id).copied())
             {
                 let (start, end) = tmux_child_connector(parent_main_rect, main_rect);
-                painter.stroke_line(start, end, apply_alpha(TMUX_CHILD_ORANGE, 0.72), 2.5);
+                painter.stroke_line(
+                    start,
+                    end,
+                    apply_alpha(tmux_child_chrome_color(row.focused), 0.72),
+                    2.5,
+                );
             }
-            let stroke = if row.is_orphan_tmux {
-                EVA_EMISSIVE_RED
-            } else {
-                tmux_child_stroke_color(row.focused, row.hovered)
-            };
-            let fill = if row.is_orphan_tmux {
-                apply_alpha(DISCONNECTED_RED, if row.focused { 0.22 } else { 0.16 })
-            } else {
-                tmux_child_fill_color(row.focused, row.hovered)
-            };
-            draw_button_rect(painter, main_rect, stroke, fill);
+            draw_button_rect(
+                painter,
+                main_rect,
+                tmux_child_chrome_color(row.focused),
+                tmux_child_fill_color(),
+            );
         } else {
             let marker_rect = agent_row_rect(row.rect, AgentListRowSection::Marker);
             let accent_rect = agent_row_rect(row.rect, AgentListRowSection::Accent);
@@ -512,11 +495,7 @@ pub(crate) fn render_content(
                 AGENT_ROW_LABEL_TEXT_SIZE
             },
             if row.is_tmux_child {
-                if row.is_orphan_tmux {
-                    EVA_EMISSIVE_RED
-                } else {
-                    tmux_child_label_color(row.focused)
-                }
+                tmux_child_chrome_color(row.focused)
             } else {
                 agent_label_color(row.status, row.focused, row.dragging)
             },
@@ -541,9 +520,8 @@ mod tests {
         agent_accent_color, agent_fill_color, agent_label_color, agent_row_stroke,
         context_active_segment_range, context_bar_color, context_segment_count,
         context_segment_rect, context_track_rect, marker_fill, rendered_context_pct_milli,
-        tmux_child_connector, tmux_child_fill_color, tmux_child_label_color,
-        tmux_child_stroke_color, EVA_CYAN, TMUX_CHILD_ORANGE, TMUX_CHILD_ORANGE_BRIGHT,
-        WORKING_ROW_COLOR,
+        tmux_child_chrome_color, tmux_child_connector, tmux_child_fill_color, EVA_CYAN,
+        TMUX_CHILD_ORANGE, TMUX_CHILD_ORANGE_BRIGHT, WORKING_ROW_COLOR,
     };
     use crate::agents::AgentStatus;
 
@@ -632,21 +610,18 @@ mod tests {
     }
 
     #[test]
-    fn tmux_child_rows_use_compact_orange_palette() {
-        assert_eq!(tmux_child_label_color(false), TMUX_CHILD_ORANGE);
-        assert_eq!(tmux_child_label_color(true), TMUX_CHILD_ORANGE_BRIGHT);
+    fn tmux_child_rows_only_have_idle_and_selected_colors() {
+        assert_eq!(tmux_child_chrome_color(false), TMUX_CHILD_ORANGE);
+        assert_eq!(tmux_child_chrome_color(true), TMUX_CHILD_ORANGE_BRIGHT);
         assert_eq!(
-            tmux_child_stroke_color(true, false),
-            TMUX_CHILD_ORANGE_BRIGHT
+            tmux_child_fill_color(),
+            super::apply_alpha(super::EVA_BLACK, 0.90)
         );
-        assert_eq!(
-            tmux_child_fill_color(false, false),
-            super::apply_alpha(TMUX_CHILD_ORANGE, 0.14)
-        );
-        assert_eq!(
-            tmux_child_fill_color(true, false),
-            super::apply_alpha(TMUX_CHILD_ORANGE, 0.22)
-        );
+    }
+
+    #[test]
+    fn tmux_child_hover_does_not_change_color_state() {
+        assert_eq!(tmux_child_chrome_color(false), TMUX_CHILD_ORANGE);
     }
 
     #[test]
