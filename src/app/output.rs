@@ -131,6 +131,21 @@ impl FinalFrameOutputState {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum SceneOutputTarget {
+    Window,
+    Image(Handle<Image>),
+}
+
+impl SceneOutputTarget {
+    fn render_target(&self) -> RenderTarget {
+        match self {
+            Self::Window => RenderTarget::default(),
+            Self::Image(image) => RenderTarget::Image(image.clone().into()),
+        }
+    }
+}
+
 /// Allocates the GPU image that all offscreen cameras will render into.
 ///
 /// The image is created in the final presentation format and with the exact usage flags needed by
@@ -216,42 +231,16 @@ impl FinalFrameReadbackMeta {
     }
 }
 
-#[allow(
-    clippy::too_many_arguments,
-    reason = "camera target routing needs output state, image assets, and multiple camera marker queries"
-)]
-/// Keeps every final-frame camera pointed at the correct render target for the current output mode.
-///
-/// In desktop mode the system removes any stale offscreen image and sends all cameras back to their
-/// default window target. In offscreen mode it allocates or resizes a shared image to match the
-/// current primary-window physical size, then assigns that image to the terminal, HUD composite,
-/// bloom, and modal cameras so the whole scene lands in one buffer.
-pub(crate) fn sync_final_frame_output_target(
-    output: Res<AppOutputConfig>,
-    primary_window: Single<&Window, With<PrimaryWindow>>,
-    mut images: ResMut<Assets<Image>>,
-    mut output_state: ResMut<FinalFrameOutputState>,
-    mut commands: Commands,
-    terminal_cameras: Query<Entity, With<TerminalCameraMarker>>,
-    composite_cameras: Query<Entity, With<HudCompositeCameraMarker>>,
-    bloom_additive_cameras: Query<Entity, With<AgentListBloomAdditiveCameraMarker>>,
-    modal_cameras: Query<Entity, With<HudModalCameraMarker>>,
-) {
+fn resolve_scene_output_target(
+    output: &AppOutputConfig,
+    primary_window: &Window,
+    images: &mut Assets<Image>,
+    output_state: &mut FinalFrameOutputState,
+) -> SceneOutputTarget {
     if !output.mode.is_offscreen() {
-        // Leaving offscreen mode means any cached image target is now stale; drop it and restore all
-        // cameras to their default window-backed render target.
-        if output_state.target_image.take().is_some() {
-            output_state.size = UVec2::ZERO;
-        }
-        for entity in terminal_cameras
-            .iter()
-            .chain(composite_cameras.iter())
-            .chain(bloom_additive_cameras.iter())
-            .chain(modal_cameras.iter())
-        {
-            commands.entity(entity).insert(RenderTarget::default());
-        }
-        return;
+        output_state.target_image = None;
+        output_state.size = UVec2::ZERO;
+        return SceneOutputTarget::Window;
     }
 
     // The synthetic/real primary window already knows the effective physical size, including any
@@ -265,30 +254,60 @@ pub(crate) fn sync_final_frame_output_target(
         output_state.target_image = Some(images.add(create_final_frame_image(target_size)));
         output_state.size = target_size;
     }
-    let Some(target_image) = output_state.target_image.clone() else {
-        return;
-    };
+    SceneOutputTarget::Image(
+        output_state
+            .target_image
+            .clone()
+            .expect("offscreen scene output target must exist after allocation"),
+    )
+}
 
-    for entity in terminal_cameras.iter() {
-        commands
-            .entity(entity)
-            .insert(RenderTarget::Image(target_image.clone().into()));
+fn apply_scene_output_target(
+    commands: &mut Commands,
+    target: &SceneOutputTarget,
+    entities: impl Iterator<Item = Entity>,
+) {
+    let render_target = target.render_target();
+    for entity in entities {
+        commands.entity(entity).insert(render_target.clone());
     }
-    for entity in composite_cameras.iter() {
-        commands
-            .entity(entity)
-            .insert(RenderTarget::Image(target_image.clone().into()));
-    }
-    for entity in bloom_additive_cameras.iter() {
-        commands
-            .entity(entity)
-            .insert(RenderTarget::Image(target_image.clone().into()));
-    }
-    for entity in modal_cameras.iter() {
-        commands
-            .entity(entity)
-            .insert(RenderTarget::Image(target_image.clone().into()));
-    }
+}
+
+#[allow(
+    clippy::too_many_arguments,
+    reason = "camera target routing needs output state, image assets, and multiple camera marker queries"
+)]
+/// Keeps every scene camera pointed at exactly one selected output target.
+///
+/// This system is intentionally just a target selector plus target application. The scene cameras do
+/// not branch into separate visible/offscreen render pipelines; the only mode-dependent choice is
+/// whether those same cameras draw into the real window or into one shared offscreen image.
+pub(crate) fn sync_final_frame_output_target(
+    output: Res<AppOutputConfig>,
+    primary_window: Single<&Window, With<PrimaryWindow>>,
+    mut images: ResMut<Assets<Image>>,
+    mut output_state: ResMut<FinalFrameOutputState>,
+    mut commands: Commands,
+    terminal_cameras: Query<Entity, With<TerminalCameraMarker>>,
+    composite_cameras: Query<Entity, With<HudCompositeCameraMarker>>,
+    bloom_additive_cameras: Query<Entity, With<AgentListBloomAdditiveCameraMarker>>,
+    modal_cameras: Query<Entity, With<HudModalCameraMarker>>,
+) {
+    let target = resolve_scene_output_target(
+        &output,
+        &primary_window,
+        &mut images,
+        &mut output_state,
+    );
+    apply_scene_output_target(
+        &mut commands,
+        &target,
+        terminal_cameras
+            .iter()
+            .chain(composite_cameras.iter())
+            .chain(bloom_additive_cameras.iter())
+            .chain(modal_cameras.iter()),
+    );
 }
 
 /// Drives the "capture the next finished offscreen frame" state machine.
