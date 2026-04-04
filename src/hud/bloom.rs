@@ -4,7 +4,7 @@ use crate::{
 
 use super::{
     modules::{
-        agent_row_rect, agent_rows, AgentListRowSection, AGENT_LIST_BLOOM_RED_B,
+        agent_row_rect, agent_rows, row_main_rect, AgentListRowSection, AGENT_LIST_BLOOM_RED_B,
         AGENT_LIST_BLOOM_RED_G, AGENT_LIST_BLOOM_RED_R, AGENT_LIST_WORKING_GLOW_B,
         AGENT_LIST_WORKING_GLOW_G, AGENT_LIST_WORKING_GLOW_R,
     },
@@ -177,6 +177,7 @@ impl Material2d for AgentListBloomBlurMaterial {
 enum AgentListBloomSourceKind {
     Main,
     Marker,
+    Connector,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -185,6 +186,14 @@ enum AgentListBloomSourceSegment {
     Right,
     Bottom,
     Left,
+    Connector0,
+    Connector1,
+    Connector2,
+    Connector3,
+    Connector4,
+    Connector5,
+    Connector6,
+    Connector7,
 }
 
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -406,6 +415,7 @@ fn bloom_source_color(
         return match kind {
             AgentListBloomSourceKind::Main => bloom_reference_working_glow(3.4, 0.95),
             AgentListBloomSourceKind::Marker => bloom_reference_working_glow(4.2, 1.0),
+            AgentListBloomSourceKind::Connector => bloom_reference_working_glow(4.8, 1.0),
         };
     }
 
@@ -416,6 +426,9 @@ fn bloom_source_color(
         (true, _, AgentListBloomSourceKind::Marker) => bloom_reference_red(6.0, 1.0),
         (_, true, AgentListBloomSourceKind::Marker) => bloom_reference_red(3.0, 0.9),
         (_, _, AgentListBloomSourceKind::Marker) => bloom_reference_red(1.2, 0.35),
+        (true, _, AgentListBloomSourceKind::Connector) => bloom_reference_red(5.5, 1.0),
+        (_, true, AgentListBloomSourceKind::Connector) => bloom_reference_red(2.8, 0.9),
+        (_, _, AgentListBloomSourceKind::Connector) => bloom_reference_red(1.0, 0.3),
     }
 }
 
@@ -470,6 +483,46 @@ fn bloom_border_rects(
     ]
 }
 
+fn connector_bloom_rects(
+    parent_main_rect: HudRect,
+    child_main_rect: HudRect,
+    sample_count: usize,
+    size: f32,
+) -> Vec<(AgentListBloomSourceSegment, HudRect)> {
+    let segments = [
+        AgentListBloomSourceSegment::Connector0,
+        AgentListBloomSourceSegment::Connector1,
+        AgentListBloomSourceSegment::Connector2,
+        AgentListBloomSourceSegment::Connector3,
+        AgentListBloomSourceSegment::Connector4,
+        AgentListBloomSourceSegment::Connector5,
+        AgentListBloomSourceSegment::Connector6,
+        AgentListBloomSourceSegment::Connector7,
+    ];
+    let start = Vec2::new(parent_main_rect.x, parent_main_rect.y + parent_main_rect.h);
+    let end = Vec2::new(child_main_rect.x, child_main_rect.y);
+    let sample_count = sample_count.clamp(1, segments.len());
+    (0..sample_count)
+        .map(|index| {
+            let t = if sample_count == 1 {
+                0.5
+            } else {
+                index as f32 / (sample_count - 1) as f32
+            };
+            let point = start.lerp(end, t);
+            (
+                segments[index],
+                HudRect {
+                    x: point.x - size * 0.5,
+                    y: point.y - size * 0.5,
+                    w: size,
+                    h: size,
+                },
+            )
+        })
+        .collect()
+}
+
 /// Returns the additive blend state used when compositing the bloom result back into the HUD.
 ///
 /// Color channels add their energy together, while alpha is preserved from the destination so the
@@ -505,9 +558,41 @@ fn build_bloom_specs(
         return Vec::new();
     };
 
+    let rows = agent_rows(content_rect, scroll_offset, hovered_row, agent_list_view);
+    let owner_terminal_ids = rows
+        .iter()
+        .filter_map(|row| {
+            (!row.is_tmux_child())
+                .then(|| row.owner_agent_id().zip(row.terminal_id()))
+                .flatten()
+        })
+        .collect::<std::collections::HashMap<_, _>>();
+    let parent_main_rects = rows
+        .iter()
+        .filter_map(|row| (!row.is_tmux_child()).then(|| row.owner_agent_id().map(|agent_id| (agent_id, row_main_rect(row)))).flatten())
+        .collect::<std::collections::HashMap<_, _>>();
+    let focused_tmux_owner_terminals = rows
+        .iter()
+        .filter(|row| row.is_tmux_child() && row.focused)
+        .filter_map(|row| {
+            row.owner_agent_id()
+                .and_then(|owner_agent_id| owner_terminal_ids.get(&owner_agent_id).copied())
+        })
+        .collect::<std::collections::HashSet<_>>();
+
     let mut specs = Vec::new();
-    for row in agent_rows(content_rect, scroll_offset, hovered_row, agent_list_view) {
-        let Some(terminal_id) = row.terminal_id() else {
+    for row in rows {
+        let terminal_id = if row.is_tmux_child() {
+            let Some(terminal_id) = row
+                .owner_agent_id()
+                .and_then(|owner_agent_id| owner_terminal_ids.get(&owner_agent_id).copied())
+            else {
+                continue;
+            };
+            terminal_id
+        } else if let Some(terminal_id) = row.terminal_id() {
+            terminal_id
+        } else {
             continue;
         };
         if terminal_id != active_id
@@ -517,29 +602,78 @@ fn build_bloom_specs(
             continue;
         }
 
-        for (kind, rect, thickness) in [
-            (
+        if !row.is_tmux_child() {
+                if focused_tmux_owner_terminals.contains(&terminal_id) {
+                    continue;
+                }
+                for (kind, rect, thickness) in [
+                    (
+                        AgentListBloomSourceKind::Main,
+                        agent_row_rect(row.rect, AgentListRowSection::Main),
+                        3.0,
+                    ),
+                    (
+                        AgentListBloomSourceKind::Marker,
+                        agent_row_rect(row.rect, AgentListRowSection::Marker),
+                        2.5,
+                    ),
+                ] {
+                    let color = bloom_source_color(row.status(), row.focused, row.hovered, kind);
+                    for (segment, border_rect) in bloom_border_rects(rect, thickness) {
+                        specs.push(BloomSourceSpec {
+                            key: AgentListBloomSourceSprite {
+                                terminal_id,
+                                kind,
+                                segment,
+                            },
+                            rect: border_rect,
+                            color,
+                        });
+                    }
+                }
+        } else {
+            let main_rect = row_main_rect(&row);
+            let color = bloom_source_color(
+                row.status(),
+                row.focused,
+                row.hovered,
                 AgentListBloomSourceKind::Main,
-                agent_row_rect(row.rect, AgentListRowSection::Main),
-                3.0,
-            ),
-            (
-                AgentListBloomSourceKind::Marker,
-                agent_row_rect(row.rect, AgentListRowSection::Marker),
-                2.5,
-            ),
-        ] {
-            let color = bloom_source_color(row.status(), row.focused, row.hovered, kind);
-            for (segment, border_rect) in bloom_border_rects(rect, thickness) {
+            );
+            for (segment, border_rect) in bloom_border_rects(main_rect, 3.0) {
                 specs.push(BloomSourceSpec {
                     key: AgentListBloomSourceSprite {
                         terminal_id,
-                        kind,
+                        kind: AgentListBloomSourceKind::Main,
                         segment,
                     },
                     rect: border_rect,
                     color,
                 });
+            }
+            if row.focused && row.owner_agent_id().is_some() {
+                if let Some(parent_main_rect) = row
+                    .owner_agent_id()
+                    .and_then(|agent_id| parent_main_rects.get(&agent_id).copied())
+                {
+                    let connector_color = bloom_source_color(
+                        row.status(),
+                        row.focused,
+                        row.hovered,
+                        AgentListBloomSourceKind::Connector,
+                    );
+                    for (segment, rect) in connector_bloom_rects(parent_main_rect, main_rect, 8, 8.0)
+                    {
+                        specs.push(BloomSourceSpec {
+                            key: AgentListBloomSourceSprite {
+                                terminal_id,
+                                kind: AgentListBloomSourceKind::Connector,
+                                segment,
+                            },
+                            rect,
+                            color: connector_color,
+                        });
+                    }
+                }
             }
         }
     }

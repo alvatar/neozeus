@@ -390,7 +390,7 @@ fn render_tmux_child_row(
             start,
             end,
             apply_alpha(tmux_child_chrome_color(row.focused), 0.72),
-            2.5,
+            4.5,
         );
     }
     let stroke = if orphaned {
