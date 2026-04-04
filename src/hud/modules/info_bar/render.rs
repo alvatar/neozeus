@@ -29,7 +29,7 @@ const INFO_BAR_LAYOUT: InfoBarLayoutStyle = InfoBarLayoutStyle {
     padding_x: 4.0,
     padding_y: 10.0,
     row_gap: 8.0,
-    content_width_ratio: 0.5,
+    content_width_ratio: 1.0,
     compact_width_threshold: 1120.0,
     label_gap: 8.0,
     value_gap: 6.0,

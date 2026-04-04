@@ -442,8 +442,9 @@ fn sync_info_bar_view_model_derives_usage_rows() {
             requests_remaining: 60,
             tokens_limit: 1_000,
             tokens_remaining: 250,
+            requests_resets_at: "4h55m".into(),
+            tokens_resets_at: "4d00h".into(),
             available: true,
-            ..Default::default()
         },
     });
     world.insert_resource(test_usage_persistence_state());
@@ -454,11 +455,16 @@ fn sync_info_bar_view_model_derives_usage_rows() {
     let info = world.resource::<InfoBarView>();
     assert_eq!(info.claude_session.label, "Claude Session:");
     assert_eq!(info.claude_session.pct_milli, 42_000);
+    assert_eq!(info.claude_session.detail_text, "(5m)");
+    assert_eq!(info.claude_week.label, "Week:");
     assert_eq!(info.claude_week.pct_milli, 10_000);
+    assert_eq!(info.claude_week.detail_text, "(2h00m)");
+    assert_eq!(info.openai_session.label, "OpenAI Session:");
     assert_eq!(info.openai_session.pct_milli, 40_000);
+    assert_eq!(info.openai_session.detail_text, "(4h55m)");
+    assert_eq!(info.openai_week.label, "Week:");
     assert_eq!(info.openai_week.pct_milli, 75_000);
-    assert_eq!(info.openai_session.detail_text, "40/100");
-    assert_eq!(info.openai_week.detail_text, "750/1000");
+    assert_eq!(info.openai_week.detail_text, "(4d00h)");
 }
 
 #[test]

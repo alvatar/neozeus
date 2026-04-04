@@ -41,17 +41,39 @@ fn parse_duration_seconds(raw: &str) -> Option<i64> {
     if raw.contains('T') {
         return None;
     }
-    let unit_start = raw.find(|ch: char| !ch.is_ascii_digit() && ch != '.')?;
-    let amount = raw[..unit_start].parse::<f64>().ok()?;
-    let unit = &raw[unit_start..];
-    let seconds = match unit {
-        "ms" => amount / 1000.0,
-        "s" => amount,
-        "m" => amount * 60.0,
-        "h" => amount * 3600.0,
-        _ => return None,
-    };
-    Some(round_ties_to_even(seconds))
+    let mut remaining = raw.trim();
+    if remaining.is_empty() {
+        return None;
+    }
+    let mut total_seconds = 0.0;
+    while !remaining.is_empty() {
+        let unit_start = remaining.find(|ch: char| !ch.is_ascii_digit() && ch != '.')?;
+        let amount = remaining[..unit_start].parse::<f64>().ok()?;
+        let unit_tail = &remaining[unit_start..];
+        let (unit, rest) = if let Some(rest) = unit_tail.strip_prefix("ms") {
+            ("ms", rest)
+        } else if let Some(rest) = unit_tail.strip_prefix('d') {
+            ("d", rest)
+        } else if let Some(rest) = unit_tail.strip_prefix('h') {
+            ("h", rest)
+        } else if let Some(rest) = unit_tail.strip_prefix('m') {
+            ("m", rest)
+        } else if let Some(rest) = unit_tail.strip_prefix('s') {
+            ("s", rest)
+        } else {
+            return None;
+        };
+        total_seconds += match unit {
+            "ms" => amount / 1000.0,
+            "s" => amount,
+            "m" => amount * 60.0,
+            "h" => amount * 3600.0,
+            "d" => amount * 86_400.0,
+            _ => unreachable!(),
+        };
+        remaining = rest;
+    }
+    Some(round_ties_to_even(total_seconds))
 }
 
 fn parse_iso_timestamp_seconds(raw: &str) -> Option<i64> {
@@ -184,6 +206,13 @@ mod tests {
     fn time_left_supports_duration_days() {
         assert_eq!(time_left("24h", 0), "1d00h");
         assert_eq!(time_left("111h", 0), "4d15h");
+    }
+
+    #[test]
+    fn time_left_supports_compound_duration_literals() {
+        assert_eq!(time_left("4h55m", 0), "4h55m");
+        assert_eq!(time_left("5d06h", 0), "5d06h");
+        assert_eq!(time_left("1m30s", 0), "1m");
     }
 
     #[test]

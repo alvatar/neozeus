@@ -358,20 +358,20 @@ pub(crate) fn sync_info_bar_view_model(
             detail_text: if claude_rate_limited {
                 "RATE LIMITED".to_owned()
             } else {
-                format!(
-                    "resets {}",
-                    time_left(&usage_snapshot.claude.session_resets_at, now_unix_secs)
-                )
+                format_usage_reset_detail(time_left(
+                    &usage_snapshot.claude.session_resets_at,
+                    now_unix_secs,
+                ))
             },
             available: true,
         };
         info_bar_view.claude_week = UsageBarView {
-            label: "Claude Week:".to_owned(),
+            label: "Week:".to_owned(),
             pct_milli: (usage_snapshot.claude.week_pct * 1000.0).round() as i32,
-            detail_text: format!(
-                "resets {}",
-                time_left(&usage_snapshot.claude.week_resets_at, now_unix_secs)
-            ),
+            detail_text: format_usage_reset_detail(time_left(
+                &usage_snapshot.claude.week_resets_at,
+                now_unix_secs,
+            )),
             available: true,
         };
     } else {
@@ -382,7 +382,7 @@ pub(crate) fn sync_info_bar_view_model(
             available: false,
         };
         info_bar_view.claude_week = UsageBarView {
-            label: "Claude Week:".to_owned(),
+            label: "Week:".to_owned(),
             pct_milli: 0,
             detail_text: "unavailable".to_owned(),
             available: false,
@@ -390,41 +390,46 @@ pub(crate) fn sync_info_bar_view_model(
     }
 
     if usage_snapshot.openai.available {
-        let used_requests =
-            usage_snapshot.openai.requests_limit - usage_snapshot.openai.requests_remaining;
-        let used_tokens =
-            usage_snapshot.openai.tokens_limit - usage_snapshot.openai.tokens_remaining;
         info_bar_view.openai_session = UsageBarView {
-            label: "OpenAI Req:".to_owned(),
+            label: "OpenAI Session:".to_owned(),
             pct_milli: usage_snapshot.openai.requests_pct_milli,
-            detail_text: format!(
-                "{used_requests}/{limit}",
-                limit = usage_snapshot.openai.requests_limit
-            ),
+            detail_text: format_usage_reset_detail(time_left(
+                &usage_snapshot.openai.requests_resets_at,
+                now_unix_secs,
+            )),
             available: true,
         };
         info_bar_view.openai_week = UsageBarView {
-            label: "OpenAI Tok:".to_owned(),
+            label: "Week:".to_owned(),
             pct_milli: usage_snapshot.openai.tokens_pct_milli,
-            detail_text: format!(
-                "{used_tokens}/{limit}",
-                limit = usage_snapshot.openai.tokens_limit
-            ),
+            detail_text: format_usage_reset_detail(time_left(
+                &usage_snapshot.openai.tokens_resets_at,
+                now_unix_secs,
+            )),
             available: true,
         };
     } else {
         info_bar_view.openai_session = UsageBarView {
-            label: "OpenAI Req:".to_owned(),
+            label: "OpenAI Session:".to_owned(),
             pct_milli: 0,
             detail_text: "unavailable".to_owned(),
             available: false,
         };
         info_bar_view.openai_week = UsageBarView {
-            label: "OpenAI Tok:".to_owned(),
+            label: "Week:".to_owned(),
             pct_milli: 0,
             detail_text: "unavailable".to_owned(),
             available: false,
         };
+    }
+}
+
+fn format_usage_reset_detail(raw: String) -> String {
+    let trimmed = raw.trim().trim_matches(|ch| ch == '(' || ch == ')').trim();
+    if trimmed.is_empty() {
+        String::new()
+    } else {
+        format!("({trimmed})")
     }
 }
 
