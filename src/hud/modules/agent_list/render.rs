@@ -94,10 +94,10 @@ fn agent_fill_color(
 ) -> peniko::Color {
     if dragging {
         apply_alpha(EVA_BLACK, 0.98)
-    } else if selected {
-        apply_alpha(EVA_BLACK, 0.94)
     } else if activity == AgentListActivity::Working {
         apply_alpha(WORKING_ROW_COLOR, 0.22)
+    } else if selected {
+        apply_alpha(EVA_BLACK, 0.94)
     } else if hovered {
         apply_alpha(EVA_BLACK, 0.92)
     } else {
@@ -112,10 +112,10 @@ fn agent_accent_color(
 ) -> Option<peniko::Color> {
     if dragging {
         Some(EVA_CYAN)
-    } else if selected {
-        Some(EVA_SELECTED)
     } else if activity == AgentListActivity::Working {
         Some(WORKING_ROW_COLOR)
+    } else if selected {
+        Some(EVA_SELECTED)
     } else {
         None
     }
@@ -324,10 +324,10 @@ fn agent_label_color(
 ) -> peniko::Color {
     if dragging {
         EVA_CYAN
-    } else if selected {
-        EVA_SELECTED
     } else if activity == AgentListActivity::Working {
         WORKING_ROW_COLOR
+    } else if selected {
+        EVA_SELECTED
     } else {
         EVA_ORANGE
     }
@@ -632,14 +632,14 @@ mod tests {
     }
 
     #[test]
-    fn selected_idle_and_working_agent_rows_share_same_selected_identity() {
+    fn selected_working_agent_rows_use_selected_border_and_working_fill_label() {
         assert_eq!(
             agent_label_color(AgentListActivity::Idle, true, false),
             EVA_SELECTED
         );
         assert_eq!(
             agent_label_color(AgentListActivity::Working, true, false),
-            EVA_SELECTED
+            WORKING_ROW_COLOR
         );
         assert_eq!(
             agent_row_stroke(AgentListActivity::Idle, true, false, false),
@@ -648,6 +648,14 @@ mod tests {
         assert_eq!(
             agent_row_stroke(AgentListActivity::Working, true, false, false),
             EVA_SELECTED
+        );
+        assert_eq!(
+            agent_fill_color(AgentListActivity::Working, true, false, false),
+            super::apply_alpha(WORKING_ROW_COLOR, 0.22)
+        );
+        assert_eq!(
+            agent_accent_color(AgentListActivity::Working, true, false),
+            Some(WORKING_ROW_COLOR)
         );
     }
 
