@@ -45,6 +45,7 @@ use bevy::{
     },
     window::{PrimaryWindow, RequestRedraw},
 };
+use std::time::Duration;
 
 /// Builds a pressed `KeyboardInput` event without text payload for shortcut-oriented tests.
 fn pressed_key(key_code: KeyCode, logical_key: Key) -> KeyboardInput {
@@ -143,6 +144,61 @@ fn ensure_app_command_world_resources(world: &mut World) {
 fn run_app_command_cycle(world: &mut World) {
     ensure_app_command_world_resources(world);
     crate::app::run_apply_app_commands(world);
+}
+
+fn write_pi_session_file(path: &std::path::Path, cwd: &str) {
+    let escaped_cwd = cwd.replace('\\', "\\\\").replace('"', "\\\"");
+    let content = format!(
+        "{{\"type\":\"session\",\"version\":3,\"id\":\"parent-id\",\"timestamp\":\"2026-01-01T00:00:00Z\",\"cwd\":\"{escaped_cwd}\"}}\n{{\"type\":\"message\",\"id\":\"m1\",\"message\":{{\"role\":\"user\",\"content\":\"hello\"}}}}\n"
+    );
+    std::fs::write(path, content).expect("Pi session should write");
+}
+
+fn init_git_repo() -> std::path::PathBuf {
+    let repo = std::path::PathBuf::from("/tmp").join(format!(
+        "neozeus-input-clone-worktree-{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|duration| duration.as_nanos())
+            .unwrap_or(0)
+    ));
+    std::fs::create_dir_all(&repo).expect("repo dir should create");
+    for args in [
+        vec!["git", "init"],
+        vec!["git", "config", "user.email", "neozeus@example.test"],
+        vec!["git", "config", "user.name", "NeoZeus Test"],
+    ] {
+        let output = std::process::Command::new(args[0])
+            .current_dir(&repo)
+            .args(&args[1..])
+            .output()
+            .expect("git command should run");
+        assert!(
+            output.status.success(),
+            "command {:?} failed: {}",
+            args,
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    std::fs::write(repo.join("README.md"), "seed\n").unwrap();
+    for args in [
+        vec!["git", "add", "README.md"],
+        vec!["git", "commit", "-m", "initial"],
+        vec!["git", "branch", "-M", "main"],
+    ] {
+        let output = std::process::Command::new(args[0])
+            .current_dir(&repo)
+            .args(&args[1..])
+            .output()
+            .expect("git command should run");
+        assert!(
+            output.status.success(),
+            "command {:?} failed: {}",
+            args,
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    repo
 }
 
 /// Injects one keyboard event into the modal-editor keyboard handler under test.
@@ -494,6 +550,127 @@ fn global_clone_shortcut_does_nothing_while_modal_has_keyboard_capture() {
 
     assert!(!world.resource::<AppSessionState>().clone_agent_dialog.visible);
     assert_eq!(world.resource::<Messages<RequestRedraw>>().len(), 0);
+}
+
+#[test]
+fn end_to_end_clone_shortcut_plain_clone_creates_agent() {
+    let client = std::sync::Arc::new(FakeDaemonClient::default());
+    let mut world = World::default();
+    let source_root = std::path::PathBuf::from("/tmp").join(format!(
+        "neozeus-input-clone-source-{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|duration| duration.as_nanos())
+            .unwrap_or(0)
+    ));
+    std::fs::create_dir_all(&source_root).unwrap();
+    let source_session = source_root.join("source.jsonl");
+    write_pi_session_file(&source_session, source_root.to_str().unwrap());
+
+    ensure_app_command_world_resources(&mut world);
+    insert_default_hud_resources(&mut world);
+    world.insert_resource(ButtonInput::<KeyCode>::default());
+    world.insert_resource(fake_runtime_spawner(client.clone()));
+    let mut time = Time::<()>::default();
+    time.advance_by(Duration::from_secs(1));
+    world.insert_resource(time);
+    let source_agent = world.resource_mut::<AgentCatalog>().create_agent_with_metadata(
+        Some("alpha".into()),
+        crate::agents::AgentKind::Pi,
+        crate::agents::AgentKind::Pi.capabilities(),
+        crate::agents::AgentMetadata {
+            clone_source_session_path: Some(source_session.to_string_lossy().into_owned()),
+            is_workdir: false,
+        },
+    );
+    world.insert_resource(crate::hud::AgentListSelection::Agent(source_agent));
+    world.init_resource::<Messages<KeyboardInput>>();
+    world.spawn((
+        Window {
+            focused: true,
+            ..Default::default()
+        },
+        PrimaryWindow,
+    ));
+
+    world
+        .resource_mut::<Messages<KeyboardInput>>()
+        .write(pressed_text(KeyCode::KeyC, Some("c")));
+    world
+        .run_system_once(handle_global_terminal_spawn_shortcut)
+        .unwrap();
+    dispatch_message_box_key(&mut world, pressed_key(KeyCode::Tab, Key::Tab));
+    dispatch_message_box_key(&mut world, pressed_key(KeyCode::Tab, Key::Tab));
+    dispatch_message_box_key(&mut world, pressed_key(KeyCode::Enter, Key::Enter));
+    run_app_command_cycle(&mut world);
+
+    let catalog = world.resource::<AgentCatalog>();
+    assert_eq!(catalog.order.len(), 2);
+    let clone_agent = *catalog.order.last().unwrap();
+    assert_eq!(catalog.label(clone_agent), Some("ALPHA-CLONE"));
+    assert!(!catalog.is_workdir(clone_agent));
+    assert_eq!(client.created_sessions.lock().unwrap().len(), 1);
+    assert_eq!(world.resource::<AppSessionState>().active_agent, Some(clone_agent));
+}
+
+#[test]
+fn end_to_end_clone_shortcut_workdir_clone_creates_agent() {
+    let client = std::sync::Arc::new(FakeDaemonClient::default());
+    let mut world = World::default();
+    let repo = init_git_repo();
+    let source_session = repo.join("source.jsonl");
+    write_pi_session_file(&source_session, repo.to_str().unwrap());
+
+    ensure_app_command_world_resources(&mut world);
+    insert_default_hud_resources(&mut world);
+    world.insert_resource(ButtonInput::<KeyCode>::default());
+    world.insert_resource(fake_runtime_spawner(client.clone()));
+    let mut time = Time::<()>::default();
+    time.advance_by(Duration::from_secs(1));
+    world.insert_resource(time);
+    let source_agent = world.resource_mut::<AgentCatalog>().create_agent_with_metadata(
+        Some("alpha".into()),
+        crate::agents::AgentKind::Pi,
+        crate::agents::AgentKind::Pi.capabilities(),
+        crate::agents::AgentMetadata {
+            clone_source_session_path: Some(source_session.to_string_lossy().into_owned()),
+            is_workdir: false,
+        },
+    );
+    world.insert_resource(crate::hud::AgentListSelection::Agent(source_agent));
+    world.init_resource::<Messages<KeyboardInput>>();
+    world.spawn((
+        Window {
+            focused: true,
+            ..Default::default()
+        },
+        PrimaryWindow,
+    ));
+
+    world
+        .resource_mut::<Messages<KeyboardInput>>()
+        .write(pressed_text(KeyCode::KeyC, Some("c")));
+    world
+        .run_system_once(handle_global_terminal_spawn_shortcut)
+        .unwrap();
+    dispatch_message_box_key(&mut world, pressed_key(KeyCode::Tab, Key::Tab));
+    dispatch_message_box_key(&mut world, pressed_text(KeyCode::Space, Some(" ")));
+    dispatch_message_box_key(&mut world, pressed_key(KeyCode::Tab, Key::Tab));
+    dispatch_message_box_key(&mut world, pressed_key(KeyCode::Enter, Key::Enter));
+    run_app_command_cycle(&mut world);
+
+    let catalog = world.resource::<AgentCatalog>();
+    let clone_agent = *catalog.order.last().unwrap();
+    assert_eq!(catalog.label(clone_agent), Some("ALPHA-CLONE"));
+    assert!(catalog.is_workdir(clone_agent));
+    let clone_session_path = catalog.clone_source_session_path(clone_agent).unwrap().to_owned();
+    let clone_header = crate::shared::pi_session_files::read_session_header(&clone_session_path)
+        .unwrap();
+    assert_eq!(
+        std::path::PathBuf::from(clone_header.cwd),
+        repo.join(".worktrees").join("ALPHA-CLONE")
+    );
+    assert_eq!(client.created_sessions.lock().unwrap().len(), 1);
 }
 
 /// Verifies that `Tab` advances through every create-agent control, including the create button.
