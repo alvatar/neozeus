@@ -341,10 +341,10 @@ fn agent_row_stroke(
 ) -> peniko::Color {
     if dragging {
         EVA_CYAN
-    } else if selected {
-        EVA_SELECTED
     } else if activity == AgentListActivity::Working {
         WORKING_ROW_COLOR
+    } else if selected {
+        EVA_SELECTED
     } else if hovered {
         EVA_ORANGE_BRIGHT
     } else {
@@ -632,7 +632,7 @@ mod tests {
     }
 
     #[test]
-    fn selected_working_agent_rows_use_selected_border_and_working_fill_label() {
+    fn selected_working_agent_rows_use_working_border_fill_and_label() {
         assert_eq!(
             agent_label_color(AgentListActivity::Idle, true, false),
             EVA_SELECTED
@@ -647,7 +647,7 @@ mod tests {
         );
         assert_eq!(
             agent_row_stroke(AgentListActivity::Working, true, false, false),
-            EVA_SELECTED
+            WORKING_ROW_COLOR
         );
         assert_eq!(
             agent_fill_color(AgentListActivity::Working, true, false, false),
