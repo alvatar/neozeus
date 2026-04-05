@@ -1,6 +1,7 @@
 use super::{
-    AppSessionState, CreateAgentDialogField, CreateAgentDialogState, CreateAgentKind,
-    RenameAgentDialogField, RenameAgentDialogState, TextFieldState, VisibilityMode,
+    AppSessionState, CloneAgentDialogField, CloneAgentDialogState, CreateAgentDialogField,
+    CreateAgentDialogState, CreateAgentKind, RenameAgentDialogField, RenameAgentDialogState,
+    TextFieldState, VisibilityMode,
 };
 use crate::{agents::AgentId, hud::HudInputCaptureState};
 
@@ -62,6 +63,60 @@ fn create_agent_dialog_counts_as_keyboard_capture() {
     assert!(!session.keyboard_capture_active(&HudInputCaptureState::default()));
     session.create_agent_dialog.open(CreateAgentKind::Pi);
     assert!(session.keyboard_capture_active(&HudInputCaptureState::default()));
+}
+
+#[test]
+fn clone_agent_dialog_open_prefills_name_and_focus() {
+    let mut dialog = CloneAgentDialogState {
+        error: Some("stale".into()),
+        ..Default::default()
+    };
+
+    dialog.open(crate::agents::AgentId(9), "alpha");
+
+    assert!(dialog.visible);
+    assert_eq!(dialog.source_agent, Some(crate::agents::AgentId(9)));
+    assert_eq!(dialog.name_field.text, "ALPHA-CLONE");
+    assert!(!dialog.workdir);
+    assert_eq!(dialog.focus, CloneAgentDialogField::Name);
+    assert_eq!(dialog.error, None);
+}
+
+#[test]
+fn clone_agent_dialog_cycles_focus_and_counts_as_keyboard_capture() {
+    let mut dialog = CloneAgentDialogState::default();
+    dialog.open(crate::agents::AgentId(1), "alpha");
+    dialog.cycle_focus(false);
+    assert_eq!(dialog.focus, CloneAgentDialogField::Workdir);
+    dialog.cycle_focus(false);
+    assert_eq!(dialog.focus, CloneAgentDialogField::CloneButton);
+    dialog.cycle_focus(false);
+    assert_eq!(dialog.focus, CloneAgentDialogField::Name);
+
+    let session = AppSessionState {
+        clone_agent_dialog: dialog,
+        ..Default::default()
+    };
+    assert!(session.keyboard_capture_active(&HudInputCaptureState::default()));
+}
+
+#[test]
+fn clone_agent_dialog_builds_clone_command() {
+    let mut dialog = CloneAgentDialogState::default();
+    dialog.open(crate::agents::AgentId(3), "alpha");
+    dialog.name_field.load_text("child");
+    dialog.toggle_workdir();
+
+    assert_eq!(
+        dialog.build_clone_command(),
+        Some(crate::app::AppCommand::Agent(
+            crate::app::AgentCommand::Clone {
+                source_agent_id: crate::agents::AgentId(3),
+                label: "CHILD".into(),
+                workdir: true,
+            }
+        ))
+    );
 }
 
 #[test]

@@ -15,6 +15,7 @@ const CREATE_AGENT_DIALOG_LABEL_W: f32 = 136.0;
 const CREATE_AGENT_DIALOG_ROW_GAP: f32 = 18.0;
 const CREATE_AGENT_DIALOG_RADIO_SIZE: f32 = 22.0;
 const CREATE_AGENT_DIALOG_RADIO_GAP: f32 = 20.0;
+const CLONE_AGENT_DIALOG_HEIGHT_RATIO: f32 = 0.24;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum MessageBoxAction {
@@ -33,6 +34,13 @@ pub(crate) enum CreateAgentDialogTarget {
     Kind(CreateAgentKind),
     StartingFolderField,
     CreateButton,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum CloneAgentDialogTarget {
+    NameField,
+    WorkdirToggle,
+    CloneButton,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -146,6 +154,20 @@ pub(crate) fn create_agent_dialog_rect(window: &Window) -> HudRect {
     }
 }
 
+/// Computes the centered modal rectangle used by the clone-agent dialog.
+pub(crate) fn clone_agent_dialog_rect(window: &Window) -> HudRect {
+    let size = Vec2::new(
+        (window.width() * CREATE_AGENT_DIALOG_WIDTH_RATIO).clamp(560.0, 960.0),
+        (window.height() * CLONE_AGENT_DIALOG_HEIGHT_RATIO).clamp(200.0, 280.0),
+    );
+    HudRect {
+        x: window.width() * 0.5 - size.x * 0.5,
+        y: window.height() * 0.5 - size.y * 0.5,
+        w: size.x,
+        h: size.y,
+    }
+}
+
 /// Computes the centered modal rectangle used by the rename-agent dialog.
 pub(crate) fn rename_agent_dialog_rect(window: &Window) -> HudRect {
     let size = Vec2::new(
@@ -164,6 +186,39 @@ fn create_agent_row_y(rect: HudRect, row_index: usize) -> f32 {
     rect.y
         + 68.0
         + row_index as f32 * (CREATE_AGENT_DIALOG_FIELD_HEIGHT + CREATE_AGENT_DIALOG_ROW_GAP)
+}
+
+/// Returns the editable name field rectangle within the clone-agent dialog.
+pub(crate) fn clone_agent_name_field_rect(window: &Window) -> HudRect {
+    let rect = clone_agent_dialog_rect(window);
+    HudRect {
+        x: rect.x + CREATE_AGENT_DIALOG_INSET_X + CREATE_AGENT_DIALOG_LABEL_W,
+        y: rect.y + 68.0,
+        w: rect.w - (CREATE_AGENT_DIALOG_INSET_X * 2.0 + CREATE_AGENT_DIALOG_LABEL_W),
+        h: CREATE_AGENT_DIALOG_FIELD_HEIGHT,
+    }
+}
+
+/// Returns the checkbox hit rectangle within the clone-agent dialog.
+pub(crate) fn clone_agent_workdir_rect(window: &Window) -> HudRect {
+    let rect = clone_agent_dialog_rect(window);
+    HudRect {
+        x: rect.x + CREATE_AGENT_DIALOG_INSET_X + CREATE_AGENT_DIALOG_LABEL_W,
+        y: rect.y + 68.0 + CREATE_AGENT_DIALOG_FIELD_HEIGHT + CREATE_AGENT_DIALOG_ROW_GAP + 3.0,
+        w: 22.0,
+        h: 22.0,
+    }
+}
+
+/// Returns the submit button rectangle for the clone-agent dialog.
+pub(crate) fn clone_agent_submit_button_rect(window: &Window) -> HudRect {
+    let rect = clone_agent_dialog_rect(window);
+    HudRect {
+        x: rect.x + rect.w - 24.0 - ACTION_BUTTON_W,
+        y: rect.y + rect.h - 40.0,
+        w: ACTION_BUTTON_W,
+        h: ACTION_BUTTON_H,
+    }
 }
 
 /// Returns the editable name field rectangle within the rename-agent dialog.
@@ -295,6 +350,26 @@ pub(crate) fn create_agent_dialog_target_at(
     let create_rect = create_agent_create_button_rect(window);
     if create_rect.contains(point) {
         return Some(CreateAgentDialogTarget::CreateButton);
+    }
+    None
+}
+
+/// Hit-tests the clone-agent dialog controls and returns the target under the pointer.
+pub(crate) fn clone_agent_dialog_target_at(
+    window: &Window,
+    point: Vec2,
+) -> Option<CloneAgentDialogTarget> {
+    let name_rect = clone_agent_name_field_rect(window);
+    if name_rect.contains(point) {
+        return Some(CloneAgentDialogTarget::NameField);
+    }
+    let workdir_rect = clone_agent_workdir_rect(window);
+    if workdir_rect.contains(point) {
+        return Some(CloneAgentDialogTarget::WorkdirToggle);
+    }
+    let clone_rect = clone_agent_submit_button_rect(window);
+    if clone_rect.contains(point) {
+        return Some(CloneAgentDialogTarget::CloneButton);
     }
     None
 }

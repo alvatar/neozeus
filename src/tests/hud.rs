@@ -17,6 +17,7 @@ use crate::{
     },
     app_config::DEFAULT_BG,
     composer::{
+        clone_agent_name_field_rect, clone_agent_submit_button_rect, clone_agent_workdir_rect,
         create_agent_name_field_rect, message_box_action_buttons, message_box_rect,
         task_dialog_action_buttons,
     },
@@ -1019,6 +1020,90 @@ fn create_agent_dialog_pointer_click_persists_focus_cleanup_and_redraw() {
     assert_eq!(session.create_agent_dialog.error, None);
     assert!(session.create_agent_dialog.cwd_field.completion.is_none());
     assert_eq!(world.resource::<Messages<RequestRedraw>>().len(), 1);
+}
+
+#[test]
+fn clone_agent_dialog_pointer_click_updates_focus_toggles_workdir_and_emits_command() {
+    let mut world = World::default();
+    let mut window = Window {
+        focused: true,
+        resolution: (1400, 900).into(),
+        ..Default::default()
+    };
+    let name_rect = clone_agent_name_field_rect(&window);
+    let workdir_rect = clone_agent_workdir_rect(&window);
+    let clone_rect = clone_agent_submit_button_rect(&window);
+
+    world.insert_resource(ButtonInput::<MouseButton>::default());
+    world.insert_resource(Messages::<MouseWheel>::default());
+    world.insert_resource(Messages::<RequestRedraw>::default());
+    init_hud_commands(&mut world);
+    insert_default_hud_resources(&mut world);
+    world.spawn((window.clone(), PrimaryWindow));
+
+    {
+        let mut session = world.resource_mut::<AppSessionState>();
+        session
+            .clone_agent_dialog
+            .open(crate::agents::AgentId(7), "alpha");
+        session.clone_agent_dialog.error = Some("stale error".into());
+    }
+
+    window.set_cursor_position(Some(Vec2::new(name_rect.x + 4.0, name_rect.y + 4.0)));
+    *world
+        .query_filtered::<&mut Window, With<PrimaryWindow>>()
+        .single_mut(&mut world)
+        .expect("primary window should exist") = window.clone();
+    world.insert_resource(ButtonInput::<MouseButton>::default());
+    world
+        .resource_mut::<ButtonInput<MouseButton>>()
+        .press(MouseButton::Left);
+    world.run_system_once(handle_hud_pointer_input).unwrap();
+    assert_eq!(
+        world.resource::<AppSessionState>().clone_agent_dialog.focus,
+        crate::app::CloneAgentDialogField::Name
+    );
+    assert_eq!(world.resource::<AppSessionState>().clone_agent_dialog.error, None);
+
+    window.set_cursor_position(Some(Vec2::new(
+        workdir_rect.x + 4.0,
+        workdir_rect.y + 4.0,
+    )));
+    *world
+        .query_filtered::<&mut Window, With<PrimaryWindow>>()
+        .single_mut(&mut world)
+        .expect("primary window should exist") = window.clone();
+    world.insert_resource(ButtonInput::<MouseButton>::default());
+    world
+        .resource_mut::<ButtonInput<MouseButton>>()
+        .press(MouseButton::Left);
+    world.run_system_once(handle_hud_pointer_input).unwrap();
+    assert!(world.resource::<AppSessionState>().clone_agent_dialog.workdir);
+
+    world
+        .resource_mut::<AppSessionState>()
+        .clone_agent_dialog
+        .name_field
+        .load_text("child");
+    window.set_cursor_position(Some(Vec2::new(clone_rect.x + 4.0, clone_rect.y + 4.0)));
+    *world
+        .query_filtered::<&mut Window, With<PrimaryWindow>>()
+        .single_mut(&mut world)
+        .expect("primary window should exist") = window;
+    world.insert_resource(ButtonInput::<MouseButton>::default());
+    world
+        .resource_mut::<ButtonInput<MouseButton>>()
+        .press(MouseButton::Left);
+    world.run_system_once(handle_hud_pointer_input).unwrap();
+
+    assert_eq!(
+        drain_hud_commands(&mut world),
+        vec![AppCommand::Agent(AppAgentCommand::Clone {
+            source_agent_id: crate::agents::AgentId(7),
+            label: "CHILD".into(),
+            workdir: true,
+        })]
+    );
 }
 
 /// Verifies that the direct-input capture branch still persists layout drag cleanup even though it

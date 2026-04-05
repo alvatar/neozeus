@@ -225,8 +225,11 @@ pub(super) fn apply_app_commands(
                         *workdir,
                         &mut ctx.redraws,
                     ) {
+                        ctx.app_session.clone_agent_dialog.error = Some(error.clone());
                         append_debug_log(format!("clone Pi agent failed: {error}"));
                         ctx.redraws.write(RequestRedraw);
+                    } else {
+                        ctx.app_session.clone_agent_dialog.close();
                     }
                 }
                 AgentCommand::Focus(agent_id) => {

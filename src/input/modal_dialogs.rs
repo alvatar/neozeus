@@ -1,7 +1,7 @@
 use crate::{
     app::{
-        AppCommand, AppSessionState, ComposerCommand, CreateAgentDialogField,
-        RenameAgentDialogField,
+        AppCommand, AppSessionState, CloneAgentDialogField, ComposerCommand,
+        CreateAgentDialogField, RenameAgentDialogField,
     },
     composer::{MessageDialogFocus, TaskDialogFocus},
 };
@@ -143,6 +143,62 @@ pub(super) fn handle_create_agent_dialog_key(
     if changed {
         if clear_error {
             app_session.create_agent_dialog.error = None;
+        }
+        ModalKeyResult::redraw()
+    } else {
+        ModalKeyResult::default()
+    }
+}
+
+/// Handles one key press while the clone-agent dialog owns keyboard capture.
+pub(super) fn handle_clone_agent_dialog_key(
+    app_session: &mut AppSessionState,
+    event: &KeyboardInput,
+    modifiers: KeyModifiers,
+    emitted_commands: &mut Vec<AppCommand>,
+) -> ModalKeyResult {
+    if event.key_code == KeyCode::Escape {
+        app_session.clone_agent_dialog.close();
+        return ModalKeyResult::redraw_and_stop();
+    }
+
+    if modifiers.plain() && event.key_code == KeyCode::Tab {
+        app_session.clone_agent_dialog.cycle_focus(modifiers.shift);
+        return ModalKeyResult::redraw();
+    }
+
+    let (changed, clear_error) = match app_session.clone_agent_dialog.focus {
+        CloneAgentDialogField::Name => (
+            handle_agent_name_field_event(
+                &mut app_session.clone_agent_dialog.name_field,
+                event,
+                modifiers,
+            ),
+            true,
+        ),
+        CloneAgentDialogField::Workdir => {
+            if modifiers.plain() && matches!(event.key_code, KeyCode::Enter | KeyCode::Space) {
+                app_session.clone_agent_dialog.toggle_workdir();
+                (true, false)
+            } else {
+                (false, false)
+            }
+        }
+        CloneAgentDialogField::CloneButton => {
+            if modifiers.plain() && matches!(event.key_code, KeyCode::Enter | KeyCode::Space) {
+                if let Some(command) = app_session.clone_agent_dialog.build_clone_command() {
+                    emitted_commands.push(command);
+                }
+                (true, false)
+            } else {
+                (false, false)
+            }
+        }
+    };
+
+    if changed {
+        if clear_error {
+            app_session.clone_agent_dialog.error = None;
         }
         ModalKeyResult::redraw()
     } else {
