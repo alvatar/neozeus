@@ -484,6 +484,7 @@ fn configure_app(app: &mut App) -> Result<(), String> {
         .insert_resource(AgentRuntimeIndex::default())
         .insert_resource(crate::agents::AgentStatusStore::default())
         .insert_resource(AppSessionState::default())
+        .insert_resource(crate::hud::AgentListSelection::default())
         .insert_resource(EguiClipboard::default())
         .insert_resource(ConversationStore::default())
         .insert_resource(ConversationPersistenceState::default())

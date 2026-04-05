@@ -1,6 +1,9 @@
 use crate::{
-    agents::{AgentId, AgentStatus},
-    hud::view_models::{AgentListRowKey, AgentListRowKind, AgentListView, OwnedTmuxOwnerBinding},
+    agents::AgentId,
+    hud::view_models::{
+        AgentListActivity, AgentListRowKey, AgentListRowKind, AgentListView,
+        OwnedTmuxOwnerBinding,
+    },
     terminals::TerminalId,
 };
 
@@ -29,9 +32,6 @@ pub(crate) const AGENT_LIST_BLOOM_RED_B: u8 = 15;
 pub(crate) const AGENT_LIST_WORKING_GREEN_R: u8 = 82;
 pub(crate) const AGENT_LIST_WORKING_GREEN_G: u8 = 173;
 pub(crate) const AGENT_LIST_WORKING_GREEN_B: u8 = 112;
-pub(crate) const AGENT_LIST_WORKING_GLOW_R: u8 = 84;
-pub(crate) const AGENT_LIST_WORKING_GLOW_G: u8 = 220;
-pub(crate) const AGENT_LIST_WORKING_GLOW_B: u8 = 190;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum AgentListRowSection {
@@ -47,7 +47,7 @@ pub(in crate::hud) enum AgentRowKind {
         terminal_id: Option<TerminalId>,
         has_tasks: bool,
         interactive: bool,
-        status: AgentStatus,
+        activity: AgentListActivity,
         context_pct_milli: Option<i32>,
     },
     OwnedTmux {
@@ -79,13 +79,6 @@ impl AgentRow {
         match self.kind {
             AgentRowKind::Agent { terminal_id, .. } => terminal_id,
             AgentRowKind::OwnedTmux { .. } => None,
-        }
-    }
-
-    pub(in crate::hud) fn status(&self) -> AgentStatus {
-        match self.kind {
-            AgentRowKind::Agent { status, .. } => status,
-            AgentRowKind::OwnedTmux { .. } => AgentStatus::Unknown,
         }
     }
 
@@ -219,14 +212,14 @@ pub(in crate::hud) fn projected_agent_rows(
                     terminal_id,
                     has_tasks,
                     interactive,
-                    status,
+                    activity,
                     context_pct_milli,
                 } => AgentRowKind::Agent {
                     agent_id: *agent_id,
                     terminal_id: *terminal_id,
                     has_tasks: *has_tasks,
                     interactive: *interactive,
-                    status: *status,
+                    activity: *activity,
                     context_pct_milli: *context_pct_milli,
                 },
                 AgentListRowKind::OwnedTmux { owner, .. } => AgentRowKind::OwnedTmux {

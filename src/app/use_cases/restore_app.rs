@@ -31,6 +31,7 @@ pub(crate) fn restore_app(
     agent_catalog: &mut AgentCatalog,
     runtime_index: &mut AgentRuntimeIndex,
     app_session: &mut AppSessionState,
+    selection: &mut crate::hud::AgentListSelection,
     terminal_manager: &mut TerminalManager,
     focus_state: &mut TerminalFocusState,
     runtime_spawner: &TerminalRuntimeSpawner,
@@ -58,6 +59,7 @@ pub(crate) fn restore_app(
                 agent_catalog,
                 runtime_index,
                 app_session,
+                selection,
                 terminal_manager,
                 focus_state,
                 runtime_spawner,
@@ -172,6 +174,7 @@ pub(crate) fn restore_app(
     ) {
         if let Some(agent_id) = runtime_index.agent_for_session(session_name) {
             app_session.active_agent = Some(agent_id);
+            *selection = crate::hud::AgentListSelection::Agent(agent_id);
             app_session.visibility_mode = VisibilityMode::FocusedOnly;
             if let Some(terminal_id) = runtime_index.primary_terminal(agent_id) {
                 focus_state.focus_terminal(terminal_manager, terminal_id);
@@ -183,6 +186,7 @@ pub(crate) fn restore_app(
         }
     } else if !agent_catalog.order.is_empty() {
         app_session.active_agent = None;
+        *selection = crate::hud::AgentListSelection::None;
         app_session.visibility_mode = VisibilityMode::ShowAll;
         focus_state.clear_active_terminal();
         #[cfg(test)]
@@ -194,6 +198,7 @@ pub(crate) fn restore_app(
             agent_catalog,
             runtime_index,
             app_session,
+            selection,
             terminal_manager,
             focus_state,
             runtime_spawner,

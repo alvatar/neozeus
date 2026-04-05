@@ -648,6 +648,7 @@ fn startup_restore_rebinds_owned_tmux_children_under_agent() {
     world.insert_resource(crate::conversations::AgentTaskStore::default());
     world.insert_resource(crate::hud::HudInputCaptureState::default());
     world.insert_resource(crate::terminals::TerminalViewState::default());
+    world.insert_resource(crate::hud::AgentListSelection::default());
     world.insert_resource(crate::hud::AgentListView::default());
     world.insert_resource(crate::hud::ConversationListView::default());
     world.insert_resource(crate::hud::ThreadView::default());
@@ -758,6 +759,7 @@ fn startup_restore_rebinds_multiple_owned_tmux_children_under_correct_agents_and
     world.insert_resource(crate::conversations::AgentTaskStore::default());
     world.insert_resource(crate::hud::HudInputCaptureState::default());
     world.insert_resource(crate::terminals::TerminalViewState::default());
+    world.insert_resource(crate::hud::AgentListSelection::default());
     world.insert_resource(crate::hud::AgentListView::default());
     world.insert_resource(crate::hud::ConversationListView::default());
     world.insert_resource(crate::hud::ThreadView::default());

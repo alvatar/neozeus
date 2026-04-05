@@ -2,9 +2,7 @@ use crate::{
     agents::{AgentCatalog, AgentId, AgentRuntimeIndex, AgentStatus, AgentStatusStore},
     app::AppSessionState,
     conversations::{AgentTaskStore, ConversationStore, MessageDeliveryState},
-    terminals::{
-        ActiveTerminalContentState, OwnedTmuxSessionStore, TerminalManager, TerminalSurface,
-    },
+    terminals::{OwnedTmuxSessionStore, TerminalManager, TerminalSurface},
     usage::{claude_backoff_active, time_left, UsagePersistenceState, UsageSnapshot},
 };
 use bevy::prelude::*;
@@ -12,6 +10,14 @@ use std::{
     collections::BTreeMap,
     time::{SystemTime, UNIX_EPOCH},
 };
+
+#[derive(Resource, Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) enum AgentListSelection {
+    #[default]
+    None,
+    Agent(AgentId),
+    OwnedTmux(String),
+}
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum AgentListRowKey {
@@ -25,6 +31,21 @@ pub(crate) enum OwnedTmuxOwnerBinding {
     Orphan,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum AgentListActivity {
+    Idle,
+    Working,
+}
+
+impl AgentListActivity {
+    fn from_status(status: AgentStatus) -> Self {
+        match status {
+            AgentStatus::Working => AgentListActivity::Working,
+            AgentStatus::Unknown | AgentStatus::Idle => AgentListActivity::Idle,
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum AgentListRowKind {
     Agent {
@@ -32,7 +53,7 @@ pub(crate) enum AgentListRowKind {
         terminal_id: Option<crate::terminals::TerminalId>,
         has_tasks: bool,
         interactive: bool,
-        status: AgentStatus,
+        activity: AgentListActivity,
         context_pct_milli: Option<i32>,
     },
     OwnedTmux {
@@ -55,6 +76,16 @@ pub(crate) struct AgentListRowView {
 #[derive(Resource, Default, Clone, Debug, PartialEq, Eq)]
 pub(crate) struct AgentListView {
     pub(crate) rows: Vec<AgentListRowView>,
+}
+
+pub(crate) fn selected_agent_list_row_key(selection: &AgentListSelection) -> Option<AgentListRowKey> {
+    match selection {
+        AgentListSelection::None => None,
+        AgentListSelection::Agent(agent_id) => Some(AgentListRowKey::Agent(*agent_id)),
+        AgentListSelection::OwnedTmux(session_uid) => {
+            Some(AgentListRowKey::OwnedTmux(session_uid.clone()))
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -144,7 +175,7 @@ pub(crate) fn sync_hud_view_models(
     conversations: Res<ConversationStore>,
     status_store: Res<AgentStatusStore>,
     owned_tmux_sessions: Res<OwnedTmuxSessionStore>,
-    active_terminal_content: Res<ActiveTerminalContentState>,
+    selection: Res<AgentListSelection>,
     mut agent_list: ResMut<AgentListView>,
     mut conversation_list: ResMut<ConversationListView>,
     mut thread_view: ResMut<ThreadView>,
@@ -176,7 +207,7 @@ pub(crate) fn sync_hud_view_models(
             .then_with(|| left.tmux_name.cmp(&right.tmux_name))
     });
 
-    let selected_tmux_session = active_terminal_content.selected_owned_tmux_session_uid();
+    let selected_row_key = selected_agent_list_row_key(&selection);
     let mut rows = Vec::new();
     for (agent_id, label) in agent_catalog.iter() {
         let terminal_id = runtime_index.primary_terminal(agent_id);
@@ -189,7 +220,7 @@ pub(crate) fn sync_hud_view_models(
         rows.push(AgentListRowView {
             key: AgentListRowKey::Agent(agent_id),
             label: label.to_owned(),
-            focused: selected_tmux_session.is_none() && app_session.active_agent == Some(agent_id),
+            focused: selected_row_key == Some(AgentListRowKey::Agent(agent_id)),
             kind: AgentListRowKind::Agent {
                 agent_id,
                 terminal_id,
@@ -197,15 +228,16 @@ pub(crate) fn sync_hud_view_models(
                     .text(agent_id)
                     .is_some_and(|text| !text.trim().is_empty()),
                 interactive,
-                status: status_store.status(agent_id),
+                activity: AgentListActivity::from_status(status_store.status(agent_id)),
                 context_pct_milli,
             },
         });
         for session in tmux_by_owner.remove(&agent_id).unwrap_or_default() {
+            let session_uid = session.session_uid.clone();
             rows.push(AgentListRowView {
-                key: AgentListRowKey::OwnedTmux(session.session_uid.clone()),
+                key: AgentListRowKey::OwnedTmux(session_uid.clone()),
                 label: session.display_name.clone(),
-                focused: selected_tmux_session == Some(session.session_uid.as_str()),
+                focused: selected_row_key == Some(AgentListRowKey::OwnedTmux(session_uid)),
                 kind: AgentListRowKind::OwnedTmux {
                     session_uid: session.session_uid,
                     owner: OwnedTmuxOwnerBinding::Bound(agent_id),
@@ -217,10 +249,11 @@ pub(crate) fn sync_hud_view_models(
         }
     }
     for session in orphan_tmux {
+        let session_uid = session.session_uid.clone();
         rows.push(AgentListRowView {
-            key: AgentListRowKey::OwnedTmux(session.session_uid.clone()),
+            key: AgentListRowKey::OwnedTmux(session_uid.clone()),
             label: session.display_name,
-            focused: selected_tmux_session == Some(session.session_uid.as_str()),
+            focused: selected_row_key == Some(AgentListRowKey::OwnedTmux(session_uid)),
             kind: AgentListRowKind::OwnedTmux {
                 session_uid: session.session_uid,
                 owner: OwnedTmuxOwnerBinding::Orphan,

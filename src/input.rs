@@ -156,7 +156,7 @@ pub(crate) fn handle_terminal_lifecycle_shortcuts(
     keys: Res<ButtonInput<KeyCode>>,
     app_session: Res<AppSessionState>,
     input_capture: Res<HudInputCaptureState>,
-    active_terminal_content: Res<ActiveTerminalContentState>,
+    selection: Option<Res<crate::hud::AgentListSelection>>,
     mut app_commands: MessageWriter<AppCommand>,
     mut app_exits: MessageWriter<AppExit>,
 ) {
@@ -165,16 +165,16 @@ pub(crate) fn handle_terminal_lifecycle_shortcuts(
         return;
     }
 
+    let default_selection = crate::hud::AgentListSelection::None;
+    let selection = selection.as_deref().unwrap_or(&default_selection);
+
     for event in messages.read() {
         if should_exit_application(event, &keys) {
             app_exits.write(AppExit::Success);
             break;
         }
         if should_kill_active_terminal(event, &keys) {
-            if active_terminal_content
-                .selected_owned_tmux_session_uid()
-                .is_some()
-            {
+            if matches!(*selection, crate::hud::AgentListSelection::OwnedTmux(_)) {
                 app_commands.write(AppCommand::OwnedTmux(OwnedTmuxCommand::KillSelected));
             } else {
                 app_commands.write(AppCommand::Agent(AppAgentCommand::KillActive));

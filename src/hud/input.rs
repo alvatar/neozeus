@@ -16,7 +16,10 @@ use super::{
         AgentListUiState, ConversationListUiState, HudDragState, HudInputCaptureState,
         HudLayoutState, HudRect, HUD_TITLEBAR_HEIGHT,
     },
-    view_models::{AgentListRowKey, AgentListView, ConversationListView, InfoBarView},
+    view_models::{
+        selected_agent_list_row_key, AgentListRowKey, AgentListSelection, AgentListView,
+        ConversationListView, InfoBarView,
+    },
     widgets::HudWidgetKey,
 };
 use bevy::{
@@ -616,25 +619,19 @@ enum AgentListNavigationTarget {
 
 /// Chooses the next or previous visible row target for keyboard navigation through the agent list.
 fn adjacent_agent_list_target(
-    app_session: &AppSessionState,
+    selection: &AgentListSelection,
     agent_list_view: &AgentListView,
-    active_terminal_content: &crate::terminals::ActiveTerminalContentState,
     step: isize,
 ) -> Option<AgentListNavigationTarget> {
     if agent_list_view.rows.is_empty() {
         return None;
     }
 
-    let current_index = if let Some(session_uid) =
-        active_terminal_content.selected_owned_tmux_session_uid()
-    {
-        agent_list_view.rows.iter().position(
-            |row| matches!(&row.key, AgentListRowKey::OwnedTmux(row_uid) if row_uid == session_uid),
-        )?
-    } else if let Some(active_agent) = app_session.active_agent {
-        agent_list_view.rows.iter().position(
-            |row| matches!(row.key, AgentListRowKey::Agent(agent_id) if agent_id == active_agent),
-        )?
+    let current_index = if let Some(selected_row_key) = selected_agent_list_row_key(selection) {
+        agent_list_view
+            .rows
+            .iter()
+            .position(|row| row.key == selected_row_key)?
     } else {
         return match agent_list_view.rows[if step < 0 {
             agent_list_view.rows.len() - 1
@@ -682,7 +679,7 @@ pub(crate) fn handle_hud_module_shortcuts(
     app_session: Res<AppSessionState>,
     input_capture: Res<HudInputCaptureState>,
     agent_list_view: Res<AgentListView>,
-    active_terminal_content: Option<Res<crate::terminals::ActiveTerminalContentState>>,
+    selection: Option<Res<AgentListSelection>>,
     mut app_commands: MessageWriter<AppCommand>,
 ) {
     // Keep the control flow staged so each branch owns one behavior path and later branches only run when earlier capture rules do not apply.
@@ -710,10 +707,8 @@ pub(crate) fn handle_hud_module_shortcuts(
     let Some(action) = action else {
         return;
     };
-    let default_active_terminal_content = crate::terminals::ActiveTerminalContentState::default();
-    let active_terminal_content = active_terminal_content
-        .as_deref()
-        .unwrap_or(&default_active_terminal_content);
+    let default_selection = AgentListSelection::default();
+    let selection = selection.as_deref().unwrap_or(&default_selection);
 
     for event in messages.read() {
         if event.state != ButtonState::Pressed {
@@ -722,18 +717,12 @@ pub(crate) fn handle_hud_module_shortcuts(
 
         if matches!(action, ShortcutAction::Toggle) {
             let navigation_target = match event.key_code {
-                KeyCode::KeyJ | KeyCode::ArrowDown => Some(adjacent_agent_list_target(
-                    &app_session,
-                    &agent_list_view,
-                    active_terminal_content,
-                    1,
-                )),
-                KeyCode::KeyK | KeyCode::ArrowUp => Some(adjacent_agent_list_target(
-                    &app_session,
-                    &agent_list_view,
-                    active_terminal_content,
-                    -1,
-                )),
+                KeyCode::KeyJ | KeyCode::ArrowDown => {
+                    Some(adjacent_agent_list_target(selection, &agent_list_view, 1))
+                }
+                KeyCode::KeyK | KeyCode::ArrowUp => {
+                    Some(adjacent_agent_list_target(selection, &agent_list_view, -1))
+                }
                 _ => None,
             }
             .flatten();

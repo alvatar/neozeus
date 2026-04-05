@@ -253,6 +253,77 @@ fn plain_digit_module_shortcut_toggles_module() {
     );
 }
 
+fn build_agent_list_navigation_world() -> (World, crate::agents::AgentId, crate::agents::AgentId) {
+    let (bridge_one, _) = test_bridge();
+    let (bridge_two, _) = test_bridge();
+    let mut manager = TerminalManager::default();
+    let terminal_one = manager.create_terminal(bridge_one);
+    let terminal_two = manager.create_terminal(bridge_two);
+
+    let mut catalog = AgentCatalog::default();
+    let agent_one = catalog.create_agent(
+        Some("alpha".into()),
+        crate::agents::AgentKind::Terminal,
+        crate::agents::AgentKind::Terminal.capabilities(),
+    );
+    let agent_two = catalog.create_agent(
+        Some("beta".into()),
+        crate::agents::AgentKind::Terminal,
+        crate::agents::AgentKind::Terminal.capabilities(),
+    );
+    let agent_one_uid = catalog.uid(agent_one).unwrap().to_owned();
+    let mut runtime_index = AgentRuntimeIndex::default();
+    runtime_index.link_terminal(agent_one, terminal_one, "alpha-session".into(), None);
+    runtime_index.link_terminal(agent_two, terminal_two, "beta-session".into(), None);
+
+    let mut world = World::default();
+    world.insert_resource(ButtonInput::<KeyCode>::default());
+    insert_terminal_manager_resources(&mut world, manager);
+    insert_default_hud_resources(&mut world);
+    init_hud_commands(&mut world);
+    world.insert_resource(catalog);
+    world.insert_resource(runtime_index);
+    world.insert_resource(AppSessionState {
+        active_agent: Some(agent_one),
+        ..Default::default()
+    });
+    world.insert_resource(crate::hud::AgentListSelection::Agent(agent_one));
+    world
+        .resource_mut::<crate::terminals::OwnedTmuxSessionStore>()
+        .sessions
+        .push(crate::terminals::OwnedTmuxSessionInfo {
+            session_uid: "tmux-session-1".into(),
+            owner_agent_uid: agent_one_uid,
+            tmux_name: "neozeus-tmux-1".into(),
+            display_name: "BUILD".into(),
+            cwd: "/tmp/work".into(),
+            attached: false,
+            created_unix: 0,
+        });
+    world.run_system_once(crate::hud::sync_hud_view_models).unwrap();
+
+    (world, agent_one, agent_two)
+}
+
+fn dispatch_agent_list_nav_step(world: &mut World, event: KeyboardInput) {
+    world.insert_resource(Messages::<KeyboardInput>::default());
+    world.insert_resource(Messages::<AppCommand>::default());
+    world.insert_resource(Messages::<RequestRedraw>::default());
+    world.resource_mut::<Messages<KeyboardInput>>().write(event);
+    world.run_system_once(handle_hud_module_shortcuts).unwrap();
+    run_app_commands(world);
+    world.run_system_once(crate::hud::sync_hud_view_models).unwrap();
+}
+
+fn assert_exactly_one_selected_row(
+    world: &World,
+    expected_key: crate::hud::AgentListRowKey,
+) {
+    let rows = &world.resource::<crate::hud::AgentListView>().rows;
+    assert_eq!(rows.iter().filter(|row| row.focused).count(), 1);
+    assert!(rows.iter().any(|row| row.focused && row.key == expected_key));
+}
+
 /// Verifies the plain `j` agent-list navigation shortcut emits focus+isolate for the next terminal.
 #[test]
 fn plain_j_navigates_to_next_agent_and_isolates_it() {
@@ -321,6 +392,98 @@ fn down_arrow_navigates_to_next_agent_and_isolates_it() {
             AppCommand::Agent(AppAgentCommand::Inspect(next_agent)),
         ]
     );
+}
+
+#[test]
+fn hud_navigation_jk_across_agents_and_tmux_keeps_exactly_one_selected_row_after_each_step() {
+    let (mut world, agent_one, agent_two) = build_agent_list_navigation_world();
+    assert_exactly_one_selected_row(&world, crate::hud::AgentListRowKey::Agent(agent_one));
+
+    dispatch_agent_list_nav_step(
+        &mut world,
+        pressed_key(KeyCode::KeyJ, Key::Character("j".into())),
+    );
+    assert_eq!(
+        *world.resource::<crate::hud::AgentListSelection>(),
+        crate::hud::AgentListSelection::OwnedTmux("tmux-session-1".into())
+    );
+    assert_exactly_one_selected_row(
+        &world,
+        crate::hud::AgentListRowKey::OwnedTmux("tmux-session-1".into()),
+    );
+
+    dispatch_agent_list_nav_step(
+        &mut world,
+        pressed_key(KeyCode::KeyJ, Key::Character("j".into())),
+    );
+    assert_eq!(
+        *world.resource::<crate::hud::AgentListSelection>(),
+        crate::hud::AgentListSelection::Agent(agent_two)
+    );
+    assert_exactly_one_selected_row(&world, crate::hud::AgentListRowKey::Agent(agent_two));
+
+    dispatch_agent_list_nav_step(
+        &mut world,
+        pressed_key(KeyCode::KeyK, Key::Character("k".into())),
+    );
+    assert_eq!(
+        *world.resource::<crate::hud::AgentListSelection>(),
+        crate::hud::AgentListSelection::OwnedTmux("tmux-session-1".into())
+    );
+    assert_exactly_one_selected_row(
+        &world,
+        crate::hud::AgentListRowKey::OwnedTmux("tmux-session-1".into()),
+    );
+
+    dispatch_agent_list_nav_step(
+        &mut world,
+        pressed_key(KeyCode::KeyK, Key::Character("k".into())),
+    );
+    assert_eq!(
+        *world.resource::<crate::hud::AgentListSelection>(),
+        crate::hud::AgentListSelection::Agent(agent_one)
+    );
+    assert_exactly_one_selected_row(&world, crate::hud::AgentListRowKey::Agent(agent_one));
+}
+
+#[test]
+fn hud_navigation_arrow_keys_across_agents_and_tmux_keeps_exactly_one_selected_row_after_each_step() {
+    let (mut world, agent_one, agent_two) = build_agent_list_navigation_world();
+    assert_exactly_one_selected_row(&world, crate::hud::AgentListRowKey::Agent(agent_one));
+
+    dispatch_agent_list_nav_step(&mut world, pressed_key(KeyCode::ArrowDown, Key::ArrowDown));
+    assert_eq!(
+        *world.resource::<crate::hud::AgentListSelection>(),
+        crate::hud::AgentListSelection::OwnedTmux("tmux-session-1".into())
+    );
+    assert_exactly_one_selected_row(
+        &world,
+        crate::hud::AgentListRowKey::OwnedTmux("tmux-session-1".into()),
+    );
+
+    dispatch_agent_list_nav_step(&mut world, pressed_key(KeyCode::ArrowDown, Key::ArrowDown));
+    assert_eq!(
+        *world.resource::<crate::hud::AgentListSelection>(),
+        crate::hud::AgentListSelection::Agent(agent_two)
+    );
+    assert_exactly_one_selected_row(&world, crate::hud::AgentListRowKey::Agent(agent_two));
+
+    dispatch_agent_list_nav_step(&mut world, pressed_key(KeyCode::ArrowUp, Key::ArrowUp));
+    assert_eq!(
+        *world.resource::<crate::hud::AgentListSelection>(),
+        crate::hud::AgentListSelection::OwnedTmux("tmux-session-1".into())
+    );
+    assert_exactly_one_selected_row(
+        &world,
+        crate::hud::AgentListRowKey::OwnedTmux("tmux-session-1".into()),
+    );
+
+    dispatch_agent_list_nav_step(&mut world, pressed_key(KeyCode::ArrowUp, Key::ArrowUp));
+    assert_eq!(
+        *world.resource::<crate::hud::AgentListSelection>(),
+        crate::hud::AgentListSelection::Agent(agent_one)
+    );
+    assert_exactly_one_selected_row(&world, crate::hud::AgentListRowKey::Agent(agent_one));
 }
 
 /// Verifies the plain `k` agent-list navigation shortcut emits focus+isolate for the previous
@@ -1959,6 +2122,10 @@ fn killing_selected_owned_tmux_session_clears_selection_on_success() {
         .resource::<crate::terminals::ActiveTerminalContentState>()
         .selected_owned_tmux_session_uid()
         .is_none());
+    assert_eq!(
+        *world.resource::<crate::hud::AgentListSelection>(),
+        crate::hud::AgentListSelection::None
+    );
     assert!(client.owned_tmux_sessions.lock().unwrap().is_empty());
 }
 
@@ -2258,6 +2425,7 @@ fn navigating_to_owned_tmux_should_render_capture_in_terminal_panel() {
         active_agent: Some(agent_id),
         ..Default::default()
     });
+    world.insert_resource(crate::hud::AgentListSelection::Agent(agent_id));
     world.insert_resource(fake_runtime_spawner(client));
     world.insert_resource(crate::terminals::OwnedTmuxSessionStore::default());
     world.insert_resource(crate::terminals::ActiveTerminalContentState::default());
@@ -2289,7 +2457,7 @@ fn navigating_to_owned_tmux_should_render_capture_in_terminal_panel() {
                     terminal_id: Some(terminal_id),
                     has_tasks: false,
                     interactive: true,
-                    status: crate::agents::AgentStatus::Unknown,
+                    activity: crate::hud::AgentListActivity::Idle,
                     context_pct_milli: None,
                 },
             },
@@ -2519,6 +2687,168 @@ fn active_terminal_content_ignores_identical_recapture() {
     );
 }
 
+#[test]
+fn selecting_tmux_row_sets_tmux_terminal_override_without_changing_selected_row_kind() {
+    let client = Arc::new(FakeDaemonClient::default());
+    let (bridge, _) = test_bridge();
+    let mut manager = TerminalManager::default();
+    let terminal_id = manager.create_terminal(bridge);
+
+    let mut catalog = AgentCatalog::default();
+    let agent_id = catalog.create_agent(
+        Some("alpha".into()),
+        crate::agents::AgentKind::Terminal,
+        crate::agents::AgentKind::Terminal.capabilities(),
+    );
+    let agent_uid = catalog.uid(agent_id).unwrap().to_owned();
+    let mut runtime_index = AgentRuntimeIndex::default();
+    runtime_index.link_terminal(agent_id, terminal_id, "alpha-session".into(), None);
+
+    let mut world = World::default();
+    insert_default_hud_resources(&mut world);
+    world.insert_resource(fake_runtime_spawner(client));
+    world.insert_resource(AppStatePersistenceState::default());
+    world.insert_resource(manager);
+    world.insert_resource(TerminalPresentationStore::default());
+    world.insert_resource(TerminalVisibilityState::default());
+    world.insert_resource(TerminalViewState::default());
+    world.insert_resource(catalog);
+    world.insert_resource(runtime_index);
+    world
+        .resource_mut::<crate::terminals::OwnedTmuxSessionStore>()
+        .sessions
+        .push(crate::terminals::OwnedTmuxSessionInfo {
+            session_uid: "tmux-session-1".into(),
+            owner_agent_uid: agent_uid,
+            tmux_name: "neozeus-tmux-1".into(),
+            display_name: "BUILD".into(),
+            cwd: "/tmp/work".into(),
+            attached: false,
+            created_unix: 0,
+        });
+    world.init_resource::<Messages<AppCommand>>();
+    world.init_resource::<Messages<RequestRedraw>>();
+
+    world
+        .resource_mut::<Messages<AppCommand>>()
+        .write(AppCommand::OwnedTmux(
+            crate::app::OwnedTmuxCommand::Select {
+                session_uid: "tmux-session-1".into(),
+            },
+        ));
+    run_app_commands(&mut world);
+
+    assert_eq!(
+        *world.resource::<crate::hud::AgentListSelection>(),
+        crate::hud::AgentListSelection::OwnedTmux("tmux-session-1".into())
+    );
+    assert_eq!(
+        world
+            .resource::<crate::terminals::ActiveTerminalContentState>()
+            .selected_owned_tmux_session_uid(),
+        Some("tmux-session-1")
+    );
+}
+
+#[test]
+fn selecting_tmux_row_sets_parent_agent_thread_target_explicitly() {
+    let client = Arc::new(FakeDaemonClient::default());
+    let (bridge, _) = test_bridge();
+    let mut manager = TerminalManager::default();
+    let terminal_id = manager.create_terminal(bridge);
+
+    let mut catalog = AgentCatalog::default();
+    let agent_id = catalog.create_agent(
+        Some("alpha".into()),
+        crate::agents::AgentKind::Terminal,
+        crate::agents::AgentKind::Terminal.capabilities(),
+    );
+    let agent_uid = catalog.uid(agent_id).unwrap().to_owned();
+    let mut runtime_index = AgentRuntimeIndex::default();
+    runtime_index.link_terminal(agent_id, terminal_id, "alpha-session".into(), None);
+
+    let mut world = World::default();
+    insert_default_hud_resources(&mut world);
+    world.insert_resource(fake_runtime_spawner(client));
+    world.insert_resource(AppStatePersistenceState::default());
+    world.insert_resource(manager);
+    world.insert_resource(TerminalPresentationStore::default());
+    world.insert_resource(TerminalVisibilityState::default());
+    world.insert_resource(TerminalViewState::default());
+    world.insert_resource(catalog);
+    world.insert_resource(runtime_index);
+    world
+        .resource_mut::<crate::terminals::OwnedTmuxSessionStore>()
+        .sessions
+        .push(crate::terminals::OwnedTmuxSessionInfo {
+            session_uid: "tmux-session-1".into(),
+            owner_agent_uid: agent_uid,
+            tmux_name: "neozeus-tmux-1".into(),
+            display_name: "BUILD".into(),
+            cwd: "/tmp/work".into(),
+            attached: false,
+            created_unix: 0,
+        });
+    world.init_resource::<Messages<AppCommand>>();
+    world.init_resource::<Messages<RequestRedraw>>();
+
+    world
+        .resource_mut::<Messages<AppCommand>>()
+        .write(AppCommand::OwnedTmux(
+            crate::app::OwnedTmuxCommand::Select {
+                session_uid: "tmux-session-1".into(),
+            },
+        ));
+    run_app_commands(&mut world);
+
+    assert_eq!(world.resource::<AppSessionState>().active_agent, Some(agent_id));
+}
+
+#[test]
+fn terminal_focus_sync_does_not_rewrite_agent_list_selection() {
+    let (bridge_a, _) = test_bridge();
+    let (bridge_b, _) = test_bridge();
+    let mut manager = TerminalManager::default();
+    let terminal_a = manager.create_terminal(bridge_a);
+    let terminal_b = manager.create_terminal(bridge_b);
+    manager.focus_terminal(terminal_b);
+
+    let mut catalog = AgentCatalog::default();
+    let agent_a = catalog.create_agent(
+        Some("alpha".into()),
+        crate::agents::AgentKind::Terminal,
+        crate::agents::AgentKind::Terminal.capabilities(),
+    );
+    let agent_b = catalog.create_agent(
+        Some("beta".into()),
+        crate::agents::AgentKind::Terminal,
+        crate::agents::AgentKind::Terminal.capabilities(),
+    );
+    let mut runtime_index = AgentRuntimeIndex::default();
+    runtime_index.link_terminal(agent_a, terminal_a, "alpha-session".into(), None);
+    runtime_index.link_terminal(agent_b, terminal_b, "beta-session".into(), None);
+
+    let mut world = World::default();
+    world.insert_resource(catalog);
+    world.insert_resource(runtime_index);
+    world.insert_resource(AppSessionState {
+        active_agent: Some(agent_b),
+        ..Default::default()
+    });
+    world.insert_resource(crate::hud::AgentListSelection::OwnedTmux("tmux-session-1".into()));
+    world.insert_resource(manager.clone_focus_state());
+    world.insert_resource(manager);
+
+    world
+        .run_system_once(crate::app::sync_agents_from_terminals)
+        .unwrap();
+
+    assert_eq!(
+        *world.resource::<crate::hud::AgentListSelection>(),
+        crate::hud::AgentListSelection::OwnedTmux("tmux-session-1".into())
+    );
+}
+
 /// Verifies that focusing an agent clears any selected tmux terminal override.
 #[test]
 fn focusing_agent_clears_owned_tmux_selection() {
@@ -2553,6 +2883,10 @@ fn focusing_agent_clears_owned_tmux_selection() {
         .resource::<crate::terminals::ActiveTerminalContentState>()
         .selected_owned_tmux_session_uid()
         .is_none());
+    assert_eq!(
+        *world.resource::<crate::hud::AgentListSelection>(),
+        crate::hud::AgentListSelection::Agent(agent_id)
+    );
 }
 
 /// Verifies the enum default for terminal visibility policy is the non-isolating `ShowAll` mode.

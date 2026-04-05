@@ -1,12 +1,9 @@
-use crate::{
-    agents::AgentStatus, app::AppSessionState, startup::StartupConnectState, terminals::TerminalId,
-};
+use crate::{app::AppSessionState, startup::StartupConnectState, terminals::TerminalId};
 
 use super::{
     modules::{
         agent_row_rect, agent_rows, row_main_rect, AgentListRowSection, AGENT_LIST_BLOOM_RED_B,
-        AGENT_LIST_BLOOM_RED_G, AGENT_LIST_BLOOM_RED_R, AGENT_LIST_WORKING_GLOW_B,
-        AGENT_LIST_WORKING_GLOW_G, AGENT_LIST_WORKING_GLOW_R,
+        AGENT_LIST_BLOOM_RED_G, AGENT_LIST_BLOOM_RED_R,
     },
     state::{AgentListUiState, HudLayoutState, HudRect},
     view_models::AgentListView,
@@ -177,7 +174,6 @@ impl Material2d for AgentListBloomBlurMaterial {
 enum AgentListBloomSourceKind {
     Main,
     Marker,
-    Connector,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -186,14 +182,6 @@ enum AgentListBloomSourceSegment {
     Right,
     Bottom,
     Left,
-    Connector0,
-    Connector1,
-    Connector2,
-    Connector3,
-    Connector4,
-    Connector5,
-    Connector6,
-    Connector7,
 }
 
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -391,44 +379,14 @@ fn bloom_reference_red(scale: f32, alpha: f32) -> Color {
     )
 }
 
-fn bloom_reference_working_glow(scale: f32, alpha: f32) -> Color {
-    bloom_reference_color(
-        AGENT_LIST_WORKING_GLOW_R,
-        AGENT_LIST_WORKING_GLOW_G,
-        AGENT_LIST_WORKING_GLOW_B,
-        scale,
-        alpha,
-    )
-}
-
-/// Chooses the bloom source color for one border strip based on row state and source kind.
+/// Chooses the bloom source color for one border strip based on selected-row state.
 ///
-/// Working rows switch to a turquoise glow palette. Non-working rows keep the existing red palette
-/// with focused/hovered intensity tiers. Marker strips remain slightly hotter than main strips.
-fn bloom_source_color(
-    status: AgentStatus,
-    focused: bool,
-    hovered: bool,
-    kind: AgentListBloomSourceKind,
-) -> Color {
-    if status == AgentStatus::Working {
-        return match kind {
-            AgentListBloomSourceKind::Main => bloom_reference_working_glow(3.4, 0.95),
-            AgentListBloomSourceKind::Marker => bloom_reference_working_glow(4.2, 1.0),
-            AgentListBloomSourceKind::Connector => bloom_reference_working_glow(4.8, 1.0),
-        };
-    }
-
-    match (focused, hovered, kind) {
-        (true, _, AgentListBloomSourceKind::Main) => bloom_reference_red(5.0, 1.0),
-        (_, true, AgentListBloomSourceKind::Main) => bloom_reference_red(2.5, 0.85),
-        (_, _, AgentListBloomSourceKind::Main) => bloom_reference_red(1.0, 0.3),
-        (true, _, AgentListBloomSourceKind::Marker) => bloom_reference_red(6.0, 1.0),
-        (_, true, AgentListBloomSourceKind::Marker) => bloom_reference_red(3.0, 0.9),
-        (_, _, AgentListBloomSourceKind::Marker) => bloom_reference_red(1.2, 0.35),
-        (true, _, AgentListBloomSourceKind::Connector) => bloom_reference_red(5.5, 1.0),
-        (_, true, AgentListBloomSourceKind::Connector) => bloom_reference_red(2.8, 0.9),
-        (_, _, AgentListBloomSourceKind::Connector) => bloom_reference_red(1.0, 0.3),
+/// The bloom contract is intentionally simple: only the selected row emits bloom, and it always uses
+/// the same selected palette regardless of row kind.
+fn bloom_source_color(kind: AgentListBloomSourceKind) -> Color {
+    match kind {
+        AgentListBloomSourceKind::Main => bloom_reference_red(5.0, 1.0),
+        AgentListBloomSourceKind::Marker => bloom_reference_red(6.0, 1.0),
     }
 }
 
@@ -483,45 +441,6 @@ fn bloom_border_rects(
     ]
 }
 
-fn connector_bloom_rects(
-    parent_main_rect: HudRect,
-    child_main_rect: HudRect,
-    sample_count: usize,
-    size: f32,
-) -> Vec<(AgentListBloomSourceSegment, HudRect)> {
-    let segments = [
-        AgentListBloomSourceSegment::Connector0,
-        AgentListBloomSourceSegment::Connector1,
-        AgentListBloomSourceSegment::Connector2,
-        AgentListBloomSourceSegment::Connector3,
-        AgentListBloomSourceSegment::Connector4,
-        AgentListBloomSourceSegment::Connector5,
-        AgentListBloomSourceSegment::Connector6,
-        AgentListBloomSourceSegment::Connector7,
-    ];
-    let start = Vec2::new(parent_main_rect.x, parent_main_rect.y + parent_main_rect.h);
-    let end = Vec2::new(child_main_rect.x, child_main_rect.y);
-    let sample_count = sample_count.clamp(1, segments.len());
-    (0..sample_count)
-        .map(|index| {
-            let t = if sample_count == 1 {
-                0.5
-            } else {
-                index as f32 / (sample_count - 1) as f32
-            };
-            let point = start.lerp(end, t);
-            (
-                segments[index],
-                HudRect {
-                    x: point.x - size * 0.5,
-                    y: point.y - size * 0.5,
-                    w: size,
-                    h: size,
-                },
-            )
-        })
-        .collect()
-}
 
 /// Returns the additive blend state used when compositing the bloom result back into the HUD.
 ///
@@ -551,13 +470,7 @@ fn build_bloom_specs(
     scroll_offset: f32,
     hovered_row: Option<&crate::hud::view_models::AgentListRowKey>,
     agent_list_view: &AgentListView,
-    focus_state: &crate::terminals::TerminalFocusState,
 ) -> Vec<BloomSourceSpec> {
-    // Process the input incrementally so each transformation stays local and malformed data fails at the narrowest point.
-    let Some(active_id) = focus_state.active_id() else {
-        return Vec::new();
-    };
-
     let rows = agent_rows(content_rect, scroll_offset, hovered_row, agent_list_view);
     let owner_terminal_ids = rows
         .iter()
@@ -567,21 +480,9 @@ fn build_bloom_specs(
                 .flatten()
         })
         .collect::<std::collections::HashMap<_, _>>();
-    let parent_main_rects = rows
-        .iter()
-        .filter_map(|row| (!row.is_tmux_child()).then(|| row.owner_agent_id().map(|agent_id| (agent_id, row_main_rect(row)))).flatten())
-        .collect::<std::collections::HashMap<_, _>>();
-    let focused_tmux_owner_terminals = rows
-        .iter()
-        .filter(|row| row.is_tmux_child() && row.focused)
-        .filter_map(|row| {
-            row.owner_agent_id()
-                .and_then(|owner_agent_id| owner_terminal_ids.get(&owner_agent_id).copied())
-        })
-        .collect::<std::collections::HashSet<_>>();
 
     let mut specs = Vec::new();
-    for row in rows {
+    for row in rows.into_iter().filter(|row| row.focused) {
         let terminal_id = if row.is_tmux_child() {
             let Some(terminal_id) = row
                 .owner_agent_id()
@@ -595,50 +496,14 @@ fn build_bloom_specs(
         } else {
             continue;
         };
-        if terminal_id != active_id
-            || row.rect.y + row.rect.h < content_rect.y
-            || row.rect.y > content_rect.y + content_rect.h
+        if row.rect.y + row.rect.h < content_rect.y || row.rect.y > content_rect.y + content_rect.h
         {
             continue;
         }
 
-        if !row.is_tmux_child() {
-                if focused_tmux_owner_terminals.contains(&terminal_id) {
-                    continue;
-                }
-                for (kind, rect, thickness) in [
-                    (
-                        AgentListBloomSourceKind::Main,
-                        agent_row_rect(row.rect, AgentListRowSection::Main),
-                        3.0,
-                    ),
-                    (
-                        AgentListBloomSourceKind::Marker,
-                        agent_row_rect(row.rect, AgentListRowSection::Marker),
-                        2.5,
-                    ),
-                ] {
-                    let color = bloom_source_color(row.status(), row.focused, row.hovered, kind);
-                    for (segment, border_rect) in bloom_border_rects(rect, thickness) {
-                        specs.push(BloomSourceSpec {
-                            key: AgentListBloomSourceSprite {
-                                terminal_id,
-                                kind,
-                                segment,
-                            },
-                            rect: border_rect,
-                            color,
-                        });
-                    }
-                }
-        } else {
+        if row.is_tmux_child() {
             let main_rect = row_main_rect(&row);
-            let color = bloom_source_color(
-                row.status(),
-                row.focused,
-                row.hovered,
-                AgentListBloomSourceKind::Main,
-            );
+            let color = bloom_source_color(AgentListBloomSourceKind::Main);
             for (segment, border_rect) in bloom_border_rects(main_rect, 3.0) {
                 specs.push(BloomSourceSpec {
                     key: AgentListBloomSourceSprite {
@@ -650,29 +515,30 @@ fn build_bloom_specs(
                     color,
                 });
             }
-            if row.focused && row.owner_agent_id().is_some() {
-                if let Some(parent_main_rect) = row
-                    .owner_agent_id()
-                    .and_then(|agent_id| parent_main_rects.get(&agent_id).copied())
-                {
-                    let connector_color = bloom_source_color(
-                        row.status(),
-                        row.focused,
-                        row.hovered,
-                        AgentListBloomSourceKind::Connector,
-                    );
-                    for (segment, rect) in connector_bloom_rects(parent_main_rect, main_rect, 8, 8.0)
-                    {
-                        specs.push(BloomSourceSpec {
-                            key: AgentListBloomSourceSprite {
-                                terminal_id,
-                                kind: AgentListBloomSourceKind::Connector,
-                                segment,
-                            },
-                            rect,
-                            color: connector_color,
-                        });
-                    }
+        } else {
+            for (kind, rect, thickness) in [
+                (
+                    AgentListBloomSourceKind::Main,
+                    agent_row_rect(row.rect, AgentListRowSection::Main),
+                    3.0,
+                ),
+                (
+                    AgentListBloomSourceKind::Marker,
+                    agent_row_rect(row.rect, AgentListRowSection::Marker),
+                    2.5,
+                ),
+            ] {
+                let color = bloom_source_color(kind);
+                for (segment, border_rect) in bloom_border_rects(rect, thickness) {
+                    specs.push(BloomSourceSpec {
+                        key: AgentListBloomSourceSprite {
+                            terminal_id,
+                            kind,
+                            segment,
+                        },
+                        rect: border_rect,
+                        color,
+                    });
                 }
             }
         }
@@ -1029,7 +895,6 @@ struct HudWidgetBloomContext<'w, 's> {
     layout_state: Res<'w, HudLayoutState>,
     app_session: Res<'w, AppSessionState>,
     startup_connect: Option<Res<'w, StartupConnectState>>,
-    focus_state: Res<'w, crate::terminals::TerminalFocusState>,
     agent_list_state: Res<'w, AgentListUiState>,
     agent_list_view: Res<'w, AgentListView>,
     settings: Res<'w, HudBloomSettings>,
@@ -1201,7 +1066,6 @@ pub(crate) fn sync_hud_widget_bloom(world: &mut World) {
             ctx.agent_list_state.scroll_offset,
             ctx.agent_list_state.hovered_row.as_ref(),
             &ctx.agent_list_view,
-            &ctx.focus_state,
         )
     } else {
         Vec::new()

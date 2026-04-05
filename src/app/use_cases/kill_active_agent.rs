@@ -35,6 +35,7 @@ pub(crate) fn kill_active_agent(
     agent_catalog: &mut AgentCatalog,
     runtime_index: &mut AgentRuntimeIndex,
     app_session: &mut AppSessionState,
+    selection: &mut crate::hud::AgentListSelection,
     task_store: &mut AgentTaskStore,
     terminal_manager: &mut TerminalManager,
     focus_state: &mut TerminalFocusState,
@@ -84,6 +85,9 @@ pub(crate) fn kill_active_agent(
     view_state.forget_terminal(terminal_id);
     app_session.composer.unbind_agent(active_agent);
     app_session.active_agent = replacement_agent;
+    *selection = replacement_agent
+        .map(crate::hud::AgentListSelection::Agent)
+        .unwrap_or(crate::hud::AgentListSelection::None);
 
     if let Some(replacement_agent) = replacement_agent {
         if let Some(replacement_terminal) = runtime_index.primary_terminal(replacement_agent) {
