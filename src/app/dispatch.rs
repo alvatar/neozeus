@@ -202,6 +202,33 @@ pub(super) fn apply_app_commands(
                         }
                     }
                 }
+                AgentCommand::Clone {
+                    source_agent_id,
+                    label,
+                    workdir,
+                } => {
+                    if let Err(error) = use_cases::clone_pi_agent(
+                        &mut ctx.agent_catalog,
+                        &mut ctx.runtime_index,
+                        &mut ctx.app_session,
+                        &mut ctx.selection,
+                        &mut ctx.terminal_manager,
+                        &mut ctx.focus_state,
+                        &ctx.runtime_spawner,
+                        &mut ctx.input_capture,
+                        &mut ctx.app_state_persistence,
+                        &mut ctx.visibility_state,
+                        &mut ctx.view_state,
+                        &ctx.time,
+                        *source_agent_id,
+                        label,
+                        *workdir,
+                        &mut ctx.redraws,
+                    ) {
+                        append_debug_log(format!("clone Pi agent failed: {error}"));
+                        ctx.redraws.write(RequestRedraw);
+                    }
+                }
                 AgentCommand::Focus(agent_id) => {
                     ctx.selection.clone_from(&crate::hud::AgentListSelection::Agent(*agent_id));
                     ctx.active_terminal_content.clear();

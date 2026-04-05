@@ -30,6 +30,15 @@ pub(crate) enum AgentCommand {
         agent_id: AgentId,
         label: String,
     },
+    #[allow(
+        dead_code,
+        reason = "clone command is wired before the UI/keybinding phase adds the non-test entrypoint"
+    )]
+    Clone {
+        source_agent_id: AgentId,
+        label: String,
+        workdir: bool,
+    },
     Focus(AgentId),
     Inspect(AgentId),
     Reorder {
