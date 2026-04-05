@@ -77,12 +77,19 @@ impl AgentKind {
     }
 }
 
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct AgentMetadata {
+    pub(crate) clone_source_session_path: Option<String>,
+    pub(crate) is_workdir: bool,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct PendingAgentIdentity {
     pub(crate) uid: AgentUid,
     pub(crate) label: String,
     pub(crate) kind: AgentKind,
     pub(crate) capabilities: AgentCapabilities,
+    pub(crate) metadata: AgentMetadata,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -91,6 +98,7 @@ struct AgentRecord {
     pub(crate) label: String,
     pub(crate) kind: AgentKind,
     pub(crate) capabilities: AgentCapabilities,
+    pub(crate) metadata: AgentMetadata,
 }
 
 #[derive(Resource, Default, Clone, Debug, PartialEq, Eq)]
@@ -146,6 +154,17 @@ impl AgentCatalog {
         kind: AgentKind,
         capabilities: AgentCapabilities,
     ) -> Result<PendingAgentIdentity, String> {
+        self.allocate_identity_with_metadata(label, kind, capabilities, AgentMetadata::default())
+    }
+
+    /// Allocates one pending identity with explicit durable metadata.
+    pub(crate) fn allocate_identity_with_metadata(
+        &self,
+        label: Option<&str>,
+        kind: AgentKind,
+        capabilities: AgentCapabilities,
+        metadata: AgentMetadata,
+    ) -> Result<PendingAgentIdentity, String> {
         let label = self
             .validate_new_label(label)?
             .unwrap_or_else(|| self.next_default_label());
@@ -154,6 +173,7 @@ impl AgentCatalog {
             label,
             kind,
             capabilities,
+            metadata,
         })
     }
 
@@ -176,6 +196,7 @@ impl AgentCatalog {
                 label: identity.label,
                 kind: identity.kind,
                 capabilities: identity.capabilities,
+                metadata: identity.metadata,
             },
         );
         self.order.push(id);
@@ -195,23 +216,38 @@ impl AgentCatalog {
         self.create_agent_from_identity(identity)
     }
 
-    /// Creates one agent with an explicit stable uid.
-    pub(crate) fn create_agent_with_uid(
+    /// Creates one agent with explicit durable metadata.
+    pub(crate) fn create_agent_with_metadata(
+        &mut self,
+        label: Option<String>,
+        kind: AgentKind,
+        capabilities: AgentCapabilities,
+        metadata: AgentMetadata,
+    ) -> AgentId {
+        let identity = self
+            .allocate_identity_with_metadata(label.as_deref(), kind, capabilities, metadata)
+            .expect("create_agent_with_metadata label allocation should only fail on duplicate labels");
+        self.create_agent_from_identity(identity)
+    }
+
+    /// Creates one agent with an explicit stable uid and explicit durable metadata.
+    pub(crate) fn create_agent_with_uid_and_metadata(
         &mut self,
         uid: AgentUid,
         label: Option<String>,
         kind: AgentKind,
         capabilities: AgentCapabilities,
+        metadata: AgentMetadata,
     ) -> AgentId {
         let label = normalize_requested_label(label.as_deref())
             .unwrap_or_else(|| self.next_default_label());
         debug_assert!(
             !self.label_exists(&label, None),
-            "create_agent_with_uid requires a unique label"
+            "create_agent_with_uid_and_metadata requires a unique label"
         );
         debug_assert!(
             self.find_by_uid(&uid).is_none(),
-            "create_agent_with_uid requires a unique uid"
+            "create_agent_with_uid_and_metadata requires a unique uid"
         );
         let id = AgentId(self.next_id.max(1));
         self.next_id = id.0 + 1;
@@ -222,6 +258,7 @@ impl AgentCatalog {
                 label,
                 kind,
                 capabilities,
+                metadata,
             },
         );
         self.order.push(id);
@@ -283,6 +320,21 @@ impl AgentCatalog {
     /// Returns the retained kind metadata for one agent.
     pub(crate) fn kind(&self, agent_id: AgentId) -> Option<AgentKind> {
         self.agents.get(&agent_id).map(|record| record.kind)
+    }
+
+    /// Returns the persisted Pi clone provenance session path for one agent, if any.
+    pub(crate) fn clone_source_session_path(&self, agent_id: AgentId) -> Option<&str> {
+        self.agents
+            .get(&agent_id)
+            .and_then(|record| record.metadata.clone_source_session_path.as_deref())
+    }
+
+    /// Returns whether one agent represents a workdir checkout.
+    pub(crate) fn is_workdir(&self, agent_id: AgentId) -> bool {
+        self.agents
+            .get(&agent_id)
+            .map(|record| record.metadata.is_workdir)
+            .unwrap_or(false)
     }
 
     /// Iterates agents in current user-defined display order.

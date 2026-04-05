@@ -136,6 +136,8 @@ pub(crate) fn restore_app(
             },
             record.label,
             record.agent_uid,
+            record.clone_source_session_path,
+            record.is_workdir,
         ) {
             append_debug_log(format!(
                 "startup attach failed for {}: {error}",

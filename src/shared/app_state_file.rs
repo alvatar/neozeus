@@ -43,6 +43,8 @@ pub struct PersistedAgentState {
     pub session_name: String,
     pub label: Option<String>,
     pub kind: PersistedAgentKind,
+    pub clone_source_session_path: Option<String>,
+    pub is_workdir: bool,
     pub order_index: u64,
     pub last_focused: bool,
 }
@@ -107,6 +109,8 @@ pub fn parse_persisted_app_state(text: &str) -> PersistedAppState {
     let mut session_name = None;
     let mut label = None;
     let mut kind = None;
+    let mut clone_source_session_path = None;
+    let mut is_workdir = false;
     let mut order_index = None;
     let mut last_focused = None;
     let mut in_agent = false;
@@ -126,6 +130,8 @@ pub fn parse_persisted_app_state(text: &str) -> PersistedAppState {
                 session_name = None;
                 label = None;
                 kind = None;
+                clone_source_session_path = None;
+                is_workdir = false;
                 order_index = None;
                 last_focused = None;
             }
@@ -139,6 +145,8 @@ pub fn parse_persisted_app_state(text: &str) -> PersistedAppState {
                             session_name,
                             label: label.take(),
                             kind: kind.take().unwrap_or(PersistedAgentKind::Pi),
+                            clone_source_session_path: clone_source_session_path.take(),
+                            is_workdir,
                             order_index,
                             last_focused,
                         });
@@ -165,6 +173,11 @@ pub fn parse_persisted_app_state(text: &str) -> PersistedAppState {
                         kind = unquote_escaped_string(value, EXTENDED_QUOTED_STRING_ESCAPES)
                             .and_then(|value| PersistedAgentKind::from_persistence_key(&value))
                     }
+                    "clone_source_session_path" => {
+                        clone_source_session_path =
+                            unquote_escaped_string(value, EXTENDED_QUOTED_STRING_ESCAPES)
+                    }
+                    "workdir" => is_workdir = value.parse::<u8>().ok().is_some_and(|flag| flag != 0),
                     "order_index" => order_index = value.parse::<u64>().ok(),
                     "focused" => last_focused = value.parse::<u8>().ok().map(|flag| flag != 0),
                     _ => {}

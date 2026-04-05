@@ -53,6 +53,13 @@ pub(crate) fn serialize_persisted_app_state(state: &PersistedAppState) -> String
                 EXTENDED_QUOTED_STRING_ESCAPES
             )
         ));
+        if let Some(clone_source_session_path) = record.clone_source_session_path {
+            output.push_str(&format!(
+                "clone_source_session_path={}\n",
+                quote_escaped_string(&clone_source_session_path, EXTENDED_QUOTED_STRING_ESCAPES)
+            ));
+        }
+        output.push_str(&format!("workdir={}\n", u8::from(record.is_workdir)));
         output.push_str(&format!("order_index={}\n", record.order_index));
         output.push_str(&format!("focused={}\n", u8::from(record.last_focused)));
         output.push_str("[/agent]\n");
@@ -86,6 +93,8 @@ fn map_legacy_sessions_to_app_state(
                 session_name: record.session_name.clone(),
                 label: record.label.clone(),
                 kind: PersistedAgentKind::Pi,
+                clone_source_session_path: None,
+                is_workdir: false,
                 order_index: record.creation_index,
                 last_focused: record.last_focused,
             })
@@ -161,6 +170,10 @@ fn build_persisted_app_state(
                     crate::agents::AgentKind::Terminal => PersistedAgentKind::Terminal,
                     crate::agents::AgentKind::Verifier => PersistedAgentKind::Verifier,
                 },
+                clone_source_session_path: agent_catalog
+                    .clone_source_session_path(*agent_id)
+                    .map(str::to_owned),
+                is_workdir: agent_catalog.is_workdir(*agent_id),
                 order_index: index as u64,
                 last_focused: terminal_id
                     .is_some_and(|terminal_id| focus_state.active_id() == Some(terminal_id)),
@@ -259,6 +272,8 @@ pub(crate) fn reconcile_persisted_agents(
                 session_name,
                 label: None,
                 kind: PersistedAgentKind::Pi,
+                clone_source_session_path: None,
+                is_workdir: false,
                 order_index: next_order_index,
                 last_focused: false,
             };
