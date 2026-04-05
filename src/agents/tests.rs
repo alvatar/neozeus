@@ -1,5 +1,6 @@
 use super::{
-    AgentCapabilities, AgentCatalog, AgentId, AgentKind, AgentRuntimeIndex, AgentRuntimeLifecycle,
+    AgentCapabilities, AgentCatalog, AgentId, AgentKind, AgentMetadata, AgentRuntimeIndex,
+    AgentRuntimeLifecycle,
 };
 use crate::terminals::{TerminalId, TerminalRuntimeState};
 
@@ -119,6 +120,28 @@ fn catalog_move_to_index_reorders_agents() {
     assert_eq!(catalog.uid(alpha), Some(original_uids[0].as_str()));
     assert_eq!(catalog.uid(beta), Some(original_uids[1].as_str()));
     assert_eq!(catalog.uid(gamma), Some(original_uids[2].as_str()));
+}
+
+/// Verifies that durable clone/workdir metadata stays attached to the agent record.
+#[test]
+fn catalog_retains_clone_provenance_and_workdir_metadata() {
+    let mut catalog = AgentCatalog::default();
+    let agent_id = catalog.create_agent_with_metadata(
+        Some("alpha".into()),
+        AgentKind::Pi,
+        AgentKind::Pi.capabilities(),
+        AgentMetadata {
+            clone_source_session_path: Some("/tmp/pi-session-alpha.jsonl".into()),
+            is_workdir: true,
+        },
+    );
+
+    assert_eq!(
+        catalog.clone_source_session_path(agent_id),
+        Some("/tmp/pi-session-alpha.jsonl")
+    );
+    assert!(catalog.is_workdir(agent_id));
+    assert_eq!(catalog.kind(agent_id), Some(AgentKind::Pi));
 }
 
 /// Verifies that runtime index links terminal session and runtime state.

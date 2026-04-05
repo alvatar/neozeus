@@ -254,6 +254,8 @@ mod tests {
                     session_name: (*session_name).to_owned(),
                     label: label.map(str::to_owned),
                     kind: neozeus::shared::app_state_file::PersistedAgentKind::Pi,
+                    clone_source_session_path: None,
+                    is_workdir: false,
                     order_index: index as u64,
                     last_focused: false,
                 })

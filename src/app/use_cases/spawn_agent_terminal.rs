@@ -1,7 +1,8 @@
 use crate::{
-    agents::{AgentCatalog, AgentId, AgentKind, AgentRuntimeIndex},
+    agents::{AgentCatalog, AgentId, AgentKind, AgentMetadata, AgentRuntimeIndex},
     app::{mark_app_state_dirty, AppStatePersistenceState},
     hud::{HudInputCaptureState, TerminalVisibilityPolicy, TerminalVisibilityState},
+    shared::pi_session_files::make_new_session_path,
     startup::StartupLoadingState,
     terminals::{
         append_debug_log, attach_terminal_session, resolve_daemon_socket_path, TerminalFocusState,
@@ -11,6 +12,46 @@ use crate::{
 
 use super::super::session::{AppSessionState, VisibilityMode};
 use bevy::{prelude::*, window::RequestRedraw};
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct AgentLaunchSpec {
+    startup_command: Option<String>,
+    metadata: AgentMetadata,
+}
+
+fn shell_quote(value: &str) -> String {
+    if value.is_empty() {
+        return "''".to_owned();
+    }
+    if value
+        .bytes()
+        .all(|byte| matches!(byte, b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'/' | b'.' | b'_' | b'-'))
+    {
+        return value.to_owned();
+    }
+    format!("'{}'", value.replace('\'', "'\\''"))
+}
+
+fn build_agent_launch_spec(
+    kind: AgentKind,
+    working_directory: Option<&str>,
+) -> Result<AgentLaunchSpec, String> {
+    if kind == AgentKind::Pi {
+        let session_path = make_new_session_path(working_directory)?;
+        return Ok(AgentLaunchSpec {
+            startup_command: Some(format!("pi --session {}", shell_quote(&session_path))),
+            metadata: AgentMetadata {
+                clone_source_session_path: Some(session_path),
+                is_workdir: false,
+            },
+        });
+    }
+
+    Ok(AgentLaunchSpec {
+        startup_command: kind.bootstrap_command().map(str::to_owned),
+        metadata: AgentMetadata::default(),
+    })
+}
 
 #[allow(
     clippy::too_many_arguments,
@@ -38,7 +79,13 @@ pub(crate) fn spawn_agent_terminal(
     redraws: &mut MessageWriter<RequestRedraw>,
 ) -> Result<AgentId, String> {
     // Walk the lifecycle in explicit stages so each side effect happens only after its prerequisites have been established.
-    let identity = agent_catalog.allocate_identity(label.as_deref(), kind, kind.capabilities())?;
+    let launch = build_agent_launch_spec(kind, working_directory)?;
+    let identity = agent_catalog.allocate_identity_with_metadata(
+        label.as_deref(),
+        kind,
+        kind.capabilities(),
+        launch.metadata,
+    )?;
     let mut env_overrides = vec![
         ("NEOZEUS_AGENT_UID".to_owned(), identity.uid.clone()),
         ("NEOZEUS_AGENT_LABEL".to_owned(), identity.label.clone()),
@@ -56,7 +103,7 @@ pub(crate) fn spawn_agent_terminal(
     let session_name = runtime_spawner.create_session_with_cwd_and_env(
         prefix,
         working_directory,
-        kind.bootstrap_command(),
+        launch.startup_command.as_deref(),
         &env_overrides,
     )?;
     let (terminal_id, _) = attach_terminal_session(
@@ -108,6 +155,8 @@ pub(crate) fn attach_restored_terminal(
     kind: AgentKind,
     label: Option<String>,
     agent_uid: Option<String>,
+    clone_source_session_path: Option<String>,
+    is_workdir: bool,
 ) -> Result<(AgentId, crate::terminals::TerminalId), String> {
     // Walk the lifecycle in explicit stages so each side effect happens only after its prerequisites have been established.
     let (terminal_id, _) = attach_terminal_session(
@@ -118,9 +167,19 @@ pub(crate) fn attach_restored_terminal(
         focus,
     )?;
     let capabilities = kind.capabilities();
+    let metadata = AgentMetadata {
+        clone_source_session_path,
+        is_workdir,
+    };
     let agent_id = match agent_uid {
-        Some(agent_uid) => agent_catalog.create_agent_with_uid(agent_uid, None, kind, capabilities),
-        None => agent_catalog.create_agent(None, kind, capabilities),
+        Some(agent_uid) => agent_catalog.create_agent_with_uid_and_metadata(
+            agent_uid,
+            None,
+            kind,
+            capabilities,
+            metadata,
+        ),
+        None => agent_catalog.create_agent_with_metadata(None, kind, capabilities, metadata),
     };
     if let Some(label) = label {
         match agent_catalog.validate_rename_label(agent_id, &label) {

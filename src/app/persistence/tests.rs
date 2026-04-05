@@ -1,6 +1,6 @@
 use super::*;
 use crate::{
-    agents::{AgentCatalog, AgentKind, AgentRuntimeIndex},
+    agents::{AgentCatalog, AgentKind, AgentMetadata, AgentRuntimeIndex},
     shared::app_state_file::PersistedAgentKind,
     tests::{insert_terminal_manager_resources, temp_dir, test_bridge},
 };
@@ -43,6 +43,8 @@ fn app_state_parse_and_serialize_roundtrip() {
                 session_name: "neozeus-session-a\rtab\tquoted\"".into(),
                 label: Some("agent 1\nrow\rand\ttabs\\slash".into()),
                 kind: PersistedAgentKind::Claude,
+                clone_source_session_path: Some("/tmp/pi-session-a.jsonl".into()),
+                is_workdir: true,
                 order_index: 0,
                 last_focused: true,
             },
@@ -51,6 +53,8 @@ fn app_state_parse_and_serialize_roundtrip() {
                 session_name: "neozeus-session-b".into(),
                 label: None,
                 kind: PersistedAgentKind::Terminal,
+                clone_source_session_path: None,
+                is_workdir: false,
                 order_index: 1,
                 last_focused: false,
             },
@@ -71,6 +75,8 @@ fn app_state_parse_defaults_missing_kind_to_pi() {
     assert_eq!(parsed.agents.len(), 1);
     assert_eq!(parsed.agents[0].kind, PersistedAgentKind::Pi);
     assert_eq!(parsed.agents[0].agent_uid, None);
+    assert_eq!(parsed.agents[0].clone_source_session_path, None);
+    assert!(!parsed.agents[0].is_workdir);
 }
 
 /// Verifies that legacy terminal-session state migrates into the new app-state model on read.
@@ -91,6 +97,8 @@ fn app_state_load_falls_back_to_legacy_terminal_sessions() {
     assert_eq!(persisted.agents[0].session_name, "neozeus-session-a");
     assert_eq!(persisted.agents[0].label.as_deref(), Some("agent 1"));
     assert_eq!(persisted.agents[0].kind, PersistedAgentKind::Pi);
+    assert_eq!(persisted.agents[0].clone_source_session_path, None);
+    assert!(!persisted.agents[0].is_workdir);
     assert_eq!(persisted.agents[0].order_index, 0);
     assert!(persisted.agents[0].last_focused);
 }
@@ -105,6 +113,8 @@ fn reconcile_persisted_agents_restores_prunes_and_imports() {
                 session_name: "neozeus-session-a".into(),
                 label: Some("one".into()),
                 kind: PersistedAgentKind::Pi,
+                clone_source_session_path: Some("/tmp/pi-session-a.jsonl".into()),
+                is_workdir: true,
                 order_index: 0,
                 last_focused: true,
             },
@@ -113,6 +123,8 @@ fn reconcile_persisted_agents_restores_prunes_and_imports() {
                 session_name: "neozeus-session-b".into(),
                 label: None,
                 kind: PersistedAgentKind::Terminal,
+                clone_source_session_path: None,
+                is_workdir: false,
                 order_index: 1,
                 last_focused: false,
             },
@@ -131,12 +143,19 @@ fn reconcile_persisted_agents_restores_prunes_and_imports() {
     assert_eq!(restore.len(), 1);
     assert_eq!(restore[0].session_name, "neozeus-session-a");
     assert_eq!(restore[0].agent_uid.as_deref(), Some("agent-uid-a"));
+    assert_eq!(
+        restore[0].clone_source_session_path.as_deref(),
+        Some("/tmp/pi-session-a.jsonl")
+    );
+    assert!(restore[0].is_workdir);
     assert_eq!(prune.len(), 1);
     assert_eq!(prune[0].session_name, "neozeus-session-b");
     assert_eq!(import.len(), 1);
     assert_eq!(import[0].session_name, "neozeus-session-c");
     assert_eq!(import[0].agent_uid, None);
     assert_eq!(import[0].kind, PersistedAgentKind::Pi);
+    assert_eq!(import[0].clone_source_session_path, None);
+    assert!(!import[0].is_workdir);
     assert_eq!(import[0].order_index, 2);
 }
 
@@ -154,10 +173,14 @@ fn saving_app_state_persists_agent_order_labels_focus_and_uids() {
 
     let mut agent_catalog = AgentCatalog::default();
     let mut runtime_index = AgentRuntimeIndex::default();
-    let alpha = agent_catalog.create_agent(
+    let alpha = agent_catalog.create_agent_with_metadata(
         Some("alpha".into()),
         AgentKind::Claude,
         AgentKind::Claude.capabilities(),
+        AgentMetadata {
+            clone_source_session_path: Some("/tmp/alpha-session.jsonl".into()),
+            is_workdir: true,
+        },
     );
     let beta = agent_catalog.create_agent(
         Some("beta".into()),
@@ -193,6 +216,8 @@ fn saving_app_state_persists_agent_order_labels_focus_and_uids() {
     assert_eq!(persisted.agents[0].session_name, "neozeus-session-b");
     assert_eq!(persisted.agents[0].label.as_deref(), Some("BETA"));
     assert_eq!(persisted.agents[0].kind, PersistedAgentKind::Terminal);
+    assert_eq!(persisted.agents[0].clone_source_session_path, None);
+    assert!(!persisted.agents[0].is_workdir);
     assert!(persisted.agents[0].last_focused);
     assert_eq!(
         persisted.agents[1].agent_uid.as_deref(),
@@ -201,6 +226,11 @@ fn saving_app_state_persists_agent_order_labels_focus_and_uids() {
     assert_eq!(persisted.agents[1].session_name, "neozeus-session-a");
     assert_eq!(persisted.agents[1].label.as_deref(), Some("ALPHA"));
     assert_eq!(persisted.agents[1].kind, PersistedAgentKind::Claude);
+    assert_eq!(
+        persisted.agents[1].clone_source_session_path.as_deref(),
+        Some("/tmp/alpha-session.jsonl")
+    );
+    assert!(persisted.agents[1].is_workdir);
     assert!(!persisted.agents[1].last_focused);
 }
 

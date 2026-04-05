@@ -605,6 +605,57 @@ fn startup_restore_backfills_missing_agent_uid_and_marks_app_state_dirty() {
     );
 }
 
+/// Verifies that startup restore preserves Pi clone provenance and workdir identity.
+#[test]
+fn startup_restore_preserves_pi_clone_provenance_and_workdir_identity() {
+    let client = Arc::new(crate::tests::FakeDaemonClient::default());
+    client.set_session_runtime(
+        "neozeus-session-a",
+        crate::terminals::TerminalRuntimeState::running("restored"),
+    );
+    let dir = temp_dir("neozeus-startup-clone-provenance");
+    let app_state_path = dir.join("neozeus-state.v1");
+    std::fs::write(
+        &app_state_path,
+        "neozeus state version 1\n[agent]\nagent_uid=\"agent-uid-1\"\nsession_name=\"neozeus-session-a\"\nlabel=\"ALPHA\"\nkind=\"pi\"\nclone_source_session_path=\"/tmp/pi-alpha.jsonl\"\nworkdir=1\norder_index=0\nfocused=1\n[/agent]\n",
+    )
+    .expect("app state should write");
+
+    let mut world = World::default();
+    world.insert_resource(Assets::<Image>::default());
+    world.insert_resource(crate::terminals::TerminalManager::default());
+    world.insert_resource(crate::terminals::TerminalFocusState::default());
+    world.insert_resource(crate::terminals::TerminalPresentationStore::default());
+    world.insert_resource(crate::agents::AgentCatalog::default());
+    world.insert_resource(crate::agents::AgentRuntimeIndex::default());
+    world.insert_resource(crate::app::AppSessionState::default());
+    world.insert_resource(crate::conversations::ConversationStore::default());
+    world.insert_resource(crate::conversations::ConversationPersistenceState::default());
+    world.insert_resource(crate::hud::HudInputCaptureState::default());
+    world.insert_resource(crate::terminals::TerminalViewState::default());
+    world.init_resource::<Messages<RequestRedraw>>();
+    world.insert_resource(Time::<()>::default());
+    world.insert_resource(fake_runtime_spawner(client));
+    world.insert_resource(crate::app::AppStatePersistenceState {
+        path: Some(app_state_path),
+        dirty_since_secs: None,
+    });
+    world.insert_resource(crate::terminals::TerminalNotesState::default());
+    world.insert_resource(crate::hud::TerminalVisibilityState::default());
+    world.insert_resource(crate::startup::StartupConnectState::default());
+
+    world.run_system_once(crate::startup::setup_scene).unwrap();
+
+    let catalog = world.resource::<crate::agents::AgentCatalog>();
+    let restored_agent = *catalog.order.first().expect("restored agent should exist");
+    assert_eq!(
+        catalog.clone_source_session_path(restored_agent),
+        Some("/tmp/pi-alpha.jsonl")
+    );
+    assert!(catalog.is_workdir(restored_agent));
+    assert_eq!(catalog.kind(restored_agent), Some(crate::agents::AgentKind::Pi));
+}
+
 /// Verifies that startup restore plus owned-tmux sync rebinds recovered tmux children under the
 /// restored agent using the stable persisted agent uid.
 #[test]

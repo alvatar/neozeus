@@ -1450,7 +1450,7 @@ fn create_agent_request_bootstraps_selected_cli_command() {
     let commands = client.sent_commands.lock().unwrap().clone();
     assert_eq!(commands.len(), 3);
     assert!(commands.iter().any(|(_, command)| {
-        matches!(command, crate::terminals::TerminalCommand::SendCommand(value) if value == "pi")
+        matches!(command, crate::terminals::TerminalCommand::SendCommand(value) if value.starts_with("pi --session "))
     }));
     assert!(commands.iter().any(|(_, command)| {
         matches!(command, crate::terminals::TerminalCommand::SendCommand(value) if value == "claude")
@@ -1458,6 +1458,17 @@ fn create_agent_request_bootstraps_selected_cli_command() {
     assert!(commands.iter().any(|(_, command)| {
         matches!(command, crate::terminals::TerminalCommand::SendCommand(value) if value == "codex")
     }));
+
+    let catalog = world.resource::<crate::agents::AgentCatalog>();
+    let pi_agent = catalog
+        .iter()
+        .find_map(|(agent_id, label)| (label == "PI-AGENT").then_some(agent_id))
+        .expect("Pi agent should exist");
+    let session_path = catalog
+        .clone_source_session_path(pi_agent)
+        .expect("Pi agent should persist clone provenance");
+    assert!(session_path.ends_with(".jsonl"));
+    assert!(!catalog.is_workdir(pi_agent));
 }
 
 /// Verifies that creating a terminal session does not inject any agent bootstrap command payload.
