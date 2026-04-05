@@ -42,7 +42,7 @@ pub(crate) enum AgentCommand {
         target_index: usize,
     },
     ClearFocus,
-    KillActive,
+    KillSelected,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

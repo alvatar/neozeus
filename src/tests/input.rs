@@ -610,7 +610,10 @@ fn end_to_end_clone_shortcut_plain_clone_creates_agent() {
     assert_eq!(catalog.label(clone_agent), Some("ALPHA-CLONE"));
     assert!(!catalog.is_workdir(clone_agent));
     assert_eq!(client.created_sessions.lock().unwrap().len(), 1);
-    assert_eq!(world.resource::<AppSessionState>().active_agent, Some(clone_agent));
+    assert_eq!(
+        *world.resource::<crate::hud::AgentListSelection>(),
+        crate::hud::AgentListSelection::Agent(clone_agent)
+    );
 }
 
 #[test]
@@ -1236,7 +1239,7 @@ fn ctrl_k_removes_disconnected_active_terminal_in_one_press() {
         .resource::<AgentRuntimeIndex>()
         .agent_for_terminal(terminal_id)
         .expect("agent should be linked");
-    world.resource_mut::<AppSessionState>().active_agent = Some(agent_id);
+    world.insert_resource(crate::hud::AgentListSelection::Agent(agent_id));
     world
         .resource_mut::<TerminalManager>()
         .get_mut(terminal_id)
@@ -1293,7 +1296,7 @@ fn ctrl_k_removes_terminal_when_daemon_runtime_is_disconnected_but_local_snapsho
         .resource::<AgentRuntimeIndex>()
         .agent_for_terminal(terminal_id)
         .expect("agent should be linked");
-    world.resource_mut::<AppSessionState>().active_agent = Some(agent_id);
+    world.insert_resource(crate::hud::AgentListSelection::Agent(agent_id));
 
     let mut keys = ButtonInput::<KeyCode>::default();
     keys.press(KeyCode::ControlLeft);
@@ -2797,13 +2800,48 @@ fn message_box_alt_word_motion_and_ctrl_d_work() {
 
 /// Verifies that agent-list keyboard navigation lands on owned tmux child rows.
 #[test]
+fn ctrl_k_kills_selected_agent_without_hidden_session_state() {
+    let client = std::sync::Arc::new(FakeDaemonClient::default());
+    *client.fail_kill.lock().unwrap() = true;
+    let (mut world, terminal_id) =
+        world_with_active_terminal(Vec2::new(10.0, 10.0), false, Vec2::ZERO);
+    let agent_id = world
+        .resource::<AgentRuntimeIndex>()
+        .agent_for_terminal(terminal_id)
+        .expect("agent should be linked");
+    world.insert_resource(fake_runtime_spawner(client));
+    world.insert_resource(crate::hud::AgentListSelection::Agent(agent_id));
+    world
+        .resource_mut::<TerminalManager>()
+        .get_mut(terminal_id)
+        .expect("terminal should exist")
+        .snapshot
+        .runtime = crate::terminals::TerminalRuntimeState::disconnected("dead session");
+    let mut keys = ButtonInput::<KeyCode>::default();
+    keys.press(KeyCode::ControlLeft);
+    world.insert_resource(keys);
+    world.init_resource::<Messages<KeyboardInput>>();
+    world.init_resource::<Messages<AppExit>>();
+    world
+        .resource_mut::<Messages<KeyboardInput>>()
+        .write(pressed_text(KeyCode::KeyK, Some("k")));
+
+    world
+        .run_system_once(handle_terminal_lifecycle_shortcuts)
+        .unwrap();
+    run_app_command_cycle(&mut world);
+
+    assert!(world.resource::<TerminalManager>().terminal_ids().is_empty());
+    assert_eq!(
+        *world.resource::<crate::hud::AgentListSelection>(),
+        crate::hud::AgentListSelection::None
+    );
+}
+
+#[test]
 fn hud_navigation_selects_owned_tmux_child_row() {
     let mut world = World::default();
     insert_default_hud_resources(&mut world);
-    world.insert_resource(AppSessionState {
-        active_agent: Some(crate::agents::AgentId(1)),
-        ..Default::default()
-    });
     world.insert_resource(crate::hud::AgentListSelection::Agent(
         crate::agents::AgentId(1),
     ));
@@ -2874,10 +2912,6 @@ fn hud_navigation_selects_owned_tmux_child_row() {
 fn hud_navigation_jk_uses_agent_list_selection_as_single_source_of_truth() {
     let mut world = World::default();
     insert_default_hud_resources(&mut world);
-    world.insert_resource(AppSessionState {
-        active_agent: Some(crate::agents::AgentId(1)),
-        ..Default::default()
-    });
     world.insert_resource(crate::hud::AgentListSelection::OwnedTmux("tmux-1".into()));
     world.insert_resource(crate::hud::AgentListView {
         rows: vec![
@@ -2945,10 +2979,6 @@ fn hud_navigation_jk_uses_agent_list_selection_as_single_source_of_truth() {
 fn hud_navigation_arrow_keys_uses_agent_list_selection_as_single_source_of_truth() {
     let mut world = World::default();
     insert_default_hud_resources(&mut world);
-    world.insert_resource(AppSessionState {
-        active_agent: Some(crate::agents::AgentId(2)),
-        ..Default::default()
-    });
     let mut active_terminal_content = crate::terminals::ActiveTerminalContentState::default();
     active_terminal_content.select_owned_tmux("tmux-1".into(), None);
     world.insert_resource(active_terminal_content);
@@ -3030,7 +3060,7 @@ fn lifecycle_shortcuts_are_suppressed_while_message_box_is_open() {
 
 /// Verifies that `Ctrl+k` kills the selected owned tmux row before touching the active agent.
 #[test]
-fn ctrl_k_kills_selected_owned_tmux_session_before_active_agent() {
+fn ctrl_k_kills_selected_owned_tmux_session_before_selected_agent_row() {
     let mut world = World::default();
     insert_default_hud_resources(&mut world);
     world.insert_resource(ButtonInput::<KeyCode>::default());

@@ -29,8 +29,9 @@ fn adjacent_agent_in_catalog(catalog: &AgentCatalog, agent_id: AgentId) -> Optio
     clippy::too_many_arguments,
     reason = "kill spans daemon, agent, session, and projection state"
 )]
-/// Deletes active agent and updates the kill-ring state.
-pub(crate) fn kill_active_agent(
+/// Deletes the selected agent row and updates the remaining selection/focus state.
+pub(crate) fn kill_selected_agent(
+    selected_agent: AgentId,
     time: &Time,
     agent_catalog: &mut AgentCatalog,
     runtime_index: &mut AgentRuntimeIndex,
@@ -47,14 +48,11 @@ pub(crate) fn kill_active_agent(
     redraws: &mut MessageWriter<RequestRedraw>,
 ) -> Result<Option<AgentId>, String> {
     // Walk the lifecycle in explicit stages so each side effect happens only after its prerequisites have been established.
-    let Some(active_agent) = app_session.active_agent else {
-        return Ok(None);
-    };
-    let replacement_agent = adjacent_agent_in_catalog(agent_catalog, active_agent);
+    let replacement_agent = adjacent_agent_in_catalog(agent_catalog, selected_agent);
     let owner_agent_uid = agent_catalog
-        .uid(active_agent)
+        .uid(selected_agent)
         .map(str::to_owned)
-        .ok_or_else(|| format!("missing stable uid for agent {}", active_agent.0))?;
+        .ok_or_else(|| format!("missing stable uid for agent {}", selected_agent.0))?;
     if let Err(error) = runtime_spawner.kill_owned_tmux_sessions_for_agent(&owner_agent_uid) {
         let owner_tmux_still_exists = runtime_spawner
             .list_owned_tmux_sessions()
@@ -80,11 +78,10 @@ pub(crate) fn kill_active_agent(
     };
 
     let _ = runtime_index.remove_terminal(terminal_id);
-    let _ = agent_catalog.remove(active_agent);
-    let _ = task_store.remove_agent(active_agent);
+    let _ = agent_catalog.remove(selected_agent);
+    let _ = task_store.remove_agent(selected_agent);
     view_state.forget_terminal(terminal_id);
-    app_session.composer.unbind_agent(active_agent);
-    app_session.active_agent = replacement_agent;
+    app_session.composer.unbind_agent(selected_agent);
     *selection = replacement_agent
         .map(crate::hud::AgentListSelection::Agent)
         .unwrap_or(crate::hud::AgentListSelection::None);
@@ -108,5 +105,5 @@ pub(crate) fn kill_active_agent(
     }
     input_capture.reconcile_direct_terminal_input(focus_state.active_id());
     redraws.write(RequestRedraw);
-    Ok(Some(active_agent))
+    Ok(Some(selected_agent))
 }

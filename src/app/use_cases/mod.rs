@@ -2,7 +2,7 @@ mod clone_pi_agent;
 mod composer;
 mod conversation;
 mod focus_agent;
-mod kill_active_agent;
+mod kill_selected_agent;
 mod owned_tmux;
 mod restore_app;
 mod spawn_agent_terminal;
@@ -14,7 +14,7 @@ pub(crate) use clone_pi_agent::clone_pi_agent;
 pub(crate) use composer::{cancel_composer, open_composer, submit_composer};
 pub(crate) use conversation::send_message;
 pub(crate) use focus_agent::focus_agent;
-pub(crate) use kill_active_agent::kill_active_agent;
+pub(crate) use kill_selected_agent::kill_selected_agent;
 pub(crate) use owned_tmux::{kill_selected_owned_tmux, select_owned_tmux};
 pub(crate) use restore_app::restore_app;
 pub(crate) use spawn_agent_terminal::{

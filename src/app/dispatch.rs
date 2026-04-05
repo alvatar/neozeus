@@ -27,8 +27,8 @@ use bevy::{ecs::system::SystemParam, prelude::*, window::RequestRedraw};
 /// legacy startup or verifier paths.
 ///
 /// The sync is intentionally conservative: missing agent records are created, stale links are
-/// removed, runtime lifecycle is refreshed, and active-agent selection is mirrored from the current
-/// terminal focus. It does not overwrite explicit catalog labels once an agent exists.
+/// removed, and runtime lifecycle is refreshed. It does not overwrite explicit catalog labels once
+/// an agent exists, and it only clears row selection when the selected agent disappears.
 pub(crate) fn sync_agents_from_terminals(
     mut agent_catalog: ResMut<AgentCatalog>,
     mut runtime_index: ResMut<AgentRuntimeIndex>,
@@ -52,9 +52,6 @@ pub(crate) fn sync_agents_from_terminals(
         if let Some(agent_id) = runtime_index.remove_terminal(terminal_id) {
             let _ = agent_catalog.remove(agent_id);
             app_session.composer.unbind_agent(agent_id);
-            if app_session.active_agent == Some(agent_id) {
-                app_session.active_agent = None;
-            }
             if *selection == crate::hud::AgentListSelection::Agent(agent_id) {
                 *selection = crate::hud::AgentListSelection::None;
             }
@@ -280,7 +277,6 @@ pub(super) fn apply_app_commands(
                 AgentCommand::ClearFocus => {
                     ctx.selection.clone_from(&crate::hud::AgentListSelection::None);
                     ctx.active_terminal_content.clear();
-                    ctx.app_session.active_agent = None;
                     let _ = ctx.focus_state.clear_active_terminal();
                     #[cfg(test)]
                     ctx.terminal_manager
@@ -292,9 +288,13 @@ pub(super) fn apply_app_commands(
                     mark_app_state_dirty(&mut ctx.app_state_persistence, Some(&ctx.time));
                     ctx.redraws.write(RequestRedraw);
                 }
-                AgentCommand::KillActive => {
+                AgentCommand::KillSelected => {
+                    let crate::hud::AgentListSelection::Agent(agent_id) = *ctx.selection else {
+                        continue;
+                    };
                     ctx.active_terminal_content.clear();
-                    if let Err(error) = use_cases::kill_active_agent(
+                    if let Err(error) = use_cases::kill_selected_agent(
+                        agent_id,
                         &ctx.time,
                         &mut ctx.agent_catalog,
                         &mut ctx.runtime_index,
@@ -310,7 +310,7 @@ pub(super) fn apply_app_commands(
                         &mut ctx.view_state,
                         &mut ctx.redraws,
                     ) {
-                        append_debug_log(format!("kill active agent failed: {error}"));
+                        append_debug_log(format!("kill selected agent failed: {error}"));
                     }
                 }
             },

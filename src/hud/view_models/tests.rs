@@ -1,8 +1,8 @@
 use super::{
-    parse_agent_context_pct_milli, selected_agent_list_row_key, sync_hud_view_models,
-    sync_info_bar_view_model, AgentListActivity, AgentListRowKey, AgentListRowKind,
-    AgentListSelection, AgentListView, ComposerView, ConversationListView, InfoBarView,
-    OwnedTmuxOwnerBinding, ThreadView,
+    parse_agent_context_pct_milli, selected_agent_id, selected_agent_list_row_key,
+    sync_hud_view_models, sync_info_bar_view_model, AgentListActivity, AgentListRowKey,
+    AgentListRowKind, AgentListSelection, AgentListView, ComposerView, ConversationListView,
+    InfoBarView, OwnedTmuxOwnerBinding, ThreadView,
 };
 use crate::{
     agents::{AgentCatalog, AgentKind, AgentMetadata, AgentRuntimeIndex, AgentStatusStore},
@@ -21,6 +21,19 @@ use std::{
 #[test]
 fn selected_agent_list_row_key_returns_none_for_none_selection() {
     assert_eq!(selected_agent_list_row_key(&AgentListSelection::None), None);
+}
+
+#[test]
+fn selected_agent_id_returns_agent_only_for_agent_selection() {
+    assert_eq!(
+        selected_agent_id(&AgentListSelection::Agent(crate::agents::AgentId(7))),
+        Some(crate::agents::AgentId(7))
+    );
+    assert_eq!(selected_agent_id(&AgentListSelection::None), None);
+    assert_eq!(
+        selected_agent_id(&AgentListSelection::OwnedTmux("tmux-7".into())),
+        None
+    );
 }
 
 #[test]
@@ -54,10 +67,7 @@ fn sync_hud_view_models_derives_agent_rows_and_threads() {
     let mut runtime_index = AgentRuntimeIndex::default();
     runtime_index.link_terminal(agent_id, terminal_id, "session-1".into(), None);
 
-    let mut app_session = AppSessionState {
-        active_agent: Some(agent_id),
-        ..Default::default()
-    };
+    let mut app_session = AppSessionState::default();
     app_session.composer.session = Some(crate::composer::ComposerSession {
         mode: crate::composer::ComposerMode::Message { agent_id },
     });
@@ -221,10 +231,7 @@ fn sync_hud_view_models_orders_multiple_owned_tmux_rows_and_marks_selected_child
     let mut world = World::default();
     world.insert_resource(catalog);
     world.insert_resource(AgentRuntimeIndex::default());
-    world.insert_resource(AppSessionState {
-        active_agent: Some(alpha),
-        ..Default::default()
-    });
+    world.insert_resource(AppSessionState::default());
     world.insert_resource(AgentTaskStore::default());
     world.insert_resource(ConversationStore::default());
     world.insert_resource(AgentListView::default());
@@ -298,6 +305,59 @@ fn sync_hud_view_models_orders_multiple_owned_tmux_rows_and_marks_selected_child
 }
 
 #[test]
+fn sync_hud_view_models_clears_thread_and_conversation_selection_for_tmux_rows() {
+    let mut catalog = AgentCatalog::default();
+    let alpha = catalog.create_agent(
+        Some("ALPHA".into()),
+        AgentKind::Terminal,
+        AgentKind::Terminal.capabilities(),
+    );
+    let alpha_uid = catalog.uid(alpha).unwrap().to_owned();
+    let mut conversations = ConversationStore::default();
+    let conversation_id = conversations.ensure_conversation(alpha);
+    conversations.push_message(
+        conversation_id,
+        MessageAuthor::User,
+        "hello".into(),
+        MessageDeliveryState::Delivered,
+    );
+
+    let mut world = World::default();
+    world.insert_resource(catalog);
+    world.insert_resource(AgentRuntimeIndex::default());
+    world.insert_resource(AppSessionState::default());
+    world.insert_resource(AgentTaskStore::default());
+    world.insert_resource(conversations);
+    world.insert_resource(AgentListSelection::OwnedTmux("tmux-a1".into()));
+    world.insert_resource(AgentListView::default());
+    world.insert_resource(ConversationListView::default());
+    world.insert_resource(ThreadView::default());
+    world.insert_resource(ComposerView::default());
+    world.insert_resource(AgentStatusStore::default());
+    world.insert_resource(crate::terminals::TerminalManager::default());
+    let mut owned_tmux = crate::terminals::OwnedTmuxSessionStore::default();
+    owned_tmux.sessions.push(crate::terminals::OwnedTmuxSessionInfo {
+        session_uid: "tmux-a1".into(),
+        owner_agent_uid: alpha_uid,
+        tmux_name: "neozeus-tmux-a1".into(),
+        display_name: "BUILD".into(),
+        cwd: "/tmp/alpha-1".into(),
+        attached: false,
+        created_unix: 1,
+    });
+    world.insert_resource(owned_tmux);
+
+    world.run_system_once(sync_hud_view_models).unwrap();
+
+    let conversations = &world.resource::<ConversationListView>().rows;
+    assert_eq!(conversations.len(), 1);
+    assert!(!conversations[0].selected);
+    let thread = world.resource::<ThreadView>();
+    assert_eq!(thread.header, "No thread selected");
+    assert!(thread.message_rows().is_empty());
+}
+
+#[test]
 fn sync_hud_view_models_projects_selected_tmux_row_only() {
     let mut catalog = AgentCatalog::default();
     let alpha = catalog.create_agent(
@@ -310,10 +370,7 @@ fn sync_hud_view_models_projects_selected_tmux_row_only() {
     let mut world = World::default();
     world.insert_resource(catalog);
     world.insert_resource(AgentRuntimeIndex::default());
-    world.insert_resource(AppSessionState {
-        active_agent: Some(alpha),
-        ..Default::default()
-    });
+    world.insert_resource(AppSessionState::default());
     world.insert_resource(AgentTaskStore::default());
     world.insert_resource(ConversationStore::default());
     world.insert_resource(AgentListSelection::OwnedTmux("tmux-a1".into()));

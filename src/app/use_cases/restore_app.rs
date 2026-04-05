@@ -175,7 +175,6 @@ pub(crate) fn restore_app(
         &imported_session_names,
     ) {
         if let Some(agent_id) = runtime_index.agent_for_session(session_name) {
-            app_session.active_agent = Some(agent_id);
             *selection = crate::hud::AgentListSelection::Agent(agent_id);
             app_session.visibility_mode = VisibilityMode::FocusedOnly;
             if let Some(terminal_id) = runtime_index.primary_terminal(agent_id) {
@@ -187,7 +186,6 @@ pub(crate) fn restore_app(
             }
         }
     } else if !agent_catalog.order.is_empty() {
-        app_session.active_agent = None;
         *selection = crate::hud::AgentListSelection::None;
         app_session.visibility_mode = VisibilityMode::ShowAll;
         focus_state.clear_active_terminal();

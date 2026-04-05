@@ -345,10 +345,7 @@ fn build_agent_list_navigation_world() -> (World, crate::agents::AgentId, crate:
     init_hud_commands(&mut world);
     world.insert_resource(catalog);
     world.insert_resource(runtime_index);
-    world.insert_resource(AppSessionState {
-        active_agent: Some(agent_one),
-        ..Default::default()
-    });
+    world.insert_resource(AppSessionState::default());
     world.insert_resource(crate::hud::AgentListSelection::Agent(agent_one));
     world
         .resource_mut::<crate::terminals::OwnedTmuxSessionStore>()
@@ -1821,7 +1818,6 @@ fn clone_pi_agent_request_creates_top_level_pi_clone_and_focuses_it() {
     );
     let _ = catalog;
 
-    assert_eq!(world.resource::<AppSessionState>().active_agent, Some(clone_agent));
     assert_eq!(
         *world.resource::<crate::hud::AgentListSelection>(),
         crate::hud::AgentListSelection::Agent(clone_agent)
@@ -2278,7 +2274,7 @@ fn killing_agent_cascade_kills_owned_tmux_children() {
     let mut runtime_index = AgentRuntimeIndex::default();
     runtime_index.link_terminal(agent_id, terminal_id, "neozeus-session-a".into(), None);
     world.insert_resource(runtime_index);
-    world.resource_mut::<AppSessionState>().active_agent = Some(agent_id);
+    world.insert_resource(crate::hud::AgentListSelection::Agent(agent_id));
 
     client
         .owned_tmux_sessions
@@ -2296,7 +2292,7 @@ fn killing_agent_cascade_kills_owned_tmux_children() {
 
     world
         .resource_mut::<Messages<AppCommand>>()
-        .write(AppCommand::Agent(AppAgentCommand::KillActive));
+        .write(AppCommand::Agent(AppAgentCommand::KillSelected));
     run_app_commands(&mut world);
 
     assert!(world.resource::<AgentCatalog>().order.is_empty());
@@ -2357,7 +2353,7 @@ fn killing_agent_cascade_kills_only_selected_agent_owned_tmux_children() {
     runtime_index.link_terminal(agent_a, terminal_a, "neozeus-session-a".into(), None);
     runtime_index.link_terminal(agent_b, terminal_b, "neozeus-session-b".into(), None);
     world.insert_resource(runtime_index);
-    world.resource_mut::<AppSessionState>().active_agent = Some(agent_a);
+    world.insert_resource(crate::hud::AgentListSelection::Agent(agent_a));
 
     client.owned_tmux_sessions.lock().unwrap().extend([
         crate::terminals::OwnedTmuxSessionInfo {
@@ -2400,7 +2396,7 @@ fn killing_agent_cascade_kills_only_selected_agent_owned_tmux_children() {
 
     world
         .resource_mut::<Messages<AppCommand>>()
-        .write(AppCommand::Agent(AppAgentCommand::KillActive));
+        .write(AppCommand::Agent(AppAgentCommand::KillSelected));
     run_app_commands(&mut world);
 
     let remaining = client.owned_tmux_sessions.lock().unwrap().clone();
@@ -2465,7 +2461,7 @@ fn killing_agent_aborts_when_owned_tmux_child_kill_fails() {
     let mut runtime_index = AgentRuntimeIndex::default();
     runtime_index.link_terminal(agent_id, terminal_id, "neozeus-session-a".into(), None);
     world.insert_resource(runtime_index);
-    world.resource_mut::<AppSessionState>().active_agent = Some(agent_id);
+    world.insert_resource(crate::hud::AgentListSelection::Agent(agent_id));
 
     client
         .owned_tmux_sessions
@@ -2483,7 +2479,7 @@ fn killing_agent_aborts_when_owned_tmux_child_kill_fails() {
 
     world
         .resource_mut::<Messages<AppCommand>>()
-        .write(AppCommand::Agent(AppAgentCommand::KillActive));
+        .write(AppCommand::Agent(AppAgentCommand::KillSelected));
     run_app_commands(&mut world);
 
     assert!(!world.resource::<AgentCatalog>().order.is_empty());
@@ -2584,10 +2580,7 @@ fn killing_selected_owned_tmux_session_removes_agent_list_row_immediately() {
     world.insert_resource(TerminalViewState::default());
     world.insert_resource(catalog);
     world.insert_resource(AgentRuntimeIndex::default());
-    world.insert_resource(AppSessionState {
-        active_agent: Some(agent_id),
-        ..Default::default()
-    });
+    world.insert_resource(AppSessionState::default());
     let mut owned_tmux_sessions = crate::terminals::OwnedTmuxSessionStore::default();
     owned_tmux_sessions.sessions.push(session);
     world.insert_resource(owned_tmux_sessions);
@@ -2838,10 +2831,7 @@ fn navigating_to_owned_tmux_should_render_capture_in_terminal_panel() {
     insert_terminal_manager_resources(&mut world, manager);
     world.insert_resource(catalog);
     world.insert_resource(runtime_index);
-    world.insert_resource(AppSessionState {
-        active_agent: Some(agent_id),
-        ..Default::default()
-    });
+    world.insert_resource(AppSessionState::default());
     world.insert_resource(crate::hud::AgentListSelection::Agent(agent_id));
     world.insert_resource(fake_runtime_spawner(client));
     world.insert_resource(crate::terminals::OwnedTmuxSessionStore::default());
@@ -3218,7 +3208,10 @@ fn selecting_tmux_row_sets_parent_agent_thread_target_explicitly() {
         ));
     run_app_commands(&mut world);
 
-    assert_eq!(world.resource::<AppSessionState>().active_agent, Some(agent_id));
+    assert_eq!(
+        *world.resource::<crate::hud::AgentListSelection>(),
+        crate::hud::AgentListSelection::OwnedTmux("tmux-session-1".into())
+    );
 }
 
 #[test]
@@ -3248,10 +3241,7 @@ fn terminal_focus_sync_does_not_rewrite_agent_list_selection() {
     let mut world = World::default();
     world.insert_resource(catalog);
     world.insert_resource(runtime_index);
-    world.insert_resource(AppSessionState {
-        active_agent: Some(agent_b),
-        ..Default::default()
-    });
+    world.insert_resource(AppSessionState::default());
     world.insert_resource(crate::hud::AgentListSelection::OwnedTmux("tmux-session-1".into()));
     world.insert_resource(manager.clone_focus_state());
     world.insert_resource(manager);
