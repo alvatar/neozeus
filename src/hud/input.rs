@@ -1,11 +1,12 @@
 use crate::{
     app::{
-        AgentCommand, AppCommand, AppSessionState, CreateAgentDialogField, RenameAgentDialogField,
-        WidgetCommand,
+        AgentCommand, AppCommand, AppSessionState, CloneAgentDialogField,
+        CreateAgentDialogField, RenameAgentDialogField, WidgetCommand,
     },
     composer::{
-        create_agent_dialog_target_at, message_box_action_at, rename_agent_dialog_target_at,
-        task_dialog_action_at, CreateAgentDialogTarget, RenameAgentDialogTarget,
+        clone_agent_dialog_target_at, create_agent_dialog_target_at, message_box_action_at,
+        rename_agent_dialog_target_at, task_dialog_action_at, CloneAgentDialogTarget,
+        CreateAgentDialogTarget, RenameAgentDialogTarget,
     },
     text_selection::AgentListTextSelectionState,
 };
@@ -95,6 +96,7 @@ pub(crate) fn handle_hud_pointer_input(world: &mut World) {
 
 fn handle_hud_pointer_input_with_context(ctx: &mut HudPointerContext<'_, '_>) {
     if handle_create_agent_dialog_pointer(ctx)
+        || handle_clone_agent_dialog_pointer(ctx)
         || handle_rename_agent_dialog_pointer(ctx)
         || handle_message_dialog_pointer(ctx)
         || handle_task_dialog_pointer(ctx)
@@ -146,6 +148,39 @@ fn handle_create_agent_dialog_pointer(ctx: &mut HudPointerContext<'_, '_>) -> bo
                         .clear_completion();
                     if let Some(command) =
                         ctx.app_session.create_agent_dialog.build_create_command()
+                    {
+                        ctx.app_commands.write(command);
+                    }
+                }
+            }
+            ctx.redraws.write(RequestRedraw);
+        }
+    }
+    true
+}
+
+fn handle_clone_agent_dialog_pointer(ctx: &mut HudPointerContext<'_, '_>) -> bool {
+    if !ctx.app_session.clone_agent_dialog.visible {
+        return false;
+    }
+    ctx.layout_state.drag = None;
+    let Some(cursor) = cursor_hud_position(&ctx.primary_window) else {
+        return true;
+    };
+    if ctx.mouse_buttons.just_pressed(MouseButton::Left) {
+        if let Some(target) = clone_agent_dialog_target_at(&ctx.primary_window, cursor) {
+            match target {
+                CloneAgentDialogTarget::NameField => {
+                    ctx.app_session.clone_agent_dialog.focus = CloneAgentDialogField::Name;
+                    ctx.app_session.clone_agent_dialog.error = None;
+                }
+                CloneAgentDialogTarget::WorkdirToggle => {
+                    ctx.app_session.clone_agent_dialog.focus = CloneAgentDialogField::Workdir;
+                    ctx.app_session.clone_agent_dialog.toggle_workdir();
+                }
+                CloneAgentDialogTarget::CloneButton => {
+                    ctx.app_session.clone_agent_dialog.focus = CloneAgentDialogField::CloneButton;
+                    if let Some(command) = ctx.app_session.clone_agent_dialog.build_clone_command()
                     {
                         ctx.app_commands.write(command);
                     }

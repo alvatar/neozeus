@@ -18,8 +18,8 @@ pub(crate) use persistence::{
     AppStatePersistenceState,
 };
 pub(crate) use session::{
-    AppSessionState, CreateAgentDialogField, CreateAgentKind, RenameAgentDialogField,
-    TextFieldState,
+    AppSessionState, CloneAgentDialogField, CreateAgentDialogField, CreateAgentKind,
+    RenameAgentDialogField, TextFieldState,
 };
 pub(crate) use use_cases::restore_app;
 

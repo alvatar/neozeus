@@ -1,11 +1,16 @@
 use crate::{
-    app::{AppSessionState, CreateAgentDialogField, RenameAgentDialogField, TextFieldState},
+    app::{
+        AppSessionState, CloneAgentDialogField, CreateAgentDialogField, RenameAgentDialogField,
+        TextFieldState,
+    },
     composer::{
-        create_agent_create_button_rect, create_agent_dialog_rect, create_agent_kind_option_rects,
-        create_agent_name_field_rect, create_agent_starting_folder_rect,
-        message_box_action_buttons, message_box_rect, rename_agent_dialog_rect,
-        rename_agent_name_field_rect, rename_agent_submit_button_rect, task_dialog_action_buttons,
-        task_dialog_rect, MessageDialogFocus, TaskDialogFocus, TextEditorState,
+        clone_agent_dialog_rect, clone_agent_name_field_rect, clone_agent_submit_button_rect,
+        clone_agent_workdir_rect, create_agent_create_button_rect, create_agent_dialog_rect,
+        create_agent_kind_option_rects, create_agent_name_field_rect,
+        create_agent_starting_folder_rect, message_box_action_buttons, message_box_rect,
+        rename_agent_dialog_rect, rename_agent_name_field_rect, rename_agent_submit_button_rect,
+        task_dialog_action_buttons, task_dialog_rect, MessageDialogFocus, TaskDialogFocus,
+        TextEditorState,
     },
     startup::StartupConnectState,
 };
@@ -687,6 +692,102 @@ fn draw_create_agent_dialog(
     }
 }
 
+/// Draws the centered clone-agent dialog modal.
+fn draw_clone_agent_dialog(
+    painter: &mut HudPainter,
+    window: &Window,
+    app_session: &AppSessionState,
+) {
+    if !app_session.clone_agent_dialog.visible {
+        return;
+    }
+
+    let dialog = &app_session.clone_agent_dialog;
+    let rect = clone_agent_dialog_rect(window);
+    let name_rect = clone_agent_name_field_rect(window);
+    let workdir_rect = clone_agent_workdir_rect(window);
+    let clone_rect = clone_agent_submit_button_rect(window);
+
+    painter.fill_rect(rect, HudColors::MESSAGE_BOX, 12.0);
+    painter.stroke_rect(rect, HudColors::BORDER, 12.0);
+    painter.label(
+        Vec2::new(rect.x + 24.0, rect.y + 14.0),
+        "Clone agent",
+        20.0,
+        HudColors::TEXT,
+        VelloTextAnchor::TopLeft,
+    );
+    painter.label(
+        Vec2::new(rect.x + 24.0, name_rect.y + 7.0),
+        "Name",
+        15.0,
+        HudColors::TEXT_MUTED,
+        VelloTextAnchor::TopLeft,
+    );
+    draw_single_line_dialog_field(
+        painter,
+        &dialog.name_field,
+        name_rect,
+        dialog.focus == CloneAgentDialogField::Name,
+    );
+
+    painter.label(
+        Vec2::new(rect.x + 24.0, workdir_rect.y + 3.0),
+        "Mode",
+        15.0,
+        HudColors::TEXT_MUTED,
+        VelloTextAnchor::TopLeft,
+    );
+    painter.fill_rect(
+        workdir_rect,
+        if dialog.workdir {
+            HudColors::TEXT
+        } else {
+            HudColors::BUTTON
+        },
+        0.0,
+    );
+    painter.stroke_rect(
+        workdir_rect,
+        if dialog.focus == CloneAgentDialogField::Workdir {
+            HudColors::TEXT
+        } else {
+            HudColors::BUTTON_BORDER
+        },
+        0.0,
+    );
+    painter.label(
+        Vec2::new(workdir_rect.x + workdir_rect.w + 12.0, workdir_rect.y - 1.0),
+        "Create workdir",
+        16.0,
+        if dialog.workdir {
+            HudColors::TEXT
+        } else {
+            HudColors::TEXT_MUTED
+        },
+        VelloTextAnchor::TopLeft,
+    );
+
+    draw_dialog_button_row(
+        painter,
+        [(
+            clone_rect,
+            "Clone",
+            dialog.focus == CloneAgentDialogField::CloneButton,
+        )],
+    );
+
+    if let Some(error) = dialog.error.as_deref() {
+        painter.label(
+            Vec2::new(rect.x + 24.0, clone_rect.y - 26.0),
+            error,
+            14.0,
+            peniko::Color::from_rgba8(220, 80, 80, 255),
+            VelloTextAnchor::TopLeft,
+        );
+    }
+}
+
 /// Draws the centered rename-agent dialog modal.
 fn draw_rename_agent_dialog(
     painter: &mut HudPainter,
@@ -1125,6 +1226,7 @@ pub(crate) fn render_hud_modal_scene(
         draw_startup_connect_overlay(&mut painter, &primary_window, startup_connect);
     }
     draw_create_agent_dialog(&mut painter, &primary_window, &app_session);
+    draw_clone_agent_dialog(&mut painter, &primary_window, &app_session);
     draw_rename_agent_dialog(&mut painter, &primary_window, &app_session);
     draw_message_box(
         &mut painter,

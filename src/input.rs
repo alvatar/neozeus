@@ -3,14 +3,15 @@ mod modal_dialogs;
 use crate::{
     agents::{AgentCatalog, AgentRuntimeIndex},
     app::{
-        AgentCommand as AppAgentCommand, AppCommand, AppSessionState, ComposerCommand,
-        ComposerRequest, CreateAgentDialogField, CreateAgentKind, OwnedTmuxCommand,
-        RenameAgentDialogField, TaskCommand as AppTaskCommand,
+        AgentCommand as AppAgentCommand, AppCommand, AppSessionState, CloneAgentDialogField,
+        ComposerCommand, ComposerRequest, CreateAgentDialogField, CreateAgentKind,
+        OwnedTmuxCommand, RenameAgentDialogField, TaskCommand as AppTaskCommand,
     },
     composer::{
-        create_agent_dialog_target_at, message_box_action_at, message_box_rect,
-        rename_agent_dialog_target_at, task_dialog_action_at, task_dialog_rect,
-        CreateAgentDialogTarget, MessageDialogFocus, RenameAgentDialogTarget, TaskDialogFocus,
+        clone_agent_dialog_target_at, create_agent_dialog_target_at, message_box_action_at,
+        message_box_rect, rename_agent_dialog_target_at, task_dialog_action_at, task_dialog_rect,
+        CloneAgentDialogTarget, CreateAgentDialogTarget, MessageDialogFocus,
+        RenameAgentDialogTarget, TaskDialogFocus,
     },
     hud::{HudInputCaptureState, HudLayoutState},
     terminals::{
@@ -381,6 +382,23 @@ pub(crate) fn paste_into_create_agent_dialog(
     }
 }
 
+pub(crate) fn paste_into_clone_agent_dialog(
+    app_session: &mut AppSessionState,
+    window: &Window,
+    cursor: Vec2,
+    text: &str,
+) -> bool {
+    match clone_agent_dialog_target_at(window, cursor) {
+        Some(CloneAgentDialogTarget::NameField) => {
+            app_session.clone_agent_dialog.focus = CloneAgentDialogField::Name;
+            app_session.clone_agent_dialog.error = None;
+            let text = crate::agents::uppercase_agent_label_text(text);
+            app_session.clone_agent_dialog.name_field.insert_text(&text)
+        }
+        _ => false,
+    }
+}
+
 pub(crate) fn paste_into_rename_agent_dialog(
     app_session: &mut AppSessionState,
     window: &Window,
@@ -644,6 +662,8 @@ pub(crate) fn handle_middle_click_paste(
 
     let pasted_into_dialog = if app_session.create_agent_dialog.visible {
         paste_into_create_agent_dialog(&mut app_session, &primary_window, cursor, &text)
+    } else if app_session.clone_agent_dialog.visible {
+        paste_into_clone_agent_dialog(&mut app_session, &primary_window, cursor, &text)
     } else if app_session.rename_agent_dialog.visible {
         paste_into_rename_agent_dialog(&mut app_session, &primary_window, cursor, &text)
     } else if app_session.composer.message_editor.visible {
@@ -1131,6 +1151,33 @@ pub(crate) fn handle_terminal_message_box_keyboard(
                 continue;
             }
             let outcome = modal_dialogs::handle_rename_agent_dialog_key(
+                &mut app_session,
+                event,
+                modifiers,
+                &mut emitted_commands,
+            );
+            needs_redraw |= outcome.needs_redraw;
+            if outcome.stop {
+                break;
+            }
+        }
+        for command in emitted_commands {
+            app_commands.write(command);
+        }
+        if needs_redraw {
+            redraws.write(RequestRedraw);
+        }
+        return;
+    }
+
+    if app_session.clone_agent_dialog.visible {
+        let mut needs_redraw = false;
+        let mut emitted_commands = Vec::new();
+        for event in messages.read() {
+            if event.state != ButtonState::Pressed {
+                continue;
+            }
+            let outcome = modal_dialogs::handle_clone_agent_dialog_key(
                 &mut app_session,
                 event,
                 modifiers,

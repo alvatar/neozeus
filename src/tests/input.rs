@@ -7,12 +7,13 @@ use crate::{
     agents::{AgentCatalog, AgentRuntimeIndex},
     app::{
         AgentCommand as AppAgentCommand, AppCommand, AppSessionState, AppStatePersistenceState,
-        CreateAgentDialogField, CreateAgentKind, RenameAgentDialogField,
-        TaskCommand as AppTaskCommand,
+        CloneAgentDialogField, CreateAgentDialogField, CreateAgentKind,
+        RenameAgentDialogField, TaskCommand as AppTaskCommand,
     },
     composer::{
-        create_agent_name_field_rect, create_agent_starting_folder_rect, message_box_rect,
-        rename_agent_name_field_rect, task_dialog_rect, MessageDialogFocus, TaskDialogFocus,
+        clone_agent_name_field_rect, create_agent_name_field_rect,
+        create_agent_starting_folder_rect, message_box_rect, rename_agent_name_field_rect,
+        task_dialog_rect, MessageDialogFocus, TaskDialogFocus,
     },
     conversations::{AgentTaskStore, ConversationStore, MessageTransportAdapter},
     hud::{handle_hud_module_shortcuts, TerminalVisibilityState},
@@ -21,9 +22,10 @@ use crate::{
         handle_terminal_direct_input_keyboard, handle_terminal_lifecycle_shortcuts,
         handle_terminal_message_box_keyboard, handle_terminal_text_selection,
         hide_terminal_on_background_click, keyboard_input_to_terminal_command,
-        paste_into_create_agent_dialog, paste_into_direct_input_terminal,
-        paste_into_message_dialog, paste_into_rename_agent_dialog, paste_into_task_dialog,
-        should_exit_application, should_kill_active_terminal, should_spawn_terminal_globally,
+        paste_into_clone_agent_dialog, paste_into_create_agent_dialog,
+        paste_into_direct_input_terminal, paste_into_message_dialog,
+        paste_into_rename_agent_dialog, paste_into_task_dialog, should_exit_application,
+        should_kill_active_terminal, should_spawn_terminal_globally,
     },
     terminals::{
         TerminalCommand, TerminalManager, TerminalNotesState, TerminalPanel, TerminalPresentation,
@@ -699,6 +701,165 @@ fn create_agent_dialog_submit_emits_create_command() {
             working_directory: "~/code".into(),
         })]
     );
+}
+
+#[test]
+fn clone_agent_dialog_tab_advances_focus() {
+    let mut world = World::default();
+    world.insert_resource(ButtonInput::<KeyCode>::default());
+    world.insert_resource(AppSessionState::default());
+    world
+        .resource_mut::<AppSessionState>()
+        .clone_agent_dialog
+        .open(crate::agents::AgentId(7), "alpha");
+    world.spawn((
+        Window {
+            focused: true,
+            ..Default::default()
+        },
+        PrimaryWindow,
+    ));
+
+    dispatch_message_box_key(&mut world, pressed_key(KeyCode::Tab, Key::Tab));
+    assert_eq!(
+        world.resource::<AppSessionState>().clone_agent_dialog.focus,
+        CloneAgentDialogField::Workdir
+    );
+
+    dispatch_message_box_key(&mut world, pressed_key(KeyCode::Tab, Key::Tab));
+    assert_eq!(
+        world.resource::<AppSessionState>().clone_agent_dialog.focus,
+        CloneAgentDialogField::CloneButton
+    );
+}
+
+#[test]
+fn clone_agent_dialog_space_toggles_workdir() {
+    let mut world = World::default();
+    world.insert_resource(ButtonInput::<KeyCode>::default());
+    world.insert_resource(AppSessionState::default());
+    {
+        let mut session = world.resource_mut::<AppSessionState>();
+        session
+            .clone_agent_dialog
+            .open(crate::agents::AgentId(7), "alpha");
+        session.clone_agent_dialog.focus = CloneAgentDialogField::Workdir;
+    }
+    world.spawn((
+        Window {
+            focused: true,
+            ..Default::default()
+        },
+        PrimaryWindow,
+    ));
+
+    dispatch_message_box_key(&mut world, pressed_text(KeyCode::Space, Some(" ")));
+
+    assert!(world.resource::<AppSessionState>().clone_agent_dialog.workdir);
+}
+
+#[test]
+fn clone_agent_dialog_escape_closes_without_emitting_command() {
+    let mut world = World::default();
+    world.insert_resource(ButtonInput::<KeyCode>::default());
+    world.insert_resource(AppSessionState::default());
+    world
+        .resource_mut::<AppSessionState>()
+        .clone_agent_dialog
+        .open(crate::agents::AgentId(7), "alpha");
+    ensure_app_command_world_resources(&mut world);
+    init_hud_commands(&mut world);
+    world.init_resource::<Messages<RequestRedraw>>();
+    world.init_resource::<Messages<KeyboardInput>>();
+    world.spawn((
+        Window {
+            focused: true,
+            ..Default::default()
+        },
+        PrimaryWindow,
+    ));
+
+    dispatch_message_box_key(&mut world, pressed_key(KeyCode::Escape, Key::Escape));
+
+    assert!(!world.resource::<AppSessionState>().clone_agent_dialog.visible);
+    assert!(drain_hud_commands(&mut world).is_empty());
+}
+
+#[test]
+fn clone_agent_dialog_submit_emits_clone_command() {
+    let mut world = World::default();
+    world.insert_resource(ButtonInput::<KeyCode>::default());
+    world.insert_resource(AppSessionState::default());
+    {
+        let mut session = world.resource_mut::<AppSessionState>();
+        session
+            .clone_agent_dialog
+            .open(crate::agents::AgentId(7), "alpha");
+        session.clone_agent_dialog.name_field.load_text("child");
+        session.clone_agent_dialog.workdir = true;
+        session.clone_agent_dialog.focus = CloneAgentDialogField::CloneButton;
+    }
+    ensure_app_command_world_resources(&mut world);
+    init_hud_commands(&mut world);
+    world.init_resource::<Messages<RequestRedraw>>();
+    world.init_resource::<Messages<KeyboardInput>>();
+    world.spawn((
+        Window {
+            focused: true,
+            ..Default::default()
+        },
+        PrimaryWindow,
+    ));
+
+    world
+        .resource_mut::<Messages<KeyboardInput>>()
+        .write(pressed_key(KeyCode::Enter, Key::Enter));
+    world
+        .run_system_once(handle_terminal_message_box_keyboard)
+        .unwrap();
+
+    assert_eq!(
+        drain_hud_commands(&mut world),
+        vec![AppCommand::Agent(AppAgentCommand::Clone {
+            source_agent_id: crate::agents::AgentId(7),
+            label: "CHILD".into(),
+            workdir: true,
+        })]
+    );
+}
+
+#[test]
+fn paste_into_clone_agent_dialog_inserts_into_name_field() {
+    let mut world = World::default();
+    world.insert_resource(ButtonInput::<KeyCode>::default());
+    world.insert_resource(AppSessionState::default());
+    world
+        .resource_mut::<AppSessionState>()
+        .clone_agent_dialog
+        .open(crate::agents::AgentId(7), "alpha");
+    world.spawn((
+        Window {
+            focused: true,
+            ..Default::default()
+        },
+        PrimaryWindow,
+    ));
+
+    let window = world
+        .query_filtered::<&Window, With<PrimaryWindow>>()
+        .single(&world)
+        .expect("primary window should exist")
+        .clone();
+    let name_rect = clone_agent_name_field_rect(&window);
+    let mut app_session = world.resource_mut::<AppSessionState>();
+
+    assert!(paste_into_clone_agent_dialog(
+        &mut app_session,
+        &window,
+        Vec2::new(name_rect.x + 4.0, name_rect.y + 4.0),
+        "child",
+    ));
+    assert_eq!(app_session.clone_agent_dialog.name_field.text, "ALPHA-CLONECHILD");
 }
 
 /// Verifies that the kill-active-terminal shortcut is accepted only for plain `Ctrl+k`.

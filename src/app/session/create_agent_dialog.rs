@@ -338,6 +338,18 @@ impl CwdFieldState {
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum CloneAgentDialogField {
+    #[default]
+    Name,
+    Workdir,
+    CloneButton,
+}
+
+impl DialogTabOrder for CloneAgentDialogField {
+    const TAB_ORDER: &'static [Self] = &[Self::Name, Self::Workdir, Self::CloneButton];
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) enum RenameAgentDialogField {
     #[default]
     Name,
@@ -355,6 +367,16 @@ pub(crate) struct CreateAgentDialogState {
     pub(crate) cwd_field: CwdFieldState,
     pub(crate) kind: CreateAgentKind,
     pub(crate) focus: CreateAgentDialogField,
+    pub(crate) error: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct CloneAgentDialogState {
+    pub(crate) visible: bool,
+    pub(crate) source_agent: Option<crate::agents::AgentId>,
+    pub(crate) name_field: TextFieldState,
+    pub(crate) workdir: bool,
+    pub(crate) focus: CloneAgentDialogField,
     pub(crate) error: Option<String>,
 }
 
@@ -429,6 +451,70 @@ impl CreateAgentDialogState {
             label: self.label(),
             kind: self.kind.agent_kind(),
             working_directory,
+        }))
+    }
+}
+
+impl CloneAgentDialogState {
+    #[allow(
+        dead_code,
+        reason = "the non-test opener arrives in the clone shortcut phase after the dialog substrate"
+    )]
+    /// Opens the clone-agent dialog for one source agent and suggested label.
+    pub(crate) fn open(&mut self, agent_id: crate::agents::AgentId, current_label: &str) {
+        self.visible = true;
+        self.source_agent = Some(agent_id);
+        self.focus = CloneAgentDialogField::Name;
+        self.error = None;
+        self.workdir = false;
+        self.name_field.load_text(&format!(
+            "{}-CLONE",
+            crate::agents::uppercase_agent_label_text(current_label)
+        ));
+    }
+
+    /// Closes the dialog and discards all current field state.
+    pub(crate) fn close(&mut self) {
+        self.visible = false;
+        self.source_agent = None;
+        self.focus = CloneAgentDialogField::Name;
+        self.error = None;
+        self.workdir = false;
+        self.name_field.clear();
+    }
+
+    /// Returns whether this dialog currently owns keyboard capture.
+    pub(crate) fn keyboard_capture_active(&self) -> bool {
+        self.visible
+    }
+
+    /// Advances focus to the next or previous field in the dialog's shared tab order.
+    pub(crate) fn cycle_focus(&mut self, reverse: bool) {
+        cycle_dialog_focus(&mut self.focus, reverse);
+    }
+
+    /// Toggles the workdir checkbox and clears any stale error.
+    pub(crate) fn toggle_workdir(&mut self) {
+        self.workdir = !self.workdir;
+        self.error = None;
+    }
+
+    /// Builds the app command that should clone the configured agent, validating required fields.
+    pub(crate) fn build_clone_command(&mut self) -> Option<AppCommand> {
+        let Some(source_agent_id) = self.source_agent else {
+            self.error = Some("missing clone source".to_owned());
+            return None;
+        };
+        let label = self.name_field.text.trim();
+        if label.is_empty() {
+            self.error = Some("agent name is required".to_owned());
+            return None;
+        }
+        self.error = None;
+        Some(AppCommand::Agent(AgentCommand::Clone {
+            source_agent_id,
+            label: crate::agents::uppercase_agent_label_text(label),
+            workdir: self.workdir,
         }))
     }
 }
