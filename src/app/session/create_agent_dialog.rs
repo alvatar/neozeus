@@ -456,10 +456,6 @@ impl CreateAgentDialogState {
 }
 
 impl CloneAgentDialogState {
-    #[allow(
-        dead_code,
-        reason = "the non-test opener arrives in the clone shortcut phase after the dialog substrate"
-    )]
     /// Opens the clone-agent dialog for one source agent and suggested label.
     pub(crate) fn open(&mut self, agent_id: crate::agents::AgentId, current_label: &str) {
         self.visible = true;

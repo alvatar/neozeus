@@ -318,6 +318,8 @@ fn global_spawn_shortcut_opens_create_agent_dialog_even_with_active_terminal() {
         ..Default::default()
     };
     world.insert_resource(ButtonInput::<KeyCode>::default());
+    world.insert_resource(AgentCatalog::default());
+    world.insert_resource(AgentRuntimeIndex::default());
     insert_terminal_manager_resources(&mut world, manager);
     insert_default_hud_resources(&mut world);
     world.init_resource::<Messages<RequestRedraw>>();
@@ -342,6 +344,156 @@ fn global_spawn_shortcut_opens_create_agent_dialog_even_with_active_terminal() {
         CreateAgentDialogField::Name
     );
     assert_eq!(world.resource::<Messages<RequestRedraw>>().len(), 1);
+}
+
+#[test]
+fn global_clone_shortcut_opens_clone_agent_dialog_for_selected_pi_agent() {
+    let mut world = World::default();
+    let window = Window {
+        focused: true,
+        ..Default::default()
+    };
+    let mut catalog = AgentCatalog::default();
+    let agent_id = catalog.create_agent_with_metadata(
+        Some("alpha".into()),
+        crate::agents::AgentKind::Pi,
+        crate::agents::AgentKind::Pi.capabilities(),
+        crate::agents::AgentMetadata {
+            clone_source_session_path: Some("/tmp/pi-alpha.jsonl".into()),
+            is_workdir: false,
+        },
+    );
+    world.insert_resource(ButtonInput::<KeyCode>::default());
+    world.insert_resource(catalog);
+    world.insert_resource(AgentRuntimeIndex::default());
+    world.insert_resource(crate::hud::AgentListSelection::Agent(agent_id));
+    insert_terminal_manager_resources(&mut world, TerminalManager::default());
+    insert_default_hud_resources(&mut world);
+    world.init_resource::<Messages<RequestRedraw>>();
+    world.init_resource::<Messages<KeyboardInput>>();
+    world.spawn((window, PrimaryWindow));
+
+    world
+        .resource_mut::<Messages<KeyboardInput>>()
+        .write(pressed_text(KeyCode::KeyC, Some("c")));
+
+    world
+        .run_system_once(handle_global_terminal_spawn_shortcut)
+        .unwrap();
+
+    let session = world.resource::<AppSessionState>();
+    assert!(session.clone_agent_dialog.visible);
+    assert_eq!(session.clone_agent_dialog.source_agent, Some(agent_id));
+    assert_eq!(session.clone_agent_dialog.name_field.text, "ALPHA-CLONE");
+    assert_eq!(session.clone_agent_dialog.focus, CloneAgentDialogField::Name);
+    assert_eq!(world.resource::<Messages<RequestRedraw>>().len(), 1);
+}
+
+#[test]
+fn global_clone_shortcut_does_nothing_for_tmux_selection() {
+    let mut world = World::default();
+    world.insert_resource(ButtonInput::<KeyCode>::default());
+    world.insert_resource(AgentCatalog::default());
+    world.insert_resource(AgentRuntimeIndex::default());
+    world.insert_resource(crate::hud::AgentListSelection::OwnedTmux("tmux-1".into()));
+    insert_default_hud_resources(&mut world);
+    world.init_resource::<Messages<RequestRedraw>>();
+    world.init_resource::<Messages<KeyboardInput>>();
+    world.spawn((
+        Window {
+            focused: true,
+            ..Default::default()
+        },
+        PrimaryWindow,
+    ));
+    world
+        .resource_mut::<Messages<KeyboardInput>>()
+        .write(pressed_text(KeyCode::KeyC, Some("c")));
+
+    world
+        .run_system_once(handle_global_terminal_spawn_shortcut)
+        .unwrap();
+
+    assert!(!world.resource::<AppSessionState>().clone_agent_dialog.visible);
+    assert_eq!(world.resource::<Messages<RequestRedraw>>().len(), 0);
+}
+
+#[test]
+fn global_clone_shortcut_does_nothing_for_non_pi_agent() {
+    let mut world = World::default();
+    let mut catalog = AgentCatalog::default();
+    let agent_id = catalog.create_agent(
+        Some("alpha".into()),
+        crate::agents::AgentKind::Terminal,
+        crate::agents::AgentKind::Terminal.capabilities(),
+    );
+    world.insert_resource(ButtonInput::<KeyCode>::default());
+    world.insert_resource(catalog);
+    world.insert_resource(AgentRuntimeIndex::default());
+    world.insert_resource(crate::hud::AgentListSelection::Agent(agent_id));
+    insert_default_hud_resources(&mut world);
+    world.init_resource::<Messages<RequestRedraw>>();
+    world.init_resource::<Messages<KeyboardInput>>();
+    world.spawn((
+        Window {
+            focused: true,
+            ..Default::default()
+        },
+        PrimaryWindow,
+    ));
+    world
+        .resource_mut::<Messages<KeyboardInput>>()
+        .write(pressed_text(KeyCode::KeyC, Some("c")));
+
+    world
+        .run_system_once(handle_global_terminal_spawn_shortcut)
+        .unwrap();
+
+    assert!(!world.resource::<AppSessionState>().clone_agent_dialog.visible);
+    assert_eq!(world.resource::<Messages<RequestRedraw>>().len(), 0);
+}
+
+#[test]
+fn global_clone_shortcut_does_nothing_while_modal_has_keyboard_capture() {
+    let mut world = World::default();
+    let mut catalog = AgentCatalog::default();
+    let agent_id = catalog.create_agent_with_metadata(
+        Some("alpha".into()),
+        crate::agents::AgentKind::Pi,
+        crate::agents::AgentKind::Pi.capabilities(),
+        crate::agents::AgentMetadata {
+            clone_source_session_path: Some("/tmp/pi-alpha.jsonl".into()),
+            is_workdir: false,
+        },
+    );
+    world.insert_resource(ButtonInput::<KeyCode>::default());
+    world.insert_resource(catalog);
+    world.insert_resource(AgentRuntimeIndex::default());
+    world.insert_resource(crate::hud::AgentListSelection::Agent(agent_id));
+    insert_default_hud_resources(&mut world);
+    world
+        .resource_mut::<AppSessionState>()
+        .create_agent_dialog
+        .open(CreateAgentKind::Pi);
+    world.init_resource::<Messages<RequestRedraw>>();
+    world.init_resource::<Messages<KeyboardInput>>();
+    world.spawn((
+        Window {
+            focused: true,
+            ..Default::default()
+        },
+        PrimaryWindow,
+    ));
+    world
+        .resource_mut::<Messages<KeyboardInput>>()
+        .write(pressed_text(KeyCode::KeyC, Some("c")));
+
+    world
+        .run_system_once(handle_global_terminal_spawn_shortcut)
+        .unwrap();
+
+    assert!(!world.resource::<AppSessionState>().clone_agent_dialog.visible);
+    assert_eq!(world.resource::<Messages<RequestRedraw>>().len(), 0);
 }
 
 /// Verifies that `Tab` advances through every create-agent control, including the create button.
