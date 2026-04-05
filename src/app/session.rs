@@ -1,6 +1,6 @@
 mod create_agent_dialog;
 
-use crate::{agents::AgentId, hud::HudInputCaptureState, terminals::TerminalId};
+use crate::{hud::HudInputCaptureState, terminals::TerminalId};
 use bevy::prelude::Resource;
 
 pub(crate) use create_agent_dialog::{
@@ -17,7 +17,6 @@ pub(crate) enum VisibilityMode {
 
 #[derive(Resource, Clone, Debug, Default, PartialEq)]
 pub(crate) struct AppSessionState {
-    pub(crate) active_agent: Option<AgentId>,
     pub(crate) visibility_mode: VisibilityMode,
     pub(crate) composer: crate::composer::ComposerState,
     pub(crate) create_agent_dialog: CreateAgentDialogState,

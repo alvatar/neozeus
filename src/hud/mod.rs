@@ -41,7 +41,7 @@ pub(crate) use view_models::{
 
 #[cfg(test)]
 pub(crate) use view_models::{
-    AgentListActivity, AgentListRowKind, OwnedTmuxOwnerBinding, UsageBarView,
+    selected_agent_id, AgentListActivity, AgentListRowKind, OwnedTmuxOwnerBinding, UsageBarView,
 };
 pub(crate) use widgets::HudWidgetKey;
 

@@ -185,9 +185,9 @@ pub(crate) fn handle_global_terminal_spawn_shortcut(
 /// Applies the global lifecycle shortcuts that are allowed outside modal text entry.
 ///
 /// The system is intentionally small and imperative: if a modal has keyboard capture, do nothing;
-/// otherwise scan the frame's key presses for `F10` to exit or `Ctrl+k` to kill the selected tmux
-/// child when one is active, falling back to the active agent terminal otherwise. Exit short-circuits
-/// the loop because the rest of the frame does not matter once shutdown is requested.
+/// otherwise scan the frame's key presses for `F10` to exit or `Ctrl+k` to kill the currently
+/// selected row. Exit short-circuits the loop because the rest of the frame does not matter once
+/// shutdown is requested.
 pub(crate) fn handle_terminal_lifecycle_shortcuts(
     mut messages: MessageReader<KeyboardInput>,
     keys: Res<ButtonInput<KeyCode>>,
@@ -211,10 +211,14 @@ pub(crate) fn handle_terminal_lifecycle_shortcuts(
             break;
         }
         if should_kill_active_terminal(event, &keys) {
-            if matches!(*selection, crate::hud::AgentListSelection::OwnedTmux(_)) {
-                app_commands.write(AppCommand::OwnedTmux(OwnedTmuxCommand::KillSelected));
-            } else {
-                app_commands.write(AppCommand::Agent(AppAgentCommand::KillActive));
+            match *selection {
+                crate::hud::AgentListSelection::OwnedTmux(_) => {
+                    app_commands.write(AppCommand::OwnedTmux(OwnedTmuxCommand::KillSelected));
+                }
+                crate::hud::AgentListSelection::Agent(_) => {
+                    app_commands.write(AppCommand::Agent(AppAgentCommand::KillSelected));
+                }
+                crate::hud::AgentListSelection::None => {}
             }
         }
     }

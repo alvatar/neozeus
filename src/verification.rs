@@ -2,7 +2,7 @@ use crate::{
     agents::{AgentCapabilities, AgentCatalog, AgentKind, AgentRuntimeIndex},
     app::AppSessionState,
     conversations::AgentTaskStore,
-    hud::{HudInputCaptureState, TerminalVisibilityPolicy, TerminalVisibilityState},
+    hud::{AgentListSelection, HudInputCaptureState, TerminalVisibilityPolicy, TerminalVisibilityState},
     terminals::{
         append_debug_log, attach_terminal_session, RuntimeNotifier, TerminalBridge, TerminalCell,
         TerminalCellContent, TerminalCommand, TerminalFocusState, TerminalId, TerminalManager,
@@ -198,6 +198,7 @@ struct VerificationScenarioContext<'w> {
     agent_catalog: ResMut<'w, AgentCatalog>,
     runtime_index: ResMut<'w, AgentRuntimeIndex>,
     app_session: ResMut<'w, AppSessionState>,
+    selection: ResMut<'w, AgentListSelection>,
     task_store: ResMut<'w, AgentTaskStore>,
     visibility_state: ResMut<'w, TerminalVisibilityState>,
     view_state: ResMut<'w, TerminalViewState>,
@@ -306,7 +307,7 @@ pub(crate) fn run_verification_scenario(world: &mut World) {
             ctx.visibility_state.policy = TerminalVisibilityPolicy::Isolate(terminal_id);
             ctx.view_state.focus_terminal(Some(terminal_id));
             if let Some(agent_id) = ctx.runtime_index.agent_for_terminal(terminal_id) {
-                ctx.app_session.active_agent = Some(agent_id);
+                *ctx.selection = AgentListSelection::Agent(agent_id);
                 ctx.input_capture.close_direct_terminal_input();
                 ctx.app_session.composer.open_message(agent_id);
                 ctx.app_session
@@ -331,7 +332,7 @@ pub(crate) fn run_verification_scenario(world: &mut World) {
             let note_text = "- [ ] verify bloom layering\n- [ ] keep button text readable";
             let _ = ctx.notes_state.set_note_text(&session_name, note_text);
             if let Some(agent_id) = ctx.runtime_index.agent_for_terminal(terminal_id) {
-                ctx.app_session.active_agent = Some(agent_id);
+                *ctx.selection = AgentListSelection::Agent(agent_id);
                 let _ = ctx.task_store.set_text(agent_id, note_text);
                 ctx.input_capture.close_direct_terminal_input();
                 ctx.app_session

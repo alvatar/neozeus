@@ -3,17 +3,15 @@ use super::{
     CreateAgentDialogState, CreateAgentKind, RenameAgentDialogField, RenameAgentDialogState,
     TextFieldState, VisibilityMode,
 };
-use crate::{agents::AgentId, hud::HudInputCaptureState};
+use crate::hud::HudInputCaptureState;
 
-/// Verifies that session focus and visibility update independently.
+/// Verifies that session visibility remains independently mutable.
 #[test]
-fn session_focus_and_visibility_update_independently() {
+fn session_visibility_mode_updates() {
     let mut session = AppSessionState {
-        active_agent: Some(AgentId(4)),
         visibility_mode: VisibilityMode::FocusedOnly,
         ..Default::default()
     };
-    assert_eq!(session.active_agent, Some(AgentId(4)));
     assert_eq!(session.visibility_mode, VisibilityMode::FocusedOnly);
     session.visibility_mode = VisibilityMode::ShowAll;
     assert_eq!(session.visibility_mode, VisibilityMode::ShowAll);

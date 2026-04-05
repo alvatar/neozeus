@@ -30,7 +30,6 @@ pub(crate) fn focus_agent(
     let Some(terminal_id) = runtime_index.primary_terminal(agent_id) else {
         return;
     };
-    session.active_agent = Some(agent_id);
     focus_state.focus_terminal(terminal_manager, terminal_id);
     #[cfg(test)]
     terminal_manager.replace_test_focus_state(focus_state);

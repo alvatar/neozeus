@@ -216,7 +216,7 @@ pub(super) fn insert_terminal_manager_resources(
             let catalog = world.resource::<AgentCatalog>();
             let runtime_index = world.resource::<AgentRuntimeIndex>();
             let focus_state = world.resource::<crate::terminals::TerminalFocusState>();
-            let active_agent = focus_state
+            let focused_agent = focus_state
                 .active_id()
                 .and_then(|terminal_id| runtime_index.agent_for_terminal(terminal_id));
             let rows = catalog
@@ -224,7 +224,7 @@ pub(super) fn insert_terminal_manager_resources(
                 .map(|(agent_id, label)| crate::hud::AgentListRowView {
                     key: crate::hud::AgentListRowKey::Agent(agent_id),
                     label: label.to_owned(),
-                    focused: active_agent == Some(agent_id),
+                    focused: focused_agent == Some(agent_id),
                     kind: crate::hud::AgentListRowKind::Agent {
                         agent_id,
                         terminal_id: runtime_index.primary_terminal(agent_id),
@@ -235,12 +235,11 @@ pub(super) fn insert_terminal_manager_resources(
                     },
                 })
                 .collect::<Vec<_>>();
-            (active_agent, rows)
+            (focused_agent, rows)
         };
-        if let Some(active_agent) = rows.0 {
-            world.resource_mut::<AppSessionState>().active_agent = Some(active_agent);
+        if let Some(focused_agent) = rows.0 {
             if !world.contains_resource::<crate::hud::AgentListSelection>() {
-                world.insert_resource(crate::hud::AgentListSelection::Agent(active_agent));
+                world.insert_resource(crate::hud::AgentListSelection::Agent(focused_agent));
             }
         } else if !world.contains_resource::<crate::hud::AgentListSelection>() {
             world.insert_resource(crate::hud::AgentListSelection::None);
@@ -283,8 +282,9 @@ pub(super) fn insert_hud_resources(
     let task_dialog_visible = modal_state.task_dialog.visible;
     app_session.composer.message_editor = modal_state.message_box;
     app_session.composer.task_editor = modal_state.task_dialog;
-    let default_agent = app_session
-        .active_agent
+    let default_agent = world
+        .get_resource::<crate::hud::AgentListSelection>()
+        .and_then(crate::hud::selected_agent_id)
         .or_else(|| {
             world
                 .get_resource::<AgentRuntimeIndex>()

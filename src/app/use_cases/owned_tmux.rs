@@ -42,9 +42,6 @@ pub(crate) fn select_owned_tmux(
     active_terminal_content.select_owned_tmux(session_uid.to_owned(), owner_terminal_id);
     *selection = crate::hud::AgentListSelection::OwnedTmux(session_uid.to_owned());
 
-    if let Some(agent_id) = owner_agent_id {
-        app_session.active_agent = Some(agent_id);
-    }
     if let Some(terminal_id) = owner_terminal_id {
         focus_state.focus_terminal(terminal_manager, terminal_id);
         #[cfg(test)]

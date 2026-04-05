@@ -78,6 +78,13 @@ pub(crate) struct AgentListView {
     pub(crate) rows: Vec<AgentListRowView>,
 }
 
+pub(crate) fn selected_agent_id(selection: &AgentListSelection) -> Option<AgentId> {
+    match selection {
+        AgentListSelection::Agent(agent_id) => Some(*agent_id),
+        AgentListSelection::None | AgentListSelection::OwnedTmux(_) => None,
+    }
+}
+
 pub(crate) fn selected_agent_list_row_key(selection: &AgentListSelection) -> Option<AgentListRowKey> {
     match selection {
         AgentListSelection::None => None,
@@ -269,6 +276,8 @@ pub(crate) fn sync_hud_view_models(
     }
     agent_list.rows = rows;
 
+    let selected_agent = selected_agent_id(&selection);
+
     conversation_list.rows = agent_catalog
         .iter()
         .filter_map(|(agent_id, label)| {
@@ -279,19 +288,17 @@ pub(crate) fn sync_hud_view_models(
                 conversation_id,
                 label: label.to_owned(),
                 message_count: conversations.messages_for(conversation_id).len(),
-                selected: app_session.active_agent == Some(agent_id),
+                selected: selected_agent == Some(agent_id),
             })
         })
         .collect();
 
-    thread_view.header = app_session
-        .active_agent
+    thread_view.header = selected_agent
         .and_then(|agent_id| agent_catalog.label(agent_id))
         .map(str::to_owned)
         .unwrap_or_else(|| "No thread selected".to_owned());
     thread_view.empty_message = "No messages yet".to_owned();
-    thread_view.messages = app_session
-        .active_agent
+    thread_view.messages = selected_agent
         .and_then(|agent_id| conversations.conversation_for_agent(agent_id))
         .map(|conversation_id| {
             conversations
