@@ -3,7 +3,8 @@ use crate::{app::AppSessionState, startup::StartupConnectState, terminals::Termi
 use super::{
     modules::{
         agent_row_rect, agent_rows, row_main_rect, AgentListRowSection, AGENT_LIST_BLOOM_RED_B,
-        AGENT_LIST_BLOOM_RED_G, AGENT_LIST_BLOOM_RED_R,
+        AGENT_LIST_BLOOM_RED_G, AGENT_LIST_BLOOM_RED_R, AGENT_LIST_WORKING_GREEN_B,
+        AGENT_LIST_WORKING_GREEN_G, AGENT_LIST_WORKING_GREEN_R,
     },
     state::{AgentListUiState, HudLayoutState, HudRect},
     view_models::AgentListView,
@@ -379,11 +380,28 @@ fn bloom_reference_red(scale: f32, alpha: f32) -> Color {
     )
 }
 
+fn bloom_reference_working_green(scale: f32, alpha: f32) -> Color {
+    bloom_reference_color(
+        AGENT_LIST_WORKING_GREEN_R,
+        AGENT_LIST_WORKING_GREEN_G,
+        AGENT_LIST_WORKING_GREEN_B,
+        scale,
+        alpha,
+    )
+}
+
 /// Chooses the bloom source color for one border strip based on selected-row state.
 ///
-/// The bloom contract is intentionally simple: only the selected row emits bloom, and it always uses
-/// the same selected palette regardless of row kind.
-fn bloom_source_color(kind: AgentListBloomSourceKind) -> Color {
+/// Selected working agent rows switch to the working-green bloom palette; all other selected rows
+/// keep the existing selected red palette.
+fn bloom_source_color(kind: AgentListBloomSourceKind, working: bool) -> Color {
+    if working {
+        return match kind {
+            AgentListBloomSourceKind::Main => bloom_reference_working_green(5.0, 1.0),
+            AgentListBloomSourceKind::Marker => bloom_reference_working_green(6.0, 1.0),
+        };
+    }
+
     match kind {
         AgentListBloomSourceKind::Main => bloom_reference_red(5.0, 1.0),
         AgentListBloomSourceKind::Marker => bloom_reference_red(6.0, 1.0),
@@ -483,6 +501,7 @@ fn build_bloom_specs(
 
     let mut specs = Vec::new();
     for row in rows.into_iter().filter(|row| row.focused) {
+        let working = row.activity() == Some(crate::hud::view_models::AgentListActivity::Working);
         let terminal_id = if row.is_tmux_child() {
             let Some(terminal_id) = row
                 .owner_agent_id()
@@ -503,7 +522,7 @@ fn build_bloom_specs(
 
         if row.is_tmux_child() {
             let main_rect = row_main_rect(&row);
-            let color = bloom_source_color(AgentListBloomSourceKind::Main);
+            let color = bloom_source_color(AgentListBloomSourceKind::Main, false);
             for (segment, border_rect) in bloom_border_rects(main_rect, 3.0) {
                 specs.push(BloomSourceSpec {
                     key: AgentListBloomSourceSprite {
@@ -528,7 +547,7 @@ fn build_bloom_specs(
                     2.5,
                 ),
             ] {
-                let color = bloom_source_color(kind);
+                let color = bloom_source_color(kind, working);
                 for (segment, border_rect) in bloom_border_rects(rect, thickness) {
                     specs.push(BloomSourceSpec {
                         key: AgentListBloomSourceSprite {

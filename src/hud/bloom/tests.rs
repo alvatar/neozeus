@@ -57,15 +57,27 @@ fn agent_list_reference_colors_match_requested_values() {
 }
 
 #[test]
-fn selected_rows_use_same_red_bloom_contract() {
-    let main = bloom_source_color(AgentListBloomSourceKind::Main);
-    let marker = bloom_source_color(AgentListBloomSourceKind::Marker);
+fn selected_idle_rows_use_red_bloom_contract() {
+    let main = bloom_source_color(AgentListBloomSourceKind::Main, false);
+    let marker = bloom_source_color(AgentListBloomSourceKind::Marker, false);
 
     let main_linear = main.to_linear();
     let marker_linear = marker.to_linear();
     assert!(main_linear.red > main_linear.green);
     assert!(main_linear.red > main_linear.blue);
     assert!(marker_linear.red >= main_linear.red);
+}
+
+#[test]
+fn selected_working_rows_use_green_bloom_contract() {
+    let main = bloom_source_color(AgentListBloomSourceKind::Main, true);
+    let marker = bloom_source_color(AgentListBloomSourceKind::Marker, true);
+
+    let main_linear = main.to_linear();
+    let marker_linear = marker.to_linear();
+    assert!(main_linear.green > main_linear.red);
+    assert!(main_linear.green > main_linear.blue);
+    assert!(marker_linear.green >= main_linear.green);
 }
 
 /// Verifies the permissive parser for the bloom-intensity override.
@@ -142,6 +154,56 @@ fn selected_agent_row_emits_selected_bloom_sources_only_for_that_row() {
 
     assert_eq!(specs.len(), 8);
     assert!(specs.iter().all(|spec| spec.key.terminal_id == crate::terminals::TerminalId(11)));
+}
+
+#[test]
+fn selected_working_agent_row_emits_green_bloom_sources_only_for_that_row() {
+    let specs = build_bloom_specs(
+        HudRect {
+            x: 0.0,
+            y: 0.0,
+            w: 400.0,
+            h: 240.0,
+        },
+        0.0,
+        None,
+        &AgentListView {
+            rows: vec![
+                AgentListRowView {
+                    key: AgentListRowKey::Agent(crate::agents::AgentId(1)),
+                    label: "ALPHA".into(),
+                    focused: true,
+                    kind: AgentListRowKind::Agent {
+                        agent_id: crate::agents::AgentId(1),
+                        terminal_id: Some(crate::terminals::TerminalId(11)),
+                        has_tasks: false,
+                        interactive: true,
+                        activity: AgentListActivity::Working,
+                        context_pct_milli: None,
+                    },
+                },
+                AgentListRowView {
+                    key: AgentListRowKey::Agent(crate::agents::AgentId(2)),
+                    label: "BETA".into(),
+                    focused: false,
+                    kind: AgentListRowKind::Agent {
+                        agent_id: crate::agents::AgentId(2),
+                        terminal_id: Some(crate::terminals::TerminalId(22)),
+                        has_tasks: false,
+                        interactive: true,
+                        activity: AgentListActivity::Idle,
+                        context_pct_milli: None,
+                    },
+                },
+            ],
+        },
+    );
+
+    assert_eq!(specs.len(), 8);
+    assert!(specs.iter().all(|spec| spec.key.terminal_id == crate::terminals::TerminalId(11)));
+    let linear = specs[0].color.to_linear();
+    assert!(linear.green > linear.red);
+    assert!(linear.green > linear.blue);
 }
 
 #[test]

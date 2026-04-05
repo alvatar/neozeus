@@ -82,6 +82,13 @@ impl AgentRow {
         }
     }
 
+    pub(in crate::hud) fn activity(&self) -> Option<AgentListActivity> {
+        match self.kind {
+            AgentRowKind::Agent { activity, .. } => Some(activity),
+            AgentRowKind::OwnedTmux { .. } => None,
+        }
+    }
+
     #[cfg(test)]
     pub(in crate::hud) fn has_tasks(&self) -> bool {
         match self.kind {
