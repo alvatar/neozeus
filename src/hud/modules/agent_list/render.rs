@@ -55,6 +55,7 @@ const WORKING_ROW_COLOR: peniko::Color = peniko::Color::from_rgba8(
     255,
 );
 const CONTEXT_BAR_TRACK_COLOR: peniko::Color = HudColors::BUTTON;
+const AGENT_LIST_BORDER_STROKE_WIDTH: f64 = 2.5;
 
 #[allow(
     clippy::too_many_arguments,
@@ -82,7 +83,7 @@ fn draw_button_rect(
     fill: peniko::Color,
 ) {
     painter.fill_rect(rect, fill, 0.0);
-    painter.stroke_rect_width(rect, stroke, 2.5);
+    painter.stroke_rect_width(rect, stroke, AGENT_LIST_BORDER_STROKE_WIDTH);
 }
 
 fn agent_fill_color(
@@ -397,7 +398,7 @@ fn render_tmux_child_row(
             start,
             end,
             apply_alpha(tmux_child_chrome_color(row.focused), 0.72),
-            4.5,
+            AGENT_LIST_BORDER_STROKE_WIDTH,
         );
     }
     let stroke = if orphaned {
@@ -589,7 +590,8 @@ mod tests {
         context_active_segment_range, context_bar_color, context_segment_count,
         context_segment_rect, context_track_rect, marker_fill, rendered_context_pct_milli,
         tmux_child_chrome_color, tmux_child_connector, tmux_child_fill_color,
-        tmux_child_label_color, EVA_CYAN, EVA_SELECTED, TMUX_CHILD_ORANGE, WORKING_ROW_COLOR,
+        tmux_child_label_color, AGENT_LIST_BORDER_STROKE_WIDTH, EVA_CYAN, EVA_SELECTED,
+        TMUX_CHILD_ORANGE, WORKING_ROW_COLOR,
     };
     use crate::hud::view_models::AgentListActivity;
 
@@ -741,5 +743,10 @@ mod tests {
         let (start, end) = tmux_child_connector(parent, child);
         assert_eq!(start, bevy::prelude::Vec2::new(30.0, 74.0));
         assert_eq!(end, bevy::prelude::Vec2::new(58.0, 96.0));
+    }
+
+    #[test]
+    fn tmux_child_connector_stroke_matches_button_border_width() {
+        assert_eq!(AGENT_LIST_BORDER_STROKE_WIDTH, 2.5);
     }
 }
