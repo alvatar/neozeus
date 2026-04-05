@@ -92,6 +92,19 @@ pub(crate) fn should_spawn_terminal_globally(
     !(ctrl || alt || super_key)
 }
 
+/// Decides whether a keyboard event means "open the clone-agent dialog".
+pub(crate) fn should_open_clone_agent_dialog(
+    event: &KeyboardInput,
+    keys: &ButtonInput<KeyCode>,
+) -> bool {
+    if event.state != ButtonState::Pressed || event.key_code != KeyCode::KeyC {
+        return false;
+    }
+
+    let (ctrl, alt, super_key) = has_plain_modifiers(keys);
+    !(ctrl || alt || super_key)
+}
+
 /// Decides whether a keyboard event should kill the currently active terminal session.
 ///
 /// The shortcut is a plain `Ctrl+k` press. Like the other `should_*` helpers, this function only
@@ -119,6 +132,10 @@ pub(crate) fn should_exit_application(event: &KeyboardInput, keys: &ButtonInput<
     !(ctrl || alt || super_key)
 }
 
+#[allow(
+    clippy::too_many_arguments,
+    reason = "global shortcut handling needs window focus, selection, catalog, session, and redraw output together"
+)]
 /// Watches unfocused-by-modal keyboard input for the global create-agent shortcut.
 ///
 /// The system exits early whenever the primary window is unfocused or a HUD modal currently owns the
@@ -128,6 +145,8 @@ pub(crate) fn handle_global_terminal_spawn_shortcut(
     mut messages: MessageReader<KeyboardInput>,
     keys: Res<ButtonInput<KeyCode>>,
     primary_window: Single<&Window, With<PrimaryWindow>>,
+    agent_catalog: Res<AgentCatalog>,
+    selection: Option<Res<crate::hud::AgentListSelection>>,
     mut app_session: ResMut<AppSessionState>,
     input_capture: Res<HudInputCaptureState>,
     mut redraws: MessageWriter<RequestRedraw>,
@@ -137,9 +156,26 @@ pub(crate) fn handle_global_terminal_spawn_shortcut(
         return;
     }
 
+    let default_selection = crate::hud::AgentListSelection::None;
+    let selection = selection.as_deref().unwrap_or(&default_selection);
+
     for event in messages.read() {
         if should_spawn_terminal_globally(event, &keys) {
             app_session.create_agent_dialog.open(CreateAgentKind::Pi);
+            redraws.write(RequestRedraw);
+            break;
+        }
+        if should_open_clone_agent_dialog(event, &keys) {
+            let crate::hud::AgentListSelection::Agent(agent_id) = *selection else {
+                continue;
+            };
+            if agent_catalog.kind(agent_id) != Some(crate::agents::AgentKind::Pi)
+                || agent_catalog.clone_source_session_path(agent_id).is_none()
+            {
+                continue;
+            }
+            let current_label = agent_catalog.label(agent_id).unwrap_or("AGENT");
+            app_session.clone_agent_dialog.open(agent_id, current_label);
             redraws.write(RequestRedraw);
             break;
         }
