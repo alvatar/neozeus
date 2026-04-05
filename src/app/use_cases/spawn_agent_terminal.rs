@@ -21,6 +21,7 @@ pub(crate) fn spawn_agent_terminal(
     agent_catalog: &mut AgentCatalog,
     runtime_index: &mut AgentRuntimeIndex,
     app_session: &mut AppSessionState,
+    selection: &mut crate::hud::AgentListSelection,
     terminal_manager: &mut TerminalManager,
     focus_state: &mut TerminalFocusState,
     runtime_spawner: &TerminalRuntimeSpawner,
@@ -72,6 +73,7 @@ pub(crate) fn spawn_agent_terminal(
         .map(|terminal| &terminal.snapshot.runtime);
     runtime_index.link_terminal(agent_id, terminal_id, session_name.clone(), runtime);
     app_session.active_agent = Some(agent_id);
+    *selection = crate::hud::AgentListSelection::Agent(agent_id);
     input_capture.reconcile_direct_terminal_input(focus_state.active_id());
     view_state.focus_terminal(Some(terminal_id));
     app_session.visibility_mode = VisibilityMode::FocusedOnly;

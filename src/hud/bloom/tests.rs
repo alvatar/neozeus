@@ -6,14 +6,14 @@ use super::super::{
     setup::sync_structural_hud_layout,
     state::{default_hud_module_instance, AgentListUiState, HudState},
     view_models::{
-        sync_hud_view_models, AgentListRowKey, AgentListRowKind, AgentListRowView, AgentListView,
-        ComposerView, ConversationListView, OwnedTmuxOwnerBinding, ThreadView,
+        sync_hud_view_models, AgentListActivity, AgentListRowKey, AgentListRowKind,
+        AgentListRowView, AgentListView, ComposerView, ConversationListView,
+        OwnedTmuxOwnerBinding, ThreadView,
     },
     widgets::{HudWidgetKey, HUD_WIDGET_DEFINITIONS},
 };
 use super::*;
 use crate::{
-    agents::AgentStatus,
     terminals::TerminalManager,
     tests::{
         insert_terminal_manager_resources, insert_test_hud_state, snapshot_test_hud_state,
@@ -54,89 +54,18 @@ fn agent_list_reference_colors_match_requested_values() {
         ),
         (143, 37, 15)
     );
-    assert_eq!(
-        (
-            AGENT_LIST_WORKING_GLOW_R,
-            AGENT_LIST_WORKING_GLOW_G,
-            AGENT_LIST_WORKING_GLOW_B,
-        ),
-        (84, 220, 190)
-    );
 }
 
 #[test]
-fn working_rows_use_turquoise_bloom_glow() {
-    let main = bloom_source_color(
-        AgentStatus::Working,
-        false,
-        false,
-        AgentListBloomSourceKind::Main,
-    );
-    let marker = bloom_source_color(
-        AgentStatus::Working,
-        false,
-        false,
-        AgentListBloomSourceKind::Marker,
-    );
-    let idle = bloom_source_color(
-        AgentStatus::Idle,
-        false,
-        false,
-        AgentListBloomSourceKind::Main,
-    );
+fn selected_rows_use_same_red_bloom_contract() {
+    let main = bloom_source_color(AgentListBloomSourceKind::Main);
+    let marker = bloom_source_color(AgentListBloomSourceKind::Marker);
 
     let main_linear = main.to_linear();
     let marker_linear = marker.to_linear();
-    let idle_linear = idle.to_linear();
-    assert!(main_linear.green > main_linear.red);
-    assert!(main_linear.blue > main_linear.red);
-    assert!(marker_linear.green > marker_linear.red);
-    assert!(marker_linear.blue > marker_linear.red);
-    assert!(marker_linear.green >= main_linear.green);
-    assert!(idle_linear.red > idle_linear.green);
-}
-
-#[test]
-fn selected_tmux_connectors_use_selected_bloom_glow() {
-    let connector = bloom_source_color(
-        AgentStatus::Unknown,
-        true,
-        false,
-        AgentListBloomSourceKind::Connector,
-    );
-    let main = bloom_source_color(
-        AgentStatus::Unknown,
-        true,
-        false,
-        AgentListBloomSourceKind::Main,
-    );
-    let connector_linear = connector.to_linear();
-    let main_linear = main.to_linear();
-    assert!(connector_linear.red >= main_linear.red);
-    assert!(connector_linear.green < connector_linear.red);
-}
-
-#[test]
-fn connector_bloom_rects_follow_tmux_link_path() {
-    let parent = HudRect {
-        x: 30.0,
-        y: 50.0,
-        w: 120.0,
-        h: 24.0,
-    };
-    let child = HudRect {
-        x: 58.0,
-        y: 96.0,
-        w: 100.0,
-        h: 18.0,
-    };
-
-    let rects = connector_bloom_rects(parent, child, 8, 8.0);
-    assert_eq!(rects.len(), 8);
-    assert_eq!(rects.first().unwrap().0, AgentListBloomSourceSegment::Connector0);
-    assert_eq!(rects.last().unwrap().0, AgentListBloomSourceSegment::Connector7);
-    assert!(rects.first().unwrap().1.x < rects.last().unwrap().1.x);
-    assert!(rects.first().unwrap().1.y < rects.last().unwrap().1.y);
+    assert!(main_linear.red > main_linear.green);
+    assert!(main_linear.red > main_linear.blue);
+    assert!(marker_linear.red >= main_linear.red);
 }
 
 /// Verifies the permissive parser for the bloom-intensity override.
@@ -166,6 +95,133 @@ fn parses_agent_bloom_debug_previews_override() {
     assert!(resolve_agent_list_bloom_debug_previews(Some("on")));
     assert!(!resolve_agent_list_bloom_debug_previews(Some("0")));
     assert!(!resolve_agent_list_bloom_debug_previews(Some("false")));
+}
+
+#[test]
+fn selected_agent_row_emits_selected_bloom_sources_only_for_that_row() {
+    let specs = build_bloom_specs(
+        HudRect {
+            x: 0.0,
+            y: 0.0,
+            w: 400.0,
+            h: 240.0,
+        },
+        0.0,
+        None,
+        &AgentListView {
+            rows: vec![
+                AgentListRowView {
+                    key: AgentListRowKey::Agent(crate::agents::AgentId(1)),
+                    label: "ALPHA".into(),
+                    focused: true,
+                    kind: AgentListRowKind::Agent {
+                        agent_id: crate::agents::AgentId(1),
+                        terminal_id: Some(crate::terminals::TerminalId(11)),
+                        has_tasks: false,
+                        interactive: true,
+                        activity: AgentListActivity::Idle,
+                        context_pct_milli: None,
+                    },
+                },
+                AgentListRowView {
+                    key: AgentListRowKey::Agent(crate::agents::AgentId(2)),
+                    label: "BETA".into(),
+                    focused: false,
+                    kind: AgentListRowKind::Agent {
+                        agent_id: crate::agents::AgentId(2),
+                        terminal_id: Some(crate::terminals::TerminalId(22)),
+                        has_tasks: false,
+                        interactive: true,
+                        activity: AgentListActivity::Idle,
+                        context_pct_milli: None,
+                    },
+                },
+            ],
+        },
+    );
+
+    assert_eq!(specs.len(), 8);
+    assert!(specs.iter().all(|spec| spec.key.terminal_id == crate::terminals::TerminalId(11)));
+}
+
+#[test]
+fn selected_tmux_row_does_not_emit_parent_agent_bloom() {
+    let specs = build_bloom_specs(
+        HudRect {
+            x: 0.0,
+            y: 0.0,
+            w: 400.0,
+            h: 240.0,
+        },
+        0.0,
+        None,
+        &AgentListView {
+            rows: vec![
+                AgentListRowView {
+                    key: AgentListRowKey::Agent(crate::agents::AgentId(1)),
+                    label: "ALPHA".into(),
+                    focused: false,
+                    kind: AgentListRowKind::Agent {
+                        agent_id: crate::agents::AgentId(1),
+                        terminal_id: Some(crate::terminals::TerminalId(11)),
+                        has_tasks: false,
+                        interactive: true,
+                        activity: AgentListActivity::Idle,
+                        context_pct_milli: None,
+                    },
+                },
+                AgentListRowView {
+                    key: AgentListRowKey::OwnedTmux("tmux-1".into()),
+                    label: "BUILD".into(),
+                    focused: true,
+                    kind: AgentListRowKind::OwnedTmux {
+                        session_uid: "tmux-1".into(),
+                        owner: OwnedTmuxOwnerBinding::Bound(crate::agents::AgentId(1)),
+                        tmux_name: "neozeus-tmux-1".into(),
+                        cwd: "/tmp/work".into(),
+                        attached: false,
+                    },
+                },
+            ],
+        },
+    );
+
+    assert_eq!(specs.len(), 4);
+    assert!(specs
+        .iter()
+        .all(|spec| spec.key.kind == AgentListBloomSourceKind::Main));
+    assert!(specs.iter().all(|spec| spec.key.terminal_id == crate::terminals::TerminalId(11)));
+}
+
+#[test]
+fn unselected_rows_do_not_emit_selected_bloom_sources() {
+    let specs = build_bloom_specs(
+        HudRect {
+            x: 0.0,
+            y: 0.0,
+            w: 400.0,
+            h: 240.0,
+        },
+        0.0,
+        None,
+        &AgentListView {
+            rows: vec![AgentListRowView {
+                key: AgentListRowKey::Agent(crate::agents::AgentId(1)),
+                label: "ALPHA".into(),
+                focused: false,
+                kind: AgentListRowKind::Agent {
+                    agent_id: crate::agents::AgentId(1),
+                    terminal_id: Some(crate::terminals::TerminalId(11)),
+                    has_tasks: false,
+                    interactive: true,
+                    activity: AgentListActivity::Idle,
+                    context_pct_milli: None,
+                },
+            }],
+        },
+    );
+
+    assert!(specs.is_empty());
 }
 
 /// Verifies that the bloom blur material renders its offscreen passes opaquely.
@@ -560,7 +616,7 @@ fn sync_hud_widget_bloom_only_uses_active_agent_source() {
 }
 
 #[test]
-fn sync_hud_widget_bloom_includes_selected_tmux_connector_glow() {
+fn sync_hud_widget_bloom_includes_selected_tmux_row_only() {
     let mut world = World::default();
     let (bridge, _) = test_bridge();
     let mut manager = TerminalManager::default();
@@ -584,7 +640,7 @@ fn sync_hud_widget_bloom_includes_selected_tmux_connector_glow() {
                     terminal_id: Some(terminal_id),
                     has_tasks: false,
                     interactive: true,
-                    status: AgentStatus::Idle,
+                    activity: AgentListActivity::Idle,
                     context_pct_milli: None,
                 },
             },
@@ -632,20 +688,13 @@ fn sync_hud_widget_bloom_includes_selected_tmux_connector_glow() {
         .iter(&world)
         .copied()
         .collect::<Vec<_>>();
-    assert_eq!(source_sprites.len(), 12);
+    assert_eq!(source_sprites.len(), 4);
     assert_eq!(
         source_sprites
             .iter()
             .filter(|sprite| sprite.kind == AgentListBloomSourceKind::Main)
             .count(),
         4
-    );
-    assert_eq!(
-        source_sprites
-            .iter()
-            .filter(|sprite| sprite.kind == AgentListBloomSourceKind::Connector)
-            .count(),
-        8
     );
     assert!(source_sprites
         .iter()

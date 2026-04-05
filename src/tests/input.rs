@@ -2314,6 +2314,9 @@ fn hud_navigation_selects_owned_tmux_child_row() {
         active_agent: Some(crate::agents::AgentId(1)),
         ..Default::default()
     });
+    world.insert_resource(crate::hud::AgentListSelection::Agent(
+        crate::agents::AgentId(1),
+    ));
     world.insert_resource(crate::hud::AgentListView {
         rows: vec![
             crate::hud::AgentListRowView {
@@ -2325,7 +2328,7 @@ fn hud_navigation_selects_owned_tmux_child_row() {
                     terminal_id: None,
                     has_tasks: false,
                     interactive: true,
-                    status: crate::agents::AgentStatus::Unknown,
+                    activity: crate::hud::AgentListActivity::Idle,
                     context_pct_milli: None,
                 },
             },
@@ -2350,7 +2353,7 @@ fn hud_navigation_selects_owned_tmux_child_row() {
                     terminal_id: None,
                     has_tasks: false,
                     interactive: true,
-                    status: crate::agents::AgentStatus::Unknown,
+                    activity: crate::hud::AgentListActivity::Idle,
                     context_pct_milli: None,
                 },
             },
@@ -2364,6 +2367,138 @@ fn hud_navigation_selects_owned_tmux_child_row() {
     world
         .resource_mut::<Messages<KeyboardInput>>()
         .write(pressed_key(KeyCode::KeyJ, Key::Character("j".into())));
+
+    world.run_system_once(handle_hud_module_shortcuts).unwrap();
+
+    assert_eq!(
+        drain_hud_commands(&mut world),
+        vec![AppCommand::OwnedTmux(
+            crate::app::OwnedTmuxCommand::Select {
+                session_uid: "tmux-1".into(),
+            }
+        )]
+    );
+}
+
+#[test]
+fn hud_navigation_jk_uses_agent_list_selection_as_single_source_of_truth() {
+    let mut world = World::default();
+    insert_default_hud_resources(&mut world);
+    world.insert_resource(AppSessionState {
+        active_agent: Some(crate::agents::AgentId(1)),
+        ..Default::default()
+    });
+    world.insert_resource(crate::hud::AgentListSelection::OwnedTmux("tmux-1".into()));
+    world.insert_resource(crate::hud::AgentListView {
+        rows: vec![
+            crate::hud::AgentListRowView {
+                key: crate::hud::AgentListRowKey::Agent(crate::agents::AgentId(1)),
+                label: "ALPHA".into(),
+                focused: false,
+                kind: crate::hud::AgentListRowKind::Agent {
+                    agent_id: crate::agents::AgentId(1),
+                    terminal_id: None,
+                    has_tasks: false,
+                    interactive: true,
+                    activity: crate::hud::AgentListActivity::Idle,
+                    context_pct_milli: None,
+                },
+            },
+            crate::hud::AgentListRowView {
+                key: crate::hud::AgentListRowKey::OwnedTmux("tmux-1".into()),
+                label: "BUILD".into(),
+                focused: true,
+                kind: crate::hud::AgentListRowKind::OwnedTmux {
+                    session_uid: "tmux-1".into(),
+                    owner: crate::hud::OwnedTmuxOwnerBinding::Bound(crate::agents::AgentId(1)),
+                    tmux_name: "neozeus-tmux-1".into(),
+                    cwd: "/tmp/work".into(),
+                    attached: false,
+                },
+            },
+            crate::hud::AgentListRowView {
+                key: crate::hud::AgentListRowKey::Agent(crate::agents::AgentId(2)),
+                label: "BETA".into(),
+                focused: false,
+                kind: crate::hud::AgentListRowKind::Agent {
+                    agent_id: crate::agents::AgentId(2),
+                    terminal_id: None,
+                    has_tasks: false,
+                    interactive: true,
+                    activity: crate::hud::AgentListActivity::Idle,
+                    context_pct_milli: None,
+                },
+            },
+        ],
+    });
+    world.insert_resource(crate::terminals::ActiveTerminalContentState::default());
+    world.insert_resource(crate::terminals::ActiveTerminalContentSyncState::default());
+    world.insert_resource(ButtonInput::<KeyCode>::default());
+    init_hud_commands(&mut world);
+    world.init_resource::<Messages<KeyboardInput>>();
+    world
+        .resource_mut::<Messages<KeyboardInput>>()
+        .write(pressed_key(KeyCode::KeyJ, Key::Character("j".into())));
+
+    world.run_system_once(handle_hud_module_shortcuts).unwrap();
+
+    assert_eq!(
+        drain_hud_commands(&mut world),
+        vec![
+            AppCommand::Agent(AppAgentCommand::Focus(crate::agents::AgentId(2))),
+            AppCommand::Agent(AppAgentCommand::Inspect(crate::agents::AgentId(2))),
+        ]
+    );
+}
+
+#[test]
+fn hud_navigation_arrow_keys_uses_agent_list_selection_as_single_source_of_truth() {
+    let mut world = World::default();
+    insert_default_hud_resources(&mut world);
+    world.insert_resource(AppSessionState {
+        active_agent: Some(crate::agents::AgentId(2)),
+        ..Default::default()
+    });
+    let mut active_terminal_content = crate::terminals::ActiveTerminalContentState::default();
+    active_terminal_content.select_owned_tmux("tmux-1".into(), None);
+    world.insert_resource(active_terminal_content);
+    world.insert_resource(crate::hud::AgentListSelection::Agent(crate::agents::AgentId(1)));
+    world.insert_resource(crate::hud::AgentListView {
+        rows: vec![
+            crate::hud::AgentListRowView {
+                key: crate::hud::AgentListRowKey::Agent(crate::agents::AgentId(1)),
+                label: "ALPHA".into(),
+                focused: true,
+                kind: crate::hud::AgentListRowKind::Agent {
+                    agent_id: crate::agents::AgentId(1),
+                    terminal_id: None,
+                    has_tasks: false,
+                    interactive: true,
+                    activity: crate::hud::AgentListActivity::Idle,
+                    context_pct_milli: None,
+                },
+            },
+            crate::hud::AgentListRowView {
+                key: crate::hud::AgentListRowKey::OwnedTmux("tmux-1".into()),
+                label: "BUILD".into(),
+                focused: false,
+                kind: crate::hud::AgentListRowKind::OwnedTmux {
+                    session_uid: "tmux-1".into(),
+                    owner: crate::hud::OwnedTmuxOwnerBinding::Bound(crate::agents::AgentId(1)),
+                    tmux_name: "neozeus-tmux-1".into(),
+                    cwd: "/tmp/work".into(),
+                    attached: false,
+                },
+            },
+        ],
+    });
+    world.insert_resource(crate::terminals::ActiveTerminalContentSyncState::default());
+    world.insert_resource(ButtonInput::<KeyCode>::default());
+    init_hud_commands(&mut world);
+    world.init_resource::<Messages<KeyboardInput>>();
+    world
+        .resource_mut::<Messages<KeyboardInput>>()
+        .write(pressed_key(KeyCode::ArrowDown, Key::ArrowDown));
 
     world.run_system_once(handle_hud_module_shortcuts).unwrap();
 
@@ -2417,6 +2552,9 @@ fn ctrl_k_kills_selected_owned_tmux_session_before_active_agent() {
     world
         .resource_mut::<crate::terminals::ActiveTerminalContentState>()
         .select_owned_tmux("tmux-session-1".into(), None);
+    world.insert_resource(crate::hud::AgentListSelection::OwnedTmux(
+        "tmux-session-1".into(),
+    ));
     init_hud_commands(&mut world);
     world
         .resource_mut::<Messages<KeyboardInput>>()

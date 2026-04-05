@@ -1,10 +1,11 @@
 use super::{
-    parse_agent_context_pct_milli, sync_hud_view_models, sync_info_bar_view_model,
-    AgentListRowKind, AgentListView, ComposerView, ConversationListView, InfoBarView,
+    parse_agent_context_pct_milli, selected_agent_list_row_key, sync_hud_view_models,
+    sync_info_bar_view_model, AgentListActivity, AgentListRowKey, AgentListRowKind,
+    AgentListSelection, AgentListView, ComposerView, ConversationListView, InfoBarView,
     OwnedTmuxOwnerBinding, ThreadView,
 };
 use crate::{
-    agents::{AgentCatalog, AgentKind, AgentRuntimeIndex, AgentStatus, AgentStatusStore},
+    agents::{AgentCatalog, AgentKind, AgentRuntimeIndex, AgentStatusStore},
     app::AppSessionState,
     conversations::{AgentTaskStore, ConversationStore, MessageAuthor, MessageDeliveryState},
     tests::{insert_terminal_manager_resources, surface_with_text, test_bridge},
@@ -16,6 +17,27 @@ use std::{
     path::PathBuf,
     time::{SystemTime, UNIX_EPOCH},
 };
+
+#[test]
+fn selected_agent_list_row_key_returns_none_for_none_selection() {
+    assert_eq!(selected_agent_list_row_key(&AgentListSelection::None), None);
+}
+
+#[test]
+fn selected_agent_list_row_key_returns_agent_row() {
+    assert_eq!(
+        selected_agent_list_row_key(&AgentListSelection::Agent(crate::agents::AgentId(7))),
+        Some(AgentListRowKey::Agent(crate::agents::AgentId(7)))
+    );
+}
+
+#[test]
+fn selected_agent_list_row_key_returns_owned_tmux_row() {
+    assert_eq!(
+        selected_agent_list_row_key(&AgentListSelection::OwnedTmux("tmux-7".into())),
+        Some(AgentListRowKey::OwnedTmux("tmux-7".into()))
+    );
+}
 
 #[test]
 fn sync_hud_view_models_derives_agent_rows_and_threads() {
@@ -65,8 +87,8 @@ fn sync_hud_view_models_derives_agent_rows_and_threads() {
     world.insert_resource(ThreadView::default());
     world.insert_resource(ComposerView::default());
     world.insert_resource(AgentStatusStore::default());
+    world.insert_resource(AgentListSelection::Agent(agent_id));
     world.insert_resource(crate::terminals::OwnedTmuxSessionStore::default());
-    world.insert_resource(crate::terminals::ActiveTerminalContentState::default());
     insert_terminal_manager_resources(&mut world, manager);
 
     world.run_system_once(sync_hud_view_models).unwrap();
@@ -78,12 +100,12 @@ fn sync_hud_view_models_derives_agent_rows_and_threads() {
     match &agent_list.rows[0].kind {
         AgentListRowKind::Agent {
             has_tasks,
-            status,
+            activity,
             context_pct_milli,
             ..
         } => {
             assert!(*has_tasks);
-            assert_eq!(*status, AgentStatus::Unknown);
+            assert_eq!(*activity, AgentListActivity::Idle);
             assert_eq!(*context_pct_milli, None);
         }
         other => panic!("expected agent row, got {other:?}"),
@@ -122,6 +144,7 @@ fn sync_hud_view_models_places_owned_tmux_rows_under_matching_agent() {
     world.insert_resource(ThreadView::default());
     world.insert_resource(ComposerView::default());
     world.insert_resource(AgentStatusStore::default());
+    world.insert_resource(AgentListSelection::None);
     let mut owned_tmux = crate::terminals::OwnedTmuxSessionStore::default();
     owned_tmux
         .sessions
@@ -135,7 +158,6 @@ fn sync_hud_view_models_places_owned_tmux_rows_under_matching_agent() {
             created_unix: 1,
         });
     world.insert_resource(owned_tmux);
-    world.insert_resource(crate::terminals::ActiveTerminalContentState::default());
     world.insert_resource(crate::terminals::TerminalManager::default());
 
     world.run_system_once(sync_hud_view_models).unwrap();
@@ -175,6 +197,7 @@ fn sync_hud_view_models_orders_multiple_owned_tmux_rows_and_marks_selected_child
     world.insert_resource(ThreadView::default());
     world.insert_resource(ComposerView::default());
     world.insert_resource(AgentStatusStore::default());
+    world.insert_resource(AgentListSelection::OwnedTmux("tmux-a2".into()));
     world.insert_resource(crate::terminals::TerminalManager::default());
     let mut owned_tmux = crate::terminals::OwnedTmuxSessionStore::default();
     owned_tmux.sessions = vec![
@@ -216,9 +239,6 @@ fn sync_hud_view_models_orders_multiple_owned_tmux_rows_and_marks_selected_child
         },
     ];
     world.insert_resource(owned_tmux);
-    let mut active_terminal_content = crate::terminals::ActiveTerminalContentState::default();
-    active_terminal_content.select_owned_tmux("tmux-a2".into(), None);
-    world.insert_resource(active_terminal_content);
 
     world.run_system_once(sync_hud_view_models).unwrap();
     let rows = &world.resource::<AgentListView>().rows;
@@ -239,6 +259,94 @@ fn sync_hud_view_models_orders_multiple_owned_tmux_rows_and_marks_selected_child
             ..
         }
     ));
+    assert_eq!(rows.iter().filter(|row| row.focused).count(), 1);
+}
+
+#[test]
+fn sync_hud_view_models_projects_selected_tmux_row_only() {
+    let mut catalog = AgentCatalog::default();
+    let alpha = catalog.create_agent(
+        Some("ALPHA".into()),
+        AgentKind::Terminal,
+        AgentKind::Terminal.capabilities(),
+    );
+    let alpha_uid = catalog.uid(alpha).unwrap().to_owned();
+
+    let mut world = World::default();
+    world.insert_resource(catalog);
+    world.insert_resource(AgentRuntimeIndex::default());
+    world.insert_resource(AppSessionState {
+        active_agent: Some(alpha),
+        ..Default::default()
+    });
+    world.insert_resource(AgentTaskStore::default());
+    world.insert_resource(ConversationStore::default());
+    world.insert_resource(AgentListSelection::OwnedTmux("tmux-a1".into()));
+    world.insert_resource(AgentListView::default());
+    world.insert_resource(ConversationListView::default());
+    world.insert_resource(ThreadView::default());
+    world.insert_resource(ComposerView::default());
+    world.insert_resource(AgentStatusStore::default());
+    world.insert_resource(crate::terminals::TerminalManager::default());
+    let mut owned_tmux = crate::terminals::OwnedTmuxSessionStore::default();
+    owned_tmux.sessions.push(crate::terminals::OwnedTmuxSessionInfo {
+        session_uid: "tmux-a1".into(),
+        owner_agent_uid: alpha_uid,
+        tmux_name: "neozeus-tmux-a1".into(),
+        display_name: "BUILD".into(),
+        cwd: "/tmp/alpha-1".into(),
+        attached: false,
+        created_unix: 1,
+    });
+    world.insert_resource(owned_tmux);
+
+    world.run_system_once(sync_hud_view_models).unwrap();
+    let rows = &world.resource::<AgentListView>().rows;
+    assert_eq!(rows.iter().filter(|row| row.focused).count(), 1);
+    assert!(matches!(rows[0].key, AgentListRowKey::Agent(_)));
+    assert!(!rows[0].focused);
+    assert!(matches!(rows[1].key, AgentListRowKey::OwnedTmux(_)));
+    assert!(rows[1].focused);
+}
+
+#[test]
+fn sync_hud_view_models_tmux_rows_have_no_activity_state() {
+    let mut catalog = AgentCatalog::default();
+    let alpha = catalog.create_agent(
+        Some("ALPHA".into()),
+        AgentKind::Terminal,
+        AgentKind::Terminal.capabilities(),
+    );
+    let alpha_uid = catalog.uid(alpha).unwrap().to_owned();
+
+    let mut world = World::default();
+    world.insert_resource(catalog);
+    world.insert_resource(AgentRuntimeIndex::default());
+    world.insert_resource(AppSessionState::default());
+    world.insert_resource(AgentTaskStore::default());
+    world.insert_resource(ConversationStore::default());
+    world.insert_resource(AgentListSelection::None);
+    world.insert_resource(AgentListView::default());
+    world.insert_resource(ConversationListView::default());
+    world.insert_resource(ThreadView::default());
+    world.insert_resource(ComposerView::default());
+    world.insert_resource(AgentStatusStore::default());
+    world.insert_resource(crate::terminals::TerminalManager::default());
+    let mut owned_tmux = crate::terminals::OwnedTmuxSessionStore::default();
+    owned_tmux.sessions.push(crate::terminals::OwnedTmuxSessionInfo {
+        session_uid: "tmux-a1".into(),
+        owner_agent_uid: alpha_uid,
+        tmux_name: "neozeus-tmux-a1".into(),
+        display_name: "BUILD".into(),
+        cwd: "/tmp/alpha-1".into(),
+        attached: false,
+        created_unix: 1,
+    });
+    world.insert_resource(owned_tmux);
+
+    world.run_system_once(sync_hud_view_models).unwrap();
+    let rows = &world.resource::<AgentListView>().rows;
+    assert!(matches!(rows[1].kind, AgentListRowKind::OwnedTmux { .. }));
 }
 
 #[test]
@@ -254,6 +362,7 @@ fn sync_hud_view_models_routes_unknown_owned_tmux_to_orphan_row() {
     world.insert_resource(ThreadView::default());
     world.insert_resource(ComposerView::default());
     world.insert_resource(AgentStatusStore::default());
+    world.insert_resource(AgentListSelection::None);
     let mut owned_tmux = crate::terminals::OwnedTmuxSessionStore::default();
     owned_tmux
         .sessions
@@ -267,7 +376,6 @@ fn sync_hud_view_models_routes_unknown_owned_tmux_to_orphan_row() {
             created_unix: 1,
         });
     world.insert_resource(owned_tmux);
-    world.insert_resource(crate::terminals::ActiveTerminalContentState::default());
     world.insert_resource(crate::terminals::TerminalManager::default());
 
     world.run_system_once(sync_hud_view_models).unwrap();
@@ -314,8 +422,8 @@ fn sync_hud_view_models_carries_agent_working_status_into_rows() {
     world.insert_resource(ThreadView::default());
     world.insert_resource(ComposerView::default());
     world.insert_resource(AgentStatusStore::default());
+    world.insert_resource(AgentListSelection::None);
     world.insert_resource(crate::terminals::OwnedTmuxSessionStore::default());
-    world.insert_resource(crate::terminals::ActiveTerminalContentState::default());
     insert_terminal_manager_resources(&mut world, manager);
 
     world
@@ -325,7 +433,9 @@ fn sync_hud_view_models_carries_agent_working_status_into_rows() {
 
     let agent_list = world.resource::<AgentListView>();
     match &agent_list.rows[0].kind {
-        AgentListRowKind::Agent { status, .. } => assert_eq!(*status, AgentStatus::Working),
+        AgentListRowKind::Agent { activity, .. } => {
+            assert_eq!(*activity, AgentListActivity::Working)
+        }
         other => panic!("expected agent row, got {other:?}"),
     }
 }
@@ -384,8 +494,8 @@ fn synced_context_pct(kind: AgentKind, surface: crate::terminals::TerminalSurfac
     world.insert_resource(ThreadView::default());
     world.insert_resource(ComposerView::default());
     world.insert_resource(AgentStatusStore::default());
+    world.insert_resource(AgentListSelection::None);
     world.insert_resource(crate::terminals::OwnedTmuxSessionStore::default());
-    world.insert_resource(crate::terminals::ActiveTerminalContentState::default());
     insert_terminal_manager_resources(&mut world, manager);
 
     world.run_system_once(sync_hud_view_models).unwrap();

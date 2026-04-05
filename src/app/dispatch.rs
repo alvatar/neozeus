@@ -33,8 +33,8 @@ pub(crate) fn sync_agents_from_terminals(
     mut agent_catalog: ResMut<AgentCatalog>,
     mut runtime_index: ResMut<AgentRuntimeIndex>,
     mut app_session: ResMut<AppSessionState>,
+    mut selection: ResMut<crate::hud::AgentListSelection>,
     terminal_manager: Res<TerminalManager>,
-    focus_state: Res<TerminalFocusState>,
 ) {
     // Rebuild the derived or projected state from the authoritative resources in one pass so partial updates cannot drift.
     let existing_terminals = terminal_manager
@@ -54,6 +54,9 @@ pub(crate) fn sync_agents_from_terminals(
             app_session.composer.unbind_agent(agent_id);
             if app_session.active_agent == Some(agent_id) {
                 app_session.active_agent = None;
+            }
+            if *selection == crate::hud::AgentListSelection::Agent(agent_id) {
+                *selection = crate::hud::AgentListSelection::None;
             }
         }
     }
@@ -83,9 +86,6 @@ pub(crate) fn sync_agents_from_terminals(
         runtime_index.update_runtime(terminal_id, &terminal.snapshot.runtime);
     }
 
-    app_session.active_agent = focus_state
-        .active_id()
-        .and_then(|terminal_id| runtime_index.agent_for_terminal(terminal_id));
 }
 
 /// Refreshes the open task editor text after task-store mutations.
@@ -121,6 +121,7 @@ pub(super) struct AppCommandContext<'w> {
     active_terminal_content: ResMut<'w, ActiveTerminalContentState>,
     input_capture: ResMut<'w, HudInputCaptureState>,
     layout_state: ResMut<'w, HudLayoutState>,
+    selection: ResMut<'w, crate::hud::AgentListSelection>,
     task_store: ResMut<'w, AgentTaskStore>,
     conversations: ResMut<'w, ConversationStore>,
     conversation_persistence: ResMut<'w, ConversationPersistenceState>,
@@ -154,6 +155,7 @@ pub(super) fn apply_app_commands(
                         &mut ctx.agent_catalog,
                         &mut ctx.runtime_index,
                         &mut ctx.app_session,
+                        &mut ctx.selection,
                         &mut ctx.terminal_manager,
                         &mut ctx.focus_state,
                         &ctx.runtime_spawner,
@@ -201,6 +203,7 @@ pub(super) fn apply_app_commands(
                     }
                 }
                 AgentCommand::Focus(agent_id) => {
+                    ctx.selection.clone_from(&crate::hud::AgentListSelection::Agent(*agent_id));
                     ctx.active_terminal_content.clear();
                     ctx.app_session.visibility_mode = VisibilityMode::ShowAll;
                     use_cases::focus_agent(
@@ -218,6 +221,7 @@ pub(super) fn apply_app_commands(
                     );
                 }
                 AgentCommand::Inspect(agent_id) => {
+                    ctx.selection.clone_from(&crate::hud::AgentListSelection::Agent(*agent_id));
                     ctx.active_terminal_content.clear();
                     ctx.app_session.visibility_mode = VisibilityMode::FocusedOnly;
                     use_cases::focus_agent(
@@ -244,6 +248,7 @@ pub(super) fn apply_app_commands(
                     }
                 }
                 AgentCommand::ClearFocus => {
+                    ctx.selection.clone_from(&crate::hud::AgentListSelection::None);
                     ctx.active_terminal_content.clear();
                     ctx.app_session.active_agent = None;
                     let _ = ctx.focus_state.clear_active_terminal();
@@ -264,6 +269,7 @@ pub(super) fn apply_app_commands(
                         &mut ctx.agent_catalog,
                         &mut ctx.runtime_index,
                         &mut ctx.app_session,
+                        &mut ctx.selection,
                         &mut ctx.task_store,
                         &mut ctx.terminal_manager,
                         &mut ctx.focus_state,
@@ -282,6 +288,7 @@ pub(super) fn apply_app_commands(
                 OwnedTmuxCommand::Select { session_uid } => {
                     use_cases::select_owned_tmux(
                         session_uid,
+                        &mut ctx.selection,
                         &ctx.agent_catalog,
                         &ctx.runtime_index,
                         &mut ctx.app_session,
@@ -297,12 +304,14 @@ pub(super) fn apply_app_commands(
                     );
                 }
                 OwnedTmuxCommand::ClearSelection => {
+                    ctx.selection.clone_from(&crate::hud::AgentListSelection::None);
                     ctx.active_terminal_content.clear();
                     ctx.redraws.write(RequestRedraw);
                 }
                 OwnedTmuxCommand::KillSelected => {
                     use_cases::kill_selected_owned_tmux(
                         &ctx.runtime_spawner,
+                        &mut ctx.selection,
                         &mut ctx.owned_tmux_sessions,
                         &mut ctx.active_terminal_content,
                         &mut ctx.redraws,

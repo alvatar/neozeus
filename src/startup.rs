@@ -170,6 +170,7 @@ struct SceneSetupContext<'w, 's> {
     agent_catalog: ResMut<'w, AgentCatalog>,
     runtime_index: ResMut<'w, AgentRuntimeIndex>,
     app_session: ResMut<'w, AppSessionState>,
+    selection: Option<ResMut<'w, crate::hud::AgentListSelection>>,
     task_store: Option<ResMut<'w, crate::conversations::AgentTaskStore>>,
     conversations: ResMut<'w, ConversationStore>,
     conversation_persistence: ResMut<'w, ConversationPersistenceState>,
@@ -505,10 +506,13 @@ fn setup_verifier_terminal(ctx: &mut SceneSetupContext, config: AutoVerifyConfig
 /// terminal.
 fn restore_startup_terminals(ctx: &mut SceneSetupContext) {
     // Walk the lifecycle in explicit stages so each side effect happens only after its prerequisites have been established.
+    let mut default_selection = crate::hud::AgentListSelection::None;
+    let selection = ctx.selection.as_deref_mut().unwrap_or(&mut default_selection);
     restore_app(
         &mut ctx.agent_catalog,
         &mut ctx.runtime_index,
         &mut ctx.app_session,
+        selection,
         &mut ctx.terminal_manager,
         &mut ctx.focus_state,
         &ctx.runtime_spawner,

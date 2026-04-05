@@ -114,6 +114,9 @@ pub(super) fn insert_default_hud_resources(world: &mut World) {
         world.insert_resource(AppSessionState::default());
     }
     world.insert_resource(HudInputCaptureState::default());
+    if !world.contains_resource::<crate::hud::AgentListSelection>() {
+        world.insert_resource(crate::hud::AgentListSelection::default());
+    }
     if !world.contains_resource::<AgentListView>() {
         world.insert_resource(AgentListView::default());
     }
@@ -227,7 +230,7 @@ pub(super) fn insert_terminal_manager_resources(
                         terminal_id: runtime_index.primary_terminal(agent_id),
                         has_tasks: false,
                         interactive: true,
-                        status: crate::agents::AgentStatus::Unknown,
+                        activity: crate::hud::AgentListActivity::Idle,
                         context_pct_milli: None,
                     },
                 })
@@ -236,8 +239,15 @@ pub(super) fn insert_terminal_manager_resources(
         };
         if let Some(active_agent) = rows.0 {
             world.resource_mut::<AppSessionState>().active_agent = Some(active_agent);
+            if !world.contains_resource::<crate::hud::AgentListSelection>() {
+                world.insert_resource(crate::hud::AgentListSelection::Agent(active_agent));
+            }
+        } else if !world.contains_resource::<crate::hud::AgentListSelection>() {
+            world.insert_resource(crate::hud::AgentListSelection::None);
         }
         world.insert_resource(crate::hud::AgentListView { rows: rows.1 });
+    } else if !world.contains_resource::<crate::hud::AgentListSelection>() {
+        world.insert_resource(crate::hud::AgentListSelection::None);
     }
     world.insert_resource(terminal_manager);
 }

@@ -30,6 +30,9 @@ pub(crate) use bootstrap::resolve_window_scale_factor;
 pub(crate) use output::{AppOutputConfig, OutputMode};
 
 #[cfg(test)]
+pub(crate) use dispatch::sync_agents_from_terminals;
+
+#[cfg(test)]
 pub(crate) use {
     bootstrap::{
         format_startup_panic, normalize_output_for_x11_fallback, primary_window_config_for,
@@ -46,6 +49,9 @@ pub(crate) use {
 pub(crate) fn run_apply_app_commands(world: &mut bevy::prelude::World) {
     use bevy::ecs::system::RunSystemOnce;
 
+    if !world.contains_resource::<crate::hud::AgentListSelection>() {
+        world.insert_resource(crate::hud::AgentListSelection::default());
+    }
     if !world.contains_resource::<crate::terminals::OwnedTmuxSessionStore>() {
         world.insert_resource(crate::terminals::OwnedTmuxSessionStore::default());
     }

@@ -16,6 +16,7 @@ use bevy::{prelude::MessageWriter, window::RequestRedraw};
 /// Selects one owned tmux child as the active terminal content source.
 pub(crate) fn select_owned_tmux(
     session_uid: &str,
+    selection: &mut crate::hud::AgentListSelection,
     agent_catalog: &AgentCatalog,
     runtime_index: &AgentRuntimeIndex,
     app_session: &mut AppSessionState,
@@ -39,6 +40,7 @@ pub(crate) fn select_owned_tmux(
         owner_agent_id.and_then(|agent_id| runtime_index.primary_terminal(agent_id));
 
     active_terminal_content.select_owned_tmux(session_uid.to_owned(), owner_terminal_id);
+    *selection = crate::hud::AgentListSelection::OwnedTmux(session_uid.to_owned());
 
     if let Some(agent_id) = owner_agent_id {
         app_session.active_agent = Some(agent_id);
@@ -61,6 +63,7 @@ pub(crate) fn select_owned_tmux(
 /// Kills the currently selected owned tmux child session.
 pub(crate) fn kill_selected_owned_tmux(
     runtime_spawner: &TerminalRuntimeSpawner,
+    selection: &mut crate::hud::AgentListSelection,
     owned_tmux_sessions: &mut OwnedTmuxSessionStore,
     active_terminal_content: &mut ActiveTerminalContentState,
     redraws: &mut MessageWriter<RequestRedraw>,
@@ -77,6 +80,7 @@ pub(crate) fn kill_selected_owned_tmux(
             owned_tmux_sessions.record_removed_session(&session_uid);
             let _ = refresh_owned_tmux_sessions_now(runtime_spawner, owned_tmux_sessions);
             active_terminal_content.clear();
+            *selection = crate::hud::AgentListSelection::None;
         }
         Err(error) => {
             let _ = refresh_owned_tmux_sessions_now(runtime_spawner, owned_tmux_sessions);
@@ -84,6 +88,7 @@ pub(crate) fn kill_selected_owned_tmux(
                 active_terminal_content.set_last_error(error);
             } else {
                 active_terminal_content.clear();
+                *selection = crate::hud::AgentListSelection::None;
             }
         }
     }

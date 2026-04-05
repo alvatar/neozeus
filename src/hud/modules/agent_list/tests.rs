@@ -31,7 +31,7 @@ fn agent_row_view(
             terminal_id,
             has_tasks: false,
             interactive: true,
-            status: crate::agents::AgentStatus::Unknown,
+            activity: crate::hud::AgentListActivity::Idle,
             context_pct_milli: None,
         },
     }
