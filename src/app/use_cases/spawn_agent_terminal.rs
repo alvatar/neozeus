@@ -14,19 +14,21 @@ use super::super::session::{AppSessionState, VisibilityMode};
 use bevy::{prelude::*, window::RequestRedraw};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-struct AgentLaunchSpec {
-    startup_command: Option<String>,
-    metadata: AgentMetadata,
+pub(crate) struct AgentLaunchSpec {
+    pub(crate) startup_command: Option<String>,
+    pub(crate) metadata: AgentMetadata,
 }
 
 fn shell_quote(value: &str) -> String {
     if value.is_empty() {
         return "''".to_owned();
     }
-    if value
-        .bytes()
-        .all(|byte| matches!(byte, b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'/' | b'.' | b'_' | b'-'))
-    {
+    if value.bytes().all(|byte| {
+        matches!(
+            byte,
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'/' | b'.' | b'_' | b'-'
+        )
+    }) {
         return value.to_owned();
     }
     format!("'{}'", value.replace('\'', "'\\''"))
@@ -38,13 +40,7 @@ fn build_agent_launch_spec(
 ) -> Result<AgentLaunchSpec, String> {
     if kind == AgentKind::Pi {
         let session_path = make_new_session_path(working_directory)?;
-        return Ok(AgentLaunchSpec {
-            startup_command: Some(format!("pi --session {}", shell_quote(&session_path))),
-            metadata: AgentMetadata {
-                clone_source_session_path: Some(session_path),
-                is_workdir: false,
-            },
-        });
+        return Ok(pi_launch_spec_for_session_path(session_path, false));
     }
 
     Ok(AgentLaunchSpec {
@@ -53,12 +49,24 @@ fn build_agent_launch_spec(
     })
 }
 
+pub(crate) fn pi_launch_spec_for_session_path(
+    session_path: String,
+    is_workdir: bool,
+) -> AgentLaunchSpec {
+    AgentLaunchSpec {
+        startup_command: Some(format!("pi --session {}", shell_quote(&session_path))),
+        metadata: AgentMetadata {
+            clone_source_session_path: Some(session_path),
+            is_workdir,
+        },
+    }
+}
+
 #[allow(
     clippy::too_many_arguments,
     reason = "spawn crosses daemon, agent, session, and presentation state"
 )]
-/// Spawns agent terminal.
-pub(crate) fn spawn_agent_terminal(
+pub(crate) fn spawn_agent_terminal_with_launch_spec(
     agent_catalog: &mut AgentCatalog,
     runtime_index: &mut AgentRuntimeIndex,
     app_session: &mut AppSessionState,
@@ -76,10 +84,9 @@ pub(crate) fn spawn_agent_terminal(
     kind: AgentKind,
     label: Option<String>,
     working_directory: Option<&str>,
+    launch: AgentLaunchSpec,
     redraws: &mut MessageWriter<RequestRedraw>,
 ) -> Result<AgentId, String> {
-    // Walk the lifecycle in explicit stages so each side effect happens only after its prerequisites have been established.
-    let launch = build_agent_launch_spec(kind, working_directory)?;
     let identity = agent_catalog.allocate_identity_with_metadata(
         label.as_deref(),
         kind,
@@ -135,6 +142,55 @@ pub(crate) fn spawn_agent_terminal(
     ));
     redraws.write(RequestRedraw);
     Ok(agent_id)
+}
+
+#[allow(
+    clippy::too_many_arguments,
+    reason = "spawn crosses daemon, agent, session, and presentation state"
+)]
+/// Spawns agent terminal.
+pub(crate) fn spawn_agent_terminal(
+    agent_catalog: &mut AgentCatalog,
+    runtime_index: &mut AgentRuntimeIndex,
+    app_session: &mut AppSessionState,
+    selection: &mut crate::hud::AgentListSelection,
+    terminal_manager: &mut TerminalManager,
+    focus_state: &mut TerminalFocusState,
+    runtime_spawner: &TerminalRuntimeSpawner,
+    input_capture: &mut HudInputCaptureState,
+    app_state_persistence: &mut AppStatePersistenceState,
+    visibility_state: &mut TerminalVisibilityState,
+    view_state: &mut TerminalViewState,
+    startup_loading: Option<&mut StartupLoadingState>,
+    time: &Time,
+    prefix: &str,
+    kind: AgentKind,
+    label: Option<String>,
+    working_directory: Option<&str>,
+    redraws: &mut MessageWriter<RequestRedraw>,
+) -> Result<AgentId, String> {
+    let launch = build_agent_launch_spec(kind, working_directory)?;
+    spawn_agent_terminal_with_launch_spec(
+        agent_catalog,
+        runtime_index,
+        app_session,
+        selection,
+        terminal_manager,
+        focus_state,
+        runtime_spawner,
+        input_capture,
+        app_state_persistence,
+        visibility_state,
+        view_state,
+        startup_loading,
+        time,
+        prefix,
+        kind,
+        label,
+        working_directory,
+        launch,
+        redraws,
+    )
 }
 
 #[allow(

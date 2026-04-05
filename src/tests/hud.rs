@@ -1,6 +1,7 @@
 use super::{
     fake_runtime_spawner, insert_default_hud_resources, insert_terminal_manager_resources,
-    insert_test_hud_state, pressed_text, snapshot_test_hud_state, test_bridge, FakeDaemonClient,
+    insert_test_hud_state, pressed_text, snapshot_test_hud_state, temp_dir, test_bridge,
+    FakeDaemonClient,
 };
 use crate::agents::{AgentCatalog, AgentRuntimeIndex};
 use crate::terminals::{
@@ -36,7 +37,7 @@ use bevy::{
     prelude::*,
     window::{PrimaryWindow, RequestRedraw},
 };
-use std::{sync::Arc, time::Duration};
+use std::{fs, path::PathBuf, process::Command, sync::Arc, time::Duration};
 
 fn pressed_key(key_code: KeyCode, logical_key: Key) -> KeyboardInput {
     KeyboardInput {
@@ -108,6 +109,66 @@ fn run_app_commands(world: &mut World) {
     world
         .run_system_once(crate::conversations::sync_task_notes_projection)
         .unwrap();
+}
+
+fn clone_test_world(client: Arc<FakeDaemonClient>) -> World {
+    let mut world = World::default();
+    let mut time = Time::<()>::default();
+    time.advance_by(Duration::from_secs(1));
+    world.insert_resource(time);
+    world.insert_resource(Assets::<Image>::default());
+    insert_terminal_manager_resources(&mut world, TerminalManager::default());
+    insert_default_hud_resources(&mut world);
+    world.insert_resource(TerminalPresentationStore::default());
+    world.insert_resource(AgentListView::default());
+    world.insert_resource(fake_runtime_spawner(client));
+    world.insert_resource(AppStatePersistenceState::default());
+    world.insert_resource(TerminalVisibilityState::default());
+    world.insert_resource(TerminalViewState::default());
+    world.init_resource::<Messages<AppCommand>>();
+    world.init_resource::<Messages<RequestRedraw>>();
+    world
+}
+
+fn write_pi_session_file(path: &std::path::Path, cwd: &str) {
+    let escaped_cwd = cwd.replace('\\', "\\\\").replace('"', "\\\"");
+    let content = format!(
+        "{{\"type\":\"session\",\"version\":3,\"id\":\"parent-id\",\"timestamp\":\"2026-01-01T00:00:00Z\",\"cwd\":\"{escaped_cwd}\"}}\n{{\"type\":\"message\",\"id\":\"m1\",\"message\":{{\"role\":\"user\",\"content\":\"hello\"}}}}\n"
+    );
+    fs::write(path, content).expect("Pi session should write");
+}
+
+fn run_git(repo_root: &PathBuf, args: &[&str]) {
+    let output = Command::new(args[0])
+        .current_dir(repo_root)
+        .args(&args[1..])
+        .output()
+        .expect("command should run");
+    assert!(
+        output.status.success(),
+        "command {:?} failed: {}",
+        args,
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+fn init_git_repo() -> PathBuf {
+    let repo = PathBuf::from("/tmp").join(format!(
+        "neozeus-clone-worktree-{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|duration| duration.as_nanos())
+            .unwrap_or(0)
+    ));
+    fs::create_dir_all(&repo).expect("repo dir should create");
+    run_git(&repo, &["git", "init"]);
+    run_git(&repo, &["git", "config", "user.email", "neozeus@example.test"]);
+    run_git(&repo, &["git", "config", "user.name", "NeoZeus Test"]);
+    fs::write(repo.join("README.md"), "seed\n").unwrap();
+    run_git(&repo, &["git", "add", "README.md"]);
+    run_git(&repo, &["git", "commit", "-m", "initial"]);
+    run_git(&repo, &["git", "branch", "-M", "main"]);
+    repo
 }
 
 /// Verifies that widget toggles snap visibility immediately instead of fading over later animation
@@ -1530,6 +1591,266 @@ fn create_terminal_agent_request_does_not_send_bootstrap_command() {
         .2
         .iter()
         .any(|(key, _)| key == "NEOZEUS_AGENT_UID"));
+}
+
+#[test]
+fn clone_pi_agent_request_rejects_non_pi_source() {
+    let client = Arc::new(FakeDaemonClient::default());
+    let mut world = clone_test_world(client.clone());
+    let source_agent = world.resource_mut::<AgentCatalog>().create_agent(
+        Some("source".into()),
+        crate::agents::AgentKind::Terminal,
+        crate::agents::AgentKind::Terminal.capabilities(),
+    );
+
+    world
+        .resource_mut::<Messages<AppCommand>>()
+        .write(AppCommand::Agent(AppAgentCommand::Clone {
+            source_agent_id: source_agent,
+            label: "child".into(),
+            workdir: false,
+        }));
+
+    run_app_commands(&mut world);
+
+    assert!(client.created_sessions.lock().unwrap().is_empty());
+    assert_eq!(world.resource::<AgentCatalog>().order.len(), 1);
+    assert_eq!(world.resource::<TerminalManager>().terminal_ids().len(), 0);
+}
+
+#[test]
+fn clone_pi_agent_request_rejects_missing_clone_provenance() {
+    let client = Arc::new(FakeDaemonClient::default());
+    let mut world = clone_test_world(client.clone());
+    let source_agent = world.resource_mut::<AgentCatalog>().create_agent(
+        Some("source".into()),
+        crate::agents::AgentKind::Pi,
+        crate::agents::AgentKind::Pi.capabilities(),
+    );
+
+    world
+        .resource_mut::<Messages<AppCommand>>()
+        .write(AppCommand::Agent(AppAgentCommand::Clone {
+            source_agent_id: source_agent,
+            label: "child".into(),
+            workdir: false,
+        }));
+
+    run_app_commands(&mut world);
+
+    assert!(client.created_sessions.lock().unwrap().is_empty());
+    assert_eq!(world.resource::<AgentCatalog>().order.len(), 1);
+}
+
+#[test]
+fn clone_pi_agent_request_rejects_duplicate_name() {
+    let client = Arc::new(FakeDaemonClient::default());
+    let mut world = clone_test_world(client.clone());
+    let source_dir = temp_dir("clone-pi-duplicate-source");
+    let source_session = source_dir.join("source.jsonl");
+    write_pi_session_file(&source_session, "/tmp/clone-pi-duplicate-cwd");
+    let source_agent = world.resource_mut::<AgentCatalog>().create_agent_with_metadata(
+        Some("source".into()),
+        crate::agents::AgentKind::Pi,
+        crate::agents::AgentKind::Pi.capabilities(),
+        crate::agents::AgentMetadata {
+            clone_source_session_path: Some(source_session.to_string_lossy().into_owned()),
+            is_workdir: false,
+        },
+    );
+    world.resource_mut::<AgentCatalog>().create_agent(
+        Some("child".into()),
+        crate::agents::AgentKind::Terminal,
+        crate::agents::AgentKind::Terminal.capabilities(),
+    );
+
+    world
+        .resource_mut::<Messages<AppCommand>>()
+        .write(AppCommand::Agent(AppAgentCommand::Clone {
+            source_agent_id: source_agent,
+            label: "child".into(),
+            workdir: false,
+        }));
+
+    run_app_commands(&mut world);
+
+    assert!(client.created_sessions.lock().unwrap().is_empty());
+    assert_eq!(world.resource::<AgentCatalog>().order.len(), 2);
+}
+
+#[test]
+fn clone_pi_agent_request_creates_top_level_pi_clone_and_focuses_it() {
+    let client = Arc::new(FakeDaemonClient::default());
+    let mut world = clone_test_world(client.clone());
+    let source_dir = temp_dir("clone-pi-source");
+    let source_session = source_dir.join("source.jsonl");
+    let source_cwd = "/tmp/clone-pi-cwd";
+    write_pi_session_file(&source_session, source_cwd);
+    let source_agent = world.resource_mut::<AgentCatalog>().create_agent_with_metadata(
+        Some("source".into()),
+        crate::agents::AgentKind::Pi,
+        crate::agents::AgentKind::Pi.capabilities(),
+        crate::agents::AgentMetadata {
+            clone_source_session_path: Some(source_session.to_string_lossy().into_owned()),
+            is_workdir: false,
+        },
+    );
+
+    world
+        .resource_mut::<Messages<AppCommand>>()
+        .write(AppCommand::Agent(AppAgentCommand::Clone {
+            source_agent_id: source_agent,
+            label: "child".into(),
+            workdir: false,
+        }));
+
+    run_app_commands(&mut world);
+
+    let catalog = world.resource::<AgentCatalog>();
+    assert_eq!(catalog.order.len(), 2);
+    let clone_agent = *catalog.order.last().expect("clone agent should exist");
+    assert_eq!(catalog.label(clone_agent), Some("CHILD"));
+    assert_eq!(catalog.kind(clone_agent), Some(crate::agents::AgentKind::Pi));
+    let clone_session_path = catalog
+        .clone_source_session_path(clone_agent)
+        .expect("clone should persist forked Pi session path")
+        .to_owned();
+    assert!(!catalog.is_workdir(clone_agent));
+
+    let created_sessions = client.created_sessions.lock().unwrap().clone();
+    assert_eq!(created_sessions.len(), 1);
+    assert_eq!(created_sessions[0].1.as_deref(), Some(source_cwd));
+    let sent_commands = client.sent_commands.lock().unwrap().clone();
+    assert_eq!(sent_commands.len(), 1);
+    assert!(matches!(
+        &sent_commands[0].1,
+        crate::terminals::TerminalCommand::SendCommand(value)
+            if value.contains(&clone_session_path)
+    ));
+    let clone_header = crate::shared::pi_session_files::read_session_header(&clone_session_path)
+        .expect("forked Pi session should read");
+    assert_eq!(clone_header.cwd, source_cwd);
+    assert_eq!(
+        clone_header.parent_session.as_deref(),
+        Some(source_session.to_string_lossy().as_ref())
+    );
+    let _ = catalog;
+
+    assert_eq!(world.resource::<AppSessionState>().active_agent, Some(clone_agent));
+    assert_eq!(
+        *world.resource::<crate::hud::AgentListSelection>(),
+        crate::hud::AgentListSelection::Agent(clone_agent)
+    );
+    assert_eq!(world.resource::<TerminalManager>().terminal_ids().len(), 1);
+}
+
+#[test]
+fn clone_pi_agent_request_creates_workdir_clone_and_persists_metadata() {
+    let client = Arc::new(FakeDaemonClient::default());
+    let mut world = clone_test_world(client.clone());
+    let repo = init_git_repo();
+    let source_session = repo.join("source.jsonl");
+    write_pi_session_file(&source_session, repo.to_str().unwrap());
+    let source_agent = world.resource_mut::<AgentCatalog>().create_agent_with_metadata(
+        Some("source".into()),
+        crate::agents::AgentKind::Pi,
+        crate::agents::AgentKind::Pi.capabilities(),
+        crate::agents::AgentMetadata {
+            clone_source_session_path: Some(source_session.to_string_lossy().into_owned()),
+            is_workdir: false,
+        },
+    );
+    let app_state_path = temp_dir("clone-pi-workdir-appstate").join("neozeus-state.v1");
+    world.insert_resource(AppStatePersistenceState {
+        path: Some(app_state_path.clone()),
+        dirty_since_secs: None,
+    });
+
+    world
+        .resource_mut::<Messages<AppCommand>>()
+        .write(AppCommand::Agent(AppAgentCommand::Clone {
+            source_agent_id: source_agent,
+            label: "child-wt".into(),
+            workdir: true,
+        }));
+
+    run_app_commands(&mut world);
+
+    let catalog = world.resource::<AgentCatalog>();
+    let clone_agent = *catalog.order.last().expect("workdir clone should exist");
+    assert_eq!(catalog.label(clone_agent), Some("CHILD-WT"));
+    assert!(catalog.is_workdir(clone_agent));
+    let clone_session_path = catalog
+        .clone_source_session_path(clone_agent)
+        .expect("workdir clone should persist forked Pi session path")
+        .to_owned();
+    let clone_header = crate::shared::pi_session_files::read_session_header(&clone_session_path)
+        .expect("workdir clone session should read");
+    let expected_worktree = repo.join(".worktrees").join("CHILD-WT");
+    assert_eq!(PathBuf::from(&clone_header.cwd), expected_worktree);
+    assert!(expected_worktree.is_dir());
+    let _ = catalog;
+
+    let created_sessions = client.created_sessions.lock().unwrap().clone();
+    assert_eq!(created_sessions.len(), 1);
+    assert_eq!(created_sessions[0].1.as_deref(), expected_worktree.to_str());
+
+    world
+        .resource_mut::<Time<()>>()
+        .advance_by(Duration::from_secs(1));
+    world.run_system_once(crate::app::save_app_state_if_dirty).unwrap();
+    let persisted = crate::shared::app_state_file::parse_persisted_app_state(
+        &fs::read_to_string(app_state_path).expect("app state should persist")
+    );
+    let persisted_clone = persisted
+        .agents
+        .iter()
+        .find(|record| record.label.as_deref() == Some("CHILD-WT"))
+        .expect("persisted workdir clone should exist");
+    assert_eq!(
+        persisted_clone.clone_source_session_path.as_deref(),
+        Some(clone_session_path.as_str())
+    );
+    assert!(persisted_clone.is_workdir);
+}
+
+#[test]
+fn clone_pi_agent_request_rejects_non_git_workdir_source() {
+    let client = Arc::new(FakeDaemonClient::default());
+    let mut world = clone_test_world(client.clone());
+    let source_dir = temp_dir("clone-pi-non-git-source");
+    let source_session = source_dir.join("source.jsonl");
+    let non_git_cwd = PathBuf::from("/tmp").join(format!(
+        "neozeus-clone-non-git-{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|duration| duration.as_nanos())
+            .unwrap_or(0)
+    ));
+    fs::create_dir_all(&non_git_cwd).expect("non-git cwd should create");
+    write_pi_session_file(&source_session, non_git_cwd.to_str().unwrap());
+    let source_agent = world.resource_mut::<AgentCatalog>().create_agent_with_metadata(
+        Some("source".into()),
+        crate::agents::AgentKind::Pi,
+        crate::agents::AgentKind::Pi.capabilities(),
+        crate::agents::AgentMetadata {
+            clone_source_session_path: Some(source_session.to_string_lossy().into_owned()),
+            is_workdir: false,
+        },
+    );
+
+    world
+        .resource_mut::<Messages<AppCommand>>()
+        .write(AppCommand::Agent(AppAgentCommand::Clone {
+            source_agent_id: source_agent,
+            label: "child-wt".into(),
+            workdir: true,
+        }));
+
+    run_app_commands(&mut world);
+
+    assert!(client.created_sessions.lock().unwrap().is_empty());
+    assert_eq!(world.resource::<AgentCatalog>().order.len(), 1);
 }
 
 /// Verifies the special-case cleanup path for disconnected terminals: local state is removed even if
