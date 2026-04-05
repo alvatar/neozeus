@@ -5,7 +5,7 @@ use super::{
     OwnedTmuxOwnerBinding, ThreadView,
 };
 use crate::{
-    agents::{AgentCatalog, AgentKind, AgentRuntimeIndex, AgentStatusStore},
+    agents::{AgentCatalog, AgentKind, AgentMetadata, AgentRuntimeIndex, AgentStatusStore},
     app::AppSessionState,
     conversations::{AgentTaskStore, ConversationStore, MessageAuthor, MessageDeliveryState},
     tests::{insert_terminal_manager_resources, surface_with_text, test_bridge},
@@ -165,6 +165,41 @@ fn sync_hud_view_models_places_owned_tmux_rows_under_matching_agent() {
     assert_eq!(rows.len(), 2);
     assert!(matches!(rows[0].key, super::AgentListRowKey::Agent(_)));
     assert!(matches!(rows[1].key, super::AgentListRowKey::OwnedTmux(_)));
+}
+
+#[test]
+fn sync_hud_view_models_prefixes_workdir_agents_with_marker() {
+    let mut catalog = AgentCatalog::default();
+    let agent_id = catalog.create_agent_with_metadata(
+        Some("alpha".into()),
+        AgentKind::Pi,
+        AgentKind::Pi.capabilities(),
+        AgentMetadata {
+            clone_source_session_path: Some("/tmp/pi-alpha.jsonl".into()),
+            is_workdir: true,
+        },
+    );
+
+    let mut world = World::default();
+    world.insert_resource(catalog);
+    world.insert_resource(AgentRuntimeIndex::default());
+    world.insert_resource(AppSessionState::default());
+    world.insert_resource(AgentTaskStore::default());
+    world.insert_resource(ConversationStore::default());
+    world.insert_resource(AgentListView::default());
+    world.insert_resource(ConversationListView::default());
+    world.insert_resource(ThreadView::default());
+    world.insert_resource(ComposerView::default());
+    world.insert_resource(AgentStatusStore::default());
+    world.insert_resource(AgentListSelection::Agent(agent_id));
+    world.insert_resource(crate::terminals::OwnedTmuxSessionStore::default());
+    world.insert_resource(crate::terminals::TerminalManager::default());
+
+    world.run_system_once(sync_hud_view_models).unwrap();
+
+    let rows = &world.resource::<AgentListView>().rows;
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].label, "⎇ ALPHA");
 }
 
 #[test]

@@ -219,7 +219,11 @@ pub(crate) fn sync_hud_view_models(
             .and_then(parse_agent_context_pct_milli);
         rows.push(AgentListRowView {
             key: AgentListRowKey::Agent(agent_id),
-            label: label.to_owned(),
+            label: if agent_catalog.is_workdir(agent_id) {
+                format!("⎇ {label}")
+            } else {
+                label.to_owned()
+            },
             focused: selected_row_key == Some(AgentListRowKey::Agent(agent_id)),
             kind: AgentListRowKind::Agent {
                 agent_id,

@@ -117,6 +117,25 @@ fn tmux_child_rows_render_as_compact_indented_boxes() {
 }
 
 #[test]
+fn workdir_agent_visible_label_uses_workdir_marker() {
+    let rows = rows::agent_rows(
+        HudRect {
+            x: 24.0,
+            y: 96.0,
+            w: 300.0,
+            h: 420.0,
+        },
+        0.0,
+        None,
+        &AgentListView {
+            rows: vec![agent_row_view(AgentId(1), None, "⎇ ALPHA")],
+        },
+    );
+
+    assert_eq!(agent_row_label_text(&rows[0]), "⎇ ALPHA");
+}
+
+#[test]
 fn tmux_child_visible_label_has_no_prefix_glyph() {
     let rows = rows::agent_rows(
         HudRect {
@@ -138,6 +157,22 @@ fn tmux_child_visible_label_has_no_prefix_glyph() {
     );
 
     assert_eq!(agent_row_label_text(&rows[0]), "BUILD");
+}
+
+#[test]
+fn selected_text_for_rows_preserves_workdir_marker_for_agents() {
+    let view = AgentListView {
+        rows: vec![agent_row_view(AgentId(1), None, "⎇ ALPHA")],
+    };
+
+    let text = selected_text_for_rows(
+        &view,
+        &AgentListRowKey::Agent(AgentId(1)),
+        &AgentListRowKey::Agent(AgentId(1)),
+    )
+    .expect("selected text should exist");
+
+    assert_eq!(text, "⎇ ALPHA");
 }
 
 #[test]
