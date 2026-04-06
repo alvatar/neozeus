@@ -5,6 +5,7 @@ use crate::{
         resolve_conversations_path, restore_persisted_conversations_from_path,
         ConversationPersistenceState, ConversationStore,
     },
+    hud::AgentListView,
     hud::{
         hud_needs_redraw, HudInputCaptureState, HudLayoutState, TerminalVisibilityPolicy,
         TerminalVisibilityState,
@@ -195,8 +196,9 @@ pub(crate) fn should_request_visual_redraw(
     terminal_work_pending: bool,
     presentation_animating: bool,
     hud_visuals_active: bool,
+    hud_content_changed: bool,
 ) -> bool {
-    terminal_work_pending || presentation_animating || hud_visuals_active
+    terminal_work_pending || presentation_animating || hud_visuals_active || hud_content_changed
 }
 
 /// Chooses which restored/imported session should receive focus after startup reconciliation.
@@ -238,6 +240,7 @@ pub(crate) fn request_redraw_while_visuals_active(
     terminal_manager: Res<TerminalManager>,
     presentation_store: Res<TerminalPresentationStore>,
     layout_state: Res<HudLayoutState>,
+    agent_list: Res<AgentListView>,
     panels: Query<&TerminalPresentation, With<TerminalPanel>>,
     mut redraws: MessageWriter<RequestRedraw>,
 ) {
@@ -267,6 +270,7 @@ pub(crate) fn request_redraw_while_visuals_active(
         terminal_work_pending,
         presentation_animating,
         hud_needs_redraw(&layout_state),
+        agent_list.is_changed(),
     ) {
         redraws.write(RequestRedraw);
     }
