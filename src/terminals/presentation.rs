@@ -1,7 +1,7 @@
 use crate::{
-    agents::{AgentRuntimeIndex, AgentStatus, AgentStatusStore},
     hud::{HudLayoutState, TerminalVisibilityPolicy, TerminalVisibilityState},
     shared::visual_contracts::{WORKING_GREEN_B, WORKING_GREEN_G, WORKING_GREEN_R},
+    visual_contract::{TerminalFrameVisualState, VisualContractState},
 };
 
 use super::{
@@ -14,7 +14,7 @@ use super::{
     raster::create_terminal_image,
     registry::{ManagedTerminal, TerminalFocusState, TerminalId, TerminalManager},
     runtime::TerminalRuntimeSpawner,
-    types::{TerminalDimensions, TerminalLifecycle, TerminalSurface},
+    types::{TerminalDimensions, TerminalSurface},
 };
 use bevy::{prelude::*, window::PrimaryWindow};
 
@@ -696,40 +696,6 @@ pub(crate) fn sync_terminal_presentations(
     *last_active_ready = active_ready;
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(crate) enum TerminalFrameVisualState {
-    #[default]
-    Hidden,
-    DirectInput,
-    Working,
-    Exited,
-    Disconnected,
-    Failed,
-}
-
-pub(crate) fn terminal_frame_visual_state(
-    direct_input: bool,
-    runtime: &crate::terminals::TerminalRuntimeState,
-    agent_status: AgentStatus,
-) -> TerminalFrameVisualState {
-    if direct_input {
-        return TerminalFrameVisualState::DirectInput;
-    }
-    if !runtime.is_interactive() {
-        return match runtime.lifecycle {
-            TerminalLifecycle::Exited { .. } => TerminalFrameVisualState::Exited,
-            TerminalLifecycle::Disconnected => TerminalFrameVisualState::Disconnected,
-            TerminalLifecycle::Failed => TerminalFrameVisualState::Failed,
-            TerminalLifecycle::Running => TerminalFrameVisualState::Hidden,
-        };
-    }
-    if agent_status == AgentStatus::Working {
-        TerminalFrameVisualState::Working
-    } else {
-        TerminalFrameVisualState::Hidden
-    }
-}
-
 fn terminal_frame_style(state: TerminalFrameVisualState) -> Option<(f32, Color)> {
     match state {
         TerminalFrameVisualState::Hidden => None,
@@ -764,9 +730,7 @@ fn terminal_frame_style(state: TerminalFrameVisualState) -> Option<(f32, Color)>
 ///
 /// Interactive idle terminals with no special state hide their frame entirely.
 pub(crate) fn sync_terminal_panel_frames(
-    input_capture: Res<crate::hud::HudInputCaptureState>,
-    runtime_index: Res<AgentRuntimeIndex>,
-    status_store: Res<AgentStatusStore>,
+    visual_contract: Res<VisualContractState>,
     terminal_manager: Res<TerminalManager>,
     presentation_store: Res<TerminalPresentationStore>,
     panels: Query<
@@ -787,9 +751,9 @@ pub(crate) fn sync_terminal_panel_frames(
         if *panel_visibility != Visibility::Visible {
             continue;
         }
-        let Some(terminal) = terminal_manager.get(panel.id) else {
+        if terminal_manager.get(panel.id).is_none() {
             continue;
-        };
+        }
         let Some(presented_terminal) = presentation_store.get(panel.id) else {
             continue;
         };
@@ -799,13 +763,9 @@ pub(crate) fn sync_terminal_panel_frames(
             continue;
         };
 
-        let direct_input = input_capture.direct_input_terminal == Some(panel.id);
-        let agent_status = status_store.status_for_terminal(&runtime_index, panel.id);
-        let Some((outset, color)) = terminal_frame_style(terminal_frame_visual_state(
-            direct_input,
-            &terminal.snapshot.runtime,
-            agent_status,
-        )) else {
+        let Some((outset, color)) =
+            terminal_frame_style(visual_contract.frame_for_terminal(panel.id))
+        else {
             continue;
         };
 

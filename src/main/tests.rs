@@ -135,6 +135,9 @@ pub(super) fn insert_default_hud_resources(world: &mut World) {
     if !world.contains_resource::<crate::agents::AgentStatusStore>() {
         world.insert_resource(crate::agents::AgentStatusStore::default());
     }
+    if !world.contains_resource::<crate::visual_contract::VisualContractState>() {
+        world.insert_resource(crate::visual_contract::VisualContractState::default());
+    }
     if !world.contains_resource::<crate::usage::UsageSnapshot>() {
         world.insert_resource(crate::usage::UsageSnapshot::default());
     }
@@ -350,6 +353,12 @@ pub(super) fn insert_test_hud_state(world: &mut World, hud_state: crate::hud::Hu
     }
     if !world.contains_resource::<crate::terminals::TerminalFocusState>() {
         world.insert_resource(crate::terminals::TerminalFocusState::default());
+    }
+    if !world.contains_resource::<crate::agents::AgentStatusStore>() {
+        world.insert_resource(crate::agents::AgentStatusStore::default());
+    }
+    if !world.contains_resource::<crate::visual_contract::VisualContractState>() {
+        world.insert_resource(crate::visual_contract::VisualContractState::default());
     }
     if !world.contains_resource::<crate::text_selection::TerminalTextSelectionState>() {
         world.insert_resource(crate::text_selection::TerminalTextSelectionState::default());

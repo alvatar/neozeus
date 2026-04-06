@@ -25,6 +25,7 @@ use crate::{
     },
     usage::{refresh_usage_caches_if_needed, sync_usage_snapshot_from_cache},
     verification::run_verification_scenario,
+    visual_contract::sync_visual_contract_state,
 };
 
 use super::{
@@ -42,6 +43,7 @@ pub(crate) enum NeoZeusSet {
     AppCommandDispatch,
     UseCaseExecution,
     UsageRefresh,
+    DeriveVisuals,
     PresentTerminal,
     HudAnimation,
     HudRender,
@@ -82,10 +84,18 @@ pub(crate) fn configure_app_schedule(app: &mut App) {
     .configure_sets(
         Update,
         NeoZeusSet::UseCaseExecution
+            .before(NeoZeusSet::DeriveVisuals)
             .before(NeoZeusSet::RasterTerminal)
             .before(NeoZeusSet::PresentTerminal)
             .before(NeoZeusSet::UsageRefresh)
             .before(NeoZeusSet::HudAnimation),
+    )
+    .configure_sets(
+        Update,
+        NeoZeusSet::DeriveVisuals
+            .before(NeoZeusSet::UsageRefresh)
+            .before(NeoZeusSet::PresentTerminal)
+            .before(NeoZeusSet::HudRender),
     )
     .configure_sets(
         Update,
@@ -123,11 +133,7 @@ pub(crate) fn configure_app_schedule(app: &mut App) {
     )
     .add_systems(
         Update,
-        (
-            crate::terminals::poll_terminal_snapshots,
-            sync_agent_status.after(crate::terminals::poll_terminal_snapshots),
-        )
-            .in_set(NeoZeusSet::PollTerminal),
+        crate::terminals::poll_terminal_snapshots.in_set(NeoZeusSet::PollTerminal),
     )
     .add_systems(
         Update,
@@ -166,12 +172,14 @@ pub(crate) fn configure_app_schedule(app: &mut App) {
     .add_systems(
         Update,
         (
+            sync_agent_status,
+            sync_visual_contract_state,
             crate::terminals::sync_owned_tmux_sessions,
             crate::terminals::sync_active_terminal_content,
             sync_hud_view_models,
         )
             .chain()
-            .before(NeoZeusSet::HudRender),
+            .in_set(NeoZeusSet::DeriveVisuals),
     )
     .add_systems(
         Update,

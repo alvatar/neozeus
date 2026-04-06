@@ -1,23 +1,23 @@
 use crate::{
-    agents::{AgentCatalog, AgentRuntimeIndex, AgentStatusStore},
+    agents::{AgentCatalog, AgentRuntimeIndex},
     app::{resolve_app_state_path, restore_app, AppSessionState, AppStatePersistenceState},
     conversations::{
         resolve_conversations_path, restore_persisted_conversations_from_path,
         ConversationPersistenceState, ConversationStore,
     },
-    hud::AgentListView,
     hud::{
         hud_needs_redraw, HudInputCaptureState, HudLayoutState, TerminalVisibilityPolicy,
         TerminalVisibilityState,
     },
     terminals::{
         append_debug_log, attach_terminal_session, refresh_owned_tmux_sessions_now,
-        resolve_terminal_notes_path, terminal_frame_visual_state, OwnedTmuxSessionStore,
-        TerminalCameraMarker, TerminalFocusState, TerminalFrameVisualState,
-        TerminalHudSurfaceMarker, TerminalManager, TerminalPanel, TerminalPresentation,
-        TerminalPresentationStore, TerminalRuntimeSpawner, VERIFIER_SESSION_PREFIX,
+        resolve_terminal_notes_path, OwnedTmuxSessionStore, TerminalCameraMarker,
+        TerminalFocusState, TerminalHudSurfaceMarker, TerminalManager, TerminalPanel,
+        TerminalPresentation, TerminalPresentationStore, TerminalRuntimeSpawner,
+        VERIFIER_SESSION_PREFIX,
     },
     verification::{start_auto_verify_dispatcher, AutoVerifyConfig, VerificationScenarioConfig},
+    visual_contract::VisualContractState,
 };
 use bevy::{
     camera::visibility::RenderLayers, ecs::system::SystemParam, prelude::*, window::RequestRedraw,
@@ -235,26 +235,15 @@ pub(crate) fn startup_visibility_policy_for_focus(
 
 /// Requests another frame while any terminal or HUD visual state is still changing.
 ///
-#[allow(
-    clippy::too_many_arguments,
-    reason = "redraw contract reads terminal, HUD, activity, and local signature state together"
-)]
 /// The system inspects terminal uploads, panel animation, HUD animation, and semantic visual
-/// contract signatures. If any one of them is still live, a `RequestRedraw` message is emitted so
-/// the renderer does not go idle too early.
+/// contract changes. If any one of them is still live, a `RequestRedraw` message is emitted so the
+/// renderer does not go idle too early.
 pub(crate) fn request_redraw_while_visuals_active(
     terminal_manager: Res<TerminalManager>,
     presentation_store: Res<TerminalPresentationStore>,
     layout_state: Res<HudLayoutState>,
-    input_capture: Res<HudInputCaptureState>,
-    runtime_index: Res<AgentRuntimeIndex>,
-    status_store: Res<AgentStatusStore>,
-    agent_list: Res<AgentListView>,
+    visual_contract: Res<VisualContractState>,
     panels: Query<&TerminalPresentation, With<TerminalPanel>>,
-    mut last_agent_list_signature: Local<Option<AgentListView>>,
-    mut last_terminal_frame_signature: Local<
-        Option<Vec<(crate::terminals::TerminalId, TerminalFrameVisualState)>>,
-    >,
     mut redraws: MessageWriter<RequestRedraw>,
 ) {
     // A terminal still counts as pending visual work either when fresh damage has not been
@@ -279,34 +268,11 @@ pub(crate) fn request_redraw_while_visuals_active(
             || (presentation.current_z - presentation.target_z).abs() > Z_EPSILON
     });
 
-    let agent_list_changed = last_agent_list_signature
-        .as_ref()
-        .is_some_and(|previous| previous != &*agent_list);
-    *last_agent_list_signature = Some(agent_list.clone());
-
-    let terminal_frame_signature = terminal_manager
-        .iter()
-        .map(|(terminal_id, terminal)| {
-            (
-                terminal_id,
-                terminal_frame_visual_state(
-                    input_capture.direct_input_terminal == Some(terminal_id),
-                    &terminal.snapshot.runtime,
-                    status_store.status_for_terminal(&runtime_index, terminal_id),
-                ),
-            )
-        })
-        .collect::<Vec<_>>();
-    let terminal_frame_changed = last_terminal_frame_signature
-        .as_ref()
-        .is_some_and(|previous| previous != &terminal_frame_signature);
-    *last_terminal_frame_signature = Some(terminal_frame_signature);
-
     if should_request_visual_redraw(
         terminal_work_pending,
         presentation_animating,
         hud_needs_redraw(&layout_state),
-        agent_list_changed || terminal_frame_changed,
+        visual_contract.is_changed(),
     ) {
         redraws.write(RequestRedraw);
     }

@@ -30,6 +30,18 @@ use bevy::{
 };
 use std::sync::Arc;
 
+fn run_synced_hud_view_models(world: &mut World) {
+    if !world.contains_resource::<crate::visual_contract::VisualContractState>() {
+        world.insert_resource(crate::visual_contract::VisualContractState::default());
+    }
+    world
+        .run_system_once(crate::visual_contract::sync_visual_contract_state)
+        .unwrap();
+    world
+        .run_system_once(crate::hud::sync_hud_view_models)
+        .unwrap();
+}
+
 /// Verifies that the combined redraw predicate stays false when no terminal or HUD visual work is
 /// pending.
 #[test]
@@ -89,6 +101,7 @@ fn working_agent_row_transition_requests_redraw_for_hud_feedback() {
         Update,
         (
             crate::agents::sync_agent_status,
+            crate::visual_contract::sync_visual_contract_state,
             crate::hud::sync_hud_view_models,
             request_redraw_while_visuals_active,
         )
@@ -227,6 +240,7 @@ fn stable_visual_contract_does_not_request_continuous_redraws() {
         Update,
         (
             crate::agents::sync_agent_status,
+            crate::visual_contract::sync_visual_contract_state,
             crate::hud::sync_hud_view_models,
             request_redraw_while_visuals_active,
         )
@@ -1016,9 +1030,7 @@ fn startup_restore_workdir_clone_projects_marker_after_sync() {
     world.insert_resource(crate::startup::StartupConnectState::default());
 
     world.run_system_once(crate::startup::setup_scene).unwrap();
-    world
-        .run_system_once(crate::hud::sync_hud_view_models)
-        .unwrap();
+    run_synced_hud_view_models(&mut world);
 
     let rows = &world.resource::<crate::hud::AgentListView>().rows;
     assert_eq!(rows.len(), 1);
@@ -1097,9 +1109,7 @@ fn startup_restore_rebinds_owned_tmux_children_under_agent() {
         1,
         "startup should hydrate owned tmux state before the first interactive poke"
     );
-    world
-        .run_system_once(crate::hud::sync_hud_view_models)
-        .unwrap();
+    run_synced_hud_view_models(&mut world);
 
     let rows = &world.resource::<crate::hud::AgentListView>().rows;
     assert_eq!(rows.len(), 2);
@@ -1211,9 +1221,7 @@ fn startup_restore_rebinds_multiple_owned_tmux_children_under_correct_agents_and
         4,
         "startup should hydrate every owned tmux child before the first interactive poke"
     );
-    world
-        .run_system_once(crate::hud::sync_hud_view_models)
-        .unwrap();
+    run_synced_hud_view_models(&mut world);
 
     let rows = &world.resource::<crate::hud::AgentListView>().rows;
     assert_eq!(rows.len(), 6);
