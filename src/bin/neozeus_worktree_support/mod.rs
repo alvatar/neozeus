@@ -21,7 +21,9 @@ struct Command {
 
 pub(crate) fn run(args: &[String]) -> Result<(), String> {
     let command = parse_args(args)?;
-    execute_with_ops(&SocketWorktreeLifecycleOps, &command, |line| println!("{line}"))
+    execute_with_ops(&SocketWorktreeLifecycleOps, &command, |line| {
+        println!("{line}")
+    })
 }
 
 fn parse_args(args: &[String]) -> Result<Command, String> {
@@ -215,7 +217,10 @@ mod tests {
             }
         }
 
-        fn merge_parent_back_into_worktree(&self, _ctx: &WorktreeContext) -> Result<String, String> {
+        fn merge_parent_back_into_worktree(
+            &self,
+            _ctx: &WorktreeContext,
+        ) -> Result<String, String> {
             self.calls.lock().unwrap().push("merge-back".into());
             match &self.merge_back {
                 Outcome::Ok(output) => Ok(output.clone()),
@@ -291,8 +296,8 @@ mod tests {
 
     #[test]
     fn parse_args_rejects_extra_arguments() {
-        let error = parse_args(&["discard".into(), "extra".into()])
-            .expect_err("extra arg should fail");
+        let error =
+            parse_args(&["discard".into(), "extra".into()]).expect_err("extra arg should fail");
         assert!(error.contains("unknown argument `extra`"));
     }
 
@@ -341,7 +346,10 @@ mod tests {
         assert_eq!(
             ops.calls.lock().unwrap().as_slice(),
             &[
-                format!("resolve:{}:release", std::env::current_dir().unwrap().to_string_lossy()),
+                format!(
+                    "resolve:{}:release",
+                    std::env::current_dir().unwrap().to_string_lossy()
+                ),
                 "clean:/repo/.worktrees/alpha".into(),
                 "merge-parent".into(),
                 "merge-back".into(),
@@ -370,7 +378,10 @@ mod tests {
         assert_eq!(
             ops.calls.lock().unwrap().as_slice(),
             &[
-                format!("resolve:{}:", std::env::current_dir().unwrap().to_string_lossy()),
+                format!(
+                    "resolve:{}:",
+                    std::env::current_dir().unwrap().to_string_lossy()
+                ),
                 "clean:/repo/.worktrees/alpha".into(),
                 "merge-parent".into(),
                 "remove".into(),
@@ -399,7 +410,10 @@ mod tests {
         assert_eq!(
             ops.calls.lock().unwrap().as_slice(),
             &[
-                format!("resolve:{}:", std::env::current_dir().unwrap().to_string_lossy()),
+                format!(
+                    "resolve:{}:",
+                    std::env::current_dir().unwrap().to_string_lossy()
+                ),
                 "remove".into(),
             ]
         );
@@ -426,7 +440,10 @@ mod tests {
         assert_eq!(
             ops.calls.lock().unwrap().as_slice(),
             &[
-                format!("resolve:{}:", std::env::current_dir().unwrap().to_string_lossy()),
+                format!(
+                    "resolve:{}:",
+                    std::env::current_dir().unwrap().to_string_lossy()
+                ),
                 "clean:/repo/.worktrees/alpha".into(),
             ]
         );
@@ -435,7 +452,9 @@ mod tests {
     #[test]
     fn merge_back_errors_preserve_detail() {
         let ops = FakeOps {
-            merge_back: Outcome::Err("failed to merge main into neozeus/alpha; conflicted files: README.md".into()),
+            merge_back: Outcome::Err(
+                "failed to merge main into neozeus/alpha; conflicted files: README.md".into(),
+            ),
             ..Default::default()
         };
         let command = Command {
@@ -465,7 +484,10 @@ mod tests {
         assert_eq!(error, "not in linked worktree");
         assert_eq!(
             ops.calls.lock().unwrap().as_slice(),
-            &[format!("resolve:{}:", std::env::current_dir().unwrap().to_string_lossy())]
+            &[format!(
+                "resolve:{}:",
+                std::env::current_dir().unwrap().to_string_lossy()
+            )]
         );
     }
 }

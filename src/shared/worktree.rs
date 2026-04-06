@@ -83,7 +83,9 @@ pub fn worktree_branch(agent_name: &str) -> String {
 }
 
 pub fn worktree_agent_name(branch: &str) -> Option<&str> {
-    branch.strip_prefix(WORKTREE_BRANCH_PREFIX).filter(|name| !name.is_empty())
+    branch
+        .strip_prefix(WORKTREE_BRANCH_PREFIX)
+        .filter(|name| !name.is_empty())
 }
 
 pub fn worktree_current_path(cwd: &str) -> Result<String, String> {
@@ -91,7 +93,10 @@ pub fn worktree_current_path(cwd: &str) -> Result<String, String> {
 }
 
 pub fn is_linked_worktree(cwd: &str) -> Result<bool, String> {
-    let git_dir = resolve_git_path(cwd, &run_git_capture(cwd, &["rev-parse", "--git-dir"], GIT_TIMEOUT_SECS)?)?;
+    let git_dir = resolve_git_path(
+        cwd,
+        &run_git_capture(cwd, &["rev-parse", "--git-dir"], GIT_TIMEOUT_SECS)?,
+    )?;
     let common_dir = resolve_git_path(
         cwd,
         &run_git_capture(cwd, &["rev-parse", "--git-common-dir"], GIT_TIMEOUT_SECS)?,
@@ -103,7 +108,10 @@ pub fn resolve_parent_branch(
     repo_root: &str,
     override_branch: Option<&str>,
 ) -> Result<String, String> {
-    if let Some(branch) = override_branch.map(str::trim).filter(|value| !value.is_empty()) {
+    if let Some(branch) = override_branch
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
         return branch_exists(repo_root, branch)?
             .then(|| branch.to_owned())
             .ok_or_else(|| format!("parent branch `{branch}` does not exist"));
@@ -130,7 +138,9 @@ pub fn resolve_worktree_context(
     let worktree_path = worktree_current_path(cwd)?;
     let current_branch = get_current_branch(cwd)?;
     if current_branch == "HEAD" {
-        return Err("worktree lifecycle commands do not support detached HEAD checkouts".to_owned());
+        return Err(
+            "worktree lifecycle commands do not support detached HEAD checkouts".to_owned(),
+        );
     }
     let agent_name = worktree_agent_name(&current_branch)
         .map(str::to_owned)
@@ -168,10 +178,7 @@ pub fn merge_worktree_into_parent(ctx: &WorktreeContext) -> Result<String, Strin
             "--no-ff",
             &ctx.current_branch,
             "-m",
-            &format!(
-                "Merge {} into {}",
-                ctx.current_branch, ctx.parent_branch
-            ),
+            &format!("Merge {} into {}", ctx.current_branch, ctx.parent_branch),
         ],
         &format!("merge {} into {}", ctx.current_branch, ctx.parent_branch),
     )
@@ -227,7 +234,10 @@ pub fn remove_worktree_and_branch(ctx: &WorktreeContext) -> Result<(), String> {
         &["worktree", "remove", "--force", &ctx.worktree_path],
         GIT_LIFECYCLE_TIMEOUT_SECS,
     ) {
-        errors.push(format!("failed to remove worktree `{}`: {error}", ctx.worktree_path));
+        errors.push(format!(
+            "failed to remove worktree `{}`: {error}",
+            ctx.worktree_path
+        ));
     }
 
     let _ = run_git_capture(
@@ -266,7 +276,12 @@ pub fn get_worktree_repo_root(cwd: &str) -> Result<String, String> {
     {
         return Ok(Path::new(&common_dir)
             .parent()
-            .ok_or_else(|| format!("failed to resolve repo root from `{}`", common_dir.display()))?
+            .ok_or_else(|| {
+                format!(
+                    "failed to resolve repo root from `{}`",
+                    common_dir.display()
+                )
+            })?
             .to_string_lossy()
             .into_owned());
     }
@@ -281,7 +296,11 @@ pub fn get_repo_root(cwd: &str) -> Result<String, String> {
 
 /// Returns the current branch name for one git checkout.
 pub fn get_current_branch(cwd: &str) -> Result<String, String> {
-    run_git_capture(cwd, &["rev-parse", "--abbrev-ref", "HEAD"], GIT_TIMEOUT_SECS)
+    run_git_capture(
+        cwd,
+        &["rev-parse", "--abbrev-ref", "HEAD"],
+        GIT_TIMEOUT_SECS,
+    )
 }
 
 /// Creates one worktree checkout and branch under the canonical repo root.
@@ -392,14 +411,23 @@ fn merge_with_cleanup(cwd: &str, args: &[&str], description: &str) -> Result<Str
 fn branch_exists(cwd: &str, branch: &str) -> Result<bool, String> {
     let output = run_git_output(
         cwd,
-        &["show-ref", "--verify", "--quiet", &format!("refs/heads/{branch}")],
+        &[
+            "show-ref",
+            "--verify",
+            "--quiet",
+            &format!("refs/heads/{branch}"),
+        ],
         GIT_TIMEOUT_SECS,
     )?;
     Ok(output.status.success())
 }
 
 fn merge_head_exists(cwd: &str) -> Result<bool, String> {
-    let merge_head = run_git_capture(cwd, &["rev-parse", "--git-path", "MERGE_HEAD"], GIT_TIMEOUT_SECS)?;
+    let merge_head = run_git_capture(
+        cwd,
+        &["rev-parse", "--git-path", "MERGE_HEAD"],
+        GIT_TIMEOUT_SECS,
+    )?;
     Ok(resolve_git_path(cwd, &merge_head)?.exists())
 }
 
@@ -521,7 +549,12 @@ mod tests {
         repo
     }
 
-    fn add_manual_worktree(repo: &Path, checkout_name: &str, branch_name: &str, base_branch: &str) -> PathBuf {
+    fn add_manual_worktree(
+        repo: &Path,
+        checkout_name: &str,
+        branch_name: &str,
+        base_branch: &str,
+    ) -> PathBuf {
         let path = repo.join(".worktrees").join(checkout_name);
         std::fs::create_dir_all(repo.join(".worktrees")).unwrap();
         run(
@@ -565,15 +598,18 @@ mod tests {
 
     fn assert_clean(repo: &Path) {
         let status = run_text(repo, &["git", "status", "--porcelain"]);
-        assert!(status.is_empty(), "expected clean repo {}, got `{status}`", repo.display());
+        assert!(
+            status.is_empty(),
+            "expected clean repo {}, got `{status}`",
+            repo.display()
+        );
     }
 
     fn merge_head_exists(repo: &Path) -> bool {
-        repo.join(".git").join("MERGE_HEAD").exists()
-            || {
-                let merge_head_path = run_text(repo, &["git", "rev-parse", "--git-path", "MERGE_HEAD"]);
-                PathBuf::from(merge_head_path).exists()
-            }
+        repo.join(".git").join("MERGE_HEAD").exists() || {
+            let merge_head_path = run_text(repo, &["git", "rev-parse", "--git-path", "MERGE_HEAD"]);
+            PathBuf::from(merge_head_path).exists()
+        }
     }
 
     fn collect_source_files(root: &Path, files: &mut Vec<PathBuf>) {
@@ -584,7 +620,10 @@ mod tests {
             let path = entry.path();
             if path.is_dir() {
                 collect_source_files(&path, files);
-            } else if matches!(path.extension().and_then(|ext| ext.to_str()), Some("rs" | "sh")) {
+            } else if matches!(
+                path.extension().and_then(|ext| ext.to_str()),
+                Some("rs" | "sh")
+            ) {
                 files.push(path);
             }
         }
@@ -602,8 +641,14 @@ mod tests {
     #[test]
     fn worktree_path_and_branch_follow_neozeus_layout() {
         let repo_root = "/tmp/project";
-        assert_eq!(worktree_base_dir(repo_root), PathBuf::from("/tmp/project/.worktrees"));
-        assert_eq!(worktree_path(repo_root, "alpha"), PathBuf::from("/tmp/project/.worktrees/alpha"));
+        assert_eq!(
+            worktree_base_dir(repo_root),
+            PathBuf::from("/tmp/project/.worktrees")
+        );
+        assert_eq!(
+            worktree_path(repo_root, "alpha"),
+            PathBuf::from("/tmp/project/.worktrees/alpha")
+        );
         assert_eq!(worktree_branch("alpha"), "neozeus/alpha");
     }
 
@@ -617,8 +662,14 @@ mod tests {
     #[test]
     fn get_worktree_repo_root_resolves_main_checkout_root() {
         let repo = init_git_repo();
-        assert_eq!(get_repo_root(repo.to_str().unwrap()).unwrap(), repo.to_string_lossy());
-        assert_eq!(get_worktree_repo_root(repo.to_str().unwrap()).unwrap(), repo.to_string_lossy());
+        assert_eq!(
+            get_repo_root(repo.to_str().unwrap()).unwrap(),
+            repo.to_string_lossy()
+        );
+        assert_eq!(
+            get_worktree_repo_root(repo.to_str().unwrap()).unwrap(),
+            repo.to_string_lossy()
+        );
         assert_eq!(get_current_branch(repo.to_str().unwrap()).unwrap(), "main");
         assert!(!is_linked_worktree(repo.to_str().unwrap()).unwrap());
     }
@@ -630,7 +681,10 @@ mod tests {
         let nested = PathBuf::from(&worktree).join("src");
         std::fs::create_dir_all(&nested).unwrap();
 
-        assert_eq!(get_worktree_repo_root(nested.to_str().unwrap()).unwrap(), repo.to_string_lossy());
+        assert_eq!(
+            get_worktree_repo_root(nested.to_str().unwrap()).unwrap(),
+            repo.to_string_lossy()
+        );
         assert!(is_linked_worktree(nested.to_str().unwrap()).unwrap());
     }
 
@@ -641,33 +695,48 @@ mod tests {
         let worktree = PathBuf::from(worktree);
 
         assert!(worktree.is_dir());
-        assert_eq!(get_current_branch(worktree.to_str().unwrap()).unwrap(), "neozeus/beta");
+        assert_eq!(
+            get_current_branch(worktree.to_str().unwrap()).unwrap(),
+            "neozeus/beta"
+        );
         let gitignore = std::fs::read_to_string(repo.join(".gitignore")).unwrap();
-        assert_eq!(gitignore.lines().filter(|line| line.trim() == "/.worktrees/").count(), 1);
+        assert_eq!(
+            gitignore
+                .lines()
+                .filter(|line| line.trim() == "/.worktrees/")
+                .count(),
+            1
+        );
     }
 
     #[test]
     fn create_worktree_from_linked_checkout_uses_common_repo_root() {
         let repo = init_git_repo();
-        let alpha = PathBuf::from(create_worktree(repo.to_str().unwrap(), "alpha", Some("main")).unwrap());
+        let alpha =
+            PathBuf::from(create_worktree(repo.to_str().unwrap(), "alpha", Some("main")).unwrap());
         let common_root = get_worktree_repo_root(alpha.to_str().unwrap()).unwrap();
         let beta = create_worktree(&common_root, "beta", Some("main")).unwrap();
         assert_eq!(PathBuf::from(beta), repo.join(".worktrees").join("beta"));
-        assert_eq!(get_current_branch(repo.join(".worktrees/beta").to_str().unwrap()).unwrap(), "neozeus/beta");
+        assert_eq!(
+            get_current_branch(repo.join(".worktrees/beta").to_str().unwrap()).unwrap(),
+            "neozeus/beta"
+        );
     }
 
     #[test]
     fn create_worktree_rejects_duplicate_paths() {
         let repo = init_git_repo();
         create_worktree(repo.to_str().unwrap(), "dup", Some("main")).unwrap();
-        let error = create_worktree(repo.to_str().unwrap(), "dup", Some("main")).expect_err("duplicate worktree should fail");
+        let error = create_worktree(repo.to_str().unwrap(), "dup", Some("main"))
+            .expect_err("duplicate worktree should fail");
         assert!(error.contains("Worktree path already exists"));
     }
 
     #[test]
     fn get_worktree_repo_root_rejects_non_git_source() {
         let dir = temp_dir("worktree-non-git");
-        let error = get_worktree_repo_root(dir.to_str().unwrap()).expect_err("non-git cwd should fail");
+        let error =
+            get_worktree_repo_root(dir.to_str().unwrap()).expect_err("non-git cwd should fail");
         assert!(error.contains("git"));
     }
 
@@ -678,43 +747,58 @@ mod tests {
         let nested = PathBuf::from(&worktree).join("nested/deeper");
         std::fs::create_dir_all(&nested).unwrap();
 
-        assert_eq!(worktree_current_path(nested.to_str().unwrap()).unwrap(), worktree);
+        assert_eq!(
+            worktree_current_path(nested.to_str().unwrap()).unwrap(),
+            worktree
+        );
     }
 
     #[test]
     fn resolve_parent_branch_prefers_explicit_override() {
         let repo = init_git_repo();
         run(&repo, &["git", "branch", "release"]);
-        assert_eq!(resolve_parent_branch(repo.to_str().unwrap(), Some(" release ")).unwrap(), "release");
+        assert_eq!(
+            resolve_parent_branch(repo.to_str().unwrap(), Some(" release ")).unwrap(),
+            "release"
+        );
     }
 
     #[test]
     fn resolve_parent_branch_falls_back_to_main_then_master() {
         let main_repo = init_git_repo_on_branch("main");
-        assert_eq!(resolve_parent_branch(main_repo.to_str().unwrap(), None).unwrap(), "main");
+        assert_eq!(
+            resolve_parent_branch(main_repo.to_str().unwrap(), None).unwrap(),
+            "main"
+        );
 
         let master_repo = init_git_repo_on_branch("master");
-        assert_eq!(resolve_parent_branch(master_repo.to_str().unwrap(), None).unwrap(), "master");
+        assert_eq!(
+            resolve_parent_branch(master_repo.to_str().unwrap(), None).unwrap(),
+            "master"
+        );
     }
 
     #[test]
     fn resolve_parent_branch_errors_when_target_is_missing() {
         let repo = init_git_repo_on_branch("trunk");
-        let error = resolve_parent_branch(repo.to_str().unwrap(), None).expect_err("missing parent branch should fail");
+        let error = resolve_parent_branch(repo.to_str().unwrap(), None)
+            .expect_err("missing parent branch should fail");
         assert!(error.contains("neither `main` nor `master` exists"));
     }
 
     #[test]
     fn resolve_parent_branch_errors_when_override_is_missing() {
         let repo = init_git_repo();
-        let error = resolve_parent_branch(repo.to_str().unwrap(), Some("release")).expect_err("missing override should fail");
+        let error = resolve_parent_branch(repo.to_str().unwrap(), Some("release"))
+            .expect_err("missing override should fail");
         assert_eq!(error, "parent branch `release` does not exist");
     }
 
     #[test]
     fn resolve_worktree_context_succeeds_from_linked_checkout_root() {
         let repo = init_git_repo();
-        let worktree = PathBuf::from(create_worktree(repo.to_str().unwrap(), "alpha", Some("main")).unwrap());
+        let worktree =
+            PathBuf::from(create_worktree(repo.to_str().unwrap(), "alpha", Some("main")).unwrap());
 
         let context = resolve_worktree_context(worktree.to_str().unwrap(), None).unwrap();
         assert_eq!(context.repo_root, repo.to_string_lossy());
@@ -727,7 +811,8 @@ mod tests {
     #[test]
     fn resolve_worktree_context_succeeds_from_nested_linked_path() {
         let repo = init_git_repo();
-        let worktree = PathBuf::from(create_worktree(repo.to_str().unwrap(), "alpha", Some("main")).unwrap());
+        let worktree =
+            PathBuf::from(create_worktree(repo.to_str().unwrap(), "alpha", Some("main")).unwrap());
         let nested = worktree.join("nested/deeper");
         std::fs::create_dir_all(&nested).unwrap();
 
@@ -739,24 +824,28 @@ mod tests {
     #[test]
     fn resolve_worktree_context_rejects_main_checkout() {
         let repo = init_git_repo();
-        let error = resolve_worktree_context(repo.to_str().unwrap(), None).expect_err("main checkout should fail");
+        let error = resolve_worktree_context(repo.to_str().unwrap(), None)
+            .expect_err("main checkout should fail");
         assert!(error.contains("linked worktree checkout"));
     }
 
     #[test]
     fn resolve_worktree_context_rejects_non_git_cwd() {
         let dir = temp_dir("worktree-context-non-git");
-        let error = resolve_worktree_context(dir.to_str().unwrap(), None).expect_err("non-git cwd should fail");
+        let error = resolve_worktree_context(dir.to_str().unwrap(), None)
+            .expect_err("non-git cwd should fail");
         assert!(error.contains("git"));
     }
 
     #[test]
     fn resolve_worktree_context_rejects_detached_head() {
         let repo = init_git_repo();
-        let worktree = PathBuf::from(create_worktree(repo.to_str().unwrap(), "alpha", Some("main")).unwrap());
+        let worktree =
+            PathBuf::from(create_worktree(repo.to_str().unwrap(), "alpha", Some("main")).unwrap());
         run(&worktree, &["git", "checkout", "HEAD~0"]);
 
-        let error = resolve_worktree_context(worktree.to_str().unwrap(), None).expect_err("detached head should fail");
+        let error = resolve_worktree_context(worktree.to_str().unwrap(), None)
+            .expect_err("detached head should fail");
         assert!(error.contains("detached HEAD"));
     }
 
@@ -765,7 +854,8 @@ mod tests {
         let repo = init_git_repo();
         let worktree = add_manual_worktree(&repo, "plain", "feature/plain", "main");
 
-        let error = resolve_worktree_context(worktree.to_str().unwrap(), None).expect_err("non-neozeus branch should fail");
+        let error = resolve_worktree_context(worktree.to_str().unwrap(), None)
+            .expect_err("non-neozeus branch should fail");
         assert!(error.contains("neozeus/"));
     }
 
@@ -773,9 +863,11 @@ mod tests {
     fn resolve_worktree_context_uses_explicit_parent_override() {
         let repo = init_git_repo();
         run(&repo, &["git", "branch", "release"]);
-        let worktree = PathBuf::from(create_worktree(repo.to_str().unwrap(), "alpha", Some("main")).unwrap());
+        let worktree =
+            PathBuf::from(create_worktree(repo.to_str().unwrap(), "alpha", Some("main")).unwrap());
 
-        let context = resolve_worktree_context(worktree.to_str().unwrap(), Some("release")).unwrap();
+        let context =
+            resolve_worktree_context(worktree.to_str().unwrap(), Some("release")).unwrap();
         assert_eq!(context.parent_branch, "release");
     }
 
@@ -789,7 +881,8 @@ mod tests {
     fn ensure_clean_worktree_rejects_modified_tracked_file() {
         let repo = init_git_repo();
         std::fs::write(repo.join("README.md"), "changed\n").unwrap();
-        let error = ensure_clean_worktree(repo.to_str().unwrap()).expect_err("modified file should fail");
+        let error =
+            ensure_clean_worktree(repo.to_str().unwrap()).expect_err("modified file should fail");
         assert!(error.contains("README.md"));
     }
 
@@ -798,7 +891,8 @@ mod tests {
         let repo = init_git_repo();
         std::fs::write(repo.join("README.md"), "changed\n").unwrap();
         run(&repo, &["git", "add", "README.md"]);
-        let error = ensure_clean_worktree(repo.to_str().unwrap()).expect_err("staged change should fail");
+        let error =
+            ensure_clean_worktree(repo.to_str().unwrap()).expect_err("staged change should fail");
         assert!(error.contains("README.md"));
     }
 
@@ -808,7 +902,8 @@ mod tests {
         std::fs::write(repo.join("README.md"), "staged\n").unwrap();
         run(&repo, &["git", "add", "README.md"]);
         std::fs::write(repo.join("README.md"), "staged-and-unstaged\n").unwrap();
-        let error = ensure_clean_worktree(repo.to_str().unwrap()).expect_err("mixed dirty state should fail");
+        let error = ensure_clean_worktree(repo.to_str().unwrap())
+            .expect_err("mixed dirty state should fail");
         assert!(error.contains("MM README.md") || error.contains("README.md"));
     }
 
@@ -816,7 +911,8 @@ mod tests {
     fn ensure_clean_worktree_rejects_untracked_files() {
         let repo = init_git_repo();
         std::fs::write(repo.join("UNTRACKED.txt"), "x\n").unwrap();
-        let error = ensure_clean_worktree(repo.to_str().unwrap()).expect_err("untracked file should fail");
+        let error =
+            ensure_clean_worktree(repo.to_str().unwrap()).expect_err("untracked file should fail");
         assert!(error.contains("UNTRACKED.txt"));
     }
 
@@ -824,7 +920,8 @@ mod tests {
     fn ensure_clean_worktree_rejects_deleted_tracked_files() {
         let repo = init_git_repo();
         std::fs::remove_file(repo.join("README.md")).unwrap();
-        let error = ensure_clean_worktree(repo.to_str().unwrap()).expect_err("deleted tracked file should fail");
+        let error = ensure_clean_worktree(repo.to_str().unwrap())
+            .expect_err("deleted tracked file should fail");
         assert!(error.contains("README.md"));
     }
 
@@ -839,13 +936,18 @@ mod tests {
     #[test]
     fn merge_worktree_into_parent_creates_merge_commit() {
         let repo = init_git_repo();
-        let worktree = PathBuf::from(create_worktree(repo.to_str().unwrap(), "alpha", Some("main")).unwrap());
+        let worktree =
+            PathBuf::from(create_worktree(repo.to_str().unwrap(), "alpha", Some("main")).unwrap());
         write_and_commit(&worktree, "feature.txt", "alpha\n", "feature");
         let ctx = worktree_context(&repo, &worktree);
 
         let output = merge_worktree_into_parent(&ctx).unwrap();
 
-        assert!(output.contains("Merge made by") || output.contains("Fast-forward") || output.contains("Already up to date"));
+        assert!(
+            output.contains("Merge made by")
+                || output.contains("Fast-forward")
+                || output.contains("Already up to date")
+        );
         assert_eq!(get_current_branch(repo.to_str().unwrap()).unwrap(), "main");
         assert_eq!(branch_tip(&repo, "main"), head_tip(&repo));
         assert!(branch_tip(&repo, "main") != branch_tip(&repo, &ctx.current_branch));
@@ -855,7 +957,8 @@ mod tests {
     #[test]
     fn merge_worktree_into_parent_reports_conflicts_and_aborts_cleanly() {
         let repo = init_git_repo();
-        let worktree = PathBuf::from(create_worktree(repo.to_str().unwrap(), "alpha", Some("main")).unwrap());
+        let worktree =
+            PathBuf::from(create_worktree(repo.to_str().unwrap(), "alpha", Some("main")).unwrap());
         write_and_commit(&worktree, "README.md", "worktree\n", "worktree change");
         write_and_commit(&repo, "README.md", "main\n", "main change");
         let ctx = worktree_context(&repo, &worktree);
@@ -870,13 +973,17 @@ mod tests {
     #[test]
     fn merge_parent_back_into_worktree_updates_branch() {
         let repo = init_git_repo();
-        let worktree = PathBuf::from(create_worktree(repo.to_str().unwrap(), "alpha", Some("main")).unwrap());
+        let worktree =
+            PathBuf::from(create_worktree(repo.to_str().unwrap(), "alpha", Some("main")).unwrap());
         let ctx = worktree_context(&repo, &worktree);
         write_and_commit(&repo, "main-only.txt", "main\n", "main change");
 
         merge_parent_back_into_worktree(&ctx).unwrap();
 
-        assert_eq!(run_text(&worktree, &["git", "show", "HEAD:main-only.txt"]), "main");
+        assert_eq!(
+            run_text(&worktree, &["git", "show", "HEAD:main-only.txt"]),
+            "main"
+        );
         assert!(!merge_head_exists(&worktree));
         assert_clean(&worktree);
     }
@@ -884,12 +991,14 @@ mod tests {
     #[test]
     fn merge_parent_back_into_worktree_reports_conflicts_and_aborts_cleanly() {
         let repo = init_git_repo();
-        let worktree = PathBuf::from(create_worktree(repo.to_str().unwrap(), "alpha", Some("main")).unwrap());
+        let worktree =
+            PathBuf::from(create_worktree(repo.to_str().unwrap(), "alpha", Some("main")).unwrap());
         write_and_commit(&repo, "README.md", "main\n", "main change");
         write_and_commit(&worktree, "README.md", "worktree\n", "worktree change");
         let ctx = worktree_context(&repo, &worktree);
 
-        let error = merge_parent_back_into_worktree(&ctx).expect_err("conflicting merge-back should fail");
+        let error =
+            merge_parent_back_into_worktree(&ctx).expect_err("conflicting merge-back should fail");
 
         assert!(error.contains("README.md"));
         assert!(!merge_head_exists(&worktree));
@@ -899,14 +1008,18 @@ mod tests {
     #[test]
     fn merge_continue_end_to_end_updates_parent_and_worktree() {
         let repo = init_git_repo();
-        let worktree = PathBuf::from(create_worktree(repo.to_str().unwrap(), "alpha", Some("main")).unwrap());
+        let worktree =
+            PathBuf::from(create_worktree(repo.to_str().unwrap(), "alpha", Some("main")).unwrap());
         write_and_commit(&worktree, "feature.txt", "alpha\n", "feature");
         let ctx = worktree_context(&repo, &worktree);
 
         merge_worktree_into_parent(&ctx).unwrap();
         merge_parent_back_into_worktree(&ctx).unwrap();
 
-        assert_eq!(branch_tip(&repo, "main"), branch_tip(&worktree, "neozeus/alpha"));
+        assert_eq!(
+            branch_tip(&repo, "main"),
+            branch_tip(&worktree, "neozeus/alpha")
+        );
         assert_clean(&repo);
         assert_clean(&worktree);
     }
@@ -914,15 +1027,22 @@ mod tests {
     #[test]
     fn merge_continue_second_merge_conflict_aborts_cleanly() {
         let repo = init_git_repo();
-        let worktree = PathBuf::from(create_worktree(repo.to_str().unwrap(), "alpha", Some("main")).unwrap());
+        let worktree =
+            PathBuf::from(create_worktree(repo.to_str().unwrap(), "alpha", Some("main")).unwrap());
         write_and_commit(&worktree, "README.md", "worktree-base\n", "worktree base");
         let ctx = worktree_context(&repo, &worktree);
 
         merge_worktree_into_parent(&ctx).unwrap();
         write_and_commit(&repo, "README.md", "main-after-merge\n", "main after merge");
-        write_and_commit(&worktree, "README.md", "worktree-after-merge\n", "worktree after merge");
+        write_and_commit(
+            &worktree,
+            "README.md",
+            "worktree-after-merge\n",
+            "worktree after merge",
+        );
 
-        let error = merge_parent_back_into_worktree(&ctx).expect_err("merge-back conflict should fail");
+        let error =
+            merge_parent_back_into_worktree(&ctx).expect_err("merge-back conflict should fail");
 
         assert!(error.contains("README.md"));
         assert!(!merge_head_exists(&worktree));
@@ -933,14 +1053,18 @@ mod tests {
     #[test]
     fn merge_finalize_end_to_end_merges_then_removes_worktree_and_branch() {
         let repo = init_git_repo();
-        let worktree = PathBuf::from(create_worktree(repo.to_str().unwrap(), "alpha", Some("main")).unwrap());
+        let worktree =
+            PathBuf::from(create_worktree(repo.to_str().unwrap(), "alpha", Some("main")).unwrap());
         write_and_commit(&worktree, "feature.txt", "alpha\n", "feature");
         let ctx = worktree_context(&repo, &worktree);
 
         merge_worktree_into_parent(&ctx).unwrap();
         remove_worktree_and_branch(&ctx).unwrap();
 
-        assert_eq!(run_text(&repo, &["git", "show", "HEAD:feature.txt"]), "alpha");
+        assert_eq!(
+            run_text(&repo, &["git", "show", "HEAD:feature.txt"]),
+            "alpha"
+        );
         assert!(!worktree.exists());
         assert!(!branch_exists(repo.to_str().unwrap(), "neozeus/alpha").unwrap());
         assert_clean(&repo);
@@ -950,7 +1074,8 @@ mod tests {
     fn discard_end_to_end_removes_dirty_worktree_without_merging_parent() {
         let repo = init_git_repo();
         let parent_before = branch_tip(&repo, "main");
-        let worktree = PathBuf::from(create_worktree(repo.to_str().unwrap(), "alpha", Some("main")).unwrap());
+        let worktree =
+            PathBuf::from(create_worktree(repo.to_str().unwrap(), "alpha", Some("main")).unwrap());
         std::fs::write(worktree.join("dirty.txt"), "uncommitted\n").unwrap();
         let ctx = worktree_context(&repo, &worktree);
 
@@ -965,7 +1090,8 @@ mod tests {
     #[test]
     fn conflicted_files_returns_exact_paths_for_real_conflicts() {
         let repo = init_git_repo();
-        let worktree = PathBuf::from(create_worktree(repo.to_str().unwrap(), "alpha", Some("main")).unwrap());
+        let worktree =
+            PathBuf::from(create_worktree(repo.to_str().unwrap(), "alpha", Some("main")).unwrap());
         write_and_commit(&repo, "README.md", "main\n", "main change");
         write_and_commit(&worktree, "README.md", "worktree\n", "worktree change");
         let output = run_allow_failure(&worktree, &["git", "merge", "main"]);
@@ -985,7 +1111,8 @@ mod tests {
     #[test]
     fn remove_worktree_and_branch_removes_checkout_and_branch() {
         let repo = init_git_repo();
-        let worktree = PathBuf::from(create_worktree(repo.to_str().unwrap(), "alpha", Some("main")).unwrap());
+        let worktree =
+            PathBuf::from(create_worktree(repo.to_str().unwrap(), "alpha", Some("main")).unwrap());
         let ctx = worktree_context(&repo, &worktree);
 
         remove_worktree_and_branch(&ctx).unwrap();
@@ -1000,7 +1127,10 @@ mod tests {
         run(&repo, &["git", "branch", "neozeus/spare"]);
         let ctx = WorktreeContext {
             repo_root: repo.to_string_lossy().into_owned(),
-            worktree_path: repo.join(".worktrees/missing").to_string_lossy().into_owned(),
+            worktree_path: repo
+                .join(".worktrees/missing")
+                .to_string_lossy()
+                .into_owned(),
             current_branch: "neozeus/spare".into(),
             parent_branch: "main".into(),
             agent_name: "spare".into(),
@@ -1014,7 +1144,8 @@ mod tests {
     #[test]
     fn remove_worktree_and_branch_reports_branch_delete_failure() {
         let repo = init_git_repo();
-        let worktree = PathBuf::from(create_worktree(repo.to_str().unwrap(), "alpha", Some("main")).unwrap());
+        let worktree =
+            PathBuf::from(create_worktree(repo.to_str().unwrap(), "alpha", Some("main")).unwrap());
         let ctx = WorktreeContext {
             repo_root: repo.to_string_lossy().into_owned(),
             worktree_path: worktree.to_string_lossy().into_owned(),
@@ -1031,16 +1162,21 @@ mod tests {
     #[test]
     fn remove_worktree_and_branch_preserves_both_failures() {
         let repo = init_git_repo();
-        let worktree = PathBuf::from(create_worktree(repo.to_str().unwrap(), "alpha", Some("main")).unwrap());
+        let worktree =
+            PathBuf::from(create_worktree(repo.to_str().unwrap(), "alpha", Some("main")).unwrap());
         let ctx = WorktreeContext {
             repo_root: repo.to_string_lossy().into_owned(),
-            worktree_path: repo.join(".worktrees/missing").to_string_lossy().into_owned(),
+            worktree_path: repo
+                .join(".worktrees/missing")
+                .to_string_lossy()
+                .into_owned(),
             current_branch: "neozeus/alpha".into(),
             parent_branch: "main".into(),
             agent_name: "alpha".into(),
         };
 
-        let error = remove_worktree_and_branch(&ctx).expect_err("dual failure should surface both causes");
+        let error =
+            remove_worktree_and_branch(&ctx).expect_err("dual failure should surface both causes");
         assert!(error.contains("failed to remove worktree"));
         assert!(error.contains("failed to delete branch"));
         assert!(worktree.exists());
@@ -1059,11 +1195,14 @@ mod tests {
             .filter_map(|path| {
                 let text = std::fs::read_to_string(&path).ok()?;
                 let text = if path.ends_with(Path::new("src/shared/worktree.rs")) {
-                    text.split("#[cfg(test)]").next().unwrap_or(&text).to_owned()
+                    text.split("#[cfg(test)]")
+                        .next()
+                        .unwrap_or(&text)
+                        .to_owned()
                 } else {
                     text
                 };
-                has_legacy_worktree_prefix(&text).then(|| path)
+                has_legacy_worktree_prefix(&text).then_some(path)
             })
             .collect::<Vec<_>>();
 
@@ -1080,10 +1219,15 @@ mod tests {
         let dir = temp_dir("worktree-timeout-git");
         let fake_git = dir.join("git-timeout.sh");
         std::fs::write(&fake_git, "#!/bin/sh\nsleep 1\n").unwrap();
-        let output = Command::new("chmod").arg("+x").arg(&fake_git).output().unwrap();
+        let output = Command::new("chmod")
+            .arg("+x")
+            .arg(&fake_git)
+            .output()
+            .unwrap();
         assert!(output.status.success());
         super::set_test_git_program_override(Some(fake_git.clone()));
-        let error = run_git_capture(dir.to_str().unwrap(), &["status"], 0).expect_err("git timeout should fail");
+        let error = run_git_capture(dir.to_str().unwrap(), &["status"], 0)
+            .expect_err("git timeout should fail");
         super::set_test_git_program_override(None);
         assert!(error.contains("timed out"));
     }
