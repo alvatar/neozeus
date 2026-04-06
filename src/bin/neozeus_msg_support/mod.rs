@@ -120,7 +120,7 @@ fn load_existing_persisted_app_state(path: &Path) -> Result<PersistedAppState, S
 }
 
 fn normalize_agent_label(label: &str) -> String {
-    neozeus::shared::labels::uppercase_display_label_text(label.trim())
+    neozeus::shared::labels::uppercase_agent_label_text(label.trim())
 }
 
 fn live_session_matches_for_agent_label(

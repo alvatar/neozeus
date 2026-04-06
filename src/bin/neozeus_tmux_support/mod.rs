@@ -65,9 +65,11 @@ fn parse_run_request(args: &[String], env: &HashMap<String, String>) -> Result<R
                 if value.trim().is_empty() {
                     return Err("--name must not be empty".to_owned());
                 }
-                display_name = Some(neozeus::shared::labels::uppercase_display_label_text(
-                    value.trim(),
-                ));
+                display_name = Some(
+                    neozeus::shared::labels::uppercase_owned_tmux_display_name_text(
+                        value.trim(),
+                    ),
+                );
                 index += 1;
             }
             "--cwd" => {

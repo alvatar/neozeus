@@ -1,5 +1,5 @@
 use crate::shared::{
-    command_runner::run_command_with_timeout, labels::uppercase_display_label_text,
+    command_runner::run_command_with_timeout, labels::uppercase_owned_tmux_display_name_text,
 };
 use std::{
     collections::HashMap,
@@ -130,7 +130,7 @@ fn normalize_owned_tmux_display_name(display_name: &str, fallback_tmux_name: &st
     if display_name.is_empty() {
         fallback_tmux_name.to_owned()
     } else {
-        uppercase_display_label_text(display_name)
+        uppercase_owned_tmux_display_name_text(display_name)
     }
 }
 
@@ -148,7 +148,7 @@ pub(super) fn create_owned_tmux_session(
     if display_name.is_empty() {
         return Err("owned tmux session requires a display name".to_owned());
     }
-    let display_name = uppercase_display_label_text(display_name);
+    let display_name = uppercase_owned_tmux_display_name_text(display_name);
     let command = command.trim();
     if command.is_empty() {
         return Err("owned tmux session requires a command".to_owned());
