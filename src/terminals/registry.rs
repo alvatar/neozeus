@@ -155,6 +155,7 @@ impl TerminalManager {
     }
 
     /// Returns mutable access to one managed-terminal record.
+    #[cfg(test)]
     pub(crate) fn get_mut(&mut self, id: TerminalId) -> Option<&mut ManagedTerminal> {
         self.terminals.get_mut(&id)
     }

@@ -3,7 +3,8 @@ use crate::{
     app::AppSessionState,
     conversations::AgentTaskStore,
     hud::{
-        AgentListSelection, HudInputCaptureState, TerminalVisibilityPolicy, TerminalVisibilityState,
+        AgentListSelection, AgentListView, HudInputCaptureState, TerminalVisibilityPolicy,
+        TerminalVisibilityState,
     },
     terminals::{
         append_debug_log, attach_terminal_session, RuntimeNotifier, TerminalBridge, TerminalCell,
@@ -11,10 +12,11 @@ use crate::{
         TerminalNotesState, TerminalPresentationStore, TerminalRuntimeSpawner, TerminalSurface,
         TerminalViewState, VERIFIER_SESSION_PREFIX,
     },
+    visual_contract::{TerminalFrameVisualState, VisualContractState},
 };
 use bevy::{ecs::system::SystemParam, prelude::Resource, prelude::*, window::RequestRedraw};
 use bevy_egui::egui;
-use std::{env, thread, time::Duration};
+use std::{collections::BTreeMap, env, thread, time::Duration};
 
 #[derive(Resource, Clone)]
 pub(crate) struct AutoVerifyConfig {
@@ -85,6 +87,58 @@ pub(crate) struct VerificationScenarioConfig {
     pub(crate) terminal_ids: Vec<TerminalId>,
 }
 
+#[derive(Resource, Clone, Debug, Default, PartialEq)]
+pub(crate) struct VerificationTerminalSurfaceOverrides {
+    surfaces: BTreeMap<TerminalId, TerminalSurface>,
+    presentation_revision: u64,
+}
+
+impl VerificationTerminalSurfaceOverrides {
+    pub(crate) fn clear(&mut self) {
+        if self.surfaces.is_empty() {
+            return;
+        }
+        self.surfaces.clear();
+        self.bump_presentation_revision();
+    }
+
+    pub(crate) fn set_surface(&mut self, terminal_id: TerminalId, surface: TerminalSurface) {
+        let changed = self.surfaces.get(&terminal_id) != Some(&surface);
+        if changed {
+            self.surfaces.insert(terminal_id, surface);
+            self.bump_presentation_revision();
+        }
+    }
+
+    pub(crate) fn surface_for(&self, terminal_id: TerminalId) -> Option<&TerminalSurface> {
+        self.surfaces.get(&terminal_id)
+    }
+
+    pub(crate) fn presentation_override_revision_for(
+        &self,
+        terminal_id: TerminalId,
+    ) -> Option<u64> {
+        self.surfaces
+            .contains_key(&terminal_id)
+            .then_some(self.presentation_revision)
+    }
+
+    fn bump_presentation_revision(&mut self) {
+        self.presentation_revision = self.presentation_revision.wrapping_add(1);
+    }
+}
+
+#[derive(Resource, Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct VerificationCaptureBarrierState {
+    ready: bool,
+}
+
+impl VerificationCaptureBarrierState {
+    pub(crate) fn ready(&self) -> bool {
+        self.ready
+    }
+}
+
 impl VerificationScenarioConfig {
     /// Reads the verification-scenario configuration from the environment.
     ///
@@ -116,6 +170,7 @@ fn terminal_has_presentable_frame(
     terminal_id: TerminalId,
     terminal_manager: &TerminalManager,
     presentation_store: &TerminalPresentationStore,
+    verification_overrides: &VerificationTerminalSurfaceOverrides,
 ) -> bool {
     let Some(terminal) = terminal_manager.get(terminal_id) else {
         return false;
@@ -123,8 +178,16 @@ fn terminal_has_presentable_frame(
     let Some(presented) = presentation_store.get(terminal_id) else {
         return false;
     };
-    terminal.snapshot.surface.is_some()
-        && presented.uploaded_revision == terminal.surface_revision
+    let override_revision = verification_overrides.presentation_override_revision_for(terminal_id);
+    let has_surface = override_revision.is_some() || terminal.snapshot.surface.is_some();
+    let uploaded_matches = match override_revision {
+        Some(override_revision) => {
+            presented.uploaded_active_override_revision == Some(override_revision)
+        }
+        None => presented.uploaded_revision == terminal.surface_revision,
+    };
+    has_surface
+        && uploaded_matches
         && presented.texture_state.texture_size != UVec2::ONE
         && presented.texture_state.cell_size != UVec2::ZERO
 }
@@ -161,10 +224,11 @@ fn seeded_inspect_surface(label: &str, accent: egui::Color32) -> TerminalSurface
     surface
 }
 
-/// Overwrites one managed terminal's snapshot surface with deterministic verification content.
+/// Writes one text payload into the synthetic verification surface.
 ///
-/// The helper mutates the terminal in place and bumps its surface revision so the raster/presentation
-/// pipeline treats the injected surface as fresh work that must be uploaded.
+/// The helper packs the full string into a single terminal cell because the deterministic
+/// verification surfaces only need stable, visually distinctive content, not faithful terminal
+/// wrapping semantics.
 fn set_surface_text(surface: &mut TerminalSurface, x: usize, y: usize, text: &str) {
     let mut chars = text.chars();
     let Some(base) = chars.next() else {
@@ -196,16 +260,12 @@ fn seeded_activity_contract_surface(working: bool) -> TerminalSurface {
 }
 
 fn seed_terminal_surface(
-    terminal_manager: &mut TerminalManager,
+    overrides: &mut VerificationTerminalSurfaceOverrides,
     terminal_id: TerminalId,
     label: &str,
     accent: egui::Color32,
 ) {
-    let Some(terminal) = terminal_manager.get_mut(terminal_id) else {
-        return;
-    };
-    terminal.snapshot.surface = Some(seeded_inspect_surface(label, accent));
-    terminal.surface_revision += 1;
+    overrides.set_surface(terminal_id, seeded_inspect_surface(label, accent));
 }
 
 /// Starts a background worker that injects the configured auto-verify command after a delay.
@@ -233,6 +293,7 @@ struct VerificationScenarioContext<'w> {
     terminal_manager: ResMut<'w, TerminalManager>,
     focus_state: ResMut<'w, TerminalFocusState>,
     presentation_store: ResMut<'w, TerminalPresentationStore>,
+    verification_overrides: ResMut<'w, VerificationTerminalSurfaceOverrides>,
     runtime_spawner: Res<'w, TerminalRuntimeSpawner>,
     input_capture: ResMut<'w, HudInputCaptureState>,
     agent_catalog: ResMut<'w, AgentCatalog>,
@@ -253,6 +314,115 @@ struct VerificationScenarioContext<'w> {
 /// scenario expects. The inspect-switch scenario is special: it primes two terminals first and only
 /// marks itself applied once both terminals have presentable uploaded frames, so the final capture
 /// measures a real visual switch instead of a partially loaded one.
+fn selected_agent_row_is_focused(
+    selection: &AgentListSelection,
+    agent_list: &AgentListView,
+) -> bool {
+    match selection {
+        AgentListSelection::Agent(agent_id) => agent_list.rows.iter().any(|row| {
+            row.focused && matches!(row.key, crate::hud::AgentListRowKey::Agent(row_id) if row_id == *agent_id)
+        }),
+        AgentListSelection::None | AgentListSelection::OwnedTmux(_) => false,
+    }
+}
+
+#[allow(
+    clippy::too_many_arguments,
+    reason = "verification readiness compares one scenario contract against multiple authoritative state stores"
+)]
+fn verification_capture_ready(
+    scenario: VerificationScenario,
+    app_session: &AppSessionState,
+    selection: &AgentListSelection,
+    agent_list: &AgentListView,
+    focus_state: &TerminalFocusState,
+    terminal_manager: &TerminalManager,
+    presentation_store: &TerminalPresentationStore,
+    verification_overrides: &VerificationTerminalSurfaceOverrides,
+    visual_contract: &VisualContractState,
+) -> bool {
+    let active_terminal_ready = focus_state.active_id().is_some_and(|terminal_id| {
+        terminal_has_presentable_frame(
+            terminal_id,
+            terminal_manager,
+            presentation_store,
+            verification_overrides,
+        )
+    });
+    match scenario {
+        VerificationScenario::MessageBoxBloom => {
+            active_terminal_ready && app_session.composer.message_editor.visible
+        }
+        VerificationScenario::TaskDialogBloom => {
+            active_terminal_ready && app_session.composer.task_editor.visible
+        }
+        VerificationScenario::AgentListBloom => {
+            active_terminal_ready && selected_agent_row_is_focused(selection, agent_list)
+        }
+        VerificationScenario::WorkingStateIdle => {
+            focus_state.active_id().is_some_and(|terminal_id| {
+                terminal_has_presentable_frame(
+                    terminal_id,
+                    terminal_manager,
+                    presentation_store,
+                    verification_overrides,
+                ) && visual_contract.frame_for_terminal(terminal_id)
+                    == TerminalFrameVisualState::Hidden
+            })
+        }
+        VerificationScenario::WorkingStateWorking => {
+            focus_state.active_id().is_some_and(|terminal_id| {
+                terminal_has_presentable_frame(
+                    terminal_id,
+                    terminal_manager,
+                    presentation_store,
+                    verification_overrides,
+                ) && visual_contract.frame_for_terminal(terminal_id)
+                    == TerminalFrameVisualState::Working
+            })
+        }
+        VerificationScenario::InspectSwitchLatency => active_terminal_ready,
+    }
+}
+
+#[allow(
+    clippy::too_many_arguments,
+    reason = "verification capture readiness derives from scenario, app, HUD, terminal, and visual-contract state"
+)]
+pub(crate) fn sync_verification_capture_barrier(
+    verification_scenario: Option<Res<VerificationScenarioConfig>>,
+    app_session: Res<AppSessionState>,
+    selection: Res<AgentListSelection>,
+    agent_list: Res<AgentListView>,
+    focus_state: Res<TerminalFocusState>,
+    terminal_manager: Res<TerminalManager>,
+    presentation_store: Res<TerminalPresentationStore>,
+    verification_overrides: Res<VerificationTerminalSurfaceOverrides>,
+    visual_contract: Res<VisualContractState>,
+    mut barrier: ResMut<VerificationCaptureBarrierState>,
+) {
+    let ready = match verification_scenario {
+        Some(scenario) => {
+            scenario.applied
+                && verification_capture_ready(
+                    scenario.scenario,
+                    &app_session,
+                    &selection,
+                    &agent_list,
+                    &focus_state,
+                    &terminal_manager,
+                    &presentation_store,
+                    &verification_overrides,
+                    &visual_contract,
+                )
+        }
+        None => true,
+    };
+    if barrier.ready != ready {
+        barrier.ready = ready;
+    }
+}
+
 pub(crate) fn run_verification_scenario(world: &mut World) {
     let mut state: bevy::ecs::system::SystemState<(
         Option<ResMut<VerificationScenarioConfig>>,
@@ -271,6 +441,9 @@ pub(crate) fn run_verification_scenario(world: &mut World) {
     };
     if config.applied || !ctx.runtime_spawner.is_ready() {
         finish!();
+    }
+    if !config.primed && config.terminal_ids.is_empty() {
+        ctx.verification_overrides.clear();
     }
     if config.frames_until_apply > 0 {
         config.frames_until_apply -= 1;
@@ -409,10 +582,8 @@ pub(crate) fn run_verification_scenario(world: &mut World) {
             ctx.app_session.composer.close_task_editor();
             ctx.input_capture.close_direct_terminal_input();
             let working = matches!(config.scenario, VerificationScenario::WorkingStateWorking);
-            if let Some(terminal) = ctx.terminal_manager.get_mut(terminal_id) {
-                terminal.snapshot.surface = Some(seeded_activity_contract_surface(working));
-                terminal.surface_revision += 1;
-            }
+            ctx.verification_overrides
+                .set_surface(terminal_id, seeded_activity_contract_surface(working));
         }
         VerificationScenario::InspectSwitchLatency => {
             let first = config.terminal_ids[0];
@@ -425,13 +596,13 @@ pub(crate) fn run_verification_scenario(world: &mut World) {
                 ctx.visibility_state.policy = TerminalVisibilityPolicy::Isolate(first);
                 ctx.view_state.focus_terminal(Some(first));
                 seed_terminal_surface(
-                    &mut ctx.terminal_manager,
+                    &mut ctx.verification_overrides,
                     first,
                     "ALPHA",
                     egui::Color32::from_rgb(132, 56, 44),
                 );
                 seed_terminal_surface(
-                    &mut ctx.terminal_manager,
+                    &mut ctx.verification_overrides,
                     second,
                     "BETA",
                     egui::Color32::from_rgb(44, 72, 140),
@@ -447,10 +618,12 @@ pub(crate) fn run_verification_scenario(world: &mut World) {
                 first,
                 &ctx.terminal_manager,
                 &ctx.presentation_store,
+                &ctx.verification_overrides,
             ) || !terminal_has_presentable_frame(
                 second,
                 &ctx.terminal_manager,
                 &ctx.presentation_store,
+                &ctx.verification_overrides,
             ) {
                 ctx.redraws.write(RequestRedraw);
                 finish!();

@@ -1,6 +1,10 @@
 use super::*;
 use crate::tests::{fake_runtime_spawner, insert_default_hud_resources, surface_with_text};
-use bevy::{ecs::system::RunSystemOnce, window::RequestRedraw};
+use bevy::{
+    ecs::system::RunSystemOnce,
+    prelude::{Time, UVec2},
+    window::RequestRedraw,
+};
 use std::sync::Arc;
 
 /// Covers the string parser for the built-in verification scenarios.
@@ -161,12 +165,89 @@ fn working_state_scenario_seeds_pi_agent_with_working_surface() {
         Some(crate::agents::AgentKind::Pi)
     );
     let surface = world
-        .resource::<TerminalManager>()
-        .get(terminal_ids[0])
-        .and_then(|terminal| terminal.snapshot.surface.as_ref())
-        .expect("scenario should seed a surface");
+        .resource::<crate::verification::VerificationTerminalSurfaceOverrides>()
+        .surface_for(terminal_ids[0])
+        .expect("scenario should seed a verification override surface");
     assert!(surface_with_text(8, 120, 0, "header").rows <= surface.rows);
     assert_eq!(surface.cell(1, 3).content.to_owned_string(), "⠋ Working...");
+}
+
+#[test]
+fn working_state_capture_barrier_waits_for_presented_visual_contract() {
+    let client = Arc::new(crate::tests::FakeDaemonClient::default());
+    let mut world = World::default();
+    world.insert_resource(VerificationScenarioConfig {
+        scenario: VerificationScenario::WorkingStateWorking,
+        frames_until_apply: 0,
+        primed: false,
+        applied: false,
+        terminal_ids: Vec::new(),
+    });
+    world.insert_resource(crate::verification::VerificationCaptureBarrierState::default());
+    world.insert_resource(Assets::<Image>::default());
+    world.insert_resource(crate::terminals::TerminalManager::default());
+    world.insert_resource(crate::terminals::TerminalFocusState::default());
+    world.insert_resource(crate::terminals::TerminalPresentationStore::default());
+    world.insert_resource(fake_runtime_spawner(client));
+    world.insert_resource(crate::agents::AgentCatalog::default());
+    world.insert_resource(crate::agents::AgentRuntimeIndex::default());
+    world.insert_resource(crate::agents::AgentStatusStore::default());
+    world.insert_resource(Time::<()>::default());
+    world.insert_resource(crate::app::AppSessionState::default());
+    world.insert_resource(crate::conversations::AgentTaskStore::default());
+    world.insert_resource(crate::hud::TerminalVisibilityState::default());
+    world.insert_resource(crate::terminals::TerminalViewState::default());
+    world.insert_resource(crate::terminals::TerminalNotesState::default());
+    insert_default_hud_resources(&mut world);
+    world.init_resource::<Messages<RequestRedraw>>();
+
+    world.run_system_once(run_verification_scenario).unwrap();
+    world
+        .run_system_once(crate::terminals::sync_terminal_projection_entities)
+        .unwrap();
+    world
+        .run_system_once(sync_verification_capture_barrier)
+        .unwrap();
+    assert!(
+        !world
+            .resource::<crate::verification::VerificationCaptureBarrierState>()
+            .ready(),
+        "barrier must stay closed before status derivation and uploaded presentation agree"
+    );
+
+    let terminal_id = world.resource::<TerminalManager>().terminal_ids()[0];
+    {
+        let override_revision = world
+            .resource::<crate::verification::VerificationTerminalSurfaceOverrides>()
+            .presentation_override_revision_for(terminal_id)
+            .expect("working-state scenario should install a verification override surface");
+        let mut presentations = world.resource_mut::<crate::terminals::TerminalPresentationStore>();
+        let presented = presentations
+            .get_mut(terminal_id)
+            .expect("projection should exist");
+        presented.uploaded_active_override_revision = Some(override_revision);
+        presented.texture_state = crate::terminals::TerminalTextureState {
+            texture_size: UVec2::new(960, 160),
+            cell_size: UVec2::new(8, 20),
+        };
+    }
+
+    world
+        .run_system_once(crate::agents::sync_agent_status)
+        .unwrap();
+    world
+        .run_system_once(crate::visual_contract::sync_visual_contract_state)
+        .unwrap();
+    world
+        .run_system_once(sync_verification_capture_barrier)
+        .unwrap();
+
+    assert!(
+        world
+            .resource::<crate::verification::VerificationCaptureBarrierState>()
+            .ready(),
+        "barrier should open only after scenario surface, derived status, visual contract, and uploaded frame agree"
+    );
 }
 
 /// Verifies the two-phase behavior of the inspect-switch-latency scenario.
@@ -210,20 +291,15 @@ fn inspect_switch_scenario_spawns_two_terminals_and_focuses_second() {
     assert_eq!(terminal_ids.len(), 2);
     assert!(world.resource::<VerificationScenarioConfig>().primed);
     assert!(!world.resource::<VerificationScenarioConfig>().applied);
-    {
-        let mut manager = world.resource_mut::<TerminalManager>();
-        manager.get_mut(terminal_ids[0]).unwrap().snapshot.surface =
-            Some(surface_with_text(2, 24, 0, "FIRST"));
-        manager.get_mut(terminal_ids[0]).unwrap().surface_revision = 1;
-        manager.get_mut(terminal_ids[1]).unwrap().snapshot.surface =
-            Some(surface_with_text(2, 24, 0, "SECOND"));
-        manager.get_mut(terminal_ids[1]).unwrap().surface_revision = 1;
-    }
+    let override_revision = world
+        .resource::<crate::verification::VerificationTerminalSurfaceOverrides>()
+        .presentation_override_revision_for(terminal_ids[0])
+        .expect("primed inspect-switch scenario should install override surfaces");
     {
         let mut presentations = world.resource_mut::<crate::terminals::TerminalPresentationStore>();
         for terminal_id in &terminal_ids {
             let presented = presentations.get_mut(*terminal_id).unwrap();
-            presented.uploaded_revision = 1;
+            presented.uploaded_active_override_revision = Some(override_revision);
             presented.texture_state = crate::terminals::TerminalTextureState {
                 texture_size: UVec2::new(320, 120),
                 cell_size: UVec2::new(8, 16),

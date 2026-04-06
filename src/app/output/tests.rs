@@ -261,6 +261,39 @@ fn final_frame_capture_waits_for_verification_scenario_to_finish() {
     assert!(!world.resource::<FinalFrameCaptureConfig>().requested);
 }
 
+#[test]
+fn final_frame_capture_waits_for_verification_capture_barrier() {
+    let mut world = World::default();
+    world.insert_resource(FinalFrameCaptureConfig {
+        path: PathBuf::from("/tmp/final-frame-test.ppm"),
+        frames_until_capture: 0,
+        requested: false,
+        completed: false,
+        exit_after_capture: false,
+    });
+    world.insert_resource(VerificationScenarioConfig {
+        scenario: crate::verification::VerificationScenario::WorkingStateWorking,
+        frames_until_apply: 0,
+        primed: false,
+        applied: true,
+        terminal_ids: vec![crate::terminals::TerminalId(1)],
+    });
+    world.insert_resource(crate::verification::VerificationCaptureBarrierState::default());
+    let mut images = Assets::<Image>::default();
+    let target = images.add(create_final_frame_image(UVec2::new(8, 8)));
+    world.insert_resource(FinalFrameOutputState {
+        target_image: Some(target),
+        size: UVec2::new(8, 8),
+    });
+    world.insert_resource(images);
+    world.init_resource::<Messages<RequestRedraw>>();
+
+    world.run_system_once(request_final_frame_capture).unwrap();
+
+    assert_eq!(world.query::<&Readback>().iter(&world).count(), 0);
+    assert!(!world.resource::<FinalFrameCaptureConfig>().requested);
+}
+
 /// Verifies that RGBA texture dumps ignore GPU row padding when producing the PPM payload.
 ///
 /// Readback buffers are aligned per row, so the helper must skip the padded bytes between logical

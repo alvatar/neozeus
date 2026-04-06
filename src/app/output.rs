@@ -1,7 +1,7 @@
 use crate::{
     hud::{AgentListBloomAdditiveCameraMarker, HudCompositeCameraMarker, HudModalCameraMarker},
     terminals::TerminalCameraMarker,
-    verification::VerificationScenarioConfig,
+    verification::{VerificationCaptureBarrierState, VerificationScenarioConfig},
 };
 
 use super::bootstrap::resolve_window_scale_factor;
@@ -316,6 +316,7 @@ pub(crate) fn request_final_frame_capture(
     mut commands: Commands,
     config: Option<ResMut<FinalFrameCaptureConfig>>,
     verification_scenario: Option<Res<VerificationScenarioConfig>>,
+    verification_barrier: Option<Res<VerificationCaptureBarrierState>>,
     output_state: Res<FinalFrameOutputState>,
     images: Res<Assets<Image>>,
     mut redraws: MessageWriter<RequestRedraw>,
@@ -326,7 +327,15 @@ pub(crate) fn request_final_frame_capture(
     if config.completed {
         return;
     }
-    if verification_scenario.is_some_and(|scenario| !scenario.applied) {
+    let scenario_active = verification_scenario.is_some();
+    if verification_scenario
+        .as_ref()
+        .is_some_and(|scenario| !scenario.applied)
+    {
+        redraws.write(RequestRedraw);
+        return;
+    }
+    if scenario_active && !verification_barrier.is_some_and(|barrier| barrier.ready()) {
         redraws.write(RequestRedraw);
         return;
     }

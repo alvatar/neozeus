@@ -2,6 +2,7 @@ use crate::{
     app_config::{resolve_debug_texture_dump_path, DEFAULT_BG},
     hud::HudLayoutState,
     text_selection::TerminalTextSelectionState,
+    verification::VerificationTerminalSurfaceOverrides,
 };
 
 use super::{
@@ -164,6 +165,7 @@ pub(crate) fn sync_terminal_texture(
     view_state: Res<TerminalViewState>,
     layout_state: Res<HudLayoutState>,
     active_terminal_content: Res<ActiveTerminalContentState>,
+    verification_overrides: Option<Res<VerificationTerminalSurfaceOverrides>>,
     terminal_text_selection: Res<TerminalTextSelectionState>,
     primary_window: Single<&Window, With<PrimaryWindow>>,
     mut glyph_cache: ResMut<TerminalGlyphCache>,
@@ -202,7 +204,12 @@ pub(crate) fn sync_terminal_texture(
     for (terminal_id, terminal) in terminal_manager.iter_mut() {
         let override_surface = (Some(terminal_id) == active_id)
             .then_some(active_terminal_content.owned_tmux_surface_for(terminal_id))
-            .flatten();
+            .flatten()
+            .or_else(|| {
+                verification_overrides
+                    .as_ref()
+                    .and_then(|overrides| overrides.surface_for(terminal_id))
+            });
         let Some(surface) = override_surface.or(terminal.snapshot.surface.as_ref()) else {
             terminal.pending_damage = None;
             continue;
@@ -237,8 +244,13 @@ pub(crate) fn sync_terminal_texture(
             cached
         };
 
-        let active_override_revision =
-            active_terminal_content.presentation_override_revision_for(terminal_id);
+        let active_override_revision = active_terminal_content
+            .presentation_override_revision_for(terminal_id)
+            .or_else(|| {
+                verification_overrides
+                    .as_ref()
+                    .and_then(|overrides| overrides.presentation_override_revision_for(terminal_id))
+            });
         let terminal_selection_revision =
             terminal_text_selection.presentation_revision_for(terminal_id);
         let has_pending_surface = terminal.surface_revision != presented_terminal.uploaded_revision

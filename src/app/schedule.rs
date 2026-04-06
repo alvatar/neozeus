@@ -24,7 +24,7 @@ use crate::{
         sync_terminal_projection_entities, sync_terminal_texture,
     },
     usage::{refresh_usage_caches_if_needed, sync_usage_snapshot_from_cache},
-    verification::run_verification_scenario,
+    verification::{run_verification_scenario, sync_verification_capture_barrier},
     visual_contract::sync_visual_contract_state,
 };
 
@@ -208,6 +208,7 @@ pub(crate) fn configure_app_schedule(app: &mut App) {
             sync_terminal_presentations,
             sync_terminal_panel_frames,
             sync_terminal_hud_surface,
+            sync_verification_capture_barrier,
         )
             .chain()
             .in_set(NeoZeusSet::PresentTerminal),
