@@ -1,5 +1,5 @@
 use crate::{
-    agents::{AgentCapabilities, AgentCatalog, AgentKind, AgentRuntimeIndex},
+    agents::{AgentCatalog, AgentKind, AgentRuntimeIndex},
     app::AppSessionState,
     conversations::AgentTaskStore,
     hud::{
@@ -43,6 +43,8 @@ pub(crate) enum VerificationScenario {
     MessageBoxBloom,
     TaskDialogBloom,
     AgentListBloom,
+    WorkingStateIdle,
+    WorkingStateWorking,
     InspectSwitchLatency,
 }
 
@@ -60,6 +62,12 @@ fn resolve_verification_scenario(raw: Option<&str>) -> Option<VerificationScenar
         }
         Some(value) if value.eq_ignore_ascii_case("agent-list-bloom") => {
             Some(VerificationScenario::AgentListBloom)
+        }
+        Some(value) if value.eq_ignore_ascii_case("working-state-idle") => {
+            Some(VerificationScenario::WorkingStateIdle)
+        }
+        Some(value) if value.eq_ignore_ascii_case("working-state-working") => {
+            Some(VerificationScenario::WorkingStateWorking)
         }
         Some(value) if value.eq_ignore_ascii_case("inspect-switch-latency") => {
             Some(VerificationScenario::InspectSwitchLatency)
@@ -157,6 +165,36 @@ fn seeded_inspect_surface(label: &str, accent: egui::Color32) -> TerminalSurface
 ///
 /// The helper mutates the terminal in place and bumps its surface revision so the raster/presentation
 /// pipeline treats the injected surface as fresh work that must be uploaded.
+fn set_surface_text(surface: &mut TerminalSurface, x: usize, y: usize, text: &str) {
+    let mut chars = text.chars();
+    let Some(base) = chars.next() else {
+        surface.set_cell(x, y, TerminalCell::default());
+        return;
+    };
+    let extra = chars.collect::<Vec<_>>();
+    surface.set_cell(
+        x,
+        y,
+        TerminalCell {
+            content: TerminalCellContent::from_parts(base, Some(&extra)),
+            ..Default::default()
+        },
+    );
+}
+
+fn seeded_activity_contract_surface(working: bool) -> TerminalSurface {
+    let mut surface = TerminalSurface::new(120, 8);
+    set_surface_text(&mut surface, 0, 0, "neozeus working-state contract");
+    set_surface_text(&mut surface, 0, 2, "status contract surface");
+    if working {
+        set_surface_text(&mut surface, 1, 3, "⠋ Working...");
+    } else {
+        set_surface_text(&mut surface, 0, 3, "ready");
+    }
+    set_surface_text(&mut surface, 0, 7, "footer");
+    surface
+}
+
 fn seed_terminal_surface(
     terminal_manager: &mut TerminalManager,
     terminal_id: TerminalId,
@@ -282,11 +320,14 @@ pub(crate) fn run_verification_scenario(world: &mut World) {
                 .agent_catalog
                 .validate_new_label(Some(label))
                 .expect("verification labels must remain unique");
-            let agent_id = ctx.agent_catalog.create_agent(
-                label,
-                AgentKind::Verifier,
-                AgentCapabilities::verifier_defaults(),
-            );
+            let agent_kind = match config.scenario {
+                VerificationScenario::WorkingStateIdle
+                | VerificationScenario::WorkingStateWorking => AgentKind::Pi,
+                _ => AgentKind::Verifier,
+            };
+            let agent_id =
+                ctx.agent_catalog
+                    .create_agent(label, agent_kind, agent_kind.capabilities());
             let runtime = ctx
                 .terminal_manager
                 .get(terminal_id)
@@ -354,6 +395,24 @@ pub(crate) fn run_verification_scenario(world: &mut World) {
             ctx.app_session.composer.discard_current_message();
             ctx.app_session.composer.close_task_editor();
             ctx.input_capture.close_direct_terminal_input();
+        }
+        VerificationScenario::WorkingStateIdle | VerificationScenario::WorkingStateWorking => {
+            let terminal_id = config.terminal_ids[0];
+            ctx.focus_state
+                .focus_terminal(&ctx.terminal_manager, terminal_id);
+            ctx.visibility_state.policy = TerminalVisibilityPolicy::Isolate(terminal_id);
+            ctx.view_state.focus_terminal(Some(terminal_id));
+            if let Some(agent_id) = ctx.runtime_index.agent_for_terminal(terminal_id) {
+                *ctx.selection = AgentListSelection::Agent(agent_id);
+            }
+            ctx.app_session.composer.discard_current_message();
+            ctx.app_session.composer.close_task_editor();
+            ctx.input_capture.close_direct_terminal_input();
+            let working = matches!(config.scenario, VerificationScenario::WorkingStateWorking);
+            if let Some(terminal) = ctx.terminal_manager.get_mut(terminal_id) {
+                terminal.snapshot.surface = Some(seeded_activity_contract_surface(working));
+                terminal.surface_revision += 1;
+            }
         }
         VerificationScenario::InspectSwitchLatency => {
             let first = config.terminal_ids[0];

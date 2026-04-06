@@ -7,4 +7,5 @@ pub mod pi_session_files;
 pub mod send_command;
 pub mod text_cursor;
 pub mod text_escape;
+pub mod visual_contracts;
 pub mod worktree;

@@ -47,7 +47,8 @@ pub(crate) use owned_tmux_state::{
 };
 pub(crate) use presentation::{
     sync_active_terminal_dimensions, sync_terminal_hud_surface, sync_terminal_panel_frames,
-    sync_terminal_presentations, sync_terminal_projection_entities, terminal_texture_screen_size,
+    sync_terminal_presentations, sync_terminal_projection_entities, terminal_frame_visual_state,
+    terminal_texture_screen_size, TerminalFrameVisualState,
 };
 pub(crate) use presentation_state::{
     TerminalCameraMarker, TerminalDisplayMode, TerminalHudSurfaceMarker, TerminalPanel,
