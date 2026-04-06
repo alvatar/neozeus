@@ -23,7 +23,7 @@ pub struct WorktreeContext {
 fn prepare_git_command(cwd: &str) -> Command {
     let mut command = Command::new(git_program());
     #[cfg(test)]
-    if let Some(program) = std::env::var_os("NEOZEUS_TEST_GIT") {
+    if let Some(program) = test_git_program_override() {
         command = Command::new(program);
     }
     command.current_dir(cwd);
@@ -48,6 +48,23 @@ fn git_program() -> &'static str {
 #[cfg(test)]
 fn git_program() -> &'static str {
     "git"
+}
+
+#[cfg(test)]
+fn test_git_program_override_cell() -> &'static std::sync::Mutex<Option<PathBuf>> {
+    static OVERRIDE: std::sync::OnceLock<std::sync::Mutex<Option<PathBuf>>> =
+        std::sync::OnceLock::new();
+    OVERRIDE.get_or_init(|| std::sync::Mutex::new(None))
+}
+
+#[cfg(test)]
+fn test_git_program_override() -> Option<PathBuf> {
+    test_git_program_override_cell().lock().unwrap().clone()
+}
+
+#[cfg(test)]
+fn set_test_git_program_override(program: Option<PathBuf>) {
+    *test_git_program_override_cell().lock().unwrap() = program;
 }
 
 /// Returns the `.worktrees` directory rooted under the canonical repo root.
@@ -212,6 +229,12 @@ pub fn remove_worktree_and_branch(ctx: &WorktreeContext) -> Result<(), String> {
     ) {
         errors.push(format!("failed to remove worktree `{}`: {error}", ctx.worktree_path));
     }
+
+    let _ = run_git_capture(
+        &ctx.repo_root,
+        &["worktree", "prune"],
+        GIT_LIFECYCLE_TIMEOUT_SECS,
+    );
 
     if let Err(error) = run_git_capture(
         &ctx.repo_root,
@@ -553,6 +576,29 @@ mod tests {
             }
     }
 
+    fn collect_source_files(root: &Path, files: &mut Vec<PathBuf>) {
+        let Ok(entries) = std::fs::read_dir(root) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                collect_source_files(&path, files);
+            } else if matches!(path.extension().and_then(|ext| ext.to_str()), Some("rs" | "sh")) {
+                files.push(path);
+            }
+        }
+    }
+
+    fn has_legacy_worktree_prefix(text: &str) -> bool {
+        text.match_indices("zeus/").any(|(index, _)| {
+            !text[..index]
+                .chars()
+                .next_back()
+                .is_some_and(|ch| ch.is_ascii_alphanumeric() || ch == '_')
+        })
+    }
+
     #[test]
     fn worktree_path_and_branch_follow_neozeus_layout() {
         let repo_root = "/tmp/project";
@@ -851,6 +897,72 @@ mod tests {
     }
 
     #[test]
+    fn merge_continue_end_to_end_updates_parent_and_worktree() {
+        let repo = init_git_repo();
+        let worktree = PathBuf::from(create_worktree(repo.to_str().unwrap(), "alpha", Some("main")).unwrap());
+        write_and_commit(&worktree, "feature.txt", "alpha\n", "feature");
+        let ctx = worktree_context(&repo, &worktree);
+
+        merge_worktree_into_parent(&ctx).unwrap();
+        merge_parent_back_into_worktree(&ctx).unwrap();
+
+        assert_eq!(branch_tip(&repo, "main"), branch_tip(&worktree, "neozeus/alpha"));
+        assert_clean(&repo);
+        assert_clean(&worktree);
+    }
+
+    #[test]
+    fn merge_continue_second_merge_conflict_aborts_cleanly() {
+        let repo = init_git_repo();
+        let worktree = PathBuf::from(create_worktree(repo.to_str().unwrap(), "alpha", Some("main")).unwrap());
+        write_and_commit(&worktree, "README.md", "worktree-base\n", "worktree base");
+        let ctx = worktree_context(&repo, &worktree);
+
+        merge_worktree_into_parent(&ctx).unwrap();
+        write_and_commit(&repo, "README.md", "main-after-merge\n", "main after merge");
+        write_and_commit(&worktree, "README.md", "worktree-after-merge\n", "worktree after merge");
+
+        let error = merge_parent_back_into_worktree(&ctx).expect_err("merge-back conflict should fail");
+
+        assert!(error.contains("README.md"));
+        assert!(!merge_head_exists(&worktree));
+        assert_clean(&worktree);
+        assert_clean(&repo);
+    }
+
+    #[test]
+    fn merge_finalize_end_to_end_merges_then_removes_worktree_and_branch() {
+        let repo = init_git_repo();
+        let worktree = PathBuf::from(create_worktree(repo.to_str().unwrap(), "alpha", Some("main")).unwrap());
+        write_and_commit(&worktree, "feature.txt", "alpha\n", "feature");
+        let ctx = worktree_context(&repo, &worktree);
+
+        merge_worktree_into_parent(&ctx).unwrap();
+        remove_worktree_and_branch(&ctx).unwrap();
+
+        assert_eq!(run_text(&repo, &["git", "show", "HEAD:feature.txt"]), "alpha");
+        assert!(!worktree.exists());
+        assert!(!branch_exists(repo.to_str().unwrap(), "neozeus/alpha").unwrap());
+        assert_clean(&repo);
+    }
+
+    #[test]
+    fn discard_end_to_end_removes_dirty_worktree_without_merging_parent() {
+        let repo = init_git_repo();
+        let parent_before = branch_tip(&repo, "main");
+        let worktree = PathBuf::from(create_worktree(repo.to_str().unwrap(), "alpha", Some("main")).unwrap());
+        std::fs::write(worktree.join("dirty.txt"), "uncommitted\n").unwrap();
+        let ctx = worktree_context(&repo, &worktree);
+
+        remove_worktree_and_branch(&ctx).unwrap();
+
+        assert_eq!(branch_tip(&repo, "main"), parent_before);
+        assert!(!worktree.exists());
+        assert!(!branch_exists(repo.to_str().unwrap(), "neozeus/alpha").unwrap());
+        assert_clean(&repo);
+    }
+
+    #[test]
     fn conflicted_files_returns_exact_paths_for_real_conflicts() {
         let repo = init_git_repo();
         let worktree = PathBuf::from(create_worktree(repo.to_str().unwrap(), "alpha", Some("main")).unwrap());
@@ -935,6 +1047,34 @@ mod tests {
     }
 
     #[test]
+    fn active_sources_do_not_reference_legacy_worktree_prefix() {
+        let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let mut files = Vec::new();
+        collect_source_files(&manifest_dir.join("src"), &mut files);
+        collect_source_files(&manifest_dir.join("scripts"), &mut files);
+        files.sort();
+
+        let offenders = files
+            .into_iter()
+            .filter_map(|path| {
+                let text = std::fs::read_to_string(&path).ok()?;
+                let text = if path.ends_with(Path::new("src/shared/worktree.rs")) {
+                    text.split("#[cfg(test)]").next().unwrap_or(&text).to_owned()
+                } else {
+                    text
+                };
+                has_legacy_worktree_prefix(&text).then(|| path)
+            })
+            .collect::<Vec<_>>();
+
+        assert!(
+            offenders.is_empty(),
+            "legacy `zeus/` worktree prefix leaked into active source files: {:?}",
+            offenders
+        );
+    }
+
+    #[test]
     fn run_git_capture_times_out() {
         let _guard = env_lock().lock().unwrap();
         let dir = temp_dir("worktree-timeout-git");
@@ -942,9 +1082,9 @@ mod tests {
         std::fs::write(&fake_git, "#!/bin/sh\nsleep 1\n").unwrap();
         let output = Command::new("chmod").arg("+x").arg(&fake_git).output().unwrap();
         assert!(output.status.success());
-        std::env::set_var("NEOZEUS_TEST_GIT", &fake_git);
+        super::set_test_git_program_override(Some(fake_git.clone()));
         let error = run_git_capture(dir.to_str().unwrap(), &["status"], 0).expect_err("git timeout should fail");
-        std::env::remove_var("NEOZEUS_TEST_GIT");
+        super::set_test_git_program_override(None);
         assert!(error.contains("timed out"));
     }
 }
