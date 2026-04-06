@@ -134,11 +134,17 @@ fn insert_default_hud_resources(world: &mut World) {
     if !world.contains_resource::<TerminalFocusState>() {
         world.insert_resource(TerminalFocusState::default());
     }
+    if !world.contains_resource::<crate::agents::AgentCatalog>() {
+        world.insert_resource(crate::agents::AgentCatalog::default());
+    }
     if !world.contains_resource::<crate::agents::AgentRuntimeIndex>() {
         world.insert_resource(crate::agents::AgentRuntimeIndex::default());
     }
     if !world.contains_resource::<crate::agents::AgentStatusStore>() {
         world.insert_resource(crate::agents::AgentStatusStore::default());
+    }
+    if !world.contains_resource::<crate::visual_contract::VisualContractState>() {
+        world.insert_resource(crate::visual_contract::VisualContractState::default());
     }
 }
 
@@ -150,11 +156,17 @@ fn insert_test_hud_state(world: &mut World, hud_state: HudState) {
     if !world.contains_resource::<TerminalFocusState>() {
         world.insert_resource(TerminalFocusState::default());
     }
+    if !world.contains_resource::<crate::agents::AgentCatalog>() {
+        world.insert_resource(crate::agents::AgentCatalog::default());
+    }
     if !world.contains_resource::<crate::agents::AgentRuntimeIndex>() {
         world.insert_resource(crate::agents::AgentRuntimeIndex::default());
     }
     if !world.contains_resource::<crate::agents::AgentStatusStore>() {
         world.insert_resource(crate::agents::AgentStatusStore::default());
+    }
+    if !world.contains_resource::<crate::visual_contract::VisualContractState>() {
+        world.insert_resource(crate::visual_contract::VisualContractState::default());
     }
 }
 
@@ -270,6 +282,13 @@ impl TerminalDaemonClient for FakeDaemonClient {
 /// Builds a runtime spawner backed by the fake daemon client.
 fn fake_runtime_spawner(client: Arc<FakeDaemonClient>) -> TerminalRuntimeSpawner {
     TerminalRuntimeSpawner::for_tests(TerminalDaemonClientResource::from_client(client))
+}
+
+fn run_panel_frame_sync(world: &mut World) {
+    world
+        .run_system_once(crate::visual_contract::sync_visual_contract_state)
+        .unwrap();
+    world.run_system_once(sync_terminal_panel_frames).unwrap();
 }
 
 /// Verifies that pixel-perfect cell sizing never collapses to zero and keeps width/height scaling
@@ -1148,7 +1167,7 @@ fn terminal_panel_frames_are_hidden_without_direct_input_mode() {
         Visibility::Visible,
     ));
 
-    world.run_system_once(sync_terminal_panel_frames).unwrap();
+    run_panel_frame_sync(&mut world);
 
     let mut query = world.query::<(&TerminalPanelFrame, &Visibility)>();
     let vis = query.iter(&world).collect::<Vec<_>>();
@@ -1212,7 +1231,7 @@ fn direct_input_mode_shows_orange_terminal_frame() {
     );
     world.insert_resource(presentation_store);
 
-    world.run_system_once(sync_terminal_panel_frames).unwrap();
+    run_panel_frame_sync(&mut world);
 
     let mut query = world.query::<(&TerminalPanelFrame, &Transform, &Sprite, &Visibility)>();
     let frames = query.iter(&world).collect::<Vec<_>>();
@@ -1303,7 +1322,7 @@ fn working_terminal_shows_green_status_frame() {
     );
     world.insert_resource(presentation_store);
 
-    world.run_system_once(sync_terminal_panel_frames).unwrap();
+    run_panel_frame_sync(&mut world);
 
     let mut query = world.query::<(&TerminalPanelFrame, &Transform, &Sprite, &Visibility)>();
     let frames = query.iter(&world).collect::<Vec<_>>();
@@ -1372,7 +1391,7 @@ fn disconnected_terminal_shows_red_status_frame() {
     );
     world.insert_resource(presentation_store);
 
-    world.run_system_once(sync_terminal_panel_frames).unwrap();
+    run_panel_frame_sync(&mut world);
 
     let mut query = world.query::<(&TerminalPanelFrame, &Transform, &Sprite, &Visibility)>();
     let frames = query.iter(&world).collect::<Vec<_>>();

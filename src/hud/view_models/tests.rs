@@ -18,6 +18,25 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
+fn run_synced_hud_view_models(world: &mut World) {
+    if !world.contains_resource::<crate::visual_contract::VisualContractState>() {
+        world.insert_resource(crate::visual_contract::VisualContractState::default());
+    }
+    if !world.contains_resource::<crate::hud::HudInputCaptureState>() {
+        world.insert_resource(crate::hud::HudInputCaptureState::default());
+    }
+    if world.contains_resource::<AgentCatalog>()
+        && world.contains_resource::<AgentRuntimeIndex>()
+        && world.contains_resource::<AgentStatusStore>()
+        && world.contains_resource::<crate::terminals::TerminalManager>()
+    {
+        world
+            .run_system_once(crate::visual_contract::sync_visual_contract_state)
+            .unwrap();
+    }
+    world.run_system_once(sync_hud_view_models).unwrap();
+}
+
 #[test]
 fn selected_agent_list_row_key_returns_none_for_none_selection() {
     assert_eq!(selected_agent_list_row_key(&AgentListSelection::None), None);
@@ -101,7 +120,7 @@ fn sync_hud_view_models_derives_agent_rows_and_threads() {
     world.insert_resource(crate::terminals::OwnedTmuxSessionStore::default());
     insert_terminal_manager_resources(&mut world, manager);
 
-    world.run_system_once(sync_hud_view_models).unwrap();
+    run_synced_hud_view_models(&mut world);
 
     let agent_list = world.resource::<AgentListView>();
     assert_eq!(agent_list.rows.len(), 1);
@@ -170,7 +189,7 @@ fn sync_hud_view_models_places_owned_tmux_rows_under_matching_agent() {
     world.insert_resource(owned_tmux);
     world.insert_resource(crate::terminals::TerminalManager::default());
 
-    world.run_system_once(sync_hud_view_models).unwrap();
+    run_synced_hud_view_models(&mut world);
     let rows = &world.resource::<AgentListView>().rows;
     assert_eq!(rows.len(), 2);
     assert!(matches!(rows[0].key, super::AgentListRowKey::Agent(_)));
@@ -205,7 +224,7 @@ fn sync_hud_view_models_prefixes_workdir_agents_with_marker() {
     world.insert_resource(crate::terminals::OwnedTmuxSessionStore::default());
     world.insert_resource(crate::terminals::TerminalManager::default());
 
-    world.run_system_once(sync_hud_view_models).unwrap();
+    run_synced_hud_view_models(&mut world);
 
     let rows = &world.resource::<AgentListView>().rows;
     assert_eq!(rows.len(), 1);
@@ -282,7 +301,7 @@ fn sync_hud_view_models_orders_multiple_owned_tmux_rows_and_marks_selected_child
     ];
     world.insert_resource(owned_tmux);
 
-    world.run_system_once(sync_hud_view_models).unwrap();
+    run_synced_hud_view_models(&mut world);
     let rows = &world.resource::<AgentListView>().rows;
     assert_eq!(rows.len(), 6);
     assert_eq!(rows[0].label, "ALPHA");
@@ -349,7 +368,7 @@ fn sync_hud_view_models_clears_thread_and_conversation_selection_for_tmux_rows()
         });
     world.insert_resource(owned_tmux);
 
-    world.run_system_once(sync_hud_view_models).unwrap();
+    run_synced_hud_view_models(&mut world);
 
     let conversations = &world.resource::<ConversationListView>().rows;
     assert_eq!(conversations.len(), 1);
@@ -396,7 +415,7 @@ fn sync_hud_view_models_projects_selected_tmux_row_only() {
         });
     world.insert_resource(owned_tmux);
 
-    world.run_system_once(sync_hud_view_models).unwrap();
+    run_synced_hud_view_models(&mut world);
     let rows = &world.resource::<AgentListView>().rows;
     assert_eq!(rows.iter().filter(|row| row.focused).count(), 1);
     assert!(matches!(rows[0].key, AgentListRowKey::Agent(_)));
@@ -442,7 +461,7 @@ fn sync_hud_view_models_tmux_rows_have_no_activity_state() {
         });
     world.insert_resource(owned_tmux);
 
-    world.run_system_once(sync_hud_view_models).unwrap();
+    run_synced_hud_view_models(&mut world);
     let rows = &world.resource::<AgentListView>().rows;
     assert!(matches!(rows[1].kind, AgentListRowKind::OwnedTmux { .. }));
 }
@@ -476,7 +495,7 @@ fn sync_hud_view_models_routes_unknown_owned_tmux_to_orphan_row() {
     world.insert_resource(owned_tmux);
     world.insert_resource(crate::terminals::TerminalManager::default());
 
-    world.run_system_once(sync_hud_view_models).unwrap();
+    run_synced_hud_view_models(&mut world);
     let rows = &world.resource::<AgentListView>().rows;
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].label, "BUILD");
@@ -527,7 +546,7 @@ fn sync_hud_view_models_carries_agent_working_status_into_rows() {
     world
         .run_system_once(crate::agents::sync_agent_status)
         .unwrap();
-    world.run_system_once(sync_hud_view_models).unwrap();
+    run_synced_hud_view_models(&mut world);
 
     let agent_list = world.resource::<AgentListView>();
     match &agent_list.rows[0].kind {
@@ -596,7 +615,7 @@ fn synced_context_pct(kind: AgentKind, surface: crate::terminals::TerminalSurfac
     world.insert_resource(crate::terminals::OwnedTmuxSessionStore::default());
     insert_terminal_manager_resources(&mut world, manager);
 
-    world.run_system_once(sync_hud_view_models).unwrap();
+    run_synced_hud_view_models(&mut world);
     match &world.resource::<AgentListView>().rows[0].kind {
         AgentListRowKind::Agent {
             context_pct_milli, ..

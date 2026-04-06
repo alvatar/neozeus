@@ -12,6 +12,7 @@ mod terminals;
 mod text_selection;
 mod usage;
 mod verification;
+mod visual_contract;
 
 #[cfg(test)]
 #[path = "main/tests.rs"]

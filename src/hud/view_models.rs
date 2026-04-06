@@ -1,9 +1,10 @@
 use crate::{
-    agents::{AgentCatalog, AgentId, AgentRuntimeIndex, AgentStatus, AgentStatusStore},
+    agents::{AgentCatalog, AgentId, AgentRuntimeIndex},
     app::AppSessionState,
     conversations::{AgentTaskStore, ConversationStore, MessageDeliveryState},
     terminals::{OwnedTmuxSessionStore, TerminalManager, TerminalSurface},
     usage::{claude_backoff_active, time_left, UsagePersistenceState, UsageSnapshot},
+    visual_contract::{VisualAgentActivity, VisualContractState},
 };
 use bevy::prelude::*;
 use std::{
@@ -38,10 +39,10 @@ pub(crate) enum AgentListActivity {
 }
 
 impl AgentListActivity {
-    fn from_status(status: AgentStatus) -> Self {
-        match status {
-            AgentStatus::Working => AgentListActivity::Working,
-            AgentStatus::Unknown | AgentStatus::Idle => AgentListActivity::Idle,
+    fn from_visual_activity(activity: VisualAgentActivity) -> Self {
+        match activity {
+            VisualAgentActivity::Working => AgentListActivity::Working,
+            VisualAgentActivity::Idle => AgentListActivity::Idle,
         }
     }
 }
@@ -182,7 +183,7 @@ pub(crate) fn sync_hud_view_models(
     terminal_manager: Res<TerminalManager>,
     task_store: Res<AgentTaskStore>,
     conversations: Res<ConversationStore>,
-    status_store: Res<AgentStatusStore>,
+    visual_contract: Res<VisualContractState>,
     owned_tmux_sessions: Res<OwnedTmuxSessionStore>,
     selection: Res<AgentListSelection>,
     mut agent_list: ResMut<AgentListView>,
@@ -241,7 +242,9 @@ pub(crate) fn sync_hud_view_models(
                     .text(agent_id)
                     .is_some_and(|text| !text.trim().is_empty()),
                 interactive,
-                activity: AgentListActivity::from_status(status_store.status(agent_id)),
+                activity: AgentListActivity::from_visual_activity(
+                    visual_contract.activity_for_agent(agent_id),
+                ),
                 context_pct_milli,
             },
         });

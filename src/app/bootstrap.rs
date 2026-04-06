@@ -483,6 +483,7 @@ fn configure_app(app: &mut App) -> Result<(), String> {
         .insert_resource(AgentCatalog::default())
         .insert_resource(AgentRuntimeIndex::default())
         .insert_resource(crate::agents::AgentStatusStore::default())
+        .insert_resource(crate::visual_contract::VisualContractState::default())
         .insert_resource(AppSessionState::default())
         .insert_resource(crate::hud::AgentListSelection::default())
         .insert_resource(EguiClipboard::default())
