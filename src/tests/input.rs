@@ -1738,6 +1738,46 @@ fn rename_dialog_enter_submits_agent_rename() {
     );
 }
 
+#[test]
+fn rename_dialog_updates_live_daemon_metadata() {
+    let client = std::sync::Arc::new(FakeDaemonClient::default());
+    let (mut world, terminal_id) =
+        world_with_active_terminal(Vec2::new(10.0, 10.0), false, Vec2::ZERO);
+    world.insert_resource(fake_runtime_spawner(client.clone()));
+    let agent_id = world
+        .resource::<crate::agents::AgentRuntimeIndex>()
+        .agent_for_terminal(terminal_id)
+        .expect("agent should be linked");
+    let session_name = world
+        .resource::<crate::agents::AgentRuntimeIndex>()
+        .session_name(agent_id)
+        .unwrap()
+        .to_owned();
+    {
+        let mut app_session = world.resource_mut::<AppSessionState>();
+        app_session.rename_agent_dialog.open(agent_id, "AGENT-1");
+        app_session
+            .rename_agent_dialog
+            .name_field
+            .load_text("renamed");
+        app_session.rename_agent_dialog.focus = RenameAgentDialogField::RenameButton;
+    }
+    init_hud_commands(&mut world);
+    world.init_resource::<Messages<RequestRedraw>>();
+
+    dispatch_message_box_key(&mut world, pressed_key(KeyCode::Enter, Key::Enter));
+
+    assert_eq!(
+        client
+            .session_metadata
+            .lock()
+            .unwrap()
+            .get(&session_name)
+            .and_then(|metadata| metadata.agent_label.as_deref()),
+        Some("RENAMED")
+    );
+}
+
 /// Verifies that `Ctrl+U` clears the create-agent cwd field.
 #[test]
 fn create_agent_dialog_ctrl_u_clears_cwd_field() {
@@ -1867,6 +1907,45 @@ fn middle_click_paste_in_rename_dialog_uppercases_text() {
         "renamed",
     ));
     assert_eq!(app_session.rename_agent_dialog.name_field.text, "RENAMED");
+}
+
+#[test]
+fn rename_dialog_keeps_local_label_unchanged_when_metadata_sync_fails() {
+    let client = std::sync::Arc::new(FakeDaemonClient::default());
+    *client.fail_update_session_metadata.lock().unwrap() = true;
+    let (mut world, terminal_id) =
+        world_with_active_terminal(Vec2::new(10.0, 10.0), false, Vec2::ZERO);
+    world.insert_resource(fake_runtime_spawner(client));
+    let agent_id = world
+        .resource::<crate::agents::AgentRuntimeIndex>()
+        .agent_for_terminal(terminal_id)
+        .expect("agent should be linked");
+    {
+        let mut app_session = world.resource_mut::<AppSessionState>();
+        app_session.rename_agent_dialog.open(agent_id, "AGENT-1");
+        app_session
+            .rename_agent_dialog
+            .name_field
+            .load_text("renamed");
+        app_session.rename_agent_dialog.focus = RenameAgentDialogField::RenameButton;
+    }
+    init_hud_commands(&mut world);
+    world.init_resource::<Messages<RequestRedraw>>();
+
+    dispatch_message_box_key(&mut world, pressed_key(KeyCode::Enter, Key::Enter));
+
+    assert_eq!(
+        world
+            .resource::<crate::agents::AgentCatalog>()
+            .label(agent_id),
+        Some("AGENT-1")
+    );
+    let app_session = world.resource::<AppSessionState>();
+    assert!(app_session.rename_agent_dialog.visible);
+    assert_eq!(
+        app_session.rename_agent_dialog.error.as_deref(),
+        Some("update metadata failed")
+    );
 }
 
 /// Verifies that duplicate rename targets are rejected and keep the rename dialog open.

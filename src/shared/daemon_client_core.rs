@@ -168,14 +168,40 @@ pub fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 }
 
 fn resolve_daemon_executable() -> Result<PathBuf, String> {
-    if let Ok(current_exe) = std::env::current_exe() {
+    resolve_daemon_executable_with(std::env::current_exe().ok())
+}
+
+fn resolve_daemon_executable_with(current_exe: Option<PathBuf>) -> Result<PathBuf, String> {
+    if let Some(current_exe) = current_exe {
         if let Some(parent) = current_exe.parent() {
             let sibling = parent.join("neozeus");
             if sibling.is_file() {
                 return Ok(sibling);
             }
         }
-        return Ok(current_exe);
+        if current_exe.file_name().and_then(|name| name.to_str()) == Some("neozeus") {
+            return Ok(current_exe);
+        }
     }
     Ok(PathBuf::from("neozeus"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::resolve_daemon_executable_with;
+    use std::path::PathBuf;
+
+    #[test]
+    fn daemon_executable_falls_back_to_neozeus_for_helper_binaries() {
+        let resolved = resolve_daemon_executable_with(Some(PathBuf::from("/tmp/bin/neozeus-msg")))
+            .expect("helper fallback should resolve");
+        assert_eq!(resolved, PathBuf::from("neozeus"));
+    }
+
+    #[test]
+    fn daemon_executable_keeps_current_exe_when_already_main_binary() {
+        let resolved = resolve_daemon_executable_with(Some(PathBuf::from("/tmp/bin/neozeus")))
+            .expect("main binary should resolve");
+        assert_eq!(resolved, PathBuf::from("/tmp/bin/neozeus"));
+    }
 }
