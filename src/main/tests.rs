@@ -412,6 +412,7 @@ pub(super) struct FakeDaemonClient {
     pub(super) created_sessions: Mutex<Vec<CreatedSessionRecord>>,
     pub(super) fail_kill: Mutex<bool>,
     pub(super) fail_send: Mutex<bool>,
+    pub(super) fail_update_session_metadata: Mutex<bool>,
     pub(super) fail_owned_tmux_kill: Mutex<bool>,
     pub(super) next_session_index: Mutex<u64>,
     pub(super) owned_tmux_sessions: Mutex<Vec<OwnedTmuxSessionInfo>>,
@@ -497,6 +498,9 @@ impl TerminalDaemonClient for FakeDaemonClient {
         session_id: &str,
         agent_label: Option<&str>,
     ) -> Result<(), String> {
+        if *self.fail_update_session_metadata.lock().unwrap() {
+            return Err("update metadata failed".into());
+        }
         self.session_metadata
             .lock()
             .unwrap()

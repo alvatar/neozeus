@@ -176,36 +176,38 @@ pub(super) fn apply_app_commands(
                 }
                 AgentCommand::Rename { agent_id, label } => {
                     match ctx.agent_catalog.validate_rename_label(*agent_id, label) {
-                        Ok(label) => match ctx.agent_catalog.rename_agent(*agent_id, label.clone())
-                        {
-                            Ok(()) => {
-                                if let Some(session_name) =
-                                    ctx.runtime_index.session_name(*agent_id)
+                        Ok(label) => {
+                            if let Some(session_name) = ctx.runtime_index.session_name(*agent_id) {
+                                if let Err(error) =
+                                    ctx.runtime_spawner.update_session_metadata_label(
+                                        session_name,
+                                        Some(label.as_str()),
+                                    )
                                 {
-                                    if let Err(error) =
-                                        ctx.runtime_spawner.update_session_metadata_label(
-                                            session_name,
-                                            Some(label.as_str()),
-                                        )
-                                    {
-                                        append_debug_log(format!(
-                                            "rename agent metadata sync failed for {session_name}: {error}"
-                                        ));
-                                    }
+                                    ctx.app_session.rename_agent_dialog.error = Some(error.clone());
+                                    append_debug_log(format!(
+                                        "rename agent failed for {session_name}: {error}"
+                                    ));
+                                    ctx.redraws.write(RequestRedraw);
+                                    continue;
                                 }
-                                ctx.app_session.rename_agent_dialog.close();
-                                mark_app_state_dirty(
-                                    &mut ctx.app_state_persistence,
-                                    Some(&ctx.time),
-                                );
-                                ctx.redraws.write(RequestRedraw);
                             }
-                            Err(error) => {
-                                ctx.app_session.rename_agent_dialog.error = Some(error.clone());
-                                append_debug_log(format!("rename agent failed: {error}"));
-                                ctx.redraws.write(RequestRedraw);
+                            match ctx.agent_catalog.rename_agent(*agent_id, label) {
+                                Ok(()) => {
+                                    ctx.app_session.rename_agent_dialog.close();
+                                    mark_app_state_dirty(
+                                        &mut ctx.app_state_persistence,
+                                        Some(&ctx.time),
+                                    );
+                                    ctx.redraws.write(RequestRedraw);
+                                }
+                                Err(error) => {
+                                    ctx.app_session.rename_agent_dialog.error = Some(error.clone());
+                                    append_debug_log(format!("rename agent failed: {error}"));
+                                    ctx.redraws.write(RequestRedraw);
+                                }
                             }
-                        },
+                        }
                         Err(error) => {
                             ctx.app_session.rename_agent_dialog.error = Some(error.clone());
                             append_debug_log(format!("rename agent failed: {error}"));
