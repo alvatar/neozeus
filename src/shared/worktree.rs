@@ -37,7 +37,7 @@ fn git_program() -> &'static str {
 }
 
 const WORKTREE_DIR: &str = ".worktrees";
-const WORKTREE_BRANCH_PREFIX: &str = "zeus/";
+const WORKTREE_BRANCH_PREFIX: &str = "neozeus/";
 
 /// Returns the `.worktrees` directory rooted under the canonical repo root.
 pub fn worktree_base_dir(repo_root: &str) -> PathBuf {
@@ -251,7 +251,7 @@ mod tests {
     }
 
     #[test]
-    fn worktree_path_and_branch_follow_zeus_layout() {
+    fn worktree_path_and_branch_follow_neozeus_layout() {
         let repo_root = "/tmp/project";
         assert_eq!(
             worktree_base_dir(repo_root),
@@ -261,7 +261,7 @@ mod tests {
             worktree_path(repo_root, "alpha"),
             PathBuf::from("/tmp/project/.worktrees/alpha")
         );
-        assert_eq!(worktree_branch("alpha"), "zeus/alpha");
+        assert_eq!(worktree_branch("alpha"), "neozeus/alpha");
     }
 
     #[test]
@@ -300,7 +300,7 @@ mod tests {
         assert!(worktree.is_dir());
         assert_eq!(
             get_current_branch(worktree.to_str().unwrap()).unwrap(),
-            "zeus/beta"
+            "neozeus/beta"
         );
         let gitignore = std::fs::read_to_string(repo.join(".gitignore")).unwrap();
         assert_eq!(
