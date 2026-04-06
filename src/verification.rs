@@ -12,7 +12,7 @@ use crate::{
         TerminalNotesState, TerminalPresentationStore, TerminalRuntimeSpawner, TerminalSurface,
         TerminalViewState, VERIFIER_SESSION_PREFIX,
     },
-    visual_contract::{TerminalFrameVisualState, VisualContractState},
+    visual_contract::{TerminalFrameVisualState, VisualAgentActivity, VisualContractState},
 };
 use bevy::{ecs::system::SystemParam, prelude::Resource, prelude::*, window::RequestRedraw};
 use bevy_egui::egui;
@@ -336,6 +336,7 @@ fn verification_capture_ready(
     selection: &AgentListSelection,
     agent_list: &AgentListView,
     focus_state: &TerminalFocusState,
+    runtime_index: &AgentRuntimeIndex,
     terminal_manager: &TerminalManager,
     presentation_store: &TerminalPresentationStore,
     verification_overrides: &VerificationTerminalSurfaceOverrides,
@@ -349,6 +350,21 @@ fn verification_capture_ready(
             verification_overrides,
         )
     });
+    let active_terminal_matches = |expected_activity| {
+        focus_state.active_id().is_some_and(|terminal_id| {
+            terminal_has_presentable_frame(
+                terminal_id,
+                terminal_manager,
+                presentation_store,
+                verification_overrides,
+            ) && visual_contract.frame_for_terminal(terminal_id) == TerminalFrameVisualState::Hidden
+                && runtime_index
+                    .agent_for_terminal(terminal_id)
+                    .is_some_and(|agent_id| {
+                        visual_contract.activity_for_agent(agent_id) == expected_activity
+                    })
+        })
+    };
     match scenario {
         VerificationScenario::MessageBoxBloom => {
             active_terminal_ready && app_session.composer.message_editor.visible
@@ -360,26 +376,10 @@ fn verification_capture_ready(
             active_terminal_ready && selected_agent_row_is_focused(selection, agent_list)
         }
         VerificationScenario::WorkingStateIdle => {
-            focus_state.active_id().is_some_and(|terminal_id| {
-                terminal_has_presentable_frame(
-                    terminal_id,
-                    terminal_manager,
-                    presentation_store,
-                    verification_overrides,
-                ) && visual_contract.frame_for_terminal(terminal_id)
-                    == TerminalFrameVisualState::Hidden
-            })
+            active_terminal_matches(VisualAgentActivity::Idle)
         }
         VerificationScenario::WorkingStateWorking => {
-            focus_state.active_id().is_some_and(|terminal_id| {
-                terminal_has_presentable_frame(
-                    terminal_id,
-                    terminal_manager,
-                    presentation_store,
-                    verification_overrides,
-                ) && visual_contract.frame_for_terminal(terminal_id)
-                    == TerminalFrameVisualState::Working
-            })
+            active_terminal_matches(VisualAgentActivity::Working)
         }
         VerificationScenario::InspectSwitchLatency => active_terminal_ready,
     }
@@ -395,6 +395,7 @@ pub(crate) fn sync_verification_capture_barrier(
     selection: Res<AgentListSelection>,
     agent_list: Res<AgentListView>,
     focus_state: Res<TerminalFocusState>,
+    runtime_index: Res<AgentRuntimeIndex>,
     terminal_manager: Res<TerminalManager>,
     presentation_store: Res<TerminalPresentationStore>,
     verification_overrides: Res<VerificationTerminalSurfaceOverrides>,
@@ -410,6 +411,7 @@ pub(crate) fn sync_verification_capture_barrier(
                     &selection,
                     &agent_list,
                     &focus_state,
+                    &runtime_index,
                     &terminal_manager,
                     &presentation_store,
                     &verification_overrides,
