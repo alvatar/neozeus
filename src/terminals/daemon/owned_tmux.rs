@@ -1,4 +1,6 @@
-use crate::shared::command_runner::run_command_with_timeout;
+use crate::shared::{
+    command_runner::run_command_with_timeout, labels::uppercase_display_label_text,
+};
 use std::{
     collections::HashMap,
     process::Command,
@@ -110,11 +112,7 @@ pub(super) fn discover_owned_tmux_sessions() -> Result<Vec<OwnedTmuxSessionInfo>
             session_uid,
             owner_agent_uid,
             tmux_name: tmux_name.to_owned(),
-            display_name: if display_name.trim().is_empty() {
-                tmux_name.to_owned()
-            } else {
-                display_name.trim().to_owned()
-            },
+            display_name: normalize_owned_tmux_display_name(display_name.trim(), tmux_name),
             cwd,
             attached,
             created_unix,
@@ -126,6 +124,14 @@ pub(super) fn discover_owned_tmux_sessions() -> Result<Vec<OwnedTmuxSessionInfo>
             .then_with(|| left.tmux_name.cmp(&right.tmux_name))
     });
     Ok(sessions)
+}
+
+fn normalize_owned_tmux_display_name(display_name: &str, fallback_tmux_name: &str) -> String {
+    if display_name.is_empty() {
+        fallback_tmux_name.to_owned()
+    } else {
+        uppercase_display_label_text(display_name)
+    }
 }
 
 pub(super) fn create_owned_tmux_session(
@@ -142,6 +148,7 @@ pub(super) fn create_owned_tmux_session(
     if display_name.is_empty() {
         return Err("owned tmux session requires a display name".to_owned());
     }
+    let display_name = uppercase_display_label_text(display_name);
     let command = command.trim();
     if command.is_empty() {
         return Err("owned tmux session requires a command".to_owned());
@@ -174,7 +181,7 @@ pub(super) fn create_owned_tmux_session(
         (TMUX_OPTION_BACKEND, OWNED_TMUX_BACKEND_TAG),
         (TMUX_OPTION_SESSION_UID, session_uid.as_str()),
         (TMUX_OPTION_OWNER_AGENT_UID, owner_agent_uid),
-        (TMUX_OPTION_DISPLAY_NAME, display_name),
+        (TMUX_OPTION_DISPLAY_NAME, display_name.as_str()),
         (TMUX_OPTION_CREATED_BY, TMUX_CREATED_BY_VALUE),
     ];
     for (option, value) in option_values {
@@ -195,7 +202,7 @@ pub(super) fn create_owned_tmux_session(
         session_uid: session_uid.clone(),
         owner_agent_uid: owner_agent_uid.to_owned(),
         tmux_name: tmux_name.clone(),
-        display_name: display_name.to_owned(),
+        display_name,
         cwd: cwd.unwrap_or_default().trim().to_owned(),
         attached: false,
         created_unix: SystemTime::now()
@@ -523,5 +530,17 @@ mod tests {
             .expect_err("tmux timeout should fail");
         std::env::remove_var("NEOZEUS_TEST_TMUX");
         assert!(error.contains("timed out"));
+    }
+
+    #[test]
+    fn normalize_owned_tmux_display_name_uppercases_non_empty_names() {
+        assert_eq!(
+            super::normalize_owned_tmux_display_name("build bot", "neozeus-tmux-1"),
+            "BUILD BOT"
+        );
+        assert_eq!(
+            super::normalize_owned_tmux_display_name("", "neozeus-tmux-1"),
+            "neozeus-tmux-1"
+        );
     }
 }

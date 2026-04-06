@@ -538,13 +538,14 @@ fn daemon_owned_tmux_create_list_capture_and_kill_roundtrip() {
     let session = client
         .create_owned_tmux_session(
             "agent-uid-roundtrip",
-            "BUILD",
+            "build bot",
             Some(cwd.to_str().expect("cwd should be utf-8")),
             "printf 'owned-tmux-roundtrip'",
         )
         .expect("owned tmux session should create");
     assert!(session.tmux_name.starts_with("neozeus-tmux-"));
     assert!(!session.tmux_name.contains(' '));
+    assert_eq!(session.display_name, "BUILD BOT");
 
     let listed = client
         .list_owned_tmux_sessions()
@@ -554,7 +555,7 @@ fn daemon_owned_tmux_create_list_capture_and_kill_roundtrip() {
         .find(|candidate| candidate.session_uid == session.session_uid)
         .expect("created owned tmux session should list");
     assert_eq!(listed_session.owner_agent_uid, "agent-uid-roundtrip");
-    assert_eq!(listed_session.display_name, "BUILD");
+    assert_eq!(listed_session.display_name, "BUILD BOT");
     assert_eq!(listed_session.cwd, cwd.to_string_lossy());
 
     let backend = run_tmux(&[

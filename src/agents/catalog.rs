@@ -109,7 +109,7 @@ pub(crate) struct AgentCatalog {
 }
 
 pub(crate) fn uppercase_agent_label_text(text: &str) -> String {
-    text.to_uppercase()
+    crate::shared::labels::uppercase_display_label_text(text)
 }
 
 fn generate_agent_uid() -> AgentUid {

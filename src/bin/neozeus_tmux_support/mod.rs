@@ -65,7 +65,9 @@ fn parse_run_request(args: &[String], env: &HashMap<String, String>) -> Result<R
                 if value.trim().is_empty() {
                     return Err("--name must not be empty".to_owned());
                 }
-                display_name = Some(value.trim().to_owned());
+                display_name = Some(neozeus::shared::labels::uppercase_display_label_text(
+                    value.trim(),
+                ));
                 index += 1;
             }
             "--cwd" => {
@@ -199,7 +201,7 @@ mod tests {
             &[
                 "run".into(),
                 "--name".into(),
-                "BUILD".into(),
+                "build bot".into(),
                 "--cwd".into(),
                 "~/code".into(),
                 "--".into(),
@@ -209,7 +211,7 @@ mod tests {
             &env_with_agent(),
         )
         .expect("request should parse");
-        assert_eq!(request.display_name, "BUILD");
+        assert_eq!(request.display_name, "BUILD BOT");
         assert_eq!(request.cwd.as_deref(), Some("~/code"));
         assert_eq!(request.command, "cargo test");
         assert_eq!(request.owner_agent_uid, "agent-uid-1");
