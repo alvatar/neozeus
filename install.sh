@@ -9,7 +9,7 @@ APPEND_SYSTEM_DEST="${PI_AGENT_DIR}/APPEND_SYSTEM.md"
 NEOZEUS_HOME_DIR="${HOME}/.neozeus"
 SANDBOX_CONF="${NEOZEUS_HOME_DIR}/sandbox-paths.conf"
 
-WRAP_PI=false
+WRAP_PI=true
 NO_BWRAP=false
 
 for arg in "$@"; do
@@ -17,12 +17,15 @@ for arg in "$@"; do
         --wrap-pi)
             WRAP_PI=true
             ;;
+        --no-wrap-pi)
+            WRAP_PI=false
+            ;;
         --no-bwrap)
             NO_BWRAP=true
             ;;
         *)
             echo "Unknown option: $arg" >&2
-            echo "Usage: $0 [--wrap-pi] [--no-bwrap]" >&2
+            echo "Usage: $0 [--no-wrap-pi] [--no-bwrap]" >&2
             exit 1
             ;;
     esac
@@ -38,9 +41,9 @@ if $WRAP_PI; then
         echo "pi sandbox: bubblewrap (bwrap)"
     fi
 else
-    echo "pi wrapper: disabled"
+    echo "pi wrapper: disabled (--no-wrap-pi)"
     if $NO_BWRAP; then
-        echo "⚠ --no-bwrap ignored because --wrap-pi is not enabled."
+        echo "⚠ --no-bwrap ignored because wrapper is disabled."
     fi
 fi
 echo ""
