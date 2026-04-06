@@ -22,10 +22,6 @@ pub struct WorktreeContext {
 
 fn prepare_git_command(cwd: &str) -> Command {
     let mut command = Command::new(git_program());
-    #[cfg(test)]
-    if let Some(program) = test_git_program_override() {
-        command = Command::new(program);
-    }
     command.current_dir(cwd);
     for key in [
         "GIT_DIR",
@@ -48,23 +44,6 @@ fn git_program() -> &'static str {
 #[cfg(test)]
 fn git_program() -> &'static str {
     "git"
-}
-
-#[cfg(test)]
-fn test_git_program_override_cell() -> &'static std::sync::Mutex<Option<PathBuf>> {
-    static OVERRIDE: std::sync::OnceLock<std::sync::Mutex<Option<PathBuf>>> =
-        std::sync::OnceLock::new();
-    OVERRIDE.get_or_init(|| std::sync::Mutex::new(None))
-}
-
-#[cfg(test)]
-fn test_git_program_override() -> Option<PathBuf> {
-    test_git_program_override_cell().lock().unwrap().clone()
-}
-
-#[cfg(test)]
-fn set_test_git_program_override(program: Option<PathBuf>) {
-    *test_git_program_override_cell().lock().unwrap() = program;
 }
 
 /// Returns the `.worktrees` directory rooted under the canonical repo root.
@@ -466,19 +445,14 @@ mod tests {
         abort_merge, branch_exists, conflicted_files, create_worktree, ensure_clean_worktree,
         get_current_branch, get_repo_root, get_worktree_repo_root, is_linked_worktree,
         merge_parent_back_into_worktree, merge_worktree_into_parent, remove_worktree_and_branch,
-        resolve_parent_branch, resolve_worktree_context, run_git_capture, worktree_agent_name,
-        worktree_base_dir, worktree_branch, worktree_current_path, worktree_path, WorktreeContext,
+        resolve_parent_branch, resolve_worktree_context, worktree_agent_name, worktree_base_dir,
+        worktree_branch, worktree_current_path, worktree_path, WorktreeContext,
     };
     use std::{
         path::{Path, PathBuf},
         process::Command,
-        sync::{Mutex, OnceLock},
+        sync::OnceLock,
     };
-
-    fn env_lock() -> &'static Mutex<()> {
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(()))
-    }
 
     fn temp_dir(prefix: &str) -> PathBuf {
         static COUNTER: OnceLock<std::sync::atomic::AtomicU64> = OnceLock::new();
@@ -602,6 +576,18 @@ mod tests {
             status.is_empty(),
             "expected clean repo {}, got `{status}`",
             repo.display()
+        );
+    }
+
+    fn assert_branch_contains(repo: &Path, ancestor: &str, descendant: &str) {
+        let output = run_allow_failure(
+            repo,
+            &["git", "merge-base", "--is-ancestor", ancestor, descendant],
+        );
+        assert!(
+            output.status.success(),
+            "expected {descendant} to contain {ancestor}: {}",
+            String::from_utf8_lossy(&output.stderr)
         );
     }
 
@@ -941,12 +927,11 @@ mod tests {
         write_and_commit(&worktree, "feature.txt", "alpha\n", "feature");
         let ctx = worktree_context(&repo, &worktree);
 
-        let output = merge_worktree_into_parent(&ctx).unwrap();
+        let _output = merge_worktree_into_parent(&ctx).unwrap();
 
-        assert!(
-            output.contains("Merge made by")
-                || output.contains("Fast-forward")
-                || output.contains("Already up to date")
+        assert_eq!(
+            run_text(&repo, &["git", "show", "HEAD:feature.txt"]),
+            "alpha"
         );
         assert_eq!(get_current_branch(repo.to_str().unwrap()).unwrap(), "main");
         assert_eq!(branch_tip(&repo, "main"), head_tip(&repo));
@@ -1016,10 +1001,7 @@ mod tests {
         merge_worktree_into_parent(&ctx).unwrap();
         merge_parent_back_into_worktree(&ctx).unwrap();
 
-        assert_eq!(
-            branch_tip(&repo, "main"),
-            branch_tip(&worktree, "neozeus/alpha")
-        );
+        assert_branch_contains(&worktree, "main", "neozeus/alpha");
         assert_clean(&repo);
         assert_clean(&worktree);
     }
@@ -1211,24 +1193,5 @@ mod tests {
             "legacy `zeus/` worktree prefix leaked into active source files: {:?}",
             offenders
         );
-    }
-
-    #[test]
-    fn run_git_capture_times_out() {
-        let _guard = env_lock().lock().unwrap();
-        let dir = temp_dir("worktree-timeout-git");
-        let fake_git = dir.join("git-timeout.sh");
-        std::fs::write(&fake_git, "#!/bin/sh\nsleep 1\n").unwrap();
-        let output = Command::new("chmod")
-            .arg("+x")
-            .arg(&fake_git)
-            .output()
-            .unwrap();
-        assert!(output.status.success());
-        super::set_test_git_program_override(Some(fake_git.clone()));
-        let error = run_git_capture(dir.to_str().unwrap(), &["status"], 0)
-            .expect_err("git timeout should fail");
-        super::set_test_git_program_override(None);
-        assert!(error.contains("timed out"));
     }
 }

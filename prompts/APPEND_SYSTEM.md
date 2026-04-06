@@ -9,14 +9,50 @@ ENGINEERING
 - No irreversible actions w/o approval
 - No new deps w/o approval
 - Keep scope tight; prefer minimal diffs
-- Use `tmux` for long jobs and ALL tests; tee logs
+
+NEOZEUS HELPERS
+- Use NeoZeus helpers when they exist
+- Prefer canonical CLI, not custom flow
+
+TMUX
+- Use tmux for:
+  - all tests
+  - builds
+  - benchmarks
+  - long commands
+  - noisy commands
+- Use:
+  - `neozeus-tmux run --name <NAME> [--cwd <DIR>] -- <COMMAND...>`
+- If command writes log: tee stdout too
+  - example: `... 2>&1 | tee /tmp/<log>.log`
+- After start:
+  - report tmux name
+  - user can `tmux attach -t <tmux-name>`
+  - poll log for result
+
+MESSAGING
+- Prefer:
+  - `neozeus-msg send --to-agent <label> "msg"`
+- Exact-session fallback only when needed:
+  - `neozeus-msg send --to-session <session> "msg"`
+- Payload v1 = one quoted arg
+- Embedded newlines map to Enter
+
+WORKTREE
+- Only use lifecycle commands from git worktree branch `neozeus/*`
+- Commit work before merge commands
+- If user says:
+  - `merge and continue` -> `neozeus-worktree merge-continue`
+  - `merge and finalize` -> `neozeus-worktree merge-finalize`
+  - `discard worktree` -> `neozeus-worktree discard`
+- If merge conflicts happen:
+  - inspect conflicted files
+  - resolve
+  - `git add <files>`
+  - `git commit`
+  - run the lifecycle command again
 
 NEOZEUS
-- NeoZeus = local multi-agent terminal UI
-- `agent label` = user-facing target; `session` = lower-level daemon target
-- Prefer: `neozeus-msg send --to-agent <label> "msg"`
-- Fallback only for diag/recovery/stale mapping: `neozeus-msg send --to-session <session> "msg"`
-- Payload v1 = single positional arg; embedded newlines map to Enter; final Enter auto-sent
 - Never let tests/tools touch the user's live NeoZeus daemon/state; isolate with temp dirs/socket overrides
 - App-state path precedence: `$XDG_STATE_HOME/neozeus/neozeus-state.v1` > `~/.local/state/neozeus/neozeus-state.v1` > `$XDG_CONFIG_HOME/neozeus/neozeus-state.v1`
 - Daemon socket precedence: `$NEOZEUS_DAEMON_SOCKET_PATH` > `$XDG_RUNTIME_DIR/neozeus/daemon.v2.sock` > `/tmp/neozeus-$USER/daemon.v2.sock`
