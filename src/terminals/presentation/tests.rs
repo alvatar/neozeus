@@ -134,6 +134,12 @@ fn insert_default_hud_resources(world: &mut World) {
     if !world.contains_resource::<TerminalFocusState>() {
         world.insert_resource(TerminalFocusState::default());
     }
+    if !world.contains_resource::<crate::agents::AgentRuntimeIndex>() {
+        world.insert_resource(crate::agents::AgentRuntimeIndex::default());
+    }
+    if !world.contains_resource::<crate::agents::AgentStatusStore>() {
+        world.insert_resource(crate::agents::AgentStatusStore::default());
+    }
 }
 
 /// Restores the test HUD snapshot into the specific resources presentation tests read.
@@ -143,6 +149,12 @@ fn insert_test_hud_state(world: &mut World, hud_state: HudState) {
     world.insert_resource(input_capture);
     if !world.contains_resource::<TerminalFocusState>() {
         world.insert_resource(TerminalFocusState::default());
+    }
+    if !world.contains_resource::<crate::agents::AgentRuntimeIndex>() {
+        world.insert_resource(crate::agents::AgentRuntimeIndex::default());
+    }
+    if !world.contains_resource::<crate::agents::AgentStatusStore>() {
+        world.insert_resource(crate::agents::AgentStatusStore::default());
     }
 }
 
@@ -1209,6 +1221,97 @@ fn direct_input_mode_shows_orange_terminal_frame() {
     assert_eq!(frames[0].1.translation, Vec3::new(30.0, -20.0, 0.48));
     assert_eq!(frames[0].2.custom_size, Some(Vec2::new(332.0, 192.0)));
     assert_eq!(frames[0].2.color, Color::srgba(1.0, 0.48, 0.08, 0.96));
+}
+
+/// Verifies that a working interactive terminal shows the working-state frame styling.
+#[test]
+fn working_terminal_shows_green_status_frame() {
+    let mut world = World::default();
+    insert_default_hud_resources(&mut world);
+    let (bridge, _) = test_bridge();
+    let mut manager = TerminalManager::default();
+    let terminal_id = manager.create_terminal(bridge);
+    manager
+        .get_mut(terminal_id)
+        .expect("terminal should exist")
+        .snapshot
+        .surface = Some({
+        let mut surface = TerminalSurface::new(120, 8);
+        surface.set_text_cell(0, 0, "header");
+        surface.set_text_cell(1, 3, "⠋ Working...");
+        surface
+    });
+
+    let mut catalog = crate::agents::AgentCatalog::default();
+    let agent_id = catalog.create_agent(
+        Some("alpha".into()),
+        crate::agents::AgentKind::Pi,
+        crate::agents::AgentKind::Pi.capabilities(),
+    );
+    let mut runtime_index = crate::agents::AgentRuntimeIndex::default();
+    runtime_index.link_terminal(agent_id, terminal_id, "session-1".into(), None);
+
+    let mut time = Time::<()>::default();
+    time.advance_by(Duration::from_secs(1));
+    world.insert_resource(time);
+    world.insert_resource(catalog);
+    world.insert_resource(runtime_index);
+    world.insert_resource(crate::agents::AgentStatusStore::default());
+    world.insert_resource(manager);
+    world
+        .run_system_once(crate::agents::sync_agent_status)
+        .expect("status sync should succeed");
+    let panel_entity = world
+        .spawn((
+            TerminalPanel { id: terminal_id },
+            TerminalPresentation {
+                home_position: Vec2::ZERO,
+                current_position: Vec2::new(10.0, 15.0),
+                target_position: Vec2::ZERO,
+                current_size: Vec2::new(300.0, 160.0),
+                target_size: Vec2::ZERO,
+                current_alpha: 1.0,
+                target_alpha: 1.0,
+                current_z: 0.5,
+                target_z: 0.0,
+            },
+            Visibility::Visible,
+        ))
+        .id();
+    let frame_entity = world
+        .spawn((
+            TerminalPanelFrame { id: terminal_id },
+            Transform::default(),
+            Sprite::default(),
+            Visibility::Hidden,
+        ))
+        .id();
+    let mut presentation_store = TerminalPresentationStore::default();
+    presentation_store.register(
+        terminal_id,
+        PresentedTerminal {
+            image: Default::default(),
+            texture_state: Default::default(),
+            desired_texture_state: Default::default(),
+            display_mode: Default::default(),
+            uploaded_revision: 0,
+            uploaded_active_override_revision: None,
+            uploaded_text_selection_revision: None,
+            panel_entity,
+            frame_entity,
+        },
+    );
+    world.insert_resource(presentation_store);
+
+    world.run_system_once(sync_terminal_panel_frames).unwrap();
+
+    let mut query = world.query::<(&TerminalPanelFrame, &Transform, &Sprite, &Visibility)>();
+    let frames = query.iter(&world).collect::<Vec<_>>();
+    assert_eq!(frames.len(), 1);
+    assert_eq!(*frames[0].3, Visibility::Visible);
+    assert_eq!(frames[0].1.translation, Vec3::new(10.0, 15.0, 0.48));
+    assert_eq!(frames[0].2.custom_size, Some(Vec2::new(308.0, 168.0)));
+    assert_eq!(frames[0].2.color, Color::srgba_u8(82, 173, 112, 235));
 }
 
 /// Verifies that a disconnected terminal shows the red runtime-status frame instead of the direct

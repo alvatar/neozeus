@@ -25,6 +25,14 @@ fn parses_verification_scenarios() {
         Some(VerificationScenario::AgentListBloom)
     );
     assert_eq!(
+        resolve_verification_scenario(Some("working-state-idle")),
+        Some(VerificationScenario::WorkingStateIdle)
+    );
+    assert_eq!(
+        resolve_verification_scenario(Some("working-state-working")),
+        Some(VerificationScenario::WorkingStateWorking)
+    );
+    assert_eq!(
         resolve_verification_scenario(Some("inspect-switch-latency")),
         Some(VerificationScenario::InspectSwitchLatency)
     );
@@ -111,6 +119,54 @@ fn task_dialog_scenario_populates_note_text() {
         .text
         .contains("verify bloom layering"));
     assert_eq!(world.resource::<TerminalManager>().terminal_ids().len(), 1);
+}
+
+#[test]
+fn working_state_scenario_seeds_pi_agent_with_working_surface() {
+    let client = Arc::new(crate::tests::FakeDaemonClient::default());
+    let mut world = World::default();
+    world.insert_resource(VerificationScenarioConfig {
+        scenario: VerificationScenario::WorkingStateWorking,
+        frames_until_apply: 0,
+        primed: false,
+        applied: false,
+        terminal_ids: Vec::new(),
+    });
+    world.insert_resource(Assets::<Image>::default());
+    world.insert_resource(crate::terminals::TerminalManager::default());
+    world.insert_resource(crate::terminals::TerminalFocusState::default());
+    world.insert_resource(crate::terminals::TerminalPresentationStore::default());
+    world.insert_resource(fake_runtime_spawner(client));
+    world.insert_resource(crate::agents::AgentCatalog::default());
+    world.insert_resource(crate::agents::AgentRuntimeIndex::default());
+    world.insert_resource(crate::app::AppSessionState::default());
+    world.insert_resource(crate::conversations::AgentTaskStore::default());
+    world.insert_resource(crate::hud::TerminalVisibilityState::default());
+    world.insert_resource(crate::terminals::TerminalViewState::default());
+    world.insert_resource(crate::terminals::TerminalNotesState::default());
+    insert_default_hud_resources(&mut world);
+    world.init_resource::<Messages<RequestRedraw>>();
+
+    world.run_system_once(run_verification_scenario).unwrap();
+
+    let terminal_ids = world.resource::<TerminalManager>().terminal_ids().to_vec();
+    assert_eq!(terminal_ids.len(), 1);
+    let runtime_index = world.resource::<crate::agents::AgentRuntimeIndex>();
+    let agent_catalog = world.resource::<crate::agents::AgentCatalog>();
+    let agent_id = runtime_index
+        .agent_for_terminal(terminal_ids[0])
+        .expect("scenario should bind agent");
+    assert_eq!(
+        agent_catalog.kind(agent_id),
+        Some(crate::agents::AgentKind::Pi)
+    );
+    let surface = world
+        .resource::<TerminalManager>()
+        .get(terminal_ids[0])
+        .and_then(|terminal| terminal.snapshot.surface.as_ref())
+        .expect("scenario should seed a surface");
+    assert!(surface_with_text(8, 120, 0, "header").rows <= surface.rows);
+    assert_eq!(surface.cell(1, 3).content.to_owned_string(), "⠋ Working...");
 }
 
 /// Verifies the two-phase behavior of the inspect-switch-latency scenario.

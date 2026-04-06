@@ -71,22 +71,32 @@ fn working_agent_row_transition_requests_redraw_for_hud_feedback() {
     let mut hud_state = HudState::default();
     hud_state.insert_default_module(HudWidgetKey::AgentList);
 
-    let mut world = World::default();
-    world.insert_resource(Time::<()>::default());
-    world.insert_resource(agent_catalog);
-    world.insert_resource(runtime_index);
-    world.insert_resource(crate::agents::AgentStatusStore::default());
-    world.insert_resource(crate::app::AppSessionState::default());
-    world.insert_resource(crate::conversations::AgentTaskStore::default());
-    world.insert_resource(crate::conversations::ConversationStore::default());
-    world.insert_resource(crate::hud::AgentListSelection::Agent(agent_id));
-    world.insert_resource(crate::terminals::OwnedTmuxSessionStore::default());
-    insert_terminal_manager_resources(&mut world, terminal_manager);
-    insert_test_hud_state(&mut world, hud_state);
-    world.insert_resource(TerminalPresentationStore::default());
-    world.init_resource::<Messages<RequestRedraw>>();
+    let mut app = App::new();
+    app.insert_resource(Time::<()>::default());
+    app.insert_resource(agent_catalog);
+    app.insert_resource(runtime_index);
+    app.insert_resource(crate::agents::AgentStatusStore::default());
+    app.insert_resource(crate::app::AppSessionState::default());
+    app.insert_resource(crate::conversations::AgentTaskStore::default());
+    app.insert_resource(crate::conversations::ConversationStore::default());
+    app.insert_resource(crate::hud::AgentListSelection::Agent(agent_id));
+    app.insert_resource(crate::terminals::OwnedTmuxSessionStore::default());
+    insert_terminal_manager_resources(app.world_mut(), terminal_manager);
+    insert_test_hud_state(app.world_mut(), hud_state);
+    app.insert_resource(TerminalPresentationStore::default());
+    app.init_resource::<Messages<RequestRedraw>>();
+    app.add_systems(
+        Update,
+        (
+            crate::agents::sync_agent_status,
+            crate::hud::sync_hud_view_models,
+            request_redraw_while_visuals_active,
+        )
+            .chain(),
+    );
 
-    let panel_entity = world
+    let panel_entity = app
+        .world_mut()
         .spawn((
             TerminalPanel { id: terminal_id },
             TerminalPresentation {
@@ -102,40 +112,41 @@ fn working_agent_row_transition_requests_redraw_for_hud_feedback() {
             },
         ))
         .id();
-    world.resource_mut::<TerminalPresentationStore>().register(
-        terminal_id,
-        crate::terminals::PresentedTerminal {
-            image: Default::default(),
-            texture_state: TerminalTextureState {
-                texture_size: UVec2::new(1200, 160),
-                cell_size: UVec2::new(10, 20),
+    app.world_mut()
+        .resource_mut::<TerminalPresentationStore>()
+        .register(
+            terminal_id,
+            crate::terminals::PresentedTerminal {
+                image: Default::default(),
+                texture_state: TerminalTextureState {
+                    texture_size: UVec2::new(1200, 160),
+                    cell_size: UVec2::new(10, 20),
+                },
+                desired_texture_state: TerminalTextureState {
+                    texture_size: UVec2::new(1200, 160),
+                    cell_size: UVec2::new(10, 20),
+                },
+                display_mode: crate::terminals::TerminalDisplayMode::Smooth,
+                uploaded_revision: 0,
+                uploaded_active_override_revision: None,
+                uploaded_text_selection_revision: None,
+                panel_entity,
+                frame_entity: Entity::PLACEHOLDER,
             },
-            desired_texture_state: TerminalTextureState {
-                texture_size: UVec2::new(1200, 160),
-                cell_size: UVec2::new(10, 20),
-            },
-            display_mode: crate::terminals::TerminalDisplayMode::Smooth,
-            uploaded_revision: 0,
-            uploaded_active_override_revision: None,
-            uploaded_text_selection_revision: None,
-            panel_entity,
-            frame_entity: Entity::PLACEHOLDER,
-        },
-    );
+        );
 
-    world
-        .run_system_once(crate::agents::sync_agent_status)
-        .expect("baseline status sync should succeed");
-    world
-        .run_system_once(crate::hud::sync_hud_view_models)
-        .expect("baseline view-model sync should succeed");
-    world.resource_mut::<Messages<RequestRedraw>>().clear();
+    app.update();
+    app.world_mut()
+        .resource_mut::<Messages<RequestRedraw>>()
+        .clear();
 
     {
+        let world = app.world_mut();
         let mut time = world.resource_mut::<Time<()>>();
         time.advance_by(std::time::Duration::from_secs(1));
     }
     {
+        let world = app.world_mut();
         let mut terminal_manager = world.resource_mut::<crate::terminals::TerminalManager>();
         let terminal = terminal_manager.get_mut(terminal_id).unwrap();
         terminal.snapshot.surface = Some({
@@ -145,19 +156,15 @@ fn working_agent_row_transition_requests_redraw_for_hud_feedback() {
         });
         terminal.surface_revision = 1;
     }
-    world
+    app.world_mut()
         .resource_mut::<TerminalPresentationStore>()
         .get_mut(terminal_id)
         .unwrap()
         .uploaded_revision = 1;
 
-    world
-        .run_system_once(crate::agents::sync_agent_status)
-        .expect("working status sync should succeed");
-    world
-        .run_system_once(crate::hud::sync_hud_view_models)
-        .expect("working view-model sync should succeed");
+    app.update();
 
+    let world = app.world();
     let agent_list = world.resource::<crate::hud::AgentListView>();
     match &agent_list.rows[0].kind {
         crate::hud::AgentListRowKind::Agent { activity, .. } => {
@@ -166,14 +173,76 @@ fn working_agent_row_transition_requests_redraw_for_hud_feedback() {
         other => panic!("expected agent row, got {other:?}"),
     }
 
-    world
-        .run_system_once(request_redraw_while_visuals_active)
-        .expect("redraw policy should run");
-
     assert_eq!(
         world.resource::<Messages<RequestRedraw>>().len(),
         1,
         "working-state HUD transition should request redraw even without pending terminal upload"
+    );
+}
+
+#[test]
+fn stable_visual_contract_does_not_request_continuous_redraws() {
+    let (bridge, _) = test_bridge();
+    let mut terminal_manager = crate::terminals::TerminalManager::default();
+    let terminal_id = terminal_manager.create_terminal(bridge);
+    terminal_manager
+        .get_mut(terminal_id)
+        .expect("terminal should exist")
+        .snapshot
+        .surface = Some({
+        let mut surface = surface_with_text(8, 120, 0, "header");
+        surface.set_text_cell(1, 3, "⠋ Working...");
+        surface
+    });
+
+    let mut agent_catalog = crate::agents::AgentCatalog::default();
+    let agent_id = agent_catalog.create_agent(
+        Some("alpha".into()),
+        crate::agents::AgentKind::Pi,
+        crate::agents::AgentKind::Pi.capabilities(),
+    );
+    let mut runtime_index = crate::agents::AgentRuntimeIndex::default();
+    runtime_index.link_terminal(agent_id, terminal_id, "session-1".into(), None);
+
+    let mut hud_state = HudState::default();
+    hud_state.insert_default_module(HudWidgetKey::AgentList);
+
+    let mut app = App::new();
+    let mut time = Time::<()>::default();
+    time.advance_by(std::time::Duration::from_secs(1));
+    app.insert_resource(time);
+    app.insert_resource(agent_catalog);
+    app.insert_resource(runtime_index);
+    app.insert_resource(crate::agents::AgentStatusStore::default());
+    app.insert_resource(crate::app::AppSessionState::default());
+    app.insert_resource(crate::conversations::AgentTaskStore::default());
+    app.insert_resource(crate::conversations::ConversationStore::default());
+    app.insert_resource(crate::hud::AgentListSelection::Agent(agent_id));
+    app.insert_resource(crate::terminals::OwnedTmuxSessionStore::default());
+    insert_terminal_manager_resources(app.world_mut(), terminal_manager);
+    insert_test_hud_state(app.world_mut(), hud_state);
+    app.insert_resource(TerminalPresentationStore::default());
+    app.init_resource::<Messages<RequestRedraw>>();
+    app.add_systems(
+        Update,
+        (
+            crate::agents::sync_agent_status,
+            crate::hud::sync_hud_view_models,
+            request_redraw_while_visuals_active,
+        )
+            .chain(),
+    );
+
+    app.update();
+    app.world_mut()
+        .resource_mut::<Messages<RequestRedraw>>()
+        .clear();
+    app.update();
+
+    assert_eq!(
+        app.world().resource::<Messages<RequestRedraw>>().len(),
+        0,
+        "stable contract signatures must not keep the redraw loop alive"
     );
 }
 

@@ -28,9 +28,9 @@ pub(crate) const AGENT_LIST_BORDER_ORANGE_B: u8 = 10;
 pub(crate) const AGENT_LIST_BLOOM_RED_R: u8 = 143;
 pub(crate) const AGENT_LIST_BLOOM_RED_G: u8 = 37;
 pub(crate) const AGENT_LIST_BLOOM_RED_B: u8 = 15;
-pub(crate) const AGENT_LIST_WORKING_GREEN_R: u8 = 82;
-pub(crate) const AGENT_LIST_WORKING_GREEN_G: u8 = 173;
-pub(crate) const AGENT_LIST_WORKING_GREEN_B: u8 = 112;
+pub(crate) const AGENT_LIST_WORKING_GREEN_R: u8 = crate::shared::visual_contracts::WORKING_GREEN_R;
+pub(crate) const AGENT_LIST_WORKING_GREEN_G: u8 = crate::shared::visual_contracts::WORKING_GREEN_G;
+pub(crate) const AGENT_LIST_WORKING_GREEN_B: u8 = crate::shared::visual_contracts::WORKING_GREEN_B;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum AgentListRowSection {

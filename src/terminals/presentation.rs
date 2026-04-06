@@ -1,4 +1,8 @@
-use crate::hud::{HudLayoutState, TerminalVisibilityPolicy, TerminalVisibilityState};
+use crate::{
+    agents::{AgentRuntimeIndex, AgentStatus, AgentStatusStore},
+    hud::{HudLayoutState, TerminalVisibilityPolicy, TerminalVisibilityState},
+    shared::visual_contracts::{WORKING_GREEN_B, WORKING_GREEN_G, WORKING_GREEN_R},
+};
 
 use super::{
     fonts::{TerminalCellMetrics, TerminalFontState},
@@ -18,6 +22,9 @@ const HUD_FRAME_PADDING: Vec2 = Vec2::ZERO;
 const ACTIVE_TERMINAL_MARGIN: Vec2 = Vec2::splat(16.0);
 const DIRECT_INPUT_FRAME_OUTSET: f32 = 6.0;
 const INACTIVE_RUNTIME_FRAME_OUTSET: f32 = 4.0;
+const WORKING_RUNTIME_FRAME_OUTSET: f32 = 4.0;
+const WORKING_RUNTIME_FRAME_COLOR: Color =
+    Color::srgba_u8(WORKING_GREEN_R, WORKING_GREEN_G, WORKING_GREEN_B, 235);
 const STARTUP_PLACEHOLDER_COLS: u32 = 120;
 const STARTUP_PLACEHOLDER_ROWS: u32 = 38;
 const STARTUP_PLACEHOLDER_COLOR: Color = Color::srgb(0.10, 0.13, 0.18);
@@ -689,15 +696,77 @@ pub(crate) fn sync_terminal_presentations(
     *last_active_ready = active_ready;
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum TerminalFrameVisualState {
+    #[default]
+    Hidden,
+    DirectInput,
+    Working,
+    Exited,
+    Disconnected,
+    Failed,
+}
+
+pub(crate) fn terminal_frame_visual_state(
+    direct_input: bool,
+    runtime: &crate::terminals::TerminalRuntimeState,
+    agent_status: AgentStatus,
+) -> TerminalFrameVisualState {
+    if direct_input {
+        return TerminalFrameVisualState::DirectInput;
+    }
+    if !runtime.is_interactive() {
+        return match runtime.lifecycle {
+            TerminalLifecycle::Exited { .. } => TerminalFrameVisualState::Exited,
+            TerminalLifecycle::Disconnected => TerminalFrameVisualState::Disconnected,
+            TerminalLifecycle::Failed => TerminalFrameVisualState::Failed,
+            TerminalLifecycle::Running => TerminalFrameVisualState::Hidden,
+        };
+    }
+    if agent_status == AgentStatus::Working {
+        TerminalFrameVisualState::Working
+    } else {
+        TerminalFrameVisualState::Hidden
+    }
+}
+
+fn terminal_frame_style(state: TerminalFrameVisualState) -> Option<(f32, Color)> {
+    match state {
+        TerminalFrameVisualState::Hidden => None,
+        TerminalFrameVisualState::DirectInput => Some((
+            DIRECT_INPUT_FRAME_OUTSET,
+            Color::srgba(1.0, 0.48, 0.08, 0.96),
+        )),
+        TerminalFrameVisualState::Working => {
+            Some((WORKING_RUNTIME_FRAME_OUTSET, WORKING_RUNTIME_FRAME_COLOR))
+        }
+        TerminalFrameVisualState::Exited => Some((
+            INACTIVE_RUNTIME_FRAME_OUTSET,
+            Color::srgba(0.90, 0.72, 0.18, 0.92),
+        )),
+        TerminalFrameVisualState::Disconnected => Some((
+            INACTIVE_RUNTIME_FRAME_OUTSET,
+            Color::srgba(0.86, 0.20, 0.20, 0.92),
+        )),
+        TerminalFrameVisualState::Failed => Some((
+            INACTIVE_RUNTIME_FRAME_OUTSET,
+            Color::srgba(0.96, 0.10, 0.10, 0.94),
+        )),
+    }
+}
+
 #[allow(
     clippy::type_complexity,
     reason = "frame sync needs disjoint panel/frame queries with explicit visibility borrowing"
 )]
-/// Shows and styles terminal frame sprites for direct-input mode or non-interactive runtime states.
+/// Shows and styles terminal frame sprites for direct-input mode, working activity, or
+/// non-interactive runtime states.
 ///
-/// Interactive terminals with no special state hide their frame entirely.
+/// Interactive idle terminals with no special state hide their frame entirely.
 pub(crate) fn sync_terminal_panel_frames(
     input_capture: Res<crate::hud::HudInputCaptureState>,
+    runtime_index: Res<AgentRuntimeIndex>,
+    status_store: Res<AgentStatusStore>,
     terminal_manager: Res<TerminalManager>,
     presentation_store: Res<TerminalPresentationStore>,
     panels: Query<
@@ -731,24 +800,13 @@ pub(crate) fn sync_terminal_panel_frames(
         };
 
         let direct_input = input_capture.direct_input_terminal == Some(panel.id);
-        let runtime_interactive = terminal.snapshot.runtime.is_interactive();
-        if !direct_input && runtime_interactive {
+        let agent_status = status_store.status_for_terminal(&runtime_index, panel.id);
+        let Some((outset, color)) = terminal_frame_style(terminal_frame_visual_state(
+            direct_input,
+            &terminal.snapshot.runtime,
+            agent_status,
+        )) else {
             continue;
-        }
-
-        let (outset, color) = if direct_input {
-            (
-                DIRECT_INPUT_FRAME_OUTSET,
-                Color::srgba(1.0, 0.48, 0.08, 0.96),
-            )
-        } else {
-            let color = match terminal.snapshot.runtime.lifecycle {
-                TerminalLifecycle::Exited { .. } => Color::srgba(0.90, 0.72, 0.18, 0.92),
-                TerminalLifecycle::Disconnected => Color::srgba(0.86, 0.20, 0.20, 0.92),
-                TerminalLifecycle::Failed => Color::srgba(0.96, 0.10, 0.10, 0.94),
-                TerminalLifecycle::Running => unreachable!(),
-            };
-            (INACTIVE_RUNTIME_FRAME_OUTSET, color)
         };
 
         *visibility = Visibility::Visible;
