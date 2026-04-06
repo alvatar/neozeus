@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use bevy::prelude::*;
 
 use crate::{
-    terminals::{TerminalId, TerminalManager, TerminalSurface},
+    terminals::{TerminalManager, TerminalSurface},
     verification::VerificationTerminalSurfaceOverrides,
 };
 
@@ -45,18 +45,6 @@ impl AgentStatusStore {
         self.samples
             .get(&agent_id)
             .map(|sample| sample.status)
-            .unwrap_or(AgentStatus::Unknown)
-    }
-
-    /// Returns the retained derived status for the agent currently bound to one terminal.
-    pub(crate) fn status_for_terminal(
-        &self,
-        runtime_index: &AgentRuntimeIndex,
-        terminal_id: TerminalId,
-    ) -> AgentStatus {
-        runtime_index
-            .agent_for_terminal(terminal_id)
-            .map(|agent_id| self.status(agent_id))
             .unwrap_or(AgentStatus::Unknown)
     }
 }

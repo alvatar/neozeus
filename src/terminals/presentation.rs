@@ -1,6 +1,5 @@
 use crate::{
     hud::{HudLayoutState, TerminalVisibilityPolicy, TerminalVisibilityState},
-    shared::visual_contracts::{WORKING_GREEN_B, WORKING_GREEN_G, WORKING_GREEN_R},
     visual_contract::{TerminalFrameVisualState, VisualContractState},
 };
 
@@ -22,9 +21,6 @@ const HUD_FRAME_PADDING: Vec2 = Vec2::ZERO;
 const ACTIVE_TERMINAL_MARGIN: Vec2 = Vec2::splat(16.0);
 const DIRECT_INPUT_FRAME_OUTSET: f32 = 6.0;
 const INACTIVE_RUNTIME_FRAME_OUTSET: f32 = 4.0;
-const WORKING_RUNTIME_FRAME_OUTSET: f32 = 4.0;
-const WORKING_RUNTIME_FRAME_COLOR: Color =
-    Color::srgba_u8(WORKING_GREEN_R, WORKING_GREEN_G, WORKING_GREEN_B, 235);
 const STARTUP_PLACEHOLDER_COLS: u32 = 120;
 const STARTUP_PLACEHOLDER_ROWS: u32 = 38;
 const STARTUP_PLACEHOLDER_COLOR: Color = Color::srgb(0.10, 0.13, 0.18);
@@ -703,9 +699,6 @@ fn terminal_frame_style(state: TerminalFrameVisualState) -> Option<(f32, Color)>
             DIRECT_INPUT_FRAME_OUTSET,
             Color::srgba(1.0, 0.48, 0.08, 0.96),
         )),
-        TerminalFrameVisualState::Working => {
-            Some((WORKING_RUNTIME_FRAME_OUTSET, WORKING_RUNTIME_FRAME_COLOR))
-        }
         TerminalFrameVisualState::Exited => Some((
             INACTIVE_RUNTIME_FRAME_OUTSET,
             Color::srgba(0.90, 0.72, 0.18, 0.92),
@@ -725,10 +718,10 @@ fn terminal_frame_style(state: TerminalFrameVisualState) -> Option<(f32, Color)>
     clippy::type_complexity,
     reason = "frame sync needs disjoint panel/frame queries with explicit visibility borrowing"
 )]
-/// Shows and styles terminal frame sprites for direct-input mode, working activity, or
-/// non-interactive runtime states.
+/// Shows and styles terminal frame sprites for direct-input mode or non-interactive runtime
+/// states.
 ///
-/// Interactive idle terminals with no special state hide their frame entirely.
+/// Interactive terminals hide their frame unless direct input is active.
 pub(crate) fn sync_terminal_panel_frames(
     visual_contract: Res<VisualContractState>,
     terminal_manager: Res<TerminalManager>,

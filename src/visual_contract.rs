@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use bevy::prelude::*;
 
 use crate::{
-    agents::{AgentCatalog, AgentId, AgentRuntimeIndex, AgentStatus, AgentStatusStore},
+    agents::{AgentCatalog, AgentId, AgentStatus, AgentStatusStore},
     hud::HudInputCaptureState,
     terminals::{TerminalId, TerminalLifecycle, TerminalManager, TerminalRuntimeState},
 };
@@ -29,7 +29,6 @@ pub(crate) enum TerminalFrameVisualState {
     #[default]
     Hidden,
     DirectInput,
-    Working,
     Exited,
     Disconnected,
     Failed,
@@ -38,7 +37,6 @@ pub(crate) enum TerminalFrameVisualState {
 pub(crate) fn terminal_frame_visual_state(
     direct_input: bool,
     runtime: &TerminalRuntimeState,
-    agent_status: AgentStatus,
 ) -> TerminalFrameVisualState {
     if direct_input {
         return TerminalFrameVisualState::DirectInput;
@@ -51,11 +49,7 @@ pub(crate) fn terminal_frame_visual_state(
             TerminalLifecycle::Running => TerminalFrameVisualState::Hidden,
         };
     }
-    if agent_status == AgentStatus::Working {
-        TerminalFrameVisualState::Working
-    } else {
-        TerminalFrameVisualState::Hidden
-    }
+    TerminalFrameVisualState::Hidden
 }
 
 #[derive(Resource, Clone, Debug, Default, PartialEq, Eq)]
@@ -82,7 +76,6 @@ impl VisualContractState {
 
 pub(crate) fn sync_visual_contract_state(
     agent_catalog: Res<AgentCatalog>,
-    runtime_index: Res<AgentRuntimeIndex>,
     status_store: Res<AgentStatusStore>,
     input_capture: Res<HudInputCaptureState>,
     terminal_manager: Res<TerminalManager>,
@@ -103,7 +96,6 @@ pub(crate) fn sync_visual_contract_state(
             terminal_frame_visual_state(
                 input_capture.direct_input_terminal == Some(terminal_id),
                 &terminal.snapshot.runtime,
-                status_store.status_for_terminal(&runtime_index, terminal_id),
             ),
         );
     }
