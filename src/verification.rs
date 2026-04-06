@@ -2,7 +2,9 @@ use crate::{
     agents::{AgentCapabilities, AgentCatalog, AgentKind, AgentRuntimeIndex},
     app::AppSessionState,
     conversations::AgentTaskStore,
-    hud::{AgentListSelection, HudInputCaptureState, TerminalVisibilityPolicy, TerminalVisibilityState},
+    hud::{
+        AgentListSelection, HudInputCaptureState, TerminalVisibilityPolicy, TerminalVisibilityState,
+    },
     terminals::{
         append_debug_log, attach_terminal_session, RuntimeNotifier, TerminalBridge, TerminalCell,
         TerminalCellContent, TerminalCommand, TerminalFocusState, TerminalId, TerminalManager,
@@ -346,6 +348,9 @@ pub(crate) fn run_verification_scenario(world: &mut World) {
                 .focus_terminal(&ctx.terminal_manager, terminal_id);
             ctx.visibility_state.policy = TerminalVisibilityPolicy::Isolate(terminal_id);
             ctx.view_state.focus_terminal(Some(terminal_id));
+            if let Some(agent_id) = ctx.runtime_index.agent_for_terminal(terminal_id) {
+                *ctx.selection = AgentListSelection::Agent(agent_id);
+            }
             ctx.app_session.composer.discard_current_message();
             ctx.app_session.composer.close_task_editor();
             ctx.input_capture.close_direct_terminal_input();

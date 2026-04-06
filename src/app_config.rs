@@ -11,8 +11,8 @@ pub(crate) const DEFAULT_CELL_HEIGHT_PX: u32 = 16;
 pub(crate) const DEFAULT_CELL_WIDTH_PX: u32 = 9;
 pub(crate) const GPU_NOT_FOUND_PANIC_FRAGMENT: &str = "Unable to find a GPU!";
 
-pub(crate) const DEBUG_LOG_PATH: &str = "/tmp/neozeus-debug.log";
-pub(crate) const DEBUG_TEXTURE_DUMP_PATH: &str = "/tmp/neozeus-texture.ppm";
+const DEBUG_LOG_FILENAME: &str = "neozeus-debug.log";
+const DEBUG_TEXTURE_DUMP_FILENAME: &str = "neozeus-texture.ppm";
 const NEOZEUS_CONFIG_FILENAME: &str = "config.toml";
 const NEOZEUS_CWD_CONFIG_FILENAME: &str = "neozeus.toml";
 
@@ -160,6 +160,33 @@ pub(crate) fn resolve_window_title(config: &NeoZeusConfig) -> String {
 ///
 /// This value is what window managers see, so environment overrides win, config-file values come
 /// next, and the hard-coded `neozeus` fallback keeps the identity stable when nothing is specified.
+fn resolve_state_dir() -> PathBuf {
+    if let Some(path) = env::var_os("XDG_STATE_HOME").filter(|value| !value.is_empty()) {
+        return PathBuf::from(path).join("neozeus");
+    }
+    if let Some(home) = env::var_os("HOME").filter(|value| !value.is_empty()) {
+        return PathBuf::from(home).join(".local/state/neozeus");
+    }
+    if let Some(path) = env::var_os("XDG_CONFIG_HOME").filter(|value| !value.is_empty()) {
+        return PathBuf::from(path).join("neozeus");
+    }
+    PathBuf::from("/tmp")
+}
+
+pub(crate) fn resolve_debug_log_path() -> PathBuf {
+    env::var_os("NEOZEUS_DEBUG_LOG_PATH")
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| resolve_state_dir().join(DEBUG_LOG_FILENAME))
+}
+
+pub(crate) fn resolve_debug_texture_dump_path() -> PathBuf {
+    env::var_os("NEOZEUS_DUMP_TEXTURE_PATH")
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| resolve_state_dir().join(DEBUG_TEXTURE_DUMP_FILENAME))
+}
+
 pub(crate) fn resolve_app_id(config: &NeoZeusConfig) -> String {
     env::var("NEOZEUS_APP_ID")
         .ok()

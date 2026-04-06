@@ -171,8 +171,17 @@ impl TerminalDaemonClient for FakeDaemonClient {
                 runtime: TerminalRuntimeState::running("fake daemon"),
                 revision: 0,
                 created_order: 0,
+                metadata: crate::shared::daemon_wire::DaemonSessionMetadata::default(),
             })
             .collect())
+    }
+
+    fn update_session_metadata_label(
+        &self,
+        _session_id: &str,
+        _agent_label: Option<&str>,
+    ) -> Result<(), String> {
+        Ok(())
     }
 
     /// Creates a fake session with a fixed suffix and inserts it into the set.

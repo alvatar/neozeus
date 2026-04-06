@@ -101,9 +101,16 @@ fn terminal_notes_path_prefers_state_home_then_home_state_then_config() {
 /// handles ordinary and slightly awkward payloads alike.
 #[test]
 fn terminal_notes_parse_and_serialize_roundtrip() {
-    let mut notes = std::collections::HashMap::new();
-    notes.insert("session-a".to_owned(), "- [ ] first\n  detail".to_owned());
-    notes.insert("session-b".to_owned(), ".starts with dot".to_owned());
+    let notes = PersistedTerminalNotes {
+        notes_by_agent_uid: std::collections::HashMap::from([(
+            "agent-uid-a".to_owned(),
+            "- [ ] first\n  detail".to_owned(),
+        )]),
+        legacy_notes_by_session: std::collections::HashMap::from([(
+            "session-b".to_owned(),
+            ".starts with dot".to_owned(),
+        )]),
+    };
 
     let serialized = serialize_terminal_notes(&notes);
     let reparsed = parse_terminal_notes(&serialized);
@@ -214,7 +221,10 @@ fn terminal_notes_save_waits_for_debounce_window() {
     let saved = std::fs::read_to_string(&path).expect("failed to read notes file");
     let reparsed = parse_terminal_notes(&saved);
     assert_eq!(
-        reparsed.get("session-a").map(String::as_str),
+        reparsed
+            .legacy_notes_by_session
+            .get("session-a")
+            .map(String::as_str),
         Some("- [ ] first line")
     );
 }

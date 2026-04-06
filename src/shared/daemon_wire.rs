@@ -26,12 +26,52 @@ pub enum TerminalCommand {
     ScrollDisplay(i32),
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DaemonAgentKind {
+    Pi,
+    Claude,
+    Codex,
+    Terminal,
+    Verifier,
+}
+
+impl DaemonAgentKind {
+    pub const fn env_name(self) -> &'static str {
+        match self {
+            Self::Pi => "pi",
+            Self::Claude => "claude",
+            Self::Codex => "codex",
+            Self::Terminal => "terminal",
+            Self::Verifier => "verifier",
+        }
+    }
+
+    pub fn from_env_name(value: &str) -> Option<Self> {
+        match value.trim() {
+            "pi" => Some(Self::Pi),
+            "claude" => Some(Self::Claude),
+            "codex" => Some(Self::Codex),
+            "terminal" => Some(Self::Terminal),
+            "verifier" => Some(Self::Verifier),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct DaemonSessionMetadata {
+    pub agent_uid: Option<String>,
+    pub agent_label: Option<String>,
+    pub agent_kind: Option<DaemonAgentKind>,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DaemonSessionInfo {
     pub session_id: String,
     pub runtime: TerminalRuntimeState,
     pub revision: u64,
     pub created_order: u64,
+    pub metadata: DaemonSessionMetadata,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -56,6 +96,7 @@ pub enum ClientMessage {
 #[derive(Clone, Debug, PartialEq)]
 pub enum DaemonRequest {
     ListSessions,
+    ListSessionsDetailed,
     CreateOwnedTmuxSession {
         owner_agent_uid: String,
         display_name: String,
@@ -65,6 +106,10 @@ pub enum DaemonRequest {
     SendCommand {
         session_id: String,
         command: TerminalCommand,
+    },
+    UpdateSessionMetadata {
+        session_id: String,
+        agent_label: Option<String>,
     },
 }
 
@@ -79,6 +124,7 @@ pub enum ServerMessage {
 #[derive(Clone, Debug, PartialEq)]
 pub enum DaemonResponse {
     SessionList { sessions: Vec<DaemonSessionInfo> },
+    SessionListDetailed { sessions: Vec<DaemonSessionInfo> },
     OwnedTmuxSessionCreated { session: OwnedTmuxSessionInfo },
     Ack,
 }
@@ -144,6 +190,7 @@ fn encode_client_message(buffer: &mut Vec<u8>, message: &ClientMessage) {
 fn encode_request(buffer: &mut Vec<u8>, request: &DaemonRequest) {
     match request {
         DaemonRequest::ListSessions => push_u8(buffer, 1),
+        DaemonRequest::ListSessionsDetailed => push_u8(buffer, 12),
         DaemonRequest::CreateOwnedTmuxSession {
             owner_agent_uid,
             display_name,
@@ -167,6 +214,17 @@ fn encode_request(buffer: &mut Vec<u8>, request: &DaemonRequest) {
             push_string(buffer, session_id);
             encode_wire_terminal_command(buffer, command);
         }
+        DaemonRequest::UpdateSessionMetadata {
+            session_id,
+            agent_label,
+        } => {
+            push_u8(buffer, 13);
+            push_string(buffer, session_id);
+            push_bool(buffer, agent_label.is_some());
+            if let Some(agent_label) = agent_label {
+                push_string(buffer, agent_label);
+            }
+        }
     }
 }
 
@@ -183,11 +241,14 @@ fn decode_server_message(decoder: &mut Decoder<'_>) -> Result<ServerMessage, Str
 fn decode_response(decoder: &mut Decoder<'_>) -> Result<DaemonResponse, String> {
     match decoder.read_u8()? {
         1 => Ok(DaemonResponse::SessionList {
-            sessions: decoder.read_vec(decode_wire_daemon_session_info)?,
+            sessions: decoder.read_vec(decode_wire_daemon_session_info_legacy)?,
         }),
         4 => Ok(DaemonResponse::Ack),
         6 => Ok(DaemonResponse::OwnedTmuxSessionCreated {
             session: decode_owned_tmux_session_info(decoder)?,
+        }),
+        8 => Ok(DaemonResponse::SessionListDetailed {
+            sessions: decoder.read_vec(decode_wire_daemon_session_info)?,
         }),
         tag => Err(format!("unknown daemon response tag {tag}")),
     }
@@ -217,7 +278,7 @@ pub(crate) fn decode_owned_tmux_session_info(
     })
 }
 
-pub fn encode_wire_daemon_session_info(buffer: &mut Vec<u8>, info: &DaemonSessionInfo) {
+pub fn encode_wire_daemon_session_info_legacy(buffer: &mut Vec<u8>, info: &DaemonSessionInfo) {
     push_string(buffer, &info.session_id);
     encode_wire_runtime_state(buffer, &info.runtime);
     // Session-list wire compatibility intentionally omits `created_order`; daemon response order
@@ -225,7 +286,12 @@ pub fn encode_wire_daemon_session_info(buffer: &mut Vec<u8>, info: &DaemonSessio
     push_u64(buffer, info.revision);
 }
 
-pub(crate) fn decode_wire_daemon_session_info(
+pub fn encode_wire_daemon_session_info(buffer: &mut Vec<u8>, info: &DaemonSessionInfo) {
+    encode_wire_daemon_session_info_legacy(buffer, info);
+    encode_daemon_session_metadata(buffer, &info.metadata);
+}
+
+pub(crate) fn decode_wire_daemon_session_info_legacy(
     decoder: &mut Decoder<'_>,
 ) -> Result<DaemonSessionInfo, String> {
     Ok(DaemonSessionInfo {
@@ -233,6 +299,59 @@ pub(crate) fn decode_wire_daemon_session_info(
         runtime: decode_wire_runtime_state(decoder)?,
         revision: decoder.read_u64()?,
         created_order: 0,
+        metadata: DaemonSessionMetadata::default(),
+    })
+}
+
+pub(crate) fn decode_wire_daemon_session_info(
+    decoder: &mut Decoder<'_>,
+) -> Result<DaemonSessionInfo, String> {
+    let mut info = decode_wire_daemon_session_info_legacy(decoder)?;
+    info.metadata = decode_daemon_session_metadata(decoder)?;
+    Ok(info)
+}
+
+pub fn encode_daemon_session_metadata(buffer: &mut Vec<u8>, metadata: &DaemonSessionMetadata) {
+    push_bool(buffer, metadata.agent_uid.is_some());
+    if let Some(agent_uid) = &metadata.agent_uid {
+        push_string(buffer, agent_uid);
+    }
+    push_bool(buffer, metadata.agent_label.is_some());
+    if let Some(agent_label) = &metadata.agent_label {
+        push_string(buffer, agent_label);
+    }
+    push_bool(buffer, metadata.agent_kind.is_some());
+    if let Some(agent_kind) = metadata.agent_kind {
+        push_u8(
+            buffer,
+            match agent_kind {
+                DaemonAgentKind::Pi => 0,
+                DaemonAgentKind::Claude => 1,
+                DaemonAgentKind::Codex => 2,
+                DaemonAgentKind::Terminal => 3,
+                DaemonAgentKind::Verifier => 4,
+            },
+        );
+    }
+}
+
+pub fn decode_daemon_session_metadata(
+    decoder: &mut Decoder<'_>,
+) -> Result<DaemonSessionMetadata, String> {
+    let agent_uid = decoder.read_option(|decoder| decoder.read_string())?;
+    let agent_label = decoder.read_option(|decoder| decoder.read_string())?;
+    let agent_kind = decoder.read_option(|decoder| match decoder.read_u8()? {
+        0 => Ok(DaemonAgentKind::Pi),
+        1 => Ok(DaemonAgentKind::Claude),
+        2 => Ok(DaemonAgentKind::Codex),
+        3 => Ok(DaemonAgentKind::Terminal),
+        4 => Ok(DaemonAgentKind::Verifier),
+        tag => Err(format!("unknown daemon agent-kind tag {tag}")),
+    })?;
+    Ok(DaemonSessionMetadata {
+        agent_uid,
+        agent_label,
+        agent_kind,
     })
 }
 
@@ -487,7 +606,8 @@ impl<'a> Decoder<'a> {
 mod tests {
     use super::{
         read_server_message, write_client_message, ClientMessage, DaemonRequest, DaemonResponse,
-        DaemonSessionInfo, ServerMessage, TerminalCommand, TerminalLifecycle, TerminalRuntimeState,
+        DaemonSessionInfo, DaemonSessionMetadata, ServerMessage, TerminalCommand,
+        TerminalLifecycle, TerminalRuntimeState,
     };
     use std::io::Cursor;
 
@@ -524,6 +644,7 @@ mod tests {
                     },
                     revision: 9,
                     created_order: 3,
+                    metadata: DaemonSessionMetadata::default(),
                 }],
             }),
         };
@@ -539,6 +660,7 @@ mod tests {
                     },
                     revision: 9,
                     created_order: 0,
+                    metadata: DaemonSessionMetadata::default(),
                 }],
             }),
         };
@@ -587,6 +709,7 @@ mod tests {
                         },
                         revision: 21,
                         created_order: 0,
+                        metadata: DaemonSessionMetadata::default(),
                     }],
                 }),
             }
@@ -605,6 +728,14 @@ mod tests {
                     Ok(DaemonResponse::SessionList { sessions }) => {
                         super::push_u8(buffer, 0);
                         super::push_u8(buffer, 1);
+                        super::push_u32(buffer, u32::try_from(sessions.len()).unwrap());
+                        for session in sessions {
+                            super::encode_wire_daemon_session_info_legacy(buffer, session);
+                        }
+                    }
+                    Ok(DaemonResponse::SessionListDetailed { sessions }) => {
+                        super::push_u8(buffer, 0);
+                        super::push_u8(buffer, 8);
                         super::push_u32(buffer, u32::try_from(sessions.len()).unwrap());
                         for session in sessions {
                             super::encode_wire_daemon_session_info(buffer, session);
@@ -634,6 +765,7 @@ mod tests {
                 request_id: decoder.read_u64()?,
                 request: match decoder.read_u8()? {
                     1 => DaemonRequest::ListSessions,
+                    12 => DaemonRequest::ListSessionsDetailed,
                     4 => DaemonRequest::SendCommand {
                         session_id: decoder.read_string()?,
                         command: super::decode_wire_terminal_command(decoder)?,

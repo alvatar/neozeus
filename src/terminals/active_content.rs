@@ -172,10 +172,11 @@ pub(crate) fn sync_active_terminal_content(
         return;
     }
 
-    let changed = match runtime_spawner.capture_owned_tmux_session(&session_uid, OWNED_TMUX_CAPTURE_LINES) {
-        Ok(text) => active_content.update_capture(text),
-        Err(error) => active_content.update_capture_error(error),
-    };
+    let changed =
+        match runtime_spawner.capture_owned_tmux_session(&session_uid, OWNED_TMUX_CAPTURE_LINES) {
+            Ok(text) => active_content.update_capture(text),
+            Err(error) => active_content.update_capture_error(error),
+        };
     if changed {
         redraws.write(bevy::window::RequestRedraw);
     }

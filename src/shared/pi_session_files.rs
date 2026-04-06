@@ -1,6 +1,8 @@
-use crate::shared::text_escape::{quote_escaped_string, unquote_escaped_string, EXTENDED_QUOTED_STRING_ESCAPES};
+use crate::shared::text_escape::{
+    quote_escaped_string, unquote_escaped_string, EXTENDED_QUOTED_STRING_ESCAPES,
+};
 use std::{
-    path::{Path, PathBuf},
+    path::{Component, Path, PathBuf},
     sync::atomic::{AtomicU64, Ordering},
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -54,23 +56,50 @@ fn resolve_session_cwd_with(
             .map(PathBuf::from)
             .ok_or_else(|| "cannot expand `~` without HOME".to_owned())?,
         Some(value) => {
-            if let Some(rest) = value.strip_prefix("~/") {
+            let path = if let Some(rest) = value.strip_prefix("~/") {
                 let home = home
                     .map(PathBuf::from)
                     .ok_or_else(|| "cannot expand `~` without HOME".to_owned())?;
                 home.join(rest)
             } else {
                 PathBuf::from(value)
+            };
+            if path.is_absolute() {
+                path
+            } else {
+                current_dir.join(path)
             }
         }
     };
 
-    Ok(resolved.to_string_lossy().into_owned())
+    Ok(lexically_normalize_path(&resolved)
+        .to_string_lossy()
+        .into_owned())
+}
+
+fn lexically_normalize_path(path: &Path) -> PathBuf {
+    let mut normalized = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                let popped = normalized.pop();
+                if !popped {
+                    normalized.push(component.as_os_str());
+                }
+            }
+            other => normalized.push(other.as_os_str()),
+        }
+    }
+    normalized
 }
 
 /// Encodes one cwd into Pi's session-directory naming convention.
 pub fn encode_session_dir(cwd: &str) -> String {
-    format!("--{}--", cwd.trim_start_matches('/').replace(['/', ':'], "-"))
+    format!(
+        "--{}--",
+        cwd.trim_start_matches('/').replace(['/', ':'], "-")
+    )
 }
 
 /// Returns a fresh Pi session file path rooted under Pi's real session directory.
@@ -137,7 +166,8 @@ fn fork_session_with(
         .collect::<Vec<_>>();
     let (header_index, header) = parse_session_header_lines(&lines)?;
     let resolved_target_cwd = resolve_session_cwd_with(target_cwd, home, current_dir)?;
-    let target_path = make_new_session_path_with(Some(&resolved_target_cwd), home, PathBuf::from("/"))?;
+    let target_path =
+        make_new_session_path_with(Some(&resolved_target_cwd), home, PathBuf::from("/"))?;
     let target_id = Path::new(&target_path)
         .file_stem()
         .and_then(|value| value.to_str())
@@ -163,12 +193,8 @@ fn fork_session_with(
         output.push_str(line);
         output.push('\n');
     }
-    std::fs::write(&target_path, output).map_err(|error| {
-        format!(
-            "failed to write forked Pi session {}: {error}",
-            target_path
-        )
-    })?;
+    std::fs::write(&target_path, output)
+        .map_err(|error| format!("failed to write forked Pi session {}: {error}", target_path))?;
     Ok(target_path)
 }
 
@@ -214,7 +240,10 @@ fn json_string_field(line: &str, key: &str) -> Option<String> {
 }
 
 fn json_u64_field(line: &str, key: &str) -> Option<u64> {
-    json_field_value_slice(line, key)?.trim().parse::<u64>().ok()
+    json_field_value_slice(line, key)?
+        .trim()
+        .parse::<u64>()
+        .ok()
 }
 
 fn json_field_value_slice<'a>(line: &'a str, key: &str) -> Option<&'a str> {
@@ -290,13 +319,12 @@ mod tests {
     }
 
     #[test]
-    fn resolve_session_cwd_expands_home_and_defaults_to_current_dir() {
+    fn resolve_session_cwd_expands_home_defaults_to_current_dir_and_normalizes_relative_paths() {
         let home = temp_dir("pi-session-home");
         let cwd = temp_dir("pi-session-cwd");
 
         assert_eq!(
-            resolve_session_cwd_with(Some("~/code"), Some(home.as_os_str()), cwd.clone())
-                .unwrap(),
+            resolve_session_cwd_with(Some("~/code"), Some(home.as_os_str()), cwd.clone()).unwrap(),
             home.join("code").to_string_lossy()
         );
         assert_eq!(
@@ -307,6 +335,15 @@ mod tests {
             resolve_session_cwd_with(None, Some(home.as_os_str()), cwd.clone()).unwrap(),
             cwd.to_string_lossy()
         );
+        assert_eq!(
+            resolve_session_cwd_with(
+                Some("./nested/../repo"),
+                Some(home.as_os_str()),
+                cwd.clone()
+            )
+            .unwrap(),
+            cwd.join("repo").to_string_lossy()
+        );
     }
 
     #[test]
@@ -314,17 +351,22 @@ mod tests {
         let home = temp_dir("pi-session-root");
         let cwd = temp_dir("pi-session-path-cwd");
 
-        let path = make_new_session_path_with(Some("~/code/demo"), Some(home.as_os_str()), cwd)
-            .unwrap();
+        let path =
+            make_new_session_path_with(Some("~/code/demo"), Some(home.as_os_str()), cwd).unwrap();
         let path = std::path::PathBuf::from(path);
 
         assert_eq!(
             path.parent().unwrap(),
             agent_sessions_dir_with(Some(home.as_os_str()))
                 .unwrap()
-                .join(encode_session_dir(&home.join("code/demo").to_string_lossy()))
+                .join(encode_session_dir(
+                    &home.join("code/demo").to_string_lossy()
+                ))
         );
-        assert_eq!(path.extension().and_then(|value| value.to_str()), Some("jsonl"));
+        assert_eq!(
+            path.extension().and_then(|value| value.to_str()),
+            Some("jsonl")
+        );
     }
 
     #[test]
@@ -453,7 +495,9 @@ mod tests {
             child.parent().unwrap(),
             agent_sessions_dir_with(Some(home.as_os_str()))
                 .unwrap()
-                .join(encode_session_dir(&home.join("work/clone").to_string_lossy()))
+                .join(encode_session_dir(
+                    &home.join("work/clone").to_string_lossy()
+                ))
         );
     }
 }

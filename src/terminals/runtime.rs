@@ -185,6 +185,28 @@ impl TerminalRuntimeSpawner {
             .create_session_with_env(prefix, cwd, env_overrides)
     }
 
+    /// Sends one terminal command directly to the daemon and waits for an acknowledgement.
+    pub(crate) fn send_command(
+        &self,
+        session_id: &str,
+        command: TerminalCommand,
+    ) -> Result<(), String> {
+        self.daemon_client()?
+            .client()
+            .send_command(session_id, command)
+    }
+
+    /// Updates mutable daemon-side session metadata.
+    pub(crate) fn update_session_metadata_label(
+        &self,
+        session_id: &str,
+        agent_label: Option<&str>,
+    ) -> Result<(), String> {
+        self.daemon_client()?
+            .client()
+            .update_session_metadata_label(session_id, agent_label)
+    }
+
     /// Asks the daemon to resize one named session to the requested terminal grid.
     pub(crate) fn resize_session(
         &self,

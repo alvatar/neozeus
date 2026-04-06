@@ -1,7 +1,7 @@
 use crate::{
     app::{
-        AgentCommand, AppCommand, AppSessionState, CloneAgentDialogField,
-        CreateAgentDialogField, RenameAgentDialogField, WidgetCommand,
+        AgentCommand, AppCommand, AppSessionState, CloneAgentDialogField, CreateAgentDialogField,
+        RenameAgentDialogField, WidgetCommand,
     },
     composer::{
         clone_agent_dialog_target_at, create_agent_dialog_target_at, message_box_action_at,

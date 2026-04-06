@@ -5,24 +5,20 @@ use super::protocol::{
     read_server_message, write_client_message, ClientMessage, DaemonEvent, DaemonRequest,
     DaemonResponse, DaemonSessionInfo, ServerMessage,
 };
-use crate::shared::daemon_socket::resolve_daemon_socket_path;
+use crate::shared::{
+    daemon_client_core::{spawn_daemon_subprocess, wait_for_connect, SocketRequestClientCore},
+    daemon_socket::resolve_daemon_socket_path,
+};
 use bevy::prelude::Resource;
 use std::{
     collections::HashMap,
-    env,
-    net::Shutdown,
-    os::unix::net::UnixStream,
     path::Path,
-    process::{Command, Stdio},
     sync::{mpsc, Arc, Mutex},
-    thread,
     time::Duration,
 };
 
 const DAEMON_CONNECT_RETRY_TIMEOUT: Duration = Duration::from_secs(2);
-const DAEMON_REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
-
-type PendingResponses = HashMap<u64, mpsc::Sender<Result<DaemonResponse, String>>>;
+const DAEMON_REQUEST_TIMEOUT: Duration = Duration::from_secs(15);
 
 #[derive(Debug)]
 pub(crate) struct AttachedDaemonSession {
@@ -33,6 +29,12 @@ pub(crate) struct AttachedDaemonSession {
 pub(crate) trait TerminalDaemonClient: Send + Sync {
     /// Returns the daemon's current session list with runtime/revision metadata.
     fn list_sessions(&self) -> Result<Vec<DaemonSessionInfo>, String>;
+    /// Updates mutable session metadata stored by the daemon.
+    fn update_session_metadata_label(
+        &self,
+        session_id: &str,
+        agent_label: Option<&str>,
+    ) -> Result<(), String>;
     /// Asks the daemon to create a new session id using the provided prefix, optional working directory,
     /// and per-session environment overrides.
     fn create_session_with_env(
@@ -115,11 +117,8 @@ impl TerminalDaemonClientResource {
 }
 
 pub(crate) struct SocketTerminalDaemonClient {
-    writer_tx: mpsc::Sender<ClientMessage>,
-    pending: Arc<Mutex<PendingResponses>>,
+    core: SocketRequestClientCore<ClientMessage, DaemonResponse>,
     session_routes: Arc<Mutex<HashMap<String, mpsc::Sender<TerminalUpdate>>>>,
-    next_request_id: Mutex<u64>,
-    shutdown_stream: Mutex<Option<UnixStream>>,
 }
 
 impl SocketTerminalDaemonClient {
@@ -138,7 +137,7 @@ impl SocketTerminalDaemonClient {
                     socket_path.display()
                 ));
                 spawn_daemon_subprocess(&socket_path)?;
-                wait_for_connect(&socket_path, DAEMON_CONNECT_RETRY_TIMEOUT)
+                wait_for_connect(&socket_path, DAEMON_CONNECT_RETRY_TIMEOUT, Self::connect)
             }
         }
     }
@@ -148,114 +147,65 @@ impl SocketTerminalDaemonClient {
     /// Requests are sent through a writer channel, responses are matched back to waiting callers by
     /// request id, and session update events are fanned out by session id.
     pub(crate) fn connect(socket_path: &Path) -> Result<Self, String> {
-        // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
-        let stream = UnixStream::connect(socket_path).map_err(|error| {
-            format!(
-                "failed to connect daemon socket {}: {error}",
-                socket_path.display()
-            )
-        })?;
-        let mut reader = stream
-            .try_clone()
-            .map_err(|error| format!("failed to clone daemon socket: {error}"))?;
-        let shutdown_stream = stream
-            .try_clone()
-            .map_err(|error| format!("failed to clone daemon shutdown socket: {error}"))?;
-        let mut writer = stream;
-        let (writer_tx, writer_rx) = mpsc::channel::<ClientMessage>();
-        let pending = Arc::new(Mutex::new(PendingResponses::new()));
         let session_routes = Arc::new(Mutex::new(
             HashMap::<String, mpsc::Sender<TerminalUpdate>>::new(),
         ));
-
-        let writer_thread = {
-            thread::spawn(move || {
-                while let Ok(message) = writer_rx.recv() {
-                    if write_client_message(&mut writer, &message).is_err() {
-                        break;
-                    }
-                }
-            })
-        };
-
-        let pending_reader = pending.clone();
         let routes_reader = session_routes.clone();
-        thread::spawn(move || {
-            let _writer_thread = writer_thread;
-            while let Ok(message) = read_server_message(&mut reader) {
-                match message {
-                    ServerMessage::Response {
-                        request_id,
-                        response,
-                    } => {
-                        if let Some(waiter) = lock(&pending_reader).remove(&request_id) {
-                            let _ = waiter.send(response);
-                        }
-                    }
-                    ServerMessage::Event(event) => {
-                        dispatch_event(&routes_reader, event);
-                    }
+        let core = SocketRequestClientCore::connect(
+            socket_path,
+            write_client_message,
+            read_server_message,
+            Arc::new(move |message| match message {
+                ServerMessage::Response {
+                    request_id,
+                    response,
+                } => Some((request_id, response)),
+                ServerMessage::Event(event) => {
+                    dispatch_event(&routes_reader, event);
+                    None
                 }
-            }
-
-            for (_, waiter) in lock(&pending_reader).drain() {
-                let _ = waiter.send(Err("daemon connection closed".to_owned()));
-            }
-            lock(&routes_reader).clear();
-        });
-
+            }),
+        )?;
         Ok(Self {
-            writer_tx,
-            pending,
+            core,
             session_routes,
-            next_request_id: Mutex::new(1),
-            shutdown_stream: Mutex::new(Some(shutdown_stream)),
         })
     }
 
     /// Sends one request to the daemon and waits synchronously for the matching response.
-    ///
-    /// The call allocates a fresh request id, registers a one-shot response waiter, writes the request
-    /// onto the writer thread's channel, and then blocks with a timeout.
     fn request(&self, request: DaemonRequest) -> Result<DaemonResponse, String> {
-        let request_id = {
-            let mut next = lock(&self.next_request_id);
-            let request_id = *next;
-            *next += 1;
-            request_id
-        };
-        let (tx, rx) = mpsc::channel();
-        lock(&self.pending).insert(request_id, tx);
-        self.writer_tx
-            .send(ClientMessage::Request {
+        self.core.request_with(
+            DAEMON_REQUEST_TIMEOUT,
+            Arc::new(move |request_id| ClientMessage::Request {
                 request_id,
-                request,
-            })
-            .map_err(|_| "daemon writer channel disconnected".to_owned())?;
-        rx.recv_timeout(DAEMON_REQUEST_TIMEOUT)
-            .map_err(|_| "timed out waiting for daemon response".to_owned())?
-    }
-}
-
-impl Drop for SocketTerminalDaemonClient {
-    /// Shuts down the socket clone used to unblock the client background threads during drop.
-    ///
-    /// Without this explicit shutdown, threads waiting on socket I/O could linger until process exit.
-    fn drop(&mut self) {
-        // Shutting down the cloned socket side unblocks the reader/writer threads deterministically
-        // so pending requests and routes drain to connection-closed errors instead of hanging.
-        if let Some(stream) = lock(&self.shutdown_stream).take() {
-            let _ = stream.shutdown(Shutdown::Both);
-        }
+                request: request.clone(),
+            }),
+        )
     }
 }
 
 impl TerminalDaemonClient for SocketTerminalDaemonClient {
     /// Issues a `ListSessions` request and asserts that the daemon answered with a session list.
     fn list_sessions(&self) -> Result<Vec<DaemonSessionInfo>, String> {
-        match self.request(DaemonRequest::ListSessions)? {
-            DaemonResponse::SessionList { sessions } => Ok(sessions),
+        match self.request(DaemonRequest::ListSessionsDetailed)? {
+            DaemonResponse::SessionListDetailed { sessions } => Ok(sessions),
             response => Err(format!("unexpected daemon list response: {response:?}")),
+        }
+    }
+
+    fn update_session_metadata_label(
+        &self,
+        session_id: &str,
+        agent_label: Option<&str>,
+    ) -> Result<(), String> {
+        match self.request(DaemonRequest::UpdateSessionMetadata {
+            session_id: session_id.to_owned(),
+            agent_label: agent_label.map(str::to_owned),
+        })? {
+            DaemonResponse::Ack => Ok(()),
+            response => Err(format!(
+                "unexpected daemon update-session-metadata response: {response:?}"
+            )),
         }
     }
 
@@ -427,50 +377,6 @@ impl TerminalDaemonClient for SocketTerminalDaemonClient {
             }
             response => Err(format!("unexpected daemon kill response: {response:?}")),
         }
-    }
-}
-
-/// Spawns a detached copy of the current executable in daemon mode bound to the chosen socket.
-///
-/// StdIO is nulled out because the daemon is meant to be background infrastructure, not an attached
-/// child process of the UI.
-fn spawn_daemon_subprocess(socket_path: &Path) -> Result<(), String> {
-    let current_exe = env::current_exe().map_err(|error| {
-        format!("failed to resolve current executable for daemon spawn: {error}")
-    })?;
-    let mut command = Command::new(current_exe);
-    command
-        .arg("daemon")
-        .arg("--socket")
-        .arg(socket_path)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
-    command
-        .spawn()
-        .map(|_| ())
-        .map_err(|error| format!("failed to spawn daemon subprocess: {error}"))
-}
-
-/// Polls until the daemon socket accepts a connection or the timeout expires.
-///
-/// This is used immediately after spawning the daemon subprocess to bridge the race between process
-/// spawn and socket readiness.
-fn wait_for_connect(
-    socket_path: &Path,
-    timeout: Duration,
-) -> Result<SocketTerminalDaemonClient, String> {
-    let deadline = std::time::Instant::now() + timeout;
-    loop {
-        match SocketTerminalDaemonClient::connect(socket_path) {
-            Ok(client) => return Ok(client),
-            Err(error) => {
-                if std::time::Instant::now() >= deadline {
-                    return Err(error);
-                }
-            }
-        }
-        thread::sleep(Duration::from_millis(25));
     }
 }
 

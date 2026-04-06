@@ -22,7 +22,7 @@ pub(crate) fn submit_composer(
     conversation_persistence: &mut ConversationPersistenceState,
     tasks: &mut AgentTaskStore,
     runtime_index: &crate::agents::AgentRuntimeIndex,
-    terminal_manager: &crate::terminals::TerminalManager,
+    runtime_spawner: &crate::terminals::TerminalRuntimeSpawner,
     transport: &MessageTransportAdapter,
     time: &bevy::prelude::Time,
     redraws: &mut bevy::prelude::MessageWriter<RequestRedraw>,
@@ -42,7 +42,7 @@ pub(crate) fn submit_composer(
                     conversations,
                     transport,
                     runtime_index,
-                    terminal_manager,
+                    runtime_spawner,
                 );
                 mark_conversations_dirty(conversation_persistence, Some(time));
             }

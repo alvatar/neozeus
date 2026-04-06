@@ -171,7 +171,15 @@ fn wait_for_surface_containing(
     updates: &mpsc::Receiver<TerminalUpdate>,
     needle: &str,
 ) -> TerminalSurface {
-    let deadline = std::time::Instant::now() + Duration::from_secs(3);
+    wait_for_surface_containing_with_timeout(updates, needle, Duration::from_secs(3))
+}
+
+fn wait_for_surface_containing_with_timeout(
+    updates: &mpsc::Receiver<TerminalUpdate>,
+    needle: &str,
+    timeout: Duration,
+) -> TerminalSurface {
+    let deadline = std::time::Instant::now() + timeout;
     loop {
         let remaining = deadline
             .checked_duration_since(std::time::Instant::now())
@@ -436,6 +444,65 @@ fn daemon_create_session_exposes_env_overrides_to_shell() {
         .expect("env command should send");
     let surface = wait_for_surface_containing(&attached.updates, "env:agent-uid-test|AGENT-X");
     assert!(surface_to_text(&surface).contains("env:agent-uid-test|AGENT-X"));
+}
+
+#[test]
+fn daemon_list_sessions_exposes_agent_metadata() {
+    let (_server, socket_path) = start_test_daemon("neozeus-daemon-session-metadata");
+    let client =
+        SocketTerminalDaemonClient::connect(&socket_path).expect("daemon client should connect");
+    let session_id = client
+        .create_session_with_env(
+            PERSISTENT_SESSION_PREFIX,
+            None,
+            &[
+                ("NEOZEUS_AGENT_UID".into(), "agent-uid-test".into()),
+                ("NEOZEUS_AGENT_LABEL".into(), "AGENT-X".into()),
+                ("NEOZEUS_AGENT_KIND".into(), "claude".into()),
+            ],
+        )
+        .expect("daemon session should be created");
+
+    let session = client
+        .list_sessions()
+        .expect("sessions should list")
+        .into_iter()
+        .find(|session| session.session_id == session_id)
+        .expect("created session should list");
+    assert_eq!(
+        session.metadata.agent_uid.as_deref(),
+        Some("agent-uid-test")
+    );
+    assert_eq!(session.metadata.agent_label.as_deref(), Some("AGENT-X"));
+    assert_eq!(
+        session.metadata.agent_kind,
+        Some(crate::shared::daemon_wire::DaemonAgentKind::Claude)
+    );
+}
+
+#[test]
+fn daemon_update_session_metadata_label_updates_live_session_list() {
+    let (_server, socket_path) = start_test_daemon("neozeus-daemon-session-metadata-rename");
+    let client =
+        SocketTerminalDaemonClient::connect(&socket_path).expect("daemon client should connect");
+    let session_id = client
+        .create_session_with_env(
+            PERSISTENT_SESSION_PREFIX,
+            None,
+            &[("NEOZEUS_AGENT_LABEL".into(), "ALPHA".into())],
+        )
+        .expect("daemon session should be created");
+
+    client
+        .update_session_metadata_label(&session_id, Some("BETA"))
+        .expect("metadata update should succeed");
+    let session = client
+        .list_sessions()
+        .expect("sessions should list")
+        .into_iter()
+        .find(|session| session.session_id == session_id)
+        .expect("created session should list");
+    assert_eq!(session.metadata.agent_label.as_deref(), Some("BETA"));
 }
 
 /// Verifies that ordinary daemon sessions do not receive fake agent owner env by default.
@@ -806,7 +873,11 @@ fn daemon_owned_tmux_helper_runs_inside_real_agent_shell() {
         .send_command(&session_id, TerminalCommand::SendCommand(helper_command))
         .expect("helper command should send");
 
-    let parent_surface = wait_for_surface_containing(&attached.updates, "tmux attach -t");
+    let parent_surface = wait_for_surface_containing_with_timeout(
+        &attached.updates,
+        "tmux attach -t",
+        Duration::from_secs(10),
+    );
     assert!(surface_to_text(&parent_surface).contains("tmux attach -t"));
 
     let session = wait_for_owned_tmux_session(&client, &owner_agent_uid);

@@ -3,7 +3,9 @@ mod daemon_client;
 use self::daemon_client::{
     DaemonMessenger, DaemonSessionInfo, SocketDaemonMessenger, TerminalCommand,
 };
-use neozeus::shared::app_state_file::{self, PersistedAppState};
+#[cfg(test)]
+use neozeus::shared::app_state_file;
+#[cfg(test)]
 use std::{fs, path::Path};
 
 const USAGE: &str =
@@ -32,11 +34,7 @@ pub(crate) fn run(args: &[String]) -> Result<(), String> {
     match command {
         Command::Send(request) => {
             let daemon = SocketDaemonMessenger::connect_or_start_default()?;
-            let persisted = match request.target {
-                SendTarget::Agent(_) => Some(load_cli_persisted_app_state()?),
-                SendTarget::Session(_) => None,
-            };
-            let session_name = dispatch_send(&daemon, &request, persisted.as_ref())?;
+            let session_name = dispatch_send(&daemon, &request)?;
             println!("sent to {session_name}");
             Ok(())
         }
@@ -103,14 +101,10 @@ fn parse_args(args: &[String]) -> Result<Command, String> {
     Ok(Command::Send(SendRequest { target, message }))
 }
 
-fn load_cli_persisted_app_state() -> Result<PersistedAppState, String> {
-    let Some(path) = app_state_file::resolve_app_state_path() else {
-        return Err("failed to resolve app state path".to_owned());
-    };
-    load_existing_persisted_app_state(&path)
-}
-
-fn load_existing_persisted_app_state(path: &Path) -> Result<PersistedAppState, String> {
+#[cfg(test)]
+fn load_existing_persisted_app_state(
+    path: &Path,
+) -> Result<app_state_file::PersistedAppState, String> {
     if !path.exists() {
         return Err(format!("app state file not found: {}", path.display()));
     }
@@ -123,29 +117,29 @@ fn normalize_agent_label(label: &str) -> String {
     label.trim().to_uppercase()
 }
 
-fn resolve_session_from_agent_label(
-    persisted: &PersistedAppState,
+fn resolve_live_session_from_agent_label(
+    sessions: &[DaemonSessionInfo],
     label: &str,
 ) -> Result<String, String> {
     let label = normalize_agent_label(label);
-    let matches = persisted
-        .agents
+    let matches = sessions
         .iter()
-        .filter(|record| {
-            record
-                .label
+        .filter(|session| {
+            session
+                .metadata
+                .agent_label
                 .as_deref()
                 .map(normalize_agent_label)
                 .as_deref()
                 == Some(label.as_str())
         })
-        .map(|record| record.session_name.clone())
+        .map(|session| session.session_id.clone())
         .collect::<Vec<_>>();
     match matches.len() {
-        0 => Err(format!("unknown agent `{label}`")),
+        0 => Err(format!("unknown live agent `{label}`")),
         1 => Ok(matches[0].clone()),
         _ => Err(format!(
-            "agent `{label}` resolves to multiple sessions in app state"
+            "agent `{label}` resolves to multiple live sessions"
         )),
     }
 }
@@ -161,18 +155,10 @@ fn verify_live_session_exists(
         .ok_or_else(|| format!("daemon session `{session_name}` not found"))
 }
 
-fn dispatch_send<D: DaemonMessenger>(
-    daemon: &D,
-    request: &SendRequest,
-    persisted: Option<&PersistedAppState>,
-) -> Result<String, String> {
+fn dispatch_send<D: DaemonMessenger>(daemon: &D, request: &SendRequest) -> Result<String, String> {
     let sessions = daemon.list_sessions()?;
     let session_name = match &request.target {
-        SendTarget::Agent(label) => {
-            let persisted = persisted
-                .ok_or_else(|| "agent targeting requires a loaded app-state mapping".to_owned())?;
-            resolve_session_from_agent_label(persisted, label)?
-        }
+        SendTarget::Agent(label) => resolve_live_session_from_agent_label(&sessions, label)?,
         SendTarget::Session(session_name) => session_name.clone(),
     };
     verify_live_session_exists(&sessions, &session_name)?;
@@ -190,11 +176,10 @@ mod tests {
             DaemonMessenger, DaemonSessionInfo, TerminalCommand, TerminalRuntimeState,
         },
         dispatch_send, load_existing_persisted_app_state, parse_args,
-        resolve_session_from_agent_label, Command, SendRequest, SendTarget,
+        resolve_live_session_from_agent_label, Command, SendRequest, SendTarget,
     };
     use neozeus::shared::{
-        app_state_file::{PersistedAgentState, PersistedAppState},
-        send_command::send_command_payload_bytes,
+        daemon_wire::DaemonSessionMetadata, send_command::send_command_payload_bytes,
     };
     use std::{
         fs,
@@ -232,6 +217,10 @@ mod tests {
     }
 
     fn session_info(session_id: &str) -> DaemonSessionInfo {
+        session_info_with_label(session_id, None)
+    }
+
+    fn session_info_with_label(session_id: &str, label: Option<&str>) -> DaemonSessionInfo {
         DaemonSessionInfo {
             session_id: session_id.to_owned(),
             runtime: TerminalRuntimeState {
@@ -241,25 +230,11 @@ mod tests {
             },
             revision: 0,
             created_order: 0,
-        }
-    }
-
-    fn persisted_with_agents(records: &[(&str, Option<&str>)]) -> PersistedAppState {
-        PersistedAppState {
-            agents: records
-                .iter()
-                .enumerate()
-                .map(|(index, (session_name, label))| PersistedAgentState {
-                    agent_uid: Some(format!("agent-uid-{index}")),
-                    session_name: (*session_name).to_owned(),
-                    label: label.map(str::to_owned),
-                    kind: neozeus::shared::app_state_file::PersistedAgentKind::Pi,
-                    clone_source_session_path: None,
-                    is_workdir: false,
-                    order_index: index as u64,
-                    last_focused: false,
-                })
-                .collect(),
+            metadata: DaemonSessionMetadata {
+                agent_uid: None,
+                agent_label: label.map(str::to_owned),
+                agent_kind: None,
+            },
         }
     }
 
@@ -330,39 +305,53 @@ mod tests {
     }
 
     #[test]
-    fn resolve_session_from_agent_label_uses_persisted_mapping() {
-        let persisted =
-            persisted_with_agents(&[("session-a", Some("ALPHA")), ("session-b", Some("BETA"))]);
+    fn resolve_live_session_from_agent_label_uses_live_metadata() {
         assert_eq!(
-            resolve_session_from_agent_label(&persisted, "beta").unwrap(),
+            resolve_live_session_from_agent_label(
+                &[
+                    session_info_with_label("session-a", Some("ALPHA")),
+                    session_info_with_label("session-b", Some("BETA")),
+                ],
+                "beta"
+            )
+            .unwrap(),
             "session-b"
         );
     }
 
     #[test]
-    fn resolve_session_from_agent_label_normalizes_mixed_case_input() {
-        let persisted = persisted_with_agents(&[("session-a", Some("ALPHA"))]);
+    fn resolve_live_session_from_agent_label_normalizes_mixed_case_input() {
         assert_eq!(
-            resolve_session_from_agent_label(&persisted, " aLpHa ").unwrap(),
+            resolve_live_session_from_agent_label(
+                &[session_info_with_label("session-a", Some("ALPHA"))],
+                " aLpHa "
+            )
+            .unwrap(),
             "session-a"
         );
     }
 
     #[test]
-    fn resolve_session_from_agent_label_rejects_unknown_labels() {
-        let persisted = persisted_with_agents(&[("session-a", Some("ALPHA"))]);
-        let error = resolve_session_from_agent_label(&persisted, "missing")
-            .expect_err("unknown label should fail");
-        assert_eq!(error, "unknown agent `MISSING`");
+    fn resolve_live_session_from_agent_label_rejects_unknown_labels() {
+        let error = resolve_live_session_from_agent_label(
+            &[session_info_with_label("session-a", Some("ALPHA"))],
+            "missing",
+        )
+        .expect_err("unknown label should fail");
+        assert_eq!(error, "unknown live agent `MISSING`");
     }
 
     #[test]
-    fn resolve_session_from_agent_label_rejects_duplicate_labels() {
-        let persisted =
-            persisted_with_agents(&[("session-a", Some("ALPHA")), ("session-b", Some("alpha"))]);
-        let error = resolve_session_from_agent_label(&persisted, "alpha")
-            .expect_err("duplicate labels should fail");
-        assert!(error.contains("resolves to multiple sessions"));
+    fn resolve_live_session_from_agent_label_rejects_duplicate_labels() {
+        let error = resolve_live_session_from_agent_label(
+            &[
+                session_info_with_label("session-a", Some("ALPHA")),
+                session_info_with_label("session-b", Some("alpha")),
+            ],
+            "alpha",
+        )
+        .expect_err("duplicate labels should fail");
+        assert!(error.contains("resolves to multiple live sessions"));
     }
 
     #[test]
@@ -376,7 +365,7 @@ mod tests {
             message: "echo hi".into(),
         };
 
-        let sent_to = dispatch_send(&daemon, &request, None).expect("send should succeed");
+        let sent_to = dispatch_send(&daemon, &request).expect("send should succeed");
 
         assert_eq!(sent_to, "session-1");
         assert_eq!(
@@ -391,17 +380,15 @@ mod tests {
     #[test]
     fn dispatch_send_to_agent_resolves_label_then_sends_to_session() {
         let daemon = FakeDaemon {
-            sessions: vec![session_info("session-b")],
+            sessions: vec![session_info_with_label("session-b", Some("BETA"))],
             ..Default::default()
         };
-        let persisted = persisted_with_agents(&[("session-b", Some("BETA"))]);
         let request = SendRequest {
             target: SendTarget::Agent("beta".into()),
             message: "status".into(),
         };
 
-        let sent_to =
-            dispatch_send(&daemon, &request, Some(&persisted)).expect("send should succeed");
+        let sent_to = dispatch_send(&daemon, &request).expect("send should succeed");
 
         assert_eq!(sent_to, "session-b");
         assert_eq!(
@@ -414,19 +401,17 @@ mod tests {
     }
 
     #[test]
-    fn dispatch_send_rejects_stale_agent_mapping_when_session_is_not_live() {
+    fn dispatch_send_rejects_unknown_live_agent() {
         let daemon = FakeDaemon::default();
-        let persisted = persisted_with_agents(&[("session-b", Some("BETA"))]);
         let request = SendTarget::Agent("beta".into());
         let request = SendRequest {
             target: request,
             message: "status".into(),
         };
 
-        let error = dispatch_send(&daemon, &request, Some(&persisted))
-            .expect_err("stale daemon mapping should fail");
+        let error = dispatch_send(&daemon, &request).expect_err("unknown live agent should fail");
 
-        assert_eq!(error, "daemon session `session-b` not found");
+        assert_eq!(error, "unknown live agent `BETA`");
     }
 
     #[test]
@@ -440,7 +425,7 @@ mod tests {
             message: "echo hi\npwd".into(),
         };
 
-        dispatch_send(&daemon, &request, None).expect("send should succeed");
+        dispatch_send(&daemon, &request).expect("send should succeed");
 
         let sent = daemon.sent_commands.lock().unwrap();
         let payload = match &sent[0] {

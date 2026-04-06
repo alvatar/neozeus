@@ -4,7 +4,7 @@ use crate::{
     conversations::AgentTaskStore,
     hud::{HudInputCaptureState, TerminalVisibilityPolicy, TerminalVisibilityState},
     terminals::{
-        kill_active_terminal_session_and_remove, TerminalFocusState, TerminalManager,
+        kill_terminal_session_and_remove, TerminalFocusState, TerminalManager,
         TerminalRuntimeSpawner, TerminalViewState,
     },
 };
@@ -66,12 +66,23 @@ pub(crate) fn kill_selected_agent(
             return Err(error);
         }
     }
-    let removed = kill_active_terminal_session_and_remove(
+    let Some(terminal_id) = runtime_index.primary_terminal(selected_agent) else {
+        return Ok(None);
+    };
+    let Some(session_name) = runtime_index
+        .session_name(selected_agent)
+        .map(str::to_owned)
+    else {
+        return Ok(None);
+    };
+    let removed = kill_terminal_session_and_remove(
         time,
         terminal_manager,
         focus_state,
         runtime_spawner,
         app_state_persistence,
+        terminal_id,
+        &session_name,
     )?;
     let Some((terminal_id, _session_name)) = removed else {
         return Ok(None);

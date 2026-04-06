@@ -68,7 +68,7 @@ pub(crate) fn sync_agents_from_terminals(
                 let kind = if terminal.session_name.starts_with(VERIFIER_SESSION_PREFIX) {
                     AgentKind::Verifier
                 } else {
-                    AgentKind::Pi
+                    AgentKind::Terminal
                 };
                 let capabilities = kind.capabilities();
                 let agent_id = agent_catalog.create_agent(None, kind, capabilities);
@@ -82,7 +82,6 @@ pub(crate) fn sync_agents_from_terminals(
             });
         runtime_index.update_runtime(terminal_id, &terminal.snapshot.runtime);
     }
-
 }
 
 /// Refreshes the open task editor text after task-store mutations.
@@ -177,8 +176,23 @@ pub(super) fn apply_app_commands(
                 }
                 AgentCommand::Rename { agent_id, label } => {
                     match ctx.agent_catalog.validate_rename_label(*agent_id, label) {
-                        Ok(label) => match ctx.agent_catalog.rename_agent(*agent_id, label) {
+                        Ok(label) => match ctx.agent_catalog.rename_agent(*agent_id, label.clone())
+                        {
                             Ok(()) => {
+                                if let Some(session_name) =
+                                    ctx.runtime_index.session_name(*agent_id)
+                                {
+                                    if let Err(error) =
+                                        ctx.runtime_spawner.update_session_metadata_label(
+                                            session_name,
+                                            Some(label.as_str()),
+                                        )
+                                    {
+                                        append_debug_log(format!(
+                                            "rename agent metadata sync failed for {session_name}: {error}"
+                                        ));
+                                    }
+                                }
                                 ctx.app_session.rename_agent_dialog.close();
                                 mark_app_state_dirty(
                                     &mut ctx.app_state_persistence,
@@ -230,7 +244,8 @@ pub(super) fn apply_app_commands(
                     }
                 }
                 AgentCommand::Focus(agent_id) => {
-                    ctx.selection.clone_from(&crate::hud::AgentListSelection::Agent(*agent_id));
+                    ctx.selection
+                        .clone_from(&crate::hud::AgentListSelection::Agent(*agent_id));
                     ctx.active_terminal_content.clear();
                     ctx.app_session.visibility_mode = VisibilityMode::ShowAll;
                     use_cases::focus_agent(
@@ -248,7 +263,8 @@ pub(super) fn apply_app_commands(
                     );
                 }
                 AgentCommand::Inspect(agent_id) => {
-                    ctx.selection.clone_from(&crate::hud::AgentListSelection::Agent(*agent_id));
+                    ctx.selection
+                        .clone_from(&crate::hud::AgentListSelection::Agent(*agent_id));
                     ctx.active_terminal_content.clear();
                     ctx.app_session.visibility_mode = VisibilityMode::FocusedOnly;
                     use_cases::focus_agent(
@@ -275,7 +291,8 @@ pub(super) fn apply_app_commands(
                     }
                 }
                 AgentCommand::ClearFocus => {
-                    ctx.selection.clone_from(&crate::hud::AgentListSelection::None);
+                    ctx.selection
+                        .clone_from(&crate::hud::AgentListSelection::None);
                     ctx.active_terminal_content.clear();
                     let _ = ctx.focus_state.clear_active_terminal();
                     #[cfg(test)]
@@ -334,7 +351,8 @@ pub(super) fn apply_app_commands(
                     );
                 }
                 OwnedTmuxCommand::ClearSelection => {
-                    ctx.selection.clone_from(&crate::hud::AgentListSelection::None);
+                    ctx.selection
+                        .clone_from(&crate::hud::AgentListSelection::None);
                     ctx.active_terminal_content.clear();
                     ctx.redraws.write(RequestRedraw);
                 }
@@ -399,7 +417,7 @@ pub(super) fn apply_app_commands(
                         &mut ctx.conversation_persistence,
                         &mut ctx.task_store,
                         &ctx.runtime_index,
-                        &ctx.terminal_manager,
+                        &ctx.runtime_spawner,
                         &ctx.transport,
                         &ctx.time,
                         &mut ctx.redraws,

@@ -336,15 +336,17 @@ fn sync_hud_view_models_clears_thread_and_conversation_selection_for_tmux_rows()
     world.insert_resource(AgentStatusStore::default());
     world.insert_resource(crate::terminals::TerminalManager::default());
     let mut owned_tmux = crate::terminals::OwnedTmuxSessionStore::default();
-    owned_tmux.sessions.push(crate::terminals::OwnedTmuxSessionInfo {
-        session_uid: "tmux-a1".into(),
-        owner_agent_uid: alpha_uid,
-        tmux_name: "neozeus-tmux-a1".into(),
-        display_name: "BUILD".into(),
-        cwd: "/tmp/alpha-1".into(),
-        attached: false,
-        created_unix: 1,
-    });
+    owned_tmux
+        .sessions
+        .push(crate::terminals::OwnedTmuxSessionInfo {
+            session_uid: "tmux-a1".into(),
+            owner_agent_uid: alpha_uid,
+            tmux_name: "neozeus-tmux-a1".into(),
+            display_name: "BUILD".into(),
+            cwd: "/tmp/alpha-1".into(),
+            attached: false,
+            created_unix: 1,
+        });
     world.insert_resource(owned_tmux);
 
     world.run_system_once(sync_hud_view_models).unwrap();
@@ -381,15 +383,17 @@ fn sync_hud_view_models_projects_selected_tmux_row_only() {
     world.insert_resource(AgentStatusStore::default());
     world.insert_resource(crate::terminals::TerminalManager::default());
     let mut owned_tmux = crate::terminals::OwnedTmuxSessionStore::default();
-    owned_tmux.sessions.push(crate::terminals::OwnedTmuxSessionInfo {
-        session_uid: "tmux-a1".into(),
-        owner_agent_uid: alpha_uid,
-        tmux_name: "neozeus-tmux-a1".into(),
-        display_name: "BUILD".into(),
-        cwd: "/tmp/alpha-1".into(),
-        attached: false,
-        created_unix: 1,
-    });
+    owned_tmux
+        .sessions
+        .push(crate::terminals::OwnedTmuxSessionInfo {
+            session_uid: "tmux-a1".into(),
+            owner_agent_uid: alpha_uid,
+            tmux_name: "neozeus-tmux-a1".into(),
+            display_name: "BUILD".into(),
+            cwd: "/tmp/alpha-1".into(),
+            attached: false,
+            created_unix: 1,
+        });
     world.insert_resource(owned_tmux);
 
     world.run_system_once(sync_hud_view_models).unwrap();
@@ -425,15 +429,17 @@ fn sync_hud_view_models_tmux_rows_have_no_activity_state() {
     world.insert_resource(AgentStatusStore::default());
     world.insert_resource(crate::terminals::TerminalManager::default());
     let mut owned_tmux = crate::terminals::OwnedTmuxSessionStore::default();
-    owned_tmux.sessions.push(crate::terminals::OwnedTmuxSessionInfo {
-        session_uid: "tmux-a1".into(),
-        owner_agent_uid: alpha_uid,
-        tmux_name: "neozeus-tmux-a1".into(),
-        display_name: "BUILD".into(),
-        cwd: "/tmp/alpha-1".into(),
-        attached: false,
-        created_unix: 1,
-    });
+    owned_tmux
+        .sessions
+        .push(crate::terminals::OwnedTmuxSessionInfo {
+            session_uid: "tmux-a1".into(),
+            owner_agent_uid: alpha_uid,
+            tmux_name: "neozeus-tmux-a1".into(),
+            display_name: "BUILD".into(),
+            cwd: "/tmp/alpha-1".into(),
+            attached: false,
+            created_unix: 1,
+        });
     world.insert_resource(owned_tmux);
 
     world.run_system_once(sync_hud_view_models).unwrap();
@@ -706,7 +712,10 @@ fn sync_info_bar_view_model_reports_claude_backoff() {
     world.insert_resource(InfoBarView::default());
 
     world.run_system_once(sync_info_bar_view_model).unwrap();
-    assert_eq!(world.resource::<InfoBarView>().claude_session.detail_text, "RL");
+    assert_eq!(
+        world.resource::<InfoBarView>().claude_session.detail_text,
+        "RL"
+    );
 }
 
 fn current_unix() -> u64 {

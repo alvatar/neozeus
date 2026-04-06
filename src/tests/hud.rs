@@ -163,7 +163,10 @@ fn init_git_repo() -> PathBuf {
     ));
     fs::create_dir_all(&repo).expect("repo dir should create");
     run_git(&repo, &["git", "init"]);
-    run_git(&repo, &["git", "config", "user.email", "neozeus@example.test"]);
+    run_git(
+        &repo,
+        &["git", "config", "user.email", "neozeus@example.test"],
+    );
     run_git(&repo, &["git", "config", "user.name", "NeoZeus Test"]);
     fs::write(repo.join("README.md"), "seed\n").unwrap();
     run_git(&repo, &["git", "add", "README.md"]);
@@ -359,7 +362,9 @@ fn build_agent_list_navigation_world() -> (World, crate::agents::AgentId, crate:
             attached: false,
             created_unix: 0,
         });
-    world.run_system_once(crate::hud::sync_hud_view_models).unwrap();
+    world
+        .run_system_once(crate::hud::sync_hud_view_models)
+        .unwrap();
 
     (world, agent_one, agent_two)
 }
@@ -371,16 +376,17 @@ fn dispatch_agent_list_nav_step(world: &mut World, event: KeyboardInput) {
     world.resource_mut::<Messages<KeyboardInput>>().write(event);
     world.run_system_once(handle_hud_module_shortcuts).unwrap();
     run_app_commands(world);
-    world.run_system_once(crate::hud::sync_hud_view_models).unwrap();
+    world
+        .run_system_once(crate::hud::sync_hud_view_models)
+        .unwrap();
 }
 
-fn assert_exactly_one_selected_row(
-    world: &World,
-    expected_key: crate::hud::AgentListRowKey,
-) {
+fn assert_exactly_one_selected_row(world: &World, expected_key: crate::hud::AgentListRowKey) {
     let rows = &world.resource::<crate::hud::AgentListView>().rows;
     assert_eq!(rows.iter().filter(|row| row.focused).count(), 1);
-    assert!(rows.iter().any(|row| row.focused && row.key == expected_key));
+    assert!(rows
+        .iter()
+        .any(|row| row.focused && row.key == expected_key));
 }
 
 /// Verifies the plain `j` agent-list navigation shortcut emits focus+isolate for the next terminal.
@@ -506,7 +512,8 @@ fn hud_navigation_jk_across_agents_and_tmux_keeps_exactly_one_selected_row_after
 }
 
 #[test]
-fn hud_navigation_arrow_keys_across_agents_and_tmux_keeps_exactly_one_selected_row_after_each_step() {
+fn hud_navigation_arrow_keys_across_agents_and_tmux_keeps_exactly_one_selected_row_after_each_step()
+{
     let (mut world, agent_one, agent_two) = build_agent_list_navigation_world();
     assert_exactly_one_selected_row(&world, crate::hud::AgentListRowKey::Agent(agent_one));
 
@@ -1060,12 +1067,12 @@ fn clone_agent_dialog_pointer_click_updates_focus_toggles_workdir_and_emits_comm
         world.resource::<AppSessionState>().clone_agent_dialog.focus,
         crate::app::CloneAgentDialogField::Name
     );
-    assert_eq!(world.resource::<AppSessionState>().clone_agent_dialog.error, None);
+    assert_eq!(
+        world.resource::<AppSessionState>().clone_agent_dialog.error,
+        None
+    );
 
-    window.set_cursor_position(Some(Vec2::new(
-        workdir_rect.x + 4.0,
-        workdir_rect.y + 4.0,
-    )));
+    window.set_cursor_position(Some(Vec2::new(workdir_rect.x + 4.0, workdir_rect.y + 4.0)));
     *world
         .query_filtered::<&mut Window, With<PrimaryWindow>>()
         .single_mut(&mut world)
@@ -1075,7 +1082,12 @@ fn clone_agent_dialog_pointer_click_updates_focus_toggles_workdir_and_emits_comm
         .resource_mut::<ButtonInput<MouseButton>>()
         .press(MouseButton::Left);
     world.run_system_once(handle_hud_pointer_input).unwrap();
-    assert!(world.resource::<AppSessionState>().clone_agent_dialog.workdir);
+    assert!(
+        world
+            .resource::<AppSessionState>()
+            .clone_agent_dialog
+            .workdir
+    );
 
     world
         .resource_mut::<AppSessionState>()
@@ -1731,15 +1743,17 @@ fn clone_pi_agent_request_rejects_duplicate_name() {
     let source_dir = temp_dir("clone-pi-duplicate-source");
     let source_session = source_dir.join("source.jsonl");
     write_pi_session_file(&source_session, "/tmp/clone-pi-duplicate-cwd");
-    let source_agent = world.resource_mut::<AgentCatalog>().create_agent_with_metadata(
-        Some("source".into()),
-        crate::agents::AgentKind::Pi,
-        crate::agents::AgentKind::Pi.capabilities(),
-        crate::agents::AgentMetadata {
-            clone_source_session_path: Some(source_session.to_string_lossy().into_owned()),
-            is_workdir: false,
-        },
-    );
+    let source_agent = world
+        .resource_mut::<AgentCatalog>()
+        .create_agent_with_metadata(
+            Some("source".into()),
+            crate::agents::AgentKind::Pi,
+            crate::agents::AgentKind::Pi.capabilities(),
+            crate::agents::AgentMetadata {
+                clone_source_session_path: Some(source_session.to_string_lossy().into_owned()),
+                is_workdir: false,
+            },
+        );
     world.resource_mut::<AgentCatalog>().create_agent(
         Some("child".into()),
         crate::agents::AgentKind::Terminal,
@@ -1768,15 +1782,17 @@ fn clone_pi_agent_request_creates_top_level_pi_clone_and_focuses_it() {
     let source_session = source_dir.join("source.jsonl");
     let source_cwd = "/tmp/clone-pi-cwd";
     write_pi_session_file(&source_session, source_cwd);
-    let source_agent = world.resource_mut::<AgentCatalog>().create_agent_with_metadata(
-        Some("source".into()),
-        crate::agents::AgentKind::Pi,
-        crate::agents::AgentKind::Pi.capabilities(),
-        crate::agents::AgentMetadata {
-            clone_source_session_path: Some(source_session.to_string_lossy().into_owned()),
-            is_workdir: false,
-        },
-    );
+    let source_agent = world
+        .resource_mut::<AgentCatalog>()
+        .create_agent_with_metadata(
+            Some("source".into()),
+            crate::agents::AgentKind::Pi,
+            crate::agents::AgentKind::Pi.capabilities(),
+            crate::agents::AgentMetadata {
+                clone_source_session_path: Some(source_session.to_string_lossy().into_owned()),
+                is_workdir: false,
+            },
+        );
 
     world
         .resource_mut::<Messages<AppCommand>>()
@@ -1792,7 +1808,10 @@ fn clone_pi_agent_request_creates_top_level_pi_clone_and_focuses_it() {
     assert_eq!(catalog.order.len(), 2);
     let clone_agent = *catalog.order.last().expect("clone agent should exist");
     assert_eq!(catalog.label(clone_agent), Some("CHILD"));
-    assert_eq!(catalog.kind(clone_agent), Some(crate::agents::AgentKind::Pi));
+    assert_eq!(
+        catalog.kind(clone_agent),
+        Some(crate::agents::AgentKind::Pi)
+    );
     let clone_session_path = catalog
         .clone_source_session_path(clone_agent)
         .expect("clone should persist forked Pi session path")
@@ -1832,15 +1851,17 @@ fn clone_pi_agent_request_creates_workdir_clone_and_persists_metadata() {
     let repo = init_git_repo();
     let source_session = repo.join("source.jsonl");
     write_pi_session_file(&source_session, repo.to_str().unwrap());
-    let source_agent = world.resource_mut::<AgentCatalog>().create_agent_with_metadata(
-        Some("source".into()),
-        crate::agents::AgentKind::Pi,
-        crate::agents::AgentKind::Pi.capabilities(),
-        crate::agents::AgentMetadata {
-            clone_source_session_path: Some(source_session.to_string_lossy().into_owned()),
-            is_workdir: false,
-        },
-    );
+    let source_agent = world
+        .resource_mut::<AgentCatalog>()
+        .create_agent_with_metadata(
+            Some("source".into()),
+            crate::agents::AgentKind::Pi,
+            crate::agents::AgentKind::Pi.capabilities(),
+            crate::agents::AgentMetadata {
+                clone_source_session_path: Some(source_session.to_string_lossy().into_owned()),
+                is_workdir: false,
+            },
+        );
     let app_state_path = temp_dir("clone-pi-workdir-appstate").join("neozeus-state.v1");
     world.insert_resource(AppStatePersistenceState {
         path: Some(app_state_path.clone()),
@@ -1879,9 +1900,11 @@ fn clone_pi_agent_request_creates_workdir_clone_and_persists_metadata() {
     world
         .resource_mut::<Time<()>>()
         .advance_by(Duration::from_secs(1));
-    world.run_system_once(crate::app::save_app_state_if_dirty).unwrap();
+    world
+        .run_system_once(crate::app::save_app_state_if_dirty)
+        .unwrap();
     let persisted = crate::shared::app_state_file::parse_persisted_app_state(
-        &fs::read_to_string(app_state_path).expect("app state should persist")
+        &fs::read_to_string(app_state_path).expect("app state should persist"),
     );
     let persisted_clone = persisted
         .agents
@@ -1910,15 +1933,17 @@ fn clone_pi_agent_request_rejects_non_git_workdir_source() {
     ));
     fs::create_dir_all(&non_git_cwd).expect("non-git cwd should create");
     write_pi_session_file(&source_session, non_git_cwd.to_str().unwrap());
-    let source_agent = world.resource_mut::<AgentCatalog>().create_agent_with_metadata(
-        Some("source".into()),
-        crate::agents::AgentKind::Pi,
-        crate::agents::AgentKind::Pi.capabilities(),
-        crate::agents::AgentMetadata {
-            clone_source_session_path: Some(source_session.to_string_lossy().into_owned()),
-            is_workdir: false,
-        },
-    );
+    let source_agent = world
+        .resource_mut::<AgentCatalog>()
+        .create_agent_with_metadata(
+            Some("source".into()),
+            crate::agents::AgentKind::Pi,
+            crate::agents::AgentKind::Pi.capabilities(),
+            crate::agents::AgentMetadata {
+                clone_source_session_path: Some(source_session.to_string_lossy().into_owned()),
+                is_workdir: false,
+            },
+        );
 
     world
         .resource_mut::<Messages<AppCommand>>()
@@ -2490,6 +2515,139 @@ fn killing_agent_aborts_when_owned_tmux_child_kill_fails() {
     assert_eq!(client.owned_tmux_sessions.lock().unwrap().len(), 1);
 }
 
+#[test]
+fn killing_selected_agent_targets_selected_agent_even_when_focus_differs() {
+    let client = Arc::new(FakeDaemonClient::default());
+    client
+        .sessions
+        .lock()
+        .unwrap()
+        .extend(["neozeus-session-a".into(), "neozeus-session-b".into()]);
+
+    let (bridge_a, _) = test_bridge();
+    let (bridge_b, _) = test_bridge();
+    let mut manager = TerminalManager::default();
+    let terminal_a = manager.create_terminal_with_session(bridge_a, "neozeus-session-a".into());
+    let terminal_b = manager.create_terminal_with_session(bridge_b, "neozeus-session-b".into());
+    manager.focus_terminal(terminal_a);
+
+    let mut world = World::default();
+    let mut time = Time::<()>::default();
+    time.advance_by(Duration::from_secs(1));
+    world.insert_resource(time);
+    insert_terminal_manager_resources(&mut world, manager);
+    insert_default_hud_resources(&mut world);
+    world.insert_resource(TerminalPresentationStore::default());
+    world.insert_resource(fake_runtime_spawner(client.clone()));
+    world.insert_resource(AppStatePersistenceState::default());
+    world.insert_resource(TerminalVisibilityState::default());
+    world.insert_resource(TerminalViewState::default());
+    world.init_resource::<Messages<AppCommand>>();
+    world.init_resource::<Messages<RequestRedraw>>();
+
+    let mut catalog = AgentCatalog::default();
+    let agent_a = catalog.create_agent(
+        Some("alpha".into()),
+        crate::agents::AgentKind::Terminal,
+        crate::agents::AgentKind::Terminal.capabilities(),
+    );
+    let agent_b = catalog.create_agent(
+        Some("beta".into()),
+        crate::agents::AgentKind::Terminal,
+        crate::agents::AgentKind::Terminal.capabilities(),
+    );
+    world.insert_resource(catalog);
+    let mut runtime_index = AgentRuntimeIndex::default();
+    runtime_index.link_terminal(agent_a, terminal_a, "neozeus-session-a".into(), None);
+    runtime_index.link_terminal(agent_b, terminal_b, "neozeus-session-b".into(), None);
+    world.insert_resource(runtime_index);
+    world.insert_resource(crate::hud::AgentListSelection::Agent(agent_b));
+
+    world
+        .resource_mut::<Messages<AppCommand>>()
+        .write(AppCommand::Agent(AppAgentCommand::KillSelected));
+    run_app_commands(&mut world);
+
+    assert_eq!(world.resource::<AgentCatalog>().order, vec![agent_a]);
+    assert_eq!(
+        world.resource::<TerminalManager>().terminal_ids(),
+        &[terminal_a]
+    );
+    assert!(client
+        .sessions
+        .lock()
+        .unwrap()
+        .contains("neozeus-session-a"));
+    assert!(!client
+        .sessions
+        .lock()
+        .unwrap()
+        .contains("neozeus-session-b"));
+}
+
+#[test]
+fn composer_submit_marks_message_failed_when_daemon_send_fails() {
+    let client = Arc::new(FakeDaemonClient::default());
+    *client.fail_send.lock().unwrap() = true;
+    client
+        .sessions
+        .lock()
+        .unwrap()
+        .insert("neozeus-session-a".into());
+
+    let (bridge, _) = test_bridge();
+    let mut manager = TerminalManager::default();
+    let terminal_id = manager.create_terminal_with_session(bridge, "neozeus-session-a".into());
+
+    let mut world = World::default();
+    let mut time = Time::<()>::default();
+    time.advance_by(Duration::from_secs(1));
+    world.insert_resource(time);
+    insert_terminal_manager_resources(&mut world, manager);
+    insert_default_hud_resources(&mut world);
+    world.insert_resource(TerminalPresentationStore::default());
+    world.insert_resource(fake_runtime_spawner(client));
+    world.insert_resource(AppStatePersistenceState::default());
+    world.insert_resource(TerminalVisibilityState::default());
+    world.insert_resource(TerminalViewState::default());
+    world.init_resource::<Messages<AppCommand>>();
+    world.init_resource::<Messages<RequestRedraw>>();
+
+    let mut catalog = AgentCatalog::default();
+    let agent_id = catalog.create_agent(
+        Some("alpha".into()),
+        crate::agents::AgentKind::Terminal,
+        crate::agents::AgentKind::Terminal.capabilities(),
+    );
+    world.insert_resource(catalog);
+    let mut runtime_index = AgentRuntimeIndex::default();
+    runtime_index.link_terminal(agent_id, terminal_id, "neozeus-session-a".into(), None);
+    world.insert_resource(runtime_index);
+
+    {
+        let mut app_session = world.resource_mut::<AppSessionState>();
+        app_session.composer.open_message(agent_id);
+        app_session.composer.message_editor.load_text("status");
+    }
+
+    world
+        .resource_mut::<Messages<AppCommand>>()
+        .write(AppCommand::Composer(AppComposerCommand::Submit));
+    run_app_commands(&mut world);
+
+    let conversations = world.resource::<crate::conversations::ConversationStore>();
+    let conversation_id = conversations
+        .conversation_for_agent(agent_id)
+        .expect("conversation should exist");
+    let messages = conversations.messages_for(conversation_id);
+    assert_eq!(messages.len(), 1);
+    assert_eq!(messages[0].0, "status");
+    assert_eq!(
+        messages[0].1,
+        crate::conversations::MessageDeliveryState::Failed("send failed".into())
+    );
+}
+
 /// Verifies that explicit owned tmux kill clears selection after successful child deletion.
 #[test]
 fn killing_selected_owned_tmux_session_clears_selection_on_success() {
@@ -2968,7 +3126,10 @@ fn syncing_owned_tmux_sessions_requests_redraw_on_change_only() {
         .unwrap();
     assert_eq!(world.resource::<Messages<RequestRedraw>>().len(), 1);
     assert_eq!(
-        world.resource::<crate::terminals::OwnedTmuxSessionStore>().sessions.len(),
+        world
+            .resource::<crate::terminals::OwnedTmuxSessionStore>()
+            .sessions
+            .len(),
         1
     );
 
@@ -3242,7 +3403,9 @@ fn terminal_focus_sync_does_not_rewrite_agent_list_selection() {
     world.insert_resource(catalog);
     world.insert_resource(runtime_index);
     world.insert_resource(AppSessionState::default());
-    world.insert_resource(crate::hud::AgentListSelection::OwnedTmux("tmux-session-1".into()));
+    world.insert_resource(crate::hud::AgentListSelection::OwnedTmux(
+        "tmux-session-1".into(),
+    ));
     world.insert_resource(manager.clone_focus_state());
     world.insert_resource(manager);
 

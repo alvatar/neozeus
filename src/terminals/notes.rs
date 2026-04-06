@@ -3,14 +3,22 @@ use bevy::prelude::*;
 use std::{collections::HashMap, env, fs, path::PathBuf};
 
 const TERMINAL_NOTES_FILENAME: &str = "notes.v1";
-const TERMINAL_NOTES_VERSION: &str = "version 1";
+const TERMINAL_NOTES_VERSION_V1: &str = "version 1";
+const TERMINAL_NOTES_VERSION_V2: &str = "version 2";
 const TERMINAL_NOTES_SAVE_DEBOUNCE_SECS: f32 = 0.3;
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct PersistedTerminalNotes {
+    pub(crate) notes_by_agent_uid: HashMap<String, String>,
+    pub(crate) legacy_notes_by_session: HashMap<String, String>,
+}
 
 #[derive(Resource, Default)]
 pub(crate) struct TerminalNotesState {
     pub(crate) path: Option<PathBuf>,
     pub(crate) dirty_since_secs: Option<f32>,
-    notes_by_session: HashMap<String, String>,
+    notes_by_agent_uid: HashMap<String, String>,
+    legacy_notes_by_session: HashMap<String, String>,
 }
 
 impl TerminalNotesState {
@@ -18,8 +26,9 @@ impl TerminalNotesState {
     ///
     /// Loading is treated as authoritative state replacement, not as a merge, because the persisted
     /// file is the single source of truth for note text at startup.
-    pub(crate) fn load(&mut self, notes_by_session: HashMap<String, String>) {
-        self.notes_by_session = notes_by_session;
+    pub(crate) fn load(&mut self, notes: PersistedTerminalNotes) {
+        self.notes_by_agent_uid = notes.notes_by_agent_uid;
+        self.legacy_notes_by_session = notes.legacy_notes_by_session;
         self.dirty_since_secs = None;
     }
 
@@ -28,7 +37,13 @@ impl TerminalNotesState {
     /// The returned slice borrows directly from the internal map so callers can inspect notes without
     /// allocating.
     pub(crate) fn note_text(&self, session_name: &str) -> Option<&str> {
-        self.notes_by_session.get(session_name).map(String::as_str)
+        self.legacy_notes_by_session
+            .get(session_name)
+            .map(String::as_str)
+    }
+
+    pub(crate) fn note_text_by_agent_uid(&self, agent_uid: &str) -> Option<&str> {
+        self.notes_by_agent_uid.get(agent_uid).map(String::as_str)
     }
 
     /// Sets or clears the note text for one session and reports whether anything actually changed.
@@ -37,24 +52,30 @@ impl TerminalNotesState {
     /// the map altogether. Existing strings are edited in place when possible to avoid replacing the
     /// allocation unnecessarily.
     pub(crate) fn set_note_text(&mut self, session_name: &str, text: &str) -> bool {
-        // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
-        let trimmed = text.trim_end();
-        if trimmed.is_empty() {
-            return self.notes_by_session.remove(session_name).is_some();
-        }
+        set_note_text_in_map(&mut self.legacy_notes_by_session, session_name, text)
+    }
 
-        match self.notes_by_session.get_mut(session_name) {
-            Some(existing) if existing == trimmed => false,
-            Some(existing) => {
-                existing.clear();
-                existing.push_str(trimmed);
-                true
-            }
-            None => {
-                self.notes_by_session
-                    .insert(session_name.to_owned(), trimmed.to_owned());
-                true
-            }
+    pub(crate) fn set_note_text_by_agent_uid(&mut self, agent_uid: &str, text: &str) -> bool {
+        set_note_text_in_map(&mut self.notes_by_agent_uid, agent_uid, text)
+    }
+}
+
+fn set_note_text_in_map(notes: &mut HashMap<String, String>, key: &str, text: &str) -> bool {
+    let trimmed = text.trim_end();
+    if trimmed.is_empty() {
+        return notes.remove(key).is_some();
+    }
+
+    match notes.get_mut(key) {
+        Some(existing) if existing == trimmed => false,
+        Some(existing) => {
+            existing.clear();
+            existing.push_str(trimmed);
+            true
+        }
+        None => {
+            notes.insert(key.to_owned(), trimmed.to_owned());
+            true
         }
     }
 }
@@ -111,16 +132,18 @@ pub(crate) fn resolve_terminal_notes_path() -> Option<PathBuf> {
 ///
 /// Read failures other than `NotFound` are logged and also fall back to an empty map, because notes
 /// persistence should not block application startup.
-pub(crate) fn load_terminal_notes_from(path: &PathBuf) -> HashMap<String, String> {
+pub(crate) fn load_terminal_notes_from(path: &PathBuf) -> PersistedTerminalNotes {
     match fs::read_to_string(path) {
         Ok(text) => parse_terminal_notes(&text),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => HashMap::new(),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            PersistedTerminalNotes::default()
+        }
         Err(error) => {
             append_debug_log(format!(
                 "terminal notes load failed {}: {error}",
                 path.display()
             ));
-            HashMap::new()
+            PersistedTerminalNotes::default()
         }
     }
 }
@@ -130,29 +153,32 @@ pub(crate) fn load_terminal_notes_from(path: &PathBuf) -> HashMap<String, String
 /// The parser first validates the version header, then reads repeated `note name=...` blocks whose
 /// bodies terminate at a lone `.` line. Leading `.` in note content is escaped by doubling it, so the
 /// parser also has to undo that escaping on load.
-fn parse_terminal_notes(text: &str) -> HashMap<String, String> {
-    // Process the input incrementally so each transformation stays local and malformed data fails at the narrowest point.
+fn parse_terminal_notes(text: &str) -> PersistedTerminalNotes {
     let mut lines = text.lines();
     let Some(version) = lines.next() else {
-        return HashMap::new();
+        return PersistedTerminalNotes::default();
     };
-    if version.trim() != TERMINAL_NOTES_VERSION {
+    let version = version.trim();
+    if version != TERMINAL_NOTES_VERSION_V1 && version != TERMINAL_NOTES_VERSION_V2 {
         append_debug_log(format!(
             "terminal notes: unexpected version line `{version}`"
         ));
-        return HashMap::new();
+        return PersistedTerminalNotes::default();
     }
 
-    let mut notes = HashMap::new();
+    let mut notes = PersistedTerminalNotes::default();
     while let Some(line) = lines.next() {
         let line = line.trim_end();
         if line.is_empty() {
             continue;
         }
-        let Some(name) = line.strip_prefix("note name=") else {
+        let (agent_uid, session_name) = if let Some(raw) = line.strip_prefix("note agent_uid=") {
+            (Some(raw.replace("\\s", " ")), None)
+        } else if let Some(raw) = line.strip_prefix("note name=") {
+            (None, Some(raw.replace("\\s", " ")))
+        } else {
             continue;
         };
-        let session_name = name.replace("\\s", " ");
         let mut note_lines = Vec::new();
         for note_line in lines.by_ref() {
             if note_line == "." {
@@ -166,8 +192,16 @@ fn parse_terminal_notes(text: &str) -> HashMap<String, String> {
             );
         }
         let note_text = note_lines.join("\n").trim().to_owned();
-        if !session_name.is_empty() && !note_text.is_empty() {
-            notes.insert(session_name, note_text);
+        if let Some(agent_uid) = agent_uid.filter(|value| !value.is_empty()) {
+            if !note_text.is_empty() {
+                notes.notes_by_agent_uid.insert(agent_uid, note_text);
+            }
+        } else if let Some(session_name) = session_name.filter(|value| !value.is_empty()) {
+            if !note_text.is_empty() {
+                notes
+                    .legacy_notes_by_session
+                    .insert(session_name, note_text);
+            }
         }
     }
 
@@ -179,9 +213,19 @@ fn parse_terminal_notes(text: &str) -> HashMap<String, String> {
 /// Sessions are sorted by name for deterministic output. Empty session names and blank note payloads
 /// are skipped, and note lines beginning with `.` are escaped by prefixing an extra dot so block
 /// terminators remain unambiguous.
-fn serialize_terminal_notes(notes_by_session: &HashMap<String, String>) -> String {
-    // Process the input incrementally so each transformation stays local and malformed data fails at the narrowest point.
-    let mut sessions = notes_by_session
+fn serialize_terminal_notes(notes: &PersistedTerminalNotes) -> String {
+    let mut agent_notes = notes
+        .notes_by_agent_uid
+        .iter()
+        .filter_map(|(agent_uid, note_text)| {
+            let trimmed = note_text.trim();
+            (!agent_uid.is_empty() && !trimmed.is_empty()).then_some((agent_uid.as_str(), trimmed))
+        })
+        .collect::<Vec<_>>();
+    agent_notes.sort_by(|left, right| left.0.cmp(right.0));
+
+    let mut legacy_notes = notes
+        .legacy_notes_by_session
         .iter()
         .filter_map(|(session_name, note_text)| {
             let trimmed = note_text.trim();
@@ -189,11 +233,24 @@ fn serialize_terminal_notes(notes_by_session: &HashMap<String, String>) -> Strin
                 .then_some((session_name.as_str(), trimmed))
         })
         .collect::<Vec<_>>();
-    sessions.sort_by(|left, right| left.0.cmp(right.0));
+    legacy_notes.sort_by(|left, right| left.0.cmp(right.0));
 
-    let mut output = String::from(TERMINAL_NOTES_VERSION);
+    let mut output = String::from(TERMINAL_NOTES_VERSION_V2);
     output.push('\n');
-    for (session_name, note_text) in sessions {
+    for (agent_uid, note_text) in agent_notes {
+        output.push_str("note agent_uid=");
+        output.push_str(&agent_uid.replace(' ', "\\s"));
+        output.push('\n');
+        for line in note_text.lines() {
+            if line.starts_with('.') {
+                output.push('.');
+            }
+            output.push_str(line);
+            output.push('\n');
+        }
+        output.push_str(".\n");
+    }
+    for (session_name, note_text) in legacy_notes {
         output.push_str("note name=");
         output.push_str(&session_name.replace(' ', "\\s"));
         output.push('\n');
@@ -250,7 +307,10 @@ pub(crate) fn save_terminal_notes_if_dirty(
         }
     }
 
-    let serialized = serialize_terminal_notes(&notes_state.notes_by_session);
+    let serialized = serialize_terminal_notes(&PersistedTerminalNotes {
+        notes_by_agent_uid: notes_state.notes_by_agent_uid.clone(),
+        legacy_notes_by_session: notes_state.legacy_notes_by_session.clone(),
+    });
     if let Err(error) = fs::write(path, serialized) {
         append_debug_log(format!(
             "terminal notes save failed {}: {error}",

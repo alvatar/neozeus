@@ -1,5 +1,5 @@
 use crate::{
-    app_config::{DEBUG_TEXTURE_DUMP_PATH, DEFAULT_BG},
+    app_config::{resolve_debug_texture_dump_path, DEFAULT_BG},
     hud::HudLayoutState,
     text_selection::TerminalTextSelectionState,
 };
@@ -329,9 +329,7 @@ pub(crate) fn sync_terminal_texture(
                 .note_compose(dirty_rows.len(), compose_elapsed.as_micros() as u64);
 
             if env::var_os("NEOZEUS_DUMP_TEXTURE").is_some() {
-                let dump_path = env::var_os("NEOZEUS_DUMP_TEXTURE_PATH")
-                    .map(std::path::PathBuf::from)
-                    .unwrap_or_else(|| std::path::PathBuf::from(DEBUG_TEXTURE_DUMP_PATH));
+                let dump_path = resolve_debug_texture_dump_path();
                 let _ = dump_terminal_image_ppm(target_image, dump_path.as_path());
             }
 

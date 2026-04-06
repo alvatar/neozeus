@@ -459,7 +459,6 @@ fn bloom_border_rects(
     ]
 }
 
-
 /// Returns the additive blend state used when compositing the bloom result back into the HUD.
 ///
 /// Color channels add their energy together, while alpha is preserved from the destination so the

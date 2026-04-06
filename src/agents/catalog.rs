@@ -226,7 +226,9 @@ impl AgentCatalog {
     ) -> AgentId {
         let identity = self
             .allocate_identity_with_metadata(label.as_deref(), kind, capabilities, metadata)
-            .expect("create_agent_with_metadata label allocation should only fail on duplicate labels");
+            .expect(
+                "create_agent_with_metadata label allocation should only fail on duplicate labels",
+            );
         self.create_agent_from_identity(identity)
     }
 

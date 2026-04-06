@@ -1,5 +1,5 @@
 use crate::{
-    agents::{AgentId, AgentRuntimeIndex},
+    agents::{AgentCatalog, AgentId, AgentRuntimeIndex},
     terminals::{mark_terminal_notes_dirty, TerminalNotesState},
 };
 use bevy::prelude::{Res, ResMut, Resource, Time};
@@ -104,6 +104,7 @@ pub(crate) struct MessageTransportAdapter;
 /// Handles sync task notes projection.
 pub(crate) fn sync_task_notes_projection(
     time: Res<Time>,
+    agent_catalog: Res<AgentCatalog>,
     runtime_index: Res<AgentRuntimeIndex>,
     task_store: Res<AgentTaskStore>,
     mut notes_state: ResMut<TerminalNotesState>,
@@ -111,6 +112,9 @@ pub(crate) fn sync_task_notes_projection(
     let mut changed = false;
     for (agent_id, session_name) in runtime_index.session_bindings() {
         let next_text = task_store.text(agent_id).unwrap_or_default();
+        if let Some(agent_uid) = agent_catalog.uid(agent_id) {
+            changed |= notes_state.set_note_text_by_agent_uid(agent_uid, next_text);
+        }
         changed |= notes_state.set_note_text(session_name, next_text);
     }
     if changed {

@@ -25,16 +25,18 @@ pub(crate) use active_content::{
 };
 pub(crate) use ansi_surface::surface_from_ansi_text_auto_size;
 pub(crate) use bridge::TerminalBridge;
+#[cfg(test)]
+#[allow(unused_imports)]
+pub(crate) use daemon::TerminalDaemonClient;
 pub(crate) use daemon::{
     resolve_daemon_socket_path, run_daemon_server, DaemonSessionInfo, OwnedTmuxSessionInfo,
     TerminalDaemonClientResource, PERSISTENT_SESSION_PREFIX, VERIFIER_SESSION_PREFIX,
 };
-#[cfg(test)]
-#[allow(unused_imports)]
-pub(crate) use daemon::TerminalDaemonClient;
 pub(crate) use debug::append_debug_log;
 pub(crate) use fonts::{configure_terminal_fonts, TerminalFontState, TerminalTextRenderer};
-pub(crate) use lifecycle::{attach_terminal_session, kill_active_terminal_session_and_remove};
+#[cfg(test)]
+pub(crate) use lifecycle::kill_active_terminal_session_and_remove;
+pub(crate) use lifecycle::{attach_terminal_session, kill_terminal_session_and_remove};
 pub(crate) use notes::{
     clear_done_tasks, extract_next_task, load_terminal_notes_from, mark_terminal_notes_dirty,
     resolve_terminal_notes_path, save_terminal_notes_if_dirty, task_entry_from_text,
@@ -65,10 +67,12 @@ pub(crate) use session_persistence::{
     serialize_persisted_terminal_sessions, TerminalSessionRecord,
 };
 pub(crate) use types::TerminalLifecycle;
-pub(crate) use types::{TerminalCell, TerminalCellContent, TerminalCommand, TerminalRuntimeState, TerminalSurface};
 #[cfg(test)]
 #[allow(unused_imports)]
 pub(crate) use types::TerminalSnapshot;
+pub(crate) use types::{
+    TerminalCell, TerminalCellContent, TerminalCommand, TerminalRuntimeState, TerminalSurface,
+};
 
 #[cfg(test)]
 pub(crate) use tests::*;

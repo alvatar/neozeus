@@ -85,7 +85,9 @@ pub(crate) fn selected_agent_id(selection: &AgentListSelection) -> Option<AgentI
     }
 }
 
-pub(crate) fn selected_agent_list_row_key(selection: &AgentListSelection) -> Option<AgentListRowKey> {
+pub(crate) fn selected_agent_list_row_key(
+    selection: &AgentListSelection,
+) -> Option<AgentListRowKey> {
     match selection {
         AgentListSelection::None => None,
         AgentListSelection::Agent(agent_id) => Some(AgentListRowKey::Agent(*agent_id)),

@@ -1,8 +1,7 @@
 use crate::{
     agents::AgentId,
     hud::view_models::{
-        AgentListActivity, AgentListRowKey, AgentListRowKind, AgentListView,
-        OwnedTmuxOwnerBinding,
+        AgentListActivity, AgentListRowKey, AgentListRowKind, AgentListView, OwnedTmuxOwnerBinding,
     },
     terminals::TerminalId,
 };

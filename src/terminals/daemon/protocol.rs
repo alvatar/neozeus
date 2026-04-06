@@ -7,7 +7,7 @@ use super::{
     },
     owned_tmux::OwnedTmuxSessionInfo,
 };
-use crate::shared::daemon_wire as wire;
+use crate::shared::daemon_wire::{self as wire, DaemonSessionMetadata};
 use bevy_egui::egui;
 use std::io::{Read, Write};
 
@@ -24,6 +24,7 @@ pub(crate) enum ClientMessage {
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum DaemonRequest {
     ListSessions,
+    ListSessionsDetailed,
     CreateSession {
         prefix: String,
         cwd: Option<String>,
@@ -61,6 +62,10 @@ pub(crate) enum DaemonRequest {
     KillOwnedTmuxSessionsForAgent {
         owner_agent_uid: String,
     },
+    UpdateSessionMetadata {
+        session_id: String,
+        agent_label: Option<String>,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -75,6 +80,9 @@ pub(crate) enum ServerMessage {
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum DaemonResponse {
     SessionList {
+        sessions: Vec<DaemonSessionInfo>,
+    },
+    SessionListDetailed {
         sessions: Vec<DaemonSessionInfo>,
     },
     SessionCreated {
@@ -104,6 +112,7 @@ pub(crate) struct DaemonSessionInfo {
     pub(crate) runtime: TerminalRuntimeState,
     pub(crate) revision: u64,
     pub(crate) created_order: u64,
+    pub(crate) metadata: DaemonSessionMetadata,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -228,6 +237,7 @@ fn encode_request(buffer: &mut Vec<u8>, request: &DaemonRequest) {
     // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
     match request {
         DaemonRequest::ListSessions => push_u8(buffer, 1),
+        DaemonRequest::ListSessionsDetailed => push_u8(buffer, 12),
         DaemonRequest::CreateSession {
             prefix,
             cwd,
@@ -299,6 +309,16 @@ fn encode_request(buffer: &mut Vec<u8>, request: &DaemonRequest) {
             push_u8(buffer, 11);
             push_string(buffer, owner_agent_uid);
         }
+        DaemonRequest::UpdateSessionMetadata {
+            session_id,
+            agent_label,
+        } => {
+            push_u8(buffer, 13);
+            push_string(buffer, session_id);
+            push_option(buffer, agent_label.as_ref(), |buffer, value| {
+                push_string(buffer, value);
+            });
+        }
     }
 }
 
@@ -354,6 +374,11 @@ fn decode_request(decoder: &mut Decoder<'_>) -> Result<DaemonRequest, String> {
         11 => Ok(DaemonRequest::KillOwnedTmuxSessionsForAgent {
             owner_agent_uid: decoder.read_string()?,
         }),
+        12 => Ok(DaemonRequest::ListSessionsDetailed),
+        13 => Ok(DaemonRequest::UpdateSessionMetadata {
+            session_id: decoder.read_string()?,
+            agent_label: decoder.read_option(|decoder| decoder.read_string())?,
+        }),
         tag => Err(format!("unknown daemon request tag {tag}")),
     }
 }
@@ -395,6 +420,10 @@ fn encode_response(buffer: &mut Vec<u8>, response: &DaemonResponse) {
     match response {
         DaemonResponse::SessionList { sessions } => {
             push_u8(buffer, 1);
+            push_vec(buffer, sessions, encode_session_info_legacy);
+        }
+        DaemonResponse::SessionListDetailed { sessions } => {
+            push_u8(buffer, 8);
             push_vec(buffer, sessions, encode_session_info);
         }
         DaemonResponse::SessionCreated { session_id } => {
@@ -432,7 +461,7 @@ fn encode_response(buffer: &mut Vec<u8>, response: &DaemonResponse) {
 fn decode_response(decoder: &mut Decoder<'_>) -> Result<DaemonResponse, String> {
     match decoder.read_u8()? {
         1 => Ok(DaemonResponse::SessionList {
-            sessions: decoder.read_vec(decode_session_info)?,
+            sessions: decoder.read_vec(decode_session_info_legacy)?,
         }),
         2 => Ok(DaemonResponse::SessionCreated {
             session_id: decoder.read_string()?,
@@ -452,6 +481,9 @@ fn decode_response(decoder: &mut Decoder<'_>) -> Result<DaemonResponse, String> 
         7 => Ok(DaemonResponse::OwnedTmuxSessionCapture {
             session_uid: decoder.read_string()?,
             text: decoder.read_string()?,
+        }),
+        8 => Ok(DaemonResponse::SessionListDetailed {
+            sessions: decoder.read_vec(decode_session_info)?,
         }),
         tag => Err(format!("unknown daemon response tag {tag}")),
     }
@@ -484,7 +516,7 @@ fn decode_owned_tmux_session_info(
     })
 }
 
-fn encode_session_info(buffer: &mut Vec<u8>, info: &DaemonSessionInfo) {
+fn encode_session_info_legacy(buffer: &mut Vec<u8>, info: &DaemonSessionInfo) {
     push_string(buffer, &info.session_id);
     encode_runtime_state(buffer, &info.runtime);
     // Keep the wire format compatible with protocol v1 daemons/clients. Session list ordering is
@@ -492,14 +524,26 @@ fn encode_session_info(buffer: &mut Vec<u8>, info: &DaemonSessionInfo) {
     push_u64(buffer, info.revision);
 }
 
+fn encode_session_info(buffer: &mut Vec<u8>, info: &DaemonSessionInfo) {
+    encode_session_info_legacy(buffer, info);
+    wire::encode_daemon_session_metadata(buffer, &info.metadata);
+}
+
 /// Decodes session metadata from the wire format, defaulting missing legacy `created_order` to 0.
-fn decode_session_info(decoder: &mut Decoder<'_>) -> Result<DaemonSessionInfo, String> {
+fn decode_session_info_legacy(decoder: &mut Decoder<'_>) -> Result<DaemonSessionInfo, String> {
     Ok(DaemonSessionInfo {
         session_id: decoder.read_string()?,
         runtime: decode_runtime_state(decoder)?,
         revision: decoder.read_u64()?,
         created_order: 0,
+        metadata: DaemonSessionMetadata::default(),
     })
+}
+
+fn decode_session_info(decoder: &mut Decoder<'_>) -> Result<DaemonSessionInfo, String> {
+    let mut info = decode_session_info_legacy(decoder)?;
+    info.metadata = wire::decode_daemon_session_metadata(decoder)?;
+    Ok(info)
 }
 
 /// Encodes one async daemon event into its tagged wire representation.
