@@ -7,6 +7,7 @@ use super::super::super::state::{AgentListUiState, HudRect, HUD_MODULE_PADDING};
 use bevy::prelude::Vec2;
 use bevy_vello::{prelude::VelloTextAnchor, vello::peniko};
 
+use super::rows::{AgentRow, AgentRowKind};
 use super::{
     agent_row_label_position, agent_row_label_text, agent_row_rect, projected_agent_rows,
     row_main_rect, AgentListDragPreview, AgentListRowSection, AGENT_LIST_BLOOM_RED_B,
@@ -17,7 +18,6 @@ use super::{
     AGENT_ROW_LABEL_TEXT_SIZE, TMUX_ROW_LABEL_SCALE_X, TMUX_ROW_LABEL_SCALE_Y,
     TMUX_ROW_LABEL_TEXT_SIZE,
 };
-use super::rows::{AgentRow, AgentRowKind};
 
 const EVA_ORANGE: peniko::Color = peniko::Color::from_rgba8(
     AGENT_LIST_BORDER_ORANGE_R,
@@ -317,11 +317,7 @@ fn draw_left_rail(painter: &mut HudPainter, content_rect: HudRect) {
     }
 }
 
-fn agent_label_color(
-    activity: AgentListActivity,
-    selected: bool,
-    dragging: bool,
-) -> peniko::Color {
+fn agent_label_color(activity: AgentListActivity, selected: bool, dragging: bool) -> peniko::Color {
     if dragging {
         EVA_CYAN
     } else if activity == AgentListActivity::Working {
@@ -392,7 +388,9 @@ fn render_tmux_child_row(
     orphaned: bool,
     parent_main_rects: &std::collections::HashMap<crate::agents::AgentId, HudRect>,
 ) {
-    if let Some(parent_main_rect) = owner_agent_id.and_then(|agent_id| parent_main_rects.get(&agent_id).copied()) {
+    if let Some(parent_main_rect) =
+        owner_agent_id.and_then(|agent_id| parent_main_rects.get(&agent_id).copied())
+    {
         let (start, end) = tmux_child_connector(parent_main_rect, main_rect);
         painter.stroke_line(
             start,

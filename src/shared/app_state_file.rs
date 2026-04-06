@@ -177,7 +177,9 @@ pub fn parse_persisted_app_state(text: &str) -> PersistedAppState {
                         clone_source_session_path =
                             unquote_escaped_string(value, EXTENDED_QUOTED_STRING_ESCAPES)
                     }
-                    "workdir" => is_workdir = value.parse::<u8>().ok().is_some_and(|flag| flag != 0),
+                    "workdir" => {
+                        is_workdir = value.parse::<u8>().ok().is_some_and(|flag| flag != 0)
+                    }
                     "order_index" => order_index = value.parse::<u64>().ok(),
                     "focused" => last_focused = value.parse::<u8>().ok().map(|flag| flag != 0),
                     _ => {}

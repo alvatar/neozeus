@@ -7,8 +7,8 @@ use super::super::{
     state::{default_hud_module_instance, AgentListUiState, HudState},
     view_models::{
         sync_hud_view_models, AgentListActivity, AgentListRowKey, AgentListRowKind,
-        AgentListRowView, AgentListView, ComposerView, ConversationListView,
-        OwnedTmuxOwnerBinding, ThreadView,
+        AgentListRowView, AgentListView, ComposerView, ConversationListView, OwnedTmuxOwnerBinding,
+        ThreadView,
     },
     widgets::{HudWidgetKey, HUD_WIDGET_DEFINITIONS},
 };
@@ -153,7 +153,9 @@ fn selected_agent_row_emits_selected_bloom_sources_only_for_that_row() {
     );
 
     assert_eq!(specs.len(), 8);
-    assert!(specs.iter().all(|spec| spec.key.terminal_id == crate::terminals::TerminalId(11)));
+    assert!(specs
+        .iter()
+        .all(|spec| spec.key.terminal_id == crate::terminals::TerminalId(11)));
 }
 
 #[test]
@@ -200,7 +202,9 @@ fn selected_working_agent_row_emits_green_bloom_sources_only_for_that_row() {
     );
 
     assert_eq!(specs.len(), 8);
-    assert!(specs.iter().all(|spec| spec.key.terminal_id == crate::terminals::TerminalId(11)));
+    assert!(specs
+        .iter()
+        .all(|spec| spec.key.terminal_id == crate::terminals::TerminalId(11)));
     let linear = specs[0].color.to_linear();
     assert!(linear.green > linear.red);
     assert!(linear.green > linear.blue);
@@ -252,7 +256,9 @@ fn selected_tmux_row_does_not_emit_parent_agent_bloom() {
     assert!(specs
         .iter()
         .all(|spec| spec.key.kind == AgentListBloomSourceKind::Main));
-    assert!(specs.iter().all(|spec| spec.key.terminal_id == crate::terminals::TerminalId(11)));
+    assert!(specs
+        .iter()
+        .all(|spec| spec.key.terminal_id == crate::terminals::TerminalId(11)));
 }
 
 #[test]

@@ -71,35 +71,26 @@ fn daemon_runtime_after_kill_attempt(
     clippy::too_many_arguments,
     reason = "kill spans daemon authority, domain state, projection cleanup, and persistence/view updates"
 )]
-/// Kills the active daemon session when possible and removes the corresponding local terminal.
-///
-/// The helper performs only runtime-facing work plus terminal/focus state removal. It deliberately
-/// does not choose replacement focus or mutate visibility/view policy; that policy belongs to the
-/// app-layer use case that called it.
-pub(crate) fn kill_active_terminal_session_and_remove(
+fn kill_terminal_session_and_remove_by_id(
     time: &Time,
     terminal_manager: &mut TerminalManager,
     focus_state: &mut TerminalFocusState,
     runtime_spawner: &TerminalRuntimeSpawner,
     app_state_persistence: &mut AppStatePersistenceState,
+    terminal_id: TerminalId,
+    session_name: &str,
 ) -> Result<Option<(TerminalId, String)>, String> {
-    // Walk the lifecycle in explicit stages so each side effect happens only after its prerequisites have been established.
-    let Some(active_id) = focus_state.active_id() else {
+    let Some(runtime_state) = terminal_manager
+        .get(terminal_id)
+        .map(|terminal| terminal.snapshot.runtime.clone())
+    else {
         return Ok(None);
     };
-    let Some((session_name, runtime_state)) = terminal_manager.get(active_id).map(|terminal| {
-        (
-            terminal.session_name.clone(),
-            terminal.snapshot.runtime.clone(),
-        )
-    }) else {
-        return Ok(None);
-    };
-    if let Err(error) = runtime_spawner.kill_session(&session_name) {
+    if let Err(error) = runtime_spawner.kill_session(session_name) {
         if runtime_state.is_interactive() {
             let daemon_session_stopped = match daemon_runtime_after_kill_attempt(
                 runtime_spawner,
-                &session_name,
+                session_name,
             ) {
                 Ok(daemon_runtime) => daemon_runtime
                     .as_ref()
@@ -120,7 +111,64 @@ pub(crate) fn kill_active_terminal_session_and_remove(
         ));
     }
 
-    remove_terminal_with_projection(terminal_manager, focus_state, active_id);
+    remove_terminal_with_projection(terminal_manager, focus_state, terminal_id);
     mark_app_state_dirty(app_state_persistence, Some(time));
-    Ok(Some((active_id, session_name)))
+    Ok(Some((terminal_id, session_name.to_owned())))
+}
+
+#[cfg(test)]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "kill spans daemon authority, domain state, projection cleanup, and persistence/view updates"
+)]
+/// Test-only helper that kills whichever terminal is currently focused.
+pub(crate) fn kill_active_terminal_session_and_remove(
+    time: &Time,
+    terminal_manager: &mut TerminalManager,
+    focus_state: &mut TerminalFocusState,
+    runtime_spawner: &TerminalRuntimeSpawner,
+    app_state_persistence: &mut AppStatePersistenceState,
+) -> Result<Option<(TerminalId, String)>, String> {
+    let Some(active_id) = focus_state.active_id() else {
+        return Ok(None);
+    };
+    let Some(session_name) = terminal_manager
+        .get(active_id)
+        .map(|terminal| terminal.session_name.clone())
+    else {
+        return Ok(None);
+    };
+    kill_terminal_session_and_remove_by_id(
+        time,
+        terminal_manager,
+        focus_state,
+        runtime_spawner,
+        app_state_persistence,
+        active_id,
+        &session_name,
+    )
+}
+
+#[allow(
+    clippy::too_many_arguments,
+    reason = "kill spans daemon authority, domain state, projection cleanup, and persistence/view updates"
+)]
+pub(crate) fn kill_terminal_session_and_remove(
+    time: &Time,
+    terminal_manager: &mut TerminalManager,
+    focus_state: &mut TerminalFocusState,
+    runtime_spawner: &TerminalRuntimeSpawner,
+    app_state_persistence: &mut AppStatePersistenceState,
+    terminal_id: TerminalId,
+    session_name: &str,
+) -> Result<Option<(TerminalId, String)>, String> {
+    kill_terminal_session_and_remove_by_id(
+        time,
+        terminal_manager,
+        focus_state,
+        runtime_spawner,
+        app_state_persistence,
+        terminal_id,
+        session_name,
+    )
 }

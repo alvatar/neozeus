@@ -1,4 +1,4 @@
-use crate::app_config::DEBUG_LOG_PATH;
+use crate::app_config::resolve_debug_log_path;
 use bevy::input::keyboard::KeyboardInput;
 use std::{
     fs,
@@ -37,11 +37,11 @@ pub(crate) struct TerminalDebugStats {
 /// paths and error paths alike.
 pub(crate) fn append_debug_log(message: impl AsRef<str>) {
     let message = message.as_ref();
-    if let Ok(mut file) = fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(DEBUG_LOG_PATH)
-    {
+    let path = resolve_debug_log_path();
+    if let Some(parent) = path.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    if let Ok(mut file) = fs::OpenOptions::new().create(true).append(true).open(path) {
         let _ = writeln!(file, "{message}");
     }
 }

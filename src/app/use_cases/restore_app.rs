@@ -17,6 +17,23 @@ use super::super::session::{AppSessionState, VisibilityMode};
 use super::{attach_restored_terminal, spawn_agent_terminal};
 use bevy::prelude::*;
 
+fn agent_kind_from_daemon_session(session: &DaemonSessionInfo) -> AgentKind {
+    match session.metadata.agent_kind {
+        Some(crate::shared::daemon_wire::DaemonAgentKind::Pi) => AgentKind::Pi,
+        Some(crate::shared::daemon_wire::DaemonAgentKind::Claude) => AgentKind::Claude,
+        Some(crate::shared::daemon_wire::DaemonAgentKind::Codex) => AgentKind::Codex,
+        Some(crate::shared::daemon_wire::DaemonAgentKind::Terminal) => AgentKind::Terminal,
+        Some(crate::shared::daemon_wire::DaemonAgentKind::Verifier) => AgentKind::Verifier,
+        None if session
+            .session_id
+            .starts_with(crate::terminals::VERIFIER_SESSION_PREFIX) =>
+        {
+            AgentKind::Verifier
+        }
+        None => AgentKind::Terminal,
+    }
+}
+
 /// Handles startup focus candidate is interactive.
 fn startup_focus_candidate_is_interactive(session: &DaemonSessionInfo) -> bool {
     matches!(session.runtime.lifecycle, TerminalLifecycle::Running)
@@ -54,27 +71,6 @@ pub(crate) fn restore_app(
         Ok(sessions) => sessions,
         Err(error) => {
             append_debug_log(format!("daemon session discovery failed: {error}"));
-            let startup_loading_slot = startup_loading.as_deref_mut();
-            let _ = spawn_agent_terminal(
-                agent_catalog,
-                runtime_index,
-                app_session,
-                selection,
-                terminal_manager,
-                focus_state,
-                runtime_spawner,
-                input_capture,
-                app_state_persistence,
-                visibility_state,
-                view_state,
-                startup_loading_slot,
-                time,
-                PERSISTENT_SESSION_PREFIX,
-                AgentKind::Pi,
-                None,
-                None,
-                redraws,
-            );
             return;
         }
     };
@@ -93,11 +89,31 @@ pub(crate) fn restore_app(
         .collect::<std::collections::HashMap<_, _>>();
     let mut importable = Vec::new();
     for record in import {
-        let keep = live_session_lookup
-            .get(record.session_name.as_str())
-            .is_some_and(|session| startup_focus_candidate_is_interactive(session));
+        let Some(session) = live_session_lookup.get(record.session_name.as_str()) else {
+            continue;
+        };
+        let keep = startup_focus_candidate_is_interactive(session);
         if keep {
-            importable.push(record);
+            importable.push(crate::shared::app_state_file::PersistedAgentState {
+                agent_uid: session.metadata.agent_uid.clone(),
+                session_name: record.session_name,
+                label: session.metadata.agent_label.clone(),
+                kind: match agent_kind_from_daemon_session(session) {
+                    AgentKind::Pi => crate::shared::app_state_file::PersistedAgentKind::Pi,
+                    AgentKind::Claude => crate::shared::app_state_file::PersistedAgentKind::Claude,
+                    AgentKind::Codex => crate::shared::app_state_file::PersistedAgentKind::Codex,
+                    AgentKind::Terminal => {
+                        crate::shared::app_state_file::PersistedAgentKind::Terminal
+                    }
+                    AgentKind::Verifier => {
+                        crate::shared::app_state_file::PersistedAgentKind::Verifier
+                    }
+                },
+                clone_source_session_path: record.clone_source_session_path,
+                is_workdir: record.is_workdir,
+                order_index: record.order_index,
+                last_focused: record.last_focused,
+            });
             continue;
         }
         match runtime_spawner.kill_session(&record.session_name) {
@@ -213,6 +229,66 @@ pub(crate) fn restore_app(
             None,
             None,
             redraws,
+        );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::agent_kind_from_daemon_session;
+    use crate::{
+        agents::AgentKind,
+        shared::daemon_wire::{DaemonAgentKind, DaemonSessionMetadata},
+        terminals::{DaemonSessionInfo, TerminalLifecycle, TerminalRuntimeState},
+    };
+
+    fn session_with_kind(agent_kind: Option<DaemonAgentKind>) -> DaemonSessionInfo {
+        DaemonSessionInfo {
+            session_id: "neozeus-session-1".into(),
+            runtime: TerminalRuntimeState {
+                status: "running".into(),
+                lifecycle: TerminalLifecycle::Running,
+                last_error: None,
+            },
+            revision: 0,
+            created_order: 0,
+            metadata: DaemonSessionMetadata {
+                agent_uid: None,
+                agent_label: None,
+                agent_kind,
+            },
+        }
+    }
+
+    #[test]
+    fn imported_live_session_preserves_claude_kind() {
+        assert_eq!(
+            agent_kind_from_daemon_session(&session_with_kind(Some(DaemonAgentKind::Claude))),
+            AgentKind::Claude
+        );
+    }
+
+    #[test]
+    fn imported_live_session_preserves_codex_kind() {
+        assert_eq!(
+            agent_kind_from_daemon_session(&session_with_kind(Some(DaemonAgentKind::Codex))),
+            AgentKind::Codex
+        );
+    }
+
+    #[test]
+    fn imported_live_session_preserves_terminal_kind() {
+        assert_eq!(
+            agent_kind_from_daemon_session(&session_with_kind(Some(DaemonAgentKind::Terminal))),
+            AgentKind::Terminal
+        );
+    }
+
+    #[test]
+    fn imported_live_session_without_kind_falls_back_to_terminal() {
+        assert_eq!(
+            agent_kind_from_daemon_session(&session_with_kind(None)),
+            AgentKind::Terminal
         );
     }
 }

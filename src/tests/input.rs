@@ -7,8 +7,8 @@ use crate::{
     agents::{AgentCatalog, AgentRuntimeIndex},
     app::{
         AgentCommand as AppAgentCommand, AppCommand, AppSessionState, AppStatePersistenceState,
-        CloneAgentDialogField, CreateAgentDialogField, CreateAgentKind,
-        RenameAgentDialogField, TaskCommand as AppTaskCommand,
+        CloneAgentDialogField, CreateAgentDialogField, CreateAgentKind, RenameAgentDialogField,
+        TaskCommand as AppTaskCommand,
     },
     composer::{
         clone_agent_name_field_rect, create_agent_name_field_rect,
@@ -441,7 +441,10 @@ fn global_clone_shortcut_opens_clone_agent_dialog_for_selected_pi_agent() {
     assert!(session.clone_agent_dialog.visible);
     assert_eq!(session.clone_agent_dialog.source_agent, Some(agent_id));
     assert_eq!(session.clone_agent_dialog.name_field.text, "ALPHA-CLONE");
-    assert_eq!(session.clone_agent_dialog.focus, CloneAgentDialogField::Name);
+    assert_eq!(
+        session.clone_agent_dialog.focus,
+        CloneAgentDialogField::Name
+    );
     assert_eq!(world.resource::<Messages<RequestRedraw>>().len(), 1);
 }
 
@@ -470,7 +473,12 @@ fn global_clone_shortcut_does_nothing_for_tmux_selection() {
         .run_system_once(handle_global_terminal_spawn_shortcut)
         .unwrap();
 
-    assert!(!world.resource::<AppSessionState>().clone_agent_dialog.visible);
+    assert!(
+        !world
+            .resource::<AppSessionState>()
+            .clone_agent_dialog
+            .visible
+    );
     assert_eq!(world.resource::<Messages<RequestRedraw>>().len(), 0);
 }
 
@@ -505,7 +513,12 @@ fn global_clone_shortcut_does_nothing_for_non_pi_agent() {
         .run_system_once(handle_global_terminal_spawn_shortcut)
         .unwrap();
 
-    assert!(!world.resource::<AppSessionState>().clone_agent_dialog.visible);
+    assert!(
+        !world
+            .resource::<AppSessionState>()
+            .clone_agent_dialog
+            .visible
+    );
     assert_eq!(world.resource::<Messages<RequestRedraw>>().len(), 0);
 }
 
@@ -548,7 +561,12 @@ fn global_clone_shortcut_does_nothing_while_modal_has_keyboard_capture() {
         .run_system_once(handle_global_terminal_spawn_shortcut)
         .unwrap();
 
-    assert!(!world.resource::<AppSessionState>().clone_agent_dialog.visible);
+    assert!(
+        !world
+            .resource::<AppSessionState>()
+            .clone_agent_dialog
+            .visible
+    );
     assert_eq!(world.resource::<Messages<RequestRedraw>>().len(), 0);
 }
 
@@ -574,15 +592,17 @@ fn end_to_end_clone_shortcut_plain_clone_creates_agent() {
     let mut time = Time::<()>::default();
     time.advance_by(Duration::from_secs(1));
     world.insert_resource(time);
-    let source_agent = world.resource_mut::<AgentCatalog>().create_agent_with_metadata(
-        Some("alpha".into()),
-        crate::agents::AgentKind::Pi,
-        crate::agents::AgentKind::Pi.capabilities(),
-        crate::agents::AgentMetadata {
-            clone_source_session_path: Some(source_session.to_string_lossy().into_owned()),
-            is_workdir: false,
-        },
-    );
+    let source_agent = world
+        .resource_mut::<AgentCatalog>()
+        .create_agent_with_metadata(
+            Some("alpha".into()),
+            crate::agents::AgentKind::Pi,
+            crate::agents::AgentKind::Pi.capabilities(),
+            crate::agents::AgentMetadata {
+                clone_source_session_path: Some(source_session.to_string_lossy().into_owned()),
+                is_workdir: false,
+            },
+        );
     world.insert_resource(crate::hud::AgentListSelection::Agent(source_agent));
     world.init_resource::<Messages<KeyboardInput>>();
     world.spawn((
@@ -631,15 +651,17 @@ fn end_to_end_clone_shortcut_workdir_clone_creates_agent() {
     let mut time = Time::<()>::default();
     time.advance_by(Duration::from_secs(1));
     world.insert_resource(time);
-    let source_agent = world.resource_mut::<AgentCatalog>().create_agent_with_metadata(
-        Some("alpha".into()),
-        crate::agents::AgentKind::Pi,
-        crate::agents::AgentKind::Pi.capabilities(),
-        crate::agents::AgentMetadata {
-            clone_source_session_path: Some(source_session.to_string_lossy().into_owned()),
-            is_workdir: false,
-        },
-    );
+    let source_agent = world
+        .resource_mut::<AgentCatalog>()
+        .create_agent_with_metadata(
+            Some("alpha".into()),
+            crate::agents::AgentKind::Pi,
+            crate::agents::AgentKind::Pi.capabilities(),
+            crate::agents::AgentMetadata {
+                clone_source_session_path: Some(source_session.to_string_lossy().into_owned()),
+                is_workdir: false,
+            },
+        );
     world.insert_resource(crate::hud::AgentListSelection::Agent(source_agent));
     world.init_resource::<Messages<KeyboardInput>>();
     world.spawn((
@@ -666,9 +688,12 @@ fn end_to_end_clone_shortcut_workdir_clone_creates_agent() {
     let clone_agent = *catalog.order.last().unwrap();
     assert_eq!(catalog.label(clone_agent), Some("ALPHA-CLONE"));
     assert!(catalog.is_workdir(clone_agent));
-    let clone_session_path = catalog.clone_source_session_path(clone_agent).unwrap().to_owned();
-    let clone_header = crate::shared::pi_session_files::read_session_header(&clone_session_path)
-        .unwrap();
+    let clone_session_path = catalog
+        .clone_source_session_path(clone_agent)
+        .unwrap()
+        .to_owned();
+    let clone_header =
+        crate::shared::pi_session_files::read_session_header(&clone_session_path).unwrap();
     assert_eq!(
         std::path::PathBuf::from(clone_header.cwd),
         repo.join(".worktrees").join("ALPHA-CLONE")
@@ -1087,7 +1112,12 @@ fn clone_agent_dialog_space_toggles_workdir() {
 
     dispatch_message_box_key(&mut world, pressed_text(KeyCode::Space, Some(" ")));
 
-    assert!(world.resource::<AppSessionState>().clone_agent_dialog.workdir);
+    assert!(
+        world
+            .resource::<AppSessionState>()
+            .clone_agent_dialog
+            .workdir
+    );
 }
 
 #[test]
@@ -1113,7 +1143,12 @@ fn clone_agent_dialog_escape_closes_without_emitting_command() {
 
     dispatch_message_box_key(&mut world, pressed_key(KeyCode::Escape, Key::Escape));
 
-    assert!(!world.resource::<AppSessionState>().clone_agent_dialog.visible);
+    assert!(
+        !world
+            .resource::<AppSessionState>()
+            .clone_agent_dialog
+            .visible
+    );
     assert!(drain_hud_commands(&mut world).is_empty());
 }
 
@@ -1191,7 +1226,10 @@ fn paste_into_clone_agent_dialog_inserts_into_name_field() {
         Vec2::new(name_rect.x + 4.0, name_rect.y + 4.0),
         "child",
     ));
-    assert_eq!(app_session.clone_agent_dialog.name_field.text, "ALPHA-CLONECHILD");
+    assert_eq!(
+        app_session.clone_agent_dialog.name_field.text,
+        "ALPHA-CLONECHILD"
+    );
 }
 
 /// Verifies that the kill-active-terminal shortcut is accepted only for plain `Ctrl+k`.
@@ -2085,8 +2123,10 @@ fn message_box_keeps_separate_drafts_per_terminal() {
 #[test]
 fn message_box_supports_multiline_typing_and_ctrl_s_send() {
     // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
-    let (mut world, terminal_id, input_rx) =
+    let client = std::sync::Arc::new(FakeDaemonClient::default());
+    let (mut world, terminal_id, _input_rx) =
         world_with_active_terminal_and_receiver(Vec2::new(10.0, 10.0), false, Vec2::ZERO);
+    world.insert_resource(fake_runtime_spawner(client.clone()));
     let mut hud_state = crate::hud::HudState::default();
     hud_state.open_message_box(terminal_id);
     insert_test_hud_state(&mut world, hud_state);
@@ -2105,9 +2145,18 @@ fn message_box_supports_multiline_typing_and_ctrl_s_send() {
     world.insert_resource(keys);
     dispatch_message_box_key(&mut world, pressed_text(KeyCode::KeyS, Some("s")));
 
+    let agent_id = world
+        .resource::<crate::agents::AgentRuntimeIndex>()
+        .agent_for_terminal(terminal_id)
+        .unwrap();
+    let session_name = world
+        .resource::<crate::agents::AgentRuntimeIndex>()
+        .session_name(agent_id)
+        .unwrap()
+        .to_owned();
     assert_eq!(
-        input_rx.try_recv().unwrap(),
-        TerminalCommand::SendCommand("a\nb".into())
+        client.sent_commands.lock().unwrap().as_slice(),
+        &[(session_name, TerminalCommand::SendCommand("a\nb".into()))]
     );
     {
         let hud_state = snapshot_test_hud_state(&world);
@@ -2831,7 +2880,10 @@ fn ctrl_k_kills_selected_agent_without_hidden_session_state() {
         .unwrap();
     run_app_command_cycle(&mut world);
 
-    assert!(world.resource::<TerminalManager>().terminal_ids().is_empty());
+    assert!(world
+        .resource::<TerminalManager>()
+        .terminal_ids()
+        .is_empty());
     assert_eq!(
         *world.resource::<crate::hud::AgentListSelection>(),
         crate::hud::AgentListSelection::None
@@ -2982,7 +3034,9 @@ fn hud_navigation_arrow_keys_uses_agent_list_selection_as_single_source_of_truth
     let mut active_terminal_content = crate::terminals::ActiveTerminalContentState::default();
     active_terminal_content.select_owned_tmux("tmux-1".into(), None);
     world.insert_resource(active_terminal_content);
-    world.insert_resource(crate::hud::AgentListSelection::Agent(crate::agents::AgentId(1)));
+    world.insert_resource(crate::hud::AgentListSelection::Agent(
+        crate::agents::AgentId(1),
+    ));
     world.insert_resource(crate::hud::AgentListView {
         rows: vec![
             crate::hud::AgentListRowView {

@@ -19,7 +19,7 @@ mod tests;
 
 use crate::{
     app::build_app,
-    app_config::DEBUG_LOG_PATH,
+    app_config::resolve_debug_log_path,
     terminals::{append_debug_log, resolve_daemon_socket_path, run_daemon_server},
 };
 use std::{env, fs, path::PathBuf};
@@ -39,7 +39,11 @@ fn main() {
         })
         .unwrap_or(true)
     {
-        let _ = fs::write(DEBUG_LOG_PATH, "");
+        let debug_log_path = resolve_debug_log_path();
+        if let Some(parent) = debug_log_path.parent() {
+            let _ = fs::create_dir_all(parent);
+        }
+        let _ = fs::write(debug_log_path, "");
     }
     let args = env::args().collect::<Vec<_>>();
     if args.get(1).is_some_and(|arg| arg == "daemon") {

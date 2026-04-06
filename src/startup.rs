@@ -507,7 +507,10 @@ fn setup_verifier_terminal(ctx: &mut SceneSetupContext, config: AutoVerifyConfig
 fn restore_startup_terminals(ctx: &mut SceneSetupContext) {
     // Walk the lifecycle in explicit stages so each side effect happens only after its prerequisites have been established.
     let mut default_selection = crate::hud::AgentListSelection::None;
-    let selection = ctx.selection.as_deref_mut().unwrap_or(&mut default_selection);
+    let selection = ctx
+        .selection
+        .as_deref_mut()
+        .unwrap_or(&mut default_selection);
     restore_app(
         &mut ctx.agent_catalog,
         &mut ctx.runtime_index,
@@ -529,7 +532,12 @@ fn restore_startup_terminals(ctx: &mut SceneSetupContext) {
 
     if let Some(task_store) = ctx.task_store.as_deref_mut() {
         for (agent_id, session_name) in ctx.runtime_index.session_bindings() {
-            if let Some(text) = ctx.notes_state.note_text(session_name) {
+            let text = ctx
+                .agent_catalog
+                .uid(agent_id)
+                .and_then(|agent_uid| ctx.notes_state.note_text_by_agent_uid(agent_uid))
+                .or_else(|| ctx.notes_state.note_text(session_name));
+            if let Some(text) = text {
                 let _ = task_store.set_text(agent_id, text);
             }
         }

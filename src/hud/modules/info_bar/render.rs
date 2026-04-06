@@ -258,7 +258,9 @@ fn render_metric(
     let detail_width = if bar_view.detail_text.is_empty() {
         0.0
     } else {
-        painter.text_size(&bar_view.detail_text, density.value_size).x
+        painter
+            .text_size(&bar_view.detail_text, density.value_size)
+            .x
     };
     let layout = info_bar_metric_layout(group_rect, label_width, pct_width, detail_width, density);
 

@@ -1,5 +1,6 @@
 use super::protocol::{DaemonEvent, DaemonSessionInfo, ServerMessage};
 use crate::app_config::{DEFAULT_COLS, DEFAULT_ROWS};
+use crate::shared::daemon_wire::{DaemonAgentKind, DaemonSessionMetadata};
 
 use super::super::{
     ansi_surface::build_surface,
@@ -66,6 +67,7 @@ pub(super) struct AttachedSubscriber {
 pub(crate) struct DaemonSession {
     session_id: String,
     created_order: u64,
+    metadata: Arc<Mutex<DaemonSessionMetadata>>,
     state: Arc<Mutex<DaemonSessionState>>,
     command_tx: mpsc::Sender<DaemonSessionCommand>,
     shutdown_rx: Mutex<Option<mpsc::Receiver<Result<(), String>>>>,
@@ -100,6 +102,7 @@ impl DaemonSession {
             writer,
             child,
         } = spawn_pty(DEFAULT_COLS, DEFAULT_ROWS, cwd, env_overrides)?;
+        let metadata = Arc::new(Mutex::new(session_metadata_from_env(env_overrides)));
         let state = Arc::new(Mutex::new(DaemonSessionState {
             snapshot: TerminalSnapshot {
                 surface: Some(TerminalSurface::new(
@@ -116,6 +119,7 @@ impl DaemonSession {
         let session = Arc::new(Self {
             session_id: session_id.clone(),
             created_order,
+            metadata,
             state: state.clone(),
             command_tx,
             shutdown_rx: Mutex::new(Some(shutdown_rx)),
@@ -144,6 +148,7 @@ impl DaemonSession {
             runtime: state.snapshot.runtime.clone(),
             revision: state.revision,
             created_order: self.created_order,
+            metadata: lock(&self.metadata).clone(),
         }
     }
 
@@ -213,9 +218,32 @@ impl DaemonSession {
         }
     }
 
+    pub(crate) fn update_metadata_label(&self, agent_label: Option<String>) {
+        lock(&self.metadata).agent_label = agent_label;
+    }
+
     fn current_runtime(&self) -> TerminalRuntimeState {
         lock(&self.state).snapshot.runtime.clone()
     }
+}
+
+fn session_metadata_from_env(env_overrides: &[(String, String)]) -> DaemonSessionMetadata {
+    let mut metadata = DaemonSessionMetadata::default();
+    for (key, value) in env_overrides {
+        match key.as_str() {
+            "NEOZEUS_AGENT_UID" if !value.trim().is_empty() => {
+                metadata.agent_uid = Some(value.clone());
+            }
+            "NEOZEUS_AGENT_LABEL" if !value.trim().is_empty() => {
+                metadata.agent_label = Some(value.clone());
+            }
+            "NEOZEUS_AGENT_KIND" => {
+                metadata.agent_kind = DaemonAgentKind::from_env_name(value);
+            }
+            _ => {}
+        }
+    }
+    metadata
 }
 
 pub(crate) struct SubscriberIdAllocator {
@@ -752,6 +780,7 @@ mod tests {
         DaemonSession {
             session_id: "test-session".into(),
             created_order: 1,
+            metadata: Arc::new(Mutex::new(DaemonSessionMetadata::default())),
             state: Arc::new(Mutex::new(DaemonSessionState {
                 snapshot: TerminalSnapshot {
                     surface: None,

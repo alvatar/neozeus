@@ -404,10 +404,14 @@ type CreatedSessionRecord = (String, Option<String>, Vec<(String, String)>);
 pub(super) struct FakeDaemonClient {
     pub(super) sessions: Mutex<BTreeSet<String>>,
     pub(super) session_runtimes: Mutex<std::collections::HashMap<String, TerminalRuntimeState>>,
+    pub(super) session_metadata: Mutex<
+        std::collections::HashMap<String, neozeus::shared::daemon_wire::DaemonSessionMetadata>,
+    >,
     pub(super) sent_commands: Mutex<Vec<(String, TerminalCommand)>>,
     pub(super) resize_requests: Mutex<Vec<(String, usize, usize)>>,
     pub(super) created_sessions: Mutex<Vec<CreatedSessionRecord>>,
     pub(super) fail_kill: Mutex<bool>,
+    pub(super) fail_send: Mutex<bool>,
     pub(super) fail_owned_tmux_kill: Mutex<bool>,
     pub(super) next_session_index: Mutex<u64>,
     pub(super) owned_tmux_sessions: Mutex<Vec<OwnedTmuxSessionInfo>>,
@@ -474,11 +478,32 @@ impl TerminalDaemonClient for FakeDaemonClient {
             .enumerate()
             .map(|(index, session_id)| DaemonSessionInfo {
                 runtime: self.session_runtime(&session_id),
-                session_id,
+                session_id: session_id.clone(),
                 revision: 0,
                 created_order: index as u64,
+                metadata: self
+                    .session_metadata
+                    .lock()
+                    .unwrap()
+                    .get(&session_id)
+                    .cloned()
+                    .unwrap_or_default(),
             })
             .collect())
+    }
+
+    fn update_session_metadata_label(
+        &self,
+        session_id: &str,
+        agent_label: Option<&str>,
+    ) -> Result<(), String> {
+        self.session_metadata
+            .lock()
+            .unwrap()
+            .entry(session_id.to_owned())
+            .or_default()
+            .agent_label = agent_label.map(str::to_owned);
+        Ok(())
     }
 
     /// Creates a new fake daemon session id using the requested prefix.
@@ -500,6 +525,22 @@ impl TerminalDaemonClient for FakeDaemonClient {
             env_overrides.to_vec(),
         ));
         self.set_session_runtime(&session_id, TerminalRuntimeState::running("fake daemon"));
+        let mut metadata = neozeus::shared::daemon_wire::DaemonSessionMetadata::default();
+        for (key, value) in env_overrides {
+            match key.as_str() {
+                "NEOZEUS_AGENT_UID" => metadata.agent_uid = Some(value.clone()),
+                "NEOZEUS_AGENT_LABEL" => metadata.agent_label = Some(value.clone()),
+                "NEOZEUS_AGENT_KIND" => {
+                    metadata.agent_kind =
+                        neozeus::shared::daemon_wire::DaemonAgentKind::from_env_name(value);
+                }
+                _ => {}
+            }
+        }
+        self.session_metadata
+            .lock()
+            .unwrap()
+            .insert(session_id.clone(), metadata);
         Ok(session_id)
     }
 
@@ -612,6 +653,9 @@ impl TerminalDaemonClient for FakeDaemonClient {
     /// Tests inspect `sent_commands` afterward to verify what would have been delivered to the real
     /// daemon/session.
     fn send_command(&self, session_id: &str, command: TerminalCommand) -> Result<(), String> {
+        if *self.fail_send.lock().unwrap() {
+            return Err("send failed".into());
+        }
         self.sent_commands
             .lock()
             .unwrap()
@@ -641,6 +685,7 @@ impl TerminalDaemonClient for FakeDaemonClient {
         }
         self.sessions.lock().unwrap().remove(session_id);
         self.session_runtimes.lock().unwrap().remove(session_id);
+        self.session_metadata.lock().unwrap().remove(session_id);
         self.updates.lock().unwrap().remove(session_id);
         Ok(())
     }

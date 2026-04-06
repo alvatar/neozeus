@@ -3,10 +3,8 @@ use crate::{
     conversations::{
         ConversationStore, MessageAuthor, MessageDeliveryState, MessageTransportAdapter,
     },
-    terminals::TerminalManager,
+    terminals::TerminalRuntimeSpawner,
 };
-
-use super::send_terminal_command;
 
 #[allow(
     clippy::too_many_arguments,
@@ -20,7 +18,7 @@ pub(crate) fn send_message(
     conversations: &mut ConversationStore,
     _transport: &MessageTransportAdapter,
     runtime_index: &AgentRuntimeIndex,
-    terminal_manager: &TerminalManager,
+    runtime_spawner: &TerminalRuntimeSpawner,
 ) {
     // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
     let message_id = conversations.push_message(
@@ -29,13 +27,22 @@ pub(crate) fn send_message(
         body.clone(),
         MessageDeliveryState::Pending,
     );
-    let Some(terminal_id) = runtime_index.primary_terminal(sender) else {
+    let Some(session_name) = runtime_index.session_name(sender) else {
         conversations.set_delivery(
             message_id,
             MessageDeliveryState::Failed("no terminal linked".into()),
         );
         return;
     };
-    send_terminal_command(terminal_id, &body, terminal_manager);
-    conversations.set_delivery(message_id, MessageDeliveryState::Delivered);
+    match runtime_spawner.send_command(
+        session_name,
+        crate::terminals::TerminalCommand::SendCommand(body),
+    ) {
+        Ok(()) => {
+            conversations.set_delivery(message_id, MessageDeliveryState::Delivered);
+        }
+        Err(error) => {
+            conversations.set_delivery(message_id, MessageDeliveryState::Failed(error));
+        }
+    }
 }

@@ -656,7 +656,10 @@ fn startup_restore_preserves_pi_clone_provenance_and_workdir_identity() {
         Some("/tmp/pi-alpha.jsonl")
     );
     assert!(catalog.is_workdir(restored_agent));
-    assert_eq!(catalog.kind(restored_agent), Some(crate::agents::AgentKind::Pi));
+    assert_eq!(
+        catalog.kind(restored_agent),
+        Some(crate::agents::AgentKind::Pi)
+    );
 }
 
 #[test]
@@ -732,21 +735,30 @@ fn startup_restore_plain_clone_can_be_cloned_again() {
 
     world.run_system_once(crate::startup::setup_scene).unwrap();
     insert_default_hud_resources(&mut world);
-    let restored_agent = *world.resource::<crate::agents::AgentCatalog>().order.first().unwrap();
+    let restored_agent = *world
+        .resource::<crate::agents::AgentCatalog>()
+        .order
+        .first()
+        .unwrap();
     world
         .resource_mut::<Messages<crate::app::AppCommand>>()
-        .write(crate::app::AppCommand::Agent(crate::app::AgentCommand::Clone {
-            source_agent_id: restored_agent,
-            label: "beta".into(),
-            workdir: false,
-        }));
+        .write(crate::app::AppCommand::Agent(
+            crate::app::AgentCommand::Clone {
+                source_agent_id: restored_agent,
+                label: "beta".into(),
+                workdir: false,
+            },
+        ));
     crate::app::run_apply_app_commands(&mut world);
 
     let catalog = world.resource::<crate::agents::AgentCatalog>();
     assert_eq!(catalog.order.len(), 2);
     let clone_agent = *catalog.order.last().unwrap();
     assert_eq!(catalog.label(clone_agent), Some("BETA"));
-    assert_eq!(catalog.kind(clone_agent), Some(crate::agents::AgentKind::Pi));
+    assert_eq!(
+        catalog.kind(clone_agent),
+        Some(crate::agents::AgentKind::Pi)
+    );
     assert!(catalog.clone_source_session_path(clone_agent).is_some());
 }
 
@@ -873,7 +885,10 @@ fn startup_restore_rebinds_owned_tmux_children_under_agent() {
 
     world.run_system_once(crate::startup::setup_scene).unwrap();
     assert_eq!(
-        world.resource::<crate::terminals::OwnedTmuxSessionStore>().sessions.len(),
+        world
+            .resource::<crate::terminals::OwnedTmuxSessionStore>()
+            .sessions
+            .len(),
         1,
         "startup should hydrate owned tmux state before the first interactive poke"
     );
@@ -984,7 +999,10 @@ fn startup_restore_rebinds_multiple_owned_tmux_children_under_correct_agents_and
 
     world.run_system_once(crate::startup::setup_scene).unwrap();
     assert_eq!(
-        world.resource::<crate::terminals::OwnedTmuxSessionStore>().sessions.len(),
+        world
+            .resource::<crate::terminals::OwnedTmuxSessionStore>()
+            .sessions
+            .len(),
         4,
         "startup should hydrate every owned tmux child before the first interactive poke"
     );

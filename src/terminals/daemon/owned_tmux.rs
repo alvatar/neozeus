@@ -1,3 +1,4 @@
+use crate::shared::command_runner::run_command_with_timeout;
 use std::{
     collections::HashMap,
     process::Command,
@@ -16,6 +17,14 @@ const TMUX_CREATED_BY_VALUE: &str = "neozeus";
 const TMUX_DISCOVER_TIMEOUT: Duration = Duration::from_secs(3);
 const TMUX_MUTATION_TIMEOUT: Duration = Duration::from_secs(5);
 static NEXT_OWNED_TMUX_UID_COUNTER: AtomicU64 = AtomicU64::new(1);
+
+fn tmux_program() -> std::ffi::OsString {
+    #[cfg(test)]
+    if let Some(program) = std::env::var_os("NEOZEUS_TEST_TMUX") {
+        return program;
+    }
+    std::ffi::OsString::from("tmux")
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct OwnedTmuxSessionInfo {
@@ -453,9 +462,9 @@ fn run_tmux<const N: usize>(args: [&str; N], timeout: Duration) -> Result<String
 }
 
 fn run_tmux_owned(args: Vec<String>, timeout: Duration) -> Result<String, String> {
-    let output = Command::new("tmux")
-        .args(&args)
-        .output()
+    let mut command = Command::new(tmux_program());
+    command.args(&args);
+    let output = run_command_with_timeout(&mut command, timeout, true)
         .map_err(|error| format!("tmux {:?} failed: {error}", args))?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_owned();
@@ -467,6 +476,52 @@ fn run_tmux_owned(args: Vec<String>, timeout: Duration) -> Result<String, String
             format!("tmux {:?} failed: {detail}", args)
         });
     }
-    let _ = timeout;
     Ok(String::from_utf8_lossy(&output.stdout).to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::run_tmux_owned;
+    use std::{
+        path::PathBuf,
+        process::Command,
+        sync::{Mutex, OnceLock},
+        time::Duration,
+    };
+
+    fn env_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
+
+    fn temp_dir(prefix: &str) -> PathBuf {
+        let path = std::env::temp_dir().join(format!(
+            "neozeus-{prefix}-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|duration| duration.as_nanos())
+                .unwrap_or(0)
+        ));
+        std::fs::create_dir_all(&path).unwrap();
+        path
+    }
+
+    #[test]
+    fn run_tmux_owned_times_out() {
+        let _guard = env_lock().lock().unwrap();
+        let dir = temp_dir("owned-tmux-timeout");
+        let fake_tmux = dir.join("tmux-timeout.sh");
+        std::fs::write(&fake_tmux, "#!/bin/sh\nsleep 1\n").unwrap();
+        let output = Command::new("chmod")
+            .arg("+x")
+            .arg(&fake_tmux)
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        std::env::set_var("NEOZEUS_TEST_TMUX", &fake_tmux);
+        let error = run_tmux_owned(vec!["list-sessions".into()], Duration::from_millis(1))
+            .expect_err("tmux timeout should fail");
+        std::env::remove_var("NEOZEUS_TEST_TMUX");
+        assert!(error.contains("timed out"));
+    }
 }

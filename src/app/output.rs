@@ -293,12 +293,8 @@ pub(crate) fn sync_final_frame_output_target(
     bloom_additive_cameras: Query<Entity, With<AgentListBloomAdditiveCameraMarker>>,
     modal_cameras: Query<Entity, With<HudModalCameraMarker>>,
 ) {
-    let target = resolve_scene_output_target(
-        &output,
-        &primary_window,
-        &mut images,
-        &mut output_state,
-    );
+    let target =
+        resolve_scene_output_target(&output, &primary_window, &mut images, &mut output_state);
     apply_scene_output_target(
         &mut commands,
         &target,

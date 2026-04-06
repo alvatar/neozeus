@@ -1,11 +1,17 @@
+use crate::shared::command_runner::run_command_with_timeout;
 use std::{
     fs,
     path::{Path, PathBuf},
     process::Command,
+    time::Duration,
 };
 
 fn prepare_git_command(cwd: &str) -> Command {
-    let mut command = Command::new("git");
+    let mut command = Command::new(git_program());
+    #[cfg(test)]
+    if let Some(program) = std::env::var_os("NEOZEUS_TEST_GIT") {
+        command = Command::new(program);
+    }
     command.current_dir(cwd);
     for key in [
         "GIT_DIR",
@@ -18,6 +24,16 @@ fn prepare_git_command(cwd: &str) -> Command {
         command.env_remove(key);
     }
     command
+}
+
+#[cfg(not(test))]
+fn git_program() -> &'static str {
+    "git"
+}
+
+#[cfg(test)]
+fn git_program() -> &'static str {
+    "git"
 }
 
 const WORKTREE_DIR: &str = ".worktrees";
@@ -57,13 +73,11 @@ pub fn get_worktree_repo_root(cwd: &str) -> Result<String, String> {
         .and_then(|value| value.to_str())
         == Some(".git")
     {
-        return Ok(
-            Path::new(&common_dir)
-                .parent()
-                .ok_or_else(|| format!("failed to resolve repo root from `{common_dir}`"))?
-                .to_string_lossy()
-                .into_owned(),
-        );
+        return Ok(Path::new(&common_dir)
+            .parent()
+            .ok_or_else(|| format!("failed to resolve repo root from `{common_dir}`"))?
+            .to_string_lossy()
+            .into_owned());
     }
 
     get_repo_root(cwd)
@@ -163,11 +177,10 @@ fn ensure_gitignore_entry(repo_root: &str) -> Result<(), String> {
 }
 
 fn run_git_capture(cwd: &str, args: &[&str], timeout_secs: u64) -> Result<String, String> {
-    let output = prepare_git_command(cwd)
-        .args(args)
-        .output()
+    let mut command = prepare_git_command(cwd);
+    command.args(args);
+    let output = run_command_with_timeout(&mut command, Duration::from_secs(timeout_secs), true)
         .map_err(|error| format!("failed to execute git {:?} in {}: {error}", args, cwd))?;
-    let _ = timeout_secs;
     if !output.status.success() {
         return Err(format!(
             "git {:?} failed in {}: {}",
@@ -183,9 +196,18 @@ fn run_git_capture(cwd: &str, args: &[&str], timeout_secs: u64) -> Result<String
 mod tests {
     use super::{
         create_worktree, get_current_branch, get_repo_root, get_worktree_repo_root,
-        worktree_base_dir, worktree_branch, worktree_path,
+        run_git_capture, worktree_base_dir, worktree_branch, worktree_path,
     };
-    use std::{path::PathBuf, process::Command};
+    use std::{
+        path::PathBuf,
+        process::Command,
+        sync::{Mutex, OnceLock},
+    };
+
+    fn env_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
 
     fn temp_dir(prefix: &str) -> PathBuf {
         let path = PathBuf::from("/tmp").join(format!(
@@ -216,7 +238,10 @@ mod tests {
     fn init_git_repo() -> PathBuf {
         let repo = temp_dir("worktree-repo");
         run(&repo, &["git", "init"]);
-        run(&repo, &["git", "config", "user.email", "neozeus@example.test"]);
+        run(
+            &repo,
+            &["git", "config", "user.email", "neozeus@example.test"],
+        );
         run(&repo, &["git", "config", "user.name", "NeoZeus Test"]);
         std::fs::write(repo.join("README.md"), "seed\n").unwrap();
         run(&repo, &["git", "add", "README.md"]);
@@ -228,7 +253,10 @@ mod tests {
     #[test]
     fn worktree_path_and_branch_follow_zeus_layout() {
         let repo_root = "/tmp/project";
-        assert_eq!(worktree_base_dir(repo_root), PathBuf::from("/tmp/project/.worktrees"));
+        assert_eq!(
+            worktree_base_dir(repo_root),
+            PathBuf::from("/tmp/project/.worktrees")
+        );
         assert_eq!(
             worktree_path(repo_root, "alpha"),
             PathBuf::from("/tmp/project/.worktrees/alpha")
@@ -239,7 +267,10 @@ mod tests {
     #[test]
     fn get_worktree_repo_root_resolves_main_checkout_root() {
         let repo = init_git_repo();
-        assert_eq!(get_repo_root(repo.to_str().unwrap()).unwrap(), repo.to_string_lossy());
+        assert_eq!(
+            get_repo_root(repo.to_str().unwrap()).unwrap(),
+            repo.to_string_lossy()
+        );
         assert_eq!(
             get_worktree_repo_root(repo.to_str().unwrap()).unwrap(),
             repo.to_string_lossy()
@@ -272,7 +303,13 @@ mod tests {
             "zeus/beta"
         );
         let gitignore = std::fs::read_to_string(repo.join(".gitignore")).unwrap();
-        assert_eq!(gitignore.lines().filter(|line| line.trim() == "/.worktrees/").count(), 1);
+        assert_eq!(
+            gitignore
+                .lines()
+                .filter(|line| line.trim() == "/.worktrees/")
+                .count(),
+            1
+        );
     }
 
     #[test]
@@ -287,8 +324,27 @@ mod tests {
     #[test]
     fn get_worktree_repo_root_rejects_non_git_source() {
         let dir = temp_dir("worktree-non-git");
-        let error = get_worktree_repo_root(dir.to_str().unwrap())
-            .expect_err("non-git cwd should fail");
+        let error =
+            get_worktree_repo_root(dir.to_str().unwrap()).expect_err("non-git cwd should fail");
         assert!(error.contains("git"));
+    }
+
+    #[test]
+    fn run_git_capture_times_out() {
+        let _guard = env_lock().lock().unwrap();
+        let dir = temp_dir("worktree-timeout-git");
+        let fake_git = dir.join("git-timeout.sh");
+        std::fs::write(&fake_git, "#!/bin/sh\nsleep 1\n").unwrap();
+        let output = Command::new("chmod")
+            .arg("+x")
+            .arg(&fake_git)
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        std::env::set_var("NEOZEUS_TEST_GIT", &fake_git);
+        let error = run_git_capture(dir.to_str().unwrap(), &["status"], 0)
+            .expect_err("git timeout should fail");
+        std::env::remove_var("NEOZEUS_TEST_GIT");
+        assert!(error.contains("timed out"));
     }
 }

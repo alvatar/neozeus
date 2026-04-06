@@ -152,6 +152,15 @@ impl DaemonRegistry {
         Ok(session_id)
     }
 
+    fn update_session_metadata_label(
+        &self,
+        session_id: &str,
+        agent_label: Option<String>,
+    ) -> Result<(), String> {
+        self.session(session_id)?.update_metadata_label(agent_label);
+        Ok(())
+    }
+
     /// Looks up one registered daemon session by id.
     fn session(&self, session_id: &str) -> Result<Arc<DaemonSession>, String> {
         let registry = lock(&self.inner);
@@ -324,6 +333,9 @@ fn handle_request(
         DaemonRequest::ListSessions => Ok(DaemonResponse::SessionList {
             sessions: registry.list_sessions(),
         }),
+        DaemonRequest::ListSessionsDetailed => Ok(DaemonResponse::SessionListDetailed {
+            sessions: registry.list_sessions(),
+        }),
         DaemonRequest::CreateSession {
             prefix,
             cwd,
@@ -397,6 +409,13 @@ fn handle_request(
         }
         DaemonRequest::KillOwnedTmuxSessionsForAgent { owner_agent_uid } => {
             registry.kill_owned_tmux_sessions_for_agent(&owner_agent_uid)?;
+            Ok(DaemonResponse::Ack)
+        }
+        DaemonRequest::UpdateSessionMetadata {
+            session_id,
+            agent_label,
+        } => {
+            registry.update_session_metadata_label(&session_id, agent_label)?;
             Ok(DaemonResponse::Ack)
         }
     }

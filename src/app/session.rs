@@ -1,6 +1,6 @@
 mod create_agent_dialog;
 
-use crate::{hud::HudInputCaptureState, terminals::TerminalId};
+use crate::hud::HudInputCaptureState;
 use bevy::prelude::Resource;
 
 pub(crate) use create_agent_dialog::{
@@ -22,7 +22,6 @@ pub(crate) struct AppSessionState {
     pub(crate) create_agent_dialog: CreateAgentDialogState,
     pub(crate) clone_agent_dialog: CloneAgentDialogState,
     pub(crate) rename_agent_dialog: RenameAgentDialogState,
-    pub(crate) direct_input_terminal: Option<TerminalId>,
 }
 
 impl AppSessionState {
