@@ -2,7 +2,10 @@ use std::collections::BTreeMap;
 
 use bevy::prelude::*;
 
-use crate::terminals::{TerminalId, TerminalManager, TerminalSurface};
+use crate::{
+    terminals::{TerminalId, TerminalManager, TerminalSurface},
+    verification::VerificationTerminalSurfaceOverrides,
+};
 
 use super::{AgentCatalog, AgentId, AgentKind, AgentRuntimeIndex};
 
@@ -63,6 +66,7 @@ pub(crate) fn sync_agent_status(
     agent_catalog: Res<AgentCatalog>,
     runtime_index: Res<AgentRuntimeIndex>,
     terminal_manager: Res<TerminalManager>,
+    verification_overrides: Option<Res<VerificationTerminalSurfaceOverrides>>,
     time: Res<Time>,
     mut status_store: ResMut<AgentStatusStore>,
 ) {
@@ -79,8 +83,16 @@ pub(crate) fn sync_agent_status(
 
         let Some(surface) = runtime_index
             .primary_terminal(agent_id)
-            .and_then(|terminal_id| terminal_manager.get(terminal_id))
-            .and_then(|terminal| terminal.snapshot.surface.as_ref())
+            .and_then(|terminal_id| {
+                verification_overrides
+                    .as_ref()
+                    .and_then(|overrides| overrides.surface_for(terminal_id))
+                    .or_else(|| {
+                        terminal_manager
+                            .get(terminal_id)
+                            .and_then(|terminal| terminal.snapshot.surface.as_ref())
+                    })
+            })
         else {
             samples.insert(agent_id, AgentStatusSample::default());
             continue;

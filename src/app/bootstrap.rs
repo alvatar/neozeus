@@ -19,7 +19,10 @@ use crate::{
         TerminalPresentationStore, TerminalRuntimeSpawner, TerminalViewState,
     },
     usage::{default_usage_persistence_state, UsageSnapshot},
-    verification::{AutoVerifyConfig, VerificationScenarioConfig},
+    verification::{
+        AutoVerifyConfig, VerificationCaptureBarrierState, VerificationScenarioConfig,
+        VerificationTerminalSurfaceOverrides,
+    },
 };
 
 use super::{
@@ -484,6 +487,8 @@ fn configure_app(app: &mut App) -> Result<(), String> {
         .insert_resource(AgentRuntimeIndex::default())
         .insert_resource(crate::agents::AgentStatusStore::default())
         .insert_resource(crate::visual_contract::VisualContractState::default())
+        .insert_resource(VerificationTerminalSurfaceOverrides::default())
+        .insert_resource(VerificationCaptureBarrierState::default())
         .insert_resource(AppSessionState::default())
         .insert_resource(crate::hud::AgentListSelection::default())
         .insert_resource(EguiClipboard::default())
