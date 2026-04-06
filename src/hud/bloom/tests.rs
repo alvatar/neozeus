@@ -130,6 +130,7 @@ fn parses_agent_bloom_debug_previews_override() {
 
 #[test]
 fn selected_agent_row_emits_selected_bloom_sources_only_for_that_row() {
+    let active_row_key = AgentListRowKey::Agent(crate::agents::AgentId(1));
     let specs = build_bloom_specs(
         HudRect {
             x: 0.0,
@@ -139,6 +140,7 @@ fn selected_agent_row_emits_selected_bloom_sources_only_for_that_row() {
         },
         0.0,
         None,
+        Some(&active_row_key),
         &AgentListView {
             rows: vec![
                 AgentListRowView {
@@ -179,6 +181,7 @@ fn selected_agent_row_emits_selected_bloom_sources_only_for_that_row() {
 
 #[test]
 fn selected_working_agent_row_emits_green_bloom_sources_only_for_that_row() {
+    let active_row_key = AgentListRowKey::Agent(crate::agents::AgentId(1));
     let specs = build_bloom_specs(
         HudRect {
             x: 0.0,
@@ -188,6 +191,7 @@ fn selected_working_agent_row_emits_green_bloom_sources_only_for_that_row() {
         },
         0.0,
         None,
+        Some(&active_row_key),
         &AgentListView {
             rows: vec![
                 AgentListRowView {
@@ -231,6 +235,7 @@ fn selected_working_agent_row_emits_green_bloom_sources_only_for_that_row() {
 
 #[test]
 fn selected_tmux_row_does_not_emit_parent_agent_bloom() {
+    let active_row_key = AgentListRowKey::OwnedTmux("tmux-1".into());
     let specs = build_bloom_specs(
         HudRect {
             x: 0.0,
@@ -240,6 +245,7 @@ fn selected_tmux_row_does_not_emit_parent_agent_bloom() {
         },
         0.0,
         None,
+        Some(&active_row_key),
         &AgentListView {
             rows: vec![
                 AgentListRowView {
@@ -282,6 +288,7 @@ fn selected_tmux_row_does_not_emit_parent_agent_bloom() {
 
 #[test]
 fn unselected_rows_do_not_emit_selected_bloom_sources() {
+    let active_row_key = AgentListRowKey::Agent(crate::agents::AgentId(2));
     let specs = build_bloom_specs(
         HudRect {
             x: 0.0,
@@ -291,6 +298,7 @@ fn unselected_rows_do_not_emit_selected_bloom_sources() {
         },
         0.0,
         None,
+        Some(&active_row_key),
         &AgentListView {
             rows: vec![AgentListRowView {
                 key: AgentListRowKey::Agent(crate::agents::AgentId(1)),
@@ -646,7 +654,6 @@ fn sync_hud_widget_bloom_hides_sources_and_composite_while_modal_is_visible() {
 /// the visual emphasis stays singular.
 #[test]
 fn sync_hud_widget_bloom_only_uses_active_agent_source() {
-    // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let mut world = World::default();
     let (bridge_one, _) = test_bridge();
     let (bridge_two, _) = test_bridge();
@@ -661,7 +668,36 @@ fn sync_hud_widget_bloom_only_uses_active_agent_source() {
         default_hud_module_instance(&HUD_WIDGET_DEFINITIONS[1]),
     );
     insert_terminal_manager_resources(&mut world, manager);
-    world.insert_resource(AgentListView::default());
+    world.insert_resource(AgentListView {
+        rows: vec![
+            AgentListRowView {
+                key: AgentListRowKey::Agent(crate::agents::AgentId(1)),
+                label: "AGENT-1".into(),
+                focused: true,
+                kind: AgentListRowKind::Agent {
+                    agent_id: crate::agents::AgentId(1),
+                    terminal_id: Some(id_one),
+                    has_tasks: false,
+                    interactive: true,
+                    activity: AgentListActivity::Idle,
+                    context_pct_milli: None,
+                },
+            },
+            AgentListRowView {
+                key: AgentListRowKey::Agent(crate::agents::AgentId(2)),
+                label: "AGENT-2".into(),
+                focused: false,
+                kind: AgentListRowKind::Agent {
+                    agent_id: crate::agents::AgentId(2),
+                    terminal_id: Some(id_two),
+                    has_tasks: false,
+                    interactive: true,
+                    activity: AgentListActivity::Working,
+                    context_pct_milli: None,
+                },
+            },
+        ],
+    });
     world.insert_resource(ConversationListView::default());
     world.insert_resource(ThreadView::default());
     world.insert_resource(ComposerView::default());
@@ -669,7 +705,6 @@ fn sync_hud_widget_bloom_only_uses_active_agent_source() {
     world.insert_resource(crate::terminals::OwnedTmuxSessionStore::default());
     world.insert_resource(crate::terminals::ActiveTerminalContentState::default());
     world.insert_resource(crate::terminals::ActiveTerminalContentSyncState::default());
-    run_synced_hud_view_models(&mut world);
     insert_test_hud_state(&mut world, hud_state);
     world.insert_resource(HudBloomSettings::default());
     world.insert_resource(HudWidgetBloom::default());
@@ -689,17 +724,21 @@ fn sync_hud_widget_bloom_only_uses_active_agent_source() {
     world.run_system_once(sync_hud_widget_bloom).unwrap();
 
     let source_sprites = world
-        .query::<&AgentListBloomSourceSprite>()
+        .query::<(&AgentListBloomSourceSprite, &Sprite)>()
         .iter(&world)
-        .copied()
+        .map(|(sprite, render)| (*sprite, render.color))
         .collect::<Vec<_>>();
     assert_eq!(source_sprites.len(), 8);
     assert!(source_sprites
         .iter()
-        .all(|sprite| sprite.terminal_id == id_two));
+        .all(|(sprite, _)| sprite.terminal_id == id_two));
     assert!(source_sprites
         .iter()
-        .all(|sprite| sprite.terminal_id != id_one));
+        .all(|(sprite, _)| sprite.terminal_id != id_one));
+    assert!(source_sprites.iter().all(|(_, color)| {
+        let linear = color.to_linear();
+        linear.green > linear.red && linear.green > linear.blue
+    }));
 }
 
 #[test]
@@ -750,7 +789,9 @@ fn sync_hud_widget_bloom_includes_selected_tmux_row_only() {
     world.insert_resource(ComposerView::default());
     world.insert_resource(crate::agents::AgentStatusStore::default());
     world.insert_resource(crate::terminals::OwnedTmuxSessionStore::default());
-    world.insert_resource(crate::terminals::ActiveTerminalContentState::default());
+    let mut active_content = crate::terminals::ActiveTerminalContentState::default();
+    active_content.select_owned_tmux("tmux-1".into(), Some(terminal_id));
+    world.insert_resource(active_content);
     world.insert_resource(crate::terminals::ActiveTerminalContentSyncState::default());
     insert_test_hud_state(&mut world, hud_state);
     world.insert_resource(HudBloomSettings::default());
