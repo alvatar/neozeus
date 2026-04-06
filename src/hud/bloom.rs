@@ -1,4 +1,8 @@
-use crate::{app::AppSessionState, startup::StartupConnectState, terminals::TerminalId};
+use crate::{
+    app::AppSessionState,
+    startup::StartupConnectState,
+    terminals::{ActiveTerminalContentState, TerminalFocusState, TerminalId},
+};
 
 use super::{
     modules::{
@@ -7,7 +11,7 @@ use super::{
         AGENT_LIST_WORKING_GREEN_G, AGENT_LIST_WORKING_GREEN_R,
     },
     state::{AgentListUiState, HudLayoutState, HudRect},
-    view_models::AgentListView,
+    view_models::{AgentListRowKey, AgentListView},
     widgets::HudWidgetKey,
 };
 use bevy::{
@@ -482,10 +486,29 @@ fn additive_blend_state() -> BlendState {
 ///
 /// Only the active row participates. For that row, the function derives the main and marker sub-rects,
 /// splits each into four border segments, and attaches the appropriate emissive color to each segment.
+fn active_bloom_row_key(
+    focus_state: &TerminalFocusState,
+    active_content: &ActiveTerminalContentState,
+    agent_list_view: &AgentListView,
+) -> Option<AgentListRowKey> {
+    if let Some(session_uid) = active_content.selected_owned_tmux_session_uid() {
+        return Some(AgentListRowKey::OwnedTmux(session_uid.to_owned()));
+    }
+    let active_terminal_id = focus_state.active_id()?;
+    agent_list_view.rows.iter().find_map(|row| match &row.kind {
+        crate::hud::view_models::AgentListRowKind::Agent {
+            terminal_id: Some(terminal_id),
+            ..
+        } if *terminal_id == active_terminal_id => Some(row.key.clone()),
+        _ => None,
+    })
+}
+
 fn build_bloom_specs(
     content_rect: HudRect,
     scroll_offset: f32,
     hovered_row: Option<&crate::hud::view_models::AgentListRowKey>,
+    active_row_key: Option<&AgentListRowKey>,
     agent_list_view: &AgentListView,
 ) -> Vec<BloomSourceSpec> {
     let rows = agent_rows(content_rect, scroll_offset, hovered_row, agent_list_view);
@@ -499,7 +522,10 @@ fn build_bloom_specs(
         .collect::<std::collections::HashMap<_, _>>();
 
     let mut specs = Vec::new();
-    for row in rows.into_iter().filter(|row| row.focused) {
+    for row in rows
+        .into_iter()
+        .filter(|row| active_row_key.is_some_and(|active_row_key| row.key == *active_row_key))
+    {
         let working = row.activity() == Some(crate::hud::view_models::AgentListActivity::Working);
         let terminal_id = if row.is_tmux_child() {
             let Some(terminal_id) = row
@@ -913,6 +939,8 @@ struct HudWidgetBloomContext<'w, 's> {
     layout_state: Res<'w, HudLayoutState>,
     app_session: Res<'w, AppSessionState>,
     startup_connect: Option<Res<'w, StartupConnectState>>,
+    focus_state: Res<'w, TerminalFocusState>,
+    active_content: Res<'w, ActiveTerminalContentState>,
     agent_list_state: Res<'w, AgentListUiState>,
     agent_list_view: Res<'w, AgentListView>,
     settings: Res<'w, HudBloomSettings>,
@@ -1079,10 +1107,13 @@ pub(crate) fn sync_hud_widget_bloom(world: &mut World) {
             .layout_state
             .get(HudWidgetKey::AgentList)
             .expect("agent list exists when enabled");
+        let active_row_key =
+            active_bloom_row_key(&ctx.focus_state, &ctx.active_content, &ctx.agent_list_view);
         build_bloom_specs(
             module.shell.current_rect,
             ctx.agent_list_state.scroll_offset,
             ctx.agent_list_state.hovered_row.as_ref(),
+            active_row_key.as_ref(),
             &ctx.agent_list_view,
         )
     } else {
