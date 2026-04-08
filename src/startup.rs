@@ -84,10 +84,64 @@ pub(crate) enum StartupConnectPhase {
 type StartupDaemonConnectResult = Result<crate::terminals::TerminalDaemonClientResource, String>;
 type StartupDaemonConnectReceiver = Arc<Mutex<mpsc::Receiver<StartupDaemonConnectResult>>>;
 
-#[derive(Resource)]
-pub(crate) struct StartupConnectState {
+#[derive(Resource, Clone, Debug, PartialEq, Eq)]
+pub(crate) struct DaemonConnectionState {
     phase: StartupConnectPhase,
     status: String,
+}
+
+impl Default for DaemonConnectionState {
+    fn default() -> Self {
+        Self {
+            phase: StartupConnectPhase::Connecting,
+            status: "Connecting".to_owned(),
+        }
+    }
+}
+
+impl DaemonConnectionState {
+    #[cfg(test)]
+    pub(crate) fn with_phase_for_test(phase: StartupConnectPhase, status: &str) -> Self {
+        Self {
+            phase,
+            status: status.to_owned(),
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn phase(&self) -> StartupConnectPhase {
+        self.phase
+    }
+
+    pub(crate) fn title(&self) -> &'static str {
+        match self.phase {
+            StartupConnectPhase::Connecting | StartupConnectPhase::Restoring => "Connecting",
+            StartupConnectPhase::Ready => "",
+            StartupConnectPhase::Failed => "Connection failed",
+        }
+    }
+
+    pub(crate) fn status(&self) -> &str {
+        &self.status
+    }
+
+    pub(crate) fn modal_visible(&self) -> bool {
+        !matches!(self.phase, StartupConnectPhase::Ready)
+    }
+
+    fn set_phase(&mut self, phase: StartupConnectPhase, status: impl Into<String>) {
+        self.phase = phase;
+        self.status = status.into();
+    }
+
+    fn set_ready(&mut self) {
+        self.phase = StartupConnectPhase::Ready;
+        self.status.clear();
+    }
+}
+
+#[derive(Resource)]
+pub(crate) struct StartupConnectState {
     receiver: Option<StartupDaemonConnectReceiver>,
     restore_started: bool,
     hold_frames_remaining: u32,
@@ -97,8 +151,6 @@ impl Default for StartupConnectState {
     /// Returns the default value for this type.
     fn default() -> Self {
         Self {
-            phase: StartupConnectPhase::Connecting,
-            status: "Connecting".to_owned(),
             receiver: None,
             restore_started: false,
             hold_frames_remaining: 8,
@@ -110,47 +162,19 @@ impl StartupConnectState {
     /// Builds a startup-connect state wired to a caller-supplied test receiver.
     #[cfg(test)]
     pub(crate) fn with_receiver_for_test(
-        phase: StartupConnectPhase,
         receiver: mpsc::Receiver<StartupDaemonConnectResult>,
     ) -> Self {
         Self {
-            phase,
-            status: "test".to_owned(),
             receiver: Some(Arc::new(Mutex::new(receiver))),
             restore_started: false,
             hold_frames_remaining: 0,
         }
     }
 
-    /// Returns the current startup-connect phase.
-    #[cfg(test)]
-    pub(crate) fn phase(&self) -> StartupConnectPhase {
-        self.phase
-    }
-
     /// Returns whether a background-connect receiver has been installed.
     #[cfg(test)]
     pub(crate) fn has_receiver(&self) -> bool {
         self.receiver.is_some()
-    }
-
-    /// Returns the user-facing title for the current startup-connect phase.
-    pub(crate) fn title(&self) -> &'static str {
-        match self.phase {
-            StartupConnectPhase::Connecting | StartupConnectPhase::Restoring => "Connecting",
-            StartupConnectPhase::Ready => "",
-            StartupConnectPhase::Failed => "Connection failed",
-        }
-    }
-
-    /// Returns the user-facing status text for the current startup-connect phase.
-    pub(crate) fn status(&self) -> &str {
-        &self.status
-    }
-
-    /// Returns whether the startup-connect overlay should be visible.
-    pub(crate) fn modal_visible(&self) -> bool {
-        !matches!(self.phase, StartupConnectPhase::Ready)
     }
 
     /// Starts the background runtime-connect work if it has not started yet.
@@ -292,10 +316,12 @@ pub(crate) fn setup_scene(world: &mut World) {
     let mut state: bevy::ecs::system::SystemState<(
         SceneSetupContext,
         ResMut<StartupConnectState>,
+        ResMut<DaemonConnectionState>,
         Option<Res<AutoVerifyConfig>>,
         Option<Res<VerificationScenarioConfig>>,
     )> = bevy::ecs::system::SystemState::new(world);
-    let (mut ctx, mut startup_connect, _auto_verify, verification_scenario) = state.get_mut(world);
+    let (mut ctx, mut startup_connect, mut connection_state, _auto_verify, verification_scenario) =
+        state.get_mut(world);
     // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
     ctx.commands.spawn((
         Camera2d,
@@ -330,19 +356,20 @@ pub(crate) fn setup_scene(world: &mut World) {
     }
 
     if ctx.runtime_spawner.is_ready() {
-        startup_connect.phase = StartupConnectPhase::Restoring;
-        startup_connect.status = if verification_scenario.is_some() {
-            "Preparing verification scene…".to_owned()
-        } else {
-            "Restoring sessions…".to_owned()
-        };
+        connection_state.set_phase(
+            StartupConnectPhase::Restoring,
+            if verification_scenario.is_some() {
+                "Preparing verification scene…"
+            } else {
+                "Restoring sessions…"
+            },
+        );
         if let Some(config) = _auto_verify {
             setup_verifier_terminal(&mut ctx, config.clone());
         } else if verification_scenario.is_none() {
             restore_startup_terminals(&mut ctx);
         }
-        startup_connect.phase = StartupConnectPhase::Ready;
-        startup_connect.status.clear();
+        connection_state.set_ready();
         ctx.redraws.write(RequestRedraw);
         state.apply(world);
         return;
@@ -369,10 +396,12 @@ pub(crate) fn advance_startup_connecting(world: &mut World) {
     let mut state: bevy::ecs::system::SystemState<(
         SceneSetupContext,
         ResMut<StartupConnectState>,
+        ResMut<DaemonConnectionState>,
         Option<Res<AutoVerifyConfig>>,
         Option<Res<VerificationScenarioConfig>>,
     )> = bevy::ecs::system::SystemState::new(world);
-    let (mut ctx, mut startup_connect, auto_verify, verification_scenario) = state.get_mut(world);
+    let (mut ctx, mut startup_connect, mut connection_state, auto_verify, verification_scenario) =
+        state.get_mut(world);
     macro_rules! finish {
         () => {{
             state.apply(world);
@@ -380,7 +409,7 @@ pub(crate) fn advance_startup_connecting(world: &mut World) {
         }};
     }
     // Walk the lifecycle in explicit stages so each side effect happens only after its prerequisites have been established.
-    match startup_connect.phase {
+    match connection_state.phase {
         StartupConnectPhase::Connecting => {
             if startup_connect.hold_frames_remaining > 0 {
                 startup_connect.hold_frames_remaining -= 1;
@@ -394,17 +423,18 @@ pub(crate) fn advance_startup_connecting(world: &mut World) {
             match result {
                 Some(Ok(daemon)) => {
                     ctx.runtime_spawner.install_daemon(daemon);
-                    startup_connect.phase = StartupConnectPhase::Restoring;
-                    startup_connect.status = if verification_scenario.is_some() {
-                        "Preparing verification scene…".to_owned()
-                    } else {
-                        "Restoring sessions…".to_owned()
-                    };
+                    connection_state.set_phase(
+                        StartupConnectPhase::Restoring,
+                        if verification_scenario.is_some() {
+                            "Preparing verification scene…"
+                        } else {
+                            "Restoring sessions…"
+                        },
+                    );
                     ctx.redraws.write(RequestRedraw);
                 }
                 Some(Err(error)) => {
-                    startup_connect.phase = StartupConnectPhase::Failed;
-                    startup_connect.status = error;
+                    connection_state.set_phase(StartupConnectPhase::Failed, error);
                     ctx.redraws.write(RequestRedraw);
                 }
                 None => {}
@@ -420,8 +450,7 @@ pub(crate) fn advance_startup_connecting(world: &mut World) {
             } else if verification_scenario.is_none() {
                 restore_startup_terminals(&mut ctx);
             }
-            startup_connect.phase = StartupConnectPhase::Ready;
-            startup_connect.status.clear();
+            connection_state.set_ready();
             ctx.redraws.write(RequestRedraw);
         }
         StartupConnectPhase::Ready | StartupConnectPhase::Failed => {}
@@ -537,20 +566,34 @@ fn restore_startup_terminals(ctx: &mut SceneSetupContext) {
     hydrate_startup_owned_tmux_state(ctx);
 
     if let Some(task_store) = ctx.task_store.as_deref_mut() {
+        let mut migrated_legacy_notes = false;
         for (agent_id, session_name) in ctx.runtime_index.session_bindings() {
-            let text = ctx
+            let stable_text = ctx
                 .agent_catalog
                 .uid(agent_id)
-                .and_then(|agent_uid| ctx.notes_state.note_text_by_agent_uid(agent_uid))
-                .or_else(|| ctx.notes_state.note_text(session_name));
-            if let Some(text) = text {
+                .and_then(|agent_uid| ctx.notes_state.note_text_by_agent_uid(agent_uid));
+            if let Some(text) = stable_text {
                 let _ = task_store.set_text(agent_id, text);
+                continue;
             }
+            let legacy_text = ctx.notes_state.note_text(session_name).map(str::to_owned);
+            if let Some(text) = legacy_text.as_deref() {
+                let _ = task_store.set_text(agent_id, text);
+                migrated_legacy_notes |= ctx.notes_state.remove_legacy_note_text(session_name);
+            }
+        }
+        if migrated_legacy_notes {
+            crate::terminals::mark_terminal_notes_dirty(&mut ctx.notes_state, Some(&ctx.time));
         }
     }
 
     if let Some(path) = ctx.conversation_persistence.path.as_ref() {
-        restore_persisted_conversations_from_path(path, &ctx.runtime_index, &mut ctx.conversations);
+        restore_persisted_conversations_from_path(
+            path,
+            &ctx.agent_catalog,
+            &ctx.runtime_index,
+            &mut ctx.conversations,
+        );
     } else {
         *ctx.conversations = ConversationStore::default();
     }

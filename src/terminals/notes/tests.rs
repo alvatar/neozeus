@@ -95,12 +95,9 @@ fn terminal_notes_path_prefers_state_home_then_home_state_then_config() {
     );
 }
 
-/// Verifies that terminal notes serialize and parse back without losing content.
-///
-/// The sample includes both a checkbox-style task block and a note starting with a dot so the format
-/// handles ordinary and slightly awkward payloads alike.
+/// Verifies that terminal notes serialize only stable agent-keyed entries.
 #[test]
-fn terminal_notes_parse_and_serialize_roundtrip() {
+fn terminal_notes_serialize_drops_legacy_session_entries() {
     let notes = PersistedTerminalNotes {
         notes_by_agent_uid: std::collections::HashMap::from([(
             "agent-uid-a".to_owned(),
@@ -115,7 +112,14 @@ fn terminal_notes_parse_and_serialize_roundtrip() {
     let serialized = serialize_terminal_notes(&notes);
     let reparsed = parse_terminal_notes(&serialized);
 
-    assert_eq!(reparsed, notes);
+    assert_eq!(
+        reparsed
+            .notes_by_agent_uid
+            .get("agent-uid-a")
+            .map(String::as_str),
+        Some("- [ ] first\n  detail")
+    );
+    assert!(reparsed.legacy_notes_by_session.is_empty());
 }
 
 /// Verifies that appending and prepending tasks preserve the expected Zeus task ordering.
@@ -220,11 +224,14 @@ fn terminal_notes_save_waits_for_debounce_window() {
     assert!(path.exists(), "save should run after debounce window");
     let saved = std::fs::read_to_string(&path).expect("failed to read notes file");
     let reparsed = parse_terminal_notes(&saved);
-    assert_eq!(
-        reparsed
-            .legacy_notes_by_session
-            .get("session-a")
-            .map(String::as_str),
-        Some("- [ ] first line")
-    );
+    assert!(reparsed.legacy_notes_by_session.is_empty());
+}
+
+#[test]
+fn remove_legacy_note_text_drops_session_keyed_entry() {
+    let mut notes_state = TerminalNotesState::default();
+    assert!(notes_state.set_note_text("session-a", "hello"));
+    assert!(notes_state.remove_legacy_note_text("session-a"));
+    assert_eq!(notes_state.note_text("session-a"), None);
+    assert!(!notes_state.remove_legacy_note_text("session-a"));
 }

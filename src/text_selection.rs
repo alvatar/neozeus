@@ -298,7 +298,10 @@ mod tests {
         let mut selection = PrimarySelectionState::default();
 
         assert!(selection.set_terminal_selection(TerminalId(7), "ABC   "));
-        assert_eq!(selection.source(), Some(PrimarySelectionSource::Terminal(TerminalId(7))));
+        assert_eq!(
+            selection.source(),
+            Some(PrimarySelectionSource::Terminal(TerminalId(7)))
+        );
         assert_eq!(selection.text(), Some("ABC"));
         let revision = selection.revision();
 

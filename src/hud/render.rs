@@ -12,7 +12,7 @@ use crate::{
         task_dialog_action_buttons, task_dialog_rect, MessageDialogFocus, TaskDialogFocus,
         TextEditorState,
     },
-    startup::StartupConnectState,
+    startup::DaemonConnectionState,
 };
 
 use super::{
@@ -949,7 +949,7 @@ fn startup_connect_rect(window: &Window) -> HudRect {
 fn draw_startup_connect_overlay(
     painter: &mut HudPainter,
     window: &Window,
-    startup_connect: &StartupConnectState,
+    startup_connect: &DaemonConnectionState,
 ) {
     // Build the geometry or layout decisions first, then emit the matching draw operations against the prepared state.
     if !startup_connect.modal_visible() {
@@ -1155,7 +1155,7 @@ pub(crate) fn render_hud_scene(
     info_bar_view: Res<InfoBarView>,
     agent_list_text_selection: Res<crate::text_selection::AgentListTextSelectionState>,
     fonts: Res<Assets<VelloFont>>,
-    startup_connect: Option<Res<StartupConnectState>>,
+    startup_connect: Option<Res<DaemonConnectionState>>,
     mut scene: Single<&mut VelloScene2d, With<HudVectorSceneMarker>>,
 ) {
     // Build the geometry or layout decisions first, then emit the matching draw operations against the prepared state.
@@ -1215,7 +1215,7 @@ pub(crate) fn render_hud_modal_scene(
     primary_window: Single<&Window, With<PrimaryWindow>>,
     app_session: Res<AppSessionState>,
     composer_view: Res<ComposerView>,
-    startup_connect: Option<Res<StartupConnectState>>,
+    startup_connect: Option<Res<DaemonConnectionState>>,
     fonts: Res<Assets<VelloFont>>,
     mut scene: Single<&mut VelloScene2d, With<HudModalVectorSceneMarker>>,
 ) {

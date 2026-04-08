@@ -1495,11 +1495,11 @@ mod tests {
     use super::sync_primary_selection_from_ui_text_selection;
     #[cfg(target_os = "linux")]
     use super::{read_linux_primary_selection_text_with, write_linux_primary_selection_text_with};
+    use crate::terminals::TerminalId;
     use crate::text_selection::{
         AgentListTextSelectionState, PrimarySelectionSource, PrimarySelectionState,
         TerminalSelectionPoint, TerminalTextSelectionState,
     };
-    use crate::terminals::TerminalId;
     use bevy::{ecs::system::RunSystemOnce, prelude::World};
 
     #[cfg(target_os = "linux")]

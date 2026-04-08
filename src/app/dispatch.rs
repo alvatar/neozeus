@@ -2,13 +2,15 @@ use crate::{
     agents::{AgentCatalog, AgentKind, AgentRuntimeIndex},
     app::{mark_app_state_dirty, AppStatePersistenceState},
     conversations::{
-        AgentTaskStore, ConversationPersistenceState, ConversationStore, MessageTransportAdapter,
+        mark_conversations_dirty, AgentTaskStore, ConversationPersistenceState, ConversationStore,
+        MessageTransportAdapter,
     },
     hud::{HudInputCaptureState, HudLayoutState, TerminalVisibilityState},
     startup::StartupLoadingState,
     terminals::{
-        append_debug_log, ActiveTerminalContentState, OwnedTmuxSessionStore, TerminalFocusState,
-        TerminalManager, TerminalRuntimeSpawner, TerminalViewState, PERSISTENT_SESSION_PREFIX,
+        append_debug_log, mark_terminal_notes_dirty, ActiveTerminalContentState,
+        OwnedTmuxSessionStore, TerminalFocusState, TerminalManager, TerminalNotesState,
+        TerminalRuntimeSpawner, TerminalViewState, PERSISTENT_SESSION_PREFIX,
         VERIFIER_SESSION_PREFIX,
     },
 };
@@ -23,6 +25,38 @@ use super::{
 };
 use bevy::{ecs::system::SystemParam, prelude::*, window::RequestRedraw};
 
+fn purge_removed_agent_state(
+    time: &Time,
+    agent_id: crate::agents::AgentId,
+    agent_catalog: &mut AgentCatalog,
+    app_session: &mut AppSessionState,
+    selection: &mut crate::hud::AgentListSelection,
+    task_store: &mut AgentTaskStore,
+    conversations: &mut ConversationStore,
+    conversation_persistence: &mut ConversationPersistenceState,
+    notes_state: &mut TerminalNotesState,
+    app_state_persistence: &mut AppStatePersistenceState,
+) {
+    let agent_uid = agent_catalog.uid(agent_id).map(str::to_owned);
+    let _ = agent_catalog.remove(agent_id);
+    app_session.composer.unbind_agent(agent_id);
+    if *selection == crate::hud::AgentListSelection::Agent(agent_id) {
+        *selection = crate::hud::AgentListSelection::None;
+    }
+
+    if task_store.remove_agent(agent_id) {
+        if let Some(agent_uid) = agent_uid.as_deref() {
+            if notes_state.remove_note_text_by_agent_uid(agent_uid) {
+                mark_terminal_notes_dirty(notes_state, Some(time));
+            }
+        }
+    }
+    if conversations.remove_agent(agent_id) {
+        mark_conversations_dirty(conversation_persistence, Some(time));
+    }
+    mark_app_state_dirty(app_state_persistence, Some(time));
+}
+
 /// Reconciles the new agent domain from terminal/runtime state that may still be created through
 /// legacy startup or verifier paths.
 ///
@@ -30,10 +64,16 @@ use bevy::{ecs::system::SystemParam, prelude::*, window::RequestRedraw};
 /// removed, and runtime lifecycle is refreshed. It does not overwrite explicit catalog labels once
 /// an agent exists, and it only clears row selection when the selected agent disappears.
 pub(crate) fn sync_agents_from_terminals(
+    time: Res<Time>,
     mut agent_catalog: ResMut<AgentCatalog>,
     mut runtime_index: ResMut<AgentRuntimeIndex>,
     mut app_session: ResMut<AppSessionState>,
     mut selection: ResMut<crate::hud::AgentListSelection>,
+    mut task_store: ResMut<AgentTaskStore>,
+    mut conversations: ResMut<ConversationStore>,
+    mut conversation_persistence: ResMut<ConversationPersistenceState>,
+    mut notes_state: ResMut<TerminalNotesState>,
+    mut app_state_persistence: ResMut<AppStatePersistenceState>,
     terminal_manager: Res<TerminalManager>,
 ) {
     // Rebuild the derived or projected state from the authoritative resources in one pass so partial updates cannot drift.
@@ -50,11 +90,18 @@ pub(crate) fn sync_agents_from_terminals(
         .collect::<Vec<_>>();
     for terminal_id in stale_terminals {
         if let Some(agent_id) = runtime_index.remove_terminal(terminal_id) {
-            let _ = agent_catalog.remove(agent_id);
-            app_session.composer.unbind_agent(agent_id);
-            if *selection == crate::hud::AgentListSelection::Agent(agent_id) {
-                *selection = crate::hud::AgentListSelection::None;
-            }
+            purge_removed_agent_state(
+                &time,
+                agent_id,
+                &mut agent_catalog,
+                &mut app_session,
+                &mut selection,
+                &mut task_store,
+                &mut conversations,
+                &mut conversation_persistence,
+                &mut notes_state,
+                &mut app_state_persistence,
+            );
         }
     }
 
@@ -121,6 +168,7 @@ pub(super) struct AppCommandContext<'w> {
     task_store: ResMut<'w, AgentTaskStore>,
     conversations: ResMut<'w, ConversationStore>,
     conversation_persistence: ResMut<'w, ConversationPersistenceState>,
+    notes_state: ResMut<'w, TerminalNotesState>,
     transport: Res<'w, MessageTransportAdapter>,
     app_state_persistence: ResMut<'w, AppStatePersistenceState>,
     visibility_state: ResMut<'w, TerminalVisibilityState>,
@@ -320,6 +368,9 @@ pub(super) fn apply_app_commands(
                         &mut ctx.app_session,
                         &mut ctx.selection,
                         &mut ctx.task_store,
+                        &mut ctx.conversations,
+                        &mut ctx.conversation_persistence,
+                        &mut ctx.notes_state,
                         &mut ctx.terminal_manager,
                         &mut ctx.focus_state,
                         &ctx.runtime_spawner,

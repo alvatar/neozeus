@@ -1,11 +1,13 @@
 use crate::{
     agents::{AgentCatalog, AgentId, AgentRuntimeIndex},
     app::AppStatePersistenceState,
-    conversations::AgentTaskStore,
+    conversations::{
+        mark_conversations_dirty, AgentTaskStore, ConversationPersistenceState, ConversationStore,
+    },
     hud::{HudInputCaptureState, TerminalVisibilityPolicy, TerminalVisibilityState},
     terminals::{
-        kill_terminal_session_and_remove, TerminalFocusState, TerminalManager,
-        TerminalRuntimeSpawner, TerminalViewState,
+        kill_terminal_session_and_remove, mark_terminal_notes_dirty, TerminalFocusState,
+        TerminalManager, TerminalNotesState, TerminalRuntimeSpawner, TerminalViewState,
     },
 };
 
@@ -38,6 +40,9 @@ pub(crate) fn kill_selected_agent(
     app_session: &mut AppSessionState,
     selection: &mut crate::hud::AgentListSelection,
     task_store: &mut AgentTaskStore,
+    conversations: &mut ConversationStore,
+    conversation_persistence: &mut ConversationPersistenceState,
+    notes_state: &mut TerminalNotesState,
     terminal_manager: &mut TerminalManager,
     focus_state: &mut TerminalFocusState,
     runtime_spawner: &TerminalRuntimeSpawner,
@@ -89,8 +94,19 @@ pub(crate) fn kill_selected_agent(
     };
 
     let _ = runtime_index.remove_terminal(terminal_id);
+    let removed_agent_uid = agent_catalog.uid(selected_agent).map(str::to_owned);
     let _ = agent_catalog.remove(selected_agent);
-    let _ = task_store.remove_agent(selected_agent);
+    let removed_tasks = task_store.remove_agent(selected_agent);
+    if conversations.remove_agent(selected_agent) {
+        mark_conversations_dirty(conversation_persistence, Some(time));
+    }
+    if let Some(agent_uid) = removed_agent_uid.as_deref() {
+        if notes_state.remove_note_text_by_agent_uid(agent_uid) {
+            mark_terminal_notes_dirty(notes_state, Some(time));
+        }
+    } else if removed_tasks {
+        mark_terminal_notes_dirty(notes_state, Some(time));
+    }
     view_state.forget_terminal(terminal_id);
     app_session.composer.unbind_agent(selected_agent);
     *selection = replacement_agent

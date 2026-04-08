@@ -1,7 +1,9 @@
 mod daemon_client;
 
 use self::daemon_client::{OwnedTmuxCreator, SocketOwnedTmuxClient};
-use neozeus::shared::daemon_wire::OwnedTmuxSessionInfo;
+use neozeus::shared::{
+    daemon_socket::daemon_socket_path_from_env_map, daemon_wire::OwnedTmuxSessionInfo,
+};
 use std::{collections::HashMap, path::Path};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -35,9 +37,8 @@ where
 }
 
 fn socket_path_from_env(env: &HashMap<String, String>) -> Result<&str, String> {
-    env.get("NEOZEUS_DAEMON_SOCKET")
-        .map(String::as_str)
-        .ok_or_else(|| "NEOZEUS_DAEMON_SOCKET is required".to_owned())
+    daemon_socket_path_from_env_map(env)
+        .ok_or_else(|| "NEOZEUS_DAEMON_SOCKET_PATH or NEOZEUS_DAEMON_SOCKET is required".to_owned())
 }
 
 fn parse_run_request(args: &[String], env: &HashMap<String, String>) -> Result<RunRequest, String> {
@@ -164,7 +165,7 @@ mod tests {
         HashMap::from([
             ("NEOZEUS_AGENT_UID".to_owned(), "agent-uid-1".to_owned()),
             (
-                "NEOZEUS_DAEMON_SOCKET".to_owned(),
+                "NEOZEUS_DAEMON_SOCKET_PATH".to_owned(),
                 "/tmp/neozeus-test.sock".to_owned(),
             ),
         ])
@@ -190,7 +191,19 @@ mod tests {
     fn socket_path_from_env_requires_explicit_daemon_socket() {
         let error =
             socket_path_from_env(&HashMap::new()).expect_err("missing socket env should fail");
-        assert_eq!(error, "NEOZEUS_DAEMON_SOCKET is required");
+        assert_eq!(
+            error,
+            "NEOZEUS_DAEMON_SOCKET_PATH or NEOZEUS_DAEMON_SOCKET is required"
+        );
+    }
+
+    #[test]
+    fn socket_path_from_env_accepts_compatibility_socket_env() {
+        let env = HashMap::from([(
+            "NEOZEUS_DAEMON_SOCKET".to_owned(),
+            "/tmp/legacy.sock".to_owned(),
+        )]);
+        assert_eq!(socket_path_from_env(&env).unwrap(), "/tmp/legacy.sock");
     }
 
     #[test]

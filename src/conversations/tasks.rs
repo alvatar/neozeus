@@ -110,12 +110,11 @@ pub(crate) fn sync_task_notes_projection(
     mut notes_state: ResMut<TerminalNotesState>,
 ) {
     let mut changed = false;
-    for (agent_id, session_name) in runtime_index.session_bindings() {
+    for (agent_id, _session_name) in runtime_index.session_bindings() {
         let next_text = task_store.text(agent_id).unwrap_or_default();
         if let Some(agent_uid) = agent_catalog.uid(agent_id) {
             changed |= notes_state.set_note_text_by_agent_uid(agent_uid, next_text);
         }
-        changed |= notes_state.set_note_text(session_name, next_text);
     }
     if changed {
         mark_terminal_notes_dirty(&mut notes_state, Some(&time));

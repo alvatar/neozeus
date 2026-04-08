@@ -3419,6 +3419,90 @@ fn terminal_focus_sync_does_not_rewrite_agent_list_selection() {
     );
 }
 
+#[test]
+fn sync_agents_from_terminals_cleans_tasks_conversations_notes_and_persistence_for_disappeared_agent(
+) {
+    let (bridge, _) = test_bridge();
+    let mut manager = TerminalManager::default();
+    let terminal_id = manager.create_terminal(bridge);
+
+    let mut catalog = AgentCatalog::default();
+    let agent_id = catalog.create_agent(
+        Some("alpha".into()),
+        crate::agents::AgentKind::Terminal,
+        crate::agents::AgentKind::Terminal.capabilities(),
+    );
+    let agent_uid = catalog.uid(agent_id).unwrap().to_owned();
+    let mut runtime_index = AgentRuntimeIndex::default();
+    runtime_index.link_terminal(agent_id, terminal_id, "alpha-session".into(), None);
+    let _ = manager.remove_terminal(terminal_id);
+
+    let mut task_store = crate::conversations::AgentTaskStore::default();
+    assert!(task_store.set_text(agent_id, "- [ ] task"));
+    let mut conversations = crate::conversations::ConversationStore::default();
+    let conversation_id = conversations.ensure_conversation(agent_id);
+    let _ = conversations.push_message(
+        conversation_id,
+        crate::conversations::MessageAuthor::User,
+        "hello".into(),
+        crate::conversations::MessageDeliveryState::Delivered,
+    );
+    let mut notes_state = crate::terminals::TerminalNotesState::default();
+    assert!(notes_state.set_note_text_by_agent_uid(&agent_uid, "- [ ] task"));
+
+    let mut world = World::default();
+    world.insert_resource(Time::<()>::default());
+    world.insert_resource(catalog);
+    world.insert_resource(runtime_index);
+    world.insert_resource(AppSessionState::default());
+    world.insert_resource(crate::hud::AgentListSelection::Agent(agent_id));
+    world.insert_resource(task_store);
+    world.insert_resource(conversations);
+    world.insert_resource(crate::conversations::ConversationPersistenceState::default());
+    world.insert_resource(notes_state);
+    world.insert_resource(AppStatePersistenceState::default());
+    world.insert_resource(manager);
+
+    world
+        .run_system_once(crate::app::sync_agents_from_terminals)
+        .unwrap();
+
+    assert!(world.resource::<AgentCatalog>().order.is_empty());
+    assert!(world
+        .resource::<AgentRuntimeIndex>()
+        .session_to_agent
+        .is_empty());
+    assert_eq!(
+        *world.resource::<crate::hud::AgentListSelection>(),
+        crate::hud::AgentListSelection::None
+    );
+    assert_eq!(
+        world
+            .resource::<crate::conversations::AgentTaskStore>()
+            .text(agent_id),
+        None
+    );
+    assert!(world
+        .resource::<crate::conversations::ConversationStore>()
+        .conversation_for_agent(agent_id)
+        .is_none());
+    let notes_state = world.resource::<crate::terminals::TerminalNotesState>();
+    assert_eq!(notes_state.note_text_by_agent_uid(&agent_uid), None);
+    assert_eq!(notes_state.dirty_since_secs, Some(0.0));
+    assert_eq!(
+        world
+            .resource::<crate::conversations::ConversationPersistenceState>()
+            .dirty_since_secs,
+        Some(0.0)
+    );
+    assert_eq!(
+        world
+            .resource::<AppStatePersistenceState>()
+            .dirty_since_secs,
+        Some(0.0)
+    );
+}
+
 /// Verifies that focusing an agent clears any selected tmux terminal override.
 #[test]
 fn focusing_agent_clears_owned_tmux_selection() {

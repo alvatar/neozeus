@@ -3,6 +3,7 @@ use std::{env, path::PathBuf};
 
 pub const APP_STATE_FILENAME: &str = "neozeus-state.v1";
 pub const APP_STATE_VERSION_V1: &str = "neozeus state version 1";
+pub const APP_STATE_VERSION_V2: &str = "neozeus state version 2";
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum PersistedAgentKind {
@@ -40,7 +41,7 @@ impl PersistedAgentKind {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PersistedAgentState {
     pub agent_uid: Option<String>,
-    pub session_name: String,
+    pub runtime_session_name: Option<String>,
     pub label: Option<String>,
     pub kind: PersistedAgentKind,
     pub clone_source_session_path: Option<String>,
@@ -93,20 +94,32 @@ pub fn resolve_app_state_path() -> Option<PathBuf> {
     )
 }
 
-/// Parses version-1 persisted app-state text.
+/// Parses persisted app-state text.
 pub fn parse_persisted_app_state(text: &str) -> PersistedAppState {
     let version_line = text
         .lines()
         .find(|line| !line.trim().is_empty())
         .map(str::trim)
         .unwrap_or_default();
-    if version_line != APP_STATE_VERSION_V1 {
-        return PersistedAppState::default();
+    match version_line {
+        APP_STATE_VERSION_V1 => parse_persisted_app_state_v1(text),
+        APP_STATE_VERSION_V2 => parse_persisted_app_state_v2(text),
+        _ => PersistedAppState::default(),
     }
+}
 
+fn parse_persisted_app_state_v1(text: &str) -> PersistedAppState {
+    parse_persisted_app_state_with(text, true)
+}
+
+fn parse_persisted_app_state_v2(text: &str) -> PersistedAppState {
+    parse_persisted_app_state_with(text, false)
+}
+
+fn parse_persisted_app_state_with(text: &str, legacy_session_name_key: bool) -> PersistedAppState {
     let mut persisted = PersistedAppState::default();
     let mut agent_uid = None;
-    let mut session_name = None;
+    let mut runtime_session_name = None;
     let mut label = None;
     let mut kind = None;
     let mut clone_source_session_path = None;
@@ -127,7 +140,7 @@ pub fn parse_persisted_app_state(text: &str) -> PersistedAppState {
             "[agent]" => {
                 in_agent = true;
                 agent_uid = None;
-                session_name = None;
+                runtime_session_name = None;
                 label = None;
                 kind = None;
                 clone_source_session_path = None;
@@ -137,19 +150,22 @@ pub fn parse_persisted_app_state(text: &str) -> PersistedAppState {
             }
             "[/agent]" => {
                 if in_agent {
-                    if let (Some(session_name), Some(order_index), Some(last_focused)) =
-                        (session_name.take(), order_index.take(), last_focused.take())
+                    let has_runtime_hint = runtime_session_name.is_some();
+                    if let (Some(order_index), Some(last_focused)) =
+                        (order_index.take(), last_focused.take())
                     {
-                        persisted.agents.push(PersistedAgentState {
-                            agent_uid: agent_uid.take(),
-                            session_name,
-                            label: label.take(),
-                            kind: kind.take().unwrap_or(PersistedAgentKind::Pi),
-                            clone_source_session_path: clone_source_session_path.take(),
-                            is_workdir,
-                            order_index,
-                            last_focused,
-                        });
+                        if agent_uid.is_some() || has_runtime_hint {
+                            persisted.agents.push(PersistedAgentState {
+                                agent_uid: agent_uid.take(),
+                                runtime_session_name: runtime_session_name.take(),
+                                label: label.take(),
+                                kind: kind.take().unwrap_or(PersistedAgentKind::Pi),
+                                clone_source_session_path: clone_source_session_path.take(),
+                                is_workdir,
+                                order_index,
+                                last_focused,
+                            });
+                        }
                     }
                 }
                 in_agent = false;
@@ -163,8 +179,13 @@ pub fn parse_persisted_app_state(text: &str) -> PersistedAppState {
                     "agent_uid" => {
                         agent_uid = unquote_escaped_string(value, EXTENDED_QUOTED_STRING_ESCAPES)
                     }
-                    "session_name" => {
-                        session_name = unquote_escaped_string(value, EXTENDED_QUOTED_STRING_ESCAPES)
+                    "runtime_session_name" => {
+                        runtime_session_name =
+                            unquote_escaped_string(value, EXTENDED_QUOTED_STRING_ESCAPES)
+                    }
+                    "session_name" if legacy_session_name_key => {
+                        runtime_session_name =
+                            unquote_escaped_string(value, EXTENDED_QUOTED_STRING_ESCAPES)
                     }
                     "label" => {
                         label = unquote_escaped_string(value, EXTENDED_QUOTED_STRING_ESCAPES)

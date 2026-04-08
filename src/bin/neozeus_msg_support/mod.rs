@@ -175,7 +175,7 @@ fn resolve_session_from_persisted_agent_label(
                 .as_deref()
                 == Some(label.as_str())
         })
-        .map(|record| record.session_name.clone())
+        .filter_map(|record| record.runtime_session_name.clone())
         .collect::<Vec<_>>();
     match matches.len() {
         0 => Err(format!("unknown agent `{label}` in app state")),
@@ -311,7 +311,7 @@ mod tests {
                 .enumerate()
                 .map(|(index, (session_name, label))| PersistedAgentState {
                     agent_uid: Some(format!("agent-uid-{index}")),
-                    session_name: (*session_name).to_owned(),
+                    runtime_session_name: Some((*session_name).to_owned()),
                     label: label.map(str::to_owned),
                     kind: PersistedAgentKind::Terminal,
                     clone_source_session_path: None,
@@ -601,7 +601,10 @@ mod tests {
             load_existing_persisted_app_state(&path).expect("app-state load should succeed");
 
         assert_eq!(persisted.agents.len(), 1);
-        assert_eq!(persisted.agents[0].session_name, "session-a");
+        assert_eq!(
+            persisted.agents[0].runtime_session_name.as_deref(),
+            Some("session-a")
+        );
         assert_eq!(persisted.agents[0].label.as_deref(), Some("ALPHA"));
     }
 }

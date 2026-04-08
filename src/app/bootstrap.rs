@@ -512,6 +512,7 @@ fn configure_app(app: &mut App) -> Result<(), String> {
         .insert_resource(crate::text_selection::PrimarySelectionState::default())
         .insert_resource(crate::text_selection::PrimarySelectionOwnerState::default())
         .insert_resource(crate::startup::StartupLoadingState::default())
+        .insert_resource(crate::startup::DaemonConnectionState::default())
         .insert_resource(crate::startup::StartupConnectState::default())
         .add_message::<AppCommand>();
 

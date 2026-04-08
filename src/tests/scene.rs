@@ -11,7 +11,8 @@ use crate::{
     startup::{
         advance_startup_connecting, choose_startup_focus_session_name,
         request_redraw_while_visuals_active, should_request_visual_redraw,
-        startup_visibility_policy_for_focus, StartupConnectPhase, StartupConnectState,
+        startup_visibility_policy_for_focus, DaemonConnectionState, StartupConnectPhase,
+        StartupConnectState,
     },
     terminals::{
         TerminalId, TerminalPanel, TerminalPresentation, TerminalPresentationStore,
@@ -306,9 +307,9 @@ fn pending_runtime_spawner_becomes_ready_when_daemon_is_installed() {
 /// restore phase.
 #[test]
 fn startup_connect_title_stays_connecting_during_restore() {
-    let state = StartupConnectState::with_receiver_for_test(
+    let state = DaemonConnectionState::with_phase_for_test(
         StartupConnectPhase::Restoring,
-        std::sync::mpsc::channel().1,
+        "Restoring sessions…",
     );
     assert_eq!(state.title(), "Connecting");
 }
@@ -331,6 +332,7 @@ fn setup_scene_starts_background_connect_when_runtime_is_pending() {
     world.insert_resource(crate::hud::TerminalVisibilityState::default());
     world.insert_resource(crate::terminals::TerminalViewState::default());
     world.insert_resource(crate::startup::StartupLoadingState::default());
+    world.insert_resource(DaemonConnectionState::default());
     world.insert_resource(StartupConnectState::default());
     world.insert_resource(Time::<()>::default());
     world.init_resource::<Messages<RequestRedraw>>();
@@ -338,7 +340,10 @@ fn setup_scene_starts_background_connect_when_runtime_is_pending() {
     world.run_system_once(crate::startup::setup_scene).unwrap();
 
     let startup_connect = world.resource::<StartupConnectState>();
-    assert_eq!(startup_connect.phase(), StartupConnectPhase::Connecting);
+    assert_eq!(
+        world.resource::<DaemonConnectionState>().phase(),
+        StartupConnectPhase::Connecting
+    );
     assert!(startup_connect.has_receiver());
 }
 
@@ -368,10 +373,8 @@ fn startup_connecting_advances_to_restoring_when_background_connect_completes() 
     world.insert_resource(crate::hud::TerminalVisibilityState::default());
     world.insert_resource(crate::terminals::TerminalViewState::default());
     world.insert_resource(crate::startup::StartupLoadingState::default());
-    world.insert_resource(StartupConnectState::with_receiver_for_test(
-        StartupConnectPhase::Connecting,
-        rx,
-    ));
+    world.insert_resource(DaemonConnectionState::default());
+    world.insert_resource(StartupConnectState::with_receiver_for_test(rx));
     world.insert_resource(Time::<()>::default());
     world.init_resource::<Messages<RequestRedraw>>();
 
@@ -379,7 +382,7 @@ fn startup_connecting_advances_to_restoring_when_background_connect_completes() 
 
     assert!(spawner.is_ready());
     assert_eq!(
-        world.resource::<StartupConnectState>().phase(),
+        world.resource::<DaemonConnectionState>().phase(),
         StartupConnectPhase::Restoring
     );
 }
@@ -686,6 +689,7 @@ fn startup_focus_skips_disconnected_restored_session() {
     });
     world.insert_resource(crate::terminals::TerminalNotesState::default());
     world.insert_resource(crate::hud::TerminalVisibilityState::default());
+    world.insert_resource(crate::startup::DaemonConnectionState::default());
     world.insert_resource(crate::startup::StartupConnectState::default());
 
     world.run_system_once(crate::startup::setup_scene).unwrap();
@@ -751,6 +755,7 @@ fn startup_leaves_only_disconnected_sessions_visible_and_unfocused() {
     });
     world.insert_resource(crate::terminals::TerminalNotesState::default());
     world.insert_resource(crate::hud::TerminalVisibilityState::default());
+    world.insert_resource(crate::startup::DaemonConnectionState::default());
     world.insert_resource(crate::startup::StartupConnectState::default());
 
     world.run_system_once(crate::startup::setup_scene).unwrap();
@@ -810,6 +815,7 @@ fn startup_restore_backfills_missing_agent_uid_and_marks_app_state_dirty() {
     });
     world.insert_resource(crate::terminals::TerminalNotesState::default());
     world.insert_resource(crate::hud::TerminalVisibilityState::default());
+    world.insert_resource(crate::startup::DaemonConnectionState::default());
     world.insert_resource(crate::startup::StartupConnectState::default());
 
     world.run_system_once(crate::startup::setup_scene).unwrap();
@@ -825,6 +831,72 @@ fn startup_restore_backfills_missing_agent_uid_and_marks_app_state_dirty() {
             .dirty_since_secs,
         Some(0.0)
     );
+}
+
+#[test]
+fn startup_restore_migrates_legacy_session_notes_into_task_store_and_marks_notes_dirty() {
+    let client = Arc::new(crate::tests::FakeDaemonClient::default());
+    client.set_session_runtime(
+        "neozeus-session-a",
+        crate::terminals::TerminalRuntimeState::running("restored"),
+    );
+    let dir = temp_dir("neozeus-startup-legacy-notes-migration");
+    let app_state_path = dir.join("neozeus-state.v1");
+    let notes_path = dir.join("notes.v1");
+    std::fs::write(
+        &app_state_path,
+        "neozeus state version 1\n[agent]\nagent_uid=\"agent-uid-1\"\nsession_name=\"neozeus-session-a\"\nlabel=\"ALPHA\"\nkind=\"pi\"\norder_index=0\nfocused=1\n[/agent]\n",
+    )
+    .expect("app state should write");
+    std::fs::write(
+        &notes_path,
+        "version 2\nnote name=neozeus-session-a\n- [ ] legacy task\n.\n",
+    )
+    .expect("legacy notes should write");
+
+    let mut world = World::default();
+    world.insert_resource(Assets::<Image>::default());
+    world.insert_resource(crate::terminals::TerminalManager::default());
+    world.insert_resource(crate::terminals::TerminalFocusState::default());
+    world.insert_resource(crate::terminals::TerminalPresentationStore::default());
+    world.insert_resource(crate::agents::AgentCatalog::default());
+    world.insert_resource(crate::agents::AgentRuntimeIndex::default());
+    world.insert_resource(crate::app::AppSessionState::default());
+    world.insert_resource(crate::conversations::ConversationStore::default());
+    world.insert_resource(crate::conversations::ConversationPersistenceState::default());
+    world.insert_resource(crate::conversations::AgentTaskStore::default());
+    world.insert_resource(crate::hud::HudInputCaptureState::default());
+    world.insert_resource(crate::terminals::TerminalViewState::default());
+    world.init_resource::<Messages<RequestRedraw>>();
+    world.insert_resource(Time::<()>::default());
+    world.insert_resource(fake_runtime_spawner(client));
+    world.insert_resource(crate::app::AppStatePersistenceState {
+        path: Some(app_state_path),
+        dirty_since_secs: None,
+    });
+    let mut notes_state = crate::terminals::TerminalNotesState::default();
+    notes_state.path = Some(notes_path);
+    world.insert_resource(notes_state);
+    world.insert_resource(crate::hud::TerminalVisibilityState::default());
+    world.insert_resource(crate::startup::DaemonConnectionState::default());
+    world.insert_resource(crate::startup::StartupConnectState::default());
+
+    world.run_system_once(crate::startup::setup_scene).unwrap();
+
+    let restored_agent = *world
+        .resource::<crate::agents::AgentCatalog>()
+        .order
+        .first()
+        .expect("restored agent should exist");
+    assert_eq!(
+        world
+            .resource::<crate::conversations::AgentTaskStore>()
+            .text(restored_agent),
+        Some("- [ ] legacy task")
+    );
+    let notes_state = world.resource::<crate::terminals::TerminalNotesState>();
+    assert_eq!(notes_state.note_text("neozeus-session-a"), None);
+    assert_eq!(notes_state.dirty_since_secs, Some(0.0));
 }
 
 /// Verifies that startup restore preserves Pi clone provenance and workdir identity.
@@ -864,6 +936,7 @@ fn startup_restore_preserves_pi_clone_provenance_and_workdir_identity() {
     });
     world.insert_resource(crate::terminals::TerminalNotesState::default());
     world.insert_resource(crate::hud::TerminalVisibilityState::default());
+    world.insert_resource(crate::startup::DaemonConnectionState::default());
     world.insert_resource(crate::startup::StartupConnectState::default());
 
     world.run_system_once(crate::startup::setup_scene).unwrap();
@@ -950,6 +1023,7 @@ fn startup_restore_plain_clone_can_be_cloned_again() {
     });
     world.insert_resource(crate::terminals::TerminalNotesState::default());
     world.insert_resource(crate::hud::TerminalVisibilityState::default());
+    world.insert_resource(crate::startup::DaemonConnectionState::default());
     world.insert_resource(crate::startup::StartupConnectState::default());
 
     world.run_system_once(crate::startup::setup_scene).unwrap();
@@ -1027,6 +1101,7 @@ fn startup_restore_workdir_clone_projects_marker_after_sync() {
     });
     world.insert_resource(crate::terminals::TerminalNotesState::default());
     world.insert_resource(crate::hud::TerminalVisibilityState::default());
+    world.insert_resource(crate::startup::DaemonConnectionState::default());
     world.insert_resource(crate::startup::StartupConnectState::default());
 
     world.run_system_once(crate::startup::setup_scene).unwrap();
@@ -1098,6 +1173,7 @@ fn startup_restore_rebinds_owned_tmux_children_under_agent() {
     });
     world.insert_resource(crate::terminals::TerminalNotesState::default());
     world.insert_resource(crate::hud::TerminalVisibilityState::default());
+    world.insert_resource(crate::startup::DaemonConnectionState::default());
     world.insert_resource(crate::startup::StartupConnectState::default());
 
     world.run_system_once(crate::startup::setup_scene).unwrap();
@@ -1210,6 +1286,7 @@ fn startup_restore_rebinds_multiple_owned_tmux_children_under_correct_agents_and
     });
     world.insert_resource(crate::terminals::TerminalNotesState::default());
     world.insert_resource(crate::hud::TerminalVisibilityState::default());
+    world.insert_resource(crate::startup::DaemonConnectionState::default());
     world.insert_resource(crate::startup::StartupConnectState::default());
 
     world.run_system_once(crate::startup::setup_scene).unwrap();
@@ -1278,6 +1355,7 @@ fn startup_reaps_unpersisted_disconnected_session_instead_of_restoring_it() {
     world.insert_resource(crate::app::AppStatePersistenceState::default());
     world.insert_resource(crate::terminals::TerminalNotesState::default());
     world.insert_resource(crate::hud::TerminalVisibilityState::default());
+    world.insert_resource(crate::startup::DaemonConnectionState::default());
     world.insert_resource(crate::startup::StartupConnectState::default());
 
     world.run_system_once(crate::startup::setup_scene).unwrap();
@@ -1330,6 +1408,7 @@ fn startup_spawns_initial_terminal_when_no_sessions_exist() {
     world.insert_resource(crate::app::AppStatePersistenceState::default());
     world.insert_resource(crate::terminals::TerminalNotesState::default());
     world.insert_resource(crate::hud::TerminalVisibilityState::default());
+    world.insert_resource(crate::startup::DaemonConnectionState::default());
     world.insert_resource(crate::startup::StartupConnectState::default());
 
     world.run_system_once(crate::startup::setup_scene).unwrap();

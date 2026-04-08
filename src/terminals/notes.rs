@@ -42,6 +42,10 @@ impl TerminalNotesState {
             .map(String::as_str)
     }
 
+    pub(crate) fn remove_legacy_note_text(&mut self, session_name: &str) -> bool {
+        self.legacy_notes_by_session.remove(session_name).is_some()
+    }
+
     pub(crate) fn note_text_by_agent_uid(&self, agent_uid: &str) -> Option<&str> {
         self.notes_by_agent_uid.get(agent_uid).map(String::as_str)
     }
@@ -57,6 +61,10 @@ impl TerminalNotesState {
 
     pub(crate) fn set_note_text_by_agent_uid(&mut self, agent_uid: &str, text: &str) -> bool {
         set_note_text_in_map(&mut self.notes_by_agent_uid, agent_uid, text)
+    }
+
+    pub(crate) fn remove_note_text_by_agent_uid(&mut self, agent_uid: &str) -> bool {
+        self.notes_by_agent_uid.remove(agent_uid).is_some()
     }
 }
 
@@ -250,19 +258,7 @@ fn serialize_terminal_notes(notes: &PersistedTerminalNotes) -> String {
         }
         output.push_str(".\n");
     }
-    for (session_name, note_text) in legacy_notes {
-        output.push_str("note name=");
-        output.push_str(&session_name.replace(' ', "\\s"));
-        output.push('\n');
-        for line in note_text.lines() {
-            if line.starts_with('.') {
-                output.push('.');
-            }
-            output.push_str(line);
-            output.push('\n');
-        }
-        output.push_str(".\n");
-    }
+    let _ = legacy_notes;
     output
 }
 

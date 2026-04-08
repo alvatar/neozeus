@@ -3,7 +3,7 @@ use crate::{
     shared::{
         app_state_file::{
             parse_persisted_app_state, PersistedAgentKind, PersistedAgentState, PersistedAppState,
-            APP_STATE_VERSION_V1,
+            APP_STATE_VERSION_V1, APP_STATE_VERSION_V2,
         },
         text_escape::{quote_escaped_string, EXTENDED_QUOTED_STRING_ESCAPES},
     },
@@ -22,9 +22,9 @@ const APP_STATE_SAVE_DEBOUNCE_SECS: f32 = 0.3;
 
 pub(crate) use crate::shared::app_state_file::resolve_app_state_path;
 
-/// Serializes persisted app-state metadata into the current version-1 app-state format.
+/// Serializes persisted app-state metadata into the current version-2 app-state format.
 pub(crate) fn serialize_persisted_app_state(state: &PersistedAppState) -> String {
-    let mut output = String::from(APP_STATE_VERSION_V1);
+    let mut output = String::from(APP_STATE_VERSION_V2);
     output.push('\n');
     let mut ordered = state.agents.clone();
     ordered.sort_by_key(|record| record.order_index);
@@ -36,10 +36,12 @@ pub(crate) fn serialize_persisted_app_state(state: &PersistedAppState) -> String
                 quote_escaped_string(&agent_uid, EXTENDED_QUOTED_STRING_ESCAPES)
             ));
         }
-        output.push_str(&format!(
-            "session_name={}\n",
-            quote_escaped_string(&record.session_name, EXTENDED_QUOTED_STRING_ESCAPES)
-        ));
+        if let Some(runtime_session_name) = record.runtime_session_name {
+            output.push_str(&format!(
+                "runtime_session_name={}\n",
+                quote_escaped_string(&runtime_session_name, EXTENDED_QUOTED_STRING_ESCAPES)
+            ));
+        }
         if let Some(label) = record.label {
             output.push_str(&format!(
                 "label={}\n",
@@ -90,7 +92,7 @@ fn map_legacy_sessions_to_app_state(
             .iter()
             .map(|record| PersistedAgentState {
                 agent_uid: None,
-                session_name: record.session_name.clone(),
+                runtime_session_name: Some(record.session_name.clone()),
                 label: record.label.clone(),
                 kind: PersistedAgentKind::Pi,
                 clone_source_session_path: None,
@@ -112,7 +114,7 @@ pub(crate) fn load_persisted_app_state_from(path: &PathBuf) -> PersistedAppState
                 .find(|line| !line.trim().is_empty())
                 .map(str::trim)
                 .unwrap_or_default();
-            if version_line == APP_STATE_VERSION_V1 {
+            if matches!(version_line, APP_STATE_VERSION_V1 | APP_STATE_VERSION_V2) {
                 parse_persisted_app_state(&text)
             } else {
                 map_legacy_sessions_to_app_state(&load_persisted_terminal_sessions_from(path))
@@ -154,11 +156,10 @@ fn build_persisted_app_state(
         .iter()
         .enumerate()
         .filter_map(|(index, agent_id)| {
-            let session_name = runtime_index.session_name(*agent_id)?;
             let terminal_id = runtime_index.primary_terminal(*agent_id);
             Some(PersistedAgentState {
                 agent_uid: agent_catalog.uid(*agent_id).map(str::to_owned),
-                session_name: session_name.to_owned(),
+                runtime_session_name: None,
                 label: agent_catalog.label(*agent_id).map(str::to_owned),
                 kind: match agent_catalog
                     .kind(*agent_id)
@@ -224,65 +225,68 @@ pub(crate) fn save_app_state_if_dirty(
 /// Reconciles persisted app-state agent metadata against the daemon's currently live sessions.
 pub(crate) fn reconcile_persisted_agents(
     persisted: &PersistedAppState,
-    live_sessions: &[String],
+    live_sessions: &[crate::terminals::DaemonSessionInfo],
 ) -> (
     Vec<PersistedAgentState>,
     Vec<PersistedAgentState>,
-    Vec<PersistedAgentState>,
+    Vec<String>,
 ) {
-    let live = live_sessions.iter().cloned().collect::<BTreeSet<_>>();
-    let persisted_names = persisted
-        .agents
+    let live_by_uid = live_sessions
         .iter()
-        .map(|record| record.session_name.clone())
-        .collect::<BTreeSet<_>>();
+        .filter_map(|session| {
+            session
+                .metadata
+                .agent_uid
+                .as_deref()
+                .map(|agent_uid| (agent_uid, session.session_id.as_str()))
+        })
+        .collect::<std::collections::HashMap<_, _>>();
+    let live_by_session = live_sessions
+        .iter()
+        .map(|session| (session.session_id.as_str(), session))
+        .collect::<std::collections::HashMap<_, _>>();
+    let mut matched_live_sessions = BTreeSet::new();
 
-    let restore = persisted
-        .agents
-        .iter()
-        .filter(|record| live.contains(&record.session_name))
-        .cloned()
-        .collect::<Vec<_>>();
-    let prune = persisted
-        .agents
-        .iter()
-        .filter(|record| !live.contains(&record.session_name))
-        .cloned()
-        .collect::<Vec<_>>();
+    let mut restore = Vec::new();
+    let mut prune = Vec::new();
+    for record in &persisted.agents {
+        let matched_session_name = record
+            .agent_uid
+            .as_deref()
+            .and_then(|agent_uid| live_by_uid.get(agent_uid).copied())
+            .or_else(|| {
+                record
+                    .runtime_session_name
+                    .as_deref()
+                    .and_then(|session_name| {
+                        live_by_session
+                            .contains_key(session_name)
+                            .then_some(session_name)
+                    })
+            });
+        if let Some(session_name) = matched_session_name {
+            matched_live_sessions.insert(session_name.to_owned());
+            let mut restored = record.clone();
+            restored.runtime_session_name = Some(session_name.to_owned());
+            restore.push(restored);
+        } else {
+            prune.push(record.clone());
+        }
+    }
 
-    let mut next_order_index = persisted
-        .agents
-        .iter()
-        .map(|record| record.order_index)
-        .max()
-        .map(|max| max + 1)
-        .unwrap_or(0);
     let mut import = live_sessions
         .iter()
-        .filter(|name| name.starts_with(crate::terminals::PERSISTENT_SESSION_PREFIX))
-        .filter(|name| !persisted_names.contains(*name))
-        .cloned()
+        .filter(|session| {
+            session
+                .session_id
+                .starts_with(crate::terminals::PERSISTENT_SESSION_PREFIX)
+        })
+        .filter(|session| !matched_live_sessions.contains(&session.session_id))
+        .map(|session| session.session_id.clone())
         .collect::<Vec<_>>();
     import.sort();
-    let import = import
-        .into_iter()
-        .map(|session_name| {
-            let record = PersistedAgentState {
-                agent_uid: None,
-                session_name,
-                label: None,
-                kind: PersistedAgentKind::Pi,
-                clone_source_session_path: None,
-                is_workdir: false,
-                order_index: next_order_index,
-                last_focused: false,
-            };
-            next_order_index += 1;
-            record
-        })
-        .collect();
 
-    (restore, import, prune)
+    (restore, prune, import)
 }
 
 #[cfg(test)]

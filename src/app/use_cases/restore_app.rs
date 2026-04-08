@@ -74,11 +74,8 @@ pub(crate) fn restore_app(
             return;
         }
     };
-    let live_sessions = live_session_infos
-        .iter()
-        .map(|session| session.session_id.clone())
-        .collect::<Vec<_>>();
-    let (restore, import, prune) = reconcile_persisted_agents(&persisted, &live_sessions);
+    let (restore, prune, import_session_names) =
+        reconcile_persisted_agents(&persisted, &live_session_infos);
     let persisted_missing_agent_uid = persisted
         .agents
         .iter()
@@ -88,15 +85,22 @@ pub(crate) fn restore_app(
         .map(|session| (session.session_id.as_str(), session))
         .collect::<std::collections::HashMap<_, _>>();
     let mut importable = Vec::new();
-    for record in import {
-        let Some(session) = live_session_lookup.get(record.session_name.as_str()) else {
+    let mut next_import_order = persisted
+        .agents
+        .iter()
+        .map(|record| record.order_index)
+        .max()
+        .map(|max| max + 1)
+        .unwrap_or(0);
+    for session_name in import_session_names {
+        let Some(session) = live_session_lookup.get(session_name.as_str()) else {
             continue;
         };
         let keep = startup_focus_candidate_is_interactive(session);
         if keep {
             importable.push(crate::shared::app_state_file::PersistedAgentState {
                 agent_uid: session.metadata.agent_uid.clone(),
-                session_name: record.session_name,
+                runtime_session_name: Some(session_name),
                 label: session.metadata.agent_label.clone(),
                 kind: match agent_kind_from_daemon_session(session) {
                     AgentKind::Pi => crate::shared::app_state_file::PersistedAgentKind::Pi,
@@ -109,21 +113,22 @@ pub(crate) fn restore_app(
                         crate::shared::app_state_file::PersistedAgentKind::Verifier
                     }
                 },
-                clone_source_session_path: record.clone_source_session_path,
-                is_workdir: record.is_workdir,
-                order_index: record.order_index,
-                last_focused: record.last_focused,
+                clone_source_session_path: None,
+                is_workdir: false,
+                order_index: next_import_order,
+                last_focused: false,
             });
+            next_import_order += 1;
             continue;
         }
-        match runtime_spawner.kill_session(&record.session_name) {
+        match runtime_spawner.kill_session(&session_name) {
             Ok(()) => append_debug_log(format!(
                 "startup reaped disconnected unpersisted session {}",
-                record.session_name
+                session_name
             )),
             Err(error) => append_debug_log(format!(
                 "startup skipped disconnected unpersisted session {} after reap failed: {error}",
-                record.session_name
+                session_name
             )),
         }
     }
@@ -132,6 +137,10 @@ pub(crate) fn restore_app(
     }
 
     for record in ordered_reconciled_persisted_agents(&restore, &importable) {
+        let Some(runtime_session_name) = record.runtime_session_name.clone() else {
+            append_debug_log("startup attach skipped for record missing runtime session name");
+            continue;
+        };
         let startup_loading_slot = startup_loading.as_deref_mut();
         if let Err(error) = attach_restored_terminal(
             agent_catalog,
@@ -141,7 +150,7 @@ pub(crate) fn restore_app(
             focus_state,
             runtime_spawner,
             startup_loading_slot,
-            record.session_name.clone(),
+            runtime_session_name,
             false,
             match record.kind {
                 crate::shared::app_state_file::PersistedAgentKind::Pi => AgentKind::Pi,
@@ -157,7 +166,10 @@ pub(crate) fn restore_app(
         ) {
             append_debug_log(format!(
                 "startup attach failed for {}: {error}",
-                record.session_name
+                record
+                    .runtime_session_name
+                    .as_deref()
+                    .unwrap_or("<missing-session>")
             ));
         }
     }
@@ -166,23 +178,27 @@ pub(crate) fn restore_app(
         .iter()
         .find(|record| {
             record.last_focused
-                && live_session_lookup
-                    .get(record.session_name.as_str())
+                && record
+                    .runtime_session_name
+                    .as_deref()
+                    .and_then(|session_name| live_session_lookup.get(session_name))
                     .is_some_and(|session| startup_focus_candidate_is_interactive(session))
         })
-        .map(|record| record.session_name.as_str());
+        .and_then(|record| record.runtime_session_name.as_deref());
     let restored_session_names = restore
         .iter()
         .filter(|record| {
-            live_session_lookup
-                .get(record.session_name.as_str())
+            record
+                .runtime_session_name
+                .as_deref()
+                .and_then(|session_name| live_session_lookup.get(session_name))
                 .is_some_and(|session| startup_focus_candidate_is_interactive(session))
         })
-        .map(|record| record.session_name.as_str())
+        .filter_map(|record| record.runtime_session_name.as_deref())
         .collect::<Vec<_>>();
     let imported_session_names = importable
         .iter()
-        .map(|record| record.session_name.as_str())
+        .filter_map(|record| record.runtime_session_name.as_deref())
         .collect::<Vec<_>>();
 
     if let Some(session_name) = choose_startup_focus_session_name(

@@ -280,6 +280,7 @@ fn process_exists(pid: u32) -> bool {
 fn daemon_socket_path_prefers_override_then_xdg_runtime_then_tmp_user() {
     let override_path = resolve_daemon_socket_path_with(
         Some("/tmp/neozeus-test/daemon.sock"),
+        None,
         Some("/run/user/1000"),
         Some("/home/alvatar"),
         Some("oracle"),
@@ -292,6 +293,7 @@ fn daemon_socket_path_prefers_override_then_xdg_runtime_then_tmp_user() {
 
     let path = resolve_daemon_socket_path_with(
         None,
+        None,
         Some("/run/user/1000"),
         Some("/home/alvatar"),
         Some("oracle"),
@@ -300,7 +302,7 @@ fn daemon_socket_path_prefers_override_then_xdg_runtime_then_tmp_user() {
     assert_eq!(path, PathBuf::from("/run/user/1000/neozeus/daemon.v2.sock"));
 
     let fallback =
-        resolve_daemon_socket_path_with(None, None, Some("/home/alvatar"), Some("oracle"))
+        resolve_daemon_socket_path_with(None, None, None, Some("/home/alvatar"), Some("oracle"))
             .expect("tmp fallback should resolve");
     assert!(fallback.ends_with("neozeus-oracle/daemon.v2.sock"));
 }
@@ -310,6 +312,7 @@ fn daemon_socket_path_prefers_override_then_xdg_runtime_then_tmp_user() {
 #[test]
 fn daemon_socket_path_uses_versioned_filename() {
     let resolved = resolve_daemon_socket_path_with(
+        None,
         None,
         Some("/run/user/1000"),
         Some("/home/alvatar"),

@@ -99,9 +99,10 @@ where
         };
         let (tx, rx) = mpsc::channel();
         lock(&self.pending).insert(request_id, tx);
-        self.writer_tx
-            .send(build_request(request_id))
-            .map_err(|_| "daemon writer channel disconnected".to_owned())?;
+        if self.writer_tx.send(build_request(request_id)).is_err() {
+            let _ = lock(&self.pending).remove(&request_id);
+            return Err("daemon writer channel disconnected".to_owned());
+        }
         match rx.recv_timeout(timeout) {
             Ok(response) => response,
             Err(_) => {
@@ -188,8 +189,13 @@ fn resolve_daemon_executable_with(current_exe: Option<PathBuf>) -> Result<PathBu
 
 #[cfg(test)]
 mod tests {
-    use super::resolve_daemon_executable_with;
-    use std::path::PathBuf;
+    use super::{resolve_daemon_executable_with, SocketRequestClientCore};
+    use std::{
+        collections::HashMap,
+        path::PathBuf,
+        sync::{mpsc, Arc, Mutex},
+        time::Duration,
+    };
 
     #[test]
     fn daemon_executable_falls_back_to_neozeus_for_helper_binaries() {
@@ -203,5 +209,24 @@ mod tests {
         let resolved = resolve_daemon_executable_with(Some(PathBuf::from("/tmp/bin/neozeus")))
             .expect("main binary should resolve");
         assert_eq!(resolved, PathBuf::from("/tmp/bin/neozeus"));
+    }
+
+    #[test]
+    fn request_with_cleans_pending_entry_when_writer_channel_is_disconnected() {
+        let (writer_tx, writer_rx) = mpsc::channel::<u64>();
+        drop(writer_rx);
+        let client: SocketRequestClientCore<u64, u64> = SocketRequestClientCore {
+            writer_tx,
+            pending: Arc::new(Mutex::new(HashMap::new())),
+            next_request_id: Mutex::new(1),
+            shutdown_stream: Mutex::new(None),
+        };
+
+        let error = client
+            .request_with(Duration::from_secs(1), Arc::new(|request_id| request_id))
+            .expect_err("disconnected writer should fail immediately");
+
+        assert_eq!(error, "daemon writer channel disconnected");
+        assert!(client.pending.lock().unwrap().is_empty());
     }
 }

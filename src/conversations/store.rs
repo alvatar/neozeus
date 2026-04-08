@@ -108,6 +108,19 @@ impl ConversationStore {
         true
     }
 
+    pub(crate) fn remove_agent(&mut self, agent_id: AgentId) -> bool {
+        let Some(conversation_id) = self.agent_to_conversation.remove(&agent_id) else {
+            return false;
+        };
+        let Some(conversation) = self.conversations.remove(&conversation_id) else {
+            return false;
+        };
+        for message_id in conversation.message_ids {
+            self.messages.remove(&message_id);
+        }
+        true
+    }
+
     /// Returns cloned message bodies and delivery states for one conversation in append order.
     pub(crate) fn messages_for(
         &self,

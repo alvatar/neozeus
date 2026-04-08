@@ -1,5 +1,5 @@
 use crate::{
-    agents::AgentRuntimeIndex,
+    agents::{AgentCatalog, AgentRuntimeIndex},
     shared::text_escape::{
         quote_escaped_string, unquote_escaped_string, BASIC_QUOTED_STRING_ESCAPES,
     },
@@ -10,7 +10,8 @@ use bevy::prelude::*;
 use std::{env, fs, path::PathBuf};
 
 const CONVERSATIONS_FILENAME: &str = "conversations.v1";
-const CONVERSATIONS_VERSION: &str = "version 1";
+const CONVERSATIONS_VERSION_V1: &str = "version 1";
+const CONVERSATIONS_VERSION_V2: &str = "version 2";
 const CONVERSATIONS_SAVE_DEBOUNCE_SECS: f32 = 0.3;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -21,7 +22,8 @@ pub(super) struct PersistedConversationMessage {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct PersistedConversationRecord {
-    pub(crate) session_name: String,
+    pub(crate) agent_uid: Option<String>,
+    pub(crate) legacy_session_name: Option<String>,
     pub(crate) messages: Vec<PersistedConversationMessage>,
 }
 
@@ -107,13 +109,20 @@ fn parse_delivery(code: &str, error: Option<String>) -> Option<MessageDeliverySt
 /// Serializes persisted conversations.
 pub(super) fn serialize_persisted_conversations(persisted: &PersistedConversations) -> String {
     // Process the input incrementally so each transformation stays local and malformed data fails at the narrowest point.
-    let mut output = String::from(CONVERSATIONS_VERSION);
+    let mut output = String::from(CONVERSATIONS_VERSION_V2);
     output.push('\n');
     for conversation in &persisted.conversations {
         output.push_str("[conversation]\n");
-        output.push_str("session=");
-        output.push_str(&quote(&conversation.session_name));
-        output.push('\n');
+        if let Some(agent_uid) = &conversation.agent_uid {
+            output.push_str("agent_uid=");
+            output.push_str(&quote(agent_uid));
+            output.push('\n');
+        }
+        if let Some(session_name) = &conversation.legacy_session_name {
+            output.push_str("runtime_session_name=");
+            output.push_str(&quote(session_name));
+            output.push('\n');
+        }
         for message in &conversation.messages {
             output.push_str("[message]\n");
             output.push_str("delivery=");
@@ -134,6 +143,22 @@ pub(super) fn serialize_persisted_conversations(persisted: &PersistedConversatio
 
 /// Parses persisted conversations.
 pub(super) fn parse_persisted_conversations(text: &str) -> PersistedConversations {
+    let version = text
+        .lines()
+        .find(|line| !line.trim().is_empty())
+        .map(str::trim)
+        .unwrap_or_default();
+    match version {
+        CONVERSATIONS_VERSION_V1 => parse_persisted_conversations_with(text, true),
+        CONVERSATIONS_VERSION_V2 => parse_persisted_conversations_with(text, false),
+        _ => PersistedConversations::default(),
+    }
+}
+
+fn parse_persisted_conversations_with(
+    text: &str,
+    legacy_session_key: bool,
+) -> PersistedConversations {
     // Process the input incrementally so each transformation stays local and malformed data fails at the narrowest point.
     let mut persisted = PersistedConversations::default();
     let mut current: Option<PersistedConversationRecord> = None;
@@ -154,7 +179,8 @@ pub(super) fn parse_persisted_conversations(text: &str) -> PersistedConversation
                     persisted.conversations.push(current);
                 }
                 current = Some(PersistedConversationRecord {
-                    session_name: String::new(),
+                    agent_uid: None,
+                    legacy_session_name: None,
                     messages: Vec::new(),
                 });
                 pending_delivery = None;
@@ -169,11 +195,24 @@ pub(super) fn parse_persisted_conversations(text: &str) -> PersistedConversation
                     continue;
                 };
                 match key {
-                    "session" => {
+                    "agent_uid" => {
+                        if let (Some(current), Some(agent_uid)) = (current.as_mut(), unquote(value))
+                        {
+                            current.agent_uid = Some(agent_uid);
+                        }
+                    }
+                    "runtime_session_name" => {
                         if let (Some(current), Some(session_name)) =
                             (current.as_mut(), unquote(value))
                         {
-                            current.session_name = session_name;
+                            current.legacy_session_name = Some(session_name);
+                        }
+                    }
+                    "session" if legacy_session_key => {
+                        if let (Some(current), Some(session_name)) =
+                            (current.as_mut(), unquote(value))
+                        {
+                            current.legacy_session_name = Some(session_name);
                         }
                     }
                     "delivery" => pending_delivery = unquote(value),
@@ -202,9 +241,9 @@ pub(super) fn parse_persisted_conversations(text: &str) -> PersistedConversation
     if let Some(current) = current.take() {
         persisted.conversations.push(current);
     }
-    persisted
-        .conversations
-        .retain(|conversation| !conversation.session_name.is_empty());
+    persisted.conversations.retain(|conversation| {
+        conversation.agent_uid.is_some() || conversation.legacy_session_name.is_some()
+    });
     persisted
 }
 
@@ -228,7 +267,7 @@ fn load_persisted_conversations_from(path: &PathBuf) -> PersistedConversations {
 /// Builds persisted conversations.
 pub(super) fn build_persisted_conversations(
     conversations: &ConversationStore,
-    runtime_index: &AgentRuntimeIndex,
+    agent_catalog: &AgentCatalog,
 ) -> PersistedConversations {
     // Process the input incrementally so each transformation stays local and malformed data fails at the narrowest point.
     PersistedConversations {
@@ -236,9 +275,7 @@ pub(super) fn build_persisted_conversations(
             .conversations
             .values()
             .filter_map(|conversation| {
-                let session_name = runtime_index
-                    .session_name(conversation.agent_id)?
-                    .to_owned();
+                let agent_uid = agent_catalog.uid(conversation.agent_id)?.to_owned();
                 let messages = conversation
                     .message_ids
                     .iter()
@@ -249,7 +286,8 @@ pub(super) fn build_persisted_conversations(
                     })
                     .collect::<Vec<_>>();
                 Some(PersistedConversationRecord {
-                    session_name,
+                    agent_uid: Some(agent_uid),
+                    legacy_session_name: None,
                     messages,
                 })
             })
@@ -260,13 +298,24 @@ pub(super) fn build_persisted_conversations(
 /// Restores persisted conversations.
 pub(super) fn restore_persisted_conversations(
     persisted: &PersistedConversations,
+    agent_catalog: &AgentCatalog,
     runtime_index: &AgentRuntimeIndex,
     conversations: &mut ConversationStore,
 ) {
     // Walk the lifecycle in explicit stages so each side effect happens only after its prerequisites have been established.
     *conversations = ConversationStore::default();
     for conversation in &persisted.conversations {
-        let Some(agent_id) = runtime_index.agent_for_session(&conversation.session_name) else {
+        let agent_id = conversation
+            .agent_uid
+            .as_deref()
+            .and_then(|agent_uid| agent_catalog.find_by_uid(agent_uid))
+            .or_else(|| {
+                conversation
+                    .legacy_session_name
+                    .as_deref()
+                    .and_then(|session_name| runtime_index.agent_for_session(session_name))
+            });
+        let Some(agent_id) = agent_id else {
             continue;
         };
         let conversation_id = conversations.ensure_conversation(agent_id);
@@ -286,11 +335,12 @@ pub(super) fn restore_persisted_conversations(
 /// Startup uses this wrapper so the on-disk schema stays local to this module.
 pub(crate) fn restore_persisted_conversations_from_path(
     path: &PathBuf,
+    agent_catalog: &AgentCatalog,
     runtime_index: &AgentRuntimeIndex,
     conversations: &mut ConversationStore,
 ) {
     let persisted = load_persisted_conversations_from(path);
-    restore_persisted_conversations(&persisted, runtime_index, conversations);
+    restore_persisted_conversations(&persisted, agent_catalog, runtime_index, conversations);
 }
 
 /// Marks conversations dirty.
@@ -307,7 +357,7 @@ pub(crate) fn mark_conversations_dirty(
 pub(crate) fn save_conversations_if_dirty(
     time: Res<Time>,
     conversations: Res<ConversationStore>,
-    runtime_index: Res<AgentRuntimeIndex>,
+    agent_catalog: Res<AgentCatalog>,
     mut persistence_state: ResMut<ConversationPersistenceState>,
 ) {
     // Process the input incrementally so each transformation stays local and malformed data fails at the narrowest point.
@@ -322,7 +372,7 @@ pub(crate) fn save_conversations_if_dirty(
         return;
     };
 
-    let persisted = build_persisted_conversations(&conversations, &runtime_index);
+    let persisted = build_persisted_conversations(&conversations, &agent_catalog);
     if let Some(parent) = path.parent() {
         if let Err(error) = fs::create_dir_all(parent) {
             crate::terminals::append_debug_log(format!(

@@ -1,6 +1,6 @@
 use crate::{
     app::AppSessionState,
-    startup::StartupConnectState,
+    startup::DaemonConnectionState,
     terminals::{ActiveTerminalContentState, TerminalFocusState, TerminalId},
 };
 
@@ -938,7 +938,7 @@ struct HudWidgetBloomContext<'w, 's> {
     primary_window: Single<'w, 's, &'static Window, With<PrimaryWindow>>,
     layout_state: Res<'w, HudLayoutState>,
     app_session: Res<'w, AppSessionState>,
-    startup_connect: Option<Res<'w, StartupConnectState>>,
+    startup_connect: Option<Res<'w, DaemonConnectionState>>,
     focus_state: Res<'w, TerminalFocusState>,
     active_content: Res<'w, ActiveTerminalContentState>,
     agent_list_state: Res<'w, AgentListUiState>,

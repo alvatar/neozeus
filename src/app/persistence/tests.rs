@@ -40,7 +40,7 @@ fn app_state_parse_and_serialize_roundtrip() {
         agents: vec![
             PersistedAgentState {
                 agent_uid: Some("agent-uid-a".into()),
-                session_name: "neozeus-session-a\rtab\tquoted\"".into(),
+                runtime_session_name: Some("neozeus-session-a\rtab\tquoted\"".into()),
                 label: Some("agent 1\nrow\rand\ttabs\\slash".into()),
                 kind: PersistedAgentKind::Claude,
                 clone_source_session_path: Some("/tmp/pi-session-a.jsonl".into()),
@@ -50,7 +50,7 @@ fn app_state_parse_and_serialize_roundtrip() {
             },
             PersistedAgentState {
                 agent_uid: Some("agent-uid-b".into()),
-                session_name: "neozeus-session-b".into(),
+                runtime_session_name: Some("neozeus-session-b".into()),
                 label: None,
                 kind: PersistedAgentKind::Terminal,
                 clone_source_session_path: None,
@@ -94,7 +94,10 @@ fn app_state_load_falls_back_to_legacy_terminal_sessions() {
         map_legacy_sessions_to_app_state(&load_persisted_terminal_sessions_from(&legacy_path));
     assert_eq!(persisted.agents.len(), 1);
     assert_eq!(persisted.agents[0].agent_uid, None);
-    assert_eq!(persisted.agents[0].session_name, "neozeus-session-a");
+    assert_eq!(
+        persisted.agents[0].runtime_session_name.as_deref(),
+        Some("neozeus-session-a")
+    );
     assert_eq!(persisted.agents[0].label.as_deref(), Some("agent 1"));
     assert_eq!(persisted.agents[0].kind, PersistedAgentKind::Pi);
     assert_eq!(persisted.agents[0].clone_source_session_path, None);
@@ -110,7 +113,7 @@ fn reconcile_persisted_agents_restores_prunes_and_imports() {
         agents: vec![
             PersistedAgentState {
                 agent_uid: Some("agent-uid-a".into()),
-                session_name: "neozeus-session-a".into(),
+                runtime_session_name: Some("neozeus-session-a".into()),
                 label: Some("one".into()),
                 kind: PersistedAgentKind::Pi,
                 clone_source_session_path: Some("/tmp/pi-session-a.jsonl".into()),
@@ -120,7 +123,7 @@ fn reconcile_persisted_agents_restores_prunes_and_imports() {
             },
             PersistedAgentState {
                 agent_uid: Some("agent-uid-b".into()),
-                session_name: "neozeus-session-b".into(),
+                runtime_session_name: Some("neozeus-session-b".into()),
                 label: None,
                 kind: PersistedAgentKind::Terminal,
                 clone_source_session_path: None,
@@ -131,17 +134,41 @@ fn reconcile_persisted_agents_restores_prunes_and_imports() {
         ],
     };
 
-    let (restore, import, prune) = reconcile_persisted_agents(
-        &persisted,
-        &[
-            "neozeus-session-a".into(),
-            "neozeus-session-c".into(),
-            "neozeus-verifier-x".into(),
-        ],
-    );
+    let live_sessions = vec![
+        crate::terminals::DaemonSessionInfo {
+            session_id: "neozeus-session-a".into(),
+            runtime: crate::terminals::TerminalRuntimeState::default(),
+            revision: 0,
+            created_order: 0,
+            metadata: crate::shared::daemon_wire::DaemonSessionMetadata {
+                agent_uid: Some("agent-uid-a".into()),
+                agent_label: None,
+                agent_kind: None,
+            },
+        },
+        crate::terminals::DaemonSessionInfo {
+            session_id: "neozeus-session-c".into(),
+            runtime: crate::terminals::TerminalRuntimeState::default(),
+            revision: 0,
+            created_order: 1,
+            metadata: crate::shared::daemon_wire::DaemonSessionMetadata::default(),
+        },
+        crate::terminals::DaemonSessionInfo {
+            session_id: "neozeus-verifier-x".into(),
+            runtime: crate::terminals::TerminalRuntimeState::default(),
+            revision: 0,
+            created_order: 2,
+            metadata: crate::shared::daemon_wire::DaemonSessionMetadata::default(),
+        },
+    ];
+
+    let (restore, prune, import) = reconcile_persisted_agents(&persisted, &live_sessions);
 
     assert_eq!(restore.len(), 1);
-    assert_eq!(restore[0].session_name, "neozeus-session-a");
+    assert_eq!(
+        restore[0].runtime_session_name.as_deref(),
+        Some("neozeus-session-a")
+    );
     assert_eq!(restore[0].agent_uid.as_deref(), Some("agent-uid-a"));
     assert_eq!(
         restore[0].clone_source_session_path.as_deref(),
@@ -149,14 +176,48 @@ fn reconcile_persisted_agents_restores_prunes_and_imports() {
     );
     assert!(restore[0].is_workdir);
     assert_eq!(prune.len(), 1);
-    assert_eq!(prune[0].session_name, "neozeus-session-b");
-    assert_eq!(import.len(), 1);
-    assert_eq!(import[0].session_name, "neozeus-session-c");
-    assert_eq!(import[0].agent_uid, None);
-    assert_eq!(import[0].kind, PersistedAgentKind::Pi);
-    assert_eq!(import[0].clone_source_session_path, None);
-    assert!(!import[0].is_workdir);
-    assert_eq!(import[0].order_index, 2);
+    assert_eq!(
+        prune[0].runtime_session_name.as_deref(),
+        Some("neozeus-session-b")
+    );
+    assert_eq!(import, vec!["neozeus-session-c".to_owned()]);
+}
+
+#[test]
+fn reconcile_persisted_agents_prefers_agent_uid_over_stale_runtime_session_name() {
+    let persisted = PersistedAppState {
+        agents: vec![PersistedAgentState {
+            agent_uid: Some("agent-uid-a".into()),
+            runtime_session_name: Some("neozeus-session-stale".into()),
+            label: Some("alpha".into()),
+            kind: PersistedAgentKind::Pi,
+            clone_source_session_path: None,
+            is_workdir: false,
+            order_index: 0,
+            last_focused: true,
+        }],
+    };
+    let live_sessions = vec![crate::terminals::DaemonSessionInfo {
+        session_id: "neozeus-session-live".into(),
+        runtime: crate::terminals::TerminalRuntimeState::default(),
+        revision: 0,
+        created_order: 0,
+        metadata: crate::shared::daemon_wire::DaemonSessionMetadata {
+            agent_uid: Some("agent-uid-a".into()),
+            agent_label: Some("ALPHA".into()),
+            agent_kind: None,
+        },
+    }];
+
+    let (restore, prune, import) = reconcile_persisted_agents(&persisted, &live_sessions);
+
+    assert_eq!(restore.len(), 1);
+    assert_eq!(
+        restore[0].runtime_session_name.as_deref(),
+        Some("neozeus-session-live")
+    );
+    assert!(prune.is_empty());
+    assert!(import.is_empty());
 }
 
 /// Verifies that saving app state preserves user agent order, labels, kinds, focus, and stable ids.
@@ -213,7 +274,7 @@ fn saving_app_state_persists_agent_order_labels_focus_and_uids() {
         persisted.agents[0].agent_uid.as_deref(),
         Some(beta_uid.as_str())
     );
-    assert_eq!(persisted.agents[0].session_name, "neozeus-session-b");
+    assert_eq!(persisted.agents[0].runtime_session_name, None);
     assert_eq!(persisted.agents[0].label.as_deref(), Some("BETA"));
     assert_eq!(persisted.agents[0].kind, PersistedAgentKind::Terminal);
     assert_eq!(persisted.agents[0].clone_source_session_path, None);
@@ -223,7 +284,7 @@ fn saving_app_state_persists_agent_order_labels_focus_and_uids() {
         persisted.agents[1].agent_uid.as_deref(),
         Some(alpha_uid.as_str())
     );
-    assert_eq!(persisted.agents[1].session_name, "neozeus-session-a");
+    assert_eq!(persisted.agents[1].runtime_session_name, None);
     assert_eq!(persisted.agents[1].label.as_deref(), Some("ALPHA"));
     assert_eq!(persisted.agents[1].kind, PersistedAgentKind::Claude);
     assert_eq!(
