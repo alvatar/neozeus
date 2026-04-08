@@ -1902,6 +1902,7 @@ fn clone_pi_agent_request_creates_workdir_clone_and_persists_metadata() {
     let clone_agent = *catalog.order.last().expect("workdir clone should exist");
     assert_eq!(catalog.label(clone_agent), Some("CHILD-WT"));
     assert!(catalog.is_workdir(clone_agent));
+    assert_eq!(catalog.workdir_slug(clone_agent), Some("CHILD-WT"));
     let clone_session_path = catalog
         .clone_source_session_path(clone_agent)
         .expect("workdir clone should persist forked Pi session path")
@@ -1936,6 +1937,53 @@ fn clone_pi_agent_request_creates_workdir_clone_and_persists_metadata() {
         Some(clone_session_path.as_str())
     );
     assert!(persisted_clone.is_workdir);
+    assert_eq!(persisted_clone.workdir_slug.as_deref(), Some("CHILD-WT"));
+}
+
+#[test]
+fn clone_pi_agent_request_sanitizes_workdir_slug_without_changing_display_label() {
+    let client = Arc::new(FakeDaemonClient::default());
+    let mut world = clone_test_world(client.clone());
+    let repo = init_git_repo();
+    let source_session = repo.join("source.jsonl");
+    write_pi_session_file(&source_session, repo.to_str().unwrap());
+    let source_agent = world
+        .resource_mut::<AgentCatalog>()
+        .create_agent_with_metadata(
+            Some("source".into()),
+            crate::agents::AgentKind::Pi,
+            crate::agents::AgentKind::Pi.capabilities(),
+            crate::agents::AgentMetadata {
+                clone_source_session_path: Some(source_session.to_string_lossy().into_owned()),
+                is_workdir: false,
+                workdir_slug: None,
+            },
+        );
+
+    world
+        .resource_mut::<Messages<AppCommand>>()
+        .write(AppCommand::Agent(AppAgentCommand::Clone {
+            source_agent_id: source_agent,
+            label: "child wt/1".into(),
+            workdir: true,
+        }));
+
+    run_app_commands(&mut world);
+
+    let catalog = world.resource::<AgentCatalog>();
+    let clone_agent = *catalog.order.last().expect("workdir clone should exist");
+    assert_eq!(catalog.label(clone_agent), Some("CHILD WT/1"));
+    assert_eq!(catalog.workdir_slug(clone_agent), Some("CHILD-WT-1"));
+    let clone_session_path = catalog
+        .clone_source_session_path(clone_agent)
+        .expect("workdir clone should persist session path")
+        .to_owned();
+    let clone_header = crate::shared::pi_session_files::read_session_header(&clone_session_path)
+        .expect("workdir clone session should read");
+    assert_eq!(
+        PathBuf::from(&clone_header.cwd),
+        repo.join(".worktrees").join("CHILD-WT-1")
+    );
 }
 
 #[test]
