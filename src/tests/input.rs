@@ -46,7 +46,12 @@ use bevy::{
     },
     window::{PrimaryWindow, RequestRedraw},
 };
-use std::time::Duration;
+use std::time::{Duration, Instant};
+
+const DIRECT_INPUT_TYPING_BURST_KEYS: usize = 512;
+const MESSAGE_BOX_TYPING_BURST_KEYS: usize = 512;
+const DIRECT_INPUT_TYPING_OVERHEAD_RATIO_MAX: f64 = 4.0;
+const MESSAGE_BOX_TYPING_OVERHEAD_RATIO_MAX: f64 = 4.0;
 
 /// Builds a pressed `KeyboardInput` event without text payload for shortcut-oriented tests.
 fn pressed_key(key_code: KeyCode, logical_key: Key) -> KeyboardInput {
@@ -2135,6 +2140,94 @@ fn direct_input_echo_can_be_polled_before_raster_in_same_cycle() {
         Some(crate::terminals::TerminalDamage::Full)
     );
     assert!(terminal.snapshot.surface.is_some());
+}
+
+#[test]
+fn direct_input_typing_burst_stays_close_to_noop_baseline() {
+    let (mut baseline_world, _baseline_terminal) =
+        world_with_active_terminal(Vec2::new(10.0, 10.0), false, Vec2::ZERO);
+    init_hud_commands(&mut baseline_world);
+    baseline_world.init_resource::<Messages<RequestRedraw>>();
+
+    let baseline_started = Instant::now();
+    for _ in 0..DIRECT_INPUT_TYPING_BURST_KEYS {
+        dispatch_terminal_ui_key(&mut baseline_world, pressed_text(KeyCode::KeyA, Some("a")));
+    }
+    let baseline_elapsed = baseline_started.elapsed();
+
+    let (mut hot_world, terminal_id, _input_rx) =
+        world_with_active_terminal_and_receiver(Vec2::new(10.0, 10.0), false, Vec2::ZERO);
+    let mut hud_state = crate::hud::HudState::default();
+    hud_state.open_direct_terminal_input(terminal_id);
+    insert_test_hud_state(&mut hot_world, hud_state);
+    init_hud_commands(&mut hot_world);
+    hot_world.init_resource::<Messages<RequestRedraw>>();
+
+    let hot_started = Instant::now();
+    for _ in 0..DIRECT_INPUT_TYPING_BURST_KEYS {
+        dispatch_terminal_ui_key(&mut hot_world, pressed_text(KeyCode::KeyA, Some("a")));
+    }
+    let hot_elapsed = hot_started.elapsed();
+    let baseline_nanos = baseline_elapsed.as_nanos().max(1) as f64;
+    let overhead_ratio = hot_elapsed.as_nanos() as f64 / baseline_nanos;
+
+    assert!(
+        overhead_ratio <= DIRECT_INPUT_TYPING_OVERHEAD_RATIO_MAX,
+        "direct terminal typing burst regressed: noop baseline={}µs hot-path={}µs ratio={:.2} max={:.2}",
+        baseline_elapsed.as_micros(),
+        hot_elapsed.as_micros(),
+        overhead_ratio,
+        DIRECT_INPUT_TYPING_OVERHEAD_RATIO_MAX
+    );
+}
+
+#[test]
+fn message_box_typing_burst_stays_close_to_noop_baseline() {
+    let (mut baseline_world, _baseline_terminal) =
+        world_with_active_terminal(Vec2::new(10.0, 10.0), false, Vec2::ZERO);
+    init_hud_commands(&mut baseline_world);
+    baseline_world.init_resource::<Messages<RequestRedraw>>();
+
+    let baseline_started = Instant::now();
+    for _ in 0..MESSAGE_BOX_TYPING_BURST_KEYS {
+        dispatch_message_box_key(&mut baseline_world, pressed_text(KeyCode::KeyA, Some("a")));
+    }
+    let baseline_elapsed = baseline_started.elapsed();
+
+    let (mut hot_world, terminal_id) =
+        world_with_active_terminal(Vec2::new(10.0, 10.0), false, Vec2::ZERO);
+    let mut hud_state = crate::hud::HudState::default();
+    hud_state.open_message_box(terminal_id);
+    insert_test_hud_state(&mut hot_world, hud_state);
+    init_hud_commands(&mut hot_world);
+    hot_world.init_resource::<Messages<RequestRedraw>>();
+
+    let hot_started = Instant::now();
+    for _ in 0..MESSAGE_BOX_TYPING_BURST_KEYS {
+        dispatch_message_box_key(&mut hot_world, pressed_text(KeyCode::KeyA, Some("a")));
+    }
+    let hot_elapsed = hot_started.elapsed();
+    let baseline_nanos = baseline_elapsed.as_nanos().max(1) as f64;
+    let overhead_ratio = hot_elapsed.as_nanos() as f64 / baseline_nanos;
+
+    assert_eq!(
+        hot_world
+            .resource::<AppSessionState>()
+            .composer
+            .message_editor
+            .text
+            .len(),
+        MESSAGE_BOX_TYPING_BURST_KEYS,
+        "message editor should contain the full typing burst"
+    );
+    assert!(
+        overhead_ratio <= MESSAGE_BOX_TYPING_OVERHEAD_RATIO_MAX,
+        "message-box typing burst regressed: noop baseline={}µs hot-path={}µs ratio={:.2} max={:.2}",
+        baseline_elapsed.as_micros(),
+        hot_elapsed.as_micros(),
+        overhead_ratio,
+        MESSAGE_BOX_TYPING_OVERHEAD_RATIO_MAX
+    );
 }
 
 #[test]
