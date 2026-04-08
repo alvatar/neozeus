@@ -1,5 +1,8 @@
 use super::{
-    debug::{append_debug_log, note_key_event, with_debug_stats, TerminalDebugStats},
+    debug::{
+        append_debug_log, debug_file_logging_enabled, note_key_event, with_debug_stats,
+        TerminalDebugStats,
+    },
     mailbox::TerminalUpdateMailbox,
     types::{DrainedTerminalUpdates, TerminalCommand},
 };
@@ -46,14 +49,18 @@ impl TerminalBridge {
         let summary = summarize_terminal_command(&command).to_owned();
         match self.inner.input_tx.send(command) {
             Ok(()) => {
-                append_debug_log(format!("command queued: {summary}"));
+                if debug_file_logging_enabled() {
+                    append_debug_log(format!("command queued: {summary}"));
+                }
                 with_debug_stats(&self.inner.debug_stats, |stats| {
                     stats.commands_queued += 1;
                     stats.last_command = summary;
                 });
             }
             Err(_) => {
-                append_debug_log(format!("command queue failed: {summary}"));
+                if debug_file_logging_enabled() {
+                    append_debug_log(format!("command queue failed: {summary}"));
+                }
                 with_debug_stats(&self.inner.debug_stats, |stats| {
                     stats.last_command = summary;
                     stats.last_error = "input channel disconnected".into();
