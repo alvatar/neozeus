@@ -239,86 +239,63 @@ pub(super) struct AppCommandContext<'w> {
     redraws: MessageWriter<'w, RequestRedraw>,
 }
 
-/// Applies queued app-level commands through the explicit use-case layer.
-///
-/// This is the sole UI/input mutation entrypoint after command translation. Each command is decoded
-/// into one narrow use-case call so product policy lives in named handlers instead of in HUD fanout
-/// tables or widget code.
-pub(super) fn apply_app_commands(
-    mut app_commands: MessageReader<AppCommand>,
-    mut ctx: AppCommandContext,
-) {
-    // Keep the control flow staged so each branch owns one behavior path and later branches only run when earlier capture rules do not apply.
-    for command in app_commands.read() {
-        match command {
-            AppCommand::Agent(command) => match command {
-                AgentCommand::Create {
-                    label,
-                    kind,
-                    working_directory,
-                } => {
-                    if let Err(error) = use_cases::spawn_agent_terminal(
-                        &mut ctx.agent_catalog,
-                        &mut ctx.runtime_index,
-                        &mut ctx.app_session,
-                        &mut ctx.selection,
-                        &mut ctx.terminal_manager,
-                        &mut ctx.focus_state,
-                        &ctx.owned_tmux_sessions,
-                        &mut ctx.active_terminal_content,
-                        &ctx.runtime_spawner,
-                        &mut ctx.input_capture,
-                        &mut ctx.app_state_persistence,
-                        &mut ctx.visibility_state,
-                        &mut ctx.view_state,
-                        ctx.presentation_store.as_deref_mut(),
-                        &ctx.time,
-                        PERSISTENT_SESSION_PREFIX,
-                        *kind,
-                        label.clone(),
-                        Some(working_directory.as_str()),
-                        &mut ctx.redraws,
-                    ) {
-                        ctx.app_session.create_agent_dialog.error = Some(error.clone());
-                        append_debug_log(format!("create agent failed: {error}"));
-                        ctx.redraws.write(RequestRedraw);
-                    } else {
-                        ctx.app_session.create_agent_dialog.close();
+fn apply_agent_command(command: &AgentCommand, ctx: &mut AppCommandContext) {
+    match command {
+        AgentCommand::Create {
+            label,
+            kind,
+            working_directory,
+        } => {
+            if let Err(error) = use_cases::spawn_agent_terminal(
+                &mut ctx.agent_catalog,
+                &mut ctx.runtime_index,
+                &mut ctx.app_session,
+                &mut ctx.selection,
+                &mut ctx.terminal_manager,
+                &mut ctx.focus_state,
+                &ctx.owned_tmux_sessions,
+                &mut ctx.active_terminal_content,
+                &ctx.runtime_spawner,
+                &mut ctx.input_capture,
+                &mut ctx.app_state_persistence,
+                &mut ctx.visibility_state,
+                &mut ctx.view_state,
+                ctx.presentation_store.as_deref_mut(),
+                &ctx.time,
+                PERSISTENT_SESSION_PREFIX,
+                *kind,
+                label.clone(),
+                Some(working_directory.as_str()),
+                &mut ctx.redraws,
+            ) {
+                ctx.app_session.create_agent_dialog.error = Some(error.clone());
+                append_debug_log(format!("create agent failed: {error}"));
+                ctx.redraws.write(RequestRedraw);
+            } else {
+                ctx.app_session.create_agent_dialog.close();
+            }
+        }
+        AgentCommand::Rename { agent_id, label } => {
+            match ctx.agent_catalog.validate_rename_label(*agent_id, label) {
+                Ok(label) => {
+                    if let Some(session_name) = ctx.runtime_index.session_name(*agent_id) {
+                        if let Err(error) = ctx
+                            .runtime_spawner
+                            .update_session_metadata_label(session_name, Some(label.as_str()))
+                        {
+                            ctx.app_session.rename_agent_dialog.error = Some(error.clone());
+                            append_debug_log(format!(
+                                "rename agent failed for {session_name}: {error}"
+                            ));
+                            ctx.redraws.write(RequestRedraw);
+                            return;
+                        }
                     }
-                }
-                AgentCommand::Rename { agent_id, label } => {
-                    match ctx.agent_catalog.validate_rename_label(*agent_id, label) {
-                        Ok(label) => {
-                            if let Some(session_name) = ctx.runtime_index.session_name(*agent_id) {
-                                if let Err(error) =
-                                    ctx.runtime_spawner.update_session_metadata_label(
-                                        session_name,
-                                        Some(label.as_str()),
-                                    )
-                                {
-                                    ctx.app_session.rename_agent_dialog.error = Some(error.clone());
-                                    append_debug_log(format!(
-                                        "rename agent failed for {session_name}: {error}"
-                                    ));
-                                    ctx.redraws.write(RequestRedraw);
-                                    continue;
-                                }
-                            }
-                            match ctx.agent_catalog.rename_agent(*agent_id, label) {
-                                Ok(()) => {
-                                    ctx.app_session.rename_agent_dialog.close();
-                                    mark_app_state_dirty(
-                                        &mut ctx.app_state_persistence,
-                                        Some(&ctx.time),
-                                    );
-                                    ctx.redraws.write(RequestRedraw);
-                                }
-                                Err(error) => {
-                                    ctx.app_session.rename_agent_dialog.error = Some(error.clone());
-                                    append_debug_log(format!("rename agent failed: {error}"));
-                                    ctx.redraws.write(RequestRedraw);
-                                }
-                            }
+                    match ctx.agent_catalog.rename_agent(*agent_id, label) {
+                        Ok(()) => {
+                            ctx.app_session.rename_agent_dialog.close();
+                            mark_app_state_dirty(&mut ctx.app_state_persistence, Some(&ctx.time));
+                            ctx.redraws.write(RequestRedraw);
                         }
                         Err(error) => {
                             ctx.app_session.rename_agent_dialog.error = Some(error.clone());
@@ -327,273 +304,309 @@ pub(super) fn apply_app_commands(
                         }
                     }
                 }
-                AgentCommand::Clone {
-                    source_agent_id,
-                    label,
-                    workdir,
-                } => {
-                    if let Err(error) = use_cases::clone_pi_agent(
-                        &mut ctx.agent_catalog,
-                        &mut ctx.runtime_index,
-                        &mut ctx.app_session,
-                        &mut ctx.selection,
-                        &mut ctx.terminal_manager,
-                        &mut ctx.focus_state,
-                        &ctx.owned_tmux_sessions,
-                        &mut ctx.active_terminal_content,
-                        &ctx.runtime_spawner,
-                        &mut ctx.input_capture,
-                        &mut ctx.app_state_persistence,
-                        &mut ctx.visibility_state,
-                        &mut ctx.view_state,
-                        &ctx.time,
-                        *source_agent_id,
-                        label,
-                        *workdir,
-                        &mut ctx.redraws,
-                    ) {
-                        ctx.app_session.clone_agent_dialog.error = Some(error.clone());
-                        append_debug_log(format!("clone Pi agent failed: {error}"));
-                        ctx.redraws.write(RequestRedraw);
-                    } else {
-                        ctx.app_session.clone_agent_dialog.close();
-                    }
-                }
-                AgentCommand::Focus(agent_id) => {
-                    use_cases::focus_agent(
-                        *agent_id,
-                        VisibilityMode::ShowAll,
-                        &mut ctx.app_session,
-                        &ctx.agent_catalog,
-                        &ctx.runtime_index,
-                        &ctx.owned_tmux_sessions,
-                        &mut ctx.selection,
-                        &mut ctx.active_terminal_content,
-                        &mut ctx.terminal_manager,
-                        &mut ctx.focus_state,
-                        &mut ctx.input_capture,
-                        &mut ctx.app_state_persistence,
-                        &mut ctx.view_state,
-                        &mut ctx.visibility_state,
-                        &ctx.time,
-                        &mut ctx.redraws,
-                    );
-                }
-                AgentCommand::Inspect(agent_id) => {
-                    use_cases::focus_agent(
-                        *agent_id,
-                        VisibilityMode::FocusedOnly,
-                        &mut ctx.app_session,
-                        &ctx.agent_catalog,
-                        &ctx.runtime_index,
-                        &ctx.owned_tmux_sessions,
-                        &mut ctx.selection,
-                        &mut ctx.active_terminal_content,
-                        &mut ctx.terminal_manager,
-                        &mut ctx.focus_state,
-                        &mut ctx.input_capture,
-                        &mut ctx.app_state_persistence,
-                        &mut ctx.view_state,
-                        &mut ctx.visibility_state,
-                        &ctx.time,
-                        &mut ctx.redraws,
-                    );
-                }
-                AgentCommand::Reorder {
-                    agent_id,
-                    target_index,
-                } => {
-                    if ctx.agent_catalog.move_to_index(*agent_id, *target_index) {
-                        mark_app_state_dirty(&mut ctx.app_state_persistence, Some(&ctx.time));
-                        ctx.redraws.write(RequestRedraw);
-                    }
-                }
-                AgentCommand::ClearFocus => {
-                    ctx.app_session.focus_intent.clear(VisibilityMode::ShowAll);
-                    use_cases::apply_focus_intent(
-                        &mut ctx.app_session,
-                        &ctx.agent_catalog,
-                        &ctx.runtime_index,
-                        &ctx.owned_tmux_sessions,
-                        &mut ctx.selection,
-                        &mut ctx.active_terminal_content,
-                        &mut ctx.terminal_manager,
-                        &mut ctx.focus_state,
-                        &mut ctx.input_capture,
-                        &mut ctx.view_state,
-                        &mut ctx.visibility_state,
-                    );
-                    mark_app_state_dirty(&mut ctx.app_state_persistence, Some(&ctx.time));
+                Err(error) => {
+                    ctx.app_session.rename_agent_dialog.error = Some(error.clone());
+                    append_debug_log(format!("rename agent failed: {error}"));
                     ctx.redraws.write(RequestRedraw);
                 }
-                AgentCommand::KillSelected => {
-                    let agent_id = match ctx.app_session.focus_intent.selected_agent() {
-                        Some(agent_id) => agent_id,
-                        None => match *ctx.selection {
-                            crate::hud::AgentListSelection::Agent(agent_id) => {
-                                let visibility_mode = ctx.app_session.visibility_mode();
-                                ctx.app_session
-                                    .focus_intent
-                                    .focus_agent(agent_id, visibility_mode);
-                                agent_id
-                            }
-                            crate::hud::AgentListSelection::None
-                            | crate::hud::AgentListSelection::OwnedTmux(_) => continue,
-                        },
-                    };
-                    ctx.active_terminal_content.clear();
-                    if let Err(error) = use_cases::kill_selected_agent(
-                        agent_id,
-                        &ctx.time,
-                        &mut ctx.agent_catalog,
-                        &mut ctx.runtime_index,
-                        &mut ctx.app_session,
-                        &mut ctx.selection,
-                        &mut ctx.task_store,
-                        &mut ctx.conversations,
-                        &mut ctx.conversation_persistence,
-                        &mut ctx.notes_state,
-                        &mut ctx.terminal_manager,
-                        &mut ctx.focus_state,
-                        &ctx.runtime_spawner,
-                        &ctx.owned_tmux_sessions,
-                        &mut ctx.active_terminal_content,
-                        &mut ctx.input_capture,
-                        &mut ctx.app_state_persistence,
-                        &mut ctx.visibility_state,
-                        &mut ctx.view_state,
-                        &mut ctx.redraws,
-                    ) {
-                        append_debug_log(format!("kill selected agent failed: {error}"));
+            }
+        }
+        AgentCommand::Clone {
+            source_agent_id,
+            label,
+            workdir,
+        } => {
+            if let Err(error) = use_cases::clone_pi_agent(
+                &mut ctx.agent_catalog,
+                &mut ctx.runtime_index,
+                &mut ctx.app_session,
+                &mut ctx.selection,
+                &mut ctx.terminal_manager,
+                &mut ctx.focus_state,
+                &ctx.owned_tmux_sessions,
+                &mut ctx.active_terminal_content,
+                &ctx.runtime_spawner,
+                &mut ctx.input_capture,
+                &mut ctx.app_state_persistence,
+                &mut ctx.visibility_state,
+                &mut ctx.view_state,
+                &ctx.time,
+                *source_agent_id,
+                label,
+                *workdir,
+                &mut ctx.redraws,
+            ) {
+                ctx.app_session.clone_agent_dialog.error = Some(error.clone());
+                append_debug_log(format!("clone Pi agent failed: {error}"));
+                ctx.redraws.write(RequestRedraw);
+            } else {
+                ctx.app_session.clone_agent_dialog.close();
+            }
+        }
+        AgentCommand::Focus(agent_id) => {
+            use_cases::focus_agent(
+                *agent_id,
+                VisibilityMode::ShowAll,
+                &mut ctx.app_session,
+                &ctx.agent_catalog,
+                &ctx.runtime_index,
+                &ctx.owned_tmux_sessions,
+                &mut ctx.selection,
+                &mut ctx.active_terminal_content,
+                &mut ctx.terminal_manager,
+                &mut ctx.focus_state,
+                &mut ctx.input_capture,
+                &mut ctx.app_state_persistence,
+                &mut ctx.view_state,
+                &mut ctx.visibility_state,
+                &ctx.time,
+                &mut ctx.redraws,
+            );
+        }
+        AgentCommand::Inspect(agent_id) => {
+            use_cases::focus_agent(
+                *agent_id,
+                VisibilityMode::FocusedOnly,
+                &mut ctx.app_session,
+                &ctx.agent_catalog,
+                &ctx.runtime_index,
+                &ctx.owned_tmux_sessions,
+                &mut ctx.selection,
+                &mut ctx.active_terminal_content,
+                &mut ctx.terminal_manager,
+                &mut ctx.focus_state,
+                &mut ctx.input_capture,
+                &mut ctx.app_state_persistence,
+                &mut ctx.view_state,
+                &mut ctx.visibility_state,
+                &ctx.time,
+                &mut ctx.redraws,
+            );
+        }
+        AgentCommand::Reorder {
+            agent_id,
+            target_index,
+        } => {
+            if ctx.agent_catalog.move_to_index(*agent_id, *target_index) {
+                mark_app_state_dirty(&mut ctx.app_state_persistence, Some(&ctx.time));
+                ctx.redraws.write(RequestRedraw);
+            }
+        }
+        AgentCommand::ClearFocus => {
+            ctx.app_session.focus_intent.clear(VisibilityMode::ShowAll);
+            use_cases::apply_focus_intent(
+                &mut ctx.app_session,
+                &ctx.agent_catalog,
+                &ctx.runtime_index,
+                &ctx.owned_tmux_sessions,
+                &mut ctx.selection,
+                &mut ctx.active_terminal_content,
+                &mut ctx.terminal_manager,
+                &mut ctx.focus_state,
+                &mut ctx.input_capture,
+                &mut ctx.view_state,
+                &mut ctx.visibility_state,
+            );
+            mark_app_state_dirty(&mut ctx.app_state_persistence, Some(&ctx.time));
+            ctx.redraws.write(RequestRedraw);
+        }
+        AgentCommand::KillSelected => {
+            let agent_id = match ctx.app_session.focus_intent.selected_agent() {
+                Some(agent_id) => agent_id,
+                None => match *ctx.selection {
+                    crate::hud::AgentListSelection::Agent(agent_id) => {
+                        let visibility_mode = ctx.app_session.visibility_mode();
+                        ctx.app_session
+                            .focus_intent
+                            .focus_agent(agent_id, visibility_mode);
+                        agent_id
                     }
-                }
-            },
-            AppCommand::OwnedTmux(command) => match command {
-                OwnedTmuxCommand::Select { session_uid } => {
-                    use_cases::select_owned_tmux(
-                        session_uid,
-                        &mut ctx.selection,
-                        &ctx.agent_catalog,
-                        &ctx.runtime_index,
-                        &mut ctx.app_session,
-                        &mut ctx.terminal_manager,
-                        &mut ctx.focus_state,
-                        &mut ctx.input_capture,
-                        &mut ctx.view_state,
-                        &mut ctx.visibility_state,
-                        &ctx.runtime_spawner,
-                        &mut ctx.owned_tmux_sessions,
-                        &mut ctx.active_terminal_content,
-                        &mut ctx.redraws,
-                    );
-                }
-                OwnedTmuxCommand::ClearSelection => {
-                    ctx.app_session.focus_intent.clear(VisibilityMode::ShowAll);
-                    use_cases::apply_focus_intent(
-                        &mut ctx.app_session,
-                        &ctx.agent_catalog,
-                        &ctx.runtime_index,
-                        &ctx.owned_tmux_sessions,
-                        &mut ctx.selection,
-                        &mut ctx.active_terminal_content,
-                        &mut ctx.terminal_manager,
-                        &mut ctx.focus_state,
-                        &mut ctx.input_capture,
-                        &mut ctx.view_state,
-                        &mut ctx.visibility_state,
-                    );
-                    ctx.redraws.write(RequestRedraw);
-                }
-                OwnedTmuxCommand::KillSelected => {
-                    use_cases::kill_selected_owned_tmux(
-                        &mut ctx.app_session,
-                        &ctx.agent_catalog,
-                        &ctx.runtime_index,
-                        &mut ctx.terminal_manager,
-                        &mut ctx.focus_state,
-                        &mut ctx.input_capture,
-                        &mut ctx.view_state,
-                        &mut ctx.visibility_state,
-                        &ctx.runtime_spawner,
-                        &mut ctx.selection,
-                        &mut ctx.owned_tmux_sessions,
-                        &mut ctx.active_terminal_content,
-                        &mut ctx.redraws,
-                    );
-                    if let Some(error) = ctx.active_terminal_content.last_error() {
-                        append_debug_log(format!("kill owned tmux failed: {error}"));
-                    }
-                }
-            },
-            AppCommand::Task(command) => match command {
-                AppTaskCommand::Append { agent_id, text } => {
-                    if use_cases::append_task(*agent_id, text, &mut ctx.task_store) {
-                        refresh_open_task_editor(&mut ctx.app_session, *agent_id, &ctx.task_store);
-                        ctx.redraws.write(RequestRedraw);
-                    }
-                }
-                AppTaskCommand::Prepend { agent_id, text } => {
-                    if use_cases::prepend_task(*agent_id, text, &mut ctx.task_store) {
-                        refresh_open_task_editor(&mut ctx.app_session, *agent_id, &ctx.task_store);
-                        ctx.redraws.write(RequestRedraw);
-                    }
-                }
-                AppTaskCommand::ClearDone { agent_id } => {
-                    if use_cases::clear_done_tasks(*agent_id, &mut ctx.task_store) {
-                        refresh_open_task_editor(&mut ctx.app_session, *agent_id, &ctx.task_store);
-                        ctx.redraws.write(RequestRedraw);
-                    }
-                }
-                AppTaskCommand::ConsumeNext { agent_id } => {
-                    if use_cases::consume_next_task(
-                        *agent_id,
-                        &mut ctx.task_store,
-                        ctx.runtime_index.primary_terminal(*agent_id),
-                        &ctx.terminal_manager,
-                    ) {
-                        refresh_open_task_editor(&mut ctx.app_session, *agent_id, &ctx.task_store);
-                        ctx.redraws.write(RequestRedraw);
-                    }
-                }
-            },
-            AppCommand::Composer(command) => match command {
-                ComposerCommand::Open(request) => {
-                    use_cases::open_composer(
-                        request,
-                        &mut ctx.app_session,
-                        &mut ctx.input_capture,
-                        &ctx.runtime_index,
-                        &ctx.task_store,
-                        &mut ctx.redraws,
-                    );
-                }
-                ComposerCommand::Submit => {
-                    use_cases::submit_composer(
-                        &mut ctx.app_session,
-                        &mut ctx.conversations,
-                        &mut ctx.conversation_persistence,
-                        &mut ctx.task_store,
-                        &ctx.runtime_index,
-                        &ctx.runtime_spawner,
-                        &ctx.transport,
-                        &ctx.time,
-                        &mut ctx.redraws,
-                    );
-                }
-                ComposerCommand::Cancel => {
-                    use_cases::cancel_composer(&mut ctx.app_session, &mut ctx.redraws);
-                }
-            },
-            AppCommand::Widget(command) => match command {
-                WidgetCommand::Toggle(widget_id) => {
-                    use_cases::toggle_widget(*widget_id, &mut ctx.layout_state);
-                    ctx.redraws.write(RequestRedraw);
-                }
-                WidgetCommand::Reset(widget_id) => {
-                    use_cases::reset_widget(*widget_id, &mut ctx.layout_state);
-                    ctx.redraws.write(RequestRedraw);
-                }
-            },
+                    crate::hud::AgentListSelection::None
+                    | crate::hud::AgentListSelection::OwnedTmux(_) => return,
+                },
+            };
+            ctx.active_terminal_content.clear();
+            if let Err(error) = use_cases::kill_selected_agent(
+                agent_id,
+                &ctx.time,
+                &mut ctx.agent_catalog,
+                &mut ctx.runtime_index,
+                &mut ctx.app_session,
+                &mut ctx.selection,
+                &mut ctx.task_store,
+                &mut ctx.conversations,
+                &mut ctx.conversation_persistence,
+                &mut ctx.notes_state,
+                &mut ctx.terminal_manager,
+                &mut ctx.focus_state,
+                &ctx.runtime_spawner,
+                &ctx.owned_tmux_sessions,
+                &mut ctx.active_terminal_content,
+                &mut ctx.input_capture,
+                &mut ctx.app_state_persistence,
+                &mut ctx.visibility_state,
+                &mut ctx.view_state,
+                &mut ctx.redraws,
+            ) {
+                append_debug_log(format!("kill selected agent failed: {error}"));
+            }
+        }
+    }
+}
+
+fn apply_owned_tmux_command(command: &OwnedTmuxCommand, ctx: &mut AppCommandContext) {
+    match command {
+        OwnedTmuxCommand::Select { session_uid } => {
+            use_cases::select_owned_tmux(
+                session_uid,
+                &mut ctx.selection,
+                &ctx.agent_catalog,
+                &ctx.runtime_index,
+                &mut ctx.app_session,
+                &mut ctx.terminal_manager,
+                &mut ctx.focus_state,
+                &mut ctx.input_capture,
+                &mut ctx.view_state,
+                &mut ctx.visibility_state,
+                &ctx.runtime_spawner,
+                &mut ctx.owned_tmux_sessions,
+                &mut ctx.active_terminal_content,
+                &mut ctx.redraws,
+            );
+        }
+        OwnedTmuxCommand::ClearSelection => {
+            ctx.app_session.focus_intent.clear(VisibilityMode::ShowAll);
+            use_cases::apply_focus_intent(
+                &mut ctx.app_session,
+                &ctx.agent_catalog,
+                &ctx.runtime_index,
+                &ctx.owned_tmux_sessions,
+                &mut ctx.selection,
+                &mut ctx.active_terminal_content,
+                &mut ctx.terminal_manager,
+                &mut ctx.focus_state,
+                &mut ctx.input_capture,
+                &mut ctx.view_state,
+                &mut ctx.visibility_state,
+            );
+            ctx.redraws.write(RequestRedraw);
+        }
+        OwnedTmuxCommand::KillSelected => {
+            use_cases::kill_selected_owned_tmux(
+                &mut ctx.app_session,
+                &ctx.agent_catalog,
+                &ctx.runtime_index,
+                &mut ctx.terminal_manager,
+                &mut ctx.focus_state,
+                &mut ctx.input_capture,
+                &mut ctx.view_state,
+                &mut ctx.visibility_state,
+                &ctx.runtime_spawner,
+                &mut ctx.selection,
+                &mut ctx.owned_tmux_sessions,
+                &mut ctx.active_terminal_content,
+                &mut ctx.redraws,
+            );
+            if let Some(error) = ctx.active_terminal_content.last_error() {
+                append_debug_log(format!("kill owned tmux failed: {error}"));
+            }
+        }
+    }
+}
+
+fn apply_task_command(command: &AppTaskCommand, ctx: &mut AppCommandContext) {
+    match command {
+        AppTaskCommand::Append { agent_id, text } => {
+            if use_cases::append_task(*agent_id, text, &mut ctx.task_store) {
+                refresh_open_task_editor(&mut ctx.app_session, *agent_id, &ctx.task_store);
+                ctx.redraws.write(RequestRedraw);
+            }
+        }
+        AppTaskCommand::Prepend { agent_id, text } => {
+            if use_cases::prepend_task(*agent_id, text, &mut ctx.task_store) {
+                refresh_open_task_editor(&mut ctx.app_session, *agent_id, &ctx.task_store);
+                ctx.redraws.write(RequestRedraw);
+            }
+        }
+        AppTaskCommand::ClearDone { agent_id } => {
+            if use_cases::clear_done_tasks(*agent_id, &mut ctx.task_store) {
+                refresh_open_task_editor(&mut ctx.app_session, *agent_id, &ctx.task_store);
+                ctx.redraws.write(RequestRedraw);
+            }
+        }
+        AppTaskCommand::ConsumeNext { agent_id } => {
+            if use_cases::consume_next_task(
+                *agent_id,
+                &mut ctx.task_store,
+                ctx.runtime_index.primary_terminal(*agent_id),
+                &ctx.terminal_manager,
+            ) {
+                refresh_open_task_editor(&mut ctx.app_session, *agent_id, &ctx.task_store);
+                ctx.redraws.write(RequestRedraw);
+            }
+        }
+    }
+}
+
+fn apply_composer_command(command: &ComposerCommand, ctx: &mut AppCommandContext) {
+    match command {
+        ComposerCommand::Open(request) => {
+            use_cases::open_composer(
+                request,
+                &mut ctx.app_session,
+                &mut ctx.input_capture,
+                &ctx.runtime_index,
+                &ctx.task_store,
+                &mut ctx.redraws,
+            );
+        }
+        ComposerCommand::Submit => {
+            use_cases::submit_composer(
+                &mut ctx.app_session,
+                &mut ctx.conversations,
+                &mut ctx.conversation_persistence,
+                &mut ctx.task_store,
+                &ctx.runtime_index,
+                &ctx.runtime_spawner,
+                &ctx.transport,
+                &ctx.time,
+                &mut ctx.redraws,
+            );
+        }
+        ComposerCommand::Cancel => {
+            use_cases::cancel_composer(&mut ctx.app_session, &mut ctx.redraws);
+        }
+    }
+}
+
+fn apply_widget_command(command: &WidgetCommand, ctx: &mut AppCommandContext) {
+    match command {
+        WidgetCommand::Toggle(widget_id) => {
+            use_cases::toggle_widget(*widget_id, &mut ctx.layout_state);
+            ctx.redraws.write(RequestRedraw);
+        }
+        WidgetCommand::Reset(widget_id) => {
+            use_cases::reset_widget(*widget_id, &mut ctx.layout_state);
+            ctx.redraws.write(RequestRedraw);
+        }
+    }
+}
+
+/// Applies queued app-level commands through the explicit use-case layer.
+///
+/// The top-level dispatcher now routes commands into narrower domain executors so the per-domain
+/// mutation policy stays local instead of accumulating inside one giant match body.
+pub(super) fn apply_app_commands(
+    mut app_commands: MessageReader<AppCommand>,
+    mut ctx: AppCommandContext,
+) {
+    for command in app_commands.read() {
+        match command {
+            AppCommand::Agent(command) => apply_agent_command(command, &mut ctx),
+            AppCommand::OwnedTmux(command) => apply_owned_tmux_command(command, &mut ctx),
+            AppCommand::Task(command) => apply_task_command(command, &mut ctx),
+            AppCommand::Composer(command) => apply_composer_command(command, &mut ctx),
+            AppCommand::Widget(command) => apply_widget_command(command, &mut ctx),
         }
     }
 }
