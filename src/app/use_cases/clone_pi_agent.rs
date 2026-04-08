@@ -4,7 +4,7 @@ use crate::{
     hud::{HudInputCaptureState, TerminalVisibilityState},
     shared::{
         pi_session_files::{fork_session, read_session_header},
-        worktree::{create_worktree, get_current_branch, get_worktree_repo_root},
+        worktree::{create_worktree, get_current_branch, get_worktree_repo_root, worktree_slug},
     },
     terminals::{
         TerminalFocusState, TerminalManager, TerminalRuntimeSpawner, TerminalViewState,
@@ -52,17 +52,24 @@ pub(crate) fn clone_pi_agent(
         .ok_or_else(|| "source Pi agent is missing clone provenance".to_owned())?
         .to_owned();
     let source_header = read_session_header(&source_session_path)?;
+    let workdir_slug = workdir.then(|| worktree_slug(&label)).transpose()?;
     let target_cwd = if workdir {
         let repo_root = get_worktree_repo_root(&source_header.cwd)
             .map_err(|_| format!("Not a git repo: {}", source_header.cwd))?;
         let parent_branch = get_current_branch(&repo_root)
             .map_err(|error| format!("Cannot determine current branch: {error}"))?;
-        create_worktree(&repo_root, &label, Some(&parent_branch))?
+        create_worktree(
+            &repo_root,
+            workdir_slug
+                .as_deref()
+                .ok_or_else(|| "missing workdir slug".to_owned())?,
+            Some(&parent_branch),
+        )?
     } else {
         source_header.cwd
     };
     let clone_session_path = fork_session(&source_session_path, Some(&target_cwd))?;
-    let launch = pi_launch_spec_for_session_path(clone_session_path, workdir);
+    let launch = pi_launch_spec_for_session_path(clone_session_path, workdir, workdir_slug);
 
     let agent_id = spawn_agent_terminal_with_launch_spec(
         agent_catalog,

@@ -1,9 +1,9 @@
 use crate::{
-    agents::{AgentCatalog, AgentId, AgentRuntimeIndex},
+    agents::{AgentCatalog, AgentId, AgentRuntimeIndex, AgentStatusStore},
     app::AppSessionState,
     conversations::{AgentTaskStore, ConversationStore, MessageDeliveryState},
-    terminals::{OwnedTmuxSessionStore, TerminalManager, TerminalSurface},
-    usage::{claude_backoff_active, time_left, UsagePersistenceState, UsageSnapshot},
+    terminals::{OwnedTmuxSessionStore, TerminalManager},
+    usage::{time_left, UsageFreshness, UsageSnapshot},
     visual_contract::{VisualAgentActivity, VisualContractState},
 };
 use bevy::prelude::*;
@@ -184,6 +184,7 @@ pub(crate) fn sync_hud_view_models(
     task_store: Res<AgentTaskStore>,
     conversations: Res<ConversationStore>,
     visual_contract: Res<VisualContractState>,
+    status_store: Res<AgentStatusStore>,
     owned_tmux_sessions: Res<OwnedTmuxSessionStore>,
     selection: Res<AgentListSelection>,
     mut agent_list: ResMut<AgentListView>,
@@ -224,9 +225,7 @@ pub(crate) fn sync_hud_view_models(
         let terminal = terminal_id.and_then(|terminal_id| terminal_manager.get(terminal_id));
         let interactive =
             terminal.is_some_and(|terminal| terminal.snapshot.runtime.is_interactive());
-        let context_pct_milli = terminal
-            .and_then(|terminal| terminal.snapshot.surface.as_ref())
-            .and_then(parse_agent_context_pct_milli);
+        let context_pct_milli = status_store.context_pct_milli(agent_id);
         rows.push(AgentListRowView {
             key: AgentListRowKey::Agent(agent_id),
             label: if agent_catalog.is_workdir(agent_id) {
@@ -342,63 +341,13 @@ pub(crate) fn sync_hud_view_models(
     };
 }
 
-fn parse_agent_context_pct_milli(surface: &TerminalSurface) -> Option<i32> {
-    (0..surface.rows)
-        .rev()
-        .take(8)
-        .find_map(|row| parse_context_pct_milli(&row_text(surface, row)))
-}
-
-fn parse_context_pct_milli(line: &str) -> Option<i32> {
-    parse_pi_footer_context_pct_milli(line).or_else(|| parse_codex_footer_context_pct_milli(line))
-}
-
-fn parse_pi_footer_context_pct_milli(line: &str) -> Option<i32> {
-    let ctx_start = line.find("Ctx(")?;
-    let tail = &line[ctx_start..];
-    let pct_end = tail.find("%)")?;
-    let pct_start = tail[..pct_end].rfind('(')? + 1;
-    parse_percent_milli(&tail[pct_start..pct_end])
-}
-
-fn parse_codex_footer_context_pct_milli(line: &str) -> Option<i32> {
-    let pct_end = line.find("% left")?;
-    let prefix = line[..pct_end].trim_end();
-    let pct_start = prefix
-        .rfind(|ch: char| !(ch.is_ascii_digit() || ch == '.'))
-        .map_or(0, |index| index + 1);
-    let remaining = parse_percent_milli(prefix[pct_start..].trim())?;
-    Some((100_000 - remaining).clamp(0, 100_000))
-}
-
-fn parse_percent_milli(raw: &str) -> Option<i32> {
-    let pct = raw.trim().parse::<f32>().ok()?;
-    ((0.0..=100.0).contains(&pct)).then_some((pct * 1000.0).round() as i32)
-}
-
-fn row_text(surface: &TerminalSurface, row: usize) -> String {
-    let mut text = String::new();
-    for col in 0..surface.cols {
-        let cell = surface.cell(col, row);
-        if cell.width == 0 {
-            continue;
-        }
-        text.push_str(&cell.content.to_owned_string());
-    }
-    text.trim_end().to_owned()
-}
-
 /// Derives the render-ready info-bar usage rows from the normalized usage snapshot.
 pub(crate) fn sync_info_bar_view_model(
     usage_snapshot: Res<UsageSnapshot>,
-    persistence_state: Res<UsagePersistenceState>,
     mut info_bar_view: ResMut<InfoBarView>,
 ) {
     let now_unix_secs = current_unix_secs();
-    let claude_rate_limited = claude_backoff_active(
-        &persistence_state.claude_backoff_until_path,
-        now_unix_secs as u64,
-    );
+    let claude_rate_limited = usage_snapshot.claude_state.rate_limited;
 
     if usage_snapshot.claude.available {
         info_bar_view.claude_session = UsageBarView {
@@ -424,16 +373,20 @@ pub(crate) fn sync_info_bar_view_model(
             available: true,
         };
     } else {
+        let detail = match usage_snapshot.claude_state.freshness {
+            UsageFreshness::Malformed => "malformed".to_owned(),
+            UsageFreshness::Missing | UsageFreshness::Parsed => "unavailable".to_owned(),
+        };
         info_bar_view.claude_session = UsageBarView {
             label: "Claude Session:".to_owned(),
             pct_milli: 0,
-            detail_text: "unavailable".to_owned(),
+            detail_text: detail.clone(),
             available: false,
         };
         info_bar_view.claude_week = UsageBarView {
             label: "Week:".to_owned(),
             pct_milli: 0,
-            detail_text: "unavailable".to_owned(),
+            detail_text: detail,
             available: false,
         };
     }
@@ -458,16 +411,20 @@ pub(crate) fn sync_info_bar_view_model(
             available: true,
         };
     } else {
+        let detail = match usage_snapshot.openai_state.freshness {
+            UsageFreshness::Malformed => "malformed".to_owned(),
+            UsageFreshness::Missing | UsageFreshness::Parsed => "unavailable".to_owned(),
+        };
         info_bar_view.openai_session = UsageBarView {
             label: "OpenAI Session:".to_owned(),
             pct_milli: 0,
-            detail_text: "unavailable".to_owned(),
+            detail_text: detail.clone(),
             available: false,
         };
         info_bar_view.openai_week = UsageBarView {
             label: "Week:".to_owned(),
             pct_milli: 0,
-            detail_text: "unavailable".to_owned(),
+            detail_text: detail,
             available: false,
         };
     }

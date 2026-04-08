@@ -25,6 +25,7 @@ pub(crate) enum AgentStatus {
 pub(crate) struct AgentStatusSample {
     pub(crate) last_four_lines: Vec<String>,
     pub(crate) status: AgentStatus,
+    pub(crate) context_pct_milli: Option<i32>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -46,6 +47,12 @@ impl AgentStatusStore {
             .get(&agent_id)
             .map(|sample| sample.status)
             .unwrap_or(AgentStatus::Unknown)
+    }
+
+    pub(crate) fn context_pct_milli(&self, agent_id: AgentId) -> Option<i32> {
+        self.samples
+            .get(&agent_id)
+            .and_then(|sample| sample.context_pct_milli)
     }
 }
 
@@ -132,6 +139,7 @@ fn sample_agent_status(
     AgentStatusSample {
         last_four_lines,
         status,
+        context_pct_milli: parse_agent_context_pct_milli(surface),
     }
 }
 
@@ -222,6 +230,40 @@ fn extract_visible_rows(surface: &TerminalSurface) -> Vec<String> {
     (0..surface.rows)
         .map(|row| row_text(surface, row))
         .collect::<Vec<_>>()
+}
+
+pub(crate) fn parse_agent_context_pct_milli(surface: &TerminalSurface) -> Option<i32> {
+    (0..surface.rows)
+        .rev()
+        .take(8)
+        .find_map(|row| parse_context_pct_milli(&row_text(surface, row)))
+}
+
+fn parse_context_pct_milli(line: &str) -> Option<i32> {
+    parse_pi_footer_context_pct_milli(line).or_else(|| parse_codex_footer_context_pct_milli(line))
+}
+
+fn parse_pi_footer_context_pct_milli(line: &str) -> Option<i32> {
+    let ctx_start = line.find("Ctx(")?;
+    let tail = &line[ctx_start..];
+    let pct_end = tail.find("%)")?;
+    let pct_start = tail[..pct_end].rfind('(')? + 1;
+    parse_percent_milli(&tail[pct_start..pct_end])
+}
+
+fn parse_codex_footer_context_pct_milli(line: &str) -> Option<i32> {
+    let pct_end = line.find("% left")?;
+    let prefix = line[..pct_end].trim_end();
+    let pct_start = prefix
+        .rfind(|ch: char| !(ch.is_ascii_digit() || ch == '.'))
+        .map_or(0, |index| index + 1);
+    let remaining = parse_percent_milli(prefix[pct_start..].trim())?;
+    Some((100_000 - remaining).clamp(0, 100_000))
+}
+
+fn parse_percent_milli(raw: &str) -> Option<i32> {
+    let pct = raw.trim().parse::<f32>().ok()?;
+    ((0.0..=100.0).contains(&pct)).then_some((pct * 1000.0).round() as i32)
 }
 
 fn row_text(surface: &TerminalSurface, row: usize) -> String {

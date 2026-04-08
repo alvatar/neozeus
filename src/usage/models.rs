@@ -26,10 +26,27 @@ pub(crate) struct OpenAiUsageData {
     pub(crate) available: bool,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum UsageFreshness {
+    #[default]
+    Missing,
+    Parsed,
+    Malformed,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct UsageProviderState {
+    pub(crate) freshness: UsageFreshness,
+    pub(crate) rate_limited: bool,
+    pub(crate) detail: Option<String>,
+}
+
 #[derive(Resource, Clone, Debug, Default, PartialEq)]
 pub(crate) struct UsageSnapshot {
     pub(crate) claude: ClaudeUsageData,
+    pub(crate) claude_state: UsageProviderState,
     pub(crate) openai: OpenAiUsageData,
+    pub(crate) openai_state: UsageProviderState,
 }
 
 #[derive(Resource, Clone, Debug, PartialEq)]

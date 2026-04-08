@@ -25,6 +25,10 @@ use super::{
 };
 use bevy::{ecs::system::SystemParam, prelude::*, window::RequestRedraw};
 
+#[allow(
+    clippy::too_many_arguments,
+    reason = "agent cleanup spans domain stores, persistence dirtiness, and selection state together"
+)]
 fn purge_removed_agent_state(
     time: &Time,
     agent_id: crate::agents::AgentId,
@@ -63,6 +67,10 @@ fn purge_removed_agent_state(
 /// The sync is intentionally conservative: missing agent records are created, stale links are
 /// removed, and runtime lifecycle is refreshed. It does not overwrite explicit catalog labels once
 /// an agent exists, and it only clears row selection when the selected agent disappears.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "terminal reconciliation now owns cleanup parity across agent, task, conversation, and note stores"
+)]
 pub(crate) fn sync_agents_from_terminals(
     time: Res<Time>,
     mut agent_catalog: ResMut<AgentCatalog>,

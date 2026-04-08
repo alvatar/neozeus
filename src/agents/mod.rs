@@ -9,6 +9,8 @@ pub(crate) use catalog::{
 #[cfg(test)]
 pub(crate) use catalog::AgentCapabilities;
 pub(crate) use runtime_index::AgentRuntimeIndex;
+#[cfg(test)]
+pub(crate) use status::parse_agent_context_pct_milli;
 pub(crate) use status::{sync_agent_status, AgentStatus, AgentStatusStore};
 
 #[cfg(test)]

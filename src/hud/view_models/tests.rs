@@ -1,24 +1,24 @@
 use super::{
-    parse_agent_context_pct_milli, selected_agent_id, selected_agent_list_row_key,
-    sync_hud_view_models, sync_info_bar_view_model, AgentListActivity, AgentListRowKey,
-    AgentListRowKind, AgentListSelection, AgentListView, ComposerView, ConversationListView,
-    InfoBarView, OwnedTmuxOwnerBinding, ThreadView,
+    selected_agent_id, selected_agent_list_row_key, sync_hud_view_models, sync_info_bar_view_model,
+    AgentListActivity, AgentListRowKey, AgentListRowKind, AgentListSelection, AgentListView,
+    ComposerView, ConversationListView, InfoBarView, OwnedTmuxOwnerBinding, ThreadView,
 };
 use crate::{
-    agents::{AgentCatalog, AgentKind, AgentMetadata, AgentRuntimeIndex, AgentStatusStore},
+    agents::{
+        parse_agent_context_pct_milli, AgentCatalog, AgentKind, AgentMetadata, AgentRuntimeIndex,
+        AgentStatusStore,
+    },
     app::AppSessionState,
     conversations::{AgentTaskStore, ConversationStore, MessageAuthor, MessageDeliveryState},
     tests::{insert_terminal_manager_resources, surface_with_text, test_bridge},
-    usage::{ClaudeUsageData, OpenAiUsageData, UsagePersistenceState, UsageSnapshot},
+    usage::{ClaudeUsageData, OpenAiUsageData, UsageSnapshot},
 };
 use bevy::{ecs::system::RunSystemOnce, prelude::*};
-use std::{
-    fs,
-    path::PathBuf,
-    time::{SystemTime, UNIX_EPOCH},
-};
 
 fn run_synced_hud_view_models(world: &mut World) {
+    if !world.contains_resource::<Time>() {
+        world.insert_resource(Time::<()>::default());
+    }
     if !world.contains_resource::<crate::visual_contract::VisualContractState>() {
         world.insert_resource(crate::visual_contract::VisualContractState::default());
     }
@@ -30,6 +30,9 @@ fn run_synced_hud_view_models(world: &mut World) {
         && world.contains_resource::<AgentStatusStore>()
         && world.contains_resource::<crate::terminals::TerminalManager>()
     {
+        world
+            .run_system_once(crate::agents::sync_agent_status)
+            .unwrap();
         world
             .run_system_once(crate::visual_contract::sync_visual_contract_state)
             .unwrap();
@@ -206,6 +209,7 @@ fn sync_hud_view_models_prefixes_workdir_agents_with_marker() {
         AgentMetadata {
             clone_source_session_path: Some("/tmp/pi-alpha.jsonl".into()),
             is_workdir: true,
+            workdir_slug: None,
         },
     );
 
@@ -603,6 +607,7 @@ fn synced_context_pct(kind: AgentKind, surface: crate::terminals::TerminalSurfac
     let mut world = World::default();
     world.insert_resource(catalog);
     world.insert_resource(runtime_index);
+    world.insert_resource(Time::<()>::default());
     world.insert_resource(AppSessionState::default());
     world.insert_resource(AgentTaskStore::default());
     world.insert_resource(ConversationStore::default());
@@ -621,32 +626,6 @@ fn synced_context_pct(kind: AgentKind, surface: crate::terminals::TerminalSurfac
             context_pct_milli, ..
         } => *context_pct_milli,
         other => panic!("expected agent row, got {other:?}"),
-    }
-}
-
-fn temp_path(name: &str) -> PathBuf {
-    let unique = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
-    std::env::temp_dir().join(format!("neozeus-view-models-{name}-{unique}"))
-}
-
-fn test_usage_persistence_state() -> UsagePersistenceState {
-    let state_dir = temp_path("usage-state");
-    UsagePersistenceState {
-        state_dir: state_dir.clone(),
-        claude_cache_path: state_dir.join("claude-cache.json"),
-        openai_cache_path: state_dir.join("openai-cache.json"),
-        claude_log_path: state_dir.join("claude.log"),
-        openai_log_path: state_dir.join("openai.log"),
-        claude_backoff_until_path: state_dir.join("claude-backoff.txt"),
-        claude_refresh_lock_path: state_dir.join("claude-refresh.lock"),
-        openai_refresh_lock_path: state_dir.join("openai-refresh.lock"),
-        helper_script_path: PathBuf::from("scripts/usage_fetch.py"),
-        python_program: PathBuf::from("python3"),
-        last_claude_refresh_attempt_secs: None,
-        last_openai_refresh_attempt_secs: None,
     }
 }
 
@@ -673,8 +652,8 @@ fn sync_info_bar_view_model_derives_usage_rows() {
             tokens_resets_at: "4d00h".into(),
             available: true,
         },
+        ..Default::default()
     });
-    world.insert_resource(test_usage_persistence_state());
     world.insert_resource(InfoBarView::default());
 
     world.run_system_once(sync_info_bar_view_model).unwrap();
@@ -698,7 +677,6 @@ fn sync_info_bar_view_model_derives_usage_rows() {
 fn sync_info_bar_view_model_handles_unavailable_sources() {
     let mut world = World::default();
     world.insert_resource(UsageSnapshot::default());
-    world.insert_resource(test_usage_persistence_state());
     world.insert_resource(InfoBarView::default());
 
     world.run_system_once(sync_info_bar_view_model).unwrap();
@@ -710,14 +688,6 @@ fn sync_info_bar_view_model_handles_unavailable_sources() {
 
 #[test]
 fn sync_info_bar_view_model_reports_claude_backoff() {
-    let persistence = test_usage_persistence_state();
-    fs::create_dir_all(&persistence.state_dir).unwrap();
-    fs::write(
-        &persistence.claude_backoff_until_path,
-        format!("{}", current_unix() + 120),
-    )
-    .unwrap();
-
     let mut world = World::default();
     world.insert_resource(UsageSnapshot {
         claude: ClaudeUsageData {
@@ -725,9 +695,13 @@ fn sync_info_bar_view_model_reports_claude_backoff() {
             available: true,
             ..Default::default()
         },
+        claude_state: crate::usage::UsageProviderState {
+            freshness: crate::usage::UsageFreshness::Parsed,
+            rate_limited: true,
+            detail: None,
+        },
         ..Default::default()
     });
-    world.insert_resource(persistence);
     world.insert_resource(InfoBarView::default());
 
     world.run_system_once(sync_info_bar_view_model).unwrap();
@@ -735,11 +709,4 @@ fn sync_info_bar_view_model_reports_claude_backoff() {
         world.resource::<InfoBarView>().claude_session.detail_text,
         "RL"
     );
-}
-
-fn current_unix() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_secs()
 }

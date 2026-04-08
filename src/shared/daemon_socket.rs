@@ -27,7 +27,7 @@ pub fn daemon_socket_env_pairs(socket_path: &Path) -> [(String, String); 2] {
     ]
 }
 
-pub fn daemon_socket_path_from_env_map<'a>(env: &'a HashMap<String, String>) -> Option<&'a str> {
+pub fn daemon_socket_path_from_env_map(env: &HashMap<String, String>) -> Option<&str> {
     env.get(DAEMON_SOCKET_PATH_ENV)
         .map(String::as_str)
         .filter(|value| !value.trim().is_empty())

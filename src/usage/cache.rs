@@ -1,6 +1,16 @@
-use super::models::{ClaudeUsageData, OpenAiUsageData, UsagePersistenceState, UsageSnapshot};
+use super::{
+    models::{
+        ClaudeUsageData, OpenAiUsageData, UsageFreshness, UsagePersistenceState,
+        UsageProviderState, UsageSnapshot,
+    },
+    refresh::claude_backoff_active,
+};
 use bevy::prelude::*;
-use std::{env, fs, path::PathBuf};
+use std::{
+    env, fs,
+    path::PathBuf,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 const CLAUDE_CACHE_FILENAME: &str = "claude-usage-cache.json";
 const OPENAI_CACHE_FILENAME: &str = "openai-usage-cache.json";
@@ -75,8 +85,25 @@ pub(crate) fn sync_usage_snapshot_from_cache(
     persistence_state: Res<UsagePersistenceState>,
     mut usage_snapshot: ResMut<UsageSnapshot>,
 ) {
+    let now_unix_secs = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs())
+        .unwrap_or_default();
     let (claude_state, claude_usage) =
         read_claude_usage_from_path(&persistence_state.claude_cache_path);
+    usage_snapshot.claude_state = UsageProviderState {
+        freshness: freshness_from_cache_state(claude_state),
+        rate_limited: claude_backoff_active(
+            &persistence_state.claude_backoff_until_path,
+            now_unix_secs,
+        ),
+        detail: (claude_state == CacheReadState::Malformed).then(|| {
+            format!(
+                "malformed cache {}",
+                persistence_state.claude_cache_path.display()
+            )
+        }),
+    };
     match claude_state {
         CacheReadState::Parsed => usage_snapshot.claude = claude_usage,
         CacheReadState::Missing => usage_snapshot.claude = ClaudeUsageData::default(),
@@ -85,10 +112,28 @@ pub(crate) fn sync_usage_snapshot_from_cache(
 
     let (openai_state, openai_usage) =
         read_openai_usage_from_path(&persistence_state.openai_cache_path);
+    usage_snapshot.openai_state = UsageProviderState {
+        freshness: freshness_from_cache_state(openai_state),
+        rate_limited: false,
+        detail: (openai_state == CacheReadState::Malformed).then(|| {
+            format!(
+                "malformed cache {}",
+                persistence_state.openai_cache_path.display()
+            )
+        }),
+    };
     match openai_state {
         CacheReadState::Parsed => usage_snapshot.openai = openai_usage,
         CacheReadState::Missing => usage_snapshot.openai = OpenAiUsageData::default(),
         CacheReadState::Malformed => {}
+    }
+}
+
+fn freshness_from_cache_state(state: CacheReadState) -> UsageFreshness {
+    match state {
+        CacheReadState::Missing => UsageFreshness::Missing,
+        CacheReadState::Malformed => UsageFreshness::Malformed,
+        CacheReadState::Parsed => UsageFreshness::Parsed,
     }
 }
 
@@ -271,7 +316,9 @@ mod tests {
         default_usage_persistence_state, read_claude_usage_from_path, read_openai_usage_from_path,
         resolve_usage_state_dir, sync_usage_snapshot_from_cache, CacheReadState,
     };
-    use crate::usage::{ClaudeUsageData, OpenAiUsageData, UsagePersistenceState, UsageSnapshot};
+    use crate::usage::{
+        ClaudeUsageData, OpenAiUsageData, UsageFreshness, UsagePersistenceState, UsageSnapshot,
+    };
     use bevy::{ecs::system::RunSystemOnce, prelude::*};
     use std::{
         fs,
@@ -439,5 +486,63 @@ mod tests {
             .run_system_once(sync_usage_snapshot_from_cache)
             .unwrap();
         assert_eq!(world.resource::<UsageSnapshot>().claude.session_pct, 12.0);
+        assert_eq!(
+            world.resource::<UsageSnapshot>().claude_state.freshness,
+            UsageFreshness::Malformed
+        );
+    }
+
+    #[test]
+    fn sync_usage_snapshot_from_cache_marks_claude_rate_limit_in_snapshot_state() {
+        let claude_path = temp_path("rate-limited-claude");
+        let openai_path = temp_path("rate-limited-openai");
+        fs::write(
+            &claude_path,
+            r#"{"five_hour":{"utilization":12.0,"resets_at":"5m"}}"#,
+        )
+        .unwrap();
+        fs::write(
+            &openai_path,
+            r#"{"requests_limit":100,"requests_remaining":60}"#,
+        )
+        .unwrap();
+        let backoff_path = temp_path("claude-backoff-until");
+        fs::write(
+            &backoff_path,
+            (SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs()
+                + 120)
+                .to_string(),
+        )
+        .unwrap();
+
+        let mut world = World::default();
+        world.insert_resource(UsagePersistenceState {
+            state_dir: PathBuf::from("/tmp/neozeus"),
+            claude_cache_path: claude_path,
+            openai_cache_path: openai_path,
+            claude_log_path: PathBuf::from("/tmp/neozeus/claude.log"),
+            openai_log_path: PathBuf::from("/tmp/neozeus/openai.log"),
+            claude_backoff_until_path: backoff_path,
+            claude_refresh_lock_path: PathBuf::from("/tmp/neozeus/claude-refresh.lock"),
+            openai_refresh_lock_path: PathBuf::from("/tmp/neozeus/openai-refresh.lock"),
+            helper_script_path: PathBuf::from("scripts/usage_fetch.py"),
+            python_program: PathBuf::from("python3"),
+            last_claude_refresh_attempt_secs: None,
+            last_openai_refresh_attempt_secs: None,
+        });
+        world.insert_resource(UsageSnapshot::default());
+
+        world
+            .run_system_once(sync_usage_snapshot_from_cache)
+            .unwrap();
+
+        assert!(world.resource::<UsageSnapshot>().claude_state.rate_limited);
+        assert_eq!(
+            world.resource::<UsageSnapshot>().claude_state.freshness,
+            UsageFreshness::Parsed
+        );
     }
 }

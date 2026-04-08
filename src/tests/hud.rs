@@ -828,9 +828,16 @@ fn clear_done_task_request_updates_open_dialog_from_persisted_state() {
 
     run_app_commands(&mut world);
 
+    let agent_uid = {
+        let catalog = world.resource::<AgentCatalog>();
+        catalog.uid(agent_id).unwrap().to_owned()
+    };
     {
         let notes_state = world.resource::<TerminalNotesState>();
-        assert_eq!(notes_state.note_text("session-a"), Some("- [ ] keep"));
+        assert_eq!(
+            notes_state.note_text_by_agent_uid(&agent_uid),
+            Some("- [ ] keep")
+        );
     }
     let hud_state = snapshot_test_hud_state(&world);
     assert_eq!(hud_state.task_dialog.text, "- [ ] keep");
@@ -847,20 +854,24 @@ fn set_task_text_request_clears_persisted_task_presence_when_empty() {
     let mut manager = TerminalManager::default();
     let terminal_id = manager.create_terminal_with_session(bridge, "session-a".into());
 
-    let mut notes_state = TerminalNotesState::default();
-    assert!(notes_state.set_note_text("session-a", "- [x] done"));
-    assert!(notes_state
-        .note_text("session-a")
-        .is_some_and(|text| !text.trim().is_empty()));
-
     let mut world = World::default();
     world.insert_resource(Time::<()>::default());
     insert_terminal_manager_resources(&mut world, manager);
-    world.insert_resource(notes_state);
-    assert!(world
+    let agent_id = world
         .resource::<crate::agents::AgentRuntimeIndex>()
         .agent_for_terminal(terminal_id)
-        .is_some());
+        .expect("agent should be linked");
+    let agent_uid = world
+        .resource::<AgentCatalog>()
+        .uid(agent_id)
+        .unwrap()
+        .to_owned();
+    let mut notes_state = TerminalNotesState::default();
+    assert!(notes_state.set_note_text_by_agent_uid(&agent_uid, "- [x] done"));
+    assert!(notes_state
+        .note_text_by_agent_uid(&agent_uid)
+        .is_some_and(|text| !text.trim().is_empty()));
+    world.insert_resource(notes_state);
     let mut hud_state = HudState::default();
     hud_state.open_task_dialog(terminal_id, "");
     insert_test_hud_state(&mut world, hud_state);
@@ -873,9 +884,9 @@ fn set_task_text_request_clears_persisted_task_presence_when_empty() {
     run_app_commands(&mut world);
 
     let notes_state = world.resource::<TerminalNotesState>();
-    assert_eq!(notes_state.note_text("session-a"), None);
+    assert_eq!(notes_state.note_text_by_agent_uid(&agent_uid), None);
     assert!(notes_state
-        .note_text("session-a")
+        .note_text_by_agent_uid(&agent_uid)
         .is_none_or(|text| text.trim().is_empty()));
     assert_eq!(world.resource::<Messages<RequestRedraw>>().len(), 1);
     let hud_state = snapshot_test_hud_state(&world);
@@ -891,18 +902,24 @@ fn consume_next_task_request_sends_message_and_marks_task_done() {
     let mut manager = TerminalManager::default();
     let terminal_id = manager.create_terminal_with_session(bridge, "session-a".into());
 
-    let mut notes_state = TerminalNotesState::default();
-    assert!(notes_state.set_note_text("session-a", "- [ ] first\n  detail\n- [ ] second"));
-
     let mut world = World::default();
     world.insert_resource(Time::<()>::default());
     insert_terminal_manager_resources(&mut world, manager);
-    world.insert_resource(notes_state);
     insert_default_hud_resources(&mut world);
     let agent_id = world
         .resource::<crate::agents::AgentRuntimeIndex>()
         .agent_for_terminal(terminal_id)
         .expect("agent should be linked");
+    let agent_uid = world
+        .resource::<AgentCatalog>()
+        .uid(agent_id)
+        .unwrap()
+        .to_owned();
+    let mut notes_state = TerminalNotesState::default();
+    assert!(
+        notes_state.set_note_text_by_agent_uid(&agent_uid, "- [ ] first\n  detail\n- [ ] second")
+    );
+    world.insert_resource(notes_state);
     {
         let mut tasks = world.resource_mut::<crate::conversations::AgentTaskStore>();
         let _ = tasks.set_text(agent_id, "- [ ] first\n  detail\n- [ ] second");
@@ -922,7 +939,7 @@ fn consume_next_task_request_sends_message_and_marks_task_done() {
     assert_eq!(
         world
             .resource::<TerminalNotesState>()
-            .note_text("session-a"),
+            .note_text_by_agent_uid(&agent_uid),
         Some("- [x] first\n  detail\n- [ ] second")
     );
     assert_eq!(world.resource::<Messages<RequestRedraw>>().len(), 1);
@@ -1752,6 +1769,7 @@ fn clone_pi_agent_request_rejects_duplicate_name() {
             crate::agents::AgentMetadata {
                 clone_source_session_path: Some(source_session.to_string_lossy().into_owned()),
                 is_workdir: false,
+                workdir_slug: None,
             },
         );
     world.resource_mut::<AgentCatalog>().create_agent(
@@ -1791,6 +1809,7 @@ fn clone_pi_agent_request_creates_top_level_pi_clone_and_focuses_it() {
             crate::agents::AgentMetadata {
                 clone_source_session_path: Some(source_session.to_string_lossy().into_owned()),
                 is_workdir: false,
+                workdir_slug: None,
             },
         );
 
@@ -1860,6 +1879,7 @@ fn clone_pi_agent_request_creates_workdir_clone_and_persists_metadata() {
             crate::agents::AgentMetadata {
                 clone_source_session_path: Some(source_session.to_string_lossy().into_owned()),
                 is_workdir: false,
+                workdir_slug: None,
             },
         );
     let app_state_path = temp_dir("clone-pi-workdir-appstate").join("neozeus-state.v1");
@@ -1942,6 +1962,7 @@ fn clone_pi_agent_request_rejects_non_git_workdir_source() {
             crate::agents::AgentMetadata {
                 clone_source_session_path: Some(source_session.to_string_lossy().into_owned()),
                 is_workdir: false,
+                workdir_slug: None,
             },
         );
 
@@ -2283,6 +2304,10 @@ fn killing_agent_cascade_kills_owned_tmux_children() {
     world.insert_resource(TerminalPresentationStore::default());
     world.insert_resource(fake_runtime_spawner(client.clone()));
     world.insert_resource(AppStatePersistenceState::default());
+    world.insert_resource(crate::conversations::ConversationPersistenceState::default());
+    world.insert_resource(crate::conversations::AgentTaskStore::default());
+    world.insert_resource(crate::conversations::ConversationStore::default());
+    world.insert_resource(crate::terminals::TerminalNotesState::default());
     world.insert_resource(TerminalVisibilityState::default());
     world.insert_resource(TerminalViewState::default());
     world.init_resource::<Messages<AppCommand>>();
@@ -2307,13 +2332,30 @@ fn killing_agent_cascade_kills_owned_tmux_children() {
         .unwrap()
         .push(crate::terminals::OwnedTmuxSessionInfo {
             session_uid: "tmux-session-1".into(),
-            owner_agent_uid: agent_uid,
+            owner_agent_uid: agent_uid.clone(),
             tmux_name: "neozeus-tmux-1".into(),
             display_name: "BUILD".into(),
             cwd: "/tmp/work".into(),
             attached: false,
             created_unix: 0,
         });
+    assert!(world
+        .resource_mut::<crate::conversations::AgentTaskStore>()
+        .set_text(agent_id, "- [ ] task"));
+    let conversation_id = world
+        .resource_mut::<crate::conversations::ConversationStore>()
+        .ensure_conversation(agent_id);
+    let _ = world
+        .resource_mut::<crate::conversations::ConversationStore>()
+        .push_message(
+            conversation_id,
+            crate::conversations::MessageAuthor::User,
+            "hello".into(),
+            crate::conversations::MessageDeliveryState::Delivered,
+        );
+    assert!(world
+        .resource_mut::<crate::terminals::TerminalNotesState>()
+        .set_note_text_by_agent_uid(&agent_uid, "- [ ] task"));
 
     world
         .resource_mut::<Messages<AppCommand>>()
@@ -2326,6 +2368,34 @@ fn killing_agent_cascade_kills_owned_tmux_children() {
         .terminal_ids()
         .is_empty());
     assert!(client.owned_tmux_sessions.lock().unwrap().is_empty());
+    assert_eq!(
+        world
+            .resource::<crate::conversations::AgentTaskStore>()
+            .text(agent_id),
+        None
+    );
+    assert!(world
+        .resource::<crate::conversations::ConversationStore>()
+        .conversation_for_agent(agent_id)
+        .is_none());
+    assert_eq!(
+        world
+            .resource::<crate::terminals::TerminalNotesState>()
+            .note_text_by_agent_uid(&agent_uid),
+        None
+    );
+    assert_eq!(
+        world
+            .resource::<crate::conversations::ConversationPersistenceState>()
+            .dirty_since_secs,
+        Some(1.0)
+    );
+    assert_eq!(
+        world
+            .resource::<crate::terminals::TerminalNotesState>()
+            .dirty_since_secs,
+        Some(1.0)
+    );
 }
 
 /// Verifies that parent deletion cascades only the active agent's owned tmux children and leaves
@@ -3400,9 +3470,15 @@ fn terminal_focus_sync_does_not_rewrite_agent_list_selection() {
     runtime_index.link_terminal(agent_b, terminal_b, "beta-session".into(), None);
 
     let mut world = World::default();
+    world.insert_resource(Time::<()>::default());
     world.insert_resource(catalog);
     world.insert_resource(runtime_index);
     world.insert_resource(AppSessionState::default());
+    world.insert_resource(crate::conversations::AgentTaskStore::default());
+    world.insert_resource(crate::conversations::ConversationStore::default());
+    world.insert_resource(crate::conversations::ConversationPersistenceState::default());
+    world.insert_resource(crate::terminals::TerminalNotesState::default());
+    world.insert_resource(AppStatePersistenceState::default());
     world.insert_resource(crate::hud::AgentListSelection::OwnedTmux(
         "tmux-session-1".into(),
     ));

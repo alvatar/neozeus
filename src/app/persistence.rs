@@ -62,6 +62,12 @@ pub(crate) fn serialize_persisted_app_state(state: &PersistedAppState) -> String
             ));
         }
         output.push_str(&format!("workdir={}\n", u8::from(record.is_workdir)));
+        if let Some(workdir_slug) = record.workdir_slug {
+            output.push_str(&format!(
+                "workdir_slug={}\n",
+                quote_escaped_string(&workdir_slug, EXTENDED_QUOTED_STRING_ESCAPES)
+            ));
+        }
         output.push_str(&format!("order_index={}\n", record.order_index));
         output.push_str(&format!("focused={}\n", u8::from(record.last_focused)));
         output.push_str("[/agent]\n");
@@ -97,6 +103,7 @@ fn map_legacy_sessions_to_app_state(
                 kind: PersistedAgentKind::Pi,
                 clone_source_session_path: None,
                 is_workdir: false,
+                workdir_slug: None,
                 order_index: record.creation_index,
                 last_focused: record.last_focused,
             })
@@ -155,9 +162,9 @@ fn build_persisted_app_state(
         .order
         .iter()
         .enumerate()
-        .filter_map(|(index, agent_id)| {
+        .map(|(index, agent_id)| {
             let terminal_id = runtime_index.primary_terminal(*agent_id);
-            Some(PersistedAgentState {
+            PersistedAgentState {
                 agent_uid: agent_catalog.uid(*agent_id).map(str::to_owned),
                 runtime_session_name: None,
                 label: agent_catalog.label(*agent_id).map(str::to_owned),
@@ -175,10 +182,11 @@ fn build_persisted_app_state(
                     .clone_source_session_path(*agent_id)
                     .map(str::to_owned),
                 is_workdir: agent_catalog.is_workdir(*agent_id),
+                workdir_slug: agent_catalog.workdir_slug(*agent_id).map(str::to_owned),
                 order_index: index as u64,
                 last_focused: terminal_id
                     .is_some_and(|terminal_id| focus_state.active_id() == Some(terminal_id)),
-            })
+            }
         })
         .collect();
     PersistedAppState { agents }

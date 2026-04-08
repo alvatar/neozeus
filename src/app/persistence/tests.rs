@@ -45,6 +45,7 @@ fn app_state_parse_and_serialize_roundtrip() {
                 kind: PersistedAgentKind::Claude,
                 clone_source_session_path: Some("/tmp/pi-session-a.jsonl".into()),
                 is_workdir: true,
+                workdir_slug: None,
                 order_index: 0,
                 last_focused: true,
             },
@@ -55,6 +56,7 @@ fn app_state_parse_and_serialize_roundtrip() {
                 kind: PersistedAgentKind::Terminal,
                 clone_source_session_path: None,
                 is_workdir: false,
+                workdir_slug: None,
                 order_index: 1,
                 last_focused: false,
             },
@@ -118,6 +120,7 @@ fn reconcile_persisted_agents_restores_prunes_and_imports() {
                 kind: PersistedAgentKind::Pi,
                 clone_source_session_path: Some("/tmp/pi-session-a.jsonl".into()),
                 is_workdir: true,
+                workdir_slug: None,
                 order_index: 0,
                 last_focused: true,
             },
@@ -128,6 +131,7 @@ fn reconcile_persisted_agents_restores_prunes_and_imports() {
                 kind: PersistedAgentKind::Terminal,
                 clone_source_session_path: None,
                 is_workdir: false,
+                workdir_slug: None,
                 order_index: 1,
                 last_focused: false,
             },
@@ -193,6 +197,7 @@ fn reconcile_persisted_agents_prefers_agent_uid_over_stale_runtime_session_name(
             kind: PersistedAgentKind::Pi,
             clone_source_session_path: None,
             is_workdir: false,
+            workdir_slug: None,
             order_index: 0,
             last_focused: true,
         }],
@@ -241,6 +246,7 @@ fn saving_app_state_persists_agent_order_labels_focus_and_uids() {
         AgentMetadata {
             clone_source_session_path: Some("/tmp/alpha-session.jsonl".into()),
             is_workdir: true,
+            workdir_slug: None,
         },
     );
     let beta = agent_catalog.create_agent(

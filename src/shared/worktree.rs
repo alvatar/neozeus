@@ -56,6 +56,29 @@ pub fn worktree_path(repo_root: &str, agent_name: &str) -> PathBuf {
     worktree_base_dir(repo_root).join(agent_name)
 }
 
+pub fn worktree_slug(label: &str) -> Result<String, String> {
+    let mut slug = String::new();
+    let mut last_was_dash = false;
+    for ch in label.trim().chars() {
+        if ch.is_ascii_alphanumeric() {
+            slug.push(ch.to_ascii_uppercase());
+            last_was_dash = false;
+            continue;
+        }
+        if matches!(ch, '-' | '_' | ' ' | '.' | '/') && !last_was_dash && !slug.is_empty() {
+            slug.push('-');
+            last_was_dash = true;
+        }
+    }
+    while slug.ends_with('-') {
+        slug.pop();
+    }
+    if slug.is_empty() {
+        return Err("workdir slug must contain at least one ASCII letter or digit".to_owned());
+    }
+    Ok(slug)
+}
+
 /// Returns the branch name used for one workdir clone.
 pub fn worktree_branch(agent_name: &str) -> String {
     format!("{WORKTREE_BRANCH_PREFIX}{agent_name}")
@@ -446,7 +469,7 @@ mod tests {
         get_current_branch, get_repo_root, get_worktree_repo_root, is_linked_worktree,
         merge_parent_back_into_worktree, merge_worktree_into_parent, remove_worktree_and_branch,
         resolve_parent_branch, resolve_worktree_context, worktree_agent_name, worktree_base_dir,
-        worktree_branch, worktree_current_path, worktree_path, WorktreeContext,
+        worktree_branch, worktree_current_path, worktree_path, worktree_slug, WorktreeContext,
     };
     use std::{
         path::{Path, PathBuf},
@@ -643,6 +666,16 @@ mod tests {
         assert_eq!(worktree_agent_name("neozeus/alpha"), Some("alpha"));
         assert_eq!(worktree_agent_name("neozeus/"), None);
         assert_eq!(worktree_agent_name("feature/alpha"), None);
+    }
+
+    #[test]
+    fn worktree_slug_sanitizes_display_labels_for_branch_and_path_use() {
+        assert_eq!(
+            worktree_slug("Alpha Clone/child").unwrap(),
+            "ALPHA-CLONE-CHILD"
+        );
+        assert_eq!(worktree_slug("  alpha___beta  ").unwrap(), "ALPHA-BETA");
+        assert!(worktree_slug("@@@").is_err());
     }
 
     #[test]

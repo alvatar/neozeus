@@ -133,6 +133,7 @@ fn catalog_retains_clone_provenance_and_workdir_metadata() {
         AgentMetadata {
             clone_source_session_path: Some("/tmp/pi-session-alpha.jsonl".into()),
             is_workdir: true,
+            workdir_slug: None,
         },
     );
 

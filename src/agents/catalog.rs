@@ -81,6 +81,7 @@ impl AgentKind {
 pub(crate) struct AgentMetadata {
     pub(crate) clone_source_session_path: Option<String>,
     pub(crate) is_workdir: bool,
+    pub(crate) workdir_slug: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -337,6 +338,12 @@ impl AgentCatalog {
             .get(&agent_id)
             .map(|record| record.metadata.is_workdir)
             .unwrap_or(false)
+    }
+
+    pub(crate) fn workdir_slug(&self, agent_id: AgentId) -> Option<&str> {
+        self.agents
+            .get(&agent_id)
+            .and_then(|record| record.metadata.workdir_slug.as_deref())
     }
 
     /// Iterates agents in current user-defined display order.

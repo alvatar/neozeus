@@ -46,6 +46,7 @@ pub struct PersistedAgentState {
     pub kind: PersistedAgentKind,
     pub clone_source_session_path: Option<String>,
     pub is_workdir: bool,
+    pub workdir_slug: Option<String>,
     pub order_index: u64,
     pub last_focused: bool,
 }
@@ -124,6 +125,7 @@ fn parse_persisted_app_state_with(text: &str, legacy_session_name_key: bool) -> 
     let mut kind = None;
     let mut clone_source_session_path = None;
     let mut is_workdir = false;
+    let mut workdir_slug = None;
     let mut order_index = None;
     let mut last_focused = None;
     let mut in_agent = false;
@@ -145,6 +147,7 @@ fn parse_persisted_app_state_with(text: &str, legacy_session_name_key: bool) -> 
                 kind = None;
                 clone_source_session_path = None;
                 is_workdir = false;
+                workdir_slug = None;
                 order_index = None;
                 last_focused = None;
             }
@@ -162,6 +165,7 @@ fn parse_persisted_app_state_with(text: &str, legacy_session_name_key: bool) -> 
                                 kind: kind.take().unwrap_or(PersistedAgentKind::Pi),
                                 clone_source_session_path: clone_source_session_path.take(),
                                 is_workdir,
+                                workdir_slug: workdir_slug.take(),
                                 order_index,
                                 last_focused,
                             });
@@ -200,6 +204,9 @@ fn parse_persisted_app_state_with(text: &str, legacy_session_name_key: bool) -> 
                     }
                     "workdir" => {
                         is_workdir = value.parse::<u8>().ok().is_some_and(|flag| flag != 0)
+                    }
+                    "workdir_slug" => {
+                        workdir_slug = unquote_escaped_string(value, EXTENDED_QUOTED_STRING_ESCAPES)
                     }
                     "order_index" => order_index = value.parse::<u64>().ok(),
                     "focused" => last_focused = value.parse::<u8>().ok().map(|flag| flag != 0),

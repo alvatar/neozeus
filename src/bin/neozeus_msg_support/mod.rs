@@ -316,6 +316,7 @@ mod tests {
                     kind: PersistedAgentKind::Terminal,
                     clone_source_session_path: None,
                     is_workdir: false,
+                    workdir_slug: None,
                     order_index: index as u64,
                     last_focused: false,
                 })

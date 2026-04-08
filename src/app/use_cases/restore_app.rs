@@ -115,6 +115,7 @@ pub(crate) fn restore_app(
                 },
                 clone_source_session_path: None,
                 is_workdir: false,
+                workdir_slug: None,
                 order_index: next_import_order,
                 last_focused: false,
             });
@@ -163,6 +164,7 @@ pub(crate) fn restore_app(
             record.agent_uid,
             record.clone_source_session_path,
             record.is_workdir,
+            record.workdir_slug,
         ) {
             append_debug_log(format!(
                 "startup attach failed for {}: {error}",

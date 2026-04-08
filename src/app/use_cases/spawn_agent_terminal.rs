@@ -40,7 +40,7 @@ fn build_agent_launch_spec(
 ) -> Result<AgentLaunchSpec, String> {
     if kind == AgentKind::Pi {
         let session_path = make_new_session_path(working_directory)?;
-        return Ok(pi_launch_spec_for_session_path(session_path, false));
+        return Ok(pi_launch_spec_for_session_path(session_path, false, None));
     }
 
     Ok(AgentLaunchSpec {
@@ -52,12 +52,14 @@ fn build_agent_launch_spec(
 pub(crate) fn pi_launch_spec_for_session_path(
     session_path: String,
     is_workdir: bool,
+    workdir_slug: Option<String>,
 ) -> AgentLaunchSpec {
     AgentLaunchSpec {
         startup_command: Some(format!("pi --session {}", shell_quote(&session_path))),
         metadata: AgentMetadata {
             clone_source_session_path: Some(session_path),
             is_workdir,
+            workdir_slug,
         },
     }
 }
@@ -102,9 +104,9 @@ pub(crate) fn spawn_agent_terminal_with_launch_spec(
         ),
     ];
     if let Some(socket_path) = resolve_daemon_socket_path() {
-        env_overrides.extend(
-            crate::shared::daemon_socket::daemon_socket_env_pairs(&socket_path).into_iter(),
-        );
+        env_overrides.extend(crate::shared::daemon_socket::daemon_socket_env_pairs(
+            &socket_path,
+        ));
     }
     let session_name = runtime_spawner.create_session_with_cwd_and_env(
         prefix,
@@ -217,6 +219,7 @@ pub(crate) fn attach_restored_terminal(
     agent_uid: Option<String>,
     clone_source_session_path: Option<String>,
     is_workdir: bool,
+    workdir_slug: Option<String>,
 ) -> Result<(AgentId, crate::terminals::TerminalId), String> {
     // Walk the lifecycle in explicit stages so each side effect happens only after its prerequisites have been established.
     let (terminal_id, _) = attach_terminal_session(
@@ -230,6 +233,7 @@ pub(crate) fn attach_restored_terminal(
     let metadata = AgentMetadata {
         clone_source_session_path,
         is_workdir,
+        workdir_slug,
     };
     let agent_id = match agent_uid {
         Some(agent_uid) => agent_catalog.create_agent_with_uid_and_metadata(
