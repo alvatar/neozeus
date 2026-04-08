@@ -1,6 +1,9 @@
 use crate::{
     agents::{AgentCatalog, AgentRuntimeIndex},
-    app::{resolve_app_state_path, restore_app, AppSessionState, AppStatePersistenceState},
+    app::{
+        resolve_app_state_path, restore_app, spawn_runtime_terminal_session, AppSessionState,
+        AppStatePersistenceState,
+    },
     conversations::{
         resolve_conversations_path, restore_persisted_conversations_from_path,
         ConversationPersistenceState, ConversationStore,
@@ -10,11 +13,11 @@ use crate::{
         TerminalVisibilityState,
     },
     terminals::{
-        append_debug_log, attach_terminal_session, refresh_owned_tmux_sessions_now,
-        resolve_terminal_notes_path, terminal_readiness_for_id, OwnedTmuxSessionStore,
-        TerminalCameraMarker, TerminalFocusState, TerminalHudSurfaceMarker, TerminalManager,
-        TerminalPanel, TerminalPresentation, TerminalPresentationStore, TerminalReadiness,
-        TerminalRuntimeSpawner, VERIFIER_SESSION_PREFIX,
+        append_debug_log, refresh_owned_tmux_sessions_now, resolve_terminal_notes_path,
+        terminal_readiness_for_id, OwnedTmuxSessionStore, TerminalCameraMarker, TerminalFocusState,
+        TerminalHudSurfaceMarker, TerminalManager, TerminalPanel, TerminalPresentation,
+        TerminalPresentationStore, TerminalReadiness, TerminalRuntimeSpawner,
+        VERIFIER_SESSION_PREFIX,
     },
     verification::{start_auto_verify_dispatcher, AutoVerifyConfig, VerificationScenarioConfig},
     visual_contract::VisualContractState,
@@ -491,30 +494,19 @@ fn register_startup_loading_terminal(
 /// leak orphan sessions.
 fn setup_verifier_terminal(ctx: &mut SceneSetupContext, config: AutoVerifyConfig) {
     // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
-    let session_name = match ctx
-        .runtime_spawner
-        .create_session(VERIFIER_SESSION_PREFIX, None)
-    {
-        Ok(session_name) => session_name,
-        Err(error) => {
-            append_debug_log(format!("verifier terminal spawn failed: {error}"));
-            return;
-        }
-    };
-    let (terminal_id, dispatcher_bridge) = match attach_terminal_session(
+    let (session_name, terminal_id, dispatcher_bridge) = match spawn_runtime_terminal_session(
         &mut ctx.terminal_manager,
         &mut ctx.focus_state,
         &ctx.runtime_spawner,
-        session_name.clone(),
+        VERIFIER_SESSION_PREFIX,
+        None,
+        None,
+        &[],
         true,
     ) {
         Ok(result) => result,
         Err(error) => {
-            append_debug_log(format!(
-                "verifier terminal attach failed for {}: {error}",
-                session_name
-            ));
-            let _ = ctx.runtime_spawner.kill_session(&session_name);
+            append_debug_log(format!("verifier terminal spawn failed: {error}"));
             return;
         }
     };

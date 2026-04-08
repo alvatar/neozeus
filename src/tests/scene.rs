@@ -349,6 +349,73 @@ fn setup_scene_starts_background_connect_when_runtime_is_pending() {
 
 /// Verifies that startup connecting advances to restoring when background connect completes.
 #[test]
+fn setup_scene_auto_verify_uses_shared_spawn_attach_flow_and_isolates_verifier_terminal() {
+    let client = Arc::new(FakeDaemonClient::default());
+    let mut world = World::default();
+    world.insert_resource(Assets::<Image>::default());
+    world.insert_resource(crate::terminals::TerminalManager::default());
+    world.insert_resource(crate::terminals::TerminalFocusState::default());
+    world.insert_resource(crate::terminals::TerminalPresentationStore::default());
+    world.insert_resource(crate::agents::AgentCatalog::default());
+    world.insert_resource(crate::agents::AgentRuntimeIndex::default());
+    world.insert_resource(crate::app::AppSessionState::default());
+    world.insert_resource(crate::conversations::ConversationStore::default());
+    world.insert_resource(crate::conversations::ConversationPersistenceState::default());
+    world.insert_resource(crate::conversations::AgentTaskStore::default());
+    world.insert_resource(crate::hud::HudInputCaptureState::default());
+    world.insert_resource(crate::terminals::TerminalViewState::default());
+    world.insert_resource(crate::hud::AgentListSelection::default());
+    world.insert_resource(crate::terminals::OwnedTmuxSessionStore::default());
+    world.insert_resource(crate::terminals::ActiveTerminalContentState::default());
+    world.insert_resource(crate::startup::StartupLoadingState::default());
+    world.insert_resource(fake_runtime_spawner(client.clone()));
+    world.insert_resource(crate::app::AppStatePersistenceState::default());
+    world.insert_resource(crate::terminals::TerminalNotesState::default());
+    world.insert_resource(crate::hud::TerminalVisibilityState::default());
+    world.insert_resource(DaemonConnectionState::default());
+    world.insert_resource(StartupConnectState::default());
+    world.insert_resource(Time::<()>::default());
+    world.insert_resource(crate::verification::AutoVerifyConfig {
+        command: "echo verify".to_owned(),
+        delay_ms: 0,
+    });
+    world.init_resource::<Messages<RequestRedraw>>();
+
+    world.run_system_once(crate::startup::setup_scene).unwrap();
+
+    let terminal_ids = world
+        .resource::<crate::terminals::TerminalManager>()
+        .terminal_ids()
+        .to_vec();
+    assert_eq!(terminal_ids.len(), 1);
+    let terminal_id = terminal_ids[0];
+    assert_eq!(
+        world
+            .resource::<crate::hud::TerminalVisibilityState>()
+            .policy,
+        TerminalVisibilityPolicy::Isolate(terminal_id)
+    );
+    let startup_loading = world.resource::<crate::startup::StartupLoadingState>();
+    assert!(startup_loading.active());
+    assert!(startup_loading.is_pending(terminal_id));
+    let created = client.created_sessions.lock().unwrap().clone();
+    assert_eq!(created.len(), 1);
+    assert!(created[0]
+        .0
+        .starts_with(crate::terminals::VERIFIER_SESSION_PREFIX));
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    let sent = client.sent_commands.lock().unwrap().clone();
+    assert_eq!(sent.len(), 1);
+    assert_eq!(
+        sent[0],
+        (
+            created[0].0.clone(),
+            crate::terminals::TerminalCommand::SendCommand("echo verify".to_owned()),
+        )
+    );
+}
+
+#[test]
 fn startup_connecting_advances_to_restoring_when_background_connect_completes() {
     // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let spawner = TerminalRuntimeSpawner::pending_headless();

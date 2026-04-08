@@ -2,16 +2,16 @@ use crate::{
     agents::{AgentCatalog, AgentKind, AgentRuntimeIndex},
     app::{
         clear_composer_and_direct_input, focus_agent_without_persist, open_composer,
-        AppSessionState, ComposerRequest, VisibilityMode,
+        spawn_runtime_terminal_session, AppSessionState, ComposerRequest, VisibilityMode,
     },
     composer::ComposerMode,
     conversations::AgentTaskStore,
     hud::{AgentListSelection, AgentListView, HudInputCaptureState, TerminalVisibilityState},
     terminals::{
-        append_debug_log, attach_terminal_session, terminal_readiness_for_id, RuntimeNotifier,
-        TerminalBridge, TerminalCell, TerminalCellContent, TerminalCommand, TerminalFocusState,
-        TerminalId, TerminalManager, TerminalPresentationStore, TerminalRuntimeSpawner,
-        TerminalSurface, TerminalViewState, VERIFIER_SESSION_PREFIX,
+        append_debug_log, terminal_readiness_for_id, RuntimeNotifier, TerminalBridge, TerminalCell,
+        TerminalCellContent, TerminalCommand, TerminalFocusState, TerminalId, TerminalManager,
+        TerminalPresentationStore, TerminalRuntimeSpawner, TerminalSurface, TerminalViewState,
+        VERIFIER_SESSION_PREFIX,
     },
     visual_contract::{TerminalFrameVisualState, VisualAgentActivity, VisualContractState},
 };
@@ -445,30 +445,19 @@ pub(crate) fn run_verification_scenario(world: &mut World) {
         _ => 1,
     };
     while config.terminal_ids.len() < required_terminals {
-        let session_name = match ctx
-            .runtime_spawner
-            .create_session(VERIFIER_SESSION_PREFIX, None)
-        {
-            Ok(session_name) => session_name,
-            Err(error) => {
-                append_debug_log(format!("verification scenario spawn failed: {error}"));
-                finish!();
-            }
-        };
-        let (terminal_id, bridge) = match attach_terminal_session(
+        let (session_name, terminal_id, bridge) = match spawn_runtime_terminal_session(
             &mut ctx.terminal_manager,
             &mut ctx.focus_state,
             &ctx.runtime_spawner,
-            session_name.clone(),
+            VERIFIER_SESSION_PREFIX,
+            None,
+            None,
+            &[],
             true,
         ) {
             Ok(result) => result,
             Err(error) => {
-                append_debug_log(format!(
-                    "verification scenario attach failed for {}: {error}",
-                    session_name
-                ));
-                let _ = ctx.runtime_spawner.kill_session(&session_name);
+                append_debug_log(format!("verification scenario spawn failed: {error}"));
                 finish!();
             }
         };

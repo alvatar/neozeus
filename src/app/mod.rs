@@ -23,6 +23,7 @@ pub(crate) use session::{
 };
 pub(crate) use use_cases::{
     clear_composer_and_direct_input, focus_agent_without_persist, open_composer, restore_app,
+    spawn_runtime_terminal_session,
 };
 
 pub(crate) use bootstrap::build_app;

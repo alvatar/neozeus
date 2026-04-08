@@ -6,8 +6,8 @@ use crate::{
     startup::StartupLoadingState,
     terminals::{
         append_debug_log, attach_terminal_session, resolve_daemon_socket_path,
-        ActiveTerminalContentState, OwnedTmuxSessionStore, TerminalFocusState, TerminalManager,
-        TerminalRuntimeSpawner, TerminalViewState,
+        ActiveTerminalContentState, OwnedTmuxSessionStore, TerminalBridge, TerminalFocusState,
+        TerminalId, TerminalManager, TerminalRuntimeSpawner, TerminalViewState,
     },
 };
 
@@ -72,6 +72,41 @@ pub(crate) fn pi_launch_spec_for_session_path(
     clippy::too_many_arguments,
     reason = "spawn crosses daemon, agent, session, and presentation state"
 )]
+pub(crate) fn spawn_runtime_terminal_session(
+    terminal_manager: &mut TerminalManager,
+    focus_state: &mut TerminalFocusState,
+    runtime_spawner: &TerminalRuntimeSpawner,
+    prefix: &str,
+    working_directory: Option<&str>,
+    startup_command: Option<&str>,
+    env_overrides: &[(String, String)],
+    focus: bool,
+) -> Result<(String, TerminalId, TerminalBridge), String> {
+    let session_name = runtime_spawner.create_session_with_cwd_and_env(
+        prefix,
+        working_directory,
+        startup_command,
+        env_overrides,
+    )?;
+    match attach_terminal_session(
+        terminal_manager,
+        focus_state,
+        runtime_spawner,
+        session_name.clone(),
+        focus,
+    ) {
+        Ok((terminal_id, bridge)) => Ok((session_name, terminal_id, bridge)),
+        Err(error) => {
+            let _ = runtime_spawner.kill_session(&session_name);
+            Err(error)
+        }
+    }
+}
+
+#[allow(
+    clippy::too_many_arguments,
+    reason = "spawn crosses daemon, agent, session, and presentation state"
+)]
 pub(crate) fn spawn_agent_terminal_with_launch_spec(
     agent_catalog: &mut AgentCatalog,
     runtime_index: &mut AgentRuntimeIndex,
@@ -114,25 +149,16 @@ pub(crate) fn spawn_agent_terminal_with_launch_spec(
             &socket_path,
         ));
     }
-    let session_name = runtime_spawner.create_session_with_cwd_and_env(
+    let (session_name, terminal_id, _) = spawn_runtime_terminal_session(
+        terminal_manager,
+        focus_state,
+        runtime_spawner,
         prefix,
         working_directory,
         launch.startup_command.as_deref(),
         &env_overrides,
-    )?;
-    let (terminal_id, _) = match attach_terminal_session(
-        terminal_manager,
-        focus_state,
-        runtime_spawner,
-        session_name.clone(),
         true,
-    ) {
-        Ok(result) => result,
-        Err(error) => {
-            let _ = runtime_spawner.kill_session(&session_name);
-            return Err(error);
-        }
-    };
+    )?;
 
     let agent_id = agent_catalog.create_agent_from_identity(identity);
     let runtime = terminal_manager
@@ -291,7 +317,9 @@ pub(crate) fn attach_restored_terminal(
 
 #[cfg(test)]
 mod tests {
-    use super::{spawn_agent_terminal_with_launch_spec, AgentLaunchSpec};
+    use super::{
+        spawn_agent_terminal_with_launch_spec, spawn_runtime_terminal_session, AgentLaunchSpec,
+    };
     use crate::{
         agents::{AgentCatalog, AgentKind, AgentMetadata, AgentRuntimeIndex},
         app::{AppSessionState, AppStatePersistenceState},
@@ -402,6 +430,41 @@ mod tests {
                 .push(session_id.to_owned());
             Ok(())
         }
+    }
+
+    #[test]
+    fn spawn_runtime_terminal_session_rolls_back_created_session_when_attach_fails() {
+        let daemon = Arc::new(AttachFailDaemonClient::new());
+        let runtime_spawner = TerminalRuntimeSpawner::for_tests(
+            TerminalDaemonClientResource::from_client(daemon.clone()),
+        );
+        let mut terminal_manager = TerminalManager::default();
+        let mut focus_state = TerminalFocusState::default();
+
+        let error = spawn_runtime_terminal_session(
+            &mut terminal_manager,
+            &mut focus_state,
+            &runtime_spawner,
+            "neozeus-session-",
+            None,
+            None,
+            &[],
+            true,
+        )
+        .err()
+        .expect("attach failure should bubble up");
+
+        assert_eq!(error, "attach failed");
+        assert_eq!(
+            daemon.created_sessions.lock().unwrap().as_slice(),
+            ["neozeus-session-1"]
+        );
+        assert_eq!(
+            daemon.killed_sessions.lock().unwrap().as_slice(),
+            ["neozeus-session-1"]
+        );
+        assert!(terminal_manager.terminal_ids().is_empty());
+        assert_eq!(focus_state.active_id(), None);
     }
 
     #[test]

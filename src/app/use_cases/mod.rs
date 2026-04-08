@@ -21,7 +21,7 @@ pub(crate) use owned_tmux::{kill_selected_owned_tmux, select_owned_tmux};
 pub(crate) use restore_app::restore_app;
 pub(crate) use spawn_agent_terminal::{
     attach_restored_terminal, pi_launch_spec_for_session_path, spawn_agent_terminal,
-    spawn_agent_terminal_with_launch_spec,
+    spawn_agent_terminal_with_launch_spec, spawn_runtime_terminal_session,
 };
 pub(crate) use tasks::{
     append_task, clear_done_tasks, consume_next_task, prepend_task, set_task_text,

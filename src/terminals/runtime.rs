@@ -127,6 +127,7 @@ impl TerminalRuntimeSpawner {
     /// The method first creates a plain shell session, then conditionally sends one startup command
     /// such as `pi`, `claude`, or `codex`. If bootstrapping fails, the just-created daemon session is
     /// killed so the caller does not inherit a half-initialized shell.
+    #[cfg(test)]
     pub(crate) fn create_session(
         &self,
         prefix: &str,
@@ -136,6 +137,7 @@ impl TerminalRuntimeSpawner {
     }
 
     /// Creates a new session in the requested working directory and optionally bootstraps one agent CLI.
+    #[cfg(test)]
     pub(crate) fn create_session_with_cwd(
         &self,
         prefix: &str,
