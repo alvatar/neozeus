@@ -416,7 +416,7 @@ pub(crate) fn sync_verification_capture_barrier(
 pub(crate) fn run_verification_scenario(world: &mut World) {
     let mut state: bevy::ecs::system::SystemState<(
         Option<ResMut<VerificationScenarioConfig>>,
-        VerificationScenarioContext,
+        VerificationScenarioContext<'_>,
     )> = bevy::ecs::system::SystemState::new(world);
     let (config, mut ctx) = state.get_mut(world);
     macro_rules! finish {

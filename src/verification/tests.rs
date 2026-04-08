@@ -2,7 +2,6 @@ use super::*;
 use crate::tests::{fake_runtime_spawner, insert_default_hud_resources, surface_with_text};
 use bevy::{
     ecs::system::RunSystemOnce,
-    input::mouse::MouseWheel,
     prelude::{Time, UVec2, Window},
     window::{PrimaryWindow, RequestRedraw},
 };
@@ -10,7 +9,6 @@ use std::sync::Arc;
 
 fn init_verification_runtime_resources(world: &mut World) {
     world.init_resource::<Messages<RequestRedraw>>();
-    world.init_resource::<Messages<MouseWheel>>();
     world.spawn((
         Window {
             focused: true,
@@ -53,10 +51,6 @@ fn parses_verification_scenarios() {
         resolve_verification_scenario(Some("inspect-switch-latency")),
         Some(VerificationScenario::InspectSwitchLatency)
     );
-    assert_eq!(
-        resolve_verification_scenario(Some("wheel-scroll-render")),
-        Some(VerificationScenario::WheelScrollRender)
-    );
 }
 
 /// Verifies the message-box verification scenario's first-application behavior.
@@ -73,7 +67,6 @@ fn message_box_scenario_opens_modal_and_spawns_terminal() {
         frames_until_apply: 0,
         primed: false,
         applied: false,
-        phase: 0,
         terminal_ids: Vec::new(),
     });
     world.insert_resource(Assets::<Image>::default());
@@ -145,7 +138,6 @@ fn task_dialog_scenario_populates_note_text() {
         frames_until_apply: 0,
         primed: false,
         applied: false,
-        phase: 0,
         terminal_ids: Vec::new(),
     });
     world.insert_resource(Assets::<Image>::default());
@@ -212,7 +204,6 @@ fn agent_list_scenario_clears_existing_composer_and_direct_input() {
         frames_until_apply: 0,
         primed: false,
         applied: false,
-        phase: 0,
         terminal_ids: Vec::new(),
     });
     world.insert_resource(Assets::<Image>::default());
@@ -268,7 +259,6 @@ fn working_state_scenario_seeds_pi_agent_with_working_surface() {
         frames_until_apply: 0,
         primed: false,
         applied: false,
-        phase: 0,
         terminal_ids: Vec::new(),
     });
     world.insert_resource(Assets::<Image>::default());
@@ -316,7 +306,6 @@ fn working_state_capture_barrier_waits_for_presented_visual_contract() {
         frames_until_apply: 0,
         primed: false,
         applied: false,
-        phase: 0,
         terminal_ids: Vec::new(),
     });
     world.insert_resource(crate::verification::VerificationCaptureBarrierState::default());
@@ -401,7 +390,6 @@ fn inspect_switch_scenario_spawns_two_terminals_and_focuses_second() {
         frames_until_apply: 0,
         primed: false,
         applied: false,
-        phase: 0,
         terminal_ids: Vec::new(),
     });
     world.insert_resource(Assets::<Image>::default());

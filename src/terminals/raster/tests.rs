@@ -945,8 +945,151 @@ fn sync_terminal_texture_renders_visible_text_on_last_row() {
     );
 }
 
-/// Verifies that changing text on the last row produces different texture pixels and strictly more
-/// visible ink when the text gets longer.
+/// Verifies that incremental rasterization of a scrolled viewport matches a fresh full render.
+#[test]
+fn incremental_scroll_render_matches_fresh_render() {
+    let mut before = TerminalSurface::new(4, 3);
+    set_colored_text(
+        &mut before,
+        0,
+        0,
+        "4",
+        egui::Color32::from_rgb(220, 220, 220),
+    );
+    set_colored_text(
+        &mut before,
+        1,
+        0,
+        "5",
+        egui::Color32::from_rgb(220, 220, 220),
+    );
+    set_colored_text(
+        &mut before,
+        2,
+        0,
+        "6",
+        egui::Color32::from_rgb(220, 220, 220),
+    );
+
+    let mut after = TerminalSurface::new(4, 3);
+    set_colored_text(
+        &mut after,
+        0,
+        0,
+        "3",
+        egui::Color32::from_rgb(220, 220, 220),
+    );
+    set_colored_text(
+        &mut after,
+        1,
+        0,
+        "4",
+        egui::Color32::from_rgb(220, 220, 220),
+    );
+    set_colored_text(
+        &mut after,
+        2,
+        0,
+        "5",
+        egui::Color32::from_rgb(220, 220, 220),
+    );
+    after.display_offset = 1;
+
+    let report = configured_terminal_font_report();
+    let mut renderer = TerminalTextRenderer::default();
+    initialize_test_terminal_text_renderer(&report, &mut renderer);
+    let font_state = configured_test_font_state(report, &mut renderer);
+
+    let window = Window {
+        resolution: (1400, 900).into(),
+        ..Default::default()
+    };
+    let hud_state = HudState::default();
+    let view_state = TerminalViewState::default();
+
+    let bridge = test_bridge();
+    let mut manager = TerminalManager::default();
+    let id = manager.create_terminal(bridge);
+    let terminal = manager.get_mut(id).expect("terminal should exist");
+    terminal.snapshot.surface = Some(before.clone());
+    terminal.surface_revision = 1;
+    terminal.pending_damage = Some(TerminalDamage::Full);
+
+    let mut images = Assets::<Image>::default();
+    let image = images.add(create_terminal_image(UVec2::ONE));
+    let mut presentation_store = TerminalPresentationStore::default();
+    presentation_store.register(
+        id,
+        PresentedTerminal {
+            image: image.clone(),
+            texture_state: Default::default(),
+            desired_texture_state: Default::default(),
+            display_mode: TerminalDisplayMode::Smooth,
+            uploaded_revision: 0,
+            uploaded_active_override_revision: None,
+            uploaded_text_selection_revision: None,
+            panel_entity: Entity::PLACEHOLDER,
+            frame_entity: Entity::PLACEHOLDER,
+        },
+    );
+
+    let mut world = World::default();
+    insert_terminal_manager_resources(&mut world, manager);
+    world.insert_resource(presentation_store);
+    world.insert_resource(font_state);
+    world.insert_resource(view_state);
+    world.insert_resource(hud_state.layout_state());
+    world.insert_resource(crate::terminals::ActiveTerminalContentState::default());
+    world.insert_resource(crate::text_selection::TerminalTextSelectionState::default());
+    world.insert_resource(crate::terminals::ActiveTerminalContentSyncState::default());
+    world.insert_resource(TerminalGlyphCache::default());
+    world.insert_resource(renderer);
+    world.insert_resource(images);
+    world.spawn((window, PrimaryWindow));
+
+    world.run_system_once(sync_terminal_texture).unwrap();
+    let first_texture_state = world
+        .resource::<TerminalPresentationStore>()
+        .get(id)
+        .expect("presented terminal should exist")
+        .texture_state
+        .clone();
+
+    {
+        let mut manager = world.resource_mut::<TerminalManager>();
+        let terminal = manager.get_mut(id).expect("terminal should exist");
+        terminal.snapshot.surface = Some(after.clone());
+        terminal.surface_revision = 2;
+        terminal.pending_damage = Some(TerminalDamage::Full);
+    }
+    world.run_system_once(sync_terminal_texture).unwrap();
+
+    let incremental_image = {
+        let store = world.resource::<TerminalPresentationStore>();
+        let presented = store.get(id).expect("presented terminal should exist");
+        world
+            .resource::<Assets<Image>>()
+            .get(&presented.image)
+            .expect("rendered image should exist")
+            .clone()
+    };
+    let (fresh_image, _) =
+        render_surface_to_terminal_image_with_presentation_state(after, first_texture_state);
+
+    let incremental = incremental_image
+        .data
+        .as_ref()
+        .expect("incremental image data should exist");
+    let fresh = fresh_image
+        .data
+        .as_ref()
+        .expect("fresh image data should exist");
+    assert_eq!(
+        incremental, fresh,
+        "incremental scroll render diverged from fresh render"
+    );
+}
+
 #[test]
 fn sync_terminal_texture_updates_pixels_when_last_row_text_changes() {
     let window = Window {
