@@ -24,8 +24,7 @@ use crate::{
         hide_terminal_on_background_click, keyboard_input_to_terminal_command,
         paste_into_clone_agent_dialog, paste_into_create_agent_dialog,
         paste_into_direct_input_terminal, paste_into_message_dialog,
-        paste_into_rename_agent_dialog, paste_into_task_dialog,
-        reconcile_terminal_text_selection_on_surface_change, scroll_terminal_with_mouse_wheel,
+        paste_into_rename_agent_dialog, paste_into_task_dialog, scroll_terminal_with_mouse_wheel,
         should_exit_application, should_kill_active_terminal, should_spawn_terminal_globally,
         zoom_terminal_view,
     },
@@ -33,6 +32,7 @@ use crate::{
         TerminalCommand, TerminalManager, TerminalNotesState, TerminalPanel, TerminalPresentation,
         TerminalUpdate,
     },
+    text_selection::sync_terminal_text_selection_to_surface,
 };
 use bevy::{
     app::AppExit,
@@ -61,6 +61,15 @@ fn wheel_lines(y: f32) -> MouseWheel {
         x: 0.0,
         y,
         unit: MouseScrollUnit::Line,
+        window: Entity::PLACEHOLDER,
+    }
+}
+
+fn wheel_pixels(y: f32) -> MouseWheel {
+    MouseWheel {
+        x: 0.0,
+        y,
+        unit: MouseScrollUnit::Pixel,
         window: Entity::PLACEHOLDER,
     }
 }
@@ -149,6 +158,9 @@ fn ensure_app_command_world_resources(world: &mut World) {
     }
     if !world.contains_resource::<crate::hud::HudInputCaptureState>() {
         world.insert_resource(crate::hud::HudInputCaptureState::default());
+    }
+    if !world.contains_resource::<crate::terminals::TerminalPointerState>() {
+        world.insert_resource(crate::terminals::TerminalPointerState::default());
     }
     if !world.contains_resource::<Messages<AppCommand>>() {
         world.init_resource::<Messages<AppCommand>>();
@@ -1618,7 +1630,7 @@ fn terminal_selection_reconciles_when_surface_rows_shift() {
     }
 
     world
-        .run_system_once(reconcile_terminal_text_selection_on_surface_change)
+        .run_system_once(sync_terminal_text_selection_to_surface)
         .unwrap();
 
     let selection = world
@@ -2344,6 +2356,44 @@ fn wheel_scroll_sends_scrollback_to_direct_input_terminal() {
     assert_eq!(
         input_rx.try_recv().unwrap(),
         TerminalCommand::ScrollDisplay(1)
+    );
+}
+
+#[test]
+fn wheel_scroll_accumulates_fractional_pixel_deltas() {
+    let (mut world, _terminal_id, input_rx) =
+        world_with_active_terminal_and_receiver(Vec2::new(10.0, 10.0), false, Vec2::ZERO);
+
+    dispatch_terminal_wheel(&mut world, wheel_pixels(10.0));
+    dispatch_terminal_wheel(&mut world, wheel_pixels(10.0));
+    assert!(input_rx.try_recv().is_err());
+
+    dispatch_terminal_wheel(&mut world, wheel_pixels(10.0));
+    assert_eq!(
+        input_rx.try_recv().unwrap(),
+        TerminalCommand::ScrollDisplay(1)
+    );
+}
+
+#[test]
+fn shift_wheel_keeps_zoom_and_does_not_send_scrollback() {
+    let (mut world, _terminal_id, input_rx) =
+        world_with_active_terminal_and_receiver(Vec2::new(10.0, 10.0), false, Vec2::ZERO);
+    world
+        .resource_mut::<ButtonInput<KeyCode>>()
+        .press(KeyCode::ShiftLeft);
+    let starting_distance = world
+        .resource::<crate::terminals::TerminalViewState>()
+        .distance;
+
+    dispatch_terminal_wheel(&mut world, wheel_lines(2.0));
+
+    assert!(input_rx.try_recv().is_err());
+    assert!(
+        world
+            .resource::<crate::terminals::TerminalViewState>()
+            .distance
+            < starting_distance
     );
 }
 

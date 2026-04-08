@@ -15,8 +15,8 @@ use crate::{
         handle_middle_click_paste, handle_terminal_direct_input_keyboard,
         handle_terminal_lifecycle_shortcuts, handle_terminal_message_box_keyboard,
         handle_terminal_text_selection, hide_terminal_on_background_click,
-        reconcile_terminal_text_selection_on_surface_change, scroll_terminal_with_mouse_wheel,
-        sync_primary_selection_from_ui_text_selection, zoom_terminal_view,
+        scroll_terminal_with_mouse_wheel, sync_primary_selection_from_ui_text_selection,
+        zoom_terminal_view,
     },
     startup::{advance_startup_connecting, request_redraw_while_visuals_active, setup_scene},
     terminals::{
@@ -24,6 +24,7 @@ use crate::{
         sync_terminal_hud_surface, sync_terminal_panel_frames, sync_terminal_presentations,
         sync_terminal_projection_entities, sync_terminal_texture,
     },
+    text_selection::sync_terminal_text_selection_to_surface,
     usage::{refresh_usage_caches_if_needed, sync_usage_snapshot_from_cache},
     verification::{run_verification_scenario, sync_verification_capture_barrier},
     visual_contract::sync_visual_contract_state,
@@ -143,7 +144,7 @@ pub(crate) fn configure_app_schedule(app: &mut App) {
         Update,
         (
             crate::terminals::poll_terminal_snapshots,
-            reconcile_terminal_text_selection_on_surface_change,
+            sync_terminal_text_selection_to_surface,
         )
             .chain()
             .in_set(NeoZeusSet::PollTerminal),

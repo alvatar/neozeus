@@ -1,13 +1,30 @@
 use crate::{
     hud::AgentListRowKey,
-    terminals::{TerminalId, TerminalSurface},
+    terminals::{ActiveTerminalContentState, TerminalId, TerminalManager, TerminalSurface},
 };
-use bevy::prelude::{Resource, Vec2};
+use bevy::prelude::{Res, ResMut, Resource, Vec2};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct TerminalSelectionPoint {
     pub(crate) col: usize,
     pub(crate) row: usize,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum TerminalSelectionTrackingMode {
+    FollowVerticalViewportMotion,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum TerminalSelectionSurfaceToken {
+    Snapshot(u64),
+    ActiveOverride(u64),
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct ResolvedTerminalSelectionSurface<'a> {
+    pub(crate) surface: &'a TerminalSurface,
+    pub(crate) token: TerminalSelectionSurfaceToken,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -16,6 +33,7 @@ pub(crate) struct TerminalTextSelection {
     pub(crate) anchor: TerminalSelectionPoint,
     pub(crate) focus: TerminalSelectionPoint,
     pub(crate) text: String,
+    pub(crate) tracking_mode: TerminalSelectionTrackingMode,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -28,40 +46,13 @@ pub(crate) struct TerminalTextSelectionDrag {
 pub(crate) struct TerminalTextSelectionState {
     pub(crate) drag: Option<TerminalTextSelectionDrag>,
     selection: Option<TerminalTextSelection>,
+    surface_token: Option<TerminalSelectionSurfaceToken>,
     presentation_revision: u64,
 }
 
 impl TerminalTextSelectionState {
     pub(crate) fn selection(&self) -> Option<&TerminalTextSelection> {
         self.selection.as_ref()
-    }
-
-    pub(crate) fn reconcile_surface(&mut self, surface: &TerminalSurface) -> bool {
-        let Some(selection) = self.selection.as_ref().cloned() else {
-            return false;
-        };
-        if extract_terminal_selection_text(surface, selection.anchor, selection.focus).as_deref()
-            == Some(selection.text.as_str())
-        {
-            return false;
-        }
-
-        if let Some((anchor, focus)) = find_shifted_terminal_selection_range(surface, &selection) {
-            if anchor == selection.anchor && focus == selection.focus {
-                return false;
-            }
-            self.selection = Some(TerminalTextSelection {
-                terminal_id: selection.terminal_id,
-                anchor,
-                focus,
-                text: selection.text,
-            });
-            self.presentation_revision = self.presentation_revision.wrapping_add(1);
-            return true;
-        }
-
-        self.clear_selection();
-        true
     }
 
     pub(crate) fn selection_for(&self, terminal_id: TerminalId) -> Option<&TerminalTextSelection> {
@@ -88,6 +79,7 @@ impl TerminalTextSelectionState {
 
     pub(crate) fn clear_selection(&mut self) {
         if self.selection.take().is_some() {
+            self.surface_token = None;
             self.presentation_revision = self.presentation_revision.wrapping_add(1);
         }
     }
@@ -98,18 +90,60 @@ impl TerminalTextSelectionState {
         anchor: TerminalSelectionPoint,
         focus: TerminalSelectionPoint,
         text: String,
+        surface_token: TerminalSelectionSurfaceToken,
     ) {
         let next = TerminalTextSelection {
             terminal_id,
             anchor,
             focus,
             text,
+            tracking_mode: TerminalSelectionTrackingMode::FollowVerticalViewportMotion,
         };
-        if self.selection.as_ref() == Some(&next) {
+        if self.selection.as_ref() == Some(&next) && self.surface_token == Some(surface_token) {
             return;
         }
         self.selection = Some(next);
+        self.surface_token = Some(surface_token);
         self.presentation_revision = self.presentation_revision.wrapping_add(1);
+    }
+
+    pub(crate) fn sync_to_surface(
+        &mut self,
+        surface: &TerminalSurface,
+        surface_token: TerminalSelectionSurfaceToken,
+    ) -> bool {
+        let Some(selection) = self.selection.as_ref().cloned() else {
+            return false;
+        };
+        if self.surface_token == Some(surface_token) {
+            return false;
+        }
+        self.surface_token = Some(surface_token);
+
+        if extract_terminal_selection_text(surface, selection.anchor, selection.focus).as_deref()
+            == Some(selection.text.as_str())
+        {
+            return false;
+        }
+
+        let next_range = match selection.tracking_mode {
+            TerminalSelectionTrackingMode::FollowVerticalViewportMotion => {
+                find_vertical_viewport_translation(surface, &selection)
+            }
+        };
+
+        if let Some((anchor, focus)) = next_range {
+            self.selection = Some(TerminalTextSelection {
+                anchor,
+                focus,
+                ..selection
+            });
+            self.presentation_revision = self.presentation_revision.wrapping_add(1);
+            return true;
+        }
+
+        self.clear_selection();
+        true
     }
 }
 
@@ -237,6 +271,61 @@ pub(crate) struct PrimarySelectionOwnerState {
     pub(crate) child: Option<std::process::Child>,
 }
 
+pub(crate) fn resolved_terminal_selection_surface<'a>(
+    terminal_manager: &'a TerminalManager,
+    active_terminal_content: &'a ActiveTerminalContentState,
+    terminal_id: TerminalId,
+) -> Option<ResolvedTerminalSelectionSurface<'a>> {
+    if let (Some(surface), Some(revision)) = (
+        active_terminal_content.owned_tmux_surface_for(terminal_id),
+        active_terminal_content.presentation_override_revision_for(terminal_id),
+    ) {
+        return Some(ResolvedTerminalSelectionSurface {
+            surface,
+            token: TerminalSelectionSurfaceToken::ActiveOverride(revision),
+        });
+    }
+
+    terminal_manager
+        .get(terminal_id)
+        .and_then(|terminal| {
+            terminal
+                .snapshot
+                .surface
+                .as_ref()
+                .map(|surface| (terminal, surface))
+        })
+        .map(|(terminal, surface)| ResolvedTerminalSelectionSurface {
+            surface,
+            token: TerminalSelectionSurfaceToken::Snapshot(terminal.surface_revision),
+        })
+}
+
+/// Keeps terminal text selection aligned with the effective rendered terminal surface after polling.
+///
+/// This is derived-state maintenance, not input handling: the authoritative selection remains the
+/// UI-owned selection store, while this system merely reapplies that selection's tracking policy to
+/// the current effective surface (live terminal snapshot or active owned-tmux override).
+pub(crate) fn sync_terminal_text_selection_to_surface(
+    terminal_manager: Res<TerminalManager>,
+    active_terminal_content: Res<ActiveTerminalContentState>,
+    mut terminal_text_selection: ResMut<TerminalTextSelectionState>,
+) {
+    let Some(selection) = terminal_text_selection.selection().cloned() else {
+        return;
+    };
+    let Some(resolved_surface) = resolved_terminal_selection_surface(
+        &terminal_manager,
+        &active_terminal_content,
+        selection.terminal_id,
+    ) else {
+        terminal_text_selection.clear_selection();
+        return;
+    };
+    let _ =
+        terminal_text_selection.sync_to_surface(resolved_surface.surface, resolved_surface.token);
+}
+
 fn shift_selection_point(
     point: TerminalSelectionPoint,
     row_delta: isize,
@@ -252,29 +341,54 @@ fn shift_selection_point(
     })
 }
 
-fn find_shifted_terminal_selection_range(
+fn find_vertical_viewport_translation(
     surface: &TerminalSurface,
     selection: &TerminalTextSelection,
 ) -> Option<(TerminalSelectionPoint, TerminalSelectionPoint)> {
-    let max_delta = surface.rows as isize;
-    for magnitude in 1..=max_delta {
-        for row_delta in [magnitude, -magnitude] {
-            let Some(anchor) = shift_selection_point(selection.anchor, row_delta, surface.rows)
-            else {
-                continue;
-            };
-            let Some(focus) = shift_selection_point(selection.focus, row_delta, surface.rows)
-            else {
-                continue;
-            };
-            if extract_terminal_selection_text(surface, anchor, focus).as_deref()
-                == Some(selection.text.as_str())
-            {
-                return Some((anchor, focus));
+    let mut best_match: Option<(isize, TerminalSelectionPoint, TerminalSelectionPoint)> = None;
+    let mut best_distance = usize::MAX;
+    let mut ambiguous = false;
+
+    for row_delta in -(surface.rows as isize)..=(surface.rows as isize) {
+        if row_delta == 0 {
+            continue;
+        }
+        let Some(anchor) = shift_selection_point(selection.anchor, row_delta, surface.rows) else {
+            continue;
+        };
+        let Some(focus) = shift_selection_point(selection.focus, row_delta, surface.rows) else {
+            continue;
+        };
+        if extract_terminal_selection_text(surface, anchor, focus).as_deref()
+            != Some(selection.text.as_str())
+        {
+            continue;
+        }
+
+        let distance = row_delta.unsigned_abs();
+        match best_match {
+            None => {
+                best_match = Some((row_delta, anchor, focus));
+                best_distance = distance;
+                ambiguous = false;
             }
+            Some(_) if distance < best_distance => {
+                best_match = Some((row_delta, anchor, focus));
+                best_distance = distance;
+                ambiguous = false;
+            }
+            Some(_) if distance == best_distance => {
+                ambiguous = true;
+            }
+            Some(_) => {}
         }
     }
-    None
+
+    if ambiguous {
+        None
+    } else {
+        best_match.map(|(_, anchor, focus)| (anchor, focus))
+    }
 }
 
 pub(crate) fn extract_terminal_selection_text(
@@ -327,7 +441,7 @@ pub(crate) fn extract_terminal_selection_text(
 mod tests {
     use super::{
         extract_terminal_selection_text, PrimarySelectionSource, PrimarySelectionState,
-        TerminalSelectionPoint, TerminalTextSelectionState,
+        TerminalSelectionPoint, TerminalSelectionSurfaceToken, TerminalTextSelectionState,
     };
     use crate::terminals::{TerminalId, TerminalSurface};
 
@@ -397,13 +511,14 @@ mod tests {
     }
 
     #[test]
-    fn terminal_selection_reconcile_surface_tracks_vertical_surface_shift() {
+    fn terminal_selection_sync_tracks_vertical_surface_shift() {
         let mut state = TerminalTextSelectionState::default();
         state.set_selection(
             TerminalId(9),
             TerminalSelectionPoint { col: 0, row: 0 },
             TerminalSelectionPoint { col: 2, row: 0 },
             "ABC".into(),
+            TerminalSelectionSurfaceToken::Snapshot(1),
         );
 
         let mut shifted = TerminalSurface::new(4, 2);
@@ -411,7 +526,7 @@ mod tests {
         shifted.set_text_cell(1, 1, "B");
         shifted.set_text_cell(2, 1, "C");
 
-        assert!(state.reconcile_surface(&shifted));
+        assert!(state.sync_to_surface(&shifted, TerminalSelectionSurfaceToken::Snapshot(2)));
         let selection = state.selection().expect("selection should remain present");
         assert_eq!(selection.anchor, TerminalSelectionPoint { col: 0, row: 1 });
         assert_eq!(selection.focus, TerminalSelectionPoint { col: 2, row: 1 });
@@ -419,13 +534,14 @@ mod tests {
     }
 
     #[test]
-    fn terminal_selection_reconcile_surface_clears_when_text_disappears() {
+    fn terminal_selection_sync_clears_when_text_disappears() {
         let mut state = TerminalTextSelectionState::default();
         state.set_selection(
             TerminalId(9),
             TerminalSelectionPoint { col: 0, row: 0 },
             TerminalSelectionPoint { col: 2, row: 0 },
             "ABC".into(),
+            TerminalSelectionSurfaceToken::Snapshot(1),
         );
 
         let mut shifted = TerminalSurface::new(4, 2);
@@ -433,7 +549,29 @@ mod tests {
         shifted.set_text_cell(1, 1, "Y");
         shifted.set_text_cell(2, 1, "Z");
 
-        assert!(state.reconcile_surface(&shifted));
+        assert!(state.sync_to_surface(&shifted, TerminalSelectionSurfaceToken::Snapshot(2)));
         assert!(state.selection().is_none());
+    }
+
+    #[test]
+    fn terminal_selection_sync_ignores_repeated_surface_token() {
+        let mut state = TerminalTextSelectionState::default();
+        state.set_selection(
+            TerminalId(9),
+            TerminalSelectionPoint { col: 0, row: 0 },
+            TerminalSelectionPoint { col: 2, row: 0 },
+            "ABC".into(),
+            TerminalSelectionSurfaceToken::Snapshot(1),
+        );
+
+        let mut same_surface = TerminalSurface::new(4, 2);
+        same_surface.set_text_cell(0, 1, "A");
+        same_surface.set_text_cell(1, 1, "B");
+        same_surface.set_text_cell(2, 1, "C");
+
+        assert!(!state.sync_to_surface(&same_surface, TerminalSelectionSurfaceToken::Snapshot(1)));
+        let selection = state.selection().expect("selection should remain present");
+        assert_eq!(selection.anchor.row, 0);
+        assert_eq!(selection.focus.row, 0);
     }
 }

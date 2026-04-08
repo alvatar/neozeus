@@ -54,6 +54,7 @@ impl TerminalViewState {
 #[derive(Resource, Default)]
 pub(crate) struct TerminalPointerState {
     pub(crate) scroll_drag_remainder_px: f32,
+    pub(crate) wheel_scroll_remainder_lines: f32,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

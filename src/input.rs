@@ -20,8 +20,9 @@ use crate::{
         TerminalPointerState, TerminalPresentation, TerminalPresentationStore, TerminalViewState,
     },
     text_selection::{
-        extract_terminal_selection_text, PrimarySelectionOwnerState, PrimarySelectionState,
-        TerminalSelectionPoint, TerminalTextSelectionState,
+        extract_terminal_selection_text, resolved_terminal_selection_surface,
+        PrimarySelectionOwnerState, PrimarySelectionState, TerminalSelectionPoint,
+        TerminalTextSelectionState,
     },
 };
 use bevy::{
@@ -267,20 +268,6 @@ fn topmost_terminal_panel_at_cursor(
         .filter(|(_, presentation, _)| terminal_panel_contains_cursor(window, presentation, cursor))
         .max_by(|(_, left, _), (_, right, _)| left.current_z.total_cmp(&right.current_z))
         .map(|(panel, _, _)| *panel)
-}
-
-fn selection_surface_for_terminal<'a>(
-    terminal_manager: &'a TerminalManager,
-    active_terminal_content: &'a ActiveTerminalContentState,
-    terminal_id: crate::terminals::TerminalId,
-) -> Option<&'a crate::terminals::TerminalSurface> {
-    active_terminal_content
-        .owned_tmux_surface_for(terminal_id)
-        .or_else(|| {
-            terminal_manager
-                .get(terminal_id)
-                .and_then(|terminal| terminal.snapshot.surface.as_ref())
-        })
 }
 
 fn terminal_selection_point_from_cursor(
@@ -778,7 +765,7 @@ pub(crate) fn handle_terminal_text_selection(
 
     if mouse_buttons.just_pressed(MouseButton::Left) {
         if let Some((panel, presentation)) = panel_hit.as_ref() {
-            if let Some(surface) = selection_surface_for_terminal(
+            if let Some(resolved_surface) = resolved_terminal_selection_surface(
                 &terminal_manager,
                 &active_terminal_content,
                 panel.id,
@@ -790,7 +777,7 @@ pub(crate) fn handle_terminal_text_selection(
                     terminal_selection_point_from_cursor(
                         &primary_window,
                         presentation,
-                        surface,
+                        resolved_surface.surface,
                         cursor,
                     ),
                 );
@@ -804,7 +791,7 @@ pub(crate) fn handle_terminal_text_selection(
         if mouse_buttons.pressed(MouseButton::Left) {
             if let Some((panel, presentation)) = panel_hit.as_ref() {
                 if panel.id == drag.terminal_id {
-                    if let Some(surface) = selection_surface_for_terminal(
+                    if let Some(resolved_surface) = resolved_terminal_selection_surface(
                         &terminal_manager,
                         &active_terminal_content,
                         panel.id,
@@ -812,17 +799,20 @@ pub(crate) fn handle_terminal_text_selection(
                         let focus = terminal_selection_point_from_cursor(
                             &primary_window,
                             presentation,
-                            surface,
+                            resolved_surface.surface,
                             cursor,
                         );
-                        if let Some(text) =
-                            extract_terminal_selection_text(surface, drag.anchor, focus)
-                        {
+                        if let Some(text) = extract_terminal_selection_text(
+                            resolved_surface.surface,
+                            drag.anchor,
+                            focus,
+                        ) {
                             terminal_text_selection.set_selection(
                                 panel.id,
                                 drag.anchor,
                                 focus,
                                 text,
+                                resolved_surface.token,
                             );
                             redraws.write(RequestRedraw);
                         }
@@ -835,26 +825,6 @@ pub(crate) fn handle_terminal_text_selection(
             terminal_text_selection.clear_drag();
         }
     }
-}
-
-pub(crate) fn reconcile_terminal_text_selection_on_surface_change(
-    terminal_manager: Res<TerminalManager>,
-    mut terminal_text_selection: ResMut<TerminalTextSelectionState>,
-) {
-    if !terminal_manager.is_changed() {
-        return;
-    }
-    let Some(selection) = terminal_text_selection.selection().cloned() else {
-        return;
-    };
-    let Some(surface) = terminal_manager
-        .get(selection.terminal_id)
-        .and_then(|terminal| terminal.snapshot.surface.as_ref())
-    else {
-        terminal_text_selection.clear_selection();
-        return;
-    };
-    let _ = terminal_text_selection.reconcile_surface(surface);
 }
 
 pub(crate) fn sync_primary_selection_from_ui_text_selection(
@@ -966,6 +936,10 @@ pub(crate) fn drag_terminal_view(
     }
 }
 
+#[allow(
+    clippy::too_many_arguments,
+    reason = "wheel scrolling needs window focus, HUD ownership, focus, capture, terminal routing, and pointer accumulation together"
+)]
 /// Routes ordinary mouse-wheel input into terminal scrollback for either the focused terminal or the
 /// direct-input target terminal.
 ///
@@ -978,6 +952,7 @@ pub(crate) fn scroll_terminal_with_mouse_wheel(
     terminal_manager: Res<TerminalManager>,
     focus_state: Res<TerminalFocusState>,
     input_capture: Res<HudInputCaptureState>,
+    mut pointer_state: ResMut<TerminalPointerState>,
     mut mouse_wheel: MessageReader<MouseWheel>,
 ) {
     let shift = keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight);
@@ -991,26 +966,33 @@ pub(crate) fn scroll_terminal_with_mouse_wheel(
         return;
     }
 
-    let lines = mouse_wheel.read().fold(0.0, |acc, event| {
+    let target_terminal = input_capture
+        .direct_input_terminal
+        .or_else(|| focus_state.active_id());
+    let Some(bridge) = target_terminal
+        .and_then(|terminal_id| terminal_manager.get(terminal_id))
+        .map(|terminal| &terminal.bridge)
+    else {
+        return;
+    };
+
+    let wheel_delta_lines = mouse_wheel.read().fold(0.0, |acc, event| {
         acc + match event.unit {
             MouseScrollUnit::Line => event.y,
             MouseScrollUnit::Pixel => event.y / 24.0,
         }
     });
-    let lines = lines.trunc() as i32;
-    if lines == 0 {
+    if wheel_delta_lines == 0.0 {
         return;
     }
 
-    let target_terminal = input_capture
-        .direct_input_terminal
-        .or_else(|| focus_state.active_id());
-    if let Some(bridge) = target_terminal
-        .and_then(|terminal_id| terminal_manager.get(terminal_id))
-        .map(|terminal| &terminal.bridge)
-    {
-        bridge.send(TerminalCommand::ScrollDisplay(lines));
+    pointer_state.wheel_scroll_remainder_lines += wheel_delta_lines;
+    let lines = pointer_state.wheel_scroll_remainder_lines.trunc() as i32;
+    if lines == 0 {
+        return;
     }
+    pointer_state.wheel_scroll_remainder_lines -= lines as f32;
+    bridge.send(TerminalCommand::ScrollDisplay(lines));
 }
 
 /// Applies shift-wheel zoom to the shared terminal view distance.
@@ -1658,6 +1640,7 @@ mod tests {
             TerminalSelectionPoint { col: 0, row: 0 },
             TerminalSelectionPoint { col: 2, row: 0 },
             "ABC".into(),
+            crate::text_selection::TerminalSelectionSurfaceToken::Snapshot(1),
         );
         let mut agent_list_selection = AgentListTextSelectionState::default();
         agent_list_selection.set_selection(
