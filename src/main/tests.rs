@@ -168,6 +168,9 @@ pub(super) fn insert_default_hud_resources(world: &mut World) {
     if !world.contains_resource::<crate::text_selection::AgentListTextSelectionState>() {
         world.insert_resource(crate::text_selection::AgentListTextSelectionState::default());
     }
+    if !world.contains_resource::<crate::text_selection::PrimarySelectionState>() {
+        world.insert_resource(crate::text_selection::PrimarySelectionState::default());
+    }
     if !world.contains_resource::<crate::text_selection::PrimarySelectionOwnerState>() {
         world.insert_resource(crate::text_selection::PrimarySelectionOwnerState::default());
     }
@@ -377,6 +380,9 @@ pub(super) fn insert_test_hud_state(world: &mut World, hud_state: crate::hud::Hu
     }
     if !world.contains_resource::<crate::text_selection::AgentListTextSelectionState>() {
         world.insert_resource(crate::text_selection::AgentListTextSelectionState::default());
+    }
+    if !world.contains_resource::<crate::text_selection::PrimarySelectionState>() {
+        world.insert_resource(crate::text_selection::PrimarySelectionState::default());
     }
     if !world.contains_resource::<crate::text_selection::PrimarySelectionOwnerState>() {
         world.insert_resource(crate::text_selection::PrimarySelectionOwnerState::default());

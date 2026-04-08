@@ -20,8 +20,8 @@ use crate::{
         TerminalPointerState, TerminalPresentation, TerminalPresentationStore, TerminalViewState,
     },
     text_selection::{
-        extract_terminal_selection_text, PrimarySelectionOwnerState, TerminalSelectionPoint,
-        TerminalTextSelectionState,
+        extract_terminal_selection_text, PrimarySelectionOwnerState, PrimarySelectionState,
+        TerminalSelectionPoint, TerminalTextSelectionState,
     },
 };
 use bevy::{
@@ -834,24 +834,27 @@ pub(crate) fn handle_terminal_text_selection(
 pub(crate) fn sync_primary_selection_from_ui_text_selection(
     terminal_text_selection: Res<TerminalTextSelectionState>,
     agent_list_text_selection: Res<crate::text_selection::AgentListTextSelectionState>,
+    mut primary_selection: ResMut<PrimarySelectionState>,
     mut owner: ResMut<PrimarySelectionOwnerState>,
 ) {
     if !terminal_text_selection.is_changed() && !agent_list_text_selection.is_changed() {
         return;
     }
 
-    let selection_text = terminal_text_selection
-        .selection()
-        .map(|selection| selection.text.as_str())
-        .or_else(|| {
-            agent_list_text_selection
-                .selection()
-                .map(|selection| selection.text.as_str())
-        });
+    let changed = if let Some(selection) = terminal_text_selection.selection() {
+        primary_selection.set_terminal_selection(selection.terminal_id, &selection.text)
+    } else if let Some(selection) = agent_list_text_selection.selection() {
+        primary_selection.set_agent_list_selection(&selection.text)
+    } else {
+        primary_selection.clear()
+    };
+    if !changed {
+        return;
+    }
 
     #[cfg(target_os = "linux")]
     {
-        if let Some(text) = selection_text.filter(|text| !text.is_empty()) {
+        if let Some(text) = primary_selection.text() {
             let _ = write_linux_primary_selection_text(&mut owner, text);
         } else {
             stop_primary_selection_owner(&mut owner);
@@ -1489,8 +1492,15 @@ pub(crate) fn ctrl_sequence(key_code: KeyCode) -> Option<&'static str> {
 
 #[cfg(test)]
 mod tests {
+    use super::sync_primary_selection_from_ui_text_selection;
     #[cfg(target_os = "linux")]
     use super::{read_linux_primary_selection_text_with, write_linux_primary_selection_text_with};
+    use crate::text_selection::{
+        AgentListTextSelectionState, PrimarySelectionSource, PrimarySelectionState,
+        TerminalSelectionPoint, TerminalTextSelectionState,
+    };
+    use crate::terminals::TerminalId;
+    use bevy::{ecs::system::RunSystemOnce, prelude::World};
 
     #[cfg(target_os = "linux")]
     #[test]
@@ -1564,5 +1574,53 @@ mod tests {
         assert_eq!(calls.len(), 1);
         assert_eq!(calls[0].0, "wl-copy");
         assert_eq!(calls[0].2, "copied text");
+    }
+
+    #[test]
+    fn primary_selection_sync_prefers_terminal_selection_over_agent_list_selection() {
+        let mut world = World::default();
+        let mut terminal_selection = TerminalTextSelectionState::default();
+        terminal_selection.set_selection(
+            TerminalId(9),
+            TerminalSelectionPoint { col: 0, row: 0 },
+            TerminalSelectionPoint { col: 2, row: 0 },
+            "ABC".into(),
+        );
+        let mut agent_list_selection = AgentListTextSelectionState::default();
+        agent_list_selection.set_selection(
+            crate::hud::AgentListRowKey::Agent(crate::agents::AgentId(1)),
+            crate::hud::AgentListRowKey::Agent(crate::agents::AgentId(1)),
+            "ROW".into(),
+        );
+        world.insert_resource(terminal_selection);
+        world.insert_resource(agent_list_selection);
+        world.insert_resource(PrimarySelectionState::default());
+        world.insert_resource(crate::text_selection::PrimarySelectionOwnerState::default());
+
+        let _ = world.run_system_once(sync_primary_selection_from_ui_text_selection);
+
+        let selection = world.resource::<PrimarySelectionState>();
+        assert_eq!(
+            selection.source(),
+            Some(PrimarySelectionSource::Terminal(TerminalId(9)))
+        );
+        assert_eq!(selection.text(), Some("ABC"));
+    }
+
+    #[test]
+    fn primary_selection_sync_clears_when_ui_selections_are_empty() {
+        let mut world = World::default();
+        let mut primary_selection = PrimarySelectionState::default();
+        assert!(primary_selection.set_agent_list_selection("ROW"));
+        world.insert_resource(TerminalTextSelectionState::default());
+        world.insert_resource(AgentListTextSelectionState::default());
+        world.insert_resource(primary_selection);
+        world.insert_resource(crate::text_selection::PrimarySelectionOwnerState::default());
+
+        let _ = world.run_system_once(sync_primary_selection_from_ui_text_selection);
+
+        let selection = world.resource::<PrimarySelectionState>();
+        assert_eq!(selection.source(), None);
+        assert_eq!(selection.text(), None);
     }
 }

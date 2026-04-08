@@ -142,6 +142,67 @@ impl AgentListTextSelectionState {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum PrimarySelectionSource {
+    Terminal(TerminalId),
+    AgentList,
+}
+
+#[derive(Resource, Default, Clone, Debug, PartialEq, Eq)]
+pub(crate) struct PrimarySelectionState {
+    source: Option<PrimarySelectionSource>,
+    text: Option<String>,
+    revision: u64,
+}
+
+impl PrimarySelectionState {
+    #[cfg(test)]
+    pub(crate) fn source(&self) -> Option<PrimarySelectionSource> {
+        self.source
+    }
+
+    pub(crate) fn text(&self) -> Option<&str> {
+        self.text.as_deref()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn revision(&self) -> u64 {
+        self.revision
+    }
+
+    pub(crate) fn set_terminal_selection(&mut self, terminal_id: TerminalId, text: &str) -> bool {
+        self.set_selection(PrimarySelectionSource::Terminal(terminal_id), text)
+    }
+
+    pub(crate) fn set_agent_list_selection(&mut self, text: &str) -> bool {
+        self.set_selection(PrimarySelectionSource::AgentList, text)
+    }
+
+    pub(crate) fn clear(&mut self) -> bool {
+        if self.source.is_none() && self.text.is_none() {
+            return false;
+        }
+        self.source = None;
+        self.text = None;
+        self.revision = self.revision.wrapping_add(1);
+        true
+    }
+
+    fn set_selection(&mut self, source: PrimarySelectionSource, text: &str) -> bool {
+        let trimmed = text.trim_end();
+        if trimmed.is_empty() {
+            return self.clear();
+        }
+        if self.source == Some(source) && self.text.as_deref() == Some(trimmed) {
+            return false;
+        }
+        self.source = Some(source);
+        self.text = Some(trimmed.to_owned());
+        self.revision = self.revision.wrapping_add(1);
+        true
+    }
+}
+
 #[derive(Resource, Default)]
 pub(crate) struct PrimarySelectionOwnerState {
     #[cfg(target_os = "linux")]
@@ -196,8 +257,11 @@ pub(crate) fn extract_terminal_selection_text(
 
 #[cfg(test)]
 mod tests {
-    use super::{extract_terminal_selection_text, TerminalSelectionPoint};
-    use crate::terminals::TerminalSurface;
+    use super::{
+        extract_terminal_selection_text, PrimarySelectionSource, PrimarySelectionState,
+        TerminalSelectionPoint,
+    };
+    use crate::terminals::{TerminalId, TerminalSurface};
 
     #[test]
     fn extract_terminal_selection_text_spans_rows_and_trims_trailing_blanks() {
@@ -227,5 +291,37 @@ mod tests {
             TerminalSelectionPoint { col: 1, row: 0 }
         )
         .is_none());
+    }
+
+    #[test]
+    fn primary_selection_prefers_exact_source_and_text_identity() {
+        let mut selection = PrimarySelectionState::default();
+
+        assert!(selection.set_terminal_selection(TerminalId(7), "ABC   "));
+        assert_eq!(selection.source(), Some(PrimarySelectionSource::Terminal(TerminalId(7))));
+        assert_eq!(selection.text(), Some("ABC"));
+        let revision = selection.revision();
+
+        assert!(!selection.set_terminal_selection(TerminalId(7), "ABC"));
+        assert_eq!(selection.revision(), revision);
+    }
+
+    #[test]
+    fn primary_selection_switches_owner_and_clears_cleanly() {
+        let mut selection = PrimarySelectionState::default();
+
+        assert!(selection.set_terminal_selection(TerminalId(3), "term"));
+        let terminal_revision = selection.revision();
+        assert!(selection.set_agent_list_selection("row text"));
+        assert_eq!(selection.source(), Some(PrimarySelectionSource::AgentList));
+        assert_eq!(selection.text(), Some("row text"));
+        assert!(selection.revision() > terminal_revision);
+
+        let list_revision = selection.revision();
+        assert!(selection.clear());
+        assert!(selection.revision() > list_revision);
+        assert_eq!(selection.source(), None);
+        assert_eq!(selection.text(), None);
+        assert!(!selection.clear());
     }
 }
