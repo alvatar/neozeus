@@ -26,16 +26,14 @@ pub(crate) fn build_surface(term: &Term<VoidListener>) -> TerminalSurface {
     let selection = renderable.selection;
     let cursor_shape = renderable.cursor.shape;
     let cursor_point = renderable.cursor.point;
+    let display_offset = i64::try_from(renderable.display_offset).unwrap_or(i64::MAX);
     for indexed in renderable.display_iter {
         let x = indexed.point.column.0;
-        let y_i32 = indexed.point.line.0;
-        if y_i32 < 0 {
+        let y = i64::from(indexed.point.line.0) + display_offset;
+        if x >= cols || y < 0 || y >= rows as i64 {
             continue;
         }
-        let y = y_i32 as usize;
-        if x >= cols || y >= rows {
-            continue;
-        }
+        let y = y as usize;
 
         let mut fg = resolve_alacritty_color(indexed.cell.fg, renderable.colors, true);
         let mut bg = resolve_alacritty_color(indexed.cell.bg, renderable.colors, false);
@@ -86,11 +84,14 @@ pub(crate) fn build_surface(term: &Term<VoidListener>) -> TerminalSurface {
 
     surface.selected_text = term.selection_to_string();
     surface.display_offset = renderable.display_offset;
+    let cursor_y = i64::from(renderable.cursor.point.line.0) + display_offset;
+    let cursor_visible =
+        renderable.cursor.shape != CursorShape::Hidden && cursor_y >= 0 && cursor_y < rows as i64;
     surface.cursor = Some(TerminalCursor {
         x: renderable.cursor.point.column.0.min(cols.saturating_sub(1)),
-        y: renderable.cursor.point.line.0.max(0) as usize,
+        y: cursor_y.clamp(0, rows.saturating_sub(1) as i64) as usize,
         shape: map_cursor_shape(renderable.cursor.shape),
-        visible: renderable.cursor.shape != CursorShape::Hidden,
+        visible: cursor_visible,
         color: resolve_alacritty_color(
             AnsiColor::Named(NamedColor::Cursor),
             renderable.colors,

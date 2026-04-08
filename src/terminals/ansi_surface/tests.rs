@@ -23,6 +23,16 @@ fn surface_from_ansi(bytes: &[u8], cols: usize, rows: usize) -> TerminalSurface 
     build_surface(&terminal)
 }
 
+fn surface_rows(surface: &TerminalSurface) -> Vec<String> {
+    (0..surface.rows)
+        .map(|y| {
+            (0..surface.cols)
+                .map(|x| surface.cell(x, y).content.to_owned_string())
+                .collect::<String>()
+        })
+        .collect()
+}
+
 /// Verifies the ANSI surface bridge preserves the text styling flags NeoZeus needs to render.
 #[test]
 fn build_surface_preserves_cell_style_flags() {
@@ -86,6 +96,30 @@ fn surface_from_ansi_text_auto_size_preserves_multiline_rows() {
     assert_eq!(surface.cols, 8);
     assert_eq!(surface.cell(0, 0).content.to_owned_string(), "l");
     assert_eq!(surface.cell(5, 1).content.to_owned_string(), "t");
+}
+
+#[test]
+fn build_surface_maps_scrollback_rows_into_viewport_coordinates() {
+    let dimensions = TerminalDimensions { cols: 4, rows: 3 };
+    let config = Config {
+        scrolling_history: 128,
+        ..Config::default()
+    };
+    let mut terminal =
+        alacritty_terminal::term::Term::<VoidListener>::new(config, &dimensions, VoidListener);
+    let mut parser = alacritty_terminal::vte::ansi::Processor::<
+        alacritty_terminal::vte::ansi::StdSyncHandler,
+    >::new();
+    parser.advance(&mut terminal, b"1\r\n2\r\n3\r\n4\r\n5\r\n6");
+
+    let before = build_surface(&terminal);
+    assert_eq!(before.display_offset, 0);
+    assert_eq!(surface_rows(&before), vec!["4   ", "5   ", "6   "]);
+
+    terminal.scroll_display(alacritty_terminal::grid::Scroll::Delta(1));
+    let after = build_surface(&terminal);
+    assert_eq!(after.display_offset, 1);
+    assert_eq!(surface_rows(&after), vec!["3   ", "4   ", "5   "]);
 }
 
 #[test]
