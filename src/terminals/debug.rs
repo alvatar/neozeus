@@ -95,6 +95,9 @@ pub(crate) fn with_debug_stats(
     debug_stats: &Arc<Mutex<TerminalDebugStats>>,
     update: impl FnOnce(&mut TerminalDebugStats),
 ) {
+    if !debug_file_logging_enabled() {
+        return;
+    }
     match debug_stats.lock() {
         Ok(mut stats) => update(&mut stats),
         Err(poisoned) => update(&mut poisoned.into_inner()),
@@ -123,13 +126,14 @@ pub(crate) fn note_terminal_error(
 /// then written to both the debug log and the shared debug stats. This makes it easier to diagnose
 /// mismatches between Bevy keyboard events and the terminal input translation layer.
 pub(crate) fn note_key_event(debug_stats: &Arc<Mutex<TerminalDebugStats>>, event: &KeyboardInput) {
+    if !debug_file_logging_enabled() {
+        return;
+    }
     let summary = format!(
         "{:?} text={:?} logical={:?}",
         event.key_code, event.text, event.logical_key
     );
-    if debug_file_logging_enabled() {
-        append_debug_log(format!("key event: {summary}"));
-    }
+    append_debug_log(format!("key event: {summary}"));
     with_debug_stats(debug_stats, |stats| {
         stats.key_events_seen += 1;
         stats.last_key = summary;

@@ -46,21 +46,22 @@ impl TerminalBridge {
     /// command count and last-command summary; on failure it records the failure in the debug stats so
     /// disconnected runtimes are visible during debugging.
     pub(crate) fn send(&self, command: TerminalCommand) {
+        if !debug_file_logging_enabled() {
+            let _ = self.inner.input_tx.send(command);
+            return;
+        }
+
         let summary = summarize_terminal_command(&command).to_owned();
         match self.inner.input_tx.send(command) {
             Ok(()) => {
-                if debug_file_logging_enabled() {
-                    append_debug_log(format!("command queued: {summary}"));
-                }
+                append_debug_log(format!("command queued: {summary}"));
                 with_debug_stats(&self.inner.debug_stats, |stats| {
                     stats.commands_queued += 1;
                     stats.last_command = summary;
                 });
             }
             Err(_) => {
-                if debug_file_logging_enabled() {
-                    append_debug_log(format!("command queue failed: {summary}"));
-                }
+                append_debug_log(format!("command queue failed: {summary}"));
                 with_debug_stats(&self.inner.debug_stats, |stats| {
                     stats.last_command = summary;
                     stats.last_error = "input channel disconnected".into();
