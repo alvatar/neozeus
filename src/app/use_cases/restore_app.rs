@@ -144,7 +144,10 @@ pub(crate) fn restore_app(
             continue;
         };
         let presentation_store_slot = presentation_store.as_deref_mut();
-        if let Err(error) = attach_restored_terminal(
+        let should_mark_startup_pending = live_session_lookup
+            .get(runtime_session_name.as_str())
+            .is_some_and(|session| startup_focus_candidate_is_interactive(session));
+        match attach_restored_terminal(
             agent_catalog,
             runtime_index,
             app_session,
@@ -167,13 +170,22 @@ pub(crate) fn restore_app(
             record.is_workdir,
             record.workdir_slug,
         ) {
-            append_debug_log(format!(
-                "startup attach failed for {}: {error}",
-                record
-                    .runtime_session_name
-                    .as_deref()
-                    .unwrap_or("<missing-session>")
-            ));
+            Ok((_agent_id, terminal_id)) => {
+                if should_mark_startup_pending {
+                    if let Some(presentation_store) = presentation_store.as_deref_mut() {
+                        presentation_store.mark_startup_pending(terminal_id);
+                    }
+                }
+            }
+            Err(error) => {
+                append_debug_log(format!(
+                    "startup attach failed for {}: {error}",
+                    record
+                        .runtime_session_name
+                        .as_deref()
+                        .unwrap_or("<missing-session>")
+                ));
+            }
         }
     }
 

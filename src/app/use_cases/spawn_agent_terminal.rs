@@ -309,9 +309,7 @@ pub(crate) fn attach_restored_terminal(
         .get(terminal_id)
         .map(|terminal| &terminal.snapshot.runtime);
     runtime_index.link_terminal(agent_id, terminal_id, session_name, runtime);
-    if let Some(presentation_store) = presentation_store {
-        presentation_store.mark_startup_pending(terminal_id);
-    }
+    let _ = presentation_store;
     Ok((agent_id, terminal_id))
 }
 

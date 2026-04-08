@@ -843,6 +843,88 @@ fn startup_leaves_only_disconnected_sessions_visible_and_unfocused() {
     assert_eq!(client.sessions.lock().unwrap().len(), 1);
 }
 
+/// Verifies that startup restore only marks interactive sessions as startup-pending.
+#[test]
+fn startup_restore_does_not_mark_disconnected_sessions_as_startup_pending() {
+    let client = Arc::new(crate::tests::FakeDaemonClient::default());
+    client.set_session_runtime(
+        "neozeus-session-live",
+        crate::terminals::TerminalRuntimeState::running("live session"),
+    );
+    client.set_session_runtime(
+        "neozeus-session-dead",
+        crate::terminals::TerminalRuntimeState::disconnected("dead session"),
+    );
+
+    let dir = temp_dir("neozeus-startup-disconnected-not-pending");
+    let app_state_path = dir.join("neozeus-state.v1");
+    std::fs::write(
+        &app_state_path,
+        concat!(
+            "neozeus state version 1\n",
+            "[agent]\n",
+            "agent_uid=\"agent-live\"\n",
+            "session_name=\"neozeus-session-live\"\n",
+            "label=\"LIVE\"\n",
+            "kind=\"pi\"\n",
+            "order_index=0\n",
+            "focused=1\n",
+            "[/agent]\n",
+            "[agent]\n",
+            "agent_uid=\"agent-dead\"\n",
+            "session_name=\"neozeus-session-dead\"\n",
+            "label=\"DEAD\"\n",
+            "kind=\"pi\"\n",
+            "order_index=1\n",
+            "focused=0\n",
+            "[/agent]\n",
+        ),
+    )
+    .expect("app state should write");
+
+    let mut world = World::default();
+    world.insert_resource(Assets::<Image>::default());
+    world.insert_resource(crate::terminals::TerminalManager::default());
+    world.insert_resource(crate::terminals::TerminalFocusState::default());
+    world.insert_resource(crate::terminals::TerminalPresentationStore::default());
+    world.insert_resource(crate::agents::AgentCatalog::default());
+    world.insert_resource(crate::agents::AgentRuntimeIndex::default());
+    world.insert_resource(crate::app::AppSessionState::default());
+    world.insert_resource(crate::conversations::ConversationStore::default());
+    world.insert_resource(crate::conversations::ConversationPersistenceState::default());
+    world.insert_resource(crate::hud::HudInputCaptureState::default());
+    world.insert_resource(crate::terminals::TerminalViewState::default());
+    world.init_resource::<Messages<RequestRedraw>>();
+    world.insert_resource(Time::<()>::default());
+    world.insert_resource(fake_runtime_spawner(client));
+    world.insert_resource(crate::app::AppStatePersistenceState {
+        path: Some(app_state_path),
+        dirty_since_secs: None,
+    });
+    world.insert_resource(crate::terminals::TerminalNotesState::default());
+    world.insert_resource(crate::hud::TerminalVisibilityState::default());
+    world.insert_resource(crate::startup::DaemonConnectionState::default());
+    world.insert_resource(crate::startup::StartupConnectState::default());
+
+    world.run_system_once(crate::startup::setup_scene).unwrap();
+
+    let runtime_index = world.resource::<crate::agents::AgentRuntimeIndex>();
+    let live_terminal = runtime_index
+        .agent_for_session("neozeus-session-live")
+        .and_then(|agent_id| runtime_index.primary_terminal(agent_id))
+        .expect("live terminal should be attached");
+    let dead_terminal = runtime_index
+        .agent_for_session("neozeus-session-dead")
+        .and_then(|agent_id| runtime_index.primary_terminal(agent_id))
+        .expect("dead terminal should be attached");
+    let presentation_store = world.resource::<crate::terminals::TerminalPresentationStore>();
+    assert!(presentation_store.is_startup_pending(live_terminal));
+    assert!(
+        !presentation_store.is_startup_pending(dead_terminal),
+        "disconnected restored terminals must not stay startup-pending forever"
+    );
+}
+
 /// Verifies that restoring legacy app-state entries without stable agent uids backfills a new uid
 /// and marks app state dirty for rewrite.
 #[test]
