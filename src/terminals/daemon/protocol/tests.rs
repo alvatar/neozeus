@@ -198,6 +198,7 @@ fn snapshot_wire_roundtrip_preserves_cell_style() {
             ],
             cursor: None,
             selected_text: Some("X".into()),
+            display_offset: 0,
         }),
         runtime: TerminalRuntimeState::running("running"),
     };

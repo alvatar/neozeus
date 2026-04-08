@@ -29,3 +29,15 @@ fn compute_terminal_damage_marks_resize_as_full() {
         TerminalDamage::Full
     );
 }
+
+#[test]
+fn compute_terminal_damage_marks_viewport_scroll_as_full() {
+    let mut previous = surface_with_text(3, 4, 1, "ab");
+    let mut next = previous.clone();
+    previous.display_offset = 0;
+    next.display_offset = 1;
+    assert_eq!(
+        compute_terminal_damage(Some(&previous), &next),
+        TerminalDamage::Full
+    );
+}

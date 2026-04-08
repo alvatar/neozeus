@@ -85,6 +85,7 @@ pub(crate) fn build_surface(term: &Term<VoidListener>) -> TerminalSurface {
     }
 
     surface.selected_text = term.selection_to_string();
+    surface.display_offset = renderable.display_offset;
     surface.cursor = Some(TerminalCursor {
         x: renderable.cursor.point.column.0.min(cols.saturating_sub(1)),
         y: renderable.cursor.point.line.0.max(0) as usize,

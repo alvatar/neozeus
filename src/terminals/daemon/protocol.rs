@@ -672,6 +672,7 @@ fn encode_surface(buffer: &mut Vec<u8>, surface: &TerminalSurface) {
     push_option(buffer, surface.selected_text.as_ref(), |buffer, text| {
         push_string(buffer, text)
     });
+    push_usize(buffer, surface.display_offset);
 }
 
 /// Decodes a full terminal surface grid from the payload stream.
@@ -682,6 +683,7 @@ fn decode_surface(decoder: &mut Decoder<'_>) -> Result<TerminalSurface, String> 
         cells: decoder.read_vec(decode_cell)?,
         cursor: decoder.read_option(decode_cursor)?,
         selected_text: decoder.read_option(|decoder| decoder.read_string())?,
+        display_offset: decoder.read_usize()?,
     })
 }
 

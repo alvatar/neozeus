@@ -133,6 +133,7 @@ pub(crate) struct TerminalSurface {
     pub(crate) cells: Vec<TerminalCell>,
     pub(crate) cursor: Option<TerminalCursor>,
     pub(crate) selected_text: Option<String>,
+    pub(crate) display_offset: usize,
 }
 
 impl TerminalSurface {
@@ -144,6 +145,7 @@ impl TerminalSurface {
             cells: vec![TerminalCell::default(); cols.saturating_mul(rows)],
             cursor: None,
             selected_text: None,
+            display_offset: 0,
         }
     }
 

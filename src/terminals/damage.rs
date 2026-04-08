@@ -15,7 +15,10 @@ pub(crate) fn compute_terminal_damage(
     let Some(previous_surface) = previous_surface else {
         return TerminalDamage::Full;
     };
-    if previous_surface.cols != surface.cols || previous_surface.rows != surface.rows {
+    if previous_surface.cols != surface.cols
+        || previous_surface.rows != surface.rows
+        || previous_surface.display_offset != surface.display_offset
+    {
         return TerminalDamage::Full;
     }
 
