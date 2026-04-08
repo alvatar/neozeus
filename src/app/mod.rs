@@ -19,9 +19,11 @@ pub(crate) use persistence::{
 };
 pub(crate) use session::{
     AppSessionState, CloneAgentDialogField, CreateAgentDialogField, CreateAgentKind,
-    RenameAgentDialogField, TextFieldState,
+    RenameAgentDialogField, TextFieldState, VisibilityMode,
 };
-pub(crate) use use_cases::restore_app;
+pub(crate) use use_cases::{
+    clear_composer_and_direct_input, focus_agent_without_persist, open_composer, restore_app,
+};
 
 pub(crate) use bootstrap::build_app;
 #[cfg(test)]

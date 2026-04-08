@@ -562,6 +562,7 @@ pub(super) fn apply_app_commands(
                     use_cases::open_composer(
                         request,
                         &mut ctx.app_session,
+                        &mut ctx.input_capture,
                         &ctx.runtime_index,
                         &ctx.task_store,
                         &mut ctx.redraws,

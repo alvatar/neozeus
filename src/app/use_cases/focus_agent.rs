@@ -123,6 +123,43 @@ pub(crate) fn apply_focus_intent(
     clippy::too_many_arguments,
     reason = "focus agent updates focus intent plus all runtime-facing mirrors"
 )]
+pub(crate) fn focus_agent_without_persist(
+    agent_id: AgentId,
+    visibility_mode: VisibilityMode,
+    session: &mut AppSessionState,
+    agent_catalog: &AgentCatalog,
+    runtime_index: &AgentRuntimeIndex,
+    owned_tmux_sessions: &OwnedTmuxSessionStore,
+    selection: &mut crate::hud::AgentListSelection,
+    active_terminal_content: &mut ActiveTerminalContentState,
+    terminal_manager: &mut TerminalManager,
+    focus_state: &mut TerminalFocusState,
+    input_capture: &mut HudInputCaptureState,
+    view_state: &mut TerminalViewState,
+    visibility_state: &mut TerminalVisibilityState,
+    redraws: &mut bevy::prelude::MessageWriter<RequestRedraw>,
+) {
+    session.focus_intent.focus_agent(agent_id, visibility_mode);
+    apply_focus_intent(
+        session,
+        agent_catalog,
+        runtime_index,
+        owned_tmux_sessions,
+        selection,
+        active_terminal_content,
+        terminal_manager,
+        focus_state,
+        input_capture,
+        view_state,
+        visibility_state,
+    );
+    redraws.write(RequestRedraw);
+}
+
+#[allow(
+    clippy::too_many_arguments,
+    reason = "focus agent updates focus intent plus all runtime-facing mirrors"
+)]
 /// Focuses agent.
 pub(crate) fn focus_agent(
     agent_id: AgentId,
@@ -142,8 +179,9 @@ pub(crate) fn focus_agent(
     time: &Time,
     redraws: &mut bevy::prelude::MessageWriter<RequestRedraw>,
 ) {
-    session.focus_intent.focus_agent(agent_id, visibility_mode);
-    apply_focus_intent(
+    focus_agent_without_persist(
+        agent_id,
+        visibility_mode,
         session,
         agent_catalog,
         runtime_index,
@@ -155,7 +193,7 @@ pub(crate) fn focus_agent(
         input_capture,
         view_state,
         visibility_state,
+        redraws,
     );
     mark_app_state_dirty(app_state_persistence, Some(time));
-    redraws.write(RequestRedraw);
 }

@@ -4,6 +4,7 @@ use crate::{
         mark_conversations_dirty, AgentTaskStore, ConversationPersistenceState, ConversationStore,
         MessageTransportAdapter,
     },
+    hud::HudInputCaptureState,
 };
 
 use super::super::{commands::ComposerRequest, session::AppSessionState};
@@ -66,10 +67,22 @@ pub(crate) fn cancel_composer(
     redraws.write(RequestRedraw);
 }
 
+/// Clears any direct terminal input capture and closes the active composer/editor session.
+pub(crate) fn clear_composer_and_direct_input(
+    app_session: &mut AppSessionState,
+    input_capture: &mut HudInputCaptureState,
+    redraws: &mut bevy::prelude::MessageWriter<RequestRedraw>,
+) {
+    app_session.composer.cancel_preserving_draft();
+    input_capture.close_direct_terminal_input();
+    redraws.write(RequestRedraw);
+}
+
 /// Opens composer.
 pub(crate) fn open_composer(
     request: &ComposerRequest,
     app_session: &mut AppSessionState,
+    input_capture: &mut HudInputCaptureState,
     runtime_index: &crate::agents::AgentRuntimeIndex,
     tasks: &AgentTaskStore,
     redraws: &mut bevy::prelude::MessageWriter<RequestRedraw>,
@@ -80,12 +93,14 @@ pub(crate) fn open_composer(
             if runtime_index.primary_terminal(agent_id).is_none() {
                 return;
             }
+            input_capture.close_direct_terminal_input();
             app_session.composer.open_message(agent_id);
         }
         ComposerMode::TaskEdit { agent_id } => {
             if runtime_index.primary_terminal(agent_id).is_none() {
                 return;
             }
+            input_capture.close_direct_terminal_input();
             let existing = tasks.text(agent_id).unwrap_or_default().to_owned();
             app_session.composer.open_task_editor(agent_id, &existing);
         }

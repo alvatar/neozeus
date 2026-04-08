@@ -71,6 +71,9 @@ fn message_box_scenario_opens_modal_and_spawns_terminal() {
     world.insert_resource(crate::terminals::TerminalViewState::default());
     world.insert_resource(crate::terminals::TerminalNotesState::default());
     insert_default_hud_resources(&mut world);
+    world
+        .resource_mut::<crate::hud::HudInputCaptureState>()
+        .direct_input_terminal = Some(crate::terminals::TerminalId(777));
     world.init_resource::<Messages<RequestRedraw>>();
 
     world.run_system_once(run_verification_scenario).unwrap();
@@ -78,7 +81,35 @@ fn message_box_scenario_opens_modal_and_spawns_terminal() {
     let app_session = world.resource::<crate::app::AppSessionState>();
     assert!(app_session.composer.message_editor.visible);
     assert_eq!(app_session.composer.message_editor.text, "follow up");
-    assert_eq!(world.resource::<TerminalManager>().terminal_ids().len(), 1);
+    let terminal_ids = world.resource::<TerminalManager>().terminal_ids().to_vec();
+    assert_eq!(terminal_ids.len(), 1);
+    let terminal_id = terminal_ids[0];
+    let runtime_index = world.resource::<crate::agents::AgentRuntimeIndex>();
+    let agent_id = runtime_index
+        .agent_for_terminal(terminal_id)
+        .expect("scenario should bind agent");
+    assert_eq!(
+        world
+            .resource::<crate::terminals::TerminalFocusState>()
+            .active_id(),
+        Some(terminal_id)
+    );
+    assert_eq!(
+        *world.resource::<crate::hud::AgentListSelection>(),
+        crate::hud::AgentListSelection::Agent(agent_id)
+    );
+    assert_eq!(
+        world
+            .resource::<crate::hud::TerminalVisibilityState>()
+            .policy,
+        crate::hud::TerminalVisibilityPolicy::Isolate(terminal_id)
+    );
+    assert_eq!(
+        world
+            .resource::<crate::hud::HudInputCaptureState>()
+            .direct_input_terminal,
+        None
+    );
     assert!(world.resource::<VerificationScenarioConfig>().applied);
 }
 
@@ -122,7 +153,78 @@ fn task_dialog_scenario_populates_note_text() {
         .task_editor
         .text
         .contains("verify bloom layering"));
-    assert_eq!(world.resource::<TerminalManager>().terminal_ids().len(), 1);
+    let terminal_ids = world.resource::<TerminalManager>().terminal_ids().to_vec();
+    assert_eq!(terminal_ids.len(), 1);
+    let terminal_id = terminal_ids[0];
+    let runtime_index = world.resource::<crate::agents::AgentRuntimeIndex>();
+    let agent_id = runtime_index
+        .agent_for_terminal(terminal_id)
+        .expect("scenario should bind agent");
+    assert_eq!(
+        *world.resource::<crate::hud::AgentListSelection>(),
+        crate::hud::AgentListSelection::Agent(agent_id)
+    );
+    assert_eq!(
+        world
+            .resource::<crate::hud::TerminalVisibilityState>()
+            .policy,
+        crate::hud::TerminalVisibilityPolicy::Isolate(terminal_id)
+    );
+}
+
+#[test]
+fn agent_list_scenario_clears_existing_composer_and_direct_input() {
+    let client = Arc::new(crate::tests::FakeDaemonClient::default());
+    let mut world = World::default();
+    world.insert_resource(VerificationScenarioConfig {
+        scenario: VerificationScenario::AgentListBloom,
+        frames_until_apply: 0,
+        primed: false,
+        applied: false,
+        terminal_ids: Vec::new(),
+    });
+    world.insert_resource(Assets::<Image>::default());
+    world.insert_resource(crate::terminals::TerminalManager::default());
+    world.insert_resource(crate::terminals::TerminalFocusState::default());
+    world.insert_resource(crate::terminals::TerminalPresentationStore::default());
+    world.insert_resource(fake_runtime_spawner(client));
+    world.insert_resource(crate::agents::AgentCatalog::default());
+    world.insert_resource(crate::agents::AgentRuntimeIndex::default());
+    let mut app_session = crate::app::AppSessionState::default();
+    app_session
+        .composer
+        .open_message(crate::agents::AgentId(999));
+    world.insert_resource(app_session);
+    world.insert_resource(crate::conversations::AgentTaskStore::default());
+    world.insert_resource(crate::hud::TerminalVisibilityState::default());
+    world.insert_resource(crate::terminals::TerminalViewState::default());
+    world.insert_resource(crate::terminals::TerminalNotesState::default());
+    insert_default_hud_resources(&mut world);
+    world
+        .resource_mut::<crate::hud::HudInputCaptureState>()
+        .direct_input_terminal = Some(crate::terminals::TerminalId(777));
+    world.init_resource::<Messages<RequestRedraw>>();
+
+    world.run_system_once(run_verification_scenario).unwrap();
+
+    let app_session = world.resource::<crate::app::AppSessionState>();
+    assert!(!app_session.composer.message_editor.visible);
+    assert!(!app_session.composer.task_editor.visible);
+    assert_eq!(
+        world
+            .resource::<crate::hud::HudInputCaptureState>()
+            .direct_input_terminal,
+        None
+    );
+    let terminal_id = world.resource::<TerminalManager>().terminal_ids()[0];
+    let runtime_index = world.resource::<crate::agents::AgentRuntimeIndex>();
+    let agent_id = runtime_index
+        .agent_for_terminal(terminal_id)
+        .expect("scenario should bind agent");
+    assert_eq!(
+        *world.resource::<crate::hud::AgentListSelection>(),
+        crate::hud::AgentListSelection::Agent(agent_id)
+    );
 }
 
 #[test]
