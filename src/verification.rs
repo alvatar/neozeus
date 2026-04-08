@@ -201,6 +201,7 @@ fn seeded_inspect_surface(label: &str, accent: egui::Color32) -> TerminalSurface
                         bg: accent,
                         style: Default::default(),
                         width: 1,
+                        selected: false,
                     },
                 );
                 x += 1;

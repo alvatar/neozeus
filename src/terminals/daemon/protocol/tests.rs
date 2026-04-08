@@ -192,10 +192,12 @@ fn snapshot_wire_roundtrip_preserves_cell_style() {
                         underline_color: Some(egui::Color32::from_rgb(1, 2, 3)),
                     },
                     width: 1,
+                    selected: true,
                 },
                 TerminalCell::default(),
             ],
             cursor: None,
+            selected_text: Some("X".into()),
         }),
         runtime: TerminalRuntimeState::running("running"),
     };

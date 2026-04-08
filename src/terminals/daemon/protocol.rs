@@ -669,6 +669,9 @@ fn encode_surface(buffer: &mut Vec<u8>, surface: &TerminalSurface) {
     push_usize(buffer, surface.rows);
     push_vec(buffer, &surface.cells, encode_cell);
     push_option(buffer, surface.cursor.as_ref(), encode_cursor);
+    push_option(buffer, surface.selected_text.as_ref(), |buffer, text| {
+        push_string(buffer, text)
+    });
 }
 
 /// Decodes a full terminal surface grid from the payload stream.
@@ -678,6 +681,7 @@ fn decode_surface(decoder: &mut Decoder<'_>) -> Result<TerminalSurface, String> 
         rows: decoder.read_usize()?,
         cells: decoder.read_vec(decode_cell)?,
         cursor: decoder.read_option(decode_cursor)?,
+        selected_text: decoder.read_option(|decoder| decoder.read_string())?,
     })
 }
 
@@ -688,6 +692,7 @@ fn encode_cell(buffer: &mut Vec<u8>, cell: &TerminalCell) {
     encode_color(buffer, cell.bg);
     encode_cell_style(buffer, &cell.style);
     push_u8(buffer, cell.width);
+    push_bool(buffer, cell.selected);
 }
 
 /// Decodes one terminal cell from the payload stream.
@@ -698,6 +703,7 @@ fn decode_cell(decoder: &mut Decoder<'_>) -> Result<TerminalCell, String> {
         bg: decode_color(decoder)?,
         style: decode_cell_style(decoder)?,
         width: decoder.read_u8()?,
+        selected: decoder.read_bool()?,
     })
 }
 
@@ -849,6 +855,17 @@ fn to_wire_command(command: &TerminalCommand) -> wire::TerminalCommand {
             wire::TerminalCommand::SendCommand(command.clone())
         }
         TerminalCommand::ScrollDisplay(lines) => wire::TerminalCommand::ScrollDisplay(*lines),
+        TerminalCommand::SetSelection { anchor, focus } => wire::TerminalCommand::SetSelection {
+            anchor: wire::TerminalViewportPoint {
+                col: anchor.col,
+                row: anchor.row,
+            },
+            focus: wire::TerminalViewportPoint {
+                col: focus.col,
+                row: focus.row,
+            },
+        },
+        TerminalCommand::ClearSelection => wire::TerminalCommand::ClearSelection,
     }
 }
 
@@ -858,6 +875,17 @@ fn from_wire_command(command: wire::TerminalCommand) -> TerminalCommand {
         wire::TerminalCommand::InputEvent(event) => TerminalCommand::InputEvent(event),
         wire::TerminalCommand::SendCommand(command) => TerminalCommand::SendCommand(command),
         wire::TerminalCommand::ScrollDisplay(lines) => TerminalCommand::ScrollDisplay(lines),
+        wire::TerminalCommand::SetSelection { anchor, focus } => TerminalCommand::SetSelection {
+            anchor: super::super::types::TerminalViewportPoint {
+                col: anchor.col,
+                row: anchor.row,
+            },
+            focus: super::super::types::TerminalViewportPoint {
+                col: focus.col,
+                row: focus.row,
+            },
+        },
+        wire::TerminalCommand::ClearSelection => TerminalCommand::ClearSelection,
     }
 }
 

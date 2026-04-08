@@ -1,6 +1,11 @@
 use super::*;
 use crate::terminals::types::{TerminalDimensions, TerminalUnderlineStyle};
-use alacritty_terminal::{event::VoidListener, term::Config};
+use alacritty_terminal::{
+    event::VoidListener,
+    index::{Column, Line, Point, Side},
+    selection::{Selection, SelectionType},
+    term::Config,
+};
 
 /// Builds a surface by feeding ANSI bytes through the normal Alacritty parser path.
 fn surface_from_ansi(bytes: &[u8], cols: usize, rows: usize) -> TerminalSurface {
@@ -81,4 +86,50 @@ fn surface_from_ansi_text_auto_size_preserves_multiline_rows() {
     assert_eq!(surface.cols, 8);
     assert_eq!(surface.cell(0, 0).content.to_owned_string(), "l");
     assert_eq!(surface.cell(5, 1).content.to_owned_string(), "t");
+}
+
+#[test]
+fn build_surface_keeps_backend_selection_aligned_when_terminal_scrolls() {
+    let dimensions = TerminalDimensions { cols: 4, rows: 2 };
+    let config = Config {
+        scrolling_history: 128,
+        ..Config::default()
+    };
+    let mut terminal =
+        alacritty_terminal::term::Term::<VoidListener>::new(config, &dimensions, VoidListener);
+    terminal.grid_mut()[Line(0)][Column(0)].c = 'A';
+    terminal.grid_mut()[Line(0)][Column(1)].c = 'B';
+    terminal.grid_mut()[Line(0)][Column(2)].c = 'C';
+    terminal.grid_mut()[Line(1)][Column(0)].c = 'D';
+    terminal.grid_mut()[Line(1)][Column(1)].c = 'E';
+    terminal.grid_mut()[Line(1)][Column(2)].c = 'F';
+
+    let mut selection = Selection::new(
+        SelectionType::Simple,
+        Point::new(Line(1), Column(0)),
+        Side::Left,
+    );
+    selection.update(Point::new(Line(1), Column(2)), Side::Right);
+    terminal.selection = Some(selection);
+
+    let before = build_surface(&terminal);
+    assert!(before.cell(0, 1).selected);
+    assert!(before.cell(1, 1).selected);
+    assert!(before.cell(2, 1).selected);
+    assert_eq!(before.selected_text.as_deref(), Some("DEF"));
+
+    terminal.selection = terminal
+        .selection
+        .take()
+        .and_then(|selection| selection.rotate(&dimensions, &(Line(0)..Line(2)), 1));
+    terminal.grid_mut().scroll_up(&(Line(0)..Line(2)), 1);
+    terminal.grid_mut()[Line(1)][Column(0)].c = 'G';
+    terminal.grid_mut()[Line(1)][Column(1)].c = 'H';
+    terminal.grid_mut()[Line(1)][Column(2)].c = 'I';
+
+    let after = build_surface(&terminal);
+    assert_eq!(after.selected_text.as_deref(), Some("DEF"));
+    assert!(!after.cell(0, 1).selected);
+    assert!(after.cell(1, 0).selected);
+    assert!(after.cell(2, 0).selected);
 }

@@ -200,6 +200,7 @@ fn set_colored_text(
                 bg: crate::app_config::DEFAULT_BG,
                 style: Default::default(),
                 width: 1,
+                selected: false,
             },
         );
     }

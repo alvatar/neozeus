@@ -14,7 +14,9 @@ use super::super::{
 };
 use alacritty_terminal::{
     event::VoidListener,
-    term::{Config as TermConfig, Term},
+    index::{Column, Point, Side},
+    selection::{Selection, SelectionType},
+    term::{viewport_to_point, Config as TermConfig, Term},
     vte::ansi,
 };
 use portable_pty::PtySize;
@@ -420,7 +422,12 @@ fn run_session_worker(
         while let Ok(command) = command_rx.try_recv() {
             match command {
                 DaemonSessionCommand::Terminal(command) => {
-                    let is_scroll = matches!(command, TerminalCommand::ScrollDisplay(_));
+                    let requires_surface_publish = matches!(
+                        command,
+                        TerminalCommand::ScrollDisplay(_)
+                            | TerminalCommand::SetSelection { .. }
+                            | TerminalCommand::ClearSelection
+                    );
                     if let Err(error) =
                         apply_terminal_command(master.as_ref(), &mut writer, &mut terminal, command)
                     {
@@ -433,7 +440,7 @@ fn run_session_worker(
                             },
                         );
                         running = false;
-                    } else if is_scroll {
+                    } else if requires_surface_publish {
                         let surface = build_surface(&terminal);
                         publish_frame_update(
                             &state,
@@ -655,6 +662,22 @@ fn apply_terminal_command(
         TerminalCommand::ScrollDisplay(lines) => {
             let _ = master;
             terminal.scroll_display(alacritty_terminal::grid::Scroll::Delta(lines));
+            Ok(())
+        }
+        TerminalCommand::SetSelection { anchor, focus } => {
+            let _ = master;
+            let display_offset = terminal.grid().display_offset();
+            let anchor =
+                viewport_to_point(display_offset, Point::new(anchor.row, Column(anchor.col)));
+            let focus = viewport_to_point(display_offset, Point::new(focus.row, Column(focus.col)));
+            let mut selection = Selection::new(SelectionType::Simple, anchor, Side::Left);
+            selection.update(focus, Side::Right);
+            terminal.selection = (!selection.is_empty()).then_some(selection);
+            Ok(())
+        }
+        TerminalCommand::ClearSelection => {
+            let _ = master;
+            terminal.selection = None;
             Ok(())
         }
     }

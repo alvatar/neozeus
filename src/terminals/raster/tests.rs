@@ -131,6 +131,7 @@ fn set_colored_text(
                 bg: DEFAULT_BG,
                 style: Default::default(),
                 width: 1,
+                selected: false,
             },
         );
     }
@@ -739,6 +740,7 @@ fn sync_terminal_texture_draws_underline_for_styled_blank_cell() {
                 ..Default::default()
             },
             width: 1,
+            selected: false,
         },
     );
 
@@ -776,6 +778,7 @@ fn sync_terminal_texture_draws_strikeout_for_styled_blank_cell() {
                 ..Default::default()
             },
             width: 1,
+            selected: false,
         },
     );
 
@@ -803,6 +806,7 @@ fn selected_foreground_color_handles_bright_selection_without_overflow() {
         bg: egui::Color32::from_rgb(255, 255, 255),
         style: TerminalCellStyle::default(),
         width: 1,
+        selected: false,
     };
 
     assert_eq!(selected_foreground_color(&cell, true), egui::Color32::BLACK);
@@ -822,6 +826,7 @@ fn sync_terminal_texture_dims_foreground_ink() {
             bg: DEFAULT_BG,
             style: TerminalCellStyle::default(),
             width: 1,
+            selected: false,
         },
     );
     surface.set_cell(
@@ -836,6 +841,7 @@ fn sync_terminal_texture_dims_foreground_ink() {
                 ..Default::default()
             },
             width: 1,
+            selected: false,
         },
     );
 

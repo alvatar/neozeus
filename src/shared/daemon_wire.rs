@@ -18,12 +18,23 @@ pub struct TerminalRuntimeState {
     pub last_error: Option<String>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TerminalViewportPoint {
+    pub col: usize,
+    pub row: usize,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TerminalCommand {
     InputText(String),
     InputEvent(String),
     SendCommand(String),
     ScrollDisplay(i32),
+    SetSelection {
+        anchor: TerminalViewportPoint,
+        focus: TerminalViewportPoint,
+    },
+    ClearSelection,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -373,6 +384,16 @@ pub fn encode_wire_terminal_command(buffer: &mut Vec<u8>, command: &TerminalComm
             push_u8(buffer, 3);
             push_i32(buffer, *delta);
         }
+        TerminalCommand::SetSelection { anchor, focus } => {
+            push_u8(buffer, 4);
+            push_usize(buffer, anchor.col);
+            push_usize(buffer, anchor.row);
+            push_usize(buffer, focus.col);
+            push_usize(buffer, focus.row);
+        }
+        TerminalCommand::ClearSelection => {
+            push_u8(buffer, 5);
+        }
     }
 }
 
@@ -382,6 +403,17 @@ pub fn decode_wire_terminal_command(decoder: &mut Decoder<'_>) -> Result<Termina
         1 => Ok(TerminalCommand::InputEvent(decoder.read_string()?)),
         2 => Ok(TerminalCommand::SendCommand(decoder.read_string()?)),
         3 => Ok(TerminalCommand::ScrollDisplay(decoder.read_i32()?)),
+        4 => Ok(TerminalCommand::SetSelection {
+            anchor: TerminalViewportPoint {
+                col: decoder.read_usize()?,
+                row: decoder.read_usize()?,
+            },
+            focus: TerminalViewportPoint {
+                col: decoder.read_usize()?,
+                row: decoder.read_usize()?,
+            },
+        }),
+        5 => Ok(TerminalCommand::ClearSelection),
         tag => Err(format!("unknown terminal command tag {tag}")),
     }
 }
@@ -480,6 +512,10 @@ pub(crate) fn push_option_u32(buffer: &mut Vec<u8>, value: Option<u32>) {
 
 pub(crate) fn push_u32(buffer: &mut Vec<u8>, value: u32) {
     buffer.extend_from_slice(&value.to_le_bytes());
+}
+
+pub(crate) fn push_usize(buffer: &mut Vec<u8>, value: usize) {
+    push_u64(buffer, value as u64);
 }
 
 pub(crate) fn push_string(buffer: &mut Vec<u8>, value: &str) {

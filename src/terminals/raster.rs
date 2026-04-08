@@ -328,7 +328,7 @@ pub(crate) fn sync_terminal_texture(
                 pixels,
                 upload_state.texture_size.x,
                 surface,
-                terminal_text_selection.selection_for(terminal_id),
+                terminal_text_selection.override_selection_for(terminal_id),
                 &dirty_rows,
                 upload_state.cell_size,
                 &mut text_renderer,
@@ -399,8 +399,8 @@ fn repaint_terminal_pixels(
             let cell = surface.cell(x, y);
             let origin_x = x as u32 * cell_size.x;
             let origin_y = y as u32 * cell_size.y;
-            let selected =
-                selection.is_some_and(|selection| terminal_cell_selected(selection, x, y));
+            let selected = cell.selected
+                || selection.is_some_and(|selection| terminal_cell_selected(selection, x, y));
             let effective_fg = selected_foreground_color(cell, selected);
             fill_rect_in_buffer(
                 buffer,

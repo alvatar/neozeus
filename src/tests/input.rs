@@ -32,7 +32,6 @@ use crate::{
         TerminalCommand, TerminalManager, TerminalNotesState, TerminalPanel, TerminalPresentation,
         TerminalUpdate,
     },
-    text_selection::sync_terminal_text_selection_to_surface,
 };
 use bevy::{
     app::AppExit,
@@ -1537,11 +1536,12 @@ fn clicking_shifted_visible_terminal_does_not_hide_it() {
         .is_none());
 }
 
-/// Verifies that dragging across terminal cells produces selectable terminal text.
+/// Verifies that dragging across a live terminal routes selection ownership into the terminal
+/// backend instead of mirroring a parallel app-side screen-cell selection.
 #[test]
-fn dragging_over_terminal_panel_selects_terminal_text() {
-    let (mut world, terminal_id) =
-        world_with_active_terminal(Vec2::new(545.0, 305.0), true, Vec2::ZERO);
+fn dragging_over_terminal_panel_sends_live_terminal_selection_command() {
+    let (mut world, terminal_id, input_rx) =
+        world_with_active_terminal_and_receiver(Vec2::new(545.0, 305.0), true, Vec2::ZERO);
     let mut surface = crate::terminals::TerminalSurface::new(4, 2);
     surface.set_text_cell(0, 0, "A");
     surface.set_text_cell(1, 0, "B");
@@ -1573,74 +1573,19 @@ fn dragging_over_terminal_panel_selects_terminal_text() {
         .run_system_once(handle_terminal_text_selection)
         .unwrap();
 
-    let selection = world
-        .resource::<crate::text_selection::TerminalTextSelectionState>()
-        .selection()
-        .cloned()
-        .expect("terminal selection should exist");
-    assert_eq!(selection.terminal_id, terminal_id);
-    assert_eq!(selection.text, "ABC");
-}
-
-#[test]
-fn terminal_selection_reconciles_when_surface_rows_shift() {
-    let (mut world, terminal_id) =
-        world_with_active_terminal(Vec2::new(545.0, 305.0), true, Vec2::ZERO);
-    let mut surface = crate::terminals::TerminalSurface::new(4, 2);
-    surface.set_text_cell(0, 0, "A");
-    surface.set_text_cell(1, 0, "B");
-    surface.set_text_cell(2, 0, "C");
-    world
-        .resource_mut::<TerminalManager>()
-        .get_mut(terminal_id)
-        .expect("terminal should exist")
-        .snapshot
-        .surface = Some(surface);
-
-    world.init_resource::<Messages<RequestRedraw>>();
-    world
-        .resource_mut::<ButtonInput<MouseButton>>()
-        .press(MouseButton::Left);
-    world
-        .run_system_once(handle_terminal_text_selection)
-        .unwrap();
-    world
-        .resource_mut::<ButtonInput<MouseButton>>()
-        .clear_just_pressed(MouseButton::Left);
-    world
-        .query_filtered::<&mut Window, With<PrimaryWindow>>()
-        .single_mut(&mut world)
-        .expect("window should exist")
-        .set_cursor_position(Some(Vec2::new(645.0, 305.0)));
-    world
-        .run_system_once(handle_terminal_text_selection)
-        .unwrap();
-
-    let mut shifted = crate::terminals::TerminalSurface::new(4, 2);
-    shifted.set_text_cell(0, 1, "A");
-    shifted.set_text_cell(1, 1, "B");
-    shifted.set_text_cell(2, 1, "C");
-    {
-        let mut terminal_manager = world.resource_mut::<TerminalManager>();
-        let terminal = terminal_manager
-            .get_mut(terminal_id)
-            .expect("terminal should exist");
-        terminal.snapshot.surface = Some(shifted);
-        terminal.surface_revision += 1;
-    }
-
-    world
-        .run_system_once(sync_terminal_text_selection_to_surface)
-        .unwrap();
-
-    let selection = world
-        .resource::<crate::text_selection::TerminalTextSelectionState>()
-        .selection()
-        .cloned()
-        .expect("terminal selection should still exist");
-    assert_eq!(selection.anchor.row, 1);
-    assert_eq!(selection.focus.row, 1);
-    assert_eq!(selection.text, "ABC");
+    assert_eq!(
+        input_rx.try_recv().unwrap(),
+        TerminalCommand::SetSelection {
+            anchor: crate::terminals::TerminalViewportPoint { col: 0, row: 0 },
+            focus: crate::terminals::TerminalViewportPoint { col: 2, row: 0 },
+        }
+    );
+    assert_eq!(
+        world
+            .resource::<crate::text_selection::TerminalTextSelectionState>()
+            .owner(),
+        Some(crate::text_selection::TerminalTextSelectionOwner::LiveTerminal(terminal_id))
+    );
 }
 
 /// Verifies that panel clicks choose the highest-`z` visible terminal panel and emit focus+isolate

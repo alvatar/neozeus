@@ -23,6 +23,9 @@ pub(crate) fn build_surface(term: &Term<VoidListener>) -> TerminalSurface {
     let rows = term.screen_lines();
     let mut surface = TerminalSurface::new(cols, rows);
 
+    let selection = renderable.selection;
+    let cursor_shape = renderable.cursor.shape;
+    let cursor_point = renderable.cursor.point;
     for indexed in renderable.display_iter {
         let x = indexed.point.column.0;
         let y_i32 = indexed.point.line.0;
@@ -74,10 +77,14 @@ pub(crate) fn build_surface(term: &Term<VoidListener>) -> TerminalSurface {
                     renderable.colors,
                 ),
                 width,
+                selected: selection.is_some_and(|selection| {
+                    selection.contains_cell(&indexed, cursor_point, cursor_shape)
+                }),
             },
         );
     }
 
+    surface.selected_text = term.selection_to_string();
     surface.cursor = Some(TerminalCursor {
         x: renderable.cursor.point.column.0.min(cols.saturating_sub(1)),
         y: renderable.cursor.point.line.0.max(0) as usize,

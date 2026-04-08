@@ -93,6 +93,7 @@ pub(crate) struct TerminalCell {
     pub(crate) bg: egui::Color32,
     pub(crate) style: TerminalCellStyle,
     pub(crate) width: u8,
+    pub(crate) selected: bool,
 }
 
 impl Default for TerminalCell {
@@ -104,6 +105,7 @@ impl Default for TerminalCell {
             bg: crate::app_config::DEFAULT_BG,
             style: TerminalCellStyle::default(),
             width: 1,
+            selected: false,
         }
     }
 }
@@ -130,6 +132,7 @@ pub(crate) struct TerminalSurface {
     pub(crate) rows: usize,
     pub(crate) cells: Vec<TerminalCell>,
     pub(crate) cursor: Option<TerminalCursor>,
+    pub(crate) selected_text: Option<String>,
 }
 
 impl TerminalSurface {
@@ -140,6 +143,7 @@ impl TerminalSurface {
             rows,
             cells: vec![TerminalCell::default(); cols.saturating_mul(rows)],
             cursor: None,
+            selected_text: None,
         }
     }
 
@@ -282,12 +286,23 @@ pub(crate) type DrainedTerminalUpdates = (
     u64,
 );
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct TerminalViewportPoint {
+    pub(crate) col: usize,
+    pub(crate) row: usize,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum TerminalCommand {
     InputText(String),
     InputEvent(String),
     SendCommand(String),
     ScrollDisplay(i32),
+    SetSelection {
+        anchor: TerminalViewportPoint,
+        focus: TerminalViewportPoint,
+    },
+    ClearSelection,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

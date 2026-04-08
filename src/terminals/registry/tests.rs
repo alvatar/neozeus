@@ -39,6 +39,7 @@ fn surface_with_text(rows: usize, cols: usize, y: usize, text: &str) -> Terminal
                 bg: crate::app_config::DEFAULT_BG,
                 style: Default::default(),
                 width: 1,
+                selected: false,
             },
         );
     }

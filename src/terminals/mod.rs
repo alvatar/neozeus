@@ -74,6 +74,7 @@ pub(crate) use types::TerminalLifecycle;
 pub(crate) use types::TerminalSnapshot;
 pub(crate) use types::{
     TerminalCell, TerminalCellContent, TerminalCommand, TerminalRuntimeState, TerminalSurface,
+    TerminalViewportPoint,
 };
 
 #[cfg(test)]
