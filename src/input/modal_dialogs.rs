@@ -67,6 +67,41 @@ impl ModalKeyResult {
     }
 }
 
+enum DialogShellAction {
+    Escape,
+    Tab { reverse: bool },
+    None,
+}
+
+fn dialog_shell_action(event: &KeyboardInput, modifiers: KeyModifiers) -> DialogShellAction {
+    if event.key_code == KeyCode::Escape {
+        return DialogShellAction::Escape;
+    }
+
+    if modifiers.plain() && event.key_code == KeyCode::Tab {
+        return DialogShellAction::Tab {
+            reverse: modifiers.shift,
+        };
+    }
+
+    DialogShellAction::None
+}
+
+fn finish_dialog_change(
+    changed: bool,
+    clear_error: bool,
+    error: &mut Option<String>,
+) -> ModalKeyResult {
+    if changed {
+        if clear_error {
+            *error = None;
+        }
+        ModalKeyResult::redraw()
+    } else {
+        ModalKeyResult::default()
+    }
+}
+
 /// Handles one key press while the create-agent dialog owns keyboard capture.
 pub(super) fn handle_create_agent_dialog_key(
     app_session: &mut AppSessionState,
@@ -74,14 +109,16 @@ pub(super) fn handle_create_agent_dialog_key(
     modifiers: KeyModifiers,
     emitted_commands: &mut Vec<AppCommand>,
 ) -> ModalKeyResult {
-    if event.key_code == KeyCode::Escape {
-        app_session.create_agent_dialog.close();
-        return ModalKeyResult::redraw_and_stop();
-    }
-
-    if modifiers.plain() && event.key_code == KeyCode::Tab {
-        app_session.create_agent_dialog.cycle_focus(modifiers.shift);
-        return ModalKeyResult::redraw();
+    match dialog_shell_action(event, modifiers) {
+        DialogShellAction::Escape => {
+            app_session.create_agent_dialog.close();
+            return ModalKeyResult::redraw_and_stop();
+        }
+        DialogShellAction::Tab { reverse } => {
+            app_session.create_agent_dialog.cycle_focus(reverse);
+            return ModalKeyResult::redraw();
+        }
+        DialogShellAction::None => {}
     }
 
     let (changed, clear_error) = match app_session.create_agent_dialog.focus {
@@ -140,14 +177,11 @@ pub(super) fn handle_create_agent_dialog_key(
         }
     };
 
-    if changed {
-        if clear_error {
-            app_session.create_agent_dialog.error = None;
-        }
-        ModalKeyResult::redraw()
-    } else {
-        ModalKeyResult::default()
-    }
+    finish_dialog_change(
+        changed,
+        clear_error,
+        &mut app_session.create_agent_dialog.error,
+    )
 }
 
 /// Handles one key press while the clone-agent dialog owns keyboard capture.
@@ -157,14 +191,16 @@ pub(super) fn handle_clone_agent_dialog_key(
     modifiers: KeyModifiers,
     emitted_commands: &mut Vec<AppCommand>,
 ) -> ModalKeyResult {
-    if event.key_code == KeyCode::Escape {
-        app_session.clone_agent_dialog.close();
-        return ModalKeyResult::redraw_and_stop();
-    }
-
-    if modifiers.plain() && event.key_code == KeyCode::Tab {
-        app_session.clone_agent_dialog.cycle_focus(modifiers.shift);
-        return ModalKeyResult::redraw();
+    match dialog_shell_action(event, modifiers) {
+        DialogShellAction::Escape => {
+            app_session.clone_agent_dialog.close();
+            return ModalKeyResult::redraw_and_stop();
+        }
+        DialogShellAction::Tab { reverse } => {
+            app_session.clone_agent_dialog.cycle_focus(reverse);
+            return ModalKeyResult::redraw();
+        }
+        DialogShellAction::None => {}
     }
 
     let (changed, clear_error) = match app_session.clone_agent_dialog.focus {
@@ -196,14 +232,11 @@ pub(super) fn handle_clone_agent_dialog_key(
         }
     };
 
-    if changed {
-        if clear_error {
-            app_session.clone_agent_dialog.error = None;
-        }
-        ModalKeyResult::redraw()
-    } else {
-        ModalKeyResult::default()
-    }
+    finish_dialog_change(
+        changed,
+        clear_error,
+        &mut app_session.clone_agent_dialog.error,
+    )
 }
 
 /// Handles one key press while the rename-agent dialog owns keyboard capture.
@@ -213,14 +246,16 @@ pub(super) fn handle_rename_agent_dialog_key(
     modifiers: KeyModifiers,
     emitted_commands: &mut Vec<AppCommand>,
 ) -> ModalKeyResult {
-    if event.key_code == KeyCode::Escape {
-        app_session.rename_agent_dialog.close();
-        return ModalKeyResult::redraw_and_stop();
-    }
-
-    if modifiers.plain() && event.key_code == KeyCode::Tab {
-        app_session.rename_agent_dialog.cycle_focus(modifiers.shift);
-        return ModalKeyResult::redraw();
+    match dialog_shell_action(event, modifiers) {
+        DialogShellAction::Escape => {
+            app_session.rename_agent_dialog.close();
+            return ModalKeyResult::redraw_and_stop();
+        }
+        DialogShellAction::Tab { reverse } => {
+            app_session.rename_agent_dialog.cycle_focus(reverse);
+            return ModalKeyResult::redraw();
+        }
+        DialogShellAction::None => {}
     }
 
     let (changed, clear_error) = match app_session.rename_agent_dialog.focus {
@@ -244,14 +279,11 @@ pub(super) fn handle_rename_agent_dialog_key(
         }
     };
 
-    if changed {
-        if clear_error {
-            app_session.rename_agent_dialog.error = None;
-        }
-        ModalKeyResult::redraw()
-    } else {
-        ModalKeyResult::default()
-    }
+    finish_dialog_change(
+        changed,
+        clear_error,
+        &mut app_session.rename_agent_dialog.error,
+    )
 }
 
 /// Message-box-local compatibility state for clipboard-backed text ingress.
@@ -425,16 +457,16 @@ pub(super) fn handle_message_dialog_key(
         return ModalKeyResult::stop();
     }
 
-    if event.key_code == KeyCode::Escape {
-        emitted_commands.push(AppCommand::Composer(ComposerCommand::Cancel));
-        return ModalKeyResult::stop();
-    }
-
-    if modifiers.plain() && event.key_code == KeyCode::Tab {
-        app_session
-            .composer
-            .cycle_message_dialog_focus(modifiers.shift);
-        return ModalKeyResult::redraw();
+    match dialog_shell_action(event, modifiers) {
+        DialogShellAction::Escape => {
+            emitted_commands.push(AppCommand::Composer(ComposerCommand::Cancel));
+            return ModalKeyResult::stop();
+        }
+        DialogShellAction::Tab { reverse } => {
+            app_session.composer.cycle_message_dialog_focus(reverse);
+            return ModalKeyResult::redraw();
+        }
+        DialogShellAction::None => {}
     }
 
     match app_session.composer.message_dialog_focus {
@@ -490,16 +522,16 @@ pub(super) fn handle_task_dialog_key(
         return ModalKeyResult::default();
     }
 
-    if event.key_code == KeyCode::Escape {
-        emitted_commands.push(AppCommand::Composer(ComposerCommand::Submit));
-        return ModalKeyResult::stop();
-    }
-
-    if modifiers.plain() && event.key_code == KeyCode::Tab {
-        app_session
-            .composer
-            .cycle_task_dialog_focus(modifiers.shift);
-        return ModalKeyResult::redraw();
+    match dialog_shell_action(event, modifiers) {
+        DialogShellAction::Escape => {
+            emitted_commands.push(AppCommand::Composer(ComposerCommand::Submit));
+            return ModalKeyResult::stop();
+        }
+        DialogShellAction::Tab { reverse } => {
+            app_session.composer.cycle_task_dialog_focus(reverse);
+            return ModalKeyResult::redraw();
+        }
+        DialogShellAction::None => {}
     }
 
     match app_session.composer.task_dialog_focus {
