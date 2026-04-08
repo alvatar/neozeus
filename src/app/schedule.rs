@@ -50,28 +50,22 @@ pub(crate) enum NeoZeusSet {
     Redraw,
 }
 
-/// Declares the application's update pipeline and wires every system into its stage.
-///
-/// The ordering here is architectural, not cosmetic: terminal polling must happen before raster,
-/// raster before presentation, app commands before use-case execution, and redraw decisions only
-/// after both terminal and HUD rendering work has had a chance to update state. The startup chain is
-/// also assembled here so scene setup, HUD setup, and bloom setup happen in a deterministic order.
-pub(crate) fn configure_app_schedule(app: &mut App) {
-    // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
+fn configure_update_set_ordering(app: &mut App) {
     app.configure_sets(
+        Update,
+        NeoZeusSet::UiInput
+            .before(NeoZeusSet::PollTerminal)
+            .before(NeoZeusSet::RasterTerminal)
+            .before(NeoZeusSet::PresentTerminal)
+            .before(NeoZeusSet::AppCommandDispatch),
+    )
+    .configure_sets(
         Update,
         NeoZeusSet::PollTerminal.before(NeoZeusSet::RasterTerminal),
     )
     .configure_sets(
         Update,
         NeoZeusSet::RasterTerminal.before(NeoZeusSet::PresentTerminal),
-    )
-    .configure_sets(
-        Update,
-        NeoZeusSet::UiInput
-            .before(NeoZeusSet::RasterTerminal)
-            .before(NeoZeusSet::PresentTerminal)
-            .before(NeoZeusSet::AppCommandDispatch),
     )
     .configure_sets(
         Update,
@@ -111,8 +105,21 @@ pub(crate) fn configure_app_schedule(app: &mut App) {
         Update,
         NeoZeusSet::HudAnimation.before(NeoZeusSet::HudRender),
     )
-    .configure_sets(Update, NeoZeusSet::HudRender.before(NeoZeusSet::Redraw))
-    .add_systems(
+    .configure_sets(Update, NeoZeusSet::HudRender.before(NeoZeusSet::Redraw));
+}
+
+/// Declares the application's update pipeline and wires every system into its stage.
+///
+/// The ordering here is architectural, not cosmetic: user input must land before terminal polling so
+/// the same update can observe freshly echoed terminal state, terminal polling must happen before
+/// raster, raster before presentation, app commands before use-case execution, and redraw decisions
+/// only after both terminal and HUD rendering work has had a chance to update state. The startup
+/// chain is also assembled here so scene setup, HUD setup, and bloom setup happen in a deterministic
+/// order.
+pub(crate) fn configure_app_schedule(app: &mut App) {
+    // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
+    configure_update_set_ordering(app);
+    app.add_systems(
         Startup,
         (setup_scene, setup_hud, setup_hud_widget_bloom).chain(),
     )
@@ -244,4 +251,46 @@ pub(crate) fn configure_app_schedule(app: &mut App) {
         Update,
         (request_redraw_while_visuals_active, finalize_window_capture).in_set(NeoZeusSet::Redraw),
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{configure_update_set_ordering, NeoZeusSet};
+    use bevy::prelude::*;
+
+    #[derive(Resource, Default)]
+    struct ExecutionLog(Vec<&'static str>);
+
+    fn record_ui_input(mut log: ResMut<ExecutionLog>) {
+        log.0.push("ui-input");
+    }
+
+    fn record_poll_terminal(mut log: ResMut<ExecutionLog>) {
+        log.0.push("poll-terminal");
+    }
+
+    fn record_raster(mut log: ResMut<ExecutionLog>) {
+        log.0.push("raster-terminal");
+    }
+
+    #[test]
+    fn ui_input_runs_before_terminal_poll_and_raster() {
+        let mut app = App::new();
+        app.insert_resource(ExecutionLog::default());
+        configure_update_set_ordering(&mut app);
+        app.add_systems(Update, record_ui_input.in_set(NeoZeusSet::UiInput));
+        app.add_systems(
+            Update,
+            record_poll_terminal.in_set(NeoZeusSet::PollTerminal),
+        );
+        app.add_systems(Update, record_raster.in_set(NeoZeusSet::RasterTerminal));
+
+        app.update();
+
+        assert_eq!(
+            app.world().resource::<ExecutionLog>().0,
+            vec!["ui-input", "poll-terminal", "raster-terminal"],
+            "ui input must run before terminal polling so echoed input can be consumed in the same update"
+        );
+    }
 }

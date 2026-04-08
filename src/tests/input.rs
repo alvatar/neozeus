@@ -29,6 +29,7 @@ use crate::{
     },
     terminals::{
         TerminalCommand, TerminalManager, TerminalNotesState, TerminalPanel, TerminalPresentation,
+        TerminalUpdate,
     },
 };
 use bevy::{
@@ -242,7 +243,7 @@ fn unique_temp_dir(prefix: &str) -> std::path::PathBuf {
 
 /// Builds a test world containing one focused terminal panel plus the receiver for commands sent to
 /// its bridge.
-fn world_with_active_terminal_and_receiver(
+fn world_with_active_terminal_and_receiver_and_mailbox(
     cursor: Vec2,
     panel_visible: bool,
     panel_position: Vec2,
@@ -250,9 +251,10 @@ fn world_with_active_terminal_and_receiver(
     World,
     crate::terminals::TerminalId,
     std::sync::mpsc::Receiver<TerminalCommand>,
+    std::sync::Arc<crate::terminals::TerminalUpdateMailbox>,
 ) {
     // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
-    let (bridge, input_rx, _) = capturing_bridge();
+    let (bridge, input_rx, mailbox) = capturing_bridge();
     let mut manager = TerminalManager::default();
     let terminal_id = manager.create_terminal(bridge);
     let session_name = manager
@@ -312,6 +314,20 @@ fn world_with_active_terminal_and_receiver(
         },
     ));
 
+    (world, terminal_id, input_rx, mailbox)
+}
+
+fn world_with_active_terminal_and_receiver(
+    cursor: Vec2,
+    panel_visible: bool,
+    panel_position: Vec2,
+) -> (
+    World,
+    crate::terminals::TerminalId,
+    std::sync::mpsc::Receiver<TerminalCommand>,
+) {
+    let (world, terminal_id, input_rx, _mailbox) =
+        world_with_active_terminal_and_receiver_and_mailbox(cursor, panel_visible, panel_position);
     (world, terminal_id, input_rx)
 }
 
@@ -2072,6 +2088,53 @@ fn direct_input_mode_sends_keys_to_terminal_without_opening_message_box() {
         TerminalCommand::InputEvent("\r".into())
     );
     assert!(!snapshot_test_hud_state(&world).message_box.visible);
+}
+
+#[test]
+fn direct_input_echo_can_be_polled_before_raster_in_same_cycle() {
+    let (mut world, terminal_id, input_rx, mailbox) =
+        world_with_active_terminal_and_receiver_and_mailbox(
+            Vec2::new(10.0, 10.0),
+            false,
+            Vec2::ZERO,
+        );
+    let mut hud_state = crate::hud::HudState::default();
+    hud_state.open_direct_terminal_input(terminal_id);
+    insert_test_hud_state(&mut world, hud_state);
+    world.init_resource::<Messages<RequestRedraw>>();
+
+    world.insert_resource(Messages::<KeyboardInput>::default());
+    world
+        .resource_mut::<Messages<KeyboardInput>>()
+        .write(pressed_text(KeyCode::KeyA, Some("a")));
+    world
+        .run_system_once(handle_terminal_direct_input_keyboard)
+        .unwrap();
+
+    assert_eq!(
+        input_rx.try_recv().unwrap(),
+        TerminalCommand::InputText("a".into())
+    );
+
+    assert!(mailbox.push(TerminalUpdate::Status {
+        runtime: crate::terminals::TerminalRuntimeState::running("echoed"),
+        surface: Some(crate::tests::surface_with_text(4, 1, 0, "a")),
+    }));
+
+    world
+        .run_system_once(crate::terminals::poll_terminal_snapshots)
+        .unwrap();
+
+    let terminal_manager = world.resource::<TerminalManager>();
+    let terminal = terminal_manager
+        .get(terminal_id)
+        .expect("terminal should exist");
+    assert_eq!(terminal.surface_revision, 1);
+    assert_eq!(
+        terminal.pending_damage,
+        Some(crate::terminals::TerminalDamage::Full)
+    );
+    assert!(terminal.snapshot.surface.is_some());
 }
 
 #[test]
