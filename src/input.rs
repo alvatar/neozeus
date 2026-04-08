@@ -837,6 +837,26 @@ pub(crate) fn handle_terminal_text_selection(
     }
 }
 
+pub(crate) fn reconcile_terminal_text_selection_on_surface_change(
+    terminal_manager: Res<TerminalManager>,
+    mut terminal_text_selection: ResMut<TerminalTextSelectionState>,
+) {
+    if !terminal_manager.is_changed() {
+        return;
+    }
+    let Some(selection) = terminal_text_selection.selection().cloned() else {
+        return;
+    };
+    let Some(surface) = terminal_manager
+        .get(selection.terminal_id)
+        .and_then(|terminal| terminal.snapshot.surface.as_ref())
+    else {
+        terminal_text_selection.clear_selection();
+        return;
+    };
+    let _ = terminal_text_selection.reconcile_surface(surface);
+}
+
 pub(crate) fn sync_primary_selection_from_ui_text_selection(
     terminal_text_selection: Res<TerminalTextSelectionState>,
     agent_list_text_selection: Res<crate::text_selection::AgentListTextSelectionState>,
@@ -943,6 +963,53 @@ pub(crate) fn drag_terminal_view(
         if let Some(bridge) = focus_state.active_bridge(&terminal_manager) {
             bridge.send(TerminalCommand::ScrollDisplay(lines));
         }
+    }
+}
+
+/// Routes ordinary mouse-wheel input into terminal scrollback for either the focused terminal or the
+/// direct-input target terminal.
+///
+/// `Shift + wheel` is reserved for zoom and is ignored here. HUD-owned regions are also ignored so
+/// module scrolling keeps priority when the cursor is over HUD content.
+pub(crate) fn scroll_terminal_with_mouse_wheel(
+    keys: Res<ButtonInput<KeyCode>>,
+    primary_window: Single<&Window, With<PrimaryWindow>>,
+    layout_state: Res<HudLayoutState>,
+    terminal_manager: Res<TerminalManager>,
+    focus_state: Res<TerminalFocusState>,
+    input_capture: Res<HudInputCaptureState>,
+    mut mouse_wheel: MessageReader<MouseWheel>,
+) {
+    let shift = keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight);
+    if !primary_window.focused || shift {
+        return;
+    }
+    let Some(cursor) = primary_window.cursor_position() else {
+        return;
+    };
+    if layout_state.topmost_enabled_at(cursor).is_some() {
+        return;
+    }
+
+    let lines = mouse_wheel.read().fold(0.0, |acc, event| {
+        acc + match event.unit {
+            MouseScrollUnit::Line => event.y,
+            MouseScrollUnit::Pixel => event.y / 24.0,
+        }
+    });
+    let lines = lines.trunc() as i32;
+    if lines == 0 {
+        return;
+    }
+
+    let target_terminal = input_capture
+        .direct_input_terminal
+        .or_else(|| focus_state.active_id());
+    if let Some(bridge) = target_terminal
+        .and_then(|terminal_id| terminal_manager.get(terminal_id))
+        .map(|terminal| &terminal.bridge)
+    {
+        bridge.send(TerminalCommand::ScrollDisplay(lines));
     }
 }
 

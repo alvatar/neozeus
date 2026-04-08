@@ -24,8 +24,10 @@ use crate::{
         hide_terminal_on_background_click, keyboard_input_to_terminal_command,
         paste_into_clone_agent_dialog, paste_into_create_agent_dialog,
         paste_into_direct_input_terminal, paste_into_message_dialog,
-        paste_into_rename_agent_dialog, paste_into_task_dialog, should_exit_application,
-        should_kill_active_terminal, should_spawn_terminal_globally,
+        paste_into_rename_agent_dialog, paste_into_task_dialog,
+        reconcile_terminal_text_selection_on_surface_change, scroll_terminal_with_mouse_wheel,
+        should_exit_application, should_kill_active_terminal, should_spawn_terminal_globally,
+        zoom_terminal_view,
     },
     terminals::{
         TerminalCommand, TerminalManager, TerminalNotesState, TerminalPanel, TerminalPresentation,
@@ -38,6 +40,7 @@ use bevy::{
     ecs::system::RunSystemOnce,
     input::{
         keyboard::{Key, KeyboardInput},
+        mouse::{MouseScrollUnit, MouseWheel},
         ButtonInput, ButtonState,
     },
     prelude::{
@@ -52,6 +55,15 @@ const DIRECT_INPUT_TYPING_BURST_KEYS: usize = 512;
 const MESSAGE_BOX_TYPING_BURST_KEYS: usize = 512;
 const DIRECT_INPUT_TYPING_OVERHEAD_RATIO_MAX: f64 = 4.0;
 const MESSAGE_BOX_TYPING_OVERHEAD_RATIO_MAX: f64 = 4.0;
+
+fn wheel_lines(y: f32) -> MouseWheel {
+    MouseWheel {
+        x: 0.0,
+        y,
+        unit: MouseScrollUnit::Line,
+        window: Entity::PLACEHOLDER,
+    }
+}
 
 /// Builds a pressed `KeyboardInput` event without text payload for shortcut-oriented tests.
 fn pressed_key(key_code: KeyCode, logical_key: Key) -> KeyboardInput {
@@ -235,6 +247,16 @@ fn dispatch_terminal_ui_key(world: &mut World, event: KeyboardInput) {
     if !world.resource::<Messages<AppCommand>>().is_empty() {
         run_app_command_cycle(world);
     }
+}
+
+fn dispatch_terminal_wheel(world: &mut World, event: MouseWheel) {
+    ensure_app_command_world_resources(world);
+    world.insert_resource(Messages::<MouseWheel>::default());
+    world.resource_mut::<Messages<MouseWheel>>().write(event);
+    world
+        .run_system_once(scroll_terminal_with_mouse_wheel)
+        .unwrap();
+    world.run_system_once(zoom_terminal_view).unwrap();
 }
 
 /// Builds a unique temporary directory path for one filesystem-backed input test.
@@ -1548,6 +1570,67 @@ fn dragging_over_terminal_panel_selects_terminal_text() {
     assert_eq!(selection.text, "ABC");
 }
 
+#[test]
+fn terminal_selection_reconciles_when_surface_rows_shift() {
+    let (mut world, terminal_id) =
+        world_with_active_terminal(Vec2::new(545.0, 305.0), true, Vec2::ZERO);
+    let mut surface = crate::terminals::TerminalSurface::new(4, 2);
+    surface.set_text_cell(0, 0, "A");
+    surface.set_text_cell(1, 0, "B");
+    surface.set_text_cell(2, 0, "C");
+    world
+        .resource_mut::<TerminalManager>()
+        .get_mut(terminal_id)
+        .expect("terminal should exist")
+        .snapshot
+        .surface = Some(surface);
+
+    world.init_resource::<Messages<RequestRedraw>>();
+    world
+        .resource_mut::<ButtonInput<MouseButton>>()
+        .press(MouseButton::Left);
+    world
+        .run_system_once(handle_terminal_text_selection)
+        .unwrap();
+    world
+        .resource_mut::<ButtonInput<MouseButton>>()
+        .clear_just_pressed(MouseButton::Left);
+    world
+        .query_filtered::<&mut Window, With<PrimaryWindow>>()
+        .single_mut(&mut world)
+        .expect("window should exist")
+        .set_cursor_position(Some(Vec2::new(645.0, 305.0)));
+    world
+        .run_system_once(handle_terminal_text_selection)
+        .unwrap();
+
+    let mut shifted = crate::terminals::TerminalSurface::new(4, 2);
+    shifted.set_text_cell(0, 1, "A");
+    shifted.set_text_cell(1, 1, "B");
+    shifted.set_text_cell(2, 1, "C");
+    {
+        let mut terminal_manager = world.resource_mut::<TerminalManager>();
+        let terminal = terminal_manager
+            .get_mut(terminal_id)
+            .expect("terminal should exist");
+        terminal.snapshot.surface = Some(shifted);
+        terminal.surface_revision += 1;
+    }
+
+    world
+        .run_system_once(reconcile_terminal_text_selection_on_surface_change)
+        .unwrap();
+
+    let selection = world
+        .resource::<crate::text_selection::TerminalTextSelectionState>()
+        .selection()
+        .cloned()
+        .expect("terminal selection should still exist");
+    assert_eq!(selection.anchor.row, 1);
+    assert_eq!(selection.focus.row, 1);
+    assert_eq!(selection.text, "ABC");
+}
+
 /// Verifies that panel clicks choose the highest-`z` visible terminal panel and emit focus+isolate
 /// intents for it.
 #[test]
@@ -2227,6 +2310,40 @@ fn message_box_typing_burst_stays_close_to_noop_baseline() {
         hot_elapsed.as_micros(),
         overhead_ratio,
         MESSAGE_BOX_TYPING_OVERHEAD_RATIO_MAX
+    );
+}
+
+#[test]
+fn wheel_scroll_sends_scrollback_to_focused_terminal_in_visual_mode() {
+    let (mut world, _terminal_id, input_rx) =
+        world_with_active_terminal_and_receiver(Vec2::new(10.0, 10.0), false, Vec2::ZERO);
+
+    dispatch_terminal_wheel(&mut world, wheel_lines(2.0));
+    dispatch_terminal_wheel(&mut world, wheel_lines(-3.0));
+
+    assert_eq!(
+        input_rx.try_recv().unwrap(),
+        TerminalCommand::ScrollDisplay(2)
+    );
+    assert_eq!(
+        input_rx.try_recv().unwrap(),
+        TerminalCommand::ScrollDisplay(-3)
+    );
+}
+
+#[test]
+fn wheel_scroll_sends_scrollback_to_direct_input_terminal() {
+    let (mut world, terminal_id, input_rx) =
+        world_with_active_terminal_and_receiver(Vec2::new(10.0, 10.0), false, Vec2::ZERO);
+    let mut hud_state = crate::hud::HudState::default();
+    hud_state.open_direct_terminal_input(terminal_id);
+    insert_test_hud_state(&mut world, hud_state);
+
+    dispatch_terminal_wheel(&mut world, wheel_lines(1.0));
+
+    assert_eq!(
+        input_rx.try_recv().unwrap(),
+        TerminalCommand::ScrollDisplay(1)
     );
 }
 
