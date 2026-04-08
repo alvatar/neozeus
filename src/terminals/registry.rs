@@ -3,7 +3,10 @@ use super::{
     debug::append_debug_log,
     types::{TerminalDamage, TerminalSnapshot},
 };
-use bevy::prelude::{ResMut, Resource};
+use bevy::{
+    prelude::{MessageWriter, ResMut, Resource},
+    window::RequestRedraw,
+};
 use std::collections::HashMap;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -242,8 +245,12 @@ impl TerminalManager {
 /// terminal registry state.
 ///
 /// Dropped intermediate frames upgrade damage to `Full` so renderers do not miss changes.
-pub(crate) fn poll_terminal_snapshots(mut terminal_manager: ResMut<TerminalManager>) {
+pub(crate) fn poll_terminal_snapshots(
+    mut terminal_manager: ResMut<TerminalManager>,
+    mut redraws: MessageWriter<RequestRedraw>,
+) {
     // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
+    let mut applied_any_update = false;
     for (_, terminal) in terminal_manager.iter_mut() {
         let (latest_frame, latest_status, dropped_frames) = terminal.bridge.drain_updates();
         terminal.bridge.note_dropped_updates(dropped_frames);
@@ -258,6 +265,7 @@ pub(crate) fn poll_terminal_snapshots(mut terminal_manager: ResMut<TerminalManag
                 frame.damage
             });
             terminal.bridge.note_snapshot_applied();
+            applied_any_update = true;
         }
 
         if let Some((runtime, surface)) = latest_status {
@@ -268,7 +276,11 @@ pub(crate) fn poll_terminal_snapshots(mut terminal_manager: ResMut<TerminalManag
                 terminal.pending_damage = Some(TerminalDamage::Full);
             }
             terminal.bridge.note_snapshot_applied();
+            applied_any_update = true;
         }
+    }
+    if applied_any_update {
+        redraws.write(RequestRedraw);
     }
 }
 

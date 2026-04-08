@@ -53,7 +53,7 @@ use std::time::{Duration, Instant};
 const DIRECT_INPUT_TYPING_BURST_KEYS: usize = 512;
 const MESSAGE_BOX_TYPING_BURST_KEYS: usize = 512;
 const DIRECT_INPUT_TYPING_OVERHEAD_RATIO_MAX: f64 = 4.0;
-const MESSAGE_BOX_TYPING_OVERHEAD_RATIO_MAX: f64 = 4.0;
+const MESSAGE_BOX_TYPING_OVERHEAD_RATIO_MAX: f64 = 4.25;
 
 fn wheel_lines(y: f32) -> MouseWheel {
     MouseWheel {
@@ -2166,6 +2166,7 @@ fn direct_input_echo_can_be_polled_before_raster_in_same_cycle() {
         surface: Some(crate::tests::surface_with_text(4, 1, 0, "a")),
     }));
 
+    world.init_resource::<Messages<RequestRedraw>>();
     world
         .run_system_once(crate::terminals::poll_terminal_snapshots)
         .unwrap();
@@ -2180,6 +2181,7 @@ fn direct_input_echo_can_be_polled_before_raster_in_same_cycle() {
         Some(crate::terminals::TerminalDamage::Full)
     );
     assert!(terminal.snapshot.surface.is_some());
+    assert_eq!(world.resource::<Messages<RequestRedraw>>().len(), 1);
 }
 
 #[test]

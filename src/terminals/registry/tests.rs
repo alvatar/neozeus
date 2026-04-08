@@ -8,7 +8,11 @@ use super::super::{
     },
 };
 use super::*;
-use bevy::{ecs::system::RunSystemOnce, prelude::World};
+use bevy::{
+    ecs::system::RunSystemOnce,
+    prelude::{Messages, World},
+    window::RequestRedraw,
+};
 use std::sync::{mpsc, Arc, Mutex};
 
 /// Creates a test terminal bridge together with a mailbox tests can use for synthetic updates.
@@ -66,8 +70,10 @@ fn poll_terminal_snapshots_keeps_latest_status_over_latest_frame_runtime() {
 
     let mut world = World::default();
     world.insert_resource(manager);
+    world.init_resource::<Messages<RequestRedraw>>();
     world.run_system_once(poll_terminal_snapshots).unwrap();
     let manager = world.resource::<TerminalManager>();
+    assert_eq!(world.resource::<Messages<RequestRedraw>>().len(), 1);
     let terminal = manager.get(terminal_id).unwrap();
     assert_eq!(terminal.snapshot.runtime.status, "boom");
     assert!(matches!(
@@ -76,7 +82,54 @@ fn poll_terminal_snapshots_keeps_latest_status_over_latest_frame_runtime() {
     ));
 }
 
-/// Verifies that terminal creation order remains stable even when focus changes.
+/// Verifies that runtime-only terminal status changes request one redraw in on-demand mode.
+#[test]
+fn poll_terminal_snapshots_requests_redraw_for_runtime_only_status_updates() {
+    let (bridge, mailbox) = test_bridge();
+    let mut manager = TerminalManager::default();
+    let terminal_id = manager.create_terminal(bridge);
+
+    mailbox.push(TerminalUpdate::Status {
+        runtime: TerminalRuntimeState::failed("boom"),
+        surface: None,
+    });
+
+    let mut world = World::default();
+    world.insert_resource(manager);
+    world.init_resource::<Messages<RequestRedraw>>();
+    world.run_system_once(poll_terminal_snapshots).unwrap();
+
+    let manager = world.resource::<TerminalManager>();
+    let terminal = manager.get(terminal_id).unwrap();
+    assert_eq!(terminal.snapshot.runtime.status, "boom");
+    assert_eq!(world.resource::<Messages<RequestRedraw>>().len(), 1);
+}
+
+/// Verifies that frame updates also request one redraw at the polling boundary.
+#[test]
+fn poll_terminal_snapshots_requests_redraw_for_frame_updates() {
+    let (bridge, mailbox) = test_bridge();
+    let mut manager = TerminalManager::default();
+    let terminal_id = manager.create_terminal(bridge);
+
+    mailbox.push(TerminalUpdate::Frame(TerminalFrameUpdate {
+        surface: surface_with_text(2, 2, 0, "a"),
+        damage: TerminalDamage::Rows(vec![0]),
+        runtime: TerminalRuntimeState::running("running"),
+    }));
+
+    let mut world = World::default();
+    world.insert_resource(manager);
+    world.init_resource::<Messages<RequestRedraw>>();
+    world.run_system_once(poll_terminal_snapshots).unwrap();
+
+    let manager = world.resource::<TerminalManager>();
+    let terminal = manager.get(terminal_id).unwrap();
+    assert_eq!(terminal.surface_revision, 1);
+    assert_eq!(terminal.pending_damage, Some(TerminalDamage::Rows(vec![0])));
+    assert_eq!(world.resource::<Messages<RequestRedraw>>().len(), 1);
+}
+
 #[test]
 fn terminal_creation_order_stays_stable_when_focus_changes() {
     let (bridge_one, _) = test_bridge();

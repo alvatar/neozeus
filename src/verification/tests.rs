@@ -2,10 +2,23 @@ use super::*;
 use crate::tests::{fake_runtime_spawner, insert_default_hud_resources, surface_with_text};
 use bevy::{
     ecs::system::RunSystemOnce,
-    prelude::{Time, UVec2},
-    window::RequestRedraw,
+    input::mouse::MouseWheel,
+    prelude::{Time, UVec2, Window},
+    window::{PrimaryWindow, RequestRedraw},
 };
 use std::sync::Arc;
+
+fn init_verification_runtime_resources(world: &mut World) {
+    world.init_resource::<Messages<RequestRedraw>>();
+    world.init_resource::<Messages<MouseWheel>>();
+    world.spawn((
+        Window {
+            focused: true,
+            ..Default::default()
+        },
+        PrimaryWindow,
+    ));
+}
 
 /// Covers the string parser for the built-in verification scenarios.
 ///
@@ -40,6 +53,10 @@ fn parses_verification_scenarios() {
         resolve_verification_scenario(Some("inspect-switch-latency")),
         Some(VerificationScenario::InspectSwitchLatency)
     );
+    assert_eq!(
+        resolve_verification_scenario(Some("wheel-scroll-render")),
+        Some(VerificationScenario::WheelScrollRender)
+    );
 }
 
 /// Verifies the message-box verification scenario's first-application behavior.
@@ -56,6 +73,7 @@ fn message_box_scenario_opens_modal_and_spawns_terminal() {
         frames_until_apply: 0,
         primed: false,
         applied: false,
+        phase: 0,
         terminal_ids: Vec::new(),
     });
     world.insert_resource(Assets::<Image>::default());
@@ -74,7 +92,7 @@ fn message_box_scenario_opens_modal_and_spawns_terminal() {
     world
         .resource_mut::<crate::hud::HudInputCaptureState>()
         .direct_input_terminal = Some(crate::terminals::TerminalId(777));
-    world.init_resource::<Messages<RequestRedraw>>();
+    init_verification_runtime_resources(&mut world);
 
     world.run_system_once(run_verification_scenario).unwrap();
 
@@ -127,6 +145,7 @@ fn task_dialog_scenario_populates_note_text() {
         frames_until_apply: 0,
         primed: false,
         applied: false,
+        phase: 0,
         terminal_ids: Vec::new(),
     });
     world.insert_resource(Assets::<Image>::default());
@@ -142,7 +161,7 @@ fn task_dialog_scenario_populates_note_text() {
     world.insert_resource(crate::terminals::TerminalViewState::default());
     world.insert_resource(crate::terminals::TerminalNotesState::default());
     insert_default_hud_resources(&mut world);
-    world.init_resource::<Messages<RequestRedraw>>();
+    init_verification_runtime_resources(&mut world);
 
     world.run_system_once(run_verification_scenario).unwrap();
 
@@ -193,6 +212,7 @@ fn agent_list_scenario_clears_existing_composer_and_direct_input() {
         frames_until_apply: 0,
         primed: false,
         applied: false,
+        phase: 0,
         terminal_ids: Vec::new(),
     });
     world.insert_resource(Assets::<Image>::default());
@@ -215,7 +235,7 @@ fn agent_list_scenario_clears_existing_composer_and_direct_input() {
     world
         .resource_mut::<crate::hud::HudInputCaptureState>()
         .direct_input_terminal = Some(crate::terminals::TerminalId(777));
-    world.init_resource::<Messages<RequestRedraw>>();
+    init_verification_runtime_resources(&mut world);
 
     world.run_system_once(run_verification_scenario).unwrap();
 
@@ -248,6 +268,7 @@ fn working_state_scenario_seeds_pi_agent_with_working_surface() {
         frames_until_apply: 0,
         primed: false,
         applied: false,
+        phase: 0,
         terminal_ids: Vec::new(),
     });
     world.insert_resource(Assets::<Image>::default());
@@ -263,7 +284,7 @@ fn working_state_scenario_seeds_pi_agent_with_working_surface() {
     world.insert_resource(crate::terminals::TerminalViewState::default());
     world.insert_resource(crate::terminals::TerminalNotesState::default());
     insert_default_hud_resources(&mut world);
-    world.init_resource::<Messages<RequestRedraw>>();
+    init_verification_runtime_resources(&mut world);
 
     world.run_system_once(run_verification_scenario).unwrap();
 
@@ -295,6 +316,7 @@ fn working_state_capture_barrier_waits_for_presented_visual_contract() {
         frames_until_apply: 0,
         primed: false,
         applied: false,
+        phase: 0,
         terminal_ids: Vec::new(),
     });
     world.insert_resource(crate::verification::VerificationCaptureBarrierState::default());
@@ -313,7 +335,7 @@ fn working_state_capture_barrier_waits_for_presented_visual_contract() {
     world.insert_resource(crate::terminals::TerminalViewState::default());
     world.insert_resource(crate::terminals::TerminalNotesState::default());
     insert_default_hud_resources(&mut world);
-    world.init_resource::<Messages<RequestRedraw>>();
+    init_verification_runtime_resources(&mut world);
 
     world.run_system_once(run_verification_scenario).unwrap();
     world
@@ -379,6 +401,7 @@ fn inspect_switch_scenario_spawns_two_terminals_and_focuses_second() {
         frames_until_apply: 0,
         primed: false,
         applied: false,
+        phase: 0,
         terminal_ids: Vec::new(),
     });
     world.insert_resource(Assets::<Image>::default());
@@ -394,7 +417,7 @@ fn inspect_switch_scenario_spawns_two_terminals_and_focuses_second() {
     world.insert_resource(crate::terminals::TerminalViewState::default());
     world.insert_resource(crate::terminals::TerminalNotesState::default());
     insert_default_hud_resources(&mut world);
-    world.init_resource::<Messages<RequestRedraw>>();
+    init_verification_runtime_resources(&mut world);
 
     world.run_system_once(run_verification_scenario).unwrap();
     world

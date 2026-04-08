@@ -249,6 +249,7 @@ fn final_frame_capture_waits_for_verification_scenario_to_finish() {
         frames_until_apply: 0,
         primed: false,
         applied: false,
+        phase: 0,
         terminal_ids: Vec::new(),
     });
     world.insert_resource(FinalFrameOutputState::default());
@@ -276,6 +277,7 @@ fn final_frame_capture_waits_for_verification_capture_barrier() {
         frames_until_apply: 0,
         primed: false,
         applied: true,
+        phase: 0,
         terminal_ids: vec![crate::terminals::TerminalId(1)],
     });
     world.insert_resource(crate::verification::VerificationCaptureBarrierState::default());
