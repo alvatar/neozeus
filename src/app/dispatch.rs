@@ -6,12 +6,11 @@ use crate::{
         MessageTransportAdapter,
     },
     hud::{HudInputCaptureState, HudLayoutState, TerminalVisibilityState},
-    startup::StartupLoadingState,
     terminals::{
         append_debug_log, mark_terminal_notes_dirty, ActiveTerminalContentState,
         OwnedTmuxSessionStore, TerminalFocusState, TerminalManager, TerminalNotesState,
-        TerminalRuntimeSpawner, TerminalViewState, PERSISTENT_SESSION_PREFIX,
-        VERIFIER_SESSION_PREFIX,
+        TerminalPresentationStore, TerminalRuntimeSpawner, TerminalViewState,
+        PERSISTENT_SESSION_PREFIX, VERIFIER_SESSION_PREFIX,
     },
 };
 
@@ -236,7 +235,7 @@ pub(super) struct AppCommandContext<'w> {
     app_state_persistence: ResMut<'w, AppStatePersistenceState>,
     visibility_state: ResMut<'w, TerminalVisibilityState>,
     view_state: ResMut<'w, TerminalViewState>,
-    startup_loading: Option<ResMut<'w, StartupLoadingState>>,
+    presentation_store: Option<ResMut<'w, TerminalPresentationStore>>,
     redraws: MessageWriter<'w, RequestRedraw>,
 }
 
@@ -272,7 +271,7 @@ pub(super) fn apply_app_commands(
                         &mut ctx.app_state_persistence,
                         &mut ctx.visibility_state,
                         &mut ctx.view_state,
-                        ctx.startup_loading.as_deref_mut(),
+                        ctx.presentation_store.as_deref_mut(),
                         &ctx.time,
                         PERSISTENT_SESSION_PREFIX,
                         *kind,

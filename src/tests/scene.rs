@@ -320,6 +320,7 @@ fn setup_scene_starts_background_connect_when_runtime_is_pending() {
     let mut world = World::default();
     world.insert_resource(crate::terminals::TerminalManager::default());
     world.insert_resource(crate::terminals::TerminalFocusState::default());
+    world.insert_resource(crate::terminals::TerminalPresentationStore::default());
     world.insert_resource(crate::agents::AgentCatalog::default());
     world.insert_resource(crate::agents::AgentRuntimeIndex::default());
     world.insert_resource(crate::app::AppSessionState::default());
@@ -331,7 +332,6 @@ fn setup_scene_starts_background_connect_when_runtime_is_pending() {
     world.insert_resource(crate::hud::HudInputCaptureState::default());
     world.insert_resource(crate::hud::TerminalVisibilityState::default());
     world.insert_resource(crate::terminals::TerminalViewState::default());
-    world.insert_resource(crate::startup::StartupLoadingState::default());
     world.insert_resource(DaemonConnectionState::default());
     world.insert_resource(StartupConnectState::default());
     world.insert_resource(Time::<()>::default());
@@ -367,7 +367,6 @@ fn setup_scene_auto_verify_uses_shared_spawn_attach_flow_and_isolates_verifier_t
     world.insert_resource(crate::hud::AgentListSelection::default());
     world.insert_resource(crate::terminals::OwnedTmuxSessionStore::default());
     world.insert_resource(crate::terminals::ActiveTerminalContentState::default());
-    world.insert_resource(crate::startup::StartupLoadingState::default());
     world.insert_resource(fake_runtime_spawner(client.clone()));
     world.insert_resource(crate::app::AppStatePersistenceState::default());
     world.insert_resource(crate::terminals::TerminalNotesState::default());
@@ -395,9 +394,9 @@ fn setup_scene_auto_verify_uses_shared_spawn_attach_flow_and_isolates_verifier_t
             .policy,
         TerminalVisibilityPolicy::Isolate(terminal_id)
     );
-    let startup_loading = world.resource::<crate::startup::StartupLoadingState>();
-    assert!(startup_loading.active());
-    assert!(startup_loading.is_pending(terminal_id));
+    let presentation_store = world.resource::<crate::terminals::TerminalPresentationStore>();
+    assert!(presentation_store.any_startup_pending());
+    assert!(presentation_store.is_startup_pending(terminal_id));
     let created = client.created_sessions.lock().unwrap().clone();
     assert_eq!(created.len(), 1);
     assert!(created[0]
@@ -428,6 +427,7 @@ fn startup_connecting_advances_to_restoring_when_background_connect_completes() 
     let mut world = World::default();
     world.insert_resource(crate::terminals::TerminalManager::default());
     world.insert_resource(crate::terminals::TerminalFocusState::default());
+    world.insert_resource(crate::terminals::TerminalPresentationStore::default());
     world.insert_resource(crate::agents::AgentCatalog::default());
     world.insert_resource(crate::agents::AgentRuntimeIndex::default());
     world.insert_resource(crate::app::AppSessionState::default());
@@ -439,7 +439,6 @@ fn startup_connecting_advances_to_restoring_when_background_connect_completes() 
     world.insert_resource(crate::hud::HudInputCaptureState::default());
     world.insert_resource(crate::hud::TerminalVisibilityState::default());
     world.insert_resource(crate::terminals::TerminalViewState::default());
-    world.insert_resource(crate::startup::StartupLoadingState::default());
     world.insert_resource(DaemonConnectionState::default());
     world.insert_resource(StartupConnectState::with_receiver_for_test(rx));
     world.insert_resource(Time::<()>::default());

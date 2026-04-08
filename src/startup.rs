@@ -27,7 +27,6 @@ use bevy::{
 };
 use bevy_vello::prelude::VelloView;
 use std::{
-    collections::BTreeSet,
     sync::{mpsc, Arc, Mutex},
     thread,
 };
@@ -35,46 +34,6 @@ use std::{
 const PRESENTATION_EPSILON: f32 = 0.25;
 const ALPHA_EPSILON: f32 = 0.01;
 const Z_EPSILON: f32 = 0.01;
-
-#[derive(Resource, Default, Clone, Debug)]
-pub(crate) struct StartupLoadingState {
-    pending_terminal_ids: BTreeSet<crate::terminals::TerminalId>,
-}
-
-impl StartupLoadingState {
-    /// Marks a terminal as still loading during startup.
-    ///
-    /// The startup flow uses this set to distinguish terminals that have been spawned or restored
-    /// from terminals that already have a presentable frame. In practice that lets presentation code
-    /// keep placeholders visible until the first real surface arrives.
-    pub(crate) fn register(&mut self, terminal_id: crate::terminals::TerminalId) {
-        self.pending_terminal_ids.insert(terminal_id);
-    }
-
-    /// Removes a terminal from the startup-loading set once its first usable frame has landed.
-    ///
-    /// Nothing else is tracked here; the set is purely a coarse startup gate, so resolving simply
-    /// deletes the terminal id from the backing `BTreeSet`.
-    pub(crate) fn resolve(&mut self, terminal_id: crate::terminals::TerminalId) {
-        self.pending_terminal_ids.remove(&terminal_id);
-    }
-
-    /// Returns whether a specific terminal is still considered startup-pending.
-    ///
-    /// This is used by presentation code to decide whether to keep showing startup placeholders or
-    /// temporary visibility overrides for that terminal.
-    pub(crate) fn is_pending(&self, terminal_id: crate::terminals::TerminalId) -> bool {
-        self.pending_terminal_ids.contains(&terminal_id)
-    }
-
-    /// Returns whether any terminal is still in the startup-loading phase.
-    ///
-    /// The check is just `set.is_empty()`, but keeping it behind a named method makes the rest of
-    /// the startup/presentation code read in terms of domain state instead of container mechanics.
-    pub(crate) fn active(&self) -> bool {
-        !self.pending_terminal_ids.is_empty()
-    }
-}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum StartupConnectPhase {
@@ -202,13 +161,13 @@ struct SceneSetupContext<'w, 's> {
     task_store: Option<ResMut<'w, crate::conversations::AgentTaskStore>>,
     conversations: ResMut<'w, ConversationStore>,
     conversation_persistence: ResMut<'w, ConversationPersistenceState>,
+    presentation_store: ResMut<'w, TerminalPresentationStore>,
     runtime_spawner: Res<'w, TerminalRuntimeSpawner>,
     app_state_persistence: ResMut<'w, AppStatePersistenceState>,
     notes_state: ResMut<'w, crate::terminals::TerminalNotesState>,
     input_capture: ResMut<'w, HudInputCaptureState>,
     visibility_state: ResMut<'w, TerminalVisibilityState>,
     view_state: ResMut<'w, crate::terminals::TerminalViewState>,
-    startup_loading: Option<ResMut<'w, StartupLoadingState>>,
     owned_tmux_sessions: Option<ResMut<'w, OwnedTmuxSessionStore>>,
     active_terminal_content: Option<ResMut<'w, crate::terminals::ActiveTerminalContentState>>,
     redraws: MessageWriter<'w, RequestRedraw>,
@@ -480,9 +439,7 @@ fn register_startup_loading_terminal(
     ctx: &mut SceneSetupContext,
     terminal_id: crate::terminals::TerminalId,
 ) {
-    if let Some(startup_loading) = ctx.startup_loading.as_mut() {
-        startup_loading.register(terminal_id);
-    }
+    ctx.presentation_store.mark_startup_pending(terminal_id);
 }
 
 /// Spawns the dedicated verifier terminal used by the auto-verify mode.
@@ -561,7 +518,7 @@ fn restore_startup_terminals(ctx: &mut SceneSetupContext) {
         &mut ctx.app_state_persistence,
         &mut ctx.visibility_state,
         &mut ctx.view_state,
-        ctx.startup_loading.as_deref_mut(),
+        Some(&mut ctx.presentation_store),
         &ctx.time,
         &mut ctx.redraws,
     );

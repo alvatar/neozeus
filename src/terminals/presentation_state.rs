@@ -1,6 +1,6 @@
 use super::registry::TerminalId;
 use bevy::prelude::*;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 #[derive(Resource)]
 pub(crate) struct TerminalViewState {
@@ -116,6 +116,7 @@ pub(crate) struct PresentedTerminal {
 #[derive(Resource, Default)]
 pub(crate) struct TerminalPresentationStore {
     terminals: HashMap<TerminalId, PresentedTerminal>,
+    startup_pending: HashSet<TerminalId>,
 }
 
 impl TerminalPresentationStore {
@@ -136,12 +137,33 @@ impl TerminalPresentationStore {
 
     /// Removes and returns the presentation-store record for one terminal id.
     pub(crate) fn remove(&mut self, id: TerminalId) -> Option<PresentedTerminal> {
+        self.startup_pending.remove(&id);
         self.terminals.remove(&id)
     }
 
     /// Returns all terminal ids currently tracked by the presentation store.
     pub(crate) fn terminal_ids(&self) -> Vec<TerminalId> {
         self.terminals.keys().copied().collect()
+    }
+
+    /// Marks a terminal as startup-pending until its first ready-for-capture frame lands.
+    pub(crate) fn mark_startup_pending(&mut self, id: TerminalId) {
+        self.startup_pending.insert(id);
+    }
+
+    /// Clears the startup-pending marker for one terminal.
+    pub(crate) fn resolve_startup_pending(&mut self, id: TerminalId) {
+        self.startup_pending.remove(&id);
+    }
+
+    /// Returns whether one terminal is still startup-pending.
+    pub(crate) fn is_startup_pending(&self, id: TerminalId) -> bool {
+        self.startup_pending.contains(&id)
+    }
+
+    /// Returns whether any terminal is still startup-pending.
+    pub(crate) fn any_startup_pending(&self) -> bool {
+        !self.startup_pending.is_empty()
     }
 
     /// Returns the uploaded texture state of the currently active terminal, if any.

@@ -5,6 +5,7 @@ use bevy::math::UVec2;
 pub(crate) enum TerminalReadiness {
     #[default]
     Missing,
+    StartupPending,
     Loading,
     Presentable,
     ReadyForCapture,
@@ -13,6 +14,10 @@ pub(crate) enum TerminalReadiness {
 impl TerminalReadiness {
     pub(crate) fn is_ready_for_capture(self) -> bool {
         matches!(self, Self::ReadyForCapture)
+    }
+
+    pub(crate) fn is_startup_pending(self) -> bool {
+        matches!(self, Self::StartupPending)
     }
 }
 
@@ -25,30 +30,51 @@ pub(crate) fn terminal_readiness(
     terminal: Option<&ManagedTerminal>,
     presented_terminal: Option<&PresentedTerminal>,
     override_revision: Option<u64>,
+    startup_pending: bool,
 ) -> TerminalReadiness {
-    let Some(terminal) = terminal else {
-        return TerminalReadiness::Missing;
-    };
-    let has_surface_source = override_revision.is_some() || terminal.snapshot.surface.is_some();
-    if !has_surface_source {
-        return TerminalReadiness::Missing;
-    }
-    let Some(presented_terminal) = presented_terminal else {
-        return TerminalReadiness::Loading;
-    };
-    let uploaded_matches = match override_revision {
-        Some(override_revision) => {
-            presented_terminal.uploaded_active_override_revision == Some(override_revision)
+    let base = {
+        let Some(terminal) = terminal else {
+            return TerminalReadiness::Missing;
+        };
+        let has_surface_source = override_revision.is_some() || terminal.snapshot.surface.is_some();
+        if !has_surface_source {
+            if startup_pending {
+                TerminalReadiness::StartupPending
+            } else {
+                TerminalReadiness::Missing
+            }
+        } else {
+            let Some(presented_terminal) = presented_terminal else {
+                return if startup_pending {
+                    TerminalReadiness::StartupPending
+                } else {
+                    TerminalReadiness::Loading
+                };
+            };
+            let uploaded_matches = match override_revision {
+                Some(override_revision) => {
+                    presented_terminal.uploaded_active_override_revision == Some(override_revision)
+                }
+                None => presented_terminal.uploaded_revision == terminal.surface_revision,
+            };
+            if !uploaded_matches {
+                if startup_pending {
+                    TerminalReadiness::StartupPending
+                } else {
+                    TerminalReadiness::Loading
+                }
+            } else if non_placeholder_texture_state(presented_terminal) {
+                TerminalReadiness::ReadyForCapture
+            } else {
+                TerminalReadiness::Presentable
+            }
         }
-        None => presented_terminal.uploaded_revision == terminal.surface_revision,
     };
-    if !uploaded_matches {
-        return TerminalReadiness::Loading;
-    }
-    if non_placeholder_texture_state(presented_terminal) {
-        TerminalReadiness::ReadyForCapture
+
+    if startup_pending && !base.is_ready_for_capture() {
+        TerminalReadiness::StartupPending
     } else {
-        TerminalReadiness::Presentable
+        base
     }
 }
 
@@ -62,6 +88,7 @@ pub(crate) fn terminal_readiness_for_id(
         terminal_manager.get(terminal_id),
         presentation_store.get(terminal_id),
         override_revision,
+        presentation_store.is_startup_pending(terminal_id),
     )
 }
 
@@ -124,6 +151,30 @@ mod tests {
         assert_eq!(
             terminal_readiness_for_id(terminal_id, &terminal_manager, &presentation_store, None),
             TerminalReadiness::Presentable
+        );
+    }
+
+    #[test]
+    fn terminal_readiness_reports_startup_pending_until_ready_for_capture() {
+        let (terminal_manager, terminal_id, mut presentation_store) = setup_terminal();
+        presentation_store.mark_startup_pending(terminal_id);
+        assert_eq!(
+            terminal_readiness_for_id(terminal_id, &terminal_manager, &presentation_store, None),
+            TerminalReadiness::StartupPending
+        );
+
+        let presented = presentation_store.get_mut(terminal_id).unwrap();
+        presented.uploaded_revision = 4;
+        assert_eq!(
+            terminal_readiness_for_id(terminal_id, &terminal_manager, &presentation_store, None),
+            TerminalReadiness::StartupPending
+        );
+
+        let presented = presentation_store.get_mut(terminal_id).unwrap();
+        presented.texture_state.texture_size = UVec2::new(640, 480);
+        assert_eq!(
+            terminal_readiness_for_id(terminal_id, &terminal_manager, &presentation_store, None),
+            TerminalReadiness::ReadyForCapture
         );
     }
 

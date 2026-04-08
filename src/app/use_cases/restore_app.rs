@@ -4,11 +4,11 @@ use crate::{
         load_persisted_app_state_from, mark_app_state_dirty, ordered_reconciled_persisted_agents,
         reconcile_persisted_agents, AppStatePersistenceState,
     },
-    startup::{choose_startup_focus_session_name, StartupLoadingState},
+    startup::choose_startup_focus_session_name,
     terminals::{
         append_debug_log, ActiveTerminalContentState, DaemonSessionInfo, OwnedTmuxSessionStore,
-        TerminalFocusState, TerminalLifecycle, TerminalManager, TerminalRuntimeSpawner,
-        TerminalViewState, PERSISTENT_SESSION_PREFIX,
+        TerminalFocusState, TerminalLifecycle, TerminalManager, TerminalPresentationStore,
+        TerminalRuntimeSpawner, TerminalViewState, PERSISTENT_SESSION_PREFIX,
     },
 };
 
@@ -57,12 +57,12 @@ pub(crate) fn restore_app(
     app_state_persistence: &mut AppStatePersistenceState,
     visibility_state: &mut crate::hud::TerminalVisibilityState,
     view_state: &mut TerminalViewState,
-    startup_loading: Option<&mut StartupLoadingState>,
+    presentation_store: Option<&mut TerminalPresentationStore>,
     time: &Time,
     redraws: &mut MessageWriter<bevy::window::RequestRedraw>,
 ) {
     // Walk the lifecycle in explicit stages so each side effect happens only after its prerequisites have been established.
-    let mut startup_loading = startup_loading;
+    let mut presentation_store = presentation_store;
     let persisted = app_state_persistence
         .path
         .as_ref()
@@ -143,7 +143,7 @@ pub(crate) fn restore_app(
             append_debug_log("startup attach skipped for record missing runtime session name");
             continue;
         };
-        let startup_loading_slot = startup_loading.as_deref_mut();
+        let presentation_store_slot = presentation_store.as_deref_mut();
         if let Err(error) = attach_restored_terminal(
             agent_catalog,
             runtime_index,
@@ -151,7 +151,7 @@ pub(crate) fn restore_app(
             terminal_manager,
             focus_state,
             runtime_spawner,
-            startup_loading_slot,
+            presentation_store_slot,
             runtime_session_name,
             false,
             match record.kind {
@@ -257,7 +257,7 @@ pub(crate) fn restore_app(
             app_state_persistence,
             visibility_state,
             view_state,
-            startup_loading,
+            presentation_store,
             time,
             PERSISTENT_SESSION_PREFIX,
             AgentKind::Pi,

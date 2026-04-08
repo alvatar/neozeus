@@ -3,11 +3,11 @@ use crate::{
     app::{mark_app_state_dirty, AppStatePersistenceState},
     hud::{HudInputCaptureState, TerminalVisibilityState},
     shared::pi_session_files::make_new_session_path,
-    startup::StartupLoadingState,
     terminals::{
         append_debug_log, attach_terminal_session, resolve_daemon_socket_path,
         ActiveTerminalContentState, OwnedTmuxSessionStore, TerminalBridge, TerminalFocusState,
-        TerminalId, TerminalManager, TerminalRuntimeSpawner, TerminalViewState,
+        TerminalId, TerminalManager, TerminalPresentationStore, TerminalRuntimeSpawner,
+        TerminalViewState,
     },
 };
 
@@ -121,7 +121,7 @@ pub(crate) fn spawn_agent_terminal_with_launch_spec(
     app_state_persistence: &mut AppStatePersistenceState,
     visibility_state: &mut TerminalVisibilityState,
     view_state: &mut TerminalViewState,
-    startup_loading: Option<&mut StartupLoadingState>,
+    presentation_store: Option<&mut TerminalPresentationStore>,
     time: &Time,
     prefix: &str,
     kind: AgentKind,
@@ -182,8 +182,8 @@ pub(crate) fn spawn_agent_terminal_with_launch_spec(
         visibility_state,
     );
     mark_app_state_dirty(app_state_persistence, Some(time));
-    if let Some(startup_loading) = startup_loading {
-        startup_loading.register(terminal_id);
+    if let Some(presentation_store) = presentation_store {
+        presentation_store.mark_startup_pending(terminal_id);
     }
     append_debug_log(format!(
         "spawned agent {} terminal {} session={}",
@@ -212,7 +212,7 @@ pub(crate) fn spawn_agent_terminal(
     app_state_persistence: &mut AppStatePersistenceState,
     visibility_state: &mut TerminalVisibilityState,
     view_state: &mut TerminalViewState,
-    startup_loading: Option<&mut StartupLoadingState>,
+    presentation_store: Option<&mut TerminalPresentationStore>,
     time: &Time,
     prefix: &str,
     kind: AgentKind,
@@ -235,7 +235,7 @@ pub(crate) fn spawn_agent_terminal(
         app_state_persistence,
         visibility_state,
         view_state,
-        startup_loading,
+        presentation_store,
         time,
         prefix,
         kind,
@@ -258,7 +258,7 @@ pub(crate) fn attach_restored_terminal(
     terminal_manager: &mut TerminalManager,
     focus_state: &mut TerminalFocusState,
     runtime_spawner: &TerminalRuntimeSpawner,
-    startup_loading: Option<&mut StartupLoadingState>,
+    presentation_store: Option<&mut TerminalPresentationStore>,
     session_name: String,
     focus: bool,
     kind: AgentKind,
@@ -309,8 +309,8 @@ pub(crate) fn attach_restored_terminal(
         .get(terminal_id)
         .map(|terminal| &terminal.snapshot.runtime);
     runtime_index.link_terminal(agent_id, terminal_id, session_name, runtime);
-    if let Some(startup_loading) = startup_loading {
-        startup_loading.register(terminal_id);
+    if let Some(presentation_store) = presentation_store {
+        presentation_store.mark_startup_pending(terminal_id);
     }
     Ok((agent_id, terminal_id))
 }

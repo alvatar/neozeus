@@ -11,7 +11,7 @@ use super::{
         TerminalTextureState, TerminalViewState,
     },
     raster::create_terminal_image,
-    readiness::terminal_readiness,
+    readiness::{terminal_readiness_for_id, TerminalReadiness},
     registry::{ManagedTerminal, TerminalFocusState, TerminalId, TerminalManager},
     runtime::TerminalRuntimeSpawner,
     types::{TerminalDimensions, TerminalSurface},
@@ -310,15 +310,6 @@ fn active_terminal_ready_for_presentation(
         && presented_terminal.uploaded_revision == terminal.surface_revision
 }
 
-/// Returns whether a terminal has any uploaded frame that is coherent enough to be shown, even if it
-/// does not yet match the latest active-layout contract exactly.
-fn terminal_has_presentable_uploaded_frame(
-    terminal: &ManagedTerminal,
-    presented_terminal: &PresentedTerminal,
-) -> bool {
-    terminal_readiness(Some(terminal), Some(presented_terminal), None).is_ready_for_capture()
-}
-
 #[allow(
     clippy::too_many_arguments,
     reason = "active-terminal resize policy needs terminal, font, runtime, HUD, window, and local debounce state"
@@ -469,8 +460,8 @@ fn effective_visibility_policy(
     clippy::too_many_arguments,
     reason = "presentation sync needs terminal/presentation/view state together"
 )]
-/// Recomputes each terminal panel's target size/position/visibility from focus, startup-loading,
-/// uploaded-frame readiness, and display-mode state.
+/// Recomputes each terminal panel's target size/position/visibility from focus, shared terminal
+/// readiness, uploaded-frame state, and display-mode state.
 ///
 /// The system also decides when presentation state should snap immediately versus animate toward new
 /// targets.
@@ -479,8 +470,7 @@ pub(crate) fn sync_terminal_presentations(
     terminal_manager: Res<TerminalManager>,
     focus_state: Res<TerminalFocusState>,
     font_state: Option<Res<TerminalFontState>>,
-    presentation_store: Res<TerminalPresentationStore>,
-    mut startup_loading: Option<ResMut<crate::startup::StartupLoadingState>>,
+    mut presentation_store: ResMut<TerminalPresentationStore>,
     visibility_state: Res<TerminalVisibilityState>,
     view_state: Res<TerminalViewState>,
     layout_state: Res<HudLayoutState>,
@@ -498,9 +488,7 @@ pub(crate) fn sync_terminal_presentations(
     )>,
 ) {
     let active_id = focus_state.active_id();
-    let startup_show_all = startup_loading
-        .as_ref()
-        .is_some_and(|startup_loading| startup_loading.active());
+    let startup_show_all = presentation_store.any_startup_pending();
     let visibility_policy = if startup_show_all {
         TerminalVisibilityPolicy::ShowAll
     } else {
@@ -568,10 +556,10 @@ pub(crate) fn sync_terminal_presentations(
             *visibility = Visibility::Hidden;
             continue;
         };
-        let startup_placeholder = startup_loading
-            .as_ref()
-            .is_some_and(|startup_loading| startup_loading.is_pending(panel.id));
-        if terminal.snapshot.surface.is_none() && !startup_placeholder {
+        let readiness =
+            terminal_readiness_for_id(panel.id, &terminal_manager, &presentation_store, None);
+        let startup_placeholder = readiness.is_startup_pending();
+        if matches!(readiness, TerminalReadiness::Missing) {
             *visibility = Visibility::Hidden;
             continue;
         }
@@ -583,19 +571,13 @@ pub(crate) fn sync_terminal_presentations(
             *visibility = Visibility::Hidden;
             continue;
         }
-        let terminal_presentable =
-            terminal_has_presentable_uploaded_frame(terminal, presented_terminal);
+        let terminal_presentable = readiness.is_ready_for_capture();
         let active_ready = Some(panel.id) != active_id
             || active_terminal_ready_for_presentation(terminal, presented_terminal, active_layout)
             || terminal_presentable;
         if !active_ready && !startup_placeholder {
             *visibility = Visibility::Hidden;
             continue;
-        }
-        if terminal_presentable {
-            if let Some(startup_loading) = startup_loading.as_mut() {
-                startup_loading.resolve(panel.id);
-            }
         }
 
         let placeholder_texture_state = startup_placeholder_texture_state(
@@ -682,6 +664,9 @@ pub(crate) fn sync_terminal_presentations(
         transform.translation = presentation.current_position.extend(presentation.current_z);
         transform.rotation = Quat::IDENTITY;
         transform.scale = Vec3::ONE;
+        if terminal_presentable {
+            presentation_store.resolve_startup_pending(panel.id);
+        }
     }
 
     *last_active_id = active_id;

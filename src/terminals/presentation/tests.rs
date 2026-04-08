@@ -2,7 +2,6 @@ use super::*;
 use crate::{
     app_config::{DEFAULT_CELL_HEIGHT_PX, DEFAULT_CELL_WIDTH_PX},
     hud::{HudInputCaptureState, HudLayoutState, HudState, HudWidgetKey},
-    startup::StartupLoadingState,
 };
 use bevy::ecs::system::RunSystemOnce;
 use std::{
@@ -1518,8 +1517,7 @@ fn startup_loading_shows_active_placeholder_before_first_surface_arrives() {
         },
     );
 
-    let mut startup_loading = StartupLoadingState::default();
-    startup_loading.register(id);
+    presentation_store.mark_startup_pending(id);
 
     let mut world = World::default();
     let mut time = Time::<()>::default();
@@ -1527,7 +1525,6 @@ fn startup_loading_shows_active_placeholder_before_first_surface_arrives() {
     world.insert_resource(time);
     insert_terminal_manager_resources(&mut world, manager);
     world.insert_resource(presentation_store);
-    world.insert_resource(startup_loading);
     world.insert_resource(crate::hud::TerminalVisibilityState::default());
     world.insert_resource(TerminalViewState::default());
     insert_test_hud_state(&mut world, HudState::default());
@@ -1596,9 +1593,8 @@ fn startup_loading_temporarily_overrides_isolate_to_show_all_pending_terminals()
         );
     }
 
-    let mut startup_loading = StartupLoadingState::default();
-    startup_loading.register(id_one);
-    startup_loading.register(id_two);
+    presentation_store.mark_startup_pending(id_one);
+    presentation_store.mark_startup_pending(id_two);
 
     let visibility_state = crate::hud::TerminalVisibilityState {
         policy: crate::hud::TerminalVisibilityPolicy::Isolate(id_two),
@@ -1610,7 +1606,6 @@ fn startup_loading_temporarily_overrides_isolate_to_show_all_pending_terminals()
     world.insert_resource(time);
     insert_terminal_manager_resources(&mut world, manager);
     world.insert_resource(presentation_store);
-    world.insert_resource(startup_loading);
     world.insert_resource(visibility_state);
     world.insert_resource(TerminalViewState::default());
     insert_test_hud_state(&mut world, HudState::default());
