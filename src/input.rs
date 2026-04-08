@@ -302,6 +302,10 @@ fn terminal_selection_point_from_cursor(
     }
 }
 
+#[allow(
+    clippy::too_many_arguments,
+    reason = "pointer focus routing now consults explicit input ownership before translating clicks into intents"
+)]
 /// Turns a left-click on a visible terminal panel into focus + isolate intents.
 ///
 /// The system deliberately refuses to act while a modal is open, while the window is unfocused, or
@@ -312,12 +316,13 @@ pub(crate) fn focus_terminal_on_panel_click(
     primary_window: Single<&Window, With<PrimaryWindow>>,
     layout_state: Res<HudLayoutState>,
     app_session: Res<AppSessionState>,
+    input_capture: Res<HudInputCaptureState>,
     panels: Query<(&TerminalPanel, &TerminalPresentation, &Visibility)>,
     runtime_index: Res<AgentRuntimeIndex>,
     mut app_commands: MessageWriter<AppCommand>,
 ) {
     // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
-    if app_session.modal_visible()
+    if app_session.modal_input_owner(&input_capture)
         || !mouse_buttons.just_pressed(MouseButton::Left)
         || !primary_window.focused
     {
@@ -353,12 +358,13 @@ pub(crate) fn hide_terminal_on_background_click(
     primary_window: Single<&Window, With<PrimaryWindow>>,
     layout_state: Res<HudLayoutState>,
     app_session: Res<AppSessionState>,
+    input_capture: Res<HudInputCaptureState>,
     panels: Query<(&TerminalPanel, &TerminalPresentation, &Visibility)>,
     focus_state: Res<TerminalFocusState>,
     mut app_commands: MessageWriter<AppCommand>,
 ) {
     // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
-    if app_session.modal_visible()
+    if app_session.modal_input_owner(&input_capture)
         || !mouse_buttons.just_pressed(MouseButton::Left)
         || !primary_window.focused
     {
@@ -992,7 +998,7 @@ pub(crate) fn handle_terminal_direct_input_keyboard(
     mut input_capture: ResMut<HudInputCaptureState>,
     mut redraws: MessageWriter<RequestRedraw>,
 ) {
-    if !primary_window.focused || app_session.modal_visible() {
+    if !primary_window.focused || app_session.modal_input_owner(&input_capture) {
         return;
     }
 

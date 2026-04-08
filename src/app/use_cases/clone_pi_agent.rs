@@ -7,8 +7,8 @@ use crate::{
         worktree::{create_worktree, get_current_branch, get_worktree_repo_root, worktree_slug},
     },
     terminals::{
-        TerminalFocusState, TerminalManager, TerminalRuntimeSpawner, TerminalViewState,
-        PERSISTENT_SESSION_PREFIX,
+        ActiveTerminalContentState, OwnedTmuxSessionStore, TerminalFocusState, TerminalManager,
+        TerminalRuntimeSpawner, TerminalViewState, PERSISTENT_SESSION_PREFIX,
     },
 };
 use bevy::{prelude::Time, window::RequestRedraw};
@@ -26,6 +26,8 @@ pub(crate) fn clone_pi_agent(
     selection: &mut crate::hud::AgentListSelection,
     terminal_manager: &mut TerminalManager,
     focus_state: &mut TerminalFocusState,
+    owned_tmux_sessions: &OwnedTmuxSessionStore,
+    active_terminal_content: &mut ActiveTerminalContentState,
     runtime_spawner: &TerminalRuntimeSpawner,
     input_capture: &mut HudInputCaptureState,
     app_state_persistence: &mut AppStatePersistenceState,
@@ -78,6 +80,8 @@ pub(crate) fn clone_pi_agent(
         selection,
         terminal_manager,
         focus_state,
+        owned_tmux_sessions,
+        active_terminal_content,
         runtime_spawner,
         input_capture,
         app_state_persistence,

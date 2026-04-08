@@ -4,17 +4,16 @@ use crate::{
         load_persisted_app_state_from, mark_app_state_dirty, ordered_reconciled_persisted_agents,
         reconcile_persisted_agents, AppStatePersistenceState,
     },
-    startup::{
-        choose_startup_focus_session_name, startup_visibility_policy_for_focus, StartupLoadingState,
-    },
+    startup::{choose_startup_focus_session_name, StartupLoadingState},
     terminals::{
-        append_debug_log, DaemonSessionInfo, TerminalFocusState, TerminalLifecycle,
-        TerminalManager, TerminalRuntimeSpawner, TerminalViewState, PERSISTENT_SESSION_PREFIX,
+        append_debug_log, ActiveTerminalContentState, DaemonSessionInfo, OwnedTmuxSessionStore,
+        TerminalFocusState, TerminalLifecycle, TerminalManager, TerminalRuntimeSpawner,
+        TerminalViewState, PERSISTENT_SESSION_PREFIX,
     },
 };
 
 use super::super::session::{AppSessionState, VisibilityMode};
-use super::{attach_restored_terminal, spawn_agent_terminal};
+use super::{apply_focus_intent, attach_restored_terminal, spawn_agent_terminal};
 use bevy::prelude::*;
 
 fn agent_kind_from_daemon_session(session: &DaemonSessionInfo) -> AgentKind {
@@ -51,6 +50,8 @@ pub(crate) fn restore_app(
     selection: &mut crate::hud::AgentListSelection,
     terminal_manager: &mut TerminalManager,
     focus_state: &mut TerminalFocusState,
+    owned_tmux_sessions: &OwnedTmuxSessionStore,
+    active_terminal_content: &mut ActiveTerminalContentState,
     runtime_spawner: &TerminalRuntimeSpawner,
     input_capture: &mut crate::hud::HudInputCaptureState,
     app_state_persistence: &mut AppStatePersistenceState,
@@ -209,24 +210,38 @@ pub(crate) fn restore_app(
         &imported_session_names,
     ) {
         if let Some(agent_id) = runtime_index.agent_for_session(session_name) {
-            *selection = crate::hud::AgentListSelection::Agent(agent_id);
-            app_session.visibility_mode = VisibilityMode::FocusedOnly;
-            if let Some(terminal_id) = runtime_index.primary_terminal(agent_id) {
-                focus_state.focus_terminal(terminal_manager, terminal_id);
-                #[cfg(test)]
-                terminal_manager.replace_test_focus_state(focus_state);
-                visibility_state.policy = startup_visibility_policy_for_focus(Some(terminal_id));
-                view_state.focus_terminal(Some(terminal_id));
-            }
+            app_session
+                .focus_intent
+                .focus_agent(agent_id, VisibilityMode::FocusedOnly);
+            apply_focus_intent(
+                app_session,
+                agent_catalog,
+                runtime_index,
+                owned_tmux_sessions,
+                selection,
+                active_terminal_content,
+                terminal_manager,
+                focus_state,
+                input_capture,
+                view_state,
+                visibility_state,
+            );
         }
     } else if !agent_catalog.order.is_empty() {
-        *selection = crate::hud::AgentListSelection::None;
-        app_session.visibility_mode = VisibilityMode::ShowAll;
-        focus_state.clear_active_terminal();
-        #[cfg(test)]
-        terminal_manager.replace_test_focus_state(focus_state);
-        visibility_state.policy = crate::hud::TerminalVisibilityPolicy::ShowAll;
-        view_state.focus_terminal(None);
+        app_session.focus_intent.clear(VisibilityMode::ShowAll);
+        apply_focus_intent(
+            app_session,
+            agent_catalog,
+            runtime_index,
+            owned_tmux_sessions,
+            selection,
+            active_terminal_content,
+            terminal_manager,
+            focus_state,
+            input_capture,
+            view_state,
+            visibility_state,
+        );
     } else {
         let _ = spawn_agent_terminal(
             agent_catalog,
@@ -235,6 +250,8 @@ pub(crate) fn restore_app(
             selection,
             terminal_manager,
             focus_state,
+            owned_tmux_sessions,
+            active_terminal_content,
             runtime_spawner,
             input_capture,
             app_state_persistence,

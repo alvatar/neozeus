@@ -304,14 +304,14 @@ pub(crate) fn save_hud_layout_if_dirty(
 
     let mut persisted = PersistedHudState::default();
     for definition in HUD_WIDGET_DEFINITIONS {
-        let Some(module) = layout_state.get(definition.key) else {
+        let Some(layout) = layout_state.module_layout(definition.key) else {
             continue;
         };
         persisted.modules.insert(
             definition.key,
             PersistedHudModuleState {
-                enabled: module.shell.enabled,
-                rect: module.shell.target_rect,
+                enabled: layout.enabled,
+                rect: layout.rect,
             },
         );
     }

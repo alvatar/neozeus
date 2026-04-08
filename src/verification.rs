@@ -7,10 +7,10 @@ use crate::{
         TerminalVisibilityState,
     },
     terminals::{
-        append_debug_log, attach_terminal_session, RuntimeNotifier, TerminalBridge, TerminalCell,
-        TerminalCellContent, TerminalCommand, TerminalFocusState, TerminalId, TerminalManager,
-        TerminalNotesState, TerminalPresentationStore, TerminalRuntimeSpawner, TerminalSurface,
-        TerminalViewState, VERIFIER_SESSION_PREFIX,
+        append_debug_log, attach_terminal_session, terminal_readiness_for_id, RuntimeNotifier,
+        TerminalBridge, TerminalCell, TerminalCellContent, TerminalCommand, TerminalFocusState,
+        TerminalId, TerminalManager, TerminalNotesState, TerminalPresentationStore,
+        TerminalRuntimeSpawner, TerminalSurface, TerminalViewState, VERIFIER_SESSION_PREFIX,
     },
     visual_contract::{TerminalFrameVisualState, VisualAgentActivity, VisualContractState},
 };
@@ -162,34 +162,19 @@ impl VerificationScenarioConfig {
 }
 
 /// Returns whether a terminal has a fully uploaded, non-placeholder frame ready for inspection.
-///
-/// The check deliberately combines three conditions: the terminal must own a surface snapshot, the
-/// presentation store must have uploaded the same surface revision, and the uploaded texture state
-/// must be something more meaningful than the placeholder `1x1`/zero-cell bootstrap values.
 fn terminal_has_presentable_frame(
     terminal_id: TerminalId,
     terminal_manager: &TerminalManager,
     presentation_store: &TerminalPresentationStore,
     verification_overrides: &VerificationTerminalSurfaceOverrides,
 ) -> bool {
-    let Some(terminal) = terminal_manager.get(terminal_id) else {
-        return false;
-    };
-    let Some(presented) = presentation_store.get(terminal_id) else {
-        return false;
-    };
-    let override_revision = verification_overrides.presentation_override_revision_for(terminal_id);
-    let has_surface = override_revision.is_some() || terminal.snapshot.surface.is_some();
-    let uploaded_matches = match override_revision {
-        Some(override_revision) => {
-            presented.uploaded_active_override_revision == Some(override_revision)
-        }
-        None => presented.uploaded_revision == terminal.surface_revision,
-    };
-    has_surface
-        && uploaded_matches
-        && presented.texture_state.texture_size != UVec2::ONE
-        && presented.texture_state.cell_size != UVec2::ZERO
+    terminal_readiness_for_id(
+        terminal_id,
+        terminal_manager,
+        presentation_store,
+        verification_overrides.presentation_override_revision_for(terminal_id),
+    )
+    .is_ready_for_capture()
 }
 
 /// Builds a deterministic synthetic terminal surface used by verification scenarios.

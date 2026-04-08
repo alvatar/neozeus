@@ -162,6 +162,42 @@ fn disabled_hud_module_still_requests_redraw_while_fading_out() {
 /// Verifies that disabling the info bar removes the top structural inset from the docked agent
 /// list.
 #[test]
+fn sync_structural_hud_layout_uses_canonical_info_bar_rect_for_agent_list_inset() {
+    let mut world = World::default();
+    let mut hud_state = HudState::default();
+    hud_state.insert(
+        HudWidgetKey::InfoBar,
+        crate::hud::default_hud_module_instance(&crate::hud::HUD_MODULE_DEFINITIONS[0]),
+    );
+    hud_state.insert(
+        HudWidgetKey::AgentList,
+        crate::hud::default_hud_module_instance(&crate::hud::HUD_MODULE_DEFINITIONS[1]),
+    );
+    let info_bar = hud_state
+        .get_mut(HudWidgetKey::InfoBar)
+        .expect("info bar should exist");
+    info_bar.shell.target_rect.h = 60.0;
+    info_bar.shell.current_rect.h = 12.0;
+    insert_test_hud_state(&mut world, hud_state);
+    world.spawn((
+        Window {
+            resolution: (1400, 900).into(),
+            ..default()
+        },
+        PrimaryWindow,
+    ));
+
+    world.run_system_once(sync_structural_hud_layout).unwrap();
+
+    let hud_state = snapshot_test_hud_state(&world);
+    let agent_list = hud_state
+        .get(HudWidgetKey::AgentList)
+        .expect("agent list should exist");
+    assert_eq!(agent_list.shell.target_rect.y, 60.0);
+    assert_eq!(agent_list.shell.current_rect.y, 60.0);
+}
+
+#[test]
 fn sync_structural_hud_layout_removes_header_inset_when_info_bar_is_disabled() {
     let mut world = World::default();
     let mut hud_state = HudState::default();

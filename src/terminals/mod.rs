@@ -15,6 +15,7 @@ mod presentation;
 mod presentation_state;
 mod pty_spawn;
 mod raster;
+mod readiness;
 mod registry;
 mod runtime;
 mod session_persistence;
@@ -54,6 +55,7 @@ pub(crate) use presentation_state::{
     TerminalPointerState, TerminalPresentation, TerminalPresentationStore, TerminalViewState,
 };
 pub(crate) use raster::{sync_terminal_texture, TerminalGlyphCache};
+pub(crate) use readiness::{terminal_readiness_for_id, TerminalReadiness};
 pub(crate) use registry::{
     poll_terminal_snapshots, TerminalFocusState, TerminalId, TerminalManager,
 };

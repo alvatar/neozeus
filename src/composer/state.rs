@@ -90,16 +90,6 @@ pub(crate) struct ComposerState {
 }
 
 impl ComposerState {
-    /// Returns whether the composer or direct-input mode currently owns keyboard capture.
-    pub(crate) fn keyboard_capture_active(
-        &self,
-        input_capture: &crate::hud::HudInputCaptureState,
-    ) -> bool {
-        self.message_editor.visible
-            || self.task_editor.visible
-            || input_capture.direct_input_terminal.is_some()
-    }
-
     /// Handles unbind agent.
     pub(crate) fn unbind_agent(&mut self, agent_id: AgentId) {
         self.message_drafts.remove(&agent_id);

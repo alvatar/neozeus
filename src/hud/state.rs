@@ -31,6 +31,13 @@ impl HudRect {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct HudModuleLayout {
+    pub(crate) enabled: bool,
+    pub(crate) rect: HudRect,
+    pub(crate) alpha: f32,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub(in crate::hud) struct HudModuleShell {
     pub(crate) enabled: bool,
@@ -41,6 +48,36 @@ pub(in crate::hud) struct HudModuleShell {
 }
 
 impl HudModuleShell {
+    pub(crate) fn canonical_layout(&self) -> HudModuleLayout {
+        HudModuleLayout {
+            enabled: self.enabled,
+            rect: self.target_rect,
+            alpha: self.target_alpha,
+        }
+    }
+
+    pub(crate) fn presentation_layout(&self) -> HudModuleLayout {
+        HudModuleLayout {
+            enabled: self.enabled,
+            rect: self.current_rect,
+            alpha: self.current_alpha,
+        }
+    }
+
+    pub(crate) fn set_canonical_rect(&mut self, rect: HudRect, snap_presentation: bool) {
+        self.target_rect = rect;
+        if snap_presentation {
+            self.current_rect = rect;
+        }
+    }
+
+    pub(crate) fn set_canonical_alpha(&mut self, alpha: f32, snap_presentation: bool) {
+        self.target_alpha = alpha;
+        if snap_presentation {
+            self.current_alpha = alpha;
+        }
+    }
+
     /// Returns the draggable titlebar strip for the module's current onscreen rectangle.
     ///
     /// The titlebar height is capped by the module height so tiny modules still produce a valid rect.
@@ -144,20 +181,24 @@ impl HudLayoutState {
     }
 
     /// Returns the current docked agent-list width when that module is enabled.
-    pub(crate) fn docked_agent_list_width(&self) -> f32 {
+    pub(crate) fn module_layout(&self, id: HudWidgetKey) -> Option<HudModuleLayout> {
         self.modules
-            .get(&HudWidgetKey::AgentList)
-            .filter(|module| module.shell.enabled)
-            .map(|module| module.shell.current_rect.w)
+            .get(&id)
+            .map(|module| module.shell.canonical_layout())
+    }
+
+    pub(crate) fn docked_agent_list_width(&self) -> f32 {
+        self.module_layout(HudWidgetKey::AgentList)
+            .filter(|layout| layout.enabled)
+            .map(|layout| layout.rect.w)
             .unwrap_or(0.0)
     }
 
     /// Returns the reserved top header height when the info-bar module is enabled.
     pub(crate) fn reserved_header_height(&self) -> f32 {
-        self.modules
-            .get(&HudWidgetKey::InfoBar)
-            .filter(|module| module.shell.enabled)
-            .map(|module| module.shell.current_rect.h)
+        self.module_layout(HudWidgetKey::InfoBar)
+            .filter(|layout| layout.enabled)
+            .map(|layout| layout.rect.h)
             .unwrap_or(0.0)
     }
 
@@ -213,8 +254,9 @@ impl HudLayoutState {
             return;
         }
         module.shell.enabled = enabled;
-        module.shell.target_alpha = if enabled { 1.0 } else { 0.0 };
-        module.shell.current_alpha = module.shell.target_alpha;
+        module
+            .shell
+            .set_canonical_alpha(if enabled { 1.0 } else { 0.0 }, true);
         self.dirty_layout = true;
     }
 

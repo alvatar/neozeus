@@ -11,6 +11,7 @@ use super::{
         TerminalTextureState, TerminalViewState,
     },
     raster::create_terminal_image,
+    readiness::terminal_readiness,
     registry::{ManagedTerminal, TerminalFocusState, TerminalId, TerminalManager},
     runtime::TerminalRuntimeSpawner,
     types::{TerminalDimensions, TerminalSurface},
@@ -315,10 +316,7 @@ fn terminal_has_presentable_uploaded_frame(
     terminal: &ManagedTerminal,
     presented_terminal: &PresentedTerminal,
 ) -> bool {
-    terminal.snapshot.surface.is_some()
-        && presented_terminal.uploaded_revision == terminal.surface_revision
-        && presented_terminal.texture_state.texture_size != UVec2::ONE
-        && presented_terminal.texture_state.cell_size != UVec2::ZERO
+    terminal_readiness(Some(terminal), Some(presented_terminal), None).is_ready_for_capture()
 }
 
 #[allow(

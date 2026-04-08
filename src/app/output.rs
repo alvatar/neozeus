@@ -114,8 +114,16 @@ pub(crate) fn resolve_output_dimension(raw: Option<&str>, default: u32) -> u32 {
         .unwrap_or(default)
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum FinalFrameOutputTargetKind {
+    #[default]
+    Window,
+    OffscreenImage,
+}
+
 #[derive(Resource, Clone, Debug, Default)]
 pub(crate) struct FinalFrameOutputState {
+    pub(crate) target_kind: FinalFrameOutputTargetKind,
     pub(crate) target_image: Option<Handle<Image>>,
     pub(crate) size: UVec2,
 }
@@ -127,8 +135,45 @@ impl FinalFrameOutputState {
     /// to assert the state transition without depending on the resource layout.
     #[cfg(test)]
     pub(crate) fn enabled(&self) -> bool {
-        self.target_image.is_some()
+        self.target_kind == FinalFrameOutputTargetKind::OffscreenImage
     }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum FinalFrameCaptureReadiness {
+    WaitingForScenario,
+    WaitingForBarrier,
+    WaitingForDelay,
+    WaitingForTarget,
+    WaitingForImageAsset,
+    Ready,
+}
+
+fn final_frame_capture_readiness(
+    config: &FinalFrameCaptureConfig,
+    verification_scenario: Option<&VerificationScenarioConfig>,
+    verification_barrier: Option<&VerificationCaptureBarrierState>,
+    output_state: &FinalFrameOutputState,
+    images: &Assets<Image>,
+) -> FinalFrameCaptureReadiness {
+    if verification_scenario.is_some_and(|scenario| !scenario.applied) {
+        return FinalFrameCaptureReadiness::WaitingForScenario;
+    }
+    if verification_scenario.is_some()
+        && !verification_barrier.is_some_and(|barrier| barrier.ready())
+    {
+        return FinalFrameCaptureReadiness::WaitingForBarrier;
+    }
+    if config.frames_until_capture > 0 {
+        return FinalFrameCaptureReadiness::WaitingForDelay;
+    }
+    let Some(target_image) = output_state.target_image.as_ref() else {
+        return FinalFrameCaptureReadiness::WaitingForTarget;
+    };
+    if images.get(target_image.id()).is_none() {
+        return FinalFrameCaptureReadiness::WaitingForImageAsset;
+    }
+    FinalFrameCaptureReadiness::Ready
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -238,6 +283,7 @@ fn resolve_scene_output_target(
     output_state: &mut FinalFrameOutputState,
 ) -> SceneOutputTarget {
     if !output.mode.is_offscreen() {
+        output_state.target_kind = FinalFrameOutputTargetKind::Window;
         output_state.target_image = None;
         output_state.size = UVec2::ZERO;
         return SceneOutputTarget::Window;
@@ -254,6 +300,7 @@ fn resolve_scene_output_target(
         output_state.target_image = Some(images.add(create_final_frame_image(target_size)));
         output_state.size = target_size;
     }
+    output_state.target_kind = FinalFrameOutputTargetKind::OffscreenImage;
     if let Some(target_image) = output_state.target_image.clone() {
         SceneOutputTarget::Image(target_image)
     } else {
@@ -327,34 +374,39 @@ pub(crate) fn request_final_frame_capture(
     if config.completed {
         return;
     }
-    let scenario_active = verification_scenario.is_some();
-    if verification_scenario
-        .as_ref()
-        .is_some_and(|scenario| !scenario.applied)
-    {
-        redraws.write(RequestRedraw);
-        return;
-    }
-    if scenario_active && !verification_barrier.is_some_and(|barrier| barrier.ready()) {
-        redraws.write(RequestRedraw);
-        return;
-    }
     redraws.write(RequestRedraw);
     if config.requested {
         return;
     }
-    // The extra frame delay exists because some verification scenarios intentionally need a couple
-    // of frames after becoming "applied" before the rendered image is the one we actually want.
-    if config.frames_until_capture > 0 {
-        config.frames_until_capture -= 1;
-        return;
+    match final_frame_capture_readiness(
+        &config,
+        verification_scenario.as_deref(),
+        verification_barrier.as_deref(),
+        &output_state,
+        &images,
+    ) {
+        FinalFrameCaptureReadiness::WaitingForScenario
+        | FinalFrameCaptureReadiness::WaitingForBarrier => return,
+        FinalFrameCaptureReadiness::WaitingForDelay => {
+            config.frames_until_capture -= 1;
+            return;
+        }
+        FinalFrameCaptureReadiness::WaitingForTarget => {
+            crate::terminals::append_debug_log("final frame capture waiting for target image");
+            return;
+        }
+        FinalFrameCaptureReadiness::WaitingForImageAsset => {
+            crate::terminals::append_debug_log(
+                "final frame capture waiting for target image asset",
+            );
+            return;
+        }
+        FinalFrameCaptureReadiness::Ready => {}
     }
     let Some(target_image) = output_state.target_image.clone() else {
-        crate::terminals::append_debug_log("final frame capture waiting for target image");
         return;
     };
     let Some(image) = images.get(target_image.id()) else {
-        crate::terminals::append_debug_log("final frame capture waiting for target image asset");
         return;
     };
     crate::terminals::append_debug_log(format!(

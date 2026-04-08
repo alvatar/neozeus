@@ -13,7 +13,7 @@ mod widgets;
 pub(crate) use clone_pi_agent::clone_pi_agent;
 pub(crate) use composer::{cancel_composer, open_composer, submit_composer};
 pub(crate) use conversation::send_message;
-pub(crate) use focus_agent::focus_agent;
+pub(crate) use focus_agent::{apply_focus_intent, focus_agent};
 pub(crate) use kill_selected_agent::kill_selected_agent;
 pub(crate) use owned_tmux::{kill_selected_owned_tmux, select_owned_tmux};
 pub(crate) use restore_app::restore_app;

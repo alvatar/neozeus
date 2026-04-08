@@ -74,10 +74,10 @@ pub(crate) fn setup_hud(
         let mut module = default_hud_module_instance(definition);
         if let Some((enabled, rect)) = persisted.get(&definition.key) {
             module.shell.enabled = *enabled;
-            module.shell.target_rect = *rect;
-            module.shell.current_rect = *rect;
-            module.shell.target_alpha = if *enabled { 1.0 } else { 0.0 };
-            module.shell.current_alpha = module.shell.target_alpha;
+            module.shell.set_canonical_rect(*rect, true);
+            module
+                .shell
+                .set_canonical_alpha(if *enabled { 1.0 } else { 0.0 }, true);
         }
         layout_state.insert(definition.key, module);
     }
@@ -125,19 +125,17 @@ pub(crate) fn sync_structural_hud_layout(
 ) {
     let info_bar_rect = docked_info_bar_rect(&primary_window);
     if let Some(info_bar) = layout_state.get_mut(HudWidgetKey::InfoBar) {
-        info_bar.shell.target_rect = info_bar_rect;
-        info_bar.shell.current_rect = info_bar_rect;
+        info_bar.shell.set_canonical_rect(info_bar_rect, true);
     }
 
     let reserved_top = layout_state
-        .get(HudWidgetKey::InfoBar)
-        .filter(|module| module.shell.enabled)
-        .map(|module| module.shell.current_rect.h)
+        .module_layout(HudWidgetKey::InfoBar)
+        .filter(|layout| layout.enabled)
+        .map(|layout| layout.rect.h)
         .unwrap_or(0.0);
     let agent_list_rect = docked_agent_list_rect_with_top_inset(&primary_window, reserved_top);
     if let Some(agent_list) = layout_state.get_mut(HudWidgetKey::AgentList) {
-        agent_list.shell.target_rect = agent_list_rect;
-        agent_list.shell.current_rect = agent_list_rect;
+        agent_list.shell.set_canonical_rect(agent_list_rect, true);
     }
 
     let module_ids = layout_state.iter_z_order().collect::<Vec<_>>();
@@ -148,11 +146,15 @@ pub(crate) fn sync_structural_hud_layout(
         let Some(module) = layout_state.get_mut(module_id) else {
             continue;
         };
-        if module.shell.target_rect.y < reserved_top {
-            module.shell.target_rect.y = reserved_top;
+        let mut canonical_rect = module.shell.canonical_layout().rect;
+        if canonical_rect.y < reserved_top {
+            canonical_rect.y = reserved_top;
+            module.shell.set_canonical_rect(canonical_rect, false);
         }
-        if module.shell.current_rect.y < reserved_top {
-            module.shell.current_rect.y = reserved_top;
+        if module.shell.presentation_layout().rect.y < reserved_top {
+            let mut presented_rect = module.shell.presentation_layout().rect;
+            presented_rect.y = reserved_top;
+            module.shell.current_rect = presented_rect;
         }
     }
 }

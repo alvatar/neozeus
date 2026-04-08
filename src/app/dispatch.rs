@@ -44,7 +44,8 @@ fn purge_removed_agent_state(
     let agent_uid = agent_catalog.uid(agent_id).map(str::to_owned);
     let _ = agent_catalog.remove(agent_id);
     app_session.composer.unbind_agent(agent_id);
-    if *selection == crate::hud::AgentListSelection::Agent(agent_id) {
+    if app_session.focus_intent.selected_agent() == Some(agent_id) {
+        app_session.focus_intent.clear(VisibilityMode::ShowAll);
         *selection = crate::hud::AgentListSelection::None;
     }
 
@@ -67,6 +68,18 @@ fn purge_removed_agent_state(
 /// The sync is intentionally conservative: missing agent records are created, stale links are
 /// removed, and runtime lifecycle is refreshed. It does not overwrite explicit catalog labels once
 /// an agent exists, and it only clears row selection when the selected agent disappears.
+#[derive(SystemParam)]
+pub(crate) struct FocusProjectionContext<'w> {
+    selection: ResMut<'w, crate::hud::AgentListSelection>,
+    focus_state: Option<ResMut<'w, TerminalFocusState>>,
+    input_capture: Option<ResMut<'w, HudInputCaptureState>>,
+    visibility_state: Option<ResMut<'w, TerminalVisibilityState>>,
+    view_state: Option<ResMut<'w, TerminalViewState>>,
+    owned_tmux_sessions: Option<Res<'w, OwnedTmuxSessionStore>>,
+    active_terminal_content: Option<ResMut<'w, ActiveTerminalContentState>>,
+    terminal_manager: ResMut<'w, TerminalManager>,
+}
+
 #[allow(
     clippy::too_many_arguments,
     reason = "terminal reconciliation now owns cleanup parity across agent, task, conversation, and note stores"
@@ -76,16 +89,16 @@ pub(crate) fn sync_agents_from_terminals(
     mut agent_catalog: ResMut<AgentCatalog>,
     mut runtime_index: ResMut<AgentRuntimeIndex>,
     mut app_session: ResMut<AppSessionState>,
-    mut selection: ResMut<crate::hud::AgentListSelection>,
     mut task_store: ResMut<AgentTaskStore>,
     mut conversations: ResMut<ConversationStore>,
     mut conversation_persistence: ResMut<ConversationPersistenceState>,
     mut notes_state: ResMut<TerminalNotesState>,
     mut app_state_persistence: ResMut<AppStatePersistenceState>,
-    terminal_manager: Res<TerminalManager>,
+    mut focus: FocusProjectionContext,
 ) {
     // Rebuild the derived or projected state from the authoritative resources in one pass so partial updates cannot drift.
-    let existing_terminals = terminal_manager
+    let existing_terminals = focus
+        .terminal_manager
         .terminal_ids()
         .iter()
         .copied()
@@ -96,14 +109,16 @@ pub(crate) fn sync_agents_from_terminals(
         .copied()
         .filter(|terminal_id| !existing_terminals.contains(terminal_id))
         .collect::<Vec<_>>();
+    let mut removed_any_terminal = false;
     for terminal_id in stale_terminals {
         if let Some(agent_id) = runtime_index.remove_terminal(terminal_id) {
+            removed_any_terminal = true;
             purge_removed_agent_state(
                 &time,
                 agent_id,
                 &mut agent_catalog,
                 &mut app_session,
-                &mut selection,
+                &mut focus.selection,
                 &mut task_store,
                 &mut conversations,
                 &mut conversation_persistence,
@@ -113,8 +128,8 @@ pub(crate) fn sync_agents_from_terminals(
         }
     }
 
-    for terminal_id in terminal_manager.terminal_ids().iter().copied() {
-        let Some(terminal) = terminal_manager.get(terminal_id) else {
+    for terminal_id in focus.terminal_manager.terminal_ids().iter().copied() {
+        let Some(terminal) = focus.terminal_manager.get(terminal_id) else {
             continue;
         };
         let _agent_id = runtime_index
@@ -136,6 +151,46 @@ pub(crate) fn sync_agents_from_terminals(
                 agent_id
             });
         runtime_index.update_runtime(terminal_id, &terminal.snapshot.runtime);
+    }
+
+    if removed_any_terminal {
+        let default_owned_tmux_sessions = OwnedTmuxSessionStore::default();
+        let mut default_active_terminal_content = ActiveTerminalContentState::default();
+        let mut default_focus_state = TerminalFocusState::default();
+        let mut default_input_capture = HudInputCaptureState::default();
+        let mut default_view_state = TerminalViewState::default();
+        let mut default_visibility_state = TerminalVisibilityState::default();
+        use_cases::apply_focus_intent(
+            &mut app_session,
+            &agent_catalog,
+            &runtime_index,
+            focus
+                .owned_tmux_sessions
+                .as_deref()
+                .unwrap_or(&default_owned_tmux_sessions),
+            &mut focus.selection,
+            focus
+                .active_terminal_content
+                .as_deref_mut()
+                .unwrap_or(&mut default_active_terminal_content),
+            &mut focus.terminal_manager,
+            focus
+                .focus_state
+                .as_deref_mut()
+                .unwrap_or(&mut default_focus_state),
+            focus
+                .input_capture
+                .as_deref_mut()
+                .unwrap_or(&mut default_input_capture),
+            focus
+                .view_state
+                .as_deref_mut()
+                .unwrap_or(&mut default_view_state),
+            focus
+                .visibility_state
+                .as_deref_mut()
+                .unwrap_or(&mut default_visibility_state),
+        );
     }
 }
 
@@ -210,6 +265,8 @@ pub(super) fn apply_app_commands(
                         &mut ctx.selection,
                         &mut ctx.terminal_manager,
                         &mut ctx.focus_state,
+                        &ctx.owned_tmux_sessions,
+                        &mut ctx.active_terminal_content,
                         &ctx.runtime_spawner,
                         &mut ctx.input_capture,
                         &mut ctx.app_state_persistence,
@@ -283,6 +340,8 @@ pub(super) fn apply_app_commands(
                         &mut ctx.selection,
                         &mut ctx.terminal_manager,
                         &mut ctx.focus_state,
+                        &ctx.owned_tmux_sessions,
+                        &mut ctx.active_terminal_content,
                         &ctx.runtime_spawner,
                         &mut ctx.input_capture,
                         &mut ctx.app_state_persistence,
@@ -302,14 +361,15 @@ pub(super) fn apply_app_commands(
                     }
                 }
                 AgentCommand::Focus(agent_id) => {
-                    ctx.selection
-                        .clone_from(&crate::hud::AgentListSelection::Agent(*agent_id));
-                    ctx.active_terminal_content.clear();
-                    ctx.app_session.visibility_mode = VisibilityMode::ShowAll;
                     use_cases::focus_agent(
                         *agent_id,
+                        VisibilityMode::ShowAll,
                         &mut ctx.app_session,
+                        &ctx.agent_catalog,
                         &ctx.runtime_index,
+                        &ctx.owned_tmux_sessions,
+                        &mut ctx.selection,
+                        &mut ctx.active_terminal_content,
                         &mut ctx.terminal_manager,
                         &mut ctx.focus_state,
                         &mut ctx.input_capture,
@@ -321,14 +381,15 @@ pub(super) fn apply_app_commands(
                     );
                 }
                 AgentCommand::Inspect(agent_id) => {
-                    ctx.selection
-                        .clone_from(&crate::hud::AgentListSelection::Agent(*agent_id));
-                    ctx.active_terminal_content.clear();
-                    ctx.app_session.visibility_mode = VisibilityMode::FocusedOnly;
                     use_cases::focus_agent(
                         *agent_id,
+                        VisibilityMode::FocusedOnly,
                         &mut ctx.app_session,
+                        &ctx.agent_catalog,
                         &ctx.runtime_index,
+                        &ctx.owned_tmux_sessions,
+                        &mut ctx.selection,
+                        &mut ctx.active_terminal_content,
                         &mut ctx.terminal_manager,
                         &mut ctx.focus_state,
                         &mut ctx.input_capture,
@@ -349,23 +410,37 @@ pub(super) fn apply_app_commands(
                     }
                 }
                 AgentCommand::ClearFocus => {
-                    ctx.selection
-                        .clone_from(&crate::hud::AgentListSelection::None);
-                    ctx.active_terminal_content.clear();
-                    let _ = ctx.focus_state.clear_active_terminal();
-                    #[cfg(test)]
-                    ctx.terminal_manager
-                        .replace_test_focus_state(&ctx.focus_state);
-                    ctx.visibility_state.policy = crate::hud::TerminalVisibilityPolicy::ShowAll;
-                    ctx.view_state.focus_terminal(None);
-                    ctx.input_capture
-                        .reconcile_direct_terminal_input(ctx.focus_state.active_id());
+                    ctx.app_session.focus_intent.clear(VisibilityMode::ShowAll);
+                    use_cases::apply_focus_intent(
+                        &mut ctx.app_session,
+                        &ctx.agent_catalog,
+                        &ctx.runtime_index,
+                        &ctx.owned_tmux_sessions,
+                        &mut ctx.selection,
+                        &mut ctx.active_terminal_content,
+                        &mut ctx.terminal_manager,
+                        &mut ctx.focus_state,
+                        &mut ctx.input_capture,
+                        &mut ctx.view_state,
+                        &mut ctx.visibility_state,
+                    );
                     mark_app_state_dirty(&mut ctx.app_state_persistence, Some(&ctx.time));
                     ctx.redraws.write(RequestRedraw);
                 }
                 AgentCommand::KillSelected => {
-                    let crate::hud::AgentListSelection::Agent(agent_id) = *ctx.selection else {
-                        continue;
+                    let agent_id = match ctx.app_session.focus_intent.selected_agent() {
+                        Some(agent_id) => agent_id,
+                        None => match *ctx.selection {
+                            crate::hud::AgentListSelection::Agent(agent_id) => {
+                                let visibility_mode = ctx.app_session.visibility_mode();
+                                ctx.app_session
+                                    .focus_intent
+                                    .focus_agent(agent_id, visibility_mode);
+                                agent_id
+                            }
+                            crate::hud::AgentListSelection::None
+                            | crate::hud::AgentListSelection::OwnedTmux(_) => continue,
+                        },
                     };
                     ctx.active_terminal_content.clear();
                     if let Err(error) = use_cases::kill_selected_agent(
@@ -382,6 +457,8 @@ pub(super) fn apply_app_commands(
                         &mut ctx.terminal_manager,
                         &mut ctx.focus_state,
                         &ctx.runtime_spawner,
+                        &ctx.owned_tmux_sessions,
+                        &mut ctx.active_terminal_content,
                         &mut ctx.input_capture,
                         &mut ctx.app_state_persistence,
                         &mut ctx.visibility_state,
@@ -412,13 +489,32 @@ pub(super) fn apply_app_commands(
                     );
                 }
                 OwnedTmuxCommand::ClearSelection => {
-                    ctx.selection
-                        .clone_from(&crate::hud::AgentListSelection::None);
-                    ctx.active_terminal_content.clear();
+                    ctx.app_session.focus_intent.clear(VisibilityMode::ShowAll);
+                    use_cases::apply_focus_intent(
+                        &mut ctx.app_session,
+                        &ctx.agent_catalog,
+                        &ctx.runtime_index,
+                        &ctx.owned_tmux_sessions,
+                        &mut ctx.selection,
+                        &mut ctx.active_terminal_content,
+                        &mut ctx.terminal_manager,
+                        &mut ctx.focus_state,
+                        &mut ctx.input_capture,
+                        &mut ctx.view_state,
+                        &mut ctx.visibility_state,
+                    );
                     ctx.redraws.write(RequestRedraw);
                 }
                 OwnedTmuxCommand::KillSelected => {
                     use_cases::kill_selected_owned_tmux(
+                        &mut ctx.app_session,
+                        &ctx.agent_catalog,
+                        &ctx.runtime_index,
+                        &mut ctx.terminal_manager,
+                        &mut ctx.focus_state,
+                        &mut ctx.input_capture,
+                        &mut ctx.view_state,
+                        &mut ctx.visibility_state,
                         &ctx.runtime_spawner,
                         &mut ctx.selection,
                         &mut ctx.owned_tmux_sessions,

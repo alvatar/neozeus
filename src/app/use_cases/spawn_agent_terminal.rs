@@ -1,16 +1,20 @@
 use crate::{
     agents::{AgentCatalog, AgentId, AgentKind, AgentMetadata, AgentRuntimeIndex},
     app::{mark_app_state_dirty, AppStatePersistenceState},
-    hud::{HudInputCaptureState, TerminalVisibilityPolicy, TerminalVisibilityState},
+    hud::{HudInputCaptureState, TerminalVisibilityState},
     shared::pi_session_files::make_new_session_path,
     startup::StartupLoadingState,
     terminals::{
-        append_debug_log, attach_terminal_session, resolve_daemon_socket_path, TerminalFocusState,
-        TerminalManager, TerminalRuntimeSpawner, TerminalViewState,
+        append_debug_log, attach_terminal_session, resolve_daemon_socket_path,
+        ActiveTerminalContentState, OwnedTmuxSessionStore, TerminalFocusState, TerminalManager,
+        TerminalRuntimeSpawner, TerminalViewState,
     },
 };
 
-use super::super::session::{AppSessionState, VisibilityMode};
+use super::{
+    super::session::{AppSessionState, VisibilityMode},
+    apply_focus_intent,
+};
 use bevy::{prelude::*, window::RequestRedraw};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -75,6 +79,8 @@ pub(crate) fn spawn_agent_terminal_with_launch_spec(
     selection: &mut crate::hud::AgentListSelection,
     terminal_manager: &mut TerminalManager,
     focus_state: &mut TerminalFocusState,
+    owned_tmux_sessions: &OwnedTmuxSessionStore,
+    active_terminal_content: &mut ActiveTerminalContentState,
     runtime_spawner: &TerminalRuntimeSpawner,
     input_capture: &mut HudInputCaptureState,
     app_state_persistence: &mut AppStatePersistenceState,
@@ -133,11 +139,22 @@ pub(crate) fn spawn_agent_terminal_with_launch_spec(
         .get(terminal_id)
         .map(|terminal| &terminal.snapshot.runtime);
     runtime_index.link_terminal(agent_id, terminal_id, session_name.clone(), runtime);
-    *selection = crate::hud::AgentListSelection::Agent(agent_id);
-    input_capture.reconcile_direct_terminal_input(focus_state.active_id());
-    view_state.focus_terminal(Some(terminal_id));
-    app_session.visibility_mode = VisibilityMode::FocusedOnly;
-    visibility_state.policy = TerminalVisibilityPolicy::Isolate(terminal_id);
+    app_session
+        .focus_intent
+        .focus_agent(agent_id, VisibilityMode::FocusedOnly);
+    apply_focus_intent(
+        app_session,
+        agent_catalog,
+        runtime_index,
+        owned_tmux_sessions,
+        selection,
+        active_terminal_content,
+        terminal_manager,
+        focus_state,
+        input_capture,
+        view_state,
+        visibility_state,
+    );
     mark_app_state_dirty(app_state_persistence, Some(time));
     if let Some(startup_loading) = startup_loading {
         startup_loading.register(terminal_id);
@@ -162,6 +179,8 @@ pub(crate) fn spawn_agent_terminal(
     selection: &mut crate::hud::AgentListSelection,
     terminal_manager: &mut TerminalManager,
     focus_state: &mut TerminalFocusState,
+    owned_tmux_sessions: &OwnedTmuxSessionStore,
+    active_terminal_content: &mut ActiveTerminalContentState,
     runtime_spawner: &TerminalRuntimeSpawner,
     input_capture: &mut HudInputCaptureState,
     app_state_persistence: &mut AppStatePersistenceState,
@@ -183,6 +202,8 @@ pub(crate) fn spawn_agent_terminal(
         selection,
         terminal_manager,
         focus_state,
+        owned_tmux_sessions,
+        active_terminal_content,
         runtime_spawner,
         input_capture,
         app_state_persistence,
@@ -399,6 +420,8 @@ mod tests {
         world.insert_resource(crate::hud::AgentListSelection::default());
         world.insert_resource(TerminalManager::default());
         world.insert_resource(TerminalFocusState::default());
+        world.insert_resource(crate::terminals::OwnedTmuxSessionStore::default());
+        world.insert_resource(crate::terminals::ActiveTerminalContentState::default());
         world.insert_resource(runtime_spawner);
         world.insert_resource(crate::hud::HudInputCaptureState::default());
         world.insert_resource(AppStatePersistenceState::default());
@@ -415,6 +438,10 @@ mod tests {
                  mut selection: ResMut<crate::hud::AgentListSelection>,
                  mut terminal_manager: ResMut<TerminalManager>,
                  mut focus_state: ResMut<TerminalFocusState>,
+                 owned_tmux_sessions: Res<crate::terminals::OwnedTmuxSessionStore>,
+                 mut active_terminal_content: ResMut<
+                    crate::terminals::ActiveTerminalContentState,
+                >,
                  runtime_spawner: Res<TerminalRuntimeSpawner>,
                  mut input_capture: ResMut<crate::hud::HudInputCaptureState>,
                  mut app_state_persistence: ResMut<AppStatePersistenceState>,
@@ -428,6 +455,8 @@ mod tests {
                         &mut selection,
                         &mut terminal_manager,
                         &mut focus_state,
+                        &owned_tmux_sessions,
+                        &mut active_terminal_content,
                         &runtime_spawner,
                         &mut input_capture,
                         &mut app_state_persistence,

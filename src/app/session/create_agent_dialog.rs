@@ -409,6 +409,10 @@ impl CreateAgentDialogState {
         self.cwd_field.clear();
     }
 
+    #[allow(
+        dead_code,
+        reason = "capture ownership is derived centrally through AppSessionState::input_owner"
+    )]
     /// Returns whether this dialog currently owns keyboard capture.
     pub(crate) fn keyboard_capture_active(&self) -> bool {
         self.visible
@@ -479,6 +483,10 @@ impl CloneAgentDialogState {
         self.name_field.clear();
     }
 
+    #[allow(
+        dead_code,
+        reason = "capture ownership is derived centrally through AppSessionState::input_owner"
+    )]
     /// Returns whether this dialog currently owns keyboard capture.
     pub(crate) fn keyboard_capture_active(&self) -> bool {
         self.visible
@@ -535,6 +543,10 @@ impl RenameAgentDialogState {
         self.name_field.clear();
     }
 
+    #[allow(
+        dead_code,
+        reason = "capture ownership is derived centrally through AppSessionState::input_owner"
+    )]
     /// Returns whether this dialog currently owns keyboard capture.
     pub(crate) fn keyboard_capture_active(&self) -> bool {
         self.visible

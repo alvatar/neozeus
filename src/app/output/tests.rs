@@ -282,6 +282,7 @@ fn final_frame_capture_waits_for_verification_capture_barrier() {
     let mut images = Assets::<Image>::default();
     let target = images.add(create_final_frame_image(UVec2::new(8, 8)));
     world.insert_resource(FinalFrameOutputState {
+        target_kind: FinalFrameOutputTargetKind::OffscreenImage,
         target_image: Some(target),
         size: UVec2::new(8, 8),
     });

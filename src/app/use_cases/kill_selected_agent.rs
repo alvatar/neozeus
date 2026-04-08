@@ -4,14 +4,18 @@ use crate::{
     conversations::{
         mark_conversations_dirty, AgentTaskStore, ConversationPersistenceState, ConversationStore,
     },
-    hud::{HudInputCaptureState, TerminalVisibilityPolicy, TerminalVisibilityState},
+    hud::{HudInputCaptureState, TerminalVisibilityState},
     terminals::{
-        kill_terminal_session_and_remove, mark_terminal_notes_dirty, TerminalFocusState,
-        TerminalManager, TerminalNotesState, TerminalRuntimeSpawner, TerminalViewState,
+        kill_terminal_session_and_remove, mark_terminal_notes_dirty, ActiveTerminalContentState,
+        OwnedTmuxSessionStore, TerminalFocusState, TerminalManager, TerminalNotesState,
+        TerminalRuntimeSpawner, TerminalViewState,
     },
 };
 
-use super::super::session::{AppSessionState, VisibilityMode};
+use super::{
+    super::session::{AppSessionState, VisibilityMode},
+    apply_focus_intent,
+};
 use bevy::{prelude::*, window::RequestRedraw};
 
 /// Handles adjacent agent in catalog.
@@ -46,6 +50,8 @@ pub(crate) fn kill_selected_agent(
     terminal_manager: &mut TerminalManager,
     focus_state: &mut TerminalFocusState,
     runtime_spawner: &TerminalRuntimeSpawner,
+    owned_tmux_sessions: &OwnedTmuxSessionStore,
+    active_terminal_content: &mut ActiveTerminalContentState,
     input_capture: &mut HudInputCaptureState,
     app_state_persistence: &mut AppStatePersistenceState,
     visibility_state: &mut TerminalVisibilityState,
@@ -109,28 +115,26 @@ pub(crate) fn kill_selected_agent(
     }
     view_state.forget_terminal(terminal_id);
     app_session.composer.unbind_agent(selected_agent);
-    *selection = replacement_agent
-        .map(crate::hud::AgentListSelection::Agent)
-        .unwrap_or(crate::hud::AgentListSelection::None);
-
     if let Some(replacement_agent) = replacement_agent {
-        if let Some(replacement_terminal) = runtime_index.primary_terminal(replacement_agent) {
-            focus_state.focus_terminal(terminal_manager, replacement_terminal);
-            #[cfg(test)]
-            terminal_manager.replace_test_focus_state(focus_state);
-            view_state.focus_terminal(Some(replacement_terminal));
-            visibility_state.policy = match app_session.visibility_mode {
-                VisibilityMode::ShowAll => TerminalVisibilityPolicy::ShowAll,
-                VisibilityMode::FocusedOnly => {
-                    TerminalVisibilityPolicy::Isolate(replacement_terminal)
-                }
-            };
-        }
+        app_session
+            .focus_intent
+            .focus_agent(replacement_agent, app_session.visibility_mode());
     } else {
-        visibility_state.policy = TerminalVisibilityPolicy::ShowAll;
-        view_state.focus_terminal(None);
+        app_session.focus_intent.clear(VisibilityMode::ShowAll);
     }
-    input_capture.reconcile_direct_terminal_input(focus_state.active_id());
+    apply_focus_intent(
+        app_session,
+        agent_catalog,
+        runtime_index,
+        owned_tmux_sessions,
+        selection,
+        active_terminal_content,
+        terminal_manager,
+        focus_state,
+        input_capture,
+        view_state,
+        visibility_state,
+    );
     redraws.write(RequestRedraw);
     Ok(Some(selected_agent))
 }

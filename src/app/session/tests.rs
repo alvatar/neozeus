@@ -1,7 +1,7 @@
 use super::{
     AppSessionState, CloneAgentDialogField, CloneAgentDialogState, CreateAgentDialogField,
-    CreateAgentDialogState, CreateAgentKind, RenameAgentDialogField, RenameAgentDialogState,
-    TextFieldState, VisibilityMode,
+    CreateAgentDialogState, CreateAgentKind, DialogInputOwner, FocusIntentState, InputOwner,
+    RenameAgentDialogField, RenameAgentDialogState, TextFieldState, VisibilityMode,
 };
 use crate::hud::HudInputCaptureState;
 
@@ -9,12 +9,15 @@ use crate::hud::HudInputCaptureState;
 #[test]
 fn session_visibility_mode_updates() {
     let mut session = AppSessionState {
-        visibility_mode: VisibilityMode::FocusedOnly,
+        focus_intent: FocusIntentState {
+            visibility_mode: VisibilityMode::FocusedOnly,
+            ..Default::default()
+        },
         ..Default::default()
     };
-    assert_eq!(session.visibility_mode, VisibilityMode::FocusedOnly);
-    session.visibility_mode = VisibilityMode::ShowAll;
-    assert_eq!(session.visibility_mode, VisibilityMode::ShowAll);
+    assert_eq!(session.visibility_mode(), VisibilityMode::FocusedOnly);
+    session.focus_intent.visibility_mode = VisibilityMode::ShowAll;
+    assert_eq!(session.visibility_mode(), VisibilityMode::ShowAll);
 }
 
 /// Verifies that opening the create-agent dialog resets its fields to the requested defaults.
@@ -61,6 +64,34 @@ fn create_agent_dialog_counts_as_keyboard_capture() {
     assert!(!session.keyboard_capture_active(&HudInputCaptureState::default()));
     session.create_agent_dialog.open(CreateAgentKind::Pi);
     assert!(session.keyboard_capture_active(&HudInputCaptureState::default()));
+}
+
+#[test]
+fn input_owner_prioritizes_visible_modal_over_direct_terminal_capture() {
+    let mut session = AppSessionState::default();
+    let input_capture = HudInputCaptureState {
+        direct_input_terminal: Some(crate::terminals::TerminalId(7)),
+    };
+
+    session.create_agent_dialog.open(CreateAgentKind::Pi);
+
+    assert_eq!(
+        session.input_owner(&input_capture),
+        InputOwner::Dialog(DialogInputOwner::CreateAgent)
+    );
+}
+
+#[test]
+fn input_owner_reports_direct_terminal_when_no_modal_is_visible() {
+    let session = AppSessionState::default();
+    let input_capture = HudInputCaptureState {
+        direct_input_terminal: Some(crate::terminals::TerminalId(7)),
+    };
+
+    assert_eq!(
+        session.input_owner(&input_capture),
+        InputOwner::DirectTerminal(crate::terminals::TerminalId(7))
+    );
 }
 
 #[test]

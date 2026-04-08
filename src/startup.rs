@@ -11,10 +11,10 @@ use crate::{
     },
     terminals::{
         append_debug_log, attach_terminal_session, refresh_owned_tmux_sessions_now,
-        resolve_terminal_notes_path, OwnedTmuxSessionStore, TerminalCameraMarker,
-        TerminalFocusState, TerminalHudSurfaceMarker, TerminalManager, TerminalPanel,
-        TerminalPresentation, TerminalPresentationStore, TerminalRuntimeSpawner,
-        VERIFIER_SESSION_PREFIX,
+        resolve_terminal_notes_path, terminal_readiness_for_id, OwnedTmuxSessionStore,
+        TerminalCameraMarker, TerminalFocusState, TerminalHudSurfaceMarker, TerminalManager,
+        TerminalPanel, TerminalPresentation, TerminalPresentationStore, TerminalReadiness,
+        TerminalRuntimeSpawner, VERIFIER_SESSION_PREFIX,
     },
     verification::{start_auto_verify_dispatcher, AutoVerifyConfig, VerificationScenarioConfig},
     visual_contract::VisualContractState,
@@ -207,6 +207,7 @@ struct SceneSetupContext<'w, 's> {
     view_state: ResMut<'w, crate::terminals::TerminalViewState>,
     startup_loading: Option<ResMut<'w, StartupLoadingState>>,
     owned_tmux_sessions: Option<ResMut<'w, OwnedTmuxSessionStore>>,
+    active_terminal_content: Option<ResMut<'w, crate::terminals::ActiveTerminalContentState>>,
     redraws: MessageWriter<'w, RequestRedraw>,
     time: Res<'w, Time>,
 }
@@ -249,6 +250,7 @@ pub(crate) fn choose_startup_focus_session_name<'a>(
 /// If a terminal could be focused, startup goes into isolate mode so the chosen terminal becomes the
 /// primary view. If nothing interactive could be focused, the app falls back to `ShowAll` so the
 /// restored disconnected sessions remain visible instead of disappearing behind an empty focus slot.
+#[cfg(test)]
 pub(crate) fn startup_visibility_policy_for_focus(
     focused_id: Option<crate::terminals::TerminalId>,
 ) -> TerminalVisibilityPolicy {
@@ -275,10 +277,10 @@ pub(crate) fn request_redraw_while_visuals_active(
     // the presentation store.
     let terminal_work_pending = terminal_manager.iter().any(|(id, terminal)| {
         terminal.pending_damage.is_some()
-            || presentation_store
-                .get(id)
-                .map(|presented| terminal.surface_revision != presented.uploaded_revision)
-                .unwrap_or(false)
+            || presentation_store.get(id).is_some_and(|_| {
+                terminal_readiness_for_id(id, &terminal_manager, &presentation_store, None)
+                    == TerminalReadiness::Loading
+            })
     });
     // Panel animation is treated geometrically: any meaningful difference in position, size,
     // alpha, or Z means the panel is still moving and the scene needs another frame.
@@ -546,6 +548,9 @@ fn restore_startup_terminals(ctx: &mut SceneSetupContext) {
         .selection
         .as_deref_mut()
         .unwrap_or(&mut default_selection);
+    let default_owned_tmux_sessions = OwnedTmuxSessionStore::default();
+    let mut default_active_terminal_content =
+        crate::terminals::ActiveTerminalContentState::default();
     restore_app(
         &mut ctx.agent_catalog,
         &mut ctx.runtime_index,
@@ -553,6 +558,12 @@ fn restore_startup_terminals(ctx: &mut SceneSetupContext) {
         selection,
         &mut ctx.terminal_manager,
         &mut ctx.focus_state,
+        ctx.owned_tmux_sessions
+            .as_deref()
+            .unwrap_or(&default_owned_tmux_sessions),
+        ctx.active_terminal_content
+            .as_deref_mut()
+            .unwrap_or(&mut default_active_terminal_content),
         &ctx.runtime_spawner,
         &mut ctx.input_capture,
         &mut ctx.app_state_persistence,
