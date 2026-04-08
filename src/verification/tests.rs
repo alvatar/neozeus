@@ -170,6 +170,18 @@ fn task_dialog_scenario_populates_note_text() {
             .policy,
         crate::hud::TerminalVisibilityPolicy::Isolate(terminal_id)
     );
+    let terminal_manager = world.resource::<TerminalManager>();
+    let session_name = terminal_manager
+        .get(terminal_id)
+        .expect("scenario terminal should exist")
+        .session_name
+        .clone();
+    assert_eq!(
+        world
+            .resource::<crate::terminals::TerminalNotesState>()
+            .note_text(&session_name),
+        None
+    );
 }
 
 #[test]

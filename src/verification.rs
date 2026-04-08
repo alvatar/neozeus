@@ -10,8 +10,8 @@ use crate::{
     terminals::{
         append_debug_log, attach_terminal_session, terminal_readiness_for_id, RuntimeNotifier,
         TerminalBridge, TerminalCell, TerminalCellContent, TerminalCommand, TerminalFocusState,
-        TerminalId, TerminalManager, TerminalNotesState, TerminalPresentationStore,
-        TerminalRuntimeSpawner, TerminalSurface, TerminalViewState, VERIFIER_SESSION_PREFIX,
+        TerminalId, TerminalManager, TerminalPresentationStore, TerminalRuntimeSpawner,
+        TerminalSurface, TerminalViewState, VERIFIER_SESSION_PREFIX,
     },
     visual_contract::{TerminalFrameVisualState, VisualAgentActivity, VisualContractState},
 };
@@ -291,7 +291,6 @@ struct VerificationScenarioContext<'w> {
     task_store: ResMut<'w, AgentTaskStore>,
     visibility_state: ResMut<'w, TerminalVisibilityState>,
     view_state: ResMut<'w, TerminalViewState>,
-    notes_state: ResMut<'w, TerminalNotesState>,
     redraws: MessageWriter<'w, RequestRedraw>,
 }
 
@@ -543,15 +542,7 @@ pub(crate) fn run_verification_scenario(world: &mut World) {
         }
         VerificationScenario::TaskDialogBloom => {
             let terminal_id = config.terminal_ids[0];
-            let Some(session_name) = ctx
-                .terminal_manager
-                .get(terminal_id)
-                .map(|terminal| terminal.session_name.clone())
-            else {
-                finish!();
-            };
             let note_text = "- [ ] verify bloom layering\n- [ ] keep button text readable";
-            let _ = ctx.notes_state.set_note_text(&session_name, note_text);
             if let Some(agent_id) = ctx.runtime_index.agent_for_terminal(terminal_id) {
                 focus_agent_without_persist(
                     agent_id,

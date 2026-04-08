@@ -50,11 +50,12 @@ impl TerminalNotesState {
         self.notes_by_agent_uid.get(agent_uid).map(String::as_str)
     }
 
-    /// Sets or clears the note text for one session and reports whether anything actually changed.
+    /// Test-only helper that mutates legacy session-keyed notes directly.
     ///
-    /// Trailing whitespace is trimmed before storage, and a fully blank result removes the entry from
-    /// the map altogether. Existing strings are edited in place when possible to avoid replacing the
-    /// allocation unnecessarily.
+    /// Live runtime code must not write the legacy session-keyed map; only migration/restore paths
+    /// may ingest it. The helper remains available to tests so legacy compatibility behavior can be
+    /// exercised without exposing a general-purpose runtime write path.
+    #[cfg(test)]
     pub(crate) fn set_note_text(&mut self, session_name: &str, text: &str) -> bool {
         set_note_text_in_map(&mut self.legacy_notes_by_session, session_name, text)
     }
