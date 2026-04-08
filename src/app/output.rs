@@ -1,5 +1,8 @@
+#[cfg(test)]
+use crate::shared::readback::{align_copy_bytes_per_row, texture_bytes_to_ppm};
 use crate::{
     hud::{AgentListBloomAdditiveCameraMarker, HudCompositeCameraMarker, HudModalCameraMarker},
+    shared::{capture::CaptureRequestState, readback::write_texture_dump_to_path},
     terminals::TerminalCameraMarker,
     verification::{VerificationCaptureBarrierState, VerificationScenarioConfig},
 };
@@ -164,7 +167,7 @@ fn final_frame_capture_readiness(
     {
         return FinalFrameCaptureReadiness::WaitingForBarrier;
     }
-    if config.frames_until_capture > 0 {
+    if config.request.delay_pending() {
         return FinalFrameCaptureReadiness::WaitingForDelay;
     }
     let Some(target_image) = output_state.target_image.as_ref() else {
@@ -216,9 +219,7 @@ fn create_final_frame_image(size: UVec2) -> Image {
 #[derive(Resource, Clone, Debug)]
 pub(crate) struct FinalFrameCaptureConfig {
     pub(crate) path: PathBuf,
-    pub(crate) frames_until_capture: u32,
-    pub(crate) requested: bool,
-    pub(crate) completed: bool,
+    pub(crate) request: CaptureRequestState,
     pub(crate) exit_after_capture: bool,
 }
 
@@ -231,14 +232,13 @@ impl FinalFrameCaptureConfig {
     /// configure from the shell.
     pub(crate) fn from_env() -> Option<Self> {
         // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
+        let frames_until_capture = env::var("NEOZEUS_CAPTURE_FINAL_FRAME_DELAY_FRAMES")
+            .ok()
+            .and_then(|value| value.parse::<u32>().ok())
+            .unwrap_or(2);
         Some(Self {
             path: PathBuf::from(env::var("NEOZEUS_CAPTURE_FINAL_FRAME_PATH").ok()?),
-            frames_until_capture: env::var("NEOZEUS_CAPTURE_FINAL_FRAME_DELAY_FRAMES")
-                .ok()
-                .and_then(|value| value.parse::<u32>().ok())
-                .unwrap_or(2),
-            requested: false,
-            completed: false,
+            request: CaptureRequestState::new(frames_until_capture),
             exit_after_capture: env::var("NEOZEUS_EXIT_AFTER_CAPTURE")
                 .ok()
                 .map(|value| {
@@ -371,11 +371,11 @@ pub(crate) fn request_final_frame_capture(
     let Some(mut config) = config else {
         return;
     };
-    if config.completed {
+    if config.request.completed() {
         return;
     }
     redraws.write(RequestRedraw);
-    if config.requested {
+    if config.request.requested() {
         return;
     }
     match final_frame_capture_readiness(
@@ -388,7 +388,7 @@ pub(crate) fn request_final_frame_capture(
         FinalFrameCaptureReadiness::WaitingForScenario
         | FinalFrameCaptureReadiness::WaitingForBarrier => return,
         FinalFrameCaptureReadiness::WaitingForDelay => {
-            config.frames_until_capture -= 1;
+            let _ = config.request.wait_delay();
             return;
         }
         FinalFrameCaptureReadiness::WaitingForTarget => {
@@ -422,25 +422,26 @@ pub(crate) fn request_final_frame_capture(
             FinalFrameReadbackMeta::from_image(config.path.clone(), image),
         ))
         .observe(handle_final_frame_capture_complete);
-    config.requested = true;
+    config.request.mark_requested();
 }
 
-/// Completes a pending final-frame capture once the GPU readback bytes arrive.
-///
-/// The observer looks up the metadata stored on the spawned readback entity, writes the bytes to the
-/// requested path, logs success or failure, marks capture as completed, and optionally exits the app
-/// when the configuration says the process should terminate after producing the artifact.
 fn handle_final_frame_capture_complete(
     event: On<ReadbackComplete>,
     metas: Query<&FinalFrameReadbackMeta>,
     mut exits: MessageWriter<AppExit>,
     config: Option<ResMut<FinalFrameCaptureConfig>>,
 ) {
-    // Keep the control flow staged so each branch owns one behavior path and later branches only run when earlier capture rules do not apply.
     let Ok(meta) = metas.get(event.entity) else {
         return;
     };
-    if let Err(error) = write_texture_dump(meta, &event.data) {
+    if let Err(error) = write_texture_dump_to_path(
+        &meta.path,
+        meta.width,
+        meta.height,
+        meta.format,
+        &event.data,
+        "final frame",
+    ) {
         crate::terminals::append_debug_log(format!(
             "final frame capture write failed path={} error={error}",
             meta.path.display()
@@ -453,82 +454,11 @@ fn handle_final_frame_capture_complete(
     }
     if let Some(mut config) = config {
         let exit_after_capture = config.exit_after_capture;
-        config.completed = true;
+        config.request.mark_completed();
         if exit_after_capture {
             exits.write(AppExit::Success);
         }
     }
-}
-
-/// Serializes a final-frame readback into a PPM file on disk.
-///
-/// The function delegates pixel-format handling to [`texture_bytes_to_ppm`] and keeps this layer
-/// focused on filesystem error reporting, including the destination path in any failure message.
-fn write_texture_dump(meta: &FinalFrameReadbackMeta, bytes: &[u8]) -> Result<(), String> {
-    let ppm = texture_bytes_to_ppm(meta.width, meta.height, meta.format, bytes)?;
-    std::fs::write(&meta.path, ppm)
-        .map_err(|error| format!("failed to write {}: {error}", meta.path.display()))
-}
-
-/// Converts raw GPU readback bytes into a simple binary PPM image.
-///
-/// The function understands the small set of 8-bit RGBA/BGRA formats used by the render path,
-/// compensates for row padding added by GPU copy alignment, and strips alpha because PPM only stores
-/// RGB data. Unsupported formats and undersized buffers are reported as explicit errors.
-fn texture_bytes_to_ppm(
-    width: u32,
-    height: u32,
-    format: TextureFormat,
-    bytes: &[u8],
-) -> Result<Vec<u8>, String> {
-    let pixel_size = match format {
-        TextureFormat::Rgba8Unorm
-        | TextureFormat::Rgba8UnormSrgb
-        | TextureFormat::Bgra8Unorm
-        | TextureFormat::Bgra8UnormSrgb => 4usize,
-        other => return Err(format!("unsupported final frame format: {other:?}")),
-    };
-    let packed_row_bytes = width as usize * pixel_size;
-    let aligned_row_bytes = if height > 1 {
-        align_copy_bytes_per_row(packed_row_bytes)
-    } else {
-        packed_row_bytes
-    };
-    let expected_len = aligned_row_bytes * height as usize;
-    if bytes.len() < expected_len {
-        return Err(format!(
-            "short readback buffer: got {}, expected at least {}",
-            bytes.len(),
-            expected_len
-        ));
-    }
-
-    let mut ppm = format!("P6\n{} {}\n255\n", width, height).into_bytes();
-    // PPM stores tightly packed RGB rows, so each aligned GPU row has to be truncated back down to
-    // the logical pixel width before the bytes are appended.
-    for row in bytes.chunks_exact(aligned_row_bytes).take(height as usize) {
-        for pixel in row[..packed_row_bytes].chunks_exact(pixel_size) {
-            match format {
-                TextureFormat::Rgba8Unorm | TextureFormat::Rgba8UnormSrgb => {
-                    ppm.extend_from_slice(&pixel[..3]);
-                }
-                TextureFormat::Bgra8Unorm | TextureFormat::Bgra8UnormSrgb => {
-                    ppm.extend_from_slice(&[pixel[2], pixel[1], pixel[0]]);
-                }
-                _ => unreachable!(),
-            }
-        }
-    }
-    Ok(ppm)
-}
-
-/// Rounds a byte count up to WGPU's required row-copy alignment.
-///
-/// GPU texture readbacks are aligned to 256-byte rows. The bit-mask formula is the standard power-
-/// of-two round-up used to compute the padded row stride without branches.
-fn align_copy_bytes_per_row(value: usize) -> usize {
-    const ALIGNMENT: usize = 256;
-    (value + (ALIGNMENT - 1)) & !(ALIGNMENT - 1)
 }
 
 /// Exposes the production final-frame texture format to tests.

@@ -1,4 +1,4 @@
-use std::{env, fs, path::PathBuf};
+use std::{env, path::PathBuf};
 
 use bevy::{
     app::AppExit,
@@ -16,14 +16,17 @@ use bevy::{
 };
 use bevy_vello::render::VelloCanvasMaterial;
 
+use crate::shared::{
+    capture::{ArmedCaptureProgress, ArmedCaptureRequestState, CaptureRequestState},
+    readback::write_texture_dump_to_path,
+};
+
 use super::compositor::{HudCompositeCameraMarker, HudCompositeLayerMarker};
 
 #[derive(Resource, Clone, Debug)]
 pub(crate) struct HudTextureCaptureConfig {
     path: PathBuf,
-    frames_until_capture: u32,
-    requested: bool,
-    completed: bool,
+    request: CaptureRequestState,
 }
 
 impl HudTextureCaptureConfig {
@@ -39,9 +42,7 @@ impl HudTextureCaptureConfig {
             .unwrap_or(2);
         Some(Self {
             path: PathBuf::from(path),
-            frames_until_capture,
-            requested: false,
-            completed: false,
+            request: CaptureRequestState::new(frames_until_capture),
         })
     }
 }
@@ -49,9 +50,7 @@ impl HudTextureCaptureConfig {
 #[derive(Resource, Clone, Debug)]
 pub(crate) struct WindowCaptureConfig {
     path: PathBuf,
-    frames_until_capture: u32,
-    requested: bool,
-    completed: bool,
+    request: CaptureRequestState,
 }
 
 impl WindowCaptureConfig {
@@ -67,9 +66,7 @@ impl WindowCaptureConfig {
             .unwrap_or(2);
         Some(Self {
             path: PathBuf::from(path),
-            frames_until_capture,
-            requested: false,
-            completed: false,
+            request: CaptureRequestState::new(frames_until_capture),
         })
     }
 }
@@ -77,10 +74,7 @@ impl WindowCaptureConfig {
 #[derive(Resource, Clone, Debug)]
 pub(crate) struct HudCompositeCaptureConfig {
     path: PathBuf,
-    frames_until_capture: u32,
-    armed: bool,
-    requested: bool,
-    completed: bool,
+    request: ArmedCaptureRequestState,
     target_image: Option<Handle<Image>>,
 }
 
@@ -97,10 +91,7 @@ impl HudCompositeCaptureConfig {
             .unwrap_or(2);
         Some(Self {
             path: PathBuf::from(path),
-            frames_until_capture,
-            armed: false,
-            requested: false,
-            completed: false,
+            request: ArmedCaptureRequestState::new(frames_until_capture),
             target_image: None,
         })
     }
@@ -167,11 +158,10 @@ pub(crate) fn request_hud_composite_capture(
     composite_layers: Query<&Visibility, With<HudCompositeLayerMarker>>,
     mut redraws: MessageWriter<RequestRedraw>,
 ) {
-    // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
     let Some(mut config) = config else {
         return;
     };
-    if config.completed {
+    if config.request.completed() {
         return;
     }
     redraws.write(RequestRedraw);
@@ -211,17 +201,16 @@ pub(crate) fn request_hud_composite_capture(
         );
         return;
     }
-    if config.requested {
+    if config.request.requested() {
         return;
     }
-    if !config.armed {
-        if config.frames_until_capture > 0 {
-            config.frames_until_capture -= 1;
+    match config.request.progress() {
+        ArmedCaptureProgress::WaitingDelay => return,
+        ArmedCaptureProgress::ArmedThisFrame => {
+            crate::terminals::append_debug_log("hud composite capture armed");
             return;
         }
-        config.armed = true;
-        crate::terminals::append_debug_log("hud composite capture armed");
-        return;
+        ArmedCaptureProgress::ReadyToRequest => {}
     }
 
     let Some(target_image) = config.target_image.clone() else {
@@ -243,14 +232,9 @@ pub(crate) fn request_hud_composite_capture(
             HudTextureReadbackMeta::from_image(config.path.clone(), image),
         ))
         .observe(handle_hud_composite_capture_complete);
-    config.requested = true;
+    config.request.mark_requested();
 }
 
-/// Requests capture of the raw Vello HUD texture once it becomes available.
-///
-/// The system waits for the delayed frame count, finds the first non-composited Vello canvas
-/// material, and spawns a readback for its texture. If the source canvas does not exist yet, it logs
-/// the wait and retries on future frames.
 pub(crate) fn request_hud_texture_capture(
     mut commands: Commands,
     config: Option<ResMut<HudTextureCaptureConfig>>,
@@ -259,19 +243,17 @@ pub(crate) fn request_hud_texture_capture(
     vello_canvases: Query<&MeshMaterial2d<VelloCanvasMaterial>, Without<HudCompositeLayerMarker>>,
     mut redraws: MessageWriter<RequestRedraw>,
 ) {
-    // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
     let Some(mut config) = config else {
         return;
     };
-    if config.completed {
+    if config.request.completed() {
         return;
     }
     redraws.write(RequestRedraw);
-    if config.requested {
+    if config.request.requested() {
         return;
     }
-    if config.frames_until_capture > 0 {
-        config.frames_until_capture -= 1;
+    if config.request.wait_delay() {
         return;
     }
 
@@ -297,7 +279,7 @@ pub(crate) fn request_hud_texture_capture(
                 HudTextureReadbackMeta::from_image(config.path.clone(), image),
             ))
             .observe(handle_hud_texture_capture_complete);
-        config.requested = true;
+        config.request.mark_requested();
         requested = true;
         break;
     }
@@ -306,28 +288,22 @@ pub(crate) fn request_hud_texture_capture(
     }
 }
 
-/// Requests an ordinary screenshot of the primary window once the configured delay has elapsed.
-///
-/// This path uses Bevy's built-in screenshot component instead of GPU readback because it wants the
-/// final window image rather than a specific intermediate texture.
 pub(crate) fn request_window_capture(
     mut commands: Commands,
     config: Option<ResMut<WindowCaptureConfig>>,
     mut redraws: MessageWriter<RequestRedraw>,
 ) {
-    // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
     let Some(mut config) = config else {
         return;
     };
-    if config.completed {
+    if config.request.completed() {
         return;
     }
     redraws.write(RequestRedraw);
-    if config.requested {
+    if config.request.requested() {
         return;
     }
-    if config.frames_until_capture > 0 {
-        config.frames_until_capture -= 1;
+    if config.request.wait_delay() {
         return;
     }
     let path = config.path.clone();
@@ -335,23 +311,18 @@ pub(crate) fn request_window_capture(
     commands
         .spawn(Screenshot::primary_window())
         .observe(save_to_disk(path));
-    config.requested = true;
+    config.request.mark_requested();
 }
 
-/// Completes the window-capture workflow once Bevy's screenshot system has finished writing the file.
-///
-/// The function waits until no `Capturing` component remains and the output file exists, then marks
-/// the capture complete, logs success, and exits the application.
 pub(crate) fn finalize_window_capture(
     config: Option<ResMut<WindowCaptureConfig>>,
     captures: Query<(), With<Capturing>>,
     mut exits: MessageWriter<AppExit>,
 ) {
-    // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
     let Some(mut config) = config else {
         return;
     };
-    if !config.requested || config.completed {
+    if !config.request.requested() || config.request.completed() {
         return;
     }
     if !captures.is_empty() {
@@ -361,25 +332,27 @@ pub(crate) fn finalize_window_capture(
         return;
     }
     crate::terminals::append_debug_log(format!("window capture wrote {}", config.path.display()));
-    config.completed = true;
+    config.request.mark_completed();
     exits.write(AppExit::Success);
 }
 
-/// Handles completion of a raw HUD-texture readback.
-///
-/// The callback writes the PPM file, logs success or failure, marks the capture config completed, and
-/// exits the app so scripted capture runs terminate automatically.
 fn handle_hud_texture_capture_complete(
     event: On<ReadbackComplete>,
     metas: Query<&HudTextureReadbackMeta>,
     mut exits: MessageWriter<AppExit>,
     config: Option<ResMut<HudTextureCaptureConfig>>,
 ) {
-    // Keep the control flow staged so each branch owns one behavior path and later branches only run when earlier capture rules do not apply.
     let Ok(meta) = metas.get(event.entity) else {
         return;
     };
-    if let Err(error) = write_texture_dump(meta, &event.data) {
+    if let Err(error) = write_texture_dump_to_path(
+        &meta.path,
+        meta.width,
+        meta.height,
+        meta.format,
+        &event.data,
+        "hud capture",
+    ) {
         crate::terminals::append_debug_log(format!(
             "hud capture write failed path={} error={error}",
             meta.path.display()
@@ -388,26 +361,28 @@ fn handle_hud_texture_capture_complete(
         crate::terminals::append_debug_log(format!("hud capture wrote {}", meta.path.display()));
     }
     if let Some(mut config) = config {
-        config.completed = true;
+        config.request.mark_completed();
     }
     exits.write(AppExit::Success);
 }
 
-/// Handles completion of a composited-HUD readback.
-///
-/// This is the same basic flow as raw HUD-texture capture, but it updates the composite-capture
-/// config instead of the raw HUD capture config.
 fn handle_hud_composite_capture_complete(
     event: On<ReadbackComplete>,
     metas: Query<&HudTextureReadbackMeta>,
     mut exits: MessageWriter<AppExit>,
     config: Option<ResMut<HudCompositeCaptureConfig>>,
 ) {
-    // Keep the control flow staged so each branch owns one behavior path and later branches only run when earlier capture rules do not apply.
     let Ok(meta) = metas.get(event.entity) else {
         return;
     };
-    if let Err(error) = write_texture_dump(meta, &event.data) {
+    if let Err(error) = write_texture_dump_to_path(
+        &meta.path,
+        meta.width,
+        meta.height,
+        meta.format,
+        &event.data,
+        "hud capture",
+    ) {
         crate::terminals::append_debug_log(format!(
             "hud composite capture write failed path={} error={error}",
             meta.path.display()
@@ -419,79 +394,9 @@ fn handle_hud_composite_capture_complete(
         ));
     }
     if let Some(mut config) = config {
-        config.completed = true;
+        config.request.mark_completed();
     }
     exits.write(AppExit::Success);
-}
-
-/// Serializes one HUD readback buffer into a PPM file on disk.
-///
-/// Format-aware byte conversion is delegated to [`texture_bytes_to_ppm`]; this helper is the thin I/O
-/// layer that adds the destination path to any filesystem error.
-fn write_texture_dump(meta: &HudTextureReadbackMeta, bytes: &[u8]) -> Result<(), String> {
-    let ppm = texture_bytes_to_ppm(meta.width, meta.height, meta.format, bytes)?;
-    fs::write(&meta.path, ppm)
-        .map_err(|error| format!("failed to write {}: {error}", meta.path.display()))
-}
-
-/// Converts HUD readback bytes into a tightly packed binary PPM image.
-///
-/// The helper understands the small RGBA/BGRA format set used by HUD capture, compensates for GPU
-/// row alignment padding, drops alpha, and reorders BGRA into RGB when needed.
-fn texture_bytes_to_ppm(
-    width: u32,
-    height: u32,
-    format: TextureFormat,
-    bytes: &[u8],
-) -> Result<Vec<u8>, String> {
-    // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
-    let pixel_size = match format {
-        TextureFormat::Rgba8Unorm
-        | TextureFormat::Rgba8UnormSrgb
-        | TextureFormat::Bgra8Unorm
-        | TextureFormat::Bgra8UnormSrgb => 4usize,
-        other => {
-            return Err(format!("unsupported hud capture format: {other:?}"));
-        }
-    };
-    let packed_row_bytes = width as usize * pixel_size;
-    let aligned_row_bytes = if height > 1 {
-        align_copy_bytes_per_row(packed_row_bytes)
-    } else {
-        packed_row_bytes
-    };
-    let expected_len = aligned_row_bytes * height as usize;
-    if bytes.len() < expected_len {
-        return Err(format!(
-            "short readback buffer: got {}, expected at least {}",
-            bytes.len(),
-            expected_len
-        ));
-    }
-
-    let mut ppm = format!("P6\n{} {}\n255\n", width, height).into_bytes();
-    for row in bytes.chunks_exact(aligned_row_bytes).take(height as usize) {
-        for pixel in row[..packed_row_bytes].chunks_exact(pixel_size) {
-            match format {
-                TextureFormat::Rgba8Unorm | TextureFormat::Rgba8UnormSrgb => {
-                    ppm.extend_from_slice(&pixel[..3]);
-                }
-                TextureFormat::Bgra8Unorm | TextureFormat::Bgra8UnormSrgb => {
-                    ppm.extend_from_slice(&[pixel[2], pixel[1], pixel[0]]);
-                }
-                _ => unreachable!(),
-            }
-        }
-    }
-    Ok(ppm)
-}
-
-/// Rounds a packed row byte count up to WGPU's 256-byte copy alignment.
-///
-/// The bit-mask formula is the standard power-of-two round-up used for GPU readback buffers.
-fn align_copy_bytes_per_row(value: usize) -> usize {
-    const ALIGNMENT: usize = 256;
-    (value + (ALIGNMENT - 1)) & !(ALIGNMENT - 1)
 }
 
 #[cfg(test)]

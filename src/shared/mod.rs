@@ -1,9 +1,11 @@
 pub mod app_state_file;
+pub mod capture;
 pub mod command_runner;
 pub mod daemon_client_core;
 pub mod daemon_socket;
 pub mod daemon_wire;
 pub mod pi_session_files;
+pub mod readback;
 pub mod send_command;
 pub mod text_cursor;
 pub mod text_escape;

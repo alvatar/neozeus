@@ -214,9 +214,7 @@ fn final_frame_capture_waits_for_target_before_requesting_readback() {
     let mut world = World::default();
     world.insert_resource(FinalFrameCaptureConfig {
         path: PathBuf::from("/tmp/final-frame-test.ppm"),
-        frames_until_capture: 0,
-        requested: false,
-        completed: false,
+        request: CaptureRequestState::new(0),
         exit_after_capture: false,
     });
     world.insert_resource(FinalFrameOutputState::default());
@@ -225,7 +223,10 @@ fn final_frame_capture_waits_for_target_before_requesting_readback() {
 
     world.run_system_once(request_final_frame_capture).unwrap();
     assert_eq!(world.query::<&Readback>().iter(&world).count(), 0);
-    assert!(!world.resource::<FinalFrameCaptureConfig>().requested);
+    assert!(!world
+        .resource::<FinalFrameCaptureConfig>()
+        .request
+        .requested());
 }
 
 /// Verifies that final-frame capture stays blocked until a verification scenario finishes staging
@@ -240,9 +241,7 @@ fn final_frame_capture_waits_for_verification_scenario_to_finish() {
     let mut world = World::default();
     world.insert_resource(FinalFrameCaptureConfig {
         path: PathBuf::from("/tmp/final-frame-test.ppm"),
-        frames_until_capture: 0,
-        requested: false,
-        completed: false,
+        request: CaptureRequestState::new(0),
         exit_after_capture: false,
     });
     world.insert_resource(VerificationScenarioConfig {
@@ -258,7 +257,10 @@ fn final_frame_capture_waits_for_verification_scenario_to_finish() {
 
     world.run_system_once(request_final_frame_capture).unwrap();
     assert_eq!(world.query::<&Readback>().iter(&world).count(), 0);
-    assert!(!world.resource::<FinalFrameCaptureConfig>().requested);
+    assert!(!world
+        .resource::<FinalFrameCaptureConfig>()
+        .request
+        .requested());
 }
 
 #[test]
@@ -266,9 +268,7 @@ fn final_frame_capture_waits_for_verification_capture_barrier() {
     let mut world = World::default();
     world.insert_resource(FinalFrameCaptureConfig {
         path: PathBuf::from("/tmp/final-frame-test.ppm"),
-        frames_until_capture: 0,
-        requested: false,
-        completed: false,
+        request: CaptureRequestState::new(0),
         exit_after_capture: false,
     });
     world.insert_resource(VerificationScenarioConfig {
@@ -292,7 +292,10 @@ fn final_frame_capture_waits_for_verification_capture_barrier() {
     world.run_system_once(request_final_frame_capture).unwrap();
 
     assert_eq!(world.query::<&Readback>().iter(&world).count(), 0);
-    assert!(!world.resource::<FinalFrameCaptureConfig>().requested);
+    assert!(!world
+        .resource::<FinalFrameCaptureConfig>()
+        .request
+        .requested());
 }
 
 /// Verifies that RGBA texture dumps ignore GPU row padding when producing the PPM payload.
@@ -309,7 +312,14 @@ fn texture_dump_skips_row_padding_for_rgba() {
     let mut bytes = vec![0u8; aligned * height as usize];
     bytes[..8].copy_from_slice(&[225, 129, 10, 255, 25, 215, 189, 255]);
     bytes[aligned..aligned + 8].copy_from_slice(&[0, 0, 0, 255, 255, 255, 255, 255]);
-    let ppm = texture_bytes_to_ppm(width, height, TextureFormat::Rgba8Unorm, &bytes).unwrap();
+    let ppm = texture_bytes_to_ppm(
+        width,
+        height,
+        TextureFormat::Rgba8Unorm,
+        &bytes,
+        "final frame",
+    )
+    .unwrap();
     assert_eq!(&ppm[..11], b"P6\n2 2\n255\n");
     assert_eq!(
         &ppm[11..],
