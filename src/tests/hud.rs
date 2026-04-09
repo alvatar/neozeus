@@ -3597,21 +3597,28 @@ fn sync_agents_from_terminals_cleans_tasks_conversations_notes_and_persistence_f
     );
     let mut notes_state = crate::terminals::TerminalNotesState::default();
     assert!(notes_state.set_note_text_by_agent_uid(&agent_uid, "- [ ] task"));
+    let mut aegis_policy = crate::aegis::AegisPolicyStore::default();
+    assert!(aegis_policy.enable(&agent_uid, "continue cleanly".into()));
+    let mut aegis_runtime = crate::aegis::AegisRuntimeStore::default();
+    assert!(aegis_runtime.set_state(
+        agent_id,
+        crate::aegis::AegisRuntimeState::PostCheck {
+            deadline_secs: 20.0
+        }
+    ));
 
     let mut world = World::default();
     world.insert_resource(Time::<()>::default());
     world.insert_resource(catalog);
     world.insert_resource(runtime_index);
     world.insert_resource(AppSessionState::default());
-    world.insert_resource(crate::aegis::AegisPolicyStore::default());
-    world.insert_resource(crate::aegis::AegisRuntimeStore::default());
+    world.insert_resource(aegis_policy);
+    world.insert_resource(aegis_runtime);
     world.insert_resource(crate::hud::AgentListSelection::Agent(agent_id));
     world.insert_resource(task_store);
     world.insert_resource(conversations);
     world.insert_resource(crate::conversations::ConversationPersistenceState::default());
     world.insert_resource(notes_state);
-    world.insert_resource(crate::aegis::AegisPolicyStore::default());
-    world.insert_resource(crate::aegis::AegisRuntimeStore::default());
     world.insert_resource(AppStatePersistenceState::default());
     world.insert_resource(manager);
 
@@ -3641,6 +3648,14 @@ fn sync_agents_from_terminals_cleans_tasks_conversations_notes_and_persistence_f
     let notes_state = world.resource::<crate::terminals::TerminalNotesState>();
     assert_eq!(notes_state.note_text_by_agent_uid(&agent_uid), None);
     assert_eq!(notes_state.dirty_since_secs, Some(0.0));
+    assert!(world
+        .resource::<crate::aegis::AegisPolicyStore>()
+        .policy(&agent_uid)
+        .is_none());
+    assert!(world
+        .resource::<crate::aegis::AegisRuntimeStore>()
+        .state(agent_id)
+        .is_none());
     assert_eq!(
         world
             .resource::<crate::conversations::ConversationPersistenceState>()

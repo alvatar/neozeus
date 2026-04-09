@@ -188,14 +188,17 @@ pub(crate) fn advance_aegis_runtime(
 
     for agent_id in enabled_agents {
         let current_status = status_store.status(agent_id);
+        let existing_state = runtime_store.state(agent_id);
         let previous_status = status_tracker
             .previous_by_agent
             .insert(agent_id, current_status);
-        let mut current_state = runtime_store
-            .state(agent_id)
-            .unwrap_or(AegisRuntimeState::Armed);
-        if runtime_store.state(agent_id).is_none() {
+        let mut current_state = existing_state.unwrap_or(AegisRuntimeState::Armed);
+        if existing_state.is_none() {
             let _ = runtime_store.set_state(agent_id, AegisRuntimeState::Armed);
+            let _ = status_tracker
+                .previous_by_agent
+                .insert(agent_id, current_status);
+            continue;
         }
 
         if matches!(current_state, AegisRuntimeState::Halted)
@@ -578,5 +581,41 @@ mod tests {
                 MessageDeliveryState::Failed("send failed".into())
             )]
         );
+    }
+
+    #[test]
+    fn reenable_while_idle_does_not_reuse_stale_working_transition() {
+        let (mut world, agent_id, agent_uid, _client) = aegis_runtime_world();
+        world
+            .resource_mut::<AgentStatusStore>()
+            .set_status_for_tests(agent_id, AgentStatus::Working);
+        world.run_system_once(advance_aegis_runtime).unwrap();
+
+        {
+            let mut policy_store = world.resource_mut::<AegisPolicyStore>();
+            assert!(policy_store.disable(&agent_uid));
+        }
+        {
+            let mut runtime_store = world.resource_mut::<AegisRuntimeStore>();
+            assert!(runtime_store.clear(agent_id));
+        }
+        world
+            .resource_mut::<AgentStatusStore>()
+            .set_status_for_tests(agent_id, AgentStatus::Idle);
+        {
+            let mut policy_store = world.resource_mut::<AegisPolicyStore>();
+            assert!(policy_store.enable(&agent_uid, "continue cleanly".into()));
+        }
+
+        world.run_system_once(advance_aegis_runtime).unwrap();
+
+        assert_eq!(
+            world.resource::<AegisRuntimeStore>().state(agent_id),
+            Some(AegisRuntimeState::Armed)
+        );
+        assert!(world
+            .resource::<ConversationStore>()
+            .conversation_for_agent(agent_id)
+            .is_none());
     }
 }

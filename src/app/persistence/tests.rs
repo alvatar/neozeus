@@ -327,6 +327,51 @@ fn saving_app_state_persists_agent_order_labels_focus_and_uids() {
     assert!(!persisted.agents[1].last_focused);
 }
 
+#[test]
+fn saving_app_state_persists_disabled_aegis_prompt() {
+    let dir = temp_dir("neozeus-app-state-save-disabled-aegis");
+    let path = dir.join("neozeus-state.v1");
+    let (bridge, _) = test_bridge();
+    let mut manager = crate::terminals::TerminalManager::default();
+    let terminal_id = manager.create_terminal_with_session(bridge, "neozeus-session-a".into());
+    manager.focus_terminal(terminal_id);
+
+    let mut agent_catalog = AgentCatalog::default();
+    let agent_id = agent_catalog.create_agent(
+        Some("alpha".into()),
+        AgentKind::Pi,
+        AgentKind::Pi.capabilities(),
+    );
+    let agent_uid = agent_catalog.uid(agent_id).unwrap().to_owned();
+    let mut runtime_index = AgentRuntimeIndex::default();
+    runtime_index.link_terminal(agent_id, terminal_id, "neozeus-session-a".into(), None);
+    let mut aegis_policy = crate::aegis::AegisPolicyStore::default();
+    assert!(aegis_policy.upsert_disabled_prompt(&agent_uid, "keep pushing cleanly".into()));
+
+    let mut world = World::default();
+    let mut time = Time::<()>::default();
+    time.advance_by(Duration::from_secs(1));
+    world.insert_resource(time);
+    insert_terminal_manager_resources(&mut world, manager);
+    world.insert_resource(agent_catalog);
+    world.insert_resource(runtime_index);
+    world.insert_resource(aegis_policy);
+    world.insert_resource(AppStatePersistenceState {
+        path: Some(path.clone()),
+        dirty_since_secs: Some(0.0),
+    });
+
+    world.run_system_once(save_app_state_if_dirty).unwrap();
+    let serialized = fs::read_to_string(&path).expect("app state file missing");
+    let persisted = parse_persisted_app_state(&serialized);
+    assert_eq!(persisted.agents.len(), 1);
+    assert!(!persisted.agents[0].aegis_enabled);
+    assert_eq!(
+        persisted.agents[0].aegis_prompt_text.as_deref(),
+        Some("keep pushing cleanly")
+    );
+}
+
 /// Verifies the debounce behavior of the app-state save system.
 #[test]
 fn app_state_save_waits_for_debounce_window() {
