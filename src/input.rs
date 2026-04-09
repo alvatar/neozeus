@@ -1,17 +1,18 @@
 mod modal_dialogs;
 
 use crate::{
+    aegis::{AegisPolicyStore, DEFAULT_AEGIS_PROMPT},
     agents::{AgentCatalog, AgentRuntimeIndex},
     app::{
-        AgentCommand as AppAgentCommand, AppCommand, AppSessionState, CloneAgentDialogField,
-        ComposerCommand, ComposerRequest, CreateAgentDialogField, CreateAgentKind,
-        OwnedTmuxCommand, RenameAgentDialogField, TaskCommand as AppTaskCommand,
+        AegisCommand, AgentCommand as AppAgentCommand, AppCommand, AppSessionState,
+        CloneAgentDialogField, ComposerCommand, ComposerRequest, CreateAgentDialogField,
+        CreateAgentKind, OwnedTmuxCommand, RenameAgentDialogField, TaskCommand as AppTaskCommand,
     },
     composer::{
-        clone_agent_dialog_target_at, create_agent_dialog_target_at, message_box_action_at,
-        message_box_rect, rename_agent_dialog_target_at, task_dialog_action_at, task_dialog_rect,
-        CloneAgentDialogTarget, CreateAgentDialogTarget, MessageDialogFocus,
-        RenameAgentDialogTarget, TaskDialogFocus,
+        aegis_dialog_target_at, clone_agent_dialog_target_at, create_agent_dialog_target_at,
+        message_box_action_at, message_box_rect, rename_agent_dialog_target_at,
+        task_dialog_action_at, task_dialog_rect, AegisDialogTarget, CloneAgentDialogTarget,
+        CreateAgentDialogTarget, MessageDialogFocus, RenameAgentDialogTarget, TaskDialogFocus,
     },
     hud::{HudInputCaptureState, HudLayoutState},
     terminals::{
@@ -475,6 +476,22 @@ pub(crate) fn paste_into_rename_agent_dialog(
     }
 }
 
+pub(crate) fn paste_into_aegis_dialog(
+    app_session: &mut AppSessionState,
+    window: &Window,
+    cursor: Vec2,
+    text: &str,
+) -> bool {
+    match aegis_dialog_target_at(window, cursor) {
+        Some(AegisDialogTarget::PromptField) => {
+            app_session.aegis_dialog.focus = crate::app::AegisDialogField::Prompt;
+            app_session.aegis_dialog.error = None;
+            app_session.aegis_dialog.prompt_field.insert_text(text)
+        }
+        _ => false,
+    }
+}
+
 pub(crate) fn paste_into_message_dialog(
     app_session: &mut AppSessionState,
     window: &Window,
@@ -722,6 +739,8 @@ pub(crate) fn handle_middle_click_paste(
         paste_into_clone_agent_dialog(&mut app_session, &primary_window, cursor, &text)
     } else if app_session.rename_agent_dialog.visible {
         paste_into_rename_agent_dialog(&mut app_session, &primary_window, cursor, &text)
+    } else if app_session.aegis_dialog.visible {
+        paste_into_aegis_dialog(&mut app_session, &primary_window, cursor, &text)
     } else if app_session.composer.message_editor.visible {
         paste_into_message_dialog(&mut app_session, &primary_window, cursor, &text)
     } else if app_session.composer.task_editor.visible {
@@ -1343,6 +1362,7 @@ pub(crate) fn handle_terminal_message_box_keyboard(
     focus_state: Res<TerminalFocusState>,
     runtime_index: Res<AgentRuntimeIndex>,
     agent_catalog: Res<AgentCatalog>,
+    aegis_policy: Option<Res<AegisPolicyStore>>,
     mut app_session: ResMut<AppSessionState>,
     input_capture: Res<HudInputCaptureState>,
     mut clipboard: Option<ResMut<EguiClipboard>>,
@@ -1366,6 +1386,33 @@ pub(crate) fn handle_terminal_message_box_keyboard(
         super_key,
         shift: keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight),
     };
+
+    if app_session.aegis_dialog.visible {
+        let mut needs_redraw = false;
+        let mut emitted_commands = Vec::new();
+        for event in messages.read() {
+            if event.state != ButtonState::Pressed {
+                continue;
+            }
+            let outcome = modal_dialogs::handle_aegis_dialog_key(
+                &mut app_session,
+                event,
+                modifiers,
+                &mut emitted_commands,
+            );
+            needs_redraw |= outcome.needs_redraw;
+            if outcome.stop {
+                break;
+            }
+        }
+        for command in emitted_commands {
+            app_commands.write(command);
+        }
+        if needs_redraw {
+            redraws.write(RequestRedraw);
+        }
+        return;
+    }
 
     if app_session.rename_agent_dialog.visible {
         let mut needs_redraw = false;
@@ -1516,9 +1563,18 @@ pub(crate) fn handle_terminal_message_box_keyboard(
         return;
     }
 
+    let default_aegis_policy = AegisPolicyStore::default();
+    let aegis_policy = aegis_policy.as_deref().unwrap_or(&default_aegis_policy);
+
     let Some(active_id) = focus_state.active_id() else {
         return;
     };
+    let Some(active_terminal) = _terminal_manager.get(active_id) else {
+        return;
+    };
+    if !terminal_is_interactive(&active_terminal.snapshot.runtime) {
+        return;
+    }
     let page_rows = terminal_page_scroll_rows(&_terminal_manager, active_id);
     for event in messages.read() {
         if event.state != ButtonState::Pressed {
@@ -1588,6 +1644,23 @@ pub(crate) fn handle_terminal_message_box_keyboard(
                         .rename_agent_dialog
                         .open(agent_id, &current_label);
                     redraws.write(RequestRedraw);
+                }
+                break;
+            }
+            KeyCode::KeyA => {
+                if let Some(agent_id) = runtime_index.agent_for_terminal(active_id) {
+                    if let Some(agent_uid) = agent_catalog.uid(agent_id) {
+                        if aegis_policy.is_enabled(agent_uid) {
+                            app_commands
+                                .write(AppCommand::Aegis(AegisCommand::Disable { agent_id }));
+                        } else {
+                            let prompt_text = aegis_policy
+                                .prompt_text(agent_uid)
+                                .unwrap_or(DEFAULT_AEGIS_PROMPT);
+                            app_session.aegis_dialog.open(agent_id, prompt_text);
+                            redraws.write(RequestRedraw);
+                        }
+                    }
                 }
                 break;
             }

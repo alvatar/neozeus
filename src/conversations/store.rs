@@ -11,6 +11,7 @@ pub(super) struct MessageId(u64);
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum MessageAuthor {
     User,
+    Aegis,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -132,6 +133,20 @@ impl ConversationStore {
             .flat_map(|conversation| conversation.message_ids.iter())
             .filter_map(|message_id| self.messages.get(message_id))
             .map(|message| (message.body.clone(), message.delivery.clone()))
+            .collect()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn message_authors_for(
+        &self,
+        conversation_id: ConversationId,
+    ) -> Vec<MessageAuthor> {
+        self.conversations
+            .get(&conversation_id)
+            .into_iter()
+            .flat_map(|conversation| conversation.message_ids.iter())
+            .filter_map(|message_id| self.messages.get(message_id))
+            .map(|message| message.author.clone())
             .collect()
     }
 }

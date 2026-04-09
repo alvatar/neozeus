@@ -983,6 +983,69 @@ fn startup_restore_backfills_missing_agent_uid_and_marks_app_state_dirty() {
 }
 
 #[test]
+fn startup_restore_rebuilds_aegis_policy_and_arms_runtime_cleanly() {
+    let client = Arc::new(crate::tests::FakeDaemonClient::default());
+    client.set_session_runtime(
+        "neozeus-session-a",
+        crate::terminals::TerminalRuntimeState::running("restored"),
+    );
+    let dir = temp_dir("neozeus-startup-aegis-restore");
+    let app_state_path = dir.join("neozeus-state.v1");
+    std::fs::write(
+        &app_state_path,
+        "neozeus state version 2\n[agent]\nagent_uid=\"agent-uid-1\"\nruntime_session_name=\"neozeus-session-a\"\nlabel=\"ALPHA\"\nkind=\"pi\"\naegis_enabled=1\naegis_prompt_text=\"continue cleanly\"\norder_index=0\nfocused=1\n[/agent]\n",
+    )
+    .expect("app state should write");
+
+    let mut world = World::default();
+    world.insert_resource(Assets::<Image>::default());
+    world.insert_resource(crate::terminals::TerminalManager::default());
+    world.insert_resource(crate::terminals::TerminalFocusState::default());
+    world.insert_resource(crate::terminals::TerminalPresentationStore::default());
+    world.insert_resource(crate::agents::AgentCatalog::default());
+    world.insert_resource(crate::agents::AgentRuntimeIndex::default());
+    world.insert_resource(crate::agents::AgentStatusStore::default());
+    world.insert_resource(crate::aegis::AegisPolicyStore::default());
+    world.insert_resource(crate::aegis::AegisRuntimeStore::default());
+    world.insert_resource(crate::app::AppSessionState::default());
+    world.insert_resource(crate::conversations::ConversationStore::default());
+    world.insert_resource(crate::conversations::ConversationPersistenceState::default());
+    world.insert_resource(crate::hud::HudInputCaptureState::default());
+    world.insert_resource(crate::terminals::TerminalViewState::default());
+    world.init_resource::<Messages<RequestRedraw>>();
+    world.insert_resource(Time::<()>::default());
+    world.insert_resource(fake_runtime_spawner(client));
+    world.insert_resource(crate::app::AppStatePersistenceState {
+        path: Some(app_state_path),
+        dirty_since_secs: None,
+    });
+    world.insert_resource(crate::terminals::TerminalNotesState::default());
+    world.insert_resource(crate::hud::TerminalVisibilityState::default());
+    world.insert_resource(crate::startup::DaemonConnectionState::default());
+    world.insert_resource(crate::startup::StartupConnectState::default());
+
+    world.run_system_once(crate::startup::setup_scene).unwrap();
+
+    let catalog = world.resource::<crate::agents::AgentCatalog>();
+    let restored_agent = *catalog.order.first().expect("restored agent should exist");
+    assert_eq!(catalog.uid(restored_agent), Some("agent-uid-1"));
+    let _ = catalog;
+
+    let policy_store = world.resource::<crate::aegis::AegisPolicyStore>();
+    assert!(policy_store.is_enabled("agent-uid-1"));
+    assert_eq!(
+        policy_store.prompt_text("agent-uid-1"),
+        Some("continue cleanly")
+    );
+    assert_eq!(
+        world
+            .resource::<crate::aegis::AegisRuntimeStore>()
+            .state(restored_agent),
+        Some(crate::aegis::AegisRuntimeState::Armed)
+    );
+}
+
+#[test]
 fn startup_restore_migrates_legacy_session_notes_into_task_store_and_marks_notes_dirty() {
     let client = Arc::new(crate::tests::FakeDaemonClient::default());
     client.set_session_runtime(

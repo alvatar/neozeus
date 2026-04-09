@@ -1,3 +1,4 @@
+mod aegis;
 mod agents;
 mod app;
 mod app_config;

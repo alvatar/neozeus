@@ -1,4 +1,5 @@
 use crate::{
+    aegis::advance_aegis_runtime,
     agents::sync_agent_status,
     app::save_app_state_if_dirty,
     conversations::{save_conversations_if_dirty, sync_task_notes_projection},
@@ -195,6 +196,12 @@ pub(crate) fn configure_app_schedule(app: &mut App) {
         )
             .chain()
             .in_set(NeoZeusSet::DeriveVisuals),
+    )
+    .add_systems(
+        Update,
+        advance_aegis_runtime
+            .after(NeoZeusSet::DeriveVisuals)
+            .before(NeoZeusSet::UsageRefresh),
     )
     .add_systems(
         Update,

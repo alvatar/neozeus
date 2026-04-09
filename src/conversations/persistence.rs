@@ -16,6 +16,7 @@ const CONVERSATIONS_SAVE_DEBOUNCE_SECS: f32 = 0.3;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct PersistedConversationMessage {
+    pub(crate) author: MessageAuthor,
     pub(crate) body: String,
     pub(crate) delivery: MessageDeliveryState,
 }
@@ -87,6 +88,21 @@ fn unquote(value: &str) -> Option<String> {
     unquote_escaped_string(value, BASIC_QUOTED_STRING_ESCAPES)
 }
 
+fn author_code(author: &MessageAuthor) -> &'static str {
+    match author {
+        MessageAuthor::User => "user",
+        MessageAuthor::Aegis => "aegis",
+    }
+}
+
+fn parse_author(code: &str) -> Option<MessageAuthor> {
+    match code {
+        "user" => Some(MessageAuthor::User),
+        "aegis" => Some(MessageAuthor::Aegis),
+        _ => None,
+    }
+}
+
 /// Returns the persisted single-field code for a delivery state.
 fn delivery_code(delivery: &MessageDeliveryState) -> &'static str {
     match delivery {
@@ -125,6 +141,9 @@ pub(super) fn serialize_persisted_conversations(persisted: &PersistedConversatio
         }
         for message in &conversation.messages {
             output.push_str("[message]\n");
+            output.push_str("author=");
+            output.push_str(&quote(author_code(&message.author)));
+            output.push('\n');
             output.push_str("delivery=");
             output.push_str(&quote(delivery_code(&message.delivery)));
             output.push('\n');
@@ -162,6 +181,7 @@ fn parse_persisted_conversations_with(
     // Process the input incrementally so each transformation stays local and malformed data fails at the narrowest point.
     let mut persisted = PersistedConversations::default();
     let mut current: Option<PersistedConversationRecord> = None;
+    let mut pending_author: Option<String> = None;
     let mut pending_delivery: Option<String> = None;
     let mut pending_error: Option<String> = None;
 
@@ -183,10 +203,12 @@ fn parse_persisted_conversations_with(
                     legacy_session_name: None,
                     messages: Vec::new(),
                 });
+                pending_author = None;
                 pending_delivery = None;
                 pending_error = None;
             }
             "[message]" => {
+                pending_author = None;
                 pending_delivery = None;
                 pending_error = None;
             }
@@ -215,6 +237,7 @@ fn parse_persisted_conversations_with(
                             current.legacy_session_name = Some(session_name);
                         }
                     }
+                    "author" => pending_author = unquote(value),
                     "delivery" => pending_delivery = unquote(value),
                     "error" => pending_error = unquote(value),
                     "body" => {
@@ -225,12 +248,19 @@ fn parse_persisted_conversations_with(
                         ) else {
                             continue;
                         };
+                        let author = pending_author
+                            .take()
+                            .as_deref()
+                            .and_then(parse_author)
+                            .unwrap_or(MessageAuthor::User);
                         let Some(delivery) = parse_delivery(delivery, pending_error.take()) else {
                             continue;
                         };
-                        current
-                            .messages
-                            .push(PersistedConversationMessage { body, delivery });
+                        current.messages.push(PersistedConversationMessage {
+                            author,
+                            body,
+                            delivery,
+                        });
                     }
                     _ => {}
                 }
@@ -281,6 +311,7 @@ pub(super) fn build_persisted_conversations(
                     .iter()
                     .filter_map(|message_id| conversations.messages.get(message_id))
                     .map(|message| PersistedConversationMessage {
+                        author: message.author.clone(),
                         body: message.body.clone(),
                         delivery: message.delivery.clone(),
                     })
@@ -322,7 +353,7 @@ pub(super) fn restore_persisted_conversations(
         for message in &conversation.messages {
             let _ = conversations.push_message(
                 conversation_id,
-                MessageAuthor::User,
+                message.author.clone(),
                 message.body.clone(),
                 message.delivery.clone(),
             );

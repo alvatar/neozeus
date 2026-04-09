@@ -1,6 +1,6 @@
 use crate::{
     app::{
-        AppCommand, AppSessionState, CloneAgentDialogField, ComposerCommand,
+        AegisDialogField, AppCommand, AppSessionState, CloneAgentDialogField, ComposerCommand,
         CreateAgentDialogField, RenameAgentDialogField,
     },
     composer::{MessageDialogFocus, TaskDialogFocus},
@@ -284,6 +284,44 @@ pub(super) fn handle_rename_agent_dialog_key(
         clear_error,
         &mut app_session.rename_agent_dialog.error,
     )
+}
+
+pub(super) fn handle_aegis_dialog_key(
+    app_session: &mut AppSessionState,
+    event: &KeyboardInput,
+    modifiers: KeyModifiers,
+    emitted_commands: &mut Vec<AppCommand>,
+) -> ModalKeyResult {
+    match dialog_shell_action(event, modifiers) {
+        DialogShellAction::Escape => {
+            app_session.aegis_dialog.close();
+            return ModalKeyResult::redraw_and_stop();
+        }
+        DialogShellAction::Tab { reverse } => {
+            app_session.aegis_dialog.cycle_focus(reverse);
+            return ModalKeyResult::redraw();
+        }
+        DialogShellAction::None => {}
+    }
+
+    let (changed, clear_error) = match app_session.aegis_dialog.focus {
+        AegisDialogField::Prompt => (
+            handle_text_field_event(&mut app_session.aegis_dialog.prompt_field, event, modifiers),
+            true,
+        ),
+        AegisDialogField::EnableButton => {
+            if modifiers.plain() && matches!(event.key_code, KeyCode::Enter | KeyCode::Space) {
+                if let Some(command) = app_session.aegis_dialog.build_enable_command() {
+                    emitted_commands.push(command);
+                }
+                (true, false)
+            } else {
+                (false, false)
+            }
+        }
+    };
+
+    finish_dialog_change(changed, clear_error, &mut app_session.aegis_dialog.error)
 }
 
 /// Message-box-local compatibility state for clipboard-backed text ingress.

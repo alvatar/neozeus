@@ -16,6 +16,7 @@ const CREATE_AGENT_DIALOG_ROW_GAP: f32 = 18.0;
 const CREATE_AGENT_DIALOG_RADIO_SIZE: f32 = 22.0;
 const CREATE_AGENT_DIALOG_RADIO_GAP: f32 = 20.0;
 const CLONE_AGENT_DIALOG_HEIGHT_RATIO: f32 = 0.24;
+const AEGIS_DIALOG_HEIGHT_RATIO: f32 = 0.24;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum MessageBoxAction {
@@ -47,6 +48,12 @@ pub(crate) enum CloneAgentDialogTarget {
 pub(crate) enum RenameAgentDialogTarget {
     NameField,
     RenameButton,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum AegisDialogTarget {
+    PromptField,
+    EnableButton,
 }
 
 /// Computes the outer rectangle for the message-box modal.
@@ -182,6 +189,19 @@ pub(crate) fn rename_agent_dialog_rect(window: &Window) -> HudRect {
     }
 }
 
+pub(crate) fn aegis_dialog_rect(window: &Window) -> HudRect {
+    let size = Vec2::new(
+        (window.width() * CREATE_AGENT_DIALOG_WIDTH_RATIO).clamp(560.0, 960.0),
+        (window.height() * AEGIS_DIALOG_HEIGHT_RATIO).clamp(200.0, 280.0),
+    );
+    HudRect {
+        x: window.width() * 0.5 - size.x * 0.5,
+        y: window.height() * 0.5 - size.y * 0.5,
+        w: size.x,
+        h: size.y,
+    }
+}
+
 fn create_agent_row_y(rect: HudRect, row_index: usize) -> f32 {
     rect.y
         + 68.0
@@ -235,6 +255,26 @@ pub(crate) fn rename_agent_name_field_rect(window: &Window) -> HudRect {
 /// Returns the submit button rectangle for the rename-agent dialog.
 pub(crate) fn rename_agent_submit_button_rect(window: &Window) -> HudRect {
     let rect = rename_agent_dialog_rect(window);
+    HudRect {
+        x: rect.x + rect.w - 24.0 - ACTION_BUTTON_W,
+        y: rect.y + rect.h - 40.0,
+        w: ACTION_BUTTON_W,
+        h: ACTION_BUTTON_H,
+    }
+}
+
+pub(crate) fn aegis_prompt_field_rect(window: &Window) -> HudRect {
+    let rect = aegis_dialog_rect(window);
+    HudRect {
+        x: rect.x + CREATE_AGENT_DIALOG_INSET_X + CREATE_AGENT_DIALOG_LABEL_W,
+        y: rect.y + 68.0,
+        w: rect.w - (CREATE_AGENT_DIALOG_INSET_X * 2.0 + CREATE_AGENT_DIALOG_LABEL_W),
+        h: CREATE_AGENT_DIALOG_FIELD_HEIGHT,
+    }
+}
+
+pub(crate) fn aegis_enable_button_rect(window: &Window) -> HudRect {
+    let rect = aegis_dialog_rect(window);
     HudRect {
         x: rect.x + rect.w - 24.0 - ACTION_BUTTON_W,
         y: rect.y + rect.h - 40.0,
@@ -386,6 +426,18 @@ pub(crate) fn rename_agent_dialog_target_at(
     let rename_rect = rename_agent_submit_button_rect(window);
     if rename_rect.contains(point) {
         return Some(RenameAgentDialogTarget::RenameButton);
+    }
+    None
+}
+
+pub(crate) fn aegis_dialog_target_at(window: &Window, point: Vec2) -> Option<AegisDialogTarget> {
+    let prompt_rect = aegis_prompt_field_rect(window);
+    if prompt_rect.contains(point) {
+        return Some(AegisDialogTarget::PromptField);
+    }
+    let enable_rect = aegis_enable_button_rect(window);
+    if enable_rect.contains(point) {
+        return Some(AegisDialogTarget::EnableButton);
     }
     None
 }

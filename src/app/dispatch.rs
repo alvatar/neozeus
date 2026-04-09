@@ -16,8 +16,8 @@ use crate::{
 
 use super::{
     commands::{
-        AgentCommand, AppCommand, ComposerCommand, OwnedTmuxCommand, TaskCommand as AppTaskCommand,
-        WidgetCommand,
+        AegisCommand, AgentCommand, AppCommand, ComposerCommand, OwnedTmuxCommand,
+        TaskCommand as AppTaskCommand, WidgetCommand,
     },
     session::{AppSessionState, VisibilityMode},
     use_cases,
@@ -38,6 +38,8 @@ fn purge_removed_agent_state(
     conversations: &mut ConversationStore,
     conversation_persistence: &mut ConversationPersistenceState,
     notes_state: &mut TerminalNotesState,
+    aegis_policy: &mut crate::aegis::AegisPolicyStore,
+    aegis_runtime: &mut crate::aegis::AegisRuntimeStore,
     app_state_persistence: &mut AppStatePersistenceState,
 ) {
     let agent_uid = agent_catalog.uid(agent_id).map(str::to_owned);
@@ -58,6 +60,10 @@ fn purge_removed_agent_state(
     if conversations.remove_agent(agent_id) {
         mark_conversations_dirty(conversation_persistence, Some(time));
     }
+    if let Some(agent_uid) = agent_uid.as_deref() {
+        let _ = aegis_policy.remove(agent_uid);
+    }
+    let _ = aegis_runtime.clear(agent_id);
     mark_app_state_dirty(app_state_persistence, Some(time));
 }
 
@@ -92,10 +98,20 @@ pub(crate) fn sync_agents_from_terminals(
     mut conversations: ResMut<ConversationStore>,
     mut conversation_persistence: ResMut<ConversationPersistenceState>,
     mut notes_state: ResMut<TerminalNotesState>,
+    mut aegis_policy: Option<ResMut<crate::aegis::AegisPolicyStore>>,
+    mut aegis_runtime: Option<ResMut<crate::aegis::AegisRuntimeStore>>,
     mut app_state_persistence: ResMut<AppStatePersistenceState>,
     mut focus: FocusProjectionContext,
 ) {
     // Rebuild the derived or projected state from the authoritative resources in one pass so partial updates cannot drift.
+    let mut default_aegis_policy = crate::aegis::AegisPolicyStore::default();
+    let mut default_aegis_runtime = crate::aegis::AegisRuntimeStore::default();
+    let aegis_policy = aegis_policy
+        .as_deref_mut()
+        .unwrap_or(&mut default_aegis_policy);
+    let aegis_runtime = aegis_runtime
+        .as_deref_mut()
+        .unwrap_or(&mut default_aegis_runtime);
     let existing_terminals = focus
         .terminal_manager
         .terminal_ids()
@@ -122,6 +138,8 @@ pub(crate) fn sync_agents_from_terminals(
                 &mut conversations,
                 &mut conversation_persistence,
                 &mut notes_state,
+                aegis_policy,
+                aegis_runtime,
                 &mut app_state_persistence,
             );
         }
@@ -231,6 +249,8 @@ pub(super) struct AppCommandContext<'w> {
     conversations: ResMut<'w, ConversationStore>,
     conversation_persistence: ResMut<'w, ConversationPersistenceState>,
     notes_state: ResMut<'w, TerminalNotesState>,
+    aegis_policy: ResMut<'w, crate::aegis::AegisPolicyStore>,
+    aegis_runtime: ResMut<'w, crate::aegis::AegisRuntimeStore>,
     transport: Res<'w, MessageTransportAdapter>,
     app_state_persistence: ResMut<'w, AppStatePersistenceState>,
     visibility_state: ResMut<'w, TerminalVisibilityState>,
@@ -444,6 +464,8 @@ fn apply_agent_command(command: &AgentCommand, ctx: &mut AppCommandContext) {
                 &mut ctx.active_terminal_content,
                 &mut ctx.input_capture,
                 &mut ctx.app_state_persistence,
+                &mut ctx.aegis_policy,
+                &mut ctx.aegis_runtime,
                 &mut ctx.visibility_state,
                 &mut ctx.view_state,
                 &mut ctx.redraws,
@@ -579,6 +601,47 @@ fn apply_composer_command(command: &ComposerCommand, ctx: &mut AppCommandContext
     }
 }
 
+fn apply_aegis_command(command: &AegisCommand, ctx: &mut AppCommandContext) {
+    match command {
+        AegisCommand::Enable {
+            agent_id,
+            prompt_text,
+        } => {
+            if let Err(error) = use_cases::enable_aegis(
+                *agent_id,
+                prompt_text,
+                &ctx.agent_catalog,
+                &mut ctx.aegis_policy,
+                &mut ctx.aegis_runtime,
+                &mut ctx.app_state_persistence,
+                &ctx.time,
+            ) {
+                append_debug_log(format!("aegis enable failed: {error}"));
+                ctx.app_session.aegis_dialog.error = Some(error);
+            } else {
+                ctx.app_session.aegis_dialog.close();
+            }
+            ctx.redraws.write(RequestRedraw);
+        }
+        AegisCommand::Disable { agent_id } => {
+            if let Err(error) = use_cases::disable_aegis(
+                *agent_id,
+                &ctx.agent_catalog,
+                &mut ctx.aegis_policy,
+                &mut ctx.aegis_runtime,
+                &mut ctx.app_state_persistence,
+                &ctx.time,
+            ) {
+                append_debug_log(format!("aegis disable failed: {error}"));
+                if ctx.app_session.aegis_dialog.target_agent == Some(*agent_id) {
+                    ctx.app_session.aegis_dialog.error = Some(error);
+                }
+            }
+            ctx.redraws.write(RequestRedraw);
+        }
+    }
+}
+
 fn apply_widget_command(command: &WidgetCommand, ctx: &mut AppCommandContext) {
     match command {
         WidgetCommand::Toggle(widget_id) => {
@@ -606,6 +669,7 @@ pub(super) fn apply_app_commands(
             AppCommand::OwnedTmux(command) => apply_owned_tmux_command(command, &mut ctx),
             AppCommand::Task(command) => apply_task_command(command, &mut ctx),
             AppCommand::Composer(command) => apply_composer_command(command, &mut ctx),
+            AppCommand::Aegis(command) => apply_aegis_command(command, &mut ctx),
             AppCommand::Widget(command) => apply_widget_command(command, &mut ctx),
         }
     }

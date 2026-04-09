@@ -9,8 +9,8 @@ mod session;
 mod use_cases;
 
 pub(crate) use commands::{
-    AgentCommand, AppCommand, ComposerCommand, ComposerRequest, OwnedTmuxCommand, TaskCommand,
-    WidgetCommand,
+    AegisCommand, AgentCommand, AppCommand, ComposerCommand, ComposerRequest, OwnedTmuxCommand,
+    TaskCommand, WidgetCommand,
 };
 pub(crate) use persistence::{
     load_persisted_app_state_from, mark_app_state_dirty, ordered_reconciled_persisted_agents,
@@ -18,12 +18,12 @@ pub(crate) use persistence::{
     AppStatePersistenceState,
 };
 pub(crate) use session::{
-    AppSessionState, CloneAgentDialogField, CreateAgentDialogField, CreateAgentKind,
-    RenameAgentDialogField, TextFieldState, VisibilityMode,
+    AegisDialogField, AppSessionState, CloneAgentDialogField, CreateAgentDialogField,
+    CreateAgentKind, RenameAgentDialogField, TextFieldState, VisibilityMode,
 };
 pub(crate) use use_cases::{
     clear_composer_and_direct_input, focus_agent_without_persist, open_composer, restore_app,
-    spawn_runtime_terminal_session,
+    send_outbound_message, spawn_runtime_terminal_session, OutboundMessageSource,
 };
 
 pub(crate) use bootstrap::build_app;
@@ -63,6 +63,12 @@ pub(crate) fn run_apply_app_commands(world: &mut bevy::prelude::World) {
     }
     if !world.contains_resource::<crate::terminals::ActiveTerminalContentSyncState>() {
         world.insert_resource(crate::terminals::ActiveTerminalContentSyncState::default());
+    }
+    if !world.contains_resource::<crate::aegis::AegisPolicyStore>() {
+        world.insert_resource(crate::aegis::AegisPolicyStore::default());
+    }
+    if !world.contains_resource::<crate::aegis::AegisRuntimeStore>() {
+        world.insert_resource(crate::aegis::AegisRuntimeStore::default());
     }
 
     world.run_system_once(dispatch::apply_app_commands).unwrap();

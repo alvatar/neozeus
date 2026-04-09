@@ -1,7 +1,8 @@
 use super::{
-    AppSessionState, CloneAgentDialogField, CloneAgentDialogState, CreateAgentDialogField,
-    CreateAgentDialogState, CreateAgentKind, DialogInputOwner, FocusIntentState, InputOwner,
-    RenameAgentDialogField, RenameAgentDialogState, TextFieldState, VisibilityMode,
+    AegisDialogField, AegisDialogState, AppSessionState, CloneAgentDialogField,
+    CloneAgentDialogState, CreateAgentDialogField, CreateAgentDialogState, CreateAgentKind,
+    DialogInputOwner, FocusIntentState, InputOwner, RenameAgentDialogField, RenameAgentDialogState,
+    TextFieldState, VisibilityMode,
 };
 use crate::hud::HudInputCaptureState;
 
@@ -178,6 +179,43 @@ fn rename_agent_dialog_cycles_focus_and_counts_as_keyboard_capture() {
         ..Default::default()
     };
     assert!(session.keyboard_capture_active(&HudInputCaptureState::default()));
+}
+
+#[test]
+fn aegis_dialog_open_and_build_command() {
+    let mut dialog = AegisDialogState::default();
+    dialog.open(crate::agents::AgentId(4), "continue cleanly");
+    assert!(dialog.visible);
+    assert_eq!(dialog.target_agent, Some(crate::agents::AgentId(4)));
+    assert_eq!(dialog.prompt_field.text, "continue cleanly");
+    assert_eq!(dialog.focus, AegisDialogField::Prompt);
+
+    dialog.cycle_focus(false);
+    assert_eq!(dialog.focus, AegisDialogField::EnableButton);
+    assert_eq!(
+        dialog.build_enable_command(),
+        Some(crate::app::AppCommand::Aegis(
+            crate::app::AegisCommand::Enable {
+                agent_id: crate::agents::AgentId(4),
+                prompt_text: "continue cleanly".into(),
+            }
+        ))
+    );
+}
+
+#[test]
+fn aegis_dialog_counts_as_keyboard_capture() {
+    let session = AppSessionState {
+        aegis_dialog: AegisDialogState {
+            visible: true,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    assert_eq!(
+        session.input_owner(&HudInputCaptureState::default()),
+        InputOwner::Dialog(DialogInputOwner::Aegis)
+    );
 }
 
 #[test]

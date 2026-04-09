@@ -46,6 +46,8 @@ fn app_state_parse_and_serialize_roundtrip() {
                 clone_source_session_path: Some("/tmp/pi-session-a.jsonl".into()),
                 is_workdir: true,
                 workdir_slug: None,
+                aegis_enabled: true,
+                aegis_prompt_text: Some("continue cleanly".into()),
                 order_index: 0,
                 last_focused: true,
             },
@@ -57,6 +59,8 @@ fn app_state_parse_and_serialize_roundtrip() {
                 clone_source_session_path: None,
                 is_workdir: false,
                 workdir_slug: None,
+                aegis_enabled: false,
+                aegis_prompt_text: None,
                 order_index: 1,
                 last_focused: false,
             },
@@ -79,6 +83,8 @@ fn app_state_parse_defaults_missing_kind_to_pi() {
     assert_eq!(parsed.agents[0].agent_uid, None);
     assert_eq!(parsed.agents[0].clone_source_session_path, None);
     assert!(!parsed.agents[0].is_workdir);
+    assert!(!parsed.agents[0].aegis_enabled);
+    assert_eq!(parsed.agents[0].aegis_prompt_text, None);
 }
 
 /// Verifies that legacy terminal-session state migrates into the new app-state model on read.
@@ -104,6 +110,8 @@ fn app_state_load_falls_back_to_legacy_terminal_sessions() {
     assert_eq!(persisted.agents[0].kind, PersistedAgentKind::Pi);
     assert_eq!(persisted.agents[0].clone_source_session_path, None);
     assert!(!persisted.agents[0].is_workdir);
+    assert!(!persisted.agents[0].aegis_enabled);
+    assert_eq!(persisted.agents[0].aegis_prompt_text, None);
     assert_eq!(persisted.agents[0].order_index, 0);
     assert!(persisted.agents[0].last_focused);
 }
@@ -121,6 +129,8 @@ fn reconcile_persisted_agents_restores_prunes_and_imports() {
                 clone_source_session_path: Some("/tmp/pi-session-a.jsonl".into()),
                 is_workdir: true,
                 workdir_slug: None,
+                aegis_enabled: true,
+                aegis_prompt_text: Some("prompt a".into()),
                 order_index: 0,
                 last_focused: true,
             },
@@ -132,6 +142,8 @@ fn reconcile_persisted_agents_restores_prunes_and_imports() {
                 clone_source_session_path: None,
                 is_workdir: false,
                 workdir_slug: None,
+                aegis_enabled: false,
+                aegis_prompt_text: None,
                 order_index: 1,
                 last_focused: false,
             },
@@ -179,6 +191,8 @@ fn reconcile_persisted_agents_restores_prunes_and_imports() {
         Some("/tmp/pi-session-a.jsonl")
     );
     assert!(restore[0].is_workdir);
+    assert!(restore[0].aegis_enabled);
+    assert_eq!(restore[0].aegis_prompt_text.as_deref(), Some("prompt a"));
     assert_eq!(prune.len(), 1);
     assert_eq!(
         prune[0].runtime_session_name.as_deref(),
@@ -198,6 +212,8 @@ fn reconcile_persisted_agents_prefers_agent_uid_over_stale_runtime_session_name(
             clone_source_session_path: None,
             is_workdir: false,
             workdir_slug: None,
+            aegis_enabled: true,
+            aegis_prompt_text: Some("keep going".into()),
             order_index: 0,
             last_focused: true,
         }],
@@ -256,6 +272,8 @@ fn saving_app_state_persists_agent_order_labels_focus_and_uids() {
     );
     let alpha_uid = agent_catalog.uid(alpha).unwrap().to_owned();
     let beta_uid = agent_catalog.uid(beta).unwrap().to_owned();
+    let mut aegis_policy = crate::aegis::AegisPolicyStore::default();
+    assert!(aegis_policy.enable(&alpha_uid, "keep pushing cleanly".into()));
     runtime_index.link_terminal(alpha, id_one, "neozeus-session-a".into(), None);
     runtime_index.link_terminal(beta, id_two, "neozeus-session-b".into(), None);
     agent_catalog.move_to_index(beta, 0);
@@ -267,6 +285,7 @@ fn saving_app_state_persists_agent_order_labels_focus_and_uids() {
     insert_terminal_manager_resources(&mut world, manager);
     world.insert_resource(agent_catalog);
     world.insert_resource(runtime_index);
+    world.insert_resource(aegis_policy);
     world.insert_resource(AppStatePersistenceState {
         path: Some(path.clone()),
         dirty_since_secs: Some(0.0),
@@ -285,6 +304,8 @@ fn saving_app_state_persists_agent_order_labels_focus_and_uids() {
     assert_eq!(persisted.agents[0].kind, PersistedAgentKind::Terminal);
     assert_eq!(persisted.agents[0].clone_source_session_path, None);
     assert!(!persisted.agents[0].is_workdir);
+    assert!(!persisted.agents[0].aegis_enabled);
+    assert_eq!(persisted.agents[0].aegis_prompt_text, None);
     assert!(persisted.agents[0].last_focused);
     assert_eq!(
         persisted.agents[1].agent_uid.as_deref(),
@@ -298,6 +319,11 @@ fn saving_app_state_persists_agent_order_labels_focus_and_uids() {
         Some("/tmp/alpha-session.jsonl")
     );
     assert!(persisted.agents[1].is_workdir);
+    assert!(persisted.agents[1].aegis_enabled);
+    assert_eq!(
+        persisted.agents[1].aegis_prompt_text.as_deref(),
+        Some("keep pushing cleanly")
+    );
     assert!(!persisted.agents[1].last_focused);
 }
 
@@ -314,6 +340,7 @@ fn app_state_save_waits_for_debounce_window() {
     world.insert_resource(crate::terminals::TerminalFocusState::default());
     world.insert_resource(AgentCatalog::default());
     world.insert_resource(AgentRuntimeIndex::default());
+    world.insert_resource(crate::aegis::AegisPolicyStore::default());
     world.insert_resource(AppStatePersistenceState {
         path: Some(path.clone()),
         dirty_since_secs: Some(0.0),

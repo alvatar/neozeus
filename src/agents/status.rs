@@ -54,6 +54,11 @@ impl AgentStatusStore {
             .get(&agent_id)
             .and_then(|sample| sample.context_pct_milli)
     }
+
+    #[cfg(test)]
+    pub(crate) fn set_status_for_tests(&mut self, agent_id: AgentId, status: AgentStatus) {
+        self.samples.entry(agent_id).or_default().status = status;
+    }
 }
 
 /// Rebuilds the per-agent derived status cache from the current terminal surfaces.

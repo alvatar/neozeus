@@ -68,6 +68,16 @@ pub(crate) fn serialize_persisted_app_state(state: &PersistedAppState) -> String
                 quote_escaped_string(&workdir_slug, EXTENDED_QUOTED_STRING_ESCAPES)
             ));
         }
+        output.push_str(&format!(
+            "aegis_enabled={}\n",
+            u8::from(record.aegis_enabled)
+        ));
+        if let Some(aegis_prompt_text) = record.aegis_prompt_text {
+            output.push_str(&format!(
+                "aegis_prompt_text={}\n",
+                quote_escaped_string(&aegis_prompt_text, EXTENDED_QUOTED_STRING_ESCAPES)
+            ));
+        }
         output.push_str(&format!("order_index={}\n", record.order_index));
         output.push_str(&format!("focused={}\n", u8::from(record.last_focused)));
         output.push_str("[/agent]\n");
@@ -104,6 +114,8 @@ fn map_legacy_sessions_to_app_state(
                 clone_source_session_path: None,
                 is_workdir: false,
                 workdir_slug: None,
+                aegis_enabled: false,
+                aegis_prompt_text: None,
                 order_index: record.creation_index,
                 last_focused: record.last_focused,
             })
@@ -157,6 +169,7 @@ fn build_persisted_app_state(
     focus_state: &TerminalFocusState,
     agent_catalog: &AgentCatalog,
     runtime_index: &AgentRuntimeIndex,
+    aegis_policy: &crate::aegis::AegisPolicyStore,
 ) -> PersistedAppState {
     let agents = agent_catalog
         .order
@@ -164,8 +177,12 @@ fn build_persisted_app_state(
         .enumerate()
         .map(|(index, agent_id)| {
             let terminal_id = runtime_index.primary_terminal(*agent_id);
+            let agent_uid = agent_catalog.uid(*agent_id).map(str::to_owned);
+            let aegis_policy = agent_uid
+                .as_deref()
+                .and_then(|agent_uid| aegis_policy.policy(agent_uid));
             PersistedAgentState {
-                agent_uid: agent_catalog.uid(*agent_id).map(str::to_owned),
+                agent_uid,
                 runtime_session_name: None,
                 label: agent_catalog.label(*agent_id).map(str::to_owned),
                 kind: match agent_catalog
@@ -183,6 +200,8 @@ fn build_persisted_app_state(
                     .map(str::to_owned),
                 is_workdir: agent_catalog.is_workdir(*agent_id),
                 workdir_slug: agent_catalog.workdir_slug(*agent_id).map(str::to_owned),
+                aegis_enabled: aegis_policy.is_some_and(|policy| policy.enabled),
+                aegis_prompt_text: aegis_policy.map(|policy| policy.prompt_text.clone()),
                 order_index: index as u64,
                 last_focused: terminal_id
                     .is_some_and(|terminal_id| focus_state.active_id() == Some(terminal_id)),
@@ -198,6 +217,7 @@ pub(crate) fn save_app_state_if_dirty(
     focus_state: Res<TerminalFocusState>,
     agent_catalog: Res<AgentCatalog>,
     runtime_index: Res<AgentRuntimeIndex>,
+    aegis_policy: Option<Res<crate::aegis::AegisPolicyStore>>,
     mut persistence_state: ResMut<AppStatePersistenceState>,
 ) {
     let Some(dirty_since) = persistence_state.dirty_since_secs else {
@@ -210,7 +230,13 @@ pub(crate) fn save_app_state_if_dirty(
         persistence_state.dirty_since_secs = None;
         return;
     };
-    let persisted = build_persisted_app_state(&focus_state, &agent_catalog, &runtime_index);
+    let default_aegis_policy = crate::aegis::AegisPolicyStore::default();
+    let persisted = build_persisted_app_state(
+        &focus_state,
+        &agent_catalog,
+        &runtime_index,
+        aegis_policy.as_deref().unwrap_or(&default_aegis_policy),
+    );
     if let Some(parent) = path.parent() {
         if let Err(error) = fs::create_dir_all(parent) {
             append_debug_log(format!(

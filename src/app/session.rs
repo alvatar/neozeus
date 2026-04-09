@@ -4,8 +4,9 @@ use crate::{agents::AgentId, hud::HudInputCaptureState, terminals::TerminalId};
 use bevy::prelude::Resource;
 
 pub(crate) use create_agent_dialog::{
-    CloneAgentDialogField, CloneAgentDialogState, CreateAgentDialogField, CreateAgentDialogState,
-    CreateAgentKind, RenameAgentDialogField, RenameAgentDialogState, TextFieldState,
+    AegisDialogField, AegisDialogState, CloneAgentDialogField, CloneAgentDialogState,
+    CreateAgentDialogField, CreateAgentDialogState, CreateAgentKind, RenameAgentDialogField,
+    RenameAgentDialogState, TextFieldState,
 };
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -22,6 +23,7 @@ pub(crate) enum DialogInputOwner {
     CreateAgent,
     CloneAgent,
     RenameAgent,
+    Aegis,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -86,6 +88,7 @@ pub(crate) struct AppSessionState {
     pub(crate) create_agent_dialog: CreateAgentDialogState,
     pub(crate) clone_agent_dialog: CloneAgentDialogState,
     pub(crate) rename_agent_dialog: RenameAgentDialogState,
+    pub(crate) aegis_dialog: AegisDialogState,
 }
 
 impl AppSessionState {
@@ -104,6 +107,8 @@ impl AppSessionState {
             InputOwner::Dialog(DialogInputOwner::CloneAgent)
         } else if self.rename_agent_dialog.visible {
             InputOwner::Dialog(DialogInputOwner::RenameAgent)
+        } else if self.aegis_dialog.visible {
+            InputOwner::Dialog(DialogInputOwner::Aegis)
         } else if let Some(terminal_id) = input_capture.direct_input_terminal {
             InputOwner::DirectTerminal(terminal_id)
         } else {
@@ -123,6 +128,7 @@ impl AppSessionState {
             || self.create_agent_dialog.visible
             || self.clone_agent_dialog.visible
             || self.rename_agent_dialog.visible
+            || self.aegis_dialog.visible
     }
 
     pub(crate) fn modal_input_owner(&self, input_capture: &HudInputCaptureState) -> bool {

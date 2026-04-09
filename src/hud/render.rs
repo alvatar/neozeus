@@ -1,9 +1,10 @@
 use crate::{
     app::{
-        AppSessionState, CloneAgentDialogField, CreateAgentDialogField, RenameAgentDialogField,
-        TextFieldState,
+        AegisDialogField, AppSessionState, CloneAgentDialogField, CreateAgentDialogField,
+        RenameAgentDialogField, TextFieldState,
     },
     composer::{
+        aegis_dialog_rect, aegis_enable_button_rect, aegis_prompt_field_rect,
         clone_agent_dialog_rect, clone_agent_name_field_rect, clone_agent_submit_button_rect,
         clone_agent_workdir_rect, create_agent_create_button_rect, create_agent_dialog_rect,
         create_agent_kind_option_rects, create_agent_name_field_rect,
@@ -848,6 +849,57 @@ fn draw_rename_agent_dialog(
 /// Draws the message-box modal, including title, editor body, buttons, and status line.
 ///
 /// Rendering is skipped entirely when the modal is not visible.
+fn draw_aegis_dialog(painter: &mut HudPainter, window: &Window, app_session: &AppSessionState) {
+    if !app_session.aegis_dialog.visible {
+        return;
+    }
+
+    let dialog = &app_session.aegis_dialog;
+    let rect = aegis_dialog_rect(window);
+    let prompt_rect = aegis_prompt_field_rect(window);
+    let enable_rect = aegis_enable_button_rect(window);
+
+    painter.fill_rect(rect, HudColors::MESSAGE_BOX, 12.0);
+    painter.stroke_rect(rect, HudColors::BORDER, 12.0);
+    painter.label(
+        Vec2::new(rect.x + 24.0, rect.y + 14.0),
+        "Aegis",
+        20.0,
+        HudColors::TEXT,
+        VelloTextAnchor::TopLeft,
+    );
+    painter.label(
+        Vec2::new(rect.x + 24.0, prompt_rect.y + 7.0),
+        "Prompt",
+        15.0,
+        HudColors::TEXT_MUTED,
+        VelloTextAnchor::TopLeft,
+    );
+    draw_single_line_dialog_field(
+        painter,
+        &dialog.prompt_field,
+        prompt_rect,
+        dialog.focus == AegisDialogField::Prompt,
+    );
+    draw_dialog_button_row(
+        painter,
+        [(
+            enable_rect,
+            "Enable",
+            dialog.focus == AegisDialogField::EnableButton,
+        )],
+    );
+    if let Some(error) = dialog.error.as_deref() {
+        painter.label(
+            Vec2::new(rect.x + 24.0, enable_rect.y - 26.0),
+            error,
+            14.0,
+            peniko::Color::from_rgba8(220, 80, 80, 255),
+            VelloTextAnchor::TopLeft,
+        );
+    }
+}
+
 fn draw_message_box(
     painter: &mut HudPainter,
     window: &Window,
@@ -1228,6 +1280,7 @@ pub(crate) fn render_hud_modal_scene(
     draw_create_agent_dialog(&mut painter, &primary_window, &app_session);
     draw_clone_agent_dialog(&mut painter, &primary_window, &app_session);
     draw_rename_agent_dialog(&mut painter, &primary_window, &app_session);
+    draw_aegis_dialog(&mut painter, &primary_window, &app_session);
     draw_message_box(
         &mut painter,
         &primary_window,

@@ -47,6 +47,8 @@ pub struct PersistedAgentState {
     pub clone_source_session_path: Option<String>,
     pub is_workdir: bool,
     pub workdir_slug: Option<String>,
+    pub aegis_enabled: bool,
+    pub aegis_prompt_text: Option<String>,
     pub order_index: u64,
     pub last_focused: bool,
 }
@@ -126,6 +128,8 @@ fn parse_persisted_app_state_with(text: &str, legacy_session_name_key: bool) -> 
     let mut clone_source_session_path = None;
     let mut is_workdir = false;
     let mut workdir_slug = None;
+    let mut aegis_enabled = false;
+    let mut aegis_prompt_text = None;
     let mut order_index = None;
     let mut last_focused = None;
     let mut in_agent = false;
@@ -148,6 +152,8 @@ fn parse_persisted_app_state_with(text: &str, legacy_session_name_key: bool) -> 
                 clone_source_session_path = None;
                 is_workdir = false;
                 workdir_slug = None;
+                aegis_enabled = false;
+                aegis_prompt_text = None;
                 order_index = None;
                 last_focused = None;
             }
@@ -166,6 +172,8 @@ fn parse_persisted_app_state_with(text: &str, legacy_session_name_key: bool) -> 
                                 clone_source_session_path: clone_source_session_path.take(),
                                 is_workdir,
                                 workdir_slug: workdir_slug.take(),
+                                aegis_enabled,
+                                aegis_prompt_text: aegis_prompt_text.take(),
                                 order_index,
                                 last_focused,
                             });
@@ -207,6 +215,13 @@ fn parse_persisted_app_state_with(text: &str, legacy_session_name_key: bool) -> 
                     }
                     "workdir_slug" => {
                         workdir_slug = unquote_escaped_string(value, EXTENDED_QUOTED_STRING_ESCAPES)
+                    }
+                    "aegis_enabled" => {
+                        aegis_enabled = value.parse::<u8>().ok().is_some_and(|flag| flag != 0)
+                    }
+                    "aegis_prompt_text" => {
+                        aegis_prompt_text =
+                            unquote_escaped_string(value, EXTENDED_QUOTED_STRING_ESCAPES)
                     }
                     "order_index" => order_index = value.parse::<u64>().ok(),
                     "focused" => last_focused = value.parse::<u8>().ok().map(|flag| flag != 0),

@@ -360,6 +360,17 @@ impl DialogTabOrder for RenameAgentDialogField {
     const TAB_ORDER: &'static [Self] = &[Self::Name, Self::RenameButton];
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum AegisDialogField {
+    #[default]
+    Prompt,
+    EnableButton,
+}
+
+impl DialogTabOrder for AegisDialogField {
+    const TAB_ORDER: &'static [Self] = &[Self::Prompt, Self::EnableButton];
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct CreateAgentDialogState {
     pub(crate) visible: bool,
@@ -386,6 +397,15 @@ pub(crate) struct RenameAgentDialogState {
     pub(crate) target_agent: Option<crate::agents::AgentId>,
     pub(crate) name_field: TextFieldState,
     pub(crate) focus: RenameAgentDialogField,
+    pub(crate) error: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct AegisDialogState {
+    pub(crate) visible: bool,
+    pub(crate) target_agent: Option<crate::agents::AgentId>,
+    pub(crate) prompt_field: TextFieldState,
+    pub(crate) focus: AegisDialogField,
     pub(crate) error: Option<String>,
 }
 
@@ -573,6 +593,51 @@ impl RenameAgentDialogState {
             agent_id,
             label: crate::agents::uppercase_agent_label_text(label),
         }))
+    }
+}
+
+impl AegisDialogState {
+    /// Opens the Aegis dialog for the provided target and prompt text.
+    pub(crate) fn open(&mut self, agent_id: crate::agents::AgentId, prompt_text: &str) {
+        self.visible = true;
+        self.target_agent = Some(agent_id);
+        self.focus = AegisDialogField::Prompt;
+        self.error = None;
+        self.prompt_field.load_text(prompt_text);
+    }
+
+    /// Closes the dialog and discards the current field state.
+    pub(crate) fn close(&mut self) {
+        self.visible = false;
+        self.target_agent = None;
+        self.focus = AegisDialogField::Prompt;
+        self.error = None;
+        self.prompt_field.clear();
+    }
+
+    /// Advances focus to the next or previous field in the dialog's shared tab order.
+    pub(crate) fn cycle_focus(&mut self, reverse: bool) {
+        cycle_dialog_focus(&mut self.focus, reverse);
+    }
+
+    /// Builds the app command that should enable Aegis for the configured agent.
+    pub(crate) fn build_enable_command(&mut self) -> Option<AppCommand> {
+        let Some(agent_id) = self.target_agent else {
+            self.error = Some("missing Aegis target".to_owned());
+            return None;
+        };
+        let prompt_text = self.prompt_field.text.trim();
+        if prompt_text.is_empty() {
+            self.error = Some("Aegis prompt is required".to_owned());
+            return None;
+        }
+        self.error = None;
+        Some(AppCommand::Aegis(
+            super::super::commands::AegisCommand::Enable {
+                agent_id,
+                prompt_text: prompt_text.to_owned(),
+            },
+        ))
     }
 }
 

@@ -54,6 +54,8 @@ pub(crate) fn kill_selected_agent(
     active_terminal_content: &mut ActiveTerminalContentState,
     input_capture: &mut HudInputCaptureState,
     app_state_persistence: &mut AppStatePersistenceState,
+    aegis_policy: &mut crate::aegis::AegisPolicyStore,
+    aegis_runtime: &mut crate::aegis::AegisRuntimeStore,
     visibility_state: &mut TerminalVisibilityState,
     view_state: &mut TerminalViewState,
     redraws: &mut MessageWriter<RequestRedraw>,
@@ -110,9 +112,11 @@ pub(crate) fn kill_selected_agent(
         if notes_state.remove_note_text_by_agent_uid(agent_uid) {
             mark_terminal_notes_dirty(notes_state, Some(time));
         }
+        let _ = aegis_policy.remove(agent_uid);
     } else if removed_tasks {
         mark_terminal_notes_dirty(notes_state, Some(time));
     }
+    let _ = aegis_runtime.clear(selected_agent);
     view_state.forget_terminal(terminal_id);
     app_session.composer.unbind_agent(selected_agent);
     if let Some(replacement_agent) = replacement_agent {

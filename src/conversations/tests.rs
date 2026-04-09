@@ -66,7 +66,7 @@ fn conversation_persistence_roundtrips_messages_by_agent_uid() {
     );
     let _ = store.push_message(
         conversation_id,
-        MessageAuthor::User,
+        MessageAuthor::Aegis,
         "retry later \\\\ fallback".into(),
         MessageDeliveryState::Failed("transport \"down\"".into()),
     );
@@ -128,6 +128,55 @@ fn restore_persisted_conversations_reattaches_to_restored_agents() {
     let messages = restored.messages_for(restored_conversation);
     assert_eq!(messages.len(), 1);
     assert_eq!(messages[0].0, "hello");
+    assert_eq!(
+        restored.message_authors_for(restored_conversation),
+        vec![MessageAuthor::User]
+    );
+}
+
+#[test]
+fn conversation_persistence_restores_aegis_message_author() {
+    let mut source = ConversationStore::default();
+    let conversation_id = source.ensure_conversation(AgentId(1));
+    let _ = source.push_message(
+        conversation_id,
+        MessageAuthor::Aegis,
+        "continue cleanly".into(),
+        MessageDeliveryState::Delivered,
+    );
+    let mut source_catalog = AgentCatalog::default();
+    let source_agent = source_catalog.create_agent(
+        Some("alpha".into()),
+        AgentKind::Terminal,
+        AgentKind::Terminal.capabilities(),
+    );
+    assert_eq!(source_agent, AgentId(1));
+    let persisted = build_persisted_conversations(&source, &source_catalog);
+
+    let mut restored = ConversationStore::default();
+    let mut restored_catalog = AgentCatalog::default();
+    let restored_agent = restored_catalog.create_agent_with_uid_and_metadata(
+        source_catalog.uid(source_agent).unwrap().to_owned(),
+        Some("alpha-restored".into()),
+        AgentKind::Terminal,
+        AgentKind::Terminal.capabilities(),
+        crate::agents::AgentMetadata::default(),
+    );
+    let restored_runtime = AgentRuntimeIndex::default();
+    restore_persisted_conversations(
+        &persisted,
+        &restored_catalog,
+        &restored_runtime,
+        &mut restored,
+    );
+
+    let restored_conversation = restored
+        .conversation_for_agent(restored_agent)
+        .expect("restored conversation should be linked");
+    assert_eq!(
+        restored.message_authors_for(restored_conversation),
+        vec![MessageAuthor::Aegis]
+    );
 }
 
 #[test]

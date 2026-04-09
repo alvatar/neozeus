@@ -1,3 +1,5 @@
+use std::collections::BTreeSet;
+
 use super::super::{
     modules::{
         agent_row_rect, agent_rows, AgentListRowSection, AGENT_LIST_BORDER_ORANGE_B,
@@ -141,6 +143,7 @@ fn selected_agent_row_emits_selected_bloom_sources_only_for_that_row() {
         0.0,
         None,
         Some(&active_row_key),
+        &BTreeSet::new(),
         &AgentListView {
             rows: vec![
                 AgentListRowView {
@@ -192,6 +195,7 @@ fn selected_working_agent_row_emits_green_bloom_sources_only_for_that_row() {
         0.0,
         None,
         Some(&active_row_key),
+        &BTreeSet::new(),
         &AgentListView {
             rows: vec![
                 AgentListRowView {
@@ -246,6 +250,7 @@ fn selected_tmux_row_does_not_emit_parent_agent_bloom() {
         0.0,
         None,
         Some(&active_row_key),
+        &BTreeSet::new(),
         &AgentListView {
             rows: vec![
                 AgentListRowView {
@@ -287,6 +292,119 @@ fn selected_tmux_row_does_not_emit_parent_agent_bloom() {
 }
 
 #[test]
+fn aegis_enabled_rows_emit_pink_outer_bloom_when_unselected() {
+    let mut aegis_rows = BTreeSet::new();
+    aegis_rows.insert(AgentListRowKey::Agent(crate::agents::AgentId(1)));
+    let specs = build_bloom_specs(
+        HudRect {
+            x: 0.0,
+            y: 0.0,
+            w: 400.0,
+            h: 240.0,
+        },
+        0.0,
+        None,
+        None,
+        &aegis_rows,
+        &AgentListView {
+            rows: vec![AgentListRowView {
+                key: AgentListRowKey::Agent(crate::agents::AgentId(1)),
+                label: "ALPHA".into(),
+                focused: false,
+                kind: AgentListRowKind::Agent {
+                    agent_id: crate::agents::AgentId(1),
+                    terminal_id: Some(crate::terminals::TerminalId(11)),
+                    has_tasks: false,
+                    interactive: true,
+                    activity: AgentListActivity::Idle,
+                    context_pct_milli: None,
+                },
+            }],
+        },
+    );
+
+    assert_eq!(specs.len(), 4);
+    assert!(specs
+        .iter()
+        .all(|spec| spec.key.kind == AgentListBloomSourceKind::Aegis));
+    let linear = specs[0].color.to_linear();
+    assert!(linear.red > linear.green);
+    assert!(linear.blue > linear.green);
+}
+
+#[test]
+fn selected_aegis_agent_emits_both_outer_aegis_and_inner_selection_glow() {
+    let active_row_key = AgentListRowKey::Agent(crate::agents::AgentId(1));
+    let mut aegis_rows = BTreeSet::new();
+    aegis_rows.insert(active_row_key.clone());
+    let specs = build_bloom_specs(
+        HudRect {
+            x: 0.0,
+            y: 0.0,
+            w: 400.0,
+            h: 240.0,
+        },
+        0.0,
+        None,
+        Some(&active_row_key),
+        &aegis_rows,
+        &AgentListView {
+            rows: vec![AgentListRowView {
+                key: active_row_key.clone(),
+                label: "ALPHA".into(),
+                focused: true,
+                kind: AgentListRowKind::Agent {
+                    agent_id: crate::agents::AgentId(1),
+                    terminal_id: Some(crate::terminals::TerminalId(11)),
+                    has_tasks: false,
+                    interactive: true,
+                    activity: AgentListActivity::Idle,
+                    context_pct_milli: None,
+                },
+            }],
+        },
+    );
+
+    assert_eq!(
+        specs
+            .iter()
+            .filter(|spec| spec.key.kind == AgentListBloomSourceKind::Aegis)
+            .count(),
+        4
+    );
+    assert_eq!(
+        specs
+            .iter()
+            .filter(|spec| spec.key.kind == AgentListBloomSourceKind::Main)
+            .count(),
+        4
+    );
+    assert_eq!(
+        specs
+            .iter()
+            .filter(|spec| spec.key.kind == AgentListBloomSourceKind::Marker)
+            .count(),
+        4
+    );
+    let outer_top = specs
+        .iter()
+        .find(|spec| {
+            spec.key.kind == AgentListBloomSourceKind::Aegis
+                && spec.key.segment == AgentListBloomSourceSegment::Top
+        })
+        .expect("outer aegis top border should exist");
+    let inner_top = specs
+        .iter()
+        .find(|spec| {
+            spec.key.kind == AgentListBloomSourceKind::Main
+                && spec.key.segment == AgentListBloomSourceSegment::Top
+        })
+        .expect("inner selection top border should exist");
+    assert!(outer_top.rect.x < inner_top.rect.x);
+    assert!(outer_top.rect.w > inner_top.rect.w);
+}
+
+#[test]
 fn unselected_rows_do_not_emit_selected_bloom_sources() {
     let active_row_key = AgentListRowKey::Agent(crate::agents::AgentId(2));
     let specs = build_bloom_specs(
@@ -299,6 +417,7 @@ fn unselected_rows_do_not_emit_selected_bloom_sources() {
         0.0,
         None,
         Some(&active_row_key),
+        &BTreeSet::new(),
         &AgentListView {
             rows: vec![AgentListRowView {
                 key: AgentListRowKey::Agent(crate::agents::AgentId(1)),

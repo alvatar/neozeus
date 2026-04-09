@@ -16,6 +16,7 @@ pub(crate) enum AppCommand {
     OwnedTmux(OwnedTmuxCommand),
     Task(TaskCommand),
     Composer(ComposerCommand),
+    Aegis(AegisCommand),
     Widget(WidgetCommand),
 }
 
@@ -65,6 +66,17 @@ pub(crate) enum ComposerCommand {
     Open(ComposerRequest),
     Submit,
     Cancel,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum AegisCommand {
+    Enable {
+        agent_id: AgentId,
+        prompt_text: String,
+    },
+    Disable {
+        agent_id: AgentId,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

@@ -30,7 +30,7 @@ use bevy::{
     sprite_render::{AlphaMode2d, Material2d, MeshMaterial2d},
     window::PrimaryWindow,
 };
-use std::env;
+use std::{collections::BTreeSet, env};
 
 use super::compositor::HUD_COMPOSITE_FOREGROUND_Z;
 
@@ -179,6 +179,7 @@ impl Material2d for AgentListBloomBlurMaterial {
 enum AgentListBloomSourceKind {
     Main,
     Marker,
+    Aegis,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -394,21 +395,30 @@ fn bloom_reference_working_green(scale: f32, alpha: f32) -> Color {
     )
 }
 
+fn bloom_reference_aegis_pink(scale: f32, alpha: f32) -> Color {
+    bloom_reference_color(255, 105, 180, scale, alpha)
+}
+
 /// Chooses the bloom source color for one border strip based on selected-row state.
 ///
 /// Selected working agent rows switch to the working-green bloom palette; all other selected rows
 /// keep the existing selected red palette.
 fn bloom_source_color(kind: AgentListBloomSourceKind, working: bool) -> Color {
+    if kind == AgentListBloomSourceKind::Aegis {
+        return bloom_reference_aegis_pink(7.0, 1.0);
+    }
     if working {
         return match kind {
             AgentListBloomSourceKind::Main => bloom_reference_working_green(5.0, 1.0),
             AgentListBloomSourceKind::Marker => bloom_reference_working_green(6.0, 1.0),
+            AgentListBloomSourceKind::Aegis => bloom_reference_aegis_pink(7.0, 1.0),
         };
     }
 
     match kind {
         AgentListBloomSourceKind::Main => bloom_reference_red(5.0, 1.0),
         AgentListBloomSourceKind::Marker => bloom_reference_red(6.0, 1.0),
+        AgentListBloomSourceKind::Aegis => bloom_reference_aegis_pink(7.0, 1.0),
     }
 }
 
@@ -509,6 +519,7 @@ fn build_bloom_specs(
     scroll_offset: f32,
     hovered_row: Option<&crate::hud::view_models::AgentListRowKey>,
     active_row_key: Option<&AgentListRowKey>,
+    aegis_row_keys: &BTreeSet<AgentListRowKey>,
     agent_list_view: &AgentListView,
 ) -> Vec<BloomSourceSpec> {
     let rows = agent_rows(content_rect, scroll_offset, hovered_row, agent_list_view);
@@ -522,10 +533,10 @@ fn build_bloom_specs(
         .collect::<std::collections::HashMap<_, _>>();
 
     let mut specs = Vec::new();
-    for row in rows
-        .into_iter()
-        .filter(|row| active_row_key.is_some_and(|active_row_key| row.key == *active_row_key))
-    {
+    for row in rows.into_iter().filter(|row| {
+        active_row_key.is_some_and(|active_row_key| row.key == *active_row_key)
+            || aegis_row_keys.contains(&row.key)
+    }) {
         let working = row.activity() == Some(crate::hud::view_models::AgentListActivity::Working);
         let terminal_id = if row.is_tmux_child() {
             let Some(terminal_id) = row
@@ -545,6 +556,28 @@ fn build_bloom_specs(
             continue;
         }
 
+        let aegis_enabled = aegis_row_keys.contains(&row.key);
+        if aegis_enabled && !row.is_tmux_child() {
+            let expanded_rect = HudRect {
+                x: row.rect.x - 4.0,
+                y: row.rect.y - 3.0,
+                w: row.rect.w + 8.0,
+                h: row.rect.h + 6.0,
+            };
+            let color = bloom_source_color(AgentListBloomSourceKind::Aegis, false);
+            for (segment, border_rect) in bloom_border_rects(expanded_rect, 5.0) {
+                specs.push(BloomSourceSpec {
+                    key: AgentListBloomSourceSprite {
+                        terminal_id,
+                        kind: AgentListBloomSourceKind::Aegis,
+                        segment,
+                    },
+                    rect: border_rect,
+                    color,
+                });
+            }
+        }
+
         if row.is_tmux_child() {
             let main_rect = row_main_rect(&row);
             let color = bloom_source_color(AgentListBloomSourceKind::Main, false);
@@ -559,7 +592,7 @@ fn build_bloom_specs(
                     color,
                 });
             }
-        } else {
+        } else if active_row_key.is_some_and(|active_row_key| row.key == *active_row_key) {
             for (kind, rect, thickness) in [
                 (
                     AgentListBloomSourceKind::Main,
@@ -938,6 +971,8 @@ struct HudWidgetBloomContext<'w, 's> {
     primary_window: Single<'w, 's, &'static Window, With<PrimaryWindow>>,
     layout_state: Res<'w, HudLayoutState>,
     app_session: Res<'w, AppSessionState>,
+    agent_catalog: Option<Res<'w, crate::agents::AgentCatalog>>,
+    aegis_policy: Option<Res<'w, crate::aegis::AegisPolicyStore>>,
     startup_connect: Option<Res<'w, DaemonConnectionState>>,
     focus_state: Res<'w, TerminalFocusState>,
     active_content: Res<'w, ActiveTerminalContentState>,
@@ -1109,11 +1144,24 @@ pub(crate) fn sync_hud_widget_bloom(world: &mut World) {
             .expect("agent list exists when enabled");
         let active_row_key =
             active_bloom_row_key(&ctx.focus_state, &ctx.active_content, &ctx.agent_list_view);
+        let aegis_row_keys = match (ctx.agent_catalog.as_ref(), ctx.aegis_policy.as_ref()) {
+            (Some(agent_catalog), Some(aegis_policy)) => agent_catalog
+                .iter()
+                .filter_map(|(agent_id, _)| {
+                    agent_catalog
+                        .uid(agent_id)
+                        .filter(|agent_uid| aegis_policy.is_enabled(agent_uid))
+                        .map(|_| AgentListRowKey::Agent(agent_id))
+                })
+                .collect::<BTreeSet<_>>(),
+            _ => BTreeSet::new(),
+        };
         build_bloom_specs(
             module.shell.current_rect,
             ctx.agent_list_state.scroll_offset,
             ctx.agent_list_state.hovered_row.as_ref(),
             active_row_key.as_ref(),
+            &aegis_row_keys,
             &ctx.agent_list_view,
         )
     } else {

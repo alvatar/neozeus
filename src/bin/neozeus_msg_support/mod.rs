@@ -317,6 +317,8 @@ mod tests {
                     clone_source_session_path: None,
                     is_workdir: false,
                     workdir_slug: None,
+                    aegis_enabled: false,
+                    aegis_prompt_text: None,
                     order_index: index as u64,
                     last_focused: false,
                 })

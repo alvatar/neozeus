@@ -1,3 +1,4 @@
+mod aegis;
 mod clone_pi_agent;
 mod composer;
 mod conversation;
@@ -10,11 +11,12 @@ mod tasks;
 mod terminals;
 mod widgets;
 
+pub(crate) use aegis::{disable_aegis, enable_aegis};
 pub(crate) use clone_pi_agent::clone_pi_agent;
 pub(crate) use composer::{
     cancel_composer, clear_composer_and_direct_input, open_composer, submit_composer,
 };
-pub(crate) use conversation::send_message;
+pub(crate) use conversation::{send_message, send_outbound_message, OutboundMessageSource};
 pub(crate) use focus_agent::{apply_focus_intent, focus_agent, focus_agent_without_persist};
 pub(crate) use kill_selected_agent::kill_selected_agent;
 pub(crate) use owned_tmux::{kill_selected_owned_tmux, select_owned_tmux};
