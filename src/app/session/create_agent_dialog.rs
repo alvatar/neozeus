@@ -386,6 +386,7 @@ pub(crate) struct CreateAgentDialogState {
 pub(crate) struct CloneAgentDialogState {
     pub(crate) visible: bool,
     pub(crate) source_agent: Option<crate::agents::AgentId>,
+    pub(crate) source_kind: Option<crate::agents::AgentKind>,
     pub(crate) name_field: TextFieldState,
     pub(crate) workdir: bool,
     pub(crate) focus: CloneAgentDialogField,
@@ -482,9 +483,15 @@ impl CreateAgentDialogState {
 
 impl CloneAgentDialogState {
     /// Opens the clone-agent dialog for one source agent and suggested label.
-    pub(crate) fn open(&mut self, agent_id: crate::agents::AgentId, current_label: &str) {
+    pub(crate) fn open(
+        &mut self,
+        agent_id: crate::agents::AgentId,
+        source_kind: crate::agents::AgentKind,
+        current_label: &str,
+    ) {
         self.visible = true;
         self.source_agent = Some(agent_id);
+        self.source_kind = Some(source_kind);
         self.focus = CloneAgentDialogField::Name;
         self.error = None;
         self.workdir = false;
@@ -498,6 +505,7 @@ impl CloneAgentDialogState {
     pub(crate) fn close(&mut self) {
         self.visible = false;
         self.source_agent = None;
+        self.source_kind = None;
         self.focus = CloneAgentDialogField::Name;
         self.error = None;
         self.workdir = false;
@@ -515,11 +523,28 @@ impl CloneAgentDialogState {
 
     /// Advances focus to the next or previous field in the dialog's shared tab order.
     pub(crate) fn cycle_focus(&mut self, reverse: bool) {
-        cycle_dialog_focus(&mut self.focus, reverse);
+        if self.supports_workdir() {
+            cycle_dialog_focus(&mut self.focus, reverse);
+            return;
+        }
+        self.focus = match (self.focus, reverse) {
+            (CloneAgentDialogField::Name, false) => CloneAgentDialogField::CloneButton,
+            (CloneAgentDialogField::CloneButton, false) => CloneAgentDialogField::Name,
+            (CloneAgentDialogField::Name, true) => CloneAgentDialogField::CloneButton,
+            (CloneAgentDialogField::CloneButton, true) => CloneAgentDialogField::Name,
+            (CloneAgentDialogField::Workdir, false | true) => CloneAgentDialogField::Name,
+        };
+    }
+
+    pub(crate) fn supports_workdir(&self) -> bool {
+        self.source_kind == Some(crate::agents::AgentKind::Pi)
     }
 
     /// Toggles the workdir checkbox and clears any stale error.
     pub(crate) fn toggle_workdir(&mut self) {
+        if !self.supports_workdir() {
+            return;
+        }
         self.workdir = !self.workdir;
         self.error = None;
     }
@@ -539,7 +564,7 @@ impl CloneAgentDialogState {
         Some(AppCommand::Agent(AgentCommand::Clone {
             source_agent_id,
             label: crate::agents::uppercase_agent_label_text(label),
-            workdir: self.workdir,
+            workdir: self.supports_workdir() && self.workdir,
         }))
     }
 }

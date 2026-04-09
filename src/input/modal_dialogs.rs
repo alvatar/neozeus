@@ -213,7 +213,10 @@ pub(super) fn handle_clone_agent_dialog_key(
             true,
         ),
         CloneAgentDialogField::Workdir => {
-            if modifiers.plain() && matches!(event.key_code, KeyCode::Enter | KeyCode::Space) {
+            if !app_session.clone_agent_dialog.supports_workdir() {
+                (false, false)
+            } else if modifiers.plain() && matches!(event.key_code, KeyCode::Enter | KeyCode::Space)
+            {
                 app_session.clone_agent_dialog.toggle_workdir();
                 (true, false)
             } else {

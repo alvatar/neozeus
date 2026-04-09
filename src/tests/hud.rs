@@ -1106,9 +1106,11 @@ fn clone_agent_dialog_pointer_click_updates_focus_toggles_workdir_and_emits_comm
 
     {
         let mut session = world.resource_mut::<AppSessionState>();
-        session
-            .clone_agent_dialog
-            .open(crate::agents::AgentId(7), "alpha");
+        session.clone_agent_dialog.open(
+            crate::agents::AgentId(7),
+            crate::agents::AgentKind::Pi,
+            "alpha",
+        );
         session.clone_agent_dialog.error = Some("stale error".into());
     }
 
@@ -1800,6 +1802,137 @@ fn create_terminal_agent_request_does_not_send_bootstrap_command() {
         .2
         .iter()
         .any(|(key, _)| key == "NEOZEUS_AGENT_UID"));
+}
+
+#[test]
+fn clone_claude_agent_request_forks_and_persists_child_recovery_spec() {
+    let client = Arc::new(FakeDaemonClient::default());
+    let mut world = clone_test_world(client.clone());
+    let source_agent = world
+        .resource_mut::<AgentCatalog>()
+        .create_agent_with_metadata(
+            Some("source".into()),
+            crate::agents::AgentKind::Claude,
+            crate::agents::AgentKind::Claude.capabilities(),
+            crate::agents::AgentMetadata {
+                clone_source_session_path: None,
+                recovery: Some(crate::agents::AgentRecoverySpec::Claude {
+                    session_id: "claude-parent".into(),
+                    cwd: "/tmp/claude-demo".into(),
+                    model: Some("sonnet".into()),
+                    profile: None,
+                }),
+            },
+        );
+
+    world
+        .resource_mut::<Messages<AppCommand>>()
+        .write(AppCommand::Agent(AppAgentCommand::Clone {
+            source_agent_id: source_agent,
+            label: "child".into(),
+            workdir: false,
+        }));
+
+    run_app_commands(&mut world);
+
+    let created_sessions = client.created_sessions.lock().unwrap().clone();
+    assert_eq!(created_sessions.len(), 1);
+    assert_eq!(created_sessions[0].1.as_deref(), Some("/tmp/claude-demo"));
+    let commands = client.sent_commands.lock().unwrap().clone();
+    assert_eq!(commands.len(), 1);
+    assert!(matches!(
+        &commands[0].1,
+        crate::terminals::TerminalCommand::SendCommand(value)
+            if value.starts_with("claude --resume claude-parent --fork-session --session-id ")
+    ));
+    let catalog = world.resource::<AgentCatalog>();
+    let clone_agent = *catalog.order.last().expect("Claude child should exist");
+    assert!(matches!(
+        catalog.recovery_spec(clone_agent),
+        Some(crate::agents::AgentRecoverySpec::Claude { session_id, cwd, model, .. })
+            if session_id != "claude-parent"
+                && cwd == "/tmp/claude-demo"
+                && model.as_deref() == Some("sonnet")
+    ));
+}
+
+#[test]
+fn clone_codex_agent_request_forks_and_captures_child_recovery_spec() {
+    if !sqlite3_available() {
+        return;
+    }
+    let previous_home = std::env::var_os("HOME");
+    let codex_home = temp_dir("neozeus-codex-clone-test-home");
+    std::env::set_var("HOME", &codex_home);
+    write_codex_state_db(
+        &codex_home.join(".codex").join("state_5.sqlite"),
+        &[("thread-old", "/tmp/other", 10, "old")],
+    );
+    std::thread::spawn({
+        let codex_home = codex_home.clone();
+        move || {
+            std::thread::sleep(Duration::from_millis(150));
+            write_codex_state_db(
+                &codex_home.join(".codex").join("state_6.sqlite"),
+                &[
+                    ("thread-old", "/tmp/other", 10, "old"),
+                    ("thread-child", "/tmp/codex-demo", 20, "child"),
+                ],
+            );
+        }
+    });
+
+    let client = Arc::new(FakeDaemonClient::default());
+    let mut world = clone_test_world(client.clone());
+    let source_agent = world
+        .resource_mut::<AgentCatalog>()
+        .create_agent_with_metadata(
+            Some("source".into()),
+            crate::agents::AgentKind::Codex,
+            crate::agents::AgentKind::Codex.capabilities(),
+            crate::agents::AgentMetadata {
+                clone_source_session_path: None,
+                recovery: Some(crate::agents::AgentRecoverySpec::Codex {
+                    session_id: "codex-parent".into(),
+                    cwd: "/tmp/codex-demo".into(),
+                    model: None,
+                    profile: None,
+                }),
+            },
+        );
+
+    world
+        .resource_mut::<Messages<AppCommand>>()
+        .write(AppCommand::Agent(AppAgentCommand::Clone {
+            source_agent_id: source_agent,
+            label: "child".into(),
+            workdir: false,
+        }));
+
+    run_app_commands(&mut world);
+
+    let created_sessions = client.created_sessions.lock().unwrap().clone();
+    assert_eq!(created_sessions.len(), 1);
+    assert_eq!(created_sessions[0].1.as_deref(), Some("/tmp/codex-demo"));
+    let commands = client.sent_commands.lock().unwrap().clone();
+    assert_eq!(commands.len(), 1);
+    assert!(matches!(
+        &commands[0].1,
+        crate::terminals::TerminalCommand::SendCommand(value)
+            if value == "codex fork codex-parent -C /tmp/codex-demo"
+    ));
+    let catalog = world.resource::<AgentCatalog>();
+    let clone_agent = *catalog.order.last().expect("Codex child should exist");
+    assert!(matches!(
+        catalog.recovery_spec(clone_agent),
+        Some(crate::agents::AgentRecoverySpec::Codex { session_id, cwd, .. })
+            if session_id == "thread-child" && cwd == "/tmp/codex-demo"
+    ));
+    if let Some(previous_home) = previous_home {
+        std::env::set_var("HOME", previous_home);
+    } else {
+        std::env::remove_var("HOME");
+    }
 }
 
 #[test]

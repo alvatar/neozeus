@@ -172,13 +172,25 @@ pub(crate) fn handle_global_terminal_spawn_shortcut(
             let crate::hud::AgentListSelection::Agent(agent_id) = *selection else {
                 continue;
             };
-            if agent_catalog.kind(agent_id) != Some(crate::agents::AgentKind::Pi)
-                || agent_catalog.clone_source_session_path(agent_id).is_none()
-            {
+            let Some(kind) = agent_catalog.kind(agent_id) else {
+                continue;
+            };
+            let supports_clone = match kind {
+                crate::agents::AgentKind::Pi => {
+                    agent_catalog.clone_source_session_path(agent_id).is_some()
+                }
+                crate::agents::AgentKind::Claude | crate::agents::AgentKind::Codex => {
+                    agent_catalog.recovery_spec(agent_id).is_some()
+                }
+                crate::agents::AgentKind::Terminal | crate::agents::AgentKind::Verifier => false,
+            };
+            if !supports_clone {
                 continue;
             }
             let current_label = agent_catalog.label(agent_id).unwrap_or("AGENT");
-            app_session.clone_agent_dialog.open(agent_id, current_label);
+            app_session
+                .clone_agent_dialog
+                .open(agent_id, kind, current_label);
             redraws.write(RequestRedraw);
             break;
         }

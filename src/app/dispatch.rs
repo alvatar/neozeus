@@ -328,7 +328,7 @@ fn apply_agent_command(command: &AgentCommand, ctx: &mut AppCommandContext) {
             label,
             workdir,
         } => {
-            if let Err(error) = use_cases::clone_pi_agent(
+            if let Err(error) = use_cases::clone_agent(
                 &mut ctx.agent_catalog,
                 &mut ctx.runtime_index,
                 &mut ctx.app_session,
@@ -349,7 +349,7 @@ fn apply_agent_command(command: &AgentCommand, ctx: &mut AppCommandContext) {
                 &mut ctx.redraws,
             ) {
                 ctx.app_session.clone_agent_dialog.error = Some(error.clone());
-                append_debug_log(format!("clone Pi agent failed: {error}"));
+                append_debug_log(format!("clone agent failed: {error}"));
                 ctx.redraws.write(RequestRedraw);
             } else {
                 ctx.app_session.clone_agent_dialog.close();

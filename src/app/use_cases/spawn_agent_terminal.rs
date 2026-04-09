@@ -46,7 +46,7 @@ fn shell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
 }
 
-fn generate_provider_session_id() -> String {
+pub(crate) fn generate_provider_session_id() -> String {
     let now_nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_nanos())
@@ -94,6 +94,65 @@ fn build_agent_launch_spec(
         startup_command: kind.bootstrap_command().map(str::to_owned),
         metadata: AgentMetadata::default(),
     })
+}
+
+pub(crate) fn claude_fork_launch_spec(
+    parent_session_id: &str,
+    child_session_id: String,
+    cwd: &str,
+    model: Option<String>,
+    profile: Option<String>,
+) -> AgentLaunchSpec {
+    let mut command = format!(
+        "claude --resume {} --fork-session --session-id {}",
+        shell_quote(parent_session_id),
+        shell_quote(&child_session_id)
+    );
+    if let Some(model) = model.as_deref() {
+        command.push_str(" --model ");
+        command.push_str(&shell_quote(model));
+    }
+    if let Some(profile) = profile.as_deref() {
+        command.push_str(" -p ");
+        command.push_str(&shell_quote(profile));
+    }
+    AgentLaunchSpec {
+        startup_command: Some(command),
+        metadata: AgentMetadata {
+            clone_source_session_path: None,
+            recovery: Some(AgentRecoverySpec::Claude {
+                session_id: child_session_id,
+                cwd: cwd.to_owned(),
+                model,
+                profile,
+            }),
+        },
+    }
+}
+
+pub(crate) fn codex_fork_launch_spec(
+    parent_session_id: &str,
+    cwd: &str,
+    model: Option<String>,
+    profile: Option<String>,
+) -> AgentLaunchSpec {
+    let mut command = format!(
+        "codex fork {} -C {}",
+        shell_quote(parent_session_id),
+        shell_quote(cwd)
+    );
+    if let Some(model) = model.as_deref() {
+        command.push_str(" -m ");
+        command.push_str(&shell_quote(model));
+    }
+    if let Some(profile) = profile.as_deref() {
+        command.push_str(" -p ");
+        command.push_str(&shell_quote(profile));
+    }
+    AgentLaunchSpec {
+        startup_command: Some(command),
+        metadata: AgentMetadata::default(),
+    }
 }
 
 pub(crate) fn launch_spec_for_recovery_spec(recovery: &AgentRecoverySpec) -> AgentLaunchSpec {

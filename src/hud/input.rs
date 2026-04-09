@@ -177,8 +177,10 @@ fn handle_clone_agent_dialog_pointer(ctx: &mut HudPointerContext<'_, '_>) -> boo
                     ctx.app_session.clone_agent_dialog.error = None;
                 }
                 CloneAgentDialogTarget::WorkdirToggle => {
-                    ctx.app_session.clone_agent_dialog.focus = CloneAgentDialogField::Workdir;
-                    ctx.app_session.clone_agent_dialog.toggle_workdir();
+                    if ctx.app_session.clone_agent_dialog.supports_workdir() {
+                        ctx.app_session.clone_agent_dialog.focus = CloneAgentDialogField::Workdir;
+                        ctx.app_session.clone_agent_dialog.toggle_workdir();
+                    }
                 }
                 CloneAgentDialogTarget::CloneButton => {
                     ctx.app_session.clone_agent_dialog.focus = CloneAgentDialogField::CloneButton;

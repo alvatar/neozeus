@@ -900,42 +900,44 @@ fn draw_clone_agent_dialog(
         dialog.focus == CloneAgentDialogField::Name,
     );
 
-    painter.label(
-        Vec2::new(rect.x + 24.0, workdir_rect.y + 3.0),
-        "Mode",
-        15.0,
-        HudColors::TEXT_MUTED,
-        VelloTextAnchor::TopLeft,
-    );
-    painter.fill_rect(
-        workdir_rect,
-        if dialog.workdir {
-            HudColors::TEXT
-        } else {
-            HudColors::BUTTON
-        },
-        0.0,
-    );
-    painter.stroke_rect(
-        workdir_rect,
-        if dialog.focus == CloneAgentDialogField::Workdir {
-            HudColors::TEXT
-        } else {
-            HudColors::BUTTON_BORDER
-        },
-        0.0,
-    );
-    painter.label(
-        Vec2::new(workdir_rect.x + workdir_rect.w + 12.0, workdir_rect.y - 1.0),
-        "Create workdir",
-        16.0,
-        if dialog.workdir {
-            HudColors::TEXT
-        } else {
-            HudColors::TEXT_MUTED
-        },
-        VelloTextAnchor::TopLeft,
-    );
+    if dialog.supports_workdir() {
+        painter.label(
+            Vec2::new(rect.x + 24.0, workdir_rect.y + 3.0),
+            "Mode",
+            15.0,
+            HudColors::TEXT_MUTED,
+            VelloTextAnchor::TopLeft,
+        );
+        painter.fill_rect(
+            workdir_rect,
+            if dialog.workdir {
+                HudColors::TEXT
+            } else {
+                HudColors::BUTTON
+            },
+            0.0,
+        );
+        painter.stroke_rect(
+            workdir_rect,
+            if dialog.focus == CloneAgentDialogField::Workdir {
+                HudColors::TEXT
+            } else {
+                HudColors::BUTTON_BORDER
+            },
+            0.0,
+        );
+        painter.label(
+            Vec2::new(workdir_rect.x + workdir_rect.w + 12.0, workdir_rect.y - 1.0),
+            "Create workdir",
+            16.0,
+            if dialog.workdir {
+                HudColors::TEXT
+            } else {
+                HudColors::TEXT_MUTED
+            },
+            VelloTextAnchor::TopLeft,
+        );
+    }
 
     draw_dialog_button_row(
         painter,

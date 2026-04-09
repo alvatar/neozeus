@@ -102,7 +102,11 @@ fn clone_agent_dialog_open_prefills_name_and_focus() {
         ..Default::default()
     };
 
-    dialog.open(crate::agents::AgentId(9), "alpha");
+    dialog.open(
+        crate::agents::AgentId(9),
+        crate::agents::AgentKind::Pi,
+        "alpha",
+    );
 
     assert!(dialog.visible);
     assert_eq!(dialog.source_agent, Some(crate::agents::AgentId(9)));
@@ -115,7 +119,11 @@ fn clone_agent_dialog_open_prefills_name_and_focus() {
 #[test]
 fn clone_agent_dialog_cycles_focus_and_counts_as_keyboard_capture() {
     let mut dialog = CloneAgentDialogState::default();
-    dialog.open(crate::agents::AgentId(1), "alpha");
+    dialog.open(
+        crate::agents::AgentId(1),
+        crate::agents::AgentKind::Pi,
+        "alpha",
+    );
     dialog.cycle_focus(false);
     assert_eq!(dialog.focus, CloneAgentDialogField::Workdir);
     dialog.cycle_focus(false);
@@ -133,7 +141,11 @@ fn clone_agent_dialog_cycles_focus_and_counts_as_keyboard_capture() {
 #[test]
 fn clone_agent_dialog_builds_clone_command() {
     let mut dialog = CloneAgentDialogState::default();
-    dialog.open(crate::agents::AgentId(3), "alpha");
+    dialog.open(
+        crate::agents::AgentId(3),
+        crate::agents::AgentKind::Pi,
+        "alpha",
+    );
     dialog.name_field.load_text("child");
     dialog.toggle_workdir();
 
@@ -144,6 +156,31 @@ fn clone_agent_dialog_builds_clone_command() {
                 source_agent_id: crate::agents::AgentId(3),
                 label: "CHILD".into(),
                 workdir: true,
+            }
+        ))
+    );
+}
+
+#[test]
+fn clone_agent_dialog_for_non_pi_skips_workdir_focus_and_builds_plain_clone_command() {
+    let mut dialog = CloneAgentDialogState::default();
+    dialog.open(
+        crate::agents::AgentId(5),
+        crate::agents::AgentKind::Claude,
+        "alpha",
+    );
+    dialog.cycle_focus(false);
+    assert_eq!(dialog.focus, CloneAgentDialogField::CloneButton);
+    dialog.toggle_workdir();
+    assert!(!dialog.workdir);
+    dialog.name_field.load_text("child");
+    assert_eq!(
+        dialog.build_clone_command(),
+        Some(crate::app::AppCommand::Agent(
+            crate::app::AgentCommand::Clone {
+                source_agent_id: crate::agents::AgentId(5),
+                label: "CHILD".into(),
+                workdir: false,
             }
         ))
     );

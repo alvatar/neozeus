@@ -558,6 +558,67 @@ fn global_clone_shortcut_does_nothing_for_tmux_selection() {
 }
 
 #[test]
+fn global_clone_shortcut_opens_clone_agent_dialog_for_recoverable_provider_agent() {
+    for kind in [
+        crate::agents::AgentKind::Claude,
+        crate::agents::AgentKind::Codex,
+    ] {
+        let mut world = World::default();
+        let mut catalog = AgentCatalog::default();
+        let agent_id = catalog.create_agent_with_metadata(
+            Some("alpha".into()),
+            kind,
+            kind.capabilities(),
+            crate::agents::AgentMetadata {
+                clone_source_session_path: None,
+                recovery: Some(match kind {
+                    crate::agents::AgentKind::Claude => crate::agents::AgentRecoverySpec::Claude {
+                        session_id: "claude-parent".into(),
+                        cwd: "/tmp/demo".into(),
+                        model: None,
+                        profile: None,
+                    },
+                    crate::agents::AgentKind::Codex => crate::agents::AgentRecoverySpec::Codex {
+                        session_id: "codex-parent".into(),
+                        cwd: "/tmp/demo".into(),
+                        model: None,
+                        profile: None,
+                    },
+                    _ => unreachable!(),
+                }),
+            },
+        );
+        world.insert_resource(ButtonInput::<KeyCode>::default());
+        world.insert_resource(catalog);
+        world.insert_resource(AgentRuntimeIndex::default());
+        world.insert_resource(crate::hud::AgentListSelection::Agent(agent_id));
+        insert_default_hud_resources(&mut world);
+        world.init_resource::<Messages<RequestRedraw>>();
+        world.init_resource::<Messages<KeyboardInput>>();
+        world.spawn((
+            Window {
+                focused: true,
+                ..Default::default()
+            },
+            PrimaryWindow,
+        ));
+        world
+            .resource_mut::<Messages<KeyboardInput>>()
+            .write(pressed_text(KeyCode::KeyC, Some("c")));
+
+        world
+            .run_system_once(handle_global_terminal_spawn_shortcut)
+            .unwrap();
+
+        let session = world.resource::<AppSessionState>();
+        assert!(session.clone_agent_dialog.visible);
+        assert_eq!(session.clone_agent_dialog.source_agent, Some(agent_id));
+        assert_eq!(session.clone_agent_dialog.source_kind, Some(kind));
+        assert!(!session.clone_agent_dialog.supports_workdir());
+    }
+}
+
+#[test]
 fn global_clone_shortcut_does_nothing_for_non_pi_agent() {
     let mut world = World::default();
     let mut catalog = AgentCatalog::default();
@@ -1163,7 +1224,11 @@ fn clone_agent_dialog_tab_advances_focus() {
     world
         .resource_mut::<AppSessionState>()
         .clone_agent_dialog
-        .open(crate::agents::AgentId(7), "alpha");
+        .open(
+            crate::agents::AgentId(7),
+            crate::agents::AgentKind::Pi,
+            "alpha",
+        );
     world.spawn((
         Window {
             focused: true,
@@ -1194,9 +1259,11 @@ fn clone_agent_dialog_space_toggles_workdir() {
     world.insert_resource(crate::aegis::AegisRuntimeStore::default());
     {
         let mut session = world.resource_mut::<AppSessionState>();
-        session
-            .clone_agent_dialog
-            .open(crate::agents::AgentId(7), "alpha");
+        session.clone_agent_dialog.open(
+            crate::agents::AgentId(7),
+            crate::agents::AgentKind::Pi,
+            "alpha",
+        );
         session.clone_agent_dialog.focus = CloneAgentDialogField::Workdir;
     }
     world.spawn((
@@ -1227,7 +1294,11 @@ fn clone_agent_dialog_escape_closes_without_emitting_command() {
     world
         .resource_mut::<AppSessionState>()
         .clone_agent_dialog
-        .open(crate::agents::AgentId(7), "alpha");
+        .open(
+            crate::agents::AgentId(7),
+            crate::agents::AgentKind::Pi,
+            "alpha",
+        );
     ensure_app_command_world_resources(&mut world);
     init_hud_commands(&mut world);
     world.init_resource::<Messages<RequestRedraw>>();
@@ -1260,9 +1331,11 @@ fn clone_agent_dialog_submit_emits_clone_command() {
     world.insert_resource(crate::aegis::AegisRuntimeStore::default());
     {
         let mut session = world.resource_mut::<AppSessionState>();
-        session
-            .clone_agent_dialog
-            .open(crate::agents::AgentId(7), "alpha");
+        session.clone_agent_dialog.open(
+            crate::agents::AgentId(7),
+            crate::agents::AgentKind::Pi,
+            "alpha",
+        );
         session.clone_agent_dialog.name_field.load_text("child");
         session.clone_agent_dialog.workdir = true;
         session.clone_agent_dialog.focus = CloneAgentDialogField::CloneButton;
@@ -1306,7 +1379,11 @@ fn paste_into_clone_agent_dialog_inserts_into_name_field() {
     world
         .resource_mut::<AppSessionState>()
         .clone_agent_dialog
-        .open(crate::agents::AgentId(7), "alpha");
+        .open(
+            crate::agents::AgentId(7),
+            crate::agents::AgentKind::Pi,
+            "alpha",
+        );
     world.spawn((
         Window {
             focused: true,
