@@ -486,7 +486,7 @@ pub(crate) fn paste_into_aegis_dialog(
         Some(AegisDialogTarget::PromptField) => {
             app_session.aegis_dialog.focus = crate::app::AegisDialogField::Prompt;
             app_session.aegis_dialog.error = None;
-            app_session.aegis_dialog.prompt_field.insert_text(text)
+            app_session.aegis_dialog.prompt_editor.insert_text(text)
         }
         _ => false,
     }

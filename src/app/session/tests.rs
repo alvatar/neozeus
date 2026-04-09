@@ -187,7 +187,7 @@ fn aegis_dialog_open_and_build_command() {
     dialog.open(crate::agents::AgentId(4), "continue cleanly");
     assert!(dialog.visible);
     assert_eq!(dialog.target_agent, Some(crate::agents::AgentId(4)));
-    assert_eq!(dialog.prompt_field.text, "continue cleanly");
+    assert_eq!(dialog.prompt_editor.text, "continue cleanly");
     assert_eq!(dialog.focus, AegisDialogField::Prompt);
 
     dialog.cycle_focus(false);

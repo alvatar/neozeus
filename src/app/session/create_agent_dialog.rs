@@ -1,4 +1,5 @@
 use crate::{
+    composer::TextEditorState,
     dialogs::{cycle_dialog_focus, DialogTabOrder},
     shared::text_cursor::{
         next_char_boundary, previous_char_boundary, word_backward_boundary, word_forward_boundary,
@@ -400,11 +401,11 @@ pub(crate) struct RenameAgentDialogState {
     pub(crate) error: Option<String>,
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub(crate) struct AegisDialogState {
     pub(crate) visible: bool,
     pub(crate) target_agent: Option<crate::agents::AgentId>,
-    pub(crate) prompt_field: TextFieldState,
+    pub(crate) prompt_editor: TextEditorState,
     pub(crate) focus: AegisDialogField,
     pub(crate) error: Option<String>,
 }
@@ -603,7 +604,8 @@ impl AegisDialogState {
         self.target_agent = Some(agent_id);
         self.focus = AegisDialogField::Prompt;
         self.error = None;
-        self.prompt_field.load_text(prompt_text);
+        self.prompt_editor.load_text(prompt_text);
+        self.prompt_editor.visible = true;
     }
 
     /// Closes the dialog and discards the current field state.
@@ -612,7 +614,7 @@ impl AegisDialogState {
         self.target_agent = None;
         self.focus = AegisDialogField::Prompt;
         self.error = None;
-        self.prompt_field.clear();
+        self.prompt_editor.close_and_discard();
     }
 
     /// Advances focus to the next or previous field in the dialog's shared tab order.
@@ -626,7 +628,7 @@ impl AegisDialogState {
             self.error = Some("missing Aegis target".to_owned());
             return None;
         };
-        let prompt_text = self.prompt_field.text.trim();
+        let prompt_text = self.prompt_editor.text.trim();
         if prompt_text.is_empty() {
             self.error = Some("Aegis prompt is required".to_owned());
             return None;

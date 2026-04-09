@@ -529,9 +529,23 @@ fn draw_dialog_button_row(
     }
 }
 
+fn single_line_field_viewport(
+    text: &str,
+    cursor: usize,
+    max_visible_cols: usize,
+) -> (usize, usize, String) {
+    let safe_cursor = cursor.min(text.len());
+    let cursor_col = text[..safe_cursor].chars().count();
+    let start_col = cursor_col.saturating_sub(max_visible_cols.saturating_sub(1));
+    let visible_cursor_col = cursor_col.saturating_sub(start_col);
+    let display_text = slice_chars(text, start_col, max_visible_cols);
+    (start_col, visible_cursor_col, display_text)
+}
+
 /// Draws one single-line dialog field with optional focus cursor.
 fn draw_single_line_dialog_field(
     painter: &mut HudPainter,
+    window: &Window,
     field: &TextFieldState,
     rect: HudRect,
     focused: bool,
@@ -546,17 +560,34 @@ fn draw_single_line_dialog_field(
         },
         4.0,
     );
-    painter.label(
-        Vec2::new(rect.x + 10.0, rect.y + 7.0),
-        &field.text,
-        15.0,
-        HudColors::TEXT,
-        VelloTextAnchor::TopLeft,
+
+    let content_rect = HudRect {
+        x: rect.x + 10.0,
+        y: rect.y + 5.0,
+        w: (rect.w - 20.0).max(1.0),
+        h: (rect.h - 10.0).max(1.0),
+    };
+    let max_visible_cols = ((content_rect.w - 4.0) / 9.0).floor().max(4.0) as usize;
+    let (_start_col, visible_cursor_col, display_text) =
+        single_line_field_viewport(&field.text, field.cursor, max_visible_cols);
+
+    painter.scene.push_clip_layer(
+        Fill::NonZero,
+        Affine::IDENTITY,
+        &hud_rect_to_scene(window, content_rect),
     );
+    if !display_text.is_empty() {
+        painter.label(
+            Vec2::new(content_rect.x, rect.y + 7.0),
+            &display_text,
+            15.0,
+            HudColors::TEXT,
+            VelloTextAnchor::TopLeft,
+        );
+    }
     if focused {
-        let cursor = field.cursor.min(field.text.len());
-        let before_cursor = &field.text[..cursor];
-        let cursor_x = rect.x + 10.0 + painter.text_size(before_cursor, 15.0).x;
+        let before_cursor = slice_chars(&display_text, 0, visible_cursor_col);
+        let cursor_x = content_rect.x + painter.text_size(&before_cursor, 15.0).x;
         painter.fill_rect(
             HudRect {
                 x: cursor_x,
@@ -568,6 +599,7 @@ fn draw_single_line_dialog_field(
             0.0,
         );
     }
+    painter.scene.pop_layer();
 }
 
 /// Draws the centered create-agent dialog modal.
@@ -607,6 +639,7 @@ fn draw_create_agent_dialog(
     );
     draw_single_line_dialog_field(
         painter,
+        window,
         &dialog.name_field,
         name_rect,
         dialog.focus == CreateAgentDialogField::Name,
@@ -668,6 +701,7 @@ fn draw_create_agent_dialog(
     );
     draw_single_line_dialog_field(
         painter,
+        window,
         &dialog.cwd_field.field,
         folder_rect,
         dialog.focus == CreateAgentDialogField::StartingFolder,
@@ -727,6 +761,7 @@ fn draw_clone_agent_dialog(
     );
     draw_single_line_dialog_field(
         painter,
+        window,
         &dialog.name_field,
         name_rect,
         dialog.focus == CloneAgentDialogField::Name,
@@ -822,6 +857,7 @@ fn draw_rename_agent_dialog(
     );
     draw_single_line_dialog_field(
         painter,
+        window,
         &dialog.name_field,
         name_rect,
         dialog.focus == RenameAgentDialogField::Name,
@@ -869,15 +905,16 @@ fn draw_aegis_dialog(painter: &mut HudPainter, window: &Window, app_session: &Ap
         VelloTextAnchor::TopLeft,
     );
     painter.label(
-        Vec2::new(rect.x + 24.0, prompt_rect.y + 7.0),
+        Vec2::new(rect.x + 24.0, rect.y + 48.0),
         "Prompt",
         15.0,
         HudColors::TEXT_MUTED,
         VelloTextAnchor::TopLeft,
     );
-    draw_single_line_dialog_field(
+    draw_text_editor_body(
         painter,
-        &dialog.prompt_field,
+        window,
+        &dialog.prompt_editor,
         prompt_rect,
         dialog.focus == AegisDialogField::Prompt,
     );
@@ -1296,4 +1333,26 @@ pub(crate) fn render_hud_modal_scene(
         app_session.composer.task_dialog_focus,
     );
     **scene = VelloScene2d::from(built);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::single_line_field_viewport;
+
+    #[test]
+    fn single_line_field_viewport_keeps_cursor_visible_at_end_of_long_text() {
+        let (_start, visible_cursor_col, display) =
+            single_line_field_viewport("abcdefghijklmno", 15, 6);
+        assert_eq!(display, "klmno");
+        assert_eq!(visible_cursor_col, 5);
+    }
+
+    #[test]
+    fn single_line_field_viewport_handles_utf8_cursor_boundaries() {
+        let text = "aébΩz";
+        let cursor = text.find('Ω').expect("omega should exist");
+        let (_start, visible_cursor_col, display) = single_line_field_viewport(text, cursor, 4);
+        assert_eq!(display, "aébΩ");
+        assert_eq!(visible_cursor_col, 3);
+    }
 }

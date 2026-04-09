@@ -2121,7 +2121,7 @@ fn plain_a_opens_aegis_dialog_for_active_terminal_with_default_prompt() {
     assert!(app_session.aegis_dialog.visible);
     assert_eq!(app_session.aegis_dialog.target_agent, Some(agent_id));
     assert_eq!(
-        app_session.aegis_dialog.prompt_field.text,
+        app_session.aegis_dialog.prompt_editor.text,
         DEFAULT_AEGIS_PROMPT
     );
     assert_eq!(app_session.aegis_dialog.focus, AegisDialogField::Prompt);
@@ -2152,7 +2152,7 @@ fn disabled_agent_reopens_aegis_dialog_with_saved_prompt() {
         world
             .resource::<AppSessionState>()
             .aegis_dialog
-            .prompt_field
+            .prompt_editor
             .text,
         "saved custom prompt"
     );
@@ -2179,7 +2179,7 @@ fn aegis_dialog_enable_button_persists_custom_text_and_closes() {
             .open(agent_id, DEFAULT_AEGIS_PROMPT);
         app_session
             .aegis_dialog
-            .prompt_field
+            .prompt_editor
             .load_text("custom aegis prompt");
         app_session.aegis_dialog.focus = AegisDialogField::EnableButton;
     }
@@ -2218,7 +2218,7 @@ fn aegis_dialog_rejects_empty_prompt() {
         app_session
             .aegis_dialog
             .open(agent_id, DEFAULT_AEGIS_PROMPT);
-        app_session.aegis_dialog.prompt_field.clear();
+        app_session.aegis_dialog.prompt_editor.load_text("");
         app_session.aegis_dialog.focus = AegisDialogField::EnableButton;
     }
 
@@ -2230,6 +2230,28 @@ fn aegis_dialog_rejects_empty_prompt() {
         app_session.aegis_dialog.error.as_deref(),
         Some("Aegis prompt is required")
     );
+}
+
+#[test]
+fn aegis_dialog_prompt_accepts_multiline_text_without_submitting() {
+    let (mut world, terminal_id) =
+        world_with_active_terminal(Vec2::new(10.0, 10.0), false, Vec2::ZERO);
+    let agent_id = world
+        .resource::<crate::agents::AgentRuntimeIndex>()
+        .agent_for_terminal(terminal_id)
+        .expect("agent should be linked");
+    {
+        let mut app_session = world.resource_mut::<AppSessionState>();
+        app_session.aegis_dialog.open(agent_id, "line one");
+        app_session.aegis_dialog.focus = AegisDialogField::Prompt;
+    }
+
+    dispatch_message_box_key(&mut world, pressed_key(KeyCode::Enter, Key::Enter));
+    dispatch_message_box_key(&mut world, pressed_text(KeyCode::KeyA, Some("a")));
+
+    let app_session = world.resource::<AppSessionState>();
+    assert!(app_session.aegis_dialog.visible);
+    assert_eq!(app_session.aegis_dialog.prompt_editor.text, "line one\na");
 }
 
 #[test]
@@ -2275,7 +2297,7 @@ fn middle_click_paste_in_aegis_dialog_inserts_prompt_text() {
     {
         let mut app_session = world.resource_mut::<AppSessionState>();
         app_session.aegis_dialog.open(agent_id, "");
-        app_session.aegis_dialog.prompt_field.clear();
+        app_session.aegis_dialog.prompt_editor.load_text("");
     }
 
     let window = world
@@ -2293,7 +2315,7 @@ fn middle_click_paste_in_aegis_dialog_inserts_prompt_text() {
         "continue cleanly"
     ));
     assert_eq!(
-        app_session.aegis_dialog.prompt_field.text,
+        app_session.aegis_dialog.prompt_editor.text,
         "continue cleanly"
     );
 }

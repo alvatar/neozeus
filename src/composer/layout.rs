@@ -16,7 +16,7 @@ const CREATE_AGENT_DIALOG_ROW_GAP: f32 = 18.0;
 const CREATE_AGENT_DIALOG_RADIO_SIZE: f32 = 22.0;
 const CREATE_AGENT_DIALOG_RADIO_GAP: f32 = 20.0;
 const CLONE_AGENT_DIALOG_HEIGHT_RATIO: f32 = 0.24;
-const AEGIS_DIALOG_HEIGHT_RATIO: f32 = 0.24;
+const AEGIS_DIALOG_HEIGHT_RATIO: f32 = 0.42;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum MessageBoxAction {
@@ -192,7 +192,7 @@ pub(crate) fn rename_agent_dialog_rect(window: &Window) -> HudRect {
 pub(crate) fn aegis_dialog_rect(window: &Window) -> HudRect {
     let size = Vec2::new(
         (window.width() * CREATE_AGENT_DIALOG_WIDTH_RATIO).clamp(560.0, 960.0),
-        (window.height() * AEGIS_DIALOG_HEIGHT_RATIO).clamp(200.0, 280.0),
+        (window.height() * AEGIS_DIALOG_HEIGHT_RATIO).clamp(280.0, 460.0),
     );
     HudRect {
         x: window.width() * 0.5 - size.x * 0.5,
@@ -265,11 +265,12 @@ pub(crate) fn rename_agent_submit_button_rect(window: &Window) -> HudRect {
 
 pub(crate) fn aegis_prompt_field_rect(window: &Window) -> HudRect {
     let rect = aegis_dialog_rect(window);
+    let enable_rect = aegis_enable_button_rect(window);
     HudRect {
-        x: rect.x + CREATE_AGENT_DIALOG_INSET_X + CREATE_AGENT_DIALOG_LABEL_W,
-        y: rect.y + 68.0,
-        w: rect.w - (CREATE_AGENT_DIALOG_INSET_X * 2.0 + CREATE_AGENT_DIALOG_LABEL_W),
-        h: CREATE_AGENT_DIALOG_FIELD_HEIGHT,
+        x: rect.x + CREATE_AGENT_DIALOG_INSET_X,
+        y: rect.y + 72.0,
+        w: rect.w - (CREATE_AGENT_DIALOG_INSET_X * 2.0),
+        h: (enable_rect.y - 44.0 - (rect.y + 72.0)).max(96.0),
     }
 }
 

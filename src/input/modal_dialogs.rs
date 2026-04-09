@@ -306,7 +306,13 @@ pub(super) fn handle_aegis_dialog_key(
 
     let (changed, clear_error) = match app_session.aegis_dialog.focus {
         AegisDialogField::Prompt => (
-            handle_text_field_event(&mut app_session.aegis_dialog.prompt_field, event, modifiers),
+            super::handle_text_editor_event(
+                &mut app_session.aegis_dialog.prompt_editor,
+                event,
+                modifiers.ctrl,
+                modifiers.alt,
+                modifiers.super_key,
+            ),
             true,
         ),
         AegisDialogField::EnableButton => {
