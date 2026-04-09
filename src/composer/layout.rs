@@ -266,11 +266,12 @@ pub(crate) fn rename_agent_submit_button_rect(window: &Window) -> HudRect {
 pub(crate) fn aegis_prompt_field_rect(window: &Window) -> HudRect {
     let rect = aegis_dialog_rect(window);
     let enable_rect = aegis_enable_button_rect(window);
+    let info_row_y = enable_rect.y - 26.0;
     HudRect {
-        x: rect.x + CREATE_AGENT_DIALOG_INSET_X,
-        y: rect.y + 72.0,
-        w: rect.w - (CREATE_AGENT_DIALOG_INSET_X * 2.0),
-        h: (enable_rect.y - 44.0 - (rect.y + 72.0)).max(96.0),
+        x: rect.x + 22.0,
+        y: rect.y + 64.0,
+        w: rect.w - 44.0,
+        h: (info_row_y - 12.0 - (rect.y + 64.0)).max(96.0),
     }
 }
 

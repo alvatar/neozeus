@@ -2,6 +2,10 @@ mod editor;
 mod layout;
 mod state;
 
+#[allow(
+    unused_imports,
+    reason = "some layout helpers are test-only call sites but remain part of the composer surface"
+)]
 pub(crate) use layout::{
     aegis_dialog_rect, aegis_dialog_target_at, aegis_enable_button_rect, aegis_prompt_field_rect,
     clone_agent_dialog_rect, clone_agent_dialog_target_at, clone_agent_name_field_rect,

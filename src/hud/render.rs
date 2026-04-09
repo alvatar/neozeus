@@ -4,14 +4,13 @@ use crate::{
         RenameAgentDialogField, TextFieldState,
     },
     composer::{
-        aegis_dialog_rect, aegis_enable_button_rect, aegis_prompt_field_rect,
-        clone_agent_dialog_rect, clone_agent_name_field_rect, clone_agent_submit_button_rect,
-        clone_agent_workdir_rect, create_agent_create_button_rect, create_agent_dialog_rect,
-        create_agent_kind_option_rects, create_agent_name_field_rect,
-        create_agent_starting_folder_rect, message_box_action_buttons, message_box_rect,
-        rename_agent_dialog_rect, rename_agent_name_field_rect, rename_agent_submit_button_rect,
-        task_dialog_action_buttons, task_dialog_rect, MessageDialogFocus, TaskDialogFocus,
-        TextEditorState,
+        aegis_dialog_rect, aegis_enable_button_rect, clone_agent_dialog_rect,
+        clone_agent_name_field_rect, clone_agent_submit_button_rect, clone_agent_workdir_rect,
+        create_agent_create_button_rect, create_agent_dialog_rect, create_agent_kind_option_rects,
+        create_agent_name_field_rect, create_agent_starting_folder_rect,
+        message_box_action_buttons, message_box_rect, rename_agent_dialog_rect,
+        rename_agent_name_field_rect, rename_agent_submit_button_rect, task_dialog_action_buttons,
+        task_dialog_rect, MessageDialogFocus, TaskDialogFocus, TextEditorState,
     },
     startup::DaemonConnectionState,
 };
@@ -367,11 +366,90 @@ fn editor_selection_status(editor: &TextEditorState) -> String {
         .unwrap_or_else(|| "No mark".to_owned())
 }
 
-/// Draws the scroll-less modal text editor body, including visible lines, selection, and cursor.
-///
-/// The viewport is centered around the cursor line/column rather than maintaining separate scroll
-/// state. Selection rectangles are computed in character space and translated back into measured pixel
-/// widths through the painter's text measurement helper.
+#[derive(Clone, Debug)]
+struct WrappedEditorRow<'a> {
+    line_start_byte: usize,
+    line_end_byte: usize,
+    line_text: &'a str,
+    segment_start_col: usize,
+    segment_len: usize,
+    display_text: String,
+    cursor_col: Option<usize>,
+}
+
+fn wrapped_editor_rows<'a>(
+    text: &'a str,
+    max_visible_cols: usize,
+    cursor_line: usize,
+    cursor_col: usize,
+) -> (Vec<WrappedEditorRow<'a>>, usize) {
+    let mut rows = Vec::new();
+    let mut cursor_row = 0;
+    for (line_index, (line_start_byte, line_end_byte, line_text)) in
+        message_box_lines(text).into_iter().enumerate()
+    {
+        let line_char_count = line_text.chars().count();
+        if line_char_count == 0 {
+            if line_index == cursor_line {
+                cursor_row = rows.len();
+            }
+            rows.push(WrappedEditorRow {
+                line_start_byte,
+                line_end_byte,
+                line_text,
+                segment_start_col: 0,
+                segment_len: 0,
+                display_text: String::new(),
+                cursor_col: (line_index == cursor_line).then_some(0),
+            });
+            continue;
+        }
+
+        let cursor_segment_start = if line_index == cursor_line {
+            if cursor_col == line_char_count && line_char_count % max_visible_cols == 0 {
+                line_char_count.saturating_sub(max_visible_cols)
+            } else {
+                (cursor_col / max_visible_cols) * max_visible_cols
+            }
+        } else {
+            usize::MAX
+        };
+
+        for segment_start_col in (0..line_char_count).step_by(max_visible_cols) {
+            let segment_len = (line_char_count - segment_start_col).min(max_visible_cols);
+            if line_index == cursor_line && segment_start_col == cursor_segment_start {
+                cursor_row = rows.len();
+            }
+            rows.push(WrappedEditorRow {
+                line_start_byte,
+                line_end_byte,
+                line_text,
+                segment_start_col,
+                segment_len,
+                display_text: slice_chars(line_text, segment_start_col, segment_len),
+                cursor_col: (line_index == cursor_line
+                    && segment_start_col == cursor_segment_start)
+                    .then_some(cursor_col.saturating_sub(segment_start_col)),
+            });
+        }
+    }
+
+    if rows.is_empty() {
+        rows.push(WrappedEditorRow {
+            line_start_byte: 0,
+            line_end_byte: 0,
+            line_text: "",
+            segment_start_col: 0,
+            segment_len: 0,
+            display_text: String::new(),
+            cursor_col: Some(0),
+        });
+    }
+
+    (rows, cursor_row)
+}
+
+/// Draws the wrapped modal text editor body, including visible lines, selection, and cursor.
 fn draw_text_editor_body(
     painter: &mut HudPainter,
     window: &Window,
@@ -379,7 +457,6 @@ fn draw_text_editor_body(
     body_rect: HudRect,
     focused: bool,
 ) {
-    // Build the geometry or layout decisions first, then emit the matching draw operations against the prepared state.
     painter.fill_rect(body_rect, HudColors::MESSAGE_BOX, 6.0);
     painter.stroke_rect(
         body_rect,
@@ -397,11 +474,12 @@ fn draw_text_editor_body(
     let content_y = body_rect.y + 16.0;
     let max_visible_lines = ((body_rect.h - 24.0) / line_height).floor().max(1.0) as usize;
     let max_visible_cols = ((body_rect.w - 36.0) / 10.0).floor().max(8.0) as usize;
-    let lines = message_box_lines(&editor.text);
     let (cursor_line, cursor_col) = editor.cursor_line_and_column();
     let selection = editor.region_bounds();
-    let start_line = cursor_line.saturating_sub(max_visible_lines.saturating_sub(1));
-    let end_line = (start_line + max_visible_lines).min(lines.len());
+    let (rows, cursor_row) =
+        wrapped_editor_rows(&editor.text, max_visible_cols, cursor_line, cursor_col);
+    let start_row = cursor_row.saturating_sub(max_visible_lines.saturating_sub(1));
+    let end_row = (start_row + max_visible_lines).min(rows.len());
 
     painter.scene.push_clip_layer(
         Fill::NonZero,
@@ -409,17 +487,10 @@ fn draw_text_editor_body(
         &hud_rect_to_scene(window, body_rect),
     );
 
-    for (visible_index, line_index) in (start_line..end_line).enumerate() {
-        let (line_start_byte, line_end_byte, line) = lines[line_index];
-        let start_col = if line_index == cursor_line {
-            cursor_col.saturating_sub(max_visible_cols.saturating_sub(1))
-        } else {
-            0
-        };
-        let display_text = slice_chars(line, start_col, max_visible_cols);
+    for (visible_index, row) in rows[start_row..end_row].iter().enumerate() {
         let y = content_y + visible_index as f32 * line_height;
 
-        if line_index == cursor_line {
+        if row.cursor_col.is_some() {
             painter.fill_rect(
                 HudRect {
                     x: body_rect.x + 8.0,
@@ -433,22 +504,25 @@ fn draw_text_editor_body(
         }
 
         if let Some((selection_start, selection_end)) = selection {
-            let line_selection_start = selection_start.max(line_start_byte);
-            let line_selection_end = selection_end.min(line_end_byte);
+            let line_selection_start = selection_start.max(row.line_start_byte);
+            let line_selection_end = selection_end.min(row.line_end_byte);
             if line_selection_start < line_selection_end {
-                let selection_start_col = editor.text[line_start_byte..line_selection_start]
+                let selection_start_col = editor.text[row.line_start_byte..line_selection_start]
                     .chars()
                     .count();
-                let selection_end_col = editor.text[line_start_byte..line_selection_end]
+                let selection_end_col = editor.text[row.line_start_byte..line_selection_end]
                     .chars()
                     .count();
-                let visible_selection_start = selection_start_col.max(start_col) - start_col;
-                let visible_selection_end = selection_end_col
-                    .min(start_col.saturating_add(max_visible_cols))
-                    .saturating_sub(start_col);
-                if visible_selection_start < visible_selection_end {
-                    let before_selection = slice_chars(line, start_col, visible_selection_start);
-                    let before_selection_end = slice_chars(line, start_col, visible_selection_end);
+                let row_selection_start = selection_start_col.max(row.segment_start_col);
+                let row_selection_end =
+                    selection_end_col.min(row.segment_start_col.saturating_add(row.segment_len));
+                if row_selection_start < row_selection_end {
+                    let local_start = row_selection_start - row.segment_start_col;
+                    let local_end = row_selection_end - row.segment_start_col;
+                    let before_selection =
+                        slice_chars(row.line_text, row.segment_start_col, local_start);
+                    let before_selection_end =
+                        slice_chars(row.line_text, row.segment_start_col, local_end);
                     let selection_x = content_x + painter.text_size(&before_selection, text_size).x;
                     let selection_end_x =
                         content_x + painter.text_size(&before_selection_end, text_size).x;
@@ -466,30 +540,32 @@ fn draw_text_editor_body(
             }
         }
 
-        if !display_text.is_empty() {
+        if !row.display_text.is_empty() {
             painter.label(
                 Vec2::new(content_x, y),
-                &display_text,
+                &row.display_text,
                 text_size,
                 HudColors::TEXT,
                 VelloTextAnchor::TopLeft,
             );
         }
 
-        if focused && line_index == cursor_line {
-            let visible_cursor_col = cursor_col.saturating_sub(start_col);
-            let before_cursor = slice_chars(line, start_col, visible_cursor_col);
-            let cursor_x = content_x + painter.text_size(&before_cursor, text_size).x;
-            painter.fill_rect(
-                HudRect {
-                    x: cursor_x,
-                    y,
-                    w: 2.5,
-                    h: 20.0,
-                },
-                HudColors::BORDER,
-                1.0,
-            );
+        if focused {
+            if let Some(visible_cursor_col) = row.cursor_col {
+                let before_cursor =
+                    slice_chars(row.line_text, row.segment_start_col, visible_cursor_col);
+                let cursor_x = content_x + painter.text_size(&before_cursor, text_size).x;
+                painter.fill_rect(
+                    HudRect {
+                        x: cursor_x,
+                        y,
+                        w: 2.5,
+                        h: 20.0,
+                    },
+                    HudColors::BORDER,
+                    1.0,
+                );
+            }
         }
     }
 
@@ -882,74 +958,21 @@ fn draw_rename_agent_dialog(
     }
 }
 
-/// Draws the message-box modal, including title, editor body, buttons, and status line.
-///
-/// Rendering is skipped entirely when the modal is not visible.
-fn draw_aegis_dialog(painter: &mut HudPainter, window: &Window, app_session: &AppSessionState) {
-    if !app_session.aegis_dialog.visible {
-        return;
-    }
-
-    let dialog = &app_session.aegis_dialog;
-    let rect = aegis_dialog_rect(window);
-    let prompt_rect = aegis_prompt_field_rect(window);
-    let enable_rect = aegis_enable_button_rect(window);
-
-    painter.fill_rect(rect, HudColors::MESSAGE_BOX, 12.0);
-    painter.stroke_rect(rect, HudColors::BORDER, 12.0);
-    painter.label(
-        Vec2::new(rect.x + 24.0, rect.y + 14.0),
-        "Aegis",
-        20.0,
-        HudColors::TEXT,
-        VelloTextAnchor::TopLeft,
-    );
-    painter.label(
-        Vec2::new(rect.x + 24.0, rect.y + 48.0),
-        "Prompt",
-        15.0,
-        HudColors::TEXT_MUTED,
-        VelloTextAnchor::TopLeft,
-    );
-    draw_text_editor_body(
-        painter,
-        window,
-        &dialog.prompt_editor,
-        prompt_rect,
-        dialog.focus == AegisDialogField::Prompt,
-    );
-    draw_dialog_button_row(
-        painter,
-        [(
-            enable_rect,
-            "Enable",
-            dialog.focus == AegisDialogField::EnableButton,
-        )],
-    );
-    if let Some(error) = dialog.error.as_deref() {
-        painter.label(
-            Vec2::new(rect.x + 24.0, enable_rect.y - 26.0),
-            error,
-            14.0,
-            peniko::Color::from_rgba8(220, 80, 80, 255),
-            VelloTextAnchor::TopLeft,
-        );
-    }
-}
-
-fn draw_message_box(
+#[allow(
+    clippy::too_many_arguments,
+    reason = "shared editor dialog shell intentionally owns the common title/body/button/footer/error surface"
+)]
+fn draw_text_editor_dialog(
     painter: &mut HudPainter,
     window: &Window,
-    message_box: &TextEditorState,
+    rect: HudRect,
     title: &str,
-    focus: MessageDialogFocus,
+    editor: &TextEditorState,
+    editor_focused: bool,
+    buttons: impl IntoIterator<Item = (HudRect, &'static str, bool)>,
+    footer_text: Option<&str>,
+    error_text: Option<&str>,
 ) {
-    // Build the geometry or layout decisions first, then emit the matching draw operations against the prepared state.
-    if !message_box.visible {
-        return;
-    }
-
-    let rect = message_box_rect(window);
     painter.fill_rect(rect, HudColors::MESSAGE_BOX, 12.0);
     painter.stroke_rect(rect, HudColors::BORDER, 12.0);
 
@@ -968,8 +991,8 @@ fn draw_message_box(
         VelloTextAnchor::TopLeft,
     );
 
-    let buttons = message_box_action_buttons(window);
-    let button_row_y = buttons[0].1.y;
+    let buttons = buttons.into_iter().collect::<Vec<_>>();
+    let button_row_y = buttons[0].0.y;
     let info_row_y = button_row_y - 26.0;
     let body_rect = HudRect {
         x: rect.x + 22.0,
@@ -977,15 +1000,89 @@ fn draw_message_box(
         w: rect.w - 44.0,
         h: (info_row_y - 12.0 - (rect.y + 64.0)).max(96.0),
     };
-    draw_text_editor_body(
+    draw_text_editor_body(painter, window, editor, body_rect, editor_focused);
+    draw_dialog_button_row(painter, buttons);
+
+    if let Some(footer_text) = footer_text {
+        painter.label(
+            Vec2::new(rect.x + 24.0, info_row_y),
+            footer_text,
+            15.0,
+            HudColors::TEXT_MUTED,
+            VelloTextAnchor::TopLeft,
+        );
+    }
+    if let Some(error_text) = error_text {
+        painter.label(
+            Vec2::new(rect.x + 24.0, button_row_y - 26.0),
+            error_text,
+            14.0,
+            peniko::Color::from_rgba8(220, 80, 80, 255),
+            VelloTextAnchor::TopLeft,
+        );
+    }
+}
+
+/// Draws the message-box modal, including title, editor body, buttons, and status line.
+fn draw_aegis_dialog(painter: &mut HudPainter, window: &Window, app_session: &AppSessionState) {
+    if !app_session.aegis_dialog.visible {
+        return;
+    }
+
+    let dialog = &app_session.aegis_dialog;
+    let rect = aegis_dialog_rect(window);
+    let enable_rect = aegis_enable_button_rect(window);
+    let (line_number, column_number) = dialog.prompt_editor.cursor_line_and_column();
+    let footer = format!(
+        "Ln {} · Col {} · {} · Enter newline · Esc cancel",
+        line_number + 1,
+        column_number + 1,
+        editor_selection_status(&dialog.prompt_editor)
+    );
+    draw_text_editor_dialog(
         painter,
         window,
-        message_box,
-        body_rect,
-        focus == MessageDialogFocus::Editor,
+        rect,
+        "Aegis",
+        &dialog.prompt_editor,
+        dialog.focus == AegisDialogField::Prompt,
+        [(
+            enable_rect,
+            "Enable",
+            dialog.focus == AegisDialogField::EnableButton,
+        )],
+        Some(&footer),
+        dialog.error.as_deref(),
     );
-    draw_dialog_button_row(
+}
+
+fn draw_message_box(
+    painter: &mut HudPainter,
+    window: &Window,
+    message_box: &TextEditorState,
+    title: &str,
+    focus: MessageDialogFocus,
+) {
+    if !message_box.visible {
+        return;
+    }
+
+    let rect = message_box_rect(window);
+    let buttons = message_box_action_buttons(window);
+    let (line_number, column_number) = message_box.cursor_line_and_column();
+    let footer = format!(
+        "Ln {} · Col {} · {} · Enter newline · Ctrl-S send · Esc cancel · C-Space mark · C-w cut · M-w copy · C-y yank · M-y ring",
+        line_number + 1,
+        column_number + 1,
+        editor_selection_status(message_box)
+    );
+    draw_text_editor_dialog(
         painter,
+        window,
+        rect,
+        title,
+        message_box,
+        focus == MessageDialogFocus::Editor,
         buttons.into_iter().map(|(action, rect, label)| {
             (
                 rect,
@@ -1000,26 +1097,56 @@ fn draw_message_box(
                 },
             )
         }),
-    );
-
-    let (line_number, column_number) = message_box.cursor_line_and_column();
-    painter.label(
-        Vec2::new(rect.x + 24.0, info_row_y),
-        &format!(
-            "Ln {} · Col {} · {} · Enter newline · Ctrl-S send · Esc cancel · C-Space mark · C-w cut · M-w copy · C-y yank · M-y ring",
-            line_number + 1,
-            column_number + 1,
-            editor_selection_status(message_box)
-        ),
-        15.0,
-        HudColors::TEXT_MUTED,
-        VelloTextAnchor::TopLeft,
+        Some(&footer),
+        None,
     );
 }
 
 /// Draws the task-dialog modal, which reuses the shared text editor body with different title and
 /// button copy.
-///
+fn draw_task_dialog(
+    painter: &mut HudPainter,
+    window: &Window,
+    task_dialog: &TextEditorState,
+    title: &str,
+    focus: TaskDialogFocus,
+) {
+    if !task_dialog.visible {
+        return;
+    }
+
+    let rect = task_dialog_rect(window);
+    let buttons = task_dialog_action_buttons(window);
+    let (line_number, column_number) = task_dialog.cursor_line_and_column();
+    let footer = format!(
+        "Ln {} · Col {} · {} · Format: - [] task or - [ ] task · Ctrl-T clear done · Esc close+persist",
+        line_number + 1,
+        column_number + 1,
+        editor_selection_status(task_dialog)
+    );
+    draw_text_editor_dialog(
+        painter,
+        window,
+        rect,
+        title,
+        task_dialog,
+        focus == TaskDialogFocus::Editor,
+        buttons.into_iter().map(|(action, rect, label)| {
+            (
+                rect,
+                label,
+                match action {
+                    crate::composer::TaskDialogAction::ClearDone => {
+                        focus == TaskDialogFocus::ClearDoneButton
+                    }
+                },
+            )
+        }),
+        Some(&footer),
+        None,
+    );
+}
+
 /// Rendering is skipped entirely when the dialog is hidden.
 fn startup_connect_rect(window: &Window) -> HudRect {
     let size = Vec2::new(
@@ -1093,84 +1220,6 @@ fn draw_startup_connect_overlay(
         15.0,
         HudColors::TEXT_MUTED,
         VelloTextAnchor::Bottom,
-    );
-}
-
-/// Draws task dialog.
-fn draw_task_dialog(
-    painter: &mut HudPainter,
-    window: &Window,
-    task_dialog: &TextEditorState,
-    title: &str,
-    focus: TaskDialogFocus,
-) {
-    // Build the geometry or layout decisions first, then emit the matching draw operations against the prepared state.
-    if !task_dialog.visible {
-        return;
-    }
-
-    let rect = task_dialog_rect(window);
-    painter.fill_rect(rect, HudColors::MESSAGE_BOX, 12.0);
-    painter.stroke_rect(rect, HudColors::BORDER, 12.0);
-
-    let title_rect = HudRect {
-        x: rect.x,
-        y: rect.y,
-        w: rect.w,
-        h: 44.0,
-    };
-    painter.fill_rect(title_rect, HudColors::MESSAGE_BOX, 12.0);
-    painter.label(
-        Vec2::new(rect.x + 24.0, rect.y + 12.0),
-        title,
-        18.0,
-        HudColors::TEXT,
-        VelloTextAnchor::TopLeft,
-    );
-
-    let buttons = task_dialog_action_buttons(window);
-    let button_row_y = buttons[0].1.y;
-    let info_row_y = button_row_y - 26.0;
-    let body_rect = HudRect {
-        x: rect.x + 22.0,
-        y: rect.y + 64.0,
-        w: rect.w - 44.0,
-        h: (info_row_y - 12.0 - (rect.y + 64.0)).max(96.0),
-    };
-    draw_text_editor_body(
-        painter,
-        window,
-        task_dialog,
-        body_rect,
-        focus == TaskDialogFocus::Editor,
-    );
-    draw_dialog_button_row(
-        painter,
-        buttons.into_iter().map(|(action, rect, label)| {
-            (
-                rect,
-                label,
-                match action {
-                    crate::composer::TaskDialogAction::ClearDone => {
-                        focus == TaskDialogFocus::ClearDoneButton
-                    }
-                },
-            )
-        }),
-    );
-
-    let (line_number, column_number) = task_dialog.cursor_line_and_column();
-    painter.label(
-        Vec2::new(rect.x + 24.0, info_row_y),
-        &format!(
-            "Ln {} · Col {} · {} · Format: - [] task or - [ ] task · Ctrl-T clear done · Esc close+persist",
-            line_number + 1,
-            column_number + 1,
-            editor_selection_status(task_dialog)
-        ),
-        15.0,
-        HudColors::TEXT_MUTED,
-        VelloTextAnchor::TopLeft,
     );
 }
 
@@ -1337,7 +1386,7 @@ pub(crate) fn render_hud_modal_scene(
 
 #[cfg(test)]
 mod tests {
-    use super::single_line_field_viewport;
+    use super::{single_line_field_viewport, wrapped_editor_rows};
 
     #[test]
     fn single_line_field_viewport_keeps_cursor_visible_at_end_of_long_text() {
@@ -1354,5 +1403,26 @@ mod tests {
         let (_start, visible_cursor_col, display) = single_line_field_viewport(text, cursor, 4);
         assert_eq!(display, "aébΩ");
         assert_eq!(visible_cursor_col, 3);
+    }
+
+    #[test]
+    fn wrapped_editor_rows_wraps_long_line_and_tracks_cursor_segment() {
+        let (rows, cursor_row) = wrapped_editor_rows("abcdefghij", 4, 0, 9);
+        let displays = rows
+            .iter()
+            .map(|row| row.display_text.clone())
+            .collect::<Vec<_>>();
+        assert_eq!(displays, vec!["abcd", "efgh", "ij"]);
+        assert_eq!(cursor_row, 2);
+        assert_eq!(rows[2].cursor_col, Some(1));
+    }
+
+    #[test]
+    fn wrapped_editor_rows_keeps_cursor_at_end_of_exact_boundary_segment() {
+        let (rows, cursor_row) = wrapped_editor_rows("abcdefgh", 4, 0, 8);
+        assert_eq!(rows.len(), 2);
+        assert_eq!(cursor_row, 1);
+        assert_eq!(rows[1].display_text, "efgh");
+        assert_eq!(rows[1].cursor_col, Some(4));
     }
 }
