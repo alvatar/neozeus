@@ -40,6 +40,38 @@ use bevy::{
 };
 use std::{fs, path::PathBuf, process::Command, sync::Arc, time::Duration};
 
+fn sqlite3_available() -> bool {
+    Command::new("sqlite3")
+        .arg("-version")
+        .output()
+        .map(|output| output.status.success())
+        .unwrap_or(false)
+}
+
+fn write_codex_state_db(path: &std::path::Path, rows: &[(&str, &str, i64, &str)]) {
+    let parent = path.parent().expect("db path should have parent");
+    fs::create_dir_all(parent).unwrap();
+    let mut script = String::from(
+        "create table threads (id text primary key, rollout_path text not null, created_at integer not null, updated_at integer not null, source text not null, model_provider text not null, cwd text not null, title text not null, sandbox_policy text not null, approval_mode text not null, tokens_used integer not null default 0, has_user_event integer not null default 0, archived integer not null default 0, archived_at integer, git_sha text, git_branch text, git_origin_url text, cli_version text not null default '', first_user_message text not null default '');\n",
+    );
+    for (id, cwd, created_at, title) in rows {
+        script.push_str(&format!(
+            "insert into threads (id, rollout_path, created_at, updated_at, source, model_provider, cwd, title, sandbox_policy, approval_mode) values ('{}', '/tmp/out', {}, {}, 'chat', 'openai', '{}', '{}', '{{\"type\":\"workspace-write\"}}', 'on-request');\n",
+            id, created_at, created_at, cwd, title.replace('\'', "''")
+        ));
+    }
+    let output = Command::new("sqlite3")
+        .arg(path)
+        .arg(script)
+        .output()
+        .expect("sqlite3 should run");
+    assert!(
+        output.status.success(),
+        "sqlite3 init failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
 fn pressed_key(key_code: KeyCode, logical_key: Key) -> KeyboardInput {
     KeyboardInput {
         key_code,
@@ -1585,6 +1617,35 @@ fn create_agent_rejects_duplicate_name_without_creating_session() {
 /// Verifies that creating agent sessions bootstraps the selected CLI command.
 #[test]
 fn create_agent_request_bootstraps_selected_cli_command() {
+    if !sqlite3_available() {
+        return;
+    }
+    let previous_home = std::env::var_os("HOME");
+    let codex_home = temp_dir("neozeus-codex-create-test-home");
+    std::env::set_var("HOME", &codex_home);
+    write_codex_state_db(
+        &codex_home.join(".codex").join("state_5.sqlite"),
+        &[("thread-old", "/tmp/other", 10, "old")],
+    );
+    std::thread::spawn({
+        let codex_home = codex_home.clone();
+        move || {
+            std::thread::sleep(Duration::from_millis(150));
+            write_codex_state_db(
+                &codex_home.join(".codex").join("state_6.sqlite"),
+                &[
+                    ("thread-old", "/tmp/other", 10, "old"),
+                    (
+                        "thread-new",
+                        codex_home.join("code").to_string_lossy().as_ref(),
+                        20,
+                        "new",
+                    ),
+                ],
+            );
+        }
+    });
+
     let client = Arc::new(FakeDaemonClient::default());
     let mut world = World::default();
     let mut time = Time::<()>::default();
@@ -1663,6 +1724,21 @@ fn create_agent_request_bootstraps_selected_cli_command() {
         Some(crate::agents::AgentRecoverySpec::Claude { session_id, cwd, .. })
             if !session_id.trim().is_empty() && cwd.ends_with("/code")
     ));
+    let codex_agent = catalog
+        .iter()
+        .find_map(|(agent_id, label)| (label == "CODEX-AGENT").then_some(agent_id))
+        .expect("Codex agent should exist");
+    assert!(matches!(
+        catalog.recovery_spec(codex_agent),
+        Some(crate::agents::AgentRecoverySpec::Codex { session_id, cwd, .. })
+            if session_id == "thread-new"
+                && cwd == codex_home.join("code").to_string_lossy().as_ref()
+    ));
+    if let Some(previous_home) = previous_home {
+        std::env::set_var("HOME", previous_home);
+    } else {
+        std::env::remove_var("HOME");
+    }
 }
 
 /// Verifies that creating a terminal session does not inject any agent bootstrap command payload.

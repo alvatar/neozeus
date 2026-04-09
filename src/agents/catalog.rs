@@ -359,6 +359,18 @@ impl AgentCatalog {
             .and_then(|record| record.metadata.recovery.as_ref())
     }
 
+    pub(crate) fn set_recovery_spec(
+        &mut self,
+        agent_id: AgentId,
+        recovery: Option<AgentRecoverySpec>,
+    ) -> Result<(), String> {
+        let Some(record) = self.agents.get_mut(&agent_id) else {
+            return Err(format!("unknown agent {}", agent_id.0));
+        };
+        record.metadata.recovery = recovery;
+        Ok(())
+    }
+
     /// Returns whether one agent represents a workdir checkout.
     pub(crate) fn is_workdir(&self, agent_id: AgentId) -> bool {
         matches!(

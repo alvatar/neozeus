@@ -1,5 +1,6 @@
 pub mod app_state_file;
 pub mod capture;
+pub mod codex_state;
 pub mod command_runner;
 pub mod daemon_client_core;
 pub mod daemon_socket;

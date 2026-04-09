@@ -20,7 +20,7 @@ use super::{
 use bevy::{prelude::*, window::RequestRedraw};
 use std::{
     sync::atomic::{AtomicU64, Ordering},
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -269,6 +269,19 @@ fn spawn_agent_terminal_internal(
     };
     let agent_uid = pending_identity.uid.clone();
     let agent_label = pending_identity.label.clone();
+    let codex_capture = if kind == AgentKind::Codex && launch.metadata.recovery.is_none() {
+        crate::shared::pi_session_files::resolve_session_cwd(working_directory)
+            .ok()
+            .map(|cwd| {
+                (
+                    cwd,
+                    crate::shared::codex_state::codex_thread_ids().unwrap_or_default(),
+                )
+            })
+    } else {
+        None
+    };
+
     let mut env_overrides = vec![
         ("NEOZEUS_AGENT_UID".to_owned(), agent_uid),
         ("NEOZEUS_AGENT_LABEL".to_owned(), agent_label),
@@ -312,6 +325,33 @@ fn spawn_agent_terminal_internal(
             view_state,
             visibility_state,
         );
+    }
+    if let Some((cwd, known_thread_ids)) = codex_capture {
+        match crate::shared::codex_state::wait_for_new_codex_thread_id(
+            &cwd,
+            &known_thread_ids,
+            Duration::from_secs(3),
+        ) {
+            Ok(Some(session_id)) => {
+                let _ = agent_catalog.set_recovery_spec(
+                    agent_id,
+                    Some(AgentRecoverySpec::Codex {
+                        session_id,
+                        cwd,
+                        model: None,
+                        profile: None,
+                    }),
+                );
+            }
+            Ok(None) => append_debug_log(format!(
+                "codex recovery capture timed out for agent {}",
+                agent_id.0
+            )),
+            Err(error) => append_debug_log(format!(
+                "codex recovery capture failed for agent {}: {error}",
+                agent_id.0
+            )),
+        }
     }
     if persist_mutation {
         mark_app_state_dirty(app_state_persistence, Some(time));
