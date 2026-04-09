@@ -23,12 +23,14 @@ pub(crate) use layout::{
 pub(crate) use state::{
     ComposerMode, ComposerState, MessageDialogFocus, TaskDialogFocus, TextEditorState,
 };
-pub(crate) use wrapping::{wrapped_text_rows, wrapped_text_rows_measured};
+#[allow(
+    unused_imports,
+    reason = "shared wrapped-row type is referenced by renderer helpers and tests"
+)]
+pub(crate) use wrapping::{wrapped_text_rows, wrapped_text_rows_measured, WrappedTextRow};
 
 #[cfg(test)]
 pub(crate) use state::ComposerSession;
-#[cfg(test)]
-pub(crate) use wrapping::WrappedTextRow;
 
 #[cfg(test)]
 mod tests;

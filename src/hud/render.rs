@@ -420,6 +420,25 @@ fn cursor_byte_for_line_column(text: &str, cursor_line: usize, cursor_col: usize
         + byte_index_for_char(line_text, bounded_cursor).min(line_end_byte - line_start_byte)
 }
 
+fn active_line_bounds(text: &str, cursor: usize) -> (usize, usize) {
+    let line_start = text[..cursor]
+        .rfind('\n')
+        .map(|index| index + 1)
+        .unwrap_or(0);
+    let line_end = text[cursor..]
+        .find('\n')
+        .map(|offset| cursor + offset)
+        .unwrap_or(text.len());
+    (line_start, line_end)
+}
+
+fn wrapped_row_is_active(
+    row: &crate::composer::WrappedTextRow<'_>,
+    active_line: (usize, usize),
+) -> bool {
+    (row.line_start_byte, row.line_end_byte) == active_line
+}
+
 #[cfg(test)]
 fn wrapped_editor_rows<'a>(
     text: &'a str,
@@ -459,6 +478,7 @@ fn draw_text_editor_body(
     let content_y = body_rect.y + 16.0;
     let max_visible_lines = ((body_rect.h - 24.0) / line_height).floor().max(1.0) as usize;
     let selection = editor.region_bounds();
+    let active_line = active_line_bounds(&editor.text, editor.cursor);
     let text_width = (body_rect.w - 36.0).max(1.0);
     let (rows, cursor_row) =
         wrapped_text_rows_measured(&editor.text, editor.cursor, text_width, |segment| {
@@ -476,7 +496,7 @@ fn draw_text_editor_body(
     for (visible_index, row) in rows[start_row..end_row].iter().enumerate() {
         let y = content_y + visible_index as f32 * line_height;
 
-        if row.cursor_col.is_some() {
+        if wrapped_row_is_active(row, active_line) {
             painter.fill_rect(
                 HudRect {
                     x: body_rect.x + 8.0,
@@ -1424,7 +1444,8 @@ pub(crate) fn render_hud_modal_scene(
 #[cfg(test)]
 mod tests {
     use super::{
-        cursor_visual_span, single_line_field_viewport, wrapped_editor_rows, CursorVisualSpan,
+        active_line_bounds, cursor_visual_span, single_line_field_viewport, wrapped_editor_rows,
+        wrapped_row_is_active, CursorVisualSpan,
     };
 
     #[test]
@@ -1479,5 +1500,17 @@ mod tests {
                 trailing_text: "cd",
             }
         );
+    }
+
+    #[test]
+    fn wrapped_row_activity_marks_all_visual_rows_of_active_logical_line() {
+        let text = "hello world\nnext";
+        let (rows, _cursor_row) = wrapped_editor_rows(text, 7, 0, 8);
+        let active_line = active_line_bounds(text, 8);
+        let active_rows = rows
+            .iter()
+            .map(|row| wrapped_row_is_active(row, active_line))
+            .collect::<Vec<_>>();
+        assert_eq!(active_rows, vec![true, true, false]);
     }
 }

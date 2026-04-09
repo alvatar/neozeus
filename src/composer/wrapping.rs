@@ -1,5 +1,7 @@
 #[derive(Clone, Debug)]
 pub(crate) struct WrappedTextRow<'a> {
+    pub(crate) line_start_byte: usize,
+    pub(crate) line_end_byte: usize,
     pub(crate) display_start_byte: usize,
     pub(crate) display_end_byte: usize,
     pub(crate) display_text: &'a str,
@@ -47,6 +49,8 @@ where
                     None
                 };
             rows.push(WrappedTextRow {
+                line_start_byte,
+                line_end_byte,
                 display_start_byte: line_start_byte,
                 display_end_byte: line_end_byte,
                 display_text: "",
@@ -82,6 +86,8 @@ where
                     None
                 };
             rows.push(WrappedTextRow {
+                line_start_byte,
+                line_end_byte,
                 display_start_byte,
                 display_end_byte,
                 display_text,
@@ -94,6 +100,8 @@ where
 
     if rows.is_empty() {
         rows.push(WrappedTextRow {
+            line_start_byte: 0,
+            line_end_byte: 0,
             display_start_byte: 0,
             display_end_byte: 0,
             display_text: "",
