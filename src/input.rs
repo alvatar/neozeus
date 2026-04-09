@@ -1173,8 +1173,19 @@ pub(crate) fn handle_terminal_direct_input_keyboard(
             if !ctrl && !alt && !super_key {
                 match event.key_code {
                     KeyCode::End => {
-                        terminal.bridge.note_key_event(event);
-                        terminal.bridge.send(TerminalCommand::ScrollToBottom);
+                        let bottom_delta = terminal
+                            .snapshot
+                            .surface
+                            .as_ref()
+                            .and_then(|surface| i32::try_from(surface.display_offset).ok())
+                            .map(|offset| -offset)
+                            .unwrap_or(0);
+                        if bottom_delta != 0 {
+                            terminal.bridge.note_key_event(event);
+                            terminal
+                                .bridge
+                                .send(TerminalCommand::ScrollDisplay(bottom_delta));
+                        }
                         continue;
                     }
                     KeyCode::PageUp => {
@@ -1535,7 +1546,7 @@ pub(crate) fn handle_terminal_message_box_keyboard(
             }
         }
 
-        if super_key && !ctrl && !alt && event.key_code == KeyCode::KeyV {
+        if alt && !ctrl && !super_key && event.key_code == KeyCode::KeyV {
             if let Some(terminal) = _terminal_manager.get(active_id) {
                 terminal
                     .bridge

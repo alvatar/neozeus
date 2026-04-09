@@ -857,7 +857,6 @@ fn to_wire_command(command: &TerminalCommand) -> wire::TerminalCommand {
             wire::TerminalCommand::SendCommand(command.clone())
         }
         TerminalCommand::ScrollDisplay(lines) => wire::TerminalCommand::ScrollDisplay(*lines),
-        TerminalCommand::ScrollToBottom => wire::TerminalCommand::ScrollToBottom,
         TerminalCommand::SetSelection { anchor, focus } => wire::TerminalCommand::SetSelection {
             anchor: wire::TerminalViewportPoint {
                 col: anchor.col,
@@ -878,7 +877,6 @@ fn from_wire_command(command: wire::TerminalCommand) -> TerminalCommand {
         wire::TerminalCommand::InputEvent(event) => TerminalCommand::InputEvent(event),
         wire::TerminalCommand::SendCommand(command) => TerminalCommand::SendCommand(command),
         wire::TerminalCommand::ScrollDisplay(lines) => TerminalCommand::ScrollDisplay(lines),
-        wire::TerminalCommand::ScrollToBottom => TerminalCommand::ScrollToBottom,
         wire::TerminalCommand::SetSelection { anchor, focus } => TerminalCommand::SetSelection {
             anchor: super::super::types::TerminalViewportPoint {
                 col: anchor.col,

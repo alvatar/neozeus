@@ -2333,19 +2333,29 @@ fn wheel_scroll_accumulates_fractional_pixel_deltas() {
 }
 
 #[test]
-fn direct_input_end_scrolls_terminal_to_bottom() {
+fn direct_input_end_scrolls_terminal_to_bottom_without_new_wire_command() {
     let (mut world, terminal_id, input_rx) =
         world_with_active_terminal_and_receiver(Vec2::new(10.0, 10.0), false, Vec2::ZERO);
     let mut hud_state = crate::hud::HudState::default();
     hud_state.open_direct_terminal_input(terminal_id);
     insert_test_hud_state(&mut world, hud_state);
     set_terminal_surface_rows(&mut world, terminal_id, 40);
+    {
+        let mut manager = world.resource_mut::<TerminalManager>();
+        let terminal = manager.get_mut(terminal_id).expect("terminal should exist");
+        terminal
+            .snapshot
+            .surface
+            .as_mut()
+            .expect("surface should exist")
+            .display_offset = 11;
+    }
 
     dispatch_terminal_ui_key(&mut world, pressed_key(KeyCode::End, Key::End));
 
     assert_eq!(
         input_rx.try_recv().unwrap(),
-        TerminalCommand::ScrollToBottom
+        TerminalCommand::ScrollDisplay(-11)
     );
 }
 
@@ -2392,13 +2402,13 @@ fn control_v_scrolls_many_rows_down_when_terminal_is_not_captured() {
 }
 
 #[test]
-fn meta_v_scrolls_many_rows_up_when_terminal_is_not_captured() {
+fn alt_v_scrolls_many_rows_up_when_terminal_is_not_captured() {
     let (mut world, terminal_id, input_rx) =
         world_with_active_terminal_and_receiver(Vec2::new(10.0, 10.0), false, Vec2::ZERO);
     set_terminal_surface_rows(&mut world, terminal_id, 40);
     world
         .resource_mut::<ButtonInput<KeyCode>>()
-        .press(KeyCode::SuperLeft);
+        .press(KeyCode::AltLeft);
 
     dispatch_terminal_ui_key(
         &mut world,

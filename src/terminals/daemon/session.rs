@@ -664,11 +664,6 @@ fn apply_terminal_command(
             terminal.scroll_display(alacritty_terminal::grid::Scroll::Delta(lines));
             Ok(())
         }
-        TerminalCommand::ScrollToBottom => {
-            let _ = master;
-            terminal.scroll_display(alacritty_terminal::grid::Scroll::Bottom);
-            Ok(())
-        }
         TerminalCommand::SetSelection { anchor, focus } => {
             let _ = master;
             let display_offset = terminal.grid().display_offset();

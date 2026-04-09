@@ -132,7 +132,6 @@ fn summarize_terminal_command(command: &TerminalCommand) -> &str {
         TerminalCommand::InputEvent(_) => "InputEvent",
         TerminalCommand::SendCommand(_) => "SendCommand",
         TerminalCommand::ScrollDisplay(_) => "ScrollDisplay",
-        TerminalCommand::ScrollToBottom => "ScrollToBottom",
         TerminalCommand::SetSelection { .. } => "SetSelection",
         TerminalCommand::ClearSelection => "ClearSelection",
     }
