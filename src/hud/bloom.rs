@@ -972,7 +972,7 @@ struct HudWidgetBloomContext<'w, 's> {
     layout_state: Res<'w, HudLayoutState>,
     app_session: Res<'w, AppSessionState>,
     agent_catalog: Option<Res<'w, crate::agents::AgentCatalog>>,
-    aegis_policy: Option<Res<'w, crate::aegis::AegisPolicyStore>>,
+    aegis_policy: Res<'w, crate::aegis::AegisPolicyStore>,
     startup_connect: Option<Res<'w, DaemonConnectionState>>,
     focus_state: Res<'w, TerminalFocusState>,
     active_content: Res<'w, ActiveTerminalContentState>,
@@ -1144,18 +1144,21 @@ pub(crate) fn sync_hud_widget_bloom(world: &mut World) {
             .expect("agent list exists when enabled");
         let active_row_key =
             active_bloom_row_key(&ctx.focus_state, &ctx.active_content, &ctx.agent_list_view);
-        let aegis_row_keys = match (ctx.agent_catalog.as_ref(), ctx.aegis_policy.as_ref()) {
-            (Some(agent_catalog), Some(aegis_policy)) => agent_catalog
-                .iter()
-                .filter_map(|(agent_id, _)| {
-                    agent_catalog
-                        .uid(agent_id)
-                        .filter(|agent_uid| aegis_policy.is_enabled(agent_uid))
-                        .map(|_| AgentListRowKey::Agent(agent_id))
-                })
-                .collect::<BTreeSet<_>>(),
-            _ => BTreeSet::new(),
-        };
+        let aegis_row_keys = ctx
+            .agent_catalog
+            .as_ref()
+            .map(|agent_catalog| {
+                agent_catalog
+                    .iter()
+                    .filter_map(|(agent_id, _)| {
+                        agent_catalog
+                            .uid(agent_id)
+                            .filter(|agent_uid| ctx.aegis_policy.is_enabled(agent_uid))
+                            .map(|_| AgentListRowKey::Agent(agent_id))
+                    })
+                    .collect::<BTreeSet<_>>()
+            })
+            .unwrap_or_default();
         build_bloom_specs(
             module.shell.current_rect,
             ctx.agent_list_state.scroll_offset,

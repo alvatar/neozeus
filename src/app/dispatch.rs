@@ -98,20 +98,12 @@ pub(crate) fn sync_agents_from_terminals(
     mut conversations: ResMut<ConversationStore>,
     mut conversation_persistence: ResMut<ConversationPersistenceState>,
     mut notes_state: ResMut<TerminalNotesState>,
-    mut aegis_policy: Option<ResMut<crate::aegis::AegisPolicyStore>>,
-    mut aegis_runtime: Option<ResMut<crate::aegis::AegisRuntimeStore>>,
+    mut aegis_policy: ResMut<crate::aegis::AegisPolicyStore>,
+    mut aegis_runtime: ResMut<crate::aegis::AegisRuntimeStore>,
     mut app_state_persistence: ResMut<AppStatePersistenceState>,
     mut focus: FocusProjectionContext,
 ) {
     // Rebuild the derived or projected state from the authoritative resources in one pass so partial updates cannot drift.
-    let mut default_aegis_policy = crate::aegis::AegisPolicyStore::default();
-    let mut default_aegis_runtime = crate::aegis::AegisRuntimeStore::default();
-    let aegis_policy = aegis_policy
-        .as_deref_mut()
-        .unwrap_or(&mut default_aegis_policy);
-    let aegis_runtime = aegis_runtime
-        .as_deref_mut()
-        .unwrap_or(&mut default_aegis_runtime);
     let existing_terminals = focus
         .terminal_manager
         .terminal_ids()
@@ -138,8 +130,8 @@ pub(crate) fn sync_agents_from_terminals(
                 &mut conversations,
                 &mut conversation_persistence,
                 &mut notes_state,
-                aegis_policy,
-                aegis_runtime,
+                &mut aegis_policy,
+                &mut aegis_runtime,
                 &mut app_state_persistence,
             );
         }

@@ -90,6 +90,8 @@ fn working_agent_row_transition_requests_redraw_for_hud_feedback() {
     app.insert_resource(runtime_index);
     app.insert_resource(crate::agents::AgentStatusStore::default());
     app.insert_resource(crate::app::AppSessionState::default());
+    app.insert_resource(crate::aegis::AegisPolicyStore::default());
+    app.insert_resource(crate::aegis::AegisRuntimeStore::default());
     app.insert_resource(crate::conversations::AgentTaskStore::default());
     app.insert_resource(crate::conversations::ConversationStore::default());
     app.insert_resource(crate::hud::AgentListSelection::Agent(agent_id));
@@ -230,6 +232,8 @@ fn stable_visual_contract_does_not_request_continuous_redraws() {
     app.insert_resource(runtime_index);
     app.insert_resource(crate::agents::AgentStatusStore::default());
     app.insert_resource(crate::app::AppSessionState::default());
+    app.insert_resource(crate::aegis::AegisPolicyStore::default());
+    app.insert_resource(crate::aegis::AegisRuntimeStore::default());
     app.insert_resource(crate::conversations::AgentTaskStore::default());
     app.insert_resource(crate::conversations::ConversationStore::default());
     app.insert_resource(crate::hud::AgentListSelection::Agent(agent_id));
@@ -325,6 +329,8 @@ fn setup_scene_starts_background_connect_when_runtime_is_pending() {
     world.insert_resource(crate::agents::AgentCatalog::default());
     world.insert_resource(crate::agents::AgentRuntimeIndex::default());
     world.insert_resource(crate::app::AppSessionState::default());
+    world.insert_resource(crate::aegis::AegisPolicyStore::default());
+    world.insert_resource(crate::aegis::AegisRuntimeStore::default());
     world.insert_resource(crate::conversations::ConversationStore::default());
     world.insert_resource(crate::conversations::ConversationPersistenceState::default());
     world.insert_resource(TerminalRuntimeSpawner::pending_headless());
@@ -360,6 +366,8 @@ fn setup_scene_auto_verify_uses_shared_spawn_attach_flow_and_isolates_verifier_t
     world.insert_resource(crate::agents::AgentCatalog::default());
     world.insert_resource(crate::agents::AgentRuntimeIndex::default());
     world.insert_resource(crate::app::AppSessionState::default());
+    world.insert_resource(crate::aegis::AegisPolicyStore::default());
+    world.insert_resource(crate::aegis::AegisRuntimeStore::default());
     world.insert_resource(crate::conversations::ConversationStore::default());
     world.insert_resource(crate::conversations::ConversationPersistenceState::default());
     world.insert_resource(crate::conversations::AgentTaskStore::default());
@@ -432,6 +440,8 @@ fn startup_connecting_advances_to_restoring_when_background_connect_completes() 
     world.insert_resource(crate::agents::AgentCatalog::default());
     world.insert_resource(crate::agents::AgentRuntimeIndex::default());
     world.insert_resource(crate::app::AppSessionState::default());
+    world.insert_resource(crate::aegis::AegisPolicyStore::default());
+    world.insert_resource(crate::aegis::AegisRuntimeStore::default());
     world.insert_resource(crate::conversations::ConversationStore::default());
     world.insert_resource(crate::conversations::ConversationPersistenceState::default());
     world.insert_resource(spawner.clone());
@@ -743,6 +753,8 @@ fn startup_focus_skips_disconnected_restored_session() {
     world.insert_resource(crate::agents::AgentCatalog::default());
     world.insert_resource(crate::agents::AgentRuntimeIndex::default());
     world.insert_resource(crate::app::AppSessionState::default());
+    world.insert_resource(crate::aegis::AegisPolicyStore::default());
+    world.insert_resource(crate::aegis::AegisRuntimeStore::default());
     world.insert_resource(crate::conversations::ConversationStore::default());
     world.insert_resource(crate::conversations::ConversationPersistenceState::default());
     world.insert_resource(crate::hud::HudInputCaptureState::default());
@@ -809,6 +821,8 @@ fn startup_leaves_only_disconnected_sessions_visible_and_unfocused() {
     world.insert_resource(crate::agents::AgentCatalog::default());
     world.insert_resource(crate::agents::AgentRuntimeIndex::default());
     world.insert_resource(crate::app::AppSessionState::default());
+    world.insert_resource(crate::aegis::AegisPolicyStore::default());
+    world.insert_resource(crate::aegis::AegisRuntimeStore::default());
     world.insert_resource(crate::conversations::ConversationStore::default());
     world.insert_resource(crate::conversations::ConversationPersistenceState::default());
     world.insert_resource(crate::hud::HudInputCaptureState::default());
@@ -891,6 +905,8 @@ fn startup_restore_does_not_mark_disconnected_sessions_as_startup_pending() {
     world.insert_resource(crate::agents::AgentCatalog::default());
     world.insert_resource(crate::agents::AgentRuntimeIndex::default());
     world.insert_resource(crate::app::AppSessionState::default());
+    world.insert_resource(crate::aegis::AegisPolicyStore::default());
+    world.insert_resource(crate::aegis::AegisRuntimeStore::default());
     world.insert_resource(crate::conversations::ConversationStore::default());
     world.insert_resource(crate::conversations::ConversationPersistenceState::default());
     world.insert_resource(crate::hud::HudInputCaptureState::default());
@@ -951,6 +967,8 @@ fn startup_restore_backfills_missing_agent_uid_and_marks_app_state_dirty() {
     world.insert_resource(crate::agents::AgentCatalog::default());
     world.insert_resource(crate::agents::AgentRuntimeIndex::default());
     world.insert_resource(crate::app::AppSessionState::default());
+    world.insert_resource(crate::aegis::AegisPolicyStore::default());
+    world.insert_resource(crate::aegis::AegisRuntimeStore::default());
     world.insert_resource(crate::conversations::ConversationStore::default());
     world.insert_resource(crate::conversations::ConversationPersistenceState::default());
     world.insert_resource(crate::hud::HudInputCaptureState::default());
@@ -1008,6 +1026,8 @@ fn startup_restore_rebuilds_aegis_policy_and_arms_runtime_cleanly() {
     world.insert_resource(crate::aegis::AegisPolicyStore::default());
     world.insert_resource(crate::aegis::AegisRuntimeStore::default());
     world.insert_resource(crate::app::AppSessionState::default());
+    world.insert_resource(crate::aegis::AegisPolicyStore::default());
+    world.insert_resource(crate::aegis::AegisRuntimeStore::default());
     world.insert_resource(crate::conversations::ConversationStore::default());
     world.insert_resource(crate::conversations::ConversationPersistenceState::default());
     world.insert_resource(crate::hud::HudInputCaptureState::default());
@@ -1074,6 +1094,8 @@ fn startup_restore_migrates_legacy_session_notes_into_task_store_and_marks_notes
     world.insert_resource(crate::agents::AgentCatalog::default());
     world.insert_resource(crate::agents::AgentRuntimeIndex::default());
     world.insert_resource(crate::app::AppSessionState::default());
+    world.insert_resource(crate::aegis::AegisPolicyStore::default());
+    world.insert_resource(crate::aegis::AegisRuntimeStore::default());
     world.insert_resource(crate::conversations::ConversationStore::default());
     world.insert_resource(crate::conversations::ConversationPersistenceState::default());
     world.insert_resource(crate::conversations::AgentTaskStore::default());
@@ -1135,6 +1157,8 @@ fn startup_restore_preserves_pi_clone_provenance_and_workdir_identity() {
     world.insert_resource(crate::agents::AgentCatalog::default());
     world.insert_resource(crate::agents::AgentRuntimeIndex::default());
     world.insert_resource(crate::app::AppSessionState::default());
+    world.insert_resource(crate::aegis::AegisPolicyStore::default());
+    world.insert_resource(crate::aegis::AegisRuntimeStore::default());
     world.insert_resource(crate::conversations::ConversationStore::default());
     world.insert_resource(crate::conversations::ConversationPersistenceState::default());
     world.insert_resource(crate::hud::HudInputCaptureState::default());
@@ -1210,6 +1234,8 @@ fn startup_restore_plain_clone_can_be_cloned_again() {
     world.insert_resource(crate::agents::AgentCatalog::default());
     world.insert_resource(crate::agents::AgentRuntimeIndex::default());
     world.insert_resource(crate::app::AppSessionState::default());
+    world.insert_resource(crate::aegis::AegisPolicyStore::default());
+    world.insert_resource(crate::aegis::AegisRuntimeStore::default());
     world.insert_resource(crate::conversations::ConversationStore::default());
     world.insert_resource(crate::conversations::ConversationPersistenceState::default());
     world.insert_resource(crate::conversations::AgentTaskStore::default());
@@ -1290,6 +1316,8 @@ fn startup_restore_workdir_clone_projects_marker_after_sync() {
     world.insert_resource(crate::agents::AgentCatalog::default());
     world.insert_resource(crate::agents::AgentRuntimeIndex::default());
     world.insert_resource(crate::app::AppSessionState::default());
+    world.insert_resource(crate::aegis::AegisPolicyStore::default());
+    world.insert_resource(crate::aegis::AegisRuntimeStore::default());
     world.insert_resource(crate::conversations::ConversationStore::default());
     world.insert_resource(crate::conversations::ConversationPersistenceState::default());
     world.insert_resource(crate::conversations::AgentTaskStore::default());
@@ -1362,6 +1390,8 @@ fn startup_restore_rebinds_owned_tmux_children_under_agent() {
     world.insert_resource(crate::agents::AgentCatalog::default());
     world.insert_resource(crate::agents::AgentRuntimeIndex::default());
     world.insert_resource(crate::app::AppSessionState::default());
+    world.insert_resource(crate::aegis::AegisPolicyStore::default());
+    world.insert_resource(crate::aegis::AegisRuntimeStore::default());
     world.insert_resource(crate::conversations::ConversationStore::default());
     world.insert_resource(crate::conversations::ConversationPersistenceState::default());
     world.insert_resource(crate::conversations::AgentTaskStore::default());
@@ -1475,6 +1505,8 @@ fn startup_restore_rebinds_multiple_owned_tmux_children_under_correct_agents_and
     world.insert_resource(crate::agents::AgentCatalog::default());
     world.insert_resource(crate::agents::AgentRuntimeIndex::default());
     world.insert_resource(crate::app::AppSessionState::default());
+    world.insert_resource(crate::aegis::AegisPolicyStore::default());
+    world.insert_resource(crate::aegis::AegisRuntimeStore::default());
     world.insert_resource(crate::conversations::ConversationStore::default());
     world.insert_resource(crate::conversations::ConversationPersistenceState::default());
     world.insert_resource(crate::conversations::AgentTaskStore::default());
@@ -1557,6 +1589,8 @@ fn startup_reaps_unpersisted_disconnected_session_instead_of_restoring_it() {
     world.insert_resource(crate::agents::AgentCatalog::default());
     world.insert_resource(crate::agents::AgentRuntimeIndex::default());
     world.insert_resource(crate::app::AppSessionState::default());
+    world.insert_resource(crate::aegis::AegisPolicyStore::default());
+    world.insert_resource(crate::aegis::AegisRuntimeStore::default());
     world.insert_resource(crate::conversations::ConversationStore::default());
     world.insert_resource(crate::conversations::ConversationPersistenceState::default());
     world.insert_resource(crate::hud::HudInputCaptureState::default());
@@ -1610,6 +1644,8 @@ fn startup_spawns_initial_terminal_when_no_sessions_exist() {
     world.insert_resource(crate::agents::AgentCatalog::default());
     world.insert_resource(crate::agents::AgentRuntimeIndex::default());
     world.insert_resource(crate::app::AppSessionState::default());
+    world.insert_resource(crate::aegis::AegisPolicyStore::default());
+    world.insert_resource(crate::aegis::AegisRuntimeStore::default());
     world.insert_resource(crate::conversations::ConversationStore::default());
     world.insert_resource(crate::conversations::ConversationPersistenceState::default());
     world.insert_resource(crate::hud::HudInputCaptureState::default());

@@ -150,6 +150,12 @@ pub(super) fn insert_default_hud_resources(world: &mut World) {
     if !world.contains_resource::<crate::usage::UsagePersistenceState>() {
         world.insert_resource(crate::usage::default_usage_persistence_state());
     }
+    if !world.contains_resource::<crate::aegis::AegisPolicyStore>() {
+        world.insert_resource(crate::aegis::AegisPolicyStore::default());
+    }
+    if !world.contains_resource::<crate::aegis::AegisRuntimeStore>() {
+        world.insert_resource(crate::aegis::AegisRuntimeStore::default());
+    }
     if !world.contains_resource::<crate::terminals::OwnedTmuxSessionStore>() {
         world.insert_resource(crate::terminals::OwnedTmuxSessionStore::default());
     }
@@ -219,6 +225,12 @@ pub(super) fn insert_terminal_manager_resources(
     }
     if !world.contains_resource::<AgentTaskStore>() {
         world.insert_resource(AgentTaskStore::default());
+    }
+    if !world.contains_resource::<crate::aegis::AegisPolicyStore>() {
+        world.insert_resource(crate::aegis::AegisPolicyStore::default());
+    }
+    if !world.contains_resource::<crate::aegis::AegisRuntimeStore>() {
+        world.insert_resource(crate::aegis::AegisRuntimeStore::default());
     }
     if !world.contains_resource::<MessageTransportAdapter>() {
         world.insert_resource(MessageTransportAdapter);

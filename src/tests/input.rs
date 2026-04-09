@@ -131,6 +131,8 @@ fn ensure_app_command_world_resources(world: &mut World) {
     }
     if !world.contains_resource::<AppSessionState>() {
         world.insert_resource(AppSessionState::default());
+        world.insert_resource(crate::aegis::AegisPolicyStore::default());
+        world.insert_resource(crate::aegis::AegisRuntimeStore::default());
     }
     if !world.contains_resource::<crate::aegis::AegisPolicyStore>() {
         world.insert_resource(crate::aegis::AegisPolicyStore::default());
@@ -340,6 +342,8 @@ fn world_with_active_terminal_and_receiver_and_mailbox(
     world.insert_resource(catalog);
     world.insert_resource(runtime_index);
     world.insert_resource(AppSessionState::default());
+    world.insert_resource(crate::aegis::AegisPolicyStore::default());
+    world.insert_resource(crate::aegis::AegisRuntimeStore::default());
     world.insert_resource(ConversationStore::default());
     world.insert_resource(AgentTaskStore::default());
     world.insert_resource(MessageTransportAdapter);
@@ -782,6 +786,8 @@ fn create_agent_dialog_tab_advances_focus() {
     let mut world = World::default();
     world.insert_resource(ButtonInput::<KeyCode>::default());
     world.insert_resource(AppSessionState::default());
+    world.insert_resource(crate::aegis::AegisPolicyStore::default());
+    world.insert_resource(crate::aegis::AegisRuntimeStore::default());
     world
         .resource_mut::<AppSessionState>()
         .create_agent_dialog
@@ -828,6 +834,8 @@ fn create_agent_dialog_space_toggles_type() {
     let mut world = World::default();
     world.insert_resource(ButtonInput::<KeyCode>::default());
     world.insert_resource(AppSessionState::default());
+    world.insert_resource(crate::aegis::AegisPolicyStore::default());
+    world.insert_resource(crate::aegis::AegisRuntimeStore::default());
     {
         let mut session = world.resource_mut::<AppSessionState>();
         session.create_agent_dialog.open(CreateAgentKind::Pi);
@@ -861,6 +869,8 @@ fn create_agent_dialog_ctrl_space_cycles_cwd_completions() {
     let mut world = World::default();
     world.insert_resource(ButtonInput::<KeyCode>::default());
     world.insert_resource(AppSessionState::default());
+    world.insert_resource(crate::aegis::AegisPolicyStore::default());
+    world.insert_resource(crate::aegis::AegisRuntimeStore::default());
     {
         let mut session = world.resource_mut::<AppSessionState>();
         session.create_agent_dialog.open(CreateAgentKind::Pi);
@@ -911,6 +921,8 @@ fn create_agent_dialog_enter_descends_into_selected_cwd_completion() {
     let mut world = World::default();
     world.insert_resource(ButtonInput::<KeyCode>::default());
     world.insert_resource(AppSessionState::default());
+    world.insert_resource(crate::aegis::AegisPolicyStore::default());
+    world.insert_resource(crate::aegis::AegisRuntimeStore::default());
     {
         let mut session = world.resource_mut::<AppSessionState>();
         session.create_agent_dialog.open(CreateAgentKind::Pi);
@@ -961,6 +973,8 @@ fn create_agent_dialog_ctrl_u_clears_name_field() {
     let mut world = World::default();
     world.insert_resource(ButtonInput::<KeyCode>::default());
     world.insert_resource(AppSessionState::default());
+    world.insert_resource(crate::aegis::AegisPolicyStore::default());
+    world.insert_resource(crate::aegis::AegisRuntimeStore::default());
     {
         let mut session = world.resource_mut::<AppSessionState>();
         session.create_agent_dialog.open(CreateAgentKind::Pi);
@@ -994,6 +1008,8 @@ fn create_agent_dialog_typing_uppercases_name_field() {
     let mut world = World::default();
     world.insert_resource(ButtonInput::<KeyCode>::default());
     world.insert_resource(AppSessionState::default());
+    world.insert_resource(crate::aegis::AegisPolicyStore::default());
+    world.insert_resource(crate::aegis::AegisRuntimeStore::default());
     world
         .resource_mut::<AppSessionState>()
         .create_agent_dialog
@@ -1024,6 +1040,8 @@ fn middle_click_paste_in_create_agent_dialog_inserts_into_text_fields() {
     let mut world = World::default();
     world.insert_resource(ButtonInput::<KeyCode>::default());
     world.insert_resource(AppSessionState::default());
+    world.insert_resource(crate::aegis::AegisPolicyStore::default());
+    world.insert_resource(crate::aegis::AegisRuntimeStore::default());
     world
         .resource_mut::<AppSessionState>()
         .create_agent_dialog
@@ -1071,6 +1089,8 @@ fn create_agent_dialog_escape_closes_without_spawning() {
     let mut world = World::default();
     world.insert_resource(ButtonInput::<KeyCode>::default());
     world.insert_resource(AppSessionState::default());
+    world.insert_resource(crate::aegis::AegisPolicyStore::default());
+    world.insert_resource(crate::aegis::AegisRuntimeStore::default());
     world
         .resource_mut::<AppSessionState>()
         .create_agent_dialog
@@ -1099,6 +1119,8 @@ fn create_agent_dialog_submit_emits_create_command() {
     let mut world = World::default();
     world.insert_resource(ButtonInput::<KeyCode>::default());
     world.insert_resource(AppSessionState::default());
+    world.insert_resource(crate::aegis::AegisPolicyStore::default());
+    world.insert_resource(crate::aegis::AegisRuntimeStore::default());
     {
         let mut session = world.resource_mut::<AppSessionState>();
         session.create_agent_dialog.open(CreateAgentKind::Terminal);
@@ -1140,6 +1162,8 @@ fn clone_agent_dialog_tab_advances_focus() {
     let mut world = World::default();
     world.insert_resource(ButtonInput::<KeyCode>::default());
     world.insert_resource(AppSessionState::default());
+    world.insert_resource(crate::aegis::AegisPolicyStore::default());
+    world.insert_resource(crate::aegis::AegisRuntimeStore::default());
     world
         .resource_mut::<AppSessionState>()
         .clone_agent_dialog
@@ -1170,6 +1194,8 @@ fn clone_agent_dialog_space_toggles_workdir() {
     let mut world = World::default();
     world.insert_resource(ButtonInput::<KeyCode>::default());
     world.insert_resource(AppSessionState::default());
+    world.insert_resource(crate::aegis::AegisPolicyStore::default());
+    world.insert_resource(crate::aegis::AegisRuntimeStore::default());
     {
         let mut session = world.resource_mut::<AppSessionState>();
         session
@@ -1200,6 +1226,8 @@ fn clone_agent_dialog_escape_closes_without_emitting_command() {
     let mut world = World::default();
     world.insert_resource(ButtonInput::<KeyCode>::default());
     world.insert_resource(AppSessionState::default());
+    world.insert_resource(crate::aegis::AegisPolicyStore::default());
+    world.insert_resource(crate::aegis::AegisRuntimeStore::default());
     world
         .resource_mut::<AppSessionState>()
         .clone_agent_dialog
@@ -1232,6 +1260,8 @@ fn clone_agent_dialog_submit_emits_clone_command() {
     let mut world = World::default();
     world.insert_resource(ButtonInput::<KeyCode>::default());
     world.insert_resource(AppSessionState::default());
+    world.insert_resource(crate::aegis::AegisPolicyStore::default());
+    world.insert_resource(crate::aegis::AegisRuntimeStore::default());
     {
         let mut session = world.resource_mut::<AppSessionState>();
         session
@@ -1275,6 +1305,8 @@ fn paste_into_clone_agent_dialog_inserts_into_name_field() {
     let mut world = World::default();
     world.insert_resource(ButtonInput::<KeyCode>::default());
     world.insert_resource(AppSessionState::default());
+    world.insert_resource(crate::aegis::AegisPolicyStore::default());
+    world.insert_resource(crate::aegis::AegisRuntimeStore::default());
     world
         .resource_mut::<AppSessionState>()
         .clone_agent_dialog
@@ -1866,6 +1898,8 @@ fn create_agent_dialog_ctrl_u_clears_cwd_field() {
     let mut world = World::default();
     world.insert_resource(ButtonInput::<KeyCode>::default());
     world.insert_resource(AppSessionState::default());
+    world.insert_resource(crate::aegis::AegisPolicyStore::default());
+    world.insert_resource(crate::aegis::AegisRuntimeStore::default());
     {
         let mut session = world.resource_mut::<AppSessionState>();
         session.create_agent_dialog.open(CreateAgentKind::Pi);

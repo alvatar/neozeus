@@ -217,7 +217,7 @@ pub(crate) fn save_app_state_if_dirty(
     focus_state: Res<TerminalFocusState>,
     agent_catalog: Res<AgentCatalog>,
     runtime_index: Res<AgentRuntimeIndex>,
-    aegis_policy: Option<Res<crate::aegis::AegisPolicyStore>>,
+    aegis_policy: Res<crate::aegis::AegisPolicyStore>,
     mut persistence_state: ResMut<AppStatePersistenceState>,
 ) {
     let Some(dirty_since) = persistence_state.dirty_since_secs else {
@@ -230,13 +230,8 @@ pub(crate) fn save_app_state_if_dirty(
         persistence_state.dirty_since_secs = None;
         return;
     };
-    let default_aegis_policy = crate::aegis::AegisPolicyStore::default();
-    let persisted = build_persisted_app_state(
-        &focus_state,
-        &agent_catalog,
-        &runtime_index,
-        aegis_policy.as_deref().unwrap_or(&default_aegis_policy),
-    );
+    let persisted =
+        build_persisted_app_state(&focus_state, &agent_catalog, &runtime_index, &aegis_policy);
     if let Some(parent) = path.parent() {
         if let Err(error) = fs::create_dir_all(parent) {
             append_debug_log(format!(

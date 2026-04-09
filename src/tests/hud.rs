@@ -92,6 +92,12 @@ fn run_app_commands(world: &mut World) {
     if !world.contains_resource::<crate::conversations::MessageTransportAdapter>() {
         world.insert_resource(crate::conversations::MessageTransportAdapter);
     }
+    if !world.contains_resource::<crate::aegis::AegisPolicyStore>() {
+        world.insert_resource(crate::aegis::AegisPolicyStore::default());
+    }
+    if !world.contains_resource::<crate::aegis::AegisRuntimeStore>() {
+        world.insert_resource(crate::aegis::AegisRuntimeStore::default());
+    }
     if !world.contains_resource::<TerminalNotesState>() {
         world.insert_resource(TerminalNotesState::default());
     }
@@ -123,6 +129,8 @@ fn clone_test_world(client: Arc<FakeDaemonClient>) -> World {
     world.insert_resource(TerminalPresentationStore::default());
     world.insert_resource(AgentListView::default());
     world.insert_resource(fake_runtime_spawner(client));
+    world.insert_resource(crate::aegis::AegisPolicyStore::default());
+    world.insert_resource(crate::aegis::AegisRuntimeStore::default());
     world.insert_resource(AppStatePersistenceState::default());
     world.insert_resource(TerminalVisibilityState::default());
     world.insert_resource(TerminalViewState::default());
@@ -349,6 +357,8 @@ fn build_agent_list_navigation_world() -> (World, crate::agents::AgentId, crate:
     world.insert_resource(catalog);
     world.insert_resource(runtime_index);
     world.insert_resource(AppSessionState::default());
+    world.insert_resource(crate::aegis::AegisPolicyStore::default());
+    world.insert_resource(crate::aegis::AegisRuntimeStore::default());
     world.insert_resource(crate::hud::AgentListSelection::Agent(agent_one));
     world
         .resource_mut::<crate::terminals::OwnedTmuxSessionStore>()
@@ -2863,6 +2873,8 @@ fn killing_selected_owned_tmux_session_removes_agent_list_row_immediately() {
     world.insert_resource(catalog);
     world.insert_resource(AgentRuntimeIndex::default());
     world.insert_resource(AppSessionState::default());
+    world.insert_resource(crate::aegis::AegisPolicyStore::default());
+    world.insert_resource(crate::aegis::AegisRuntimeStore::default());
     let mut owned_tmux_sessions = crate::terminals::OwnedTmuxSessionStore::default();
     owned_tmux_sessions.sessions.push(session);
     world.insert_resource(owned_tmux_sessions);
@@ -3114,6 +3126,8 @@ fn navigating_to_owned_tmux_should_render_capture_in_terminal_panel() {
     world.insert_resource(catalog);
     world.insert_resource(runtime_index);
     world.insert_resource(AppSessionState::default());
+    world.insert_resource(crate::aegis::AegisPolicyStore::default());
+    world.insert_resource(crate::aegis::AegisRuntimeStore::default());
     world.insert_resource(crate::hud::AgentListSelection::Agent(agent_id));
     world.insert_resource(fake_runtime_spawner(client));
     world.insert_resource(crate::terminals::OwnedTmuxSessionStore::default());
@@ -3528,10 +3542,14 @@ fn terminal_focus_sync_does_not_rewrite_agent_list_selection() {
     world.insert_resource(catalog);
     world.insert_resource(runtime_index);
     world.insert_resource(AppSessionState::default());
+    world.insert_resource(crate::aegis::AegisPolicyStore::default());
+    world.insert_resource(crate::aegis::AegisRuntimeStore::default());
     world.insert_resource(crate::conversations::AgentTaskStore::default());
     world.insert_resource(crate::conversations::ConversationStore::default());
     world.insert_resource(crate::conversations::ConversationPersistenceState::default());
     world.insert_resource(crate::terminals::TerminalNotesState::default());
+    world.insert_resource(crate::aegis::AegisPolicyStore::default());
+    world.insert_resource(crate::aegis::AegisRuntimeStore::default());
     world.insert_resource(AppStatePersistenceState::default());
     world.insert_resource(crate::hud::AgentListSelection::OwnedTmux(
         "tmux-session-1".into(),
@@ -3585,11 +3603,15 @@ fn sync_agents_from_terminals_cleans_tasks_conversations_notes_and_persistence_f
     world.insert_resource(catalog);
     world.insert_resource(runtime_index);
     world.insert_resource(AppSessionState::default());
+    world.insert_resource(crate::aegis::AegisPolicyStore::default());
+    world.insert_resource(crate::aegis::AegisRuntimeStore::default());
     world.insert_resource(crate::hud::AgentListSelection::Agent(agent_id));
     world.insert_resource(task_store);
     world.insert_resource(conversations);
     world.insert_resource(crate::conversations::ConversationPersistenceState::default());
     world.insert_resource(notes_state);
+    world.insert_resource(crate::aegis::AegisPolicyStore::default());
+    world.insert_resource(crate::aegis::AegisRuntimeStore::default());
     world.insert_resource(AppStatePersistenceState::default());
     world.insert_resource(manager);
 

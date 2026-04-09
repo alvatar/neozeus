@@ -1362,7 +1362,7 @@ pub(crate) fn handle_terminal_message_box_keyboard(
     focus_state: Res<TerminalFocusState>,
     runtime_index: Res<AgentRuntimeIndex>,
     agent_catalog: Res<AgentCatalog>,
-    aegis_policy: Option<Res<AegisPolicyStore>>,
+    aegis_policy: Res<AegisPolicyStore>,
     mut app_session: ResMut<AppSessionState>,
     input_capture: Res<HudInputCaptureState>,
     mut clipboard: Option<ResMut<EguiClipboard>>,
@@ -1562,9 +1562,6 @@ pub(crate) fn handle_terminal_message_box_keyboard(
         }
         return;
     }
-
-    let default_aegis_policy = AegisPolicyStore::default();
-    let aegis_policy = aegis_policy.as_deref().unwrap_or(&default_aegis_policy);
 
     let Some(active_id) = focus_state.active_id() else {
         return;

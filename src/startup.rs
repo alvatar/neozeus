@@ -157,8 +157,8 @@ struct SceneSetupContext<'w, 's> {
     agent_catalog: ResMut<'w, AgentCatalog>,
     runtime_index: ResMut<'w, AgentRuntimeIndex>,
     app_session: ResMut<'w, AppSessionState>,
-    aegis_policy: Option<ResMut<'w, crate::aegis::AegisPolicyStore>>,
-    aegis_runtime: Option<ResMut<'w, crate::aegis::AegisRuntimeStore>>,
+    aegis_policy: ResMut<'w, crate::aegis::AegisPolicyStore>,
+    aegis_runtime: ResMut<'w, crate::aegis::AegisRuntimeStore>,
     selection: Option<ResMut<'w, crate::hud::AgentListSelection>>,
     task_store: Option<ResMut<'w, crate::conversations::AgentTaskStore>>,
     conversations: ResMut<'w, ConversationStore>,
@@ -502,8 +502,6 @@ fn restore_startup_terminals(ctx: &mut SceneSetupContext) {
     let default_owned_tmux_sessions = OwnedTmuxSessionStore::default();
     let mut default_active_terminal_content =
         crate::terminals::ActiveTerminalContentState::default();
-    let mut default_aegis_policy = crate::aegis::AegisPolicyStore::default();
-    let mut default_aegis_runtime = crate::aegis::AegisRuntimeStore::default();
     restore_app(
         &mut ctx.agent_catalog,
         &mut ctx.runtime_index,
@@ -520,12 +518,8 @@ fn restore_startup_terminals(ctx: &mut SceneSetupContext) {
         &ctx.runtime_spawner,
         &mut ctx.input_capture,
         &mut ctx.app_state_persistence,
-        ctx.aegis_policy
-            .as_deref_mut()
-            .unwrap_or(&mut default_aegis_policy),
-        ctx.aegis_runtime
-            .as_deref_mut()
-            .unwrap_or(&mut default_aegis_runtime),
+        &mut ctx.aegis_policy,
+        &mut ctx.aegis_runtime,
         &mut ctx.visibility_state,
         &mut ctx.view_state,
         Some(&mut ctx.presentation_store),
