@@ -10,7 +10,8 @@ use crate::{
         create_agent_name_field_rect, create_agent_starting_folder_rect,
         message_box_action_buttons, message_box_rect, rename_agent_dialog_rect,
         rename_agent_name_field_rect, rename_agent_submit_button_rect, task_dialog_action_buttons,
-        task_dialog_rect, wrapped_text_rows, MessageDialogFocus, TaskDialogFocus, TextEditorState,
+        task_dialog_rect, wrapped_text_rows_measured, MessageDialogFocus, TaskDialogFocus,
+        TextEditorState,
     },
     startup::DaemonConnectionState,
 };
@@ -426,7 +427,7 @@ fn wrapped_editor_rows<'a>(
     cursor_line: usize,
     cursor_col: usize,
 ) -> (Vec<WrappedEditorRow<'a>>, usize) {
-    wrapped_text_rows(
+    crate::composer::wrapped_text_rows(
         text,
         max_visible_cols,
         cursor_byte_for_line_column(text, cursor_line, cursor_col),
@@ -457,9 +458,12 @@ fn draw_text_editor_body(
     let content_x = body_rect.x + 18.0;
     let content_y = body_rect.y + 16.0;
     let max_visible_lines = ((body_rect.h - 24.0) / line_height).floor().max(1.0) as usize;
-    let max_visible_cols = ((body_rect.w - 36.0) / 10.0).floor().max(8.0) as usize;
     let selection = editor.region_bounds();
-    let (rows, cursor_row) = wrapped_text_rows(&editor.text, max_visible_cols, editor.cursor);
+    let text_width = (body_rect.w - 36.0).max(1.0);
+    let (rows, cursor_row) =
+        wrapped_text_rows_measured(&editor.text, editor.cursor, text_width, |segment| {
+            painter.text_size(segment, text_size).x
+        });
     let start_row = cursor_row.saturating_sub(max_visible_lines.saturating_sub(1));
     let end_row = (start_row + max_visible_lines).min(rows.len());
 

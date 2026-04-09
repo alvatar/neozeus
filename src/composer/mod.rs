@@ -23,7 +23,7 @@ pub(crate) use layout::{
 pub(crate) use state::{
     ComposerMode, ComposerState, MessageDialogFocus, TaskDialogFocus, TextEditorState,
 };
-pub(crate) use wrapping::wrapped_text_rows;
+pub(crate) use wrapping::{wrapped_text_rows, wrapped_text_rows_measured};
 
 #[cfg(test)]
 pub(crate) use state::ComposerSession;

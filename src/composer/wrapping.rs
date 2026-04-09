@@ -16,6 +16,21 @@ pub(crate) fn wrapped_text_rows<'a>(
     cursor: usize,
 ) -> (Vec<WrappedTextRow<'a>>, usize) {
     let max_visible_cols = max_visible_cols.max(1);
+    wrapped_text_rows_measured(text, cursor, max_visible_cols as f32, |segment| {
+        segment.chars().count() as f32
+    })
+}
+
+pub(crate) fn wrapped_text_rows_measured<'a, F>(
+    text: &'a str,
+    cursor: usize,
+    max_width: f32,
+    mut measure: F,
+) -> (Vec<WrappedTextRow<'a>>, usize)
+where
+    F: FnMut(&str) -> f32,
+{
+    let max_width = max_width.max(1.0);
     let mut rows = Vec::new();
     let mut cursor_row = 0;
     let mut cursor_assigned = false;
@@ -43,8 +58,12 @@ pub(crate) fn wrapped_text_rows<'a>(
 
         let mut segment_start_byte_in_line = 0usize;
         while segment_start_byte_in_line < line_text.len() {
-            let segment_end_byte_in_line =
-                wrapped_segment_end(line_text, segment_start_byte_in_line, max_visible_cols);
+            let segment_end_byte_in_line = wrapped_segment_end_measured(
+                line_text,
+                segment_start_byte_in_line,
+                max_width,
+                &mut measure,
+            );
             let display_text = &line_text[segment_start_byte_in_line..segment_end_byte_in_line];
             let segment_len = display_text.chars().count();
             let display_start_byte = line_start_byte + segment_start_byte_in_line;
@@ -97,42 +116,66 @@ fn text_lines(text: &str) -> Vec<(usize, usize, &str)> {
         .collect()
 }
 
-fn wrapped_segment_end(line_text: &str, start_byte: usize, max_visible_cols: usize) -> usize {
-    let (candidate_end, _) = byte_after_n_chars(line_text, start_byte, max_visible_cols);
-    if candidate_end >= line_text.len() {
+fn wrapped_segment_end_measured<F>(
+    line_text: &str,
+    start_byte: usize,
+    max_width: f32,
+    measure: &mut F,
+) -> usize
+where
+    F: FnMut(&str) -> f32,
+{
+    let mut last_fit_end = start_byte;
+    let mut last_whitespace_fit_end = None;
+    let mut advanced = false;
+
+    for (relative_start, ch) in line_text[start_byte..].char_indices() {
+        let candidate_end = start_byte + relative_start + ch.len_utf8();
+        let candidate = &line_text[start_byte..candidate_end];
+        let fits = measure(candidate) <= max_width;
+        if fits || !advanced {
+            last_fit_end = candidate_end;
+            advanced = true;
+            if ch.is_whitespace() {
+                last_whitespace_fit_end = Some(candidate_end);
+            }
+            continue;
+        }
+        break;
+    }
+
+    if last_fit_end >= line_text.len() {
         return line_text.len();
     }
-
-    let candidate = &line_text[start_byte..candidate_end];
-    let next_char = line_text[candidate_end..]
-        .chars()
-        .next()
-        .expect("non-final candidate should have next char");
-    let candidate_ends_with_whitespace = candidate.chars().last().is_some_and(char::is_whitespace);
-    if next_char.is_whitespace() || candidate_ends_with_whitespace {
-        return candidate_end;
-    }
-
-    if let Some((last_whitespace_byte, whitespace_char)) = candidate
-        .char_indices()
-        .rev()
-        .find(|(_, ch)| ch.is_whitespace())
-    {
-        let break_end = start_byte + last_whitespace_byte + whitespace_char.len_utf8();
-        if break_end > start_byte {
-            return break_end;
+    if let Some(last_whitespace_fit_end) = last_whitespace_fit_end {
+        if last_whitespace_fit_end > start_byte {
+            return last_whitespace_fit_end;
         }
     }
-
-    candidate_end
+    last_fit_end.max(
+        start_byte
+            + line_text[start_byte..]
+                .chars()
+                .next()
+                .map_or(0, char::len_utf8),
+    )
 }
 
-fn byte_after_n_chars(text: &str, start_byte: usize, count: usize) -> (usize, usize) {
-    let mut end_byte = start_byte;
-    let mut taken = 0;
-    for ch in text[start_byte..].chars().take(count) {
-        end_byte += ch.len_utf8();
-        taken += 1;
+#[cfg(test)]
+mod tests {
+    use super::{wrapped_text_rows_measured, WrappedTextRow};
+
+    fn displays<'a>(rows: &'a [WrappedTextRow<'a>]) -> Vec<&'a str> {
+        rows.iter().map(|row| row.display_text).collect()
     }
-    (end_byte, taken)
+
+    #[test]
+    fn measured_wrap_pushes_last_word_to_next_row_when_render_width_would_clip_it() {
+        let (rows, cursor_row) = wrapped_text_rows_measured("fit wide", 8, 6.0, |segment| {
+            segment.chars().count() as f32 * 0.9 + segment.matches('w').count() as f32 * 1.8
+        });
+        assert_eq!(displays(&rows), vec!["fit ", "wide"]);
+        assert_eq!(cursor_row, 1);
+        assert_eq!(rows[1].cursor_col, Some(4));
+    }
 }
