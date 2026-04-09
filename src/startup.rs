@@ -537,9 +537,9 @@ fn restore_startup_terminals(ctx: &mut SceneSetupContext) {
         } else {
             crate::app::RecoveryStatusTone::Error
         };
-        ctx.app_session
-            .recovery_status
-            .show(tone, title, summary.failed_agents);
+        let mut details = vec!["Automatic recovery started from saved snapshot".to_owned()];
+        details.extend(summary.failed_agents);
+        ctx.app_session.recovery_status.show(tone, title, details);
     } else {
         ctx.app_session.recovery_status.clear();
     }

@@ -2080,6 +2080,26 @@ fn reset_runtime_kills_live_sessions_and_rebuilds_from_snapshot() {
         world.resource::<crate::agents::AgentCatalog>().order.len(),
         1
     );
+    let status = &world
+        .resource::<crate::app::AppSessionState>()
+        .recovery_status;
+    assert_eq!(
+        status.title.as_deref(),
+        Some("Reset recovery completed: 1 restored, 0 failed")
+    );
+    assert!(status.details.iter().any(|line| line == "Reset confirmed"));
+    assert!(status
+        .details
+        .iter()
+        .any(|line| line == "Runtime clear started"));
+    assert!(status
+        .details
+        .iter()
+        .any(|line| line == "Runtime clear completed"));
+    assert!(status
+        .details
+        .iter()
+        .any(|line| line == "Automatic recovery started from saved snapshot"));
 }
 
 /// Verifies the cold-start fallback path that spawns a brand-new initial terminal when restore/import

@@ -242,9 +242,11 @@ fn handle_reset_dialog_pointer(ctx: &mut HudPointerContext<'_, '_>) -> bool {
                 ResetDialogTarget::CancelButton => {
                     ctx.app_session.reset_dialog.focus = crate::app::ResetDialogFocus::CancelButton;
                     ctx.app_session.reset_dialog.close();
+                    ctx.app_session.recovery_status.show_reset_canceled();
                 }
                 ResetDialogTarget::ResetButton => {
                     ctx.app_session.reset_dialog.focus = crate::app::ResetDialogFocus::ResetButton;
+                    ctx.app_session.recovery_status.show_reset_confirmed();
                     ctx.app_commands
                         .write(AppCommand::Recovery(crate::app::RecoveryCommand::ResetAll));
                 }

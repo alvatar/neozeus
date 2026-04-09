@@ -114,6 +114,28 @@ impl RecoveryStatusState {
         self.details = details;
         self.tone = tone;
     }
+
+    pub(crate) fn show_reset_requested(&mut self) {
+        self.show(
+            RecoveryStatusTone::Info,
+            "Reset requested: confirmation required",
+            vec![
+                "Kill all live agents, terminals, and owned tmux sessions, then rebuild from the saved snapshot.".into(),
+            ],
+        );
+    }
+
+    pub(crate) fn show_reset_canceled(&mut self) {
+        self.show(RecoveryStatusTone::Info, "Reset canceled", Vec::new());
+    }
+
+    pub(crate) fn show_reset_confirmed(&mut self) {
+        self.show(
+            RecoveryStatusTone::Info,
+            "Reset confirmed: clearing runtime",
+            vec!["Runtime clear started".into()],
+        );
+    }
 }
 
 #[derive(Resource, Clone, Debug, Default, PartialEq)]

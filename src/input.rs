@@ -238,6 +238,7 @@ pub(crate) fn handle_terminal_lifecycle_shortcuts(
             && event.key_code == KeyCode::KeyR
         {
             app_session.reset_dialog.open();
+            app_session.recovery_status.show_reset_requested();
             redraws.write(RequestRedraw);
             break;
         }

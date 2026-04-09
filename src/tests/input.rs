@@ -1455,6 +1455,14 @@ fn ctrl_alt_r_opens_reset_dialog_without_emitting_command() {
         .unwrap();
 
     assert!(world.resource::<AppSessionState>().reset_dialog.visible);
+    assert_eq!(
+        world
+            .resource::<AppSessionState>()
+            .recovery_status
+            .title
+            .as_deref(),
+        Some("Reset requested: confirmation required")
+    );
     assert!(world.resource::<Messages<AppCommand>>().is_empty());
     assert_eq!(world.resource::<Messages<RequestRedraw>>().len(), 1);
 }
@@ -1488,6 +1496,11 @@ fn ctrl_alt_r_is_suppressed_while_other_modal_has_keyboard_capture() {
         .unwrap();
 
     assert!(!world.resource::<AppSessionState>().reset_dialog.visible);
+    assert!(world
+        .resource::<AppSessionState>()
+        .recovery_status
+        .title
+        .is_none());
     assert!(world.resource::<Messages<AppCommand>>().is_empty());
 }
 

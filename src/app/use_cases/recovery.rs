@@ -40,6 +40,7 @@ pub(crate) fn reset_runtime_from_snapshot(
     redraws: &mut bevy::prelude::MessageWriter<RequestRedraw>,
 ) {
     app_session.reset_dialog.close();
+    app_session.recovery_status.show_reset_confirmed();
     clear_composer_and_direct_input(app_session, input_capture, redraws);
     app_session.create_agent_dialog.close();
     app_session.clone_agent_dialog.close();
@@ -89,12 +90,18 @@ pub(crate) fn reset_runtime_from_snapshot(
         *presentation_store = TerminalPresentationStore::default();
     }
 
+    let mut status_details = vec![
+        "Reset confirmed".to_owned(),
+        "Runtime clear started".to_owned(),
+        "Runtime clear completed".to_owned(),
+    ];
     let should_rebuild = app_state_persistence
         .path
         .as_ref()
         .map(load_persisted_app_state_from)
         .is_some_and(|persisted| !persisted.agents.is_empty());
     if should_rebuild {
+        status_details.push("Automatic recovery started from saved snapshot".into());
         let summary = restore_app(
             agent_catalog,
             runtime_index,
@@ -125,14 +132,16 @@ pub(crate) fn reset_runtime_from_snapshot(
         } else {
             crate::app::RecoveryStatusTone::Error
         };
+        status_details.extend(summary.failed_agents);
         app_session
             .recovery_status
-            .show(tone, title, summary.failed_agents);
+            .show(tone, title, status_details);
     } else {
+        status_details.push("No saved snapshot to restore".into());
         app_session.recovery_status.show(
             crate::app::RecoveryStatusTone::Success,
             "Reset completed: runtime cleared; no saved snapshot to restore",
-            Vec::new(),
+            status_details,
         );
     }
 }

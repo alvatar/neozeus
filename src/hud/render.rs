@@ -1126,6 +1126,76 @@ fn draw_reset_dialog(painter: &mut HudPainter, window: &Window, app_session: &Ap
     );
 }
 
+fn recovery_status_border_color(tone: crate::app::RecoveryStatusTone) -> peniko::Color {
+    match tone {
+        crate::app::RecoveryStatusTone::Info => HudColors::BORDER,
+        crate::app::RecoveryStatusTone::Success => peniko::Color::from_rgba8(34, 120, 54, 255),
+        crate::app::RecoveryStatusTone::Error => peniko::Color::from_rgba8(156, 52, 36, 255),
+    }
+}
+
+fn draw_recovery_status_panel(
+    painter: &mut HudPainter,
+    window: &Window,
+    app_session: &AppSessionState,
+) {
+    let Some(title) = app_session.recovery_status.title.as_deref() else {
+        return;
+    };
+
+    let text_width = 396.0;
+    let (title_rows, _) = wrapped_text_rows_measured(title, title.len(), text_width, |segment| {
+        painter.text_size(segment, 18.0).x
+    });
+    let detail_rows = app_session
+        .recovery_status
+        .details
+        .iter()
+        .flat_map(|detail| {
+            wrapped_text_rows_measured(detail, detail.len(), text_width, |segment| {
+                painter.text_size(segment, 14.0).x
+            })
+            .0
+        })
+        .collect::<Vec<_>>();
+    let visible_detail_rows = detail_rows.len().min(8);
+    let height = 24.0 + title_rows.len() as f32 * 22.0 + visible_detail_rows as f32 * 18.0 + 18.0;
+    let rect = HudRect {
+        x: window.width() - 452.0,
+        y: 72.0,
+        w: 420.0,
+        h: height.max(84.0),
+    };
+    painter.fill_rect(rect, HudColors::MESSAGE_BOX, 12.0);
+    painter.stroke_rect(
+        rect,
+        recovery_status_border_color(app_session.recovery_status.tone),
+        12.0,
+    );
+
+    let mut y = rect.y + 16.0;
+    for row in title_rows {
+        painter.label(
+            Vec2::new(rect.x + 14.0, y),
+            row.display_text,
+            18.0,
+            HudColors::TEXT,
+            VelloTextAnchor::TopLeft,
+        );
+        y += 22.0;
+    }
+    for row in detail_rows.into_iter().take(8) {
+        painter.label(
+            Vec2::new(rect.x + 14.0, y),
+            row.display_text,
+            14.0,
+            HudColors::TEXT_MUTED,
+            VelloTextAnchor::TopLeft,
+        );
+        y += 18.0;
+    }
+}
+
 fn draw_aegis_dialog(painter: &mut HudPainter, window: &Window, app_session: &AppSessionState) {
     if !app_session.aegis_dialog.visible {
         return;
@@ -1465,6 +1535,7 @@ pub(crate) fn render_hud_modal_scene(
     if let Some(startup_connect) = startup_connect.as_deref() {
         draw_startup_connect_overlay(&mut painter, &primary_window, startup_connect);
     }
+    draw_recovery_status_panel(&mut painter, &primary_window, &app_session);
     draw_create_agent_dialog(&mut painter, &primary_window, &app_session);
     draw_clone_agent_dialog(&mut painter, &primary_window, &app_session);
     draw_rename_agent_dialog(&mut painter, &primary_window, &app_session);

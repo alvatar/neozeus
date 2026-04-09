@@ -298,6 +298,7 @@ pub(super) fn handle_reset_dialog_key(
     match dialog_shell_action(event, modifiers) {
         DialogShellAction::Escape => {
             app_session.reset_dialog.close();
+            app_session.recovery_status.show_reset_canceled();
             return ModalKeyResult::redraw_and_stop();
         }
         DialogShellAction::Tab { reverse } => {
@@ -311,6 +312,7 @@ pub(super) fn handle_reset_dialog_key(
         ResetDialogFocus::CancelButton => {
             if modifiers.plain() && matches!(event.key_code, KeyCode::Enter | KeyCode::Space) {
                 app_session.reset_dialog.close();
+                app_session.recovery_status.show_reset_canceled();
                 ModalKeyResult::redraw_and_stop()
             } else {
                 ModalKeyResult::default()
@@ -318,6 +320,7 @@ pub(super) fn handle_reset_dialog_key(
         }
         ResetDialogFocus::ResetButton => {
             if modifiers.plain() && matches!(event.key_code, KeyCode::Enter | KeyCode::Space) {
+                app_session.recovery_status.show_reset_confirmed();
                 emitted_commands.push(AppCommand::Recovery(RecoveryCommand::ResetAll));
                 ModalKeyResult::redraw_and_stop()
             } else {
@@ -943,9 +946,40 @@ mod tests {
         assert!(outcome.stop);
         assert!(outcome.needs_redraw);
         assert_eq!(
+            app_session.recovery_status.title.as_deref(),
+            Some("Reset confirmed: clearing runtime")
+        );
+        assert_eq!(
             commands,
             vec![AppCommand::Recovery(RecoveryCommand::ResetAll)]
         );
+    }
+
+    #[test]
+    fn reset_dialog_escape_marks_reset_canceled() {
+        let mut app_session = AppSessionState::default();
+        app_session.reset_dialog.open();
+        let mut commands = Vec::new();
+
+        let outcome = handle_reset_dialog_key(
+            &mut app_session,
+            &pressed(KeyCode::Escape, Key::Escape, None),
+            KeyModifiers {
+                ctrl: false,
+                alt: false,
+                super_key: false,
+                shift: false,
+            },
+            &mut commands,
+        );
+
+        assert!(outcome.stop);
+        assert!(outcome.needs_redraw);
+        assert_eq!(
+            app_session.recovery_status.title.as_deref(),
+            Some("Reset canceled")
+        );
+        assert!(commands.is_empty());
     }
 
     #[test]
