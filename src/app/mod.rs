@@ -19,7 +19,8 @@ pub(crate) use persistence::{
 };
 pub(crate) use session::{
     AegisDialogField, AppSessionState, CloneAgentDialogField, CreateAgentDialogField,
-    CreateAgentKind, RenameAgentDialogField, ResetDialogFocus, TextFieldState, VisibilityMode,
+    CreateAgentKind, RecoveryStatusTone, RenameAgentDialogField, ResetDialogFocus, TextFieldState,
+    VisibilityMode,
 };
 pub(crate) use use_cases::{
     clear_composer_and_direct_input, focus_agent_without_persist, open_composer, restore_app,

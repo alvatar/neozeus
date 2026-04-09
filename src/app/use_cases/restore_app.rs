@@ -101,6 +101,46 @@ fn clone_provenance_from_recovery(
     }
 }
 
+fn validate_recovery_spec(recovery: &crate::agents::AgentRecoverySpec) -> Result<(), String> {
+    match recovery {
+        crate::agents::AgentRecoverySpec::Pi { session_path, .. } => {
+            if !std::path::Path::new(session_path).exists() {
+                return Err(format!("Pi session path missing: {session_path}"));
+            }
+            Ok(())
+        }
+        crate::agents::AgentRecoverySpec::Claude {
+            session_id, cwd, ..
+        } => {
+            if session_id.trim().is_empty() {
+                return Err("Claude session id missing".into());
+            }
+            if cwd.trim().is_empty() {
+                return Err("Claude cwd missing".into());
+            }
+            Ok(())
+        }
+        crate::agents::AgentRecoverySpec::Codex {
+            session_id, cwd, ..
+        } => {
+            if session_id.trim().is_empty() {
+                return Err("Codex session id missing".into());
+            }
+            if cwd.trim().is_empty() {
+                return Err("Codex cwd missing".into());
+            }
+            Ok(())
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct RecoveryExecutionSummary {
+    pub(crate) snapshot_found: bool,
+    pub(crate) restored_agents: usize,
+    pub(crate) failed_agents: Vec<String>,
+}
+
 #[allow(
     clippy::too_many_arguments,
     reason = "restore spans persistence, daemon discovery, agent state, and presentation state"
@@ -125,7 +165,7 @@ pub(crate) fn restore_app(
     presentation_store: Option<&mut TerminalPresentationStore>,
     time: &Time,
     redraws: &mut MessageWriter<bevy::window::RequestRedraw>,
-) {
+) -> RecoveryExecutionSummary {
     // Walk the lifecycle in explicit stages so each side effect happens only after its prerequisites have been established.
     let mut presentation_store = presentation_store;
     let persisted = app_state_persistence
@@ -133,11 +173,19 @@ pub(crate) fn restore_app(
         .as_ref()
         .map(load_persisted_app_state_from)
         .unwrap_or_default();
+    let mut summary = RecoveryExecutionSummary {
+        snapshot_found: !persisted.agents.is_empty(),
+        ..RecoveryExecutionSummary::default()
+    };
     let live_session_infos = match runtime_spawner.list_session_infos() {
         Ok(sessions) => sessions,
         Err(error) => {
-            append_debug_log(format!("daemon session discovery failed: {error}"));
-            return;
+            let message = format!("daemon session discovery failed: {error}");
+            append_debug_log(message.clone());
+            if summary.snapshot_found {
+                summary.failed_agents.push(message);
+            }
+            return summary;
         }
     };
     let (restore, prune, import_session_names) =
@@ -241,6 +289,7 @@ pub(crate) fn restore_app(
             recovery,
         ) {
             Ok((_, terminal_id)) => {
+                summary.restored_agents += 1;
                 if should_mark_startup_pending {
                     if let Some(presentation_store) = presentation_store.as_deref_mut() {
                         presentation_store.mark_startup_pending(terminal_id);
@@ -248,13 +297,15 @@ pub(crate) fn restore_app(
                 }
             }
             Err(error) => {
-                append_debug_log(format!(
+                let message = format!(
                     "startup attach failed for {}: {error}",
                     record
                         .runtime_session_name
                         .as_deref()
                         .unwrap_or("<missing-session>")
-                ));
+                );
+                append_debug_log(message.clone());
+                summary.failed_agents.push(message);
             }
         }
     }
@@ -266,7 +317,10 @@ pub(crate) fn restore_app(
         .collect::<Vec<_>>();
     for record in respawnable {
         let Some(agent_uid) = record.agent_uid.clone() else {
-            append_debug_log("startup respawn skipped for recoverable record missing agent uid");
+            let message =
+                "startup respawn skipped for recoverable record missing agent uid".to_owned();
+            append_debug_log(message.clone());
+            summary.failed_agents.push(message);
             continue;
         };
         let Some(recovery) = record
@@ -274,11 +328,23 @@ pub(crate) fn restore_app(
             .clone()
             .and_then(persisted_recovery_to_agent_recovery)
         else {
-            append_debug_log(
-                "startup respawn skipped for recoverable record missing valid recovery spec",
+            let message = format!(
+                "startup respawn skipped for {} missing valid recovery spec",
+                record.label.as_deref().unwrap_or("<unlabeled-agent>")
             );
+            append_debug_log(message.clone());
+            summary.failed_agents.push(message);
             continue;
         };
+        if let Err(error) = validate_recovery_spec(&recovery) {
+            let message = format!(
+                "startup respawn skipped for {}: {error}",
+                record.label.as_deref().unwrap_or("<unlabeled-agent>")
+            );
+            append_debug_log(message.clone());
+            summary.failed_agents.push(message);
+            continue;
+        }
         let launch = launch_spec_for_recovery_spec(&recovery);
         let working_directory = match &recovery {
             crate::agents::AgentRecoverySpec::Pi { cwd, .. }
@@ -316,14 +382,19 @@ pub(crate) fn restore_app(
             redraws,
         ) {
             Ok(agent_id) => {
+                summary.restored_agents += 1;
                 if record.last_focused {
                     respawned_focus_agent = Some(agent_id);
                 }
             }
-            Err(error) => append_debug_log(format!(
-                "startup respawn failed for {}: {error}",
-                record.label.as_deref().unwrap_or("<unlabeled-agent>")
-            )),
+            Err(error) => {
+                let message = format!(
+                    "startup respawn failed for {}: {error}",
+                    record.label.as_deref().unwrap_or("<unlabeled-agent>")
+                );
+                append_debug_log(message.clone());
+                summary.failed_agents.push(message);
+            }
         }
     }
 
@@ -409,7 +480,7 @@ pub(crate) fn restore_app(
             view_state,
             visibility_state,
         );
-    } else {
+    } else if !summary.snapshot_found {
         let _ = spawn_agent_terminal(
             agent_catalog,
             runtime_index,
@@ -433,6 +504,8 @@ pub(crate) fn restore_app(
             redraws,
         );
     }
+
+    summary
 }
 
 #[cfg(test)]

@@ -95,7 +95,7 @@ pub(crate) fn reset_runtime_from_snapshot(
         .map(load_persisted_app_state_from)
         .is_some_and(|persisted| !persisted.agents.is_empty());
     if should_rebuild {
-        restore_app(
+        let summary = restore_app(
             agent_catalog,
             runtime_index,
             app_session,
@@ -114,6 +114,25 @@ pub(crate) fn reset_runtime_from_snapshot(
             presentation_store,
             time,
             redraws,
+        );
+        let title = format!(
+            "Reset recovery completed: {} restored, {} failed",
+            summary.restored_agents,
+            summary.failed_agents.len()
+        );
+        let tone = if summary.failed_agents.is_empty() {
+            crate::app::RecoveryStatusTone::Success
+        } else {
+            crate::app::RecoveryStatusTone::Error
+        };
+        app_session
+            .recovery_status
+            .show(tone, title, summary.failed_agents);
+    } else {
+        app_session.recovery_status.show(
+            crate::app::RecoveryStatusTone::Success,
+            "Reset completed: runtime cleared; no saved snapshot to restore",
+            Vec::new(),
         );
     }
 }

@@ -1760,6 +1760,185 @@ fn startup_restore_reattaches_live_agent_and_respawns_missing_recoverable_agent(
 }
 
 #[test]
+fn startup_restore_reports_invalid_pi_recovery_without_blocking_other_agents() {
+    let client = Arc::new(crate::tests::FakeDaemonClient::default());
+    let dir = temp_dir("neozeus-startup-invalid-pi-recovery");
+    let app_state_path = dir.join("neozeus-state.v1");
+    std::fs::write(
+        &app_state_path,
+        format!(
+            "neozeus state version 4\n[agent]\nagent_uid=\"agent-bad\"\nlabel=\"BROKEN-PI\"\nkind=\"pi\"\nrecovery_mode=\"pi\"\nrecovery_session_path=\"{}\"\nrecovery_cwd=\"/tmp/missing\"\norder_index=0\n[/agent]\n[agent]\nagent_uid=\"agent-good\"\nlabel=\"ALPHA\"\nkind=\"claude\"\nrecovery_mode=\"claude\"\nrecovery_session_id=\"claude-session-1\"\nrecovery_cwd=\"/tmp/demo\"\norder_index=1\n[/agent]\n",
+            dir.join("missing-session.jsonl").display()
+        ),
+    )
+    .expect("app state should write");
+
+    let mut world = World::default();
+    world.insert_resource(Assets::<Image>::default());
+    world.insert_resource(crate::terminals::TerminalManager::default());
+    world.insert_resource(crate::terminals::TerminalFocusState::default());
+    world.insert_resource(crate::terminals::TerminalPresentationStore::default());
+    world.insert_resource(crate::agents::AgentCatalog::default());
+    world.insert_resource(crate::agents::AgentRuntimeIndex::default());
+    world.insert_resource(crate::app::AppSessionState::default());
+    world.insert_resource(crate::aegis::AegisPolicyStore::default());
+    world.insert_resource(crate::aegis::AegisRuntimeStore::default());
+    world.insert_resource(crate::conversations::ConversationStore::default());
+    world.insert_resource(crate::conversations::ConversationPersistenceState::default());
+    world.insert_resource(crate::hud::HudInputCaptureState::default());
+    world.insert_resource(crate::terminals::TerminalViewState::default());
+    world.init_resource::<Messages<RequestRedraw>>();
+    world.insert_resource(Time::<()>::default());
+    world.insert_resource(fake_runtime_spawner(client.clone()));
+    world.insert_resource(crate::app::AppStatePersistenceState {
+        path: Some(app_state_path),
+        dirty_since_secs: None,
+    });
+    world.insert_resource(crate::terminals::TerminalNotesState::default());
+    world.insert_resource(crate::hud::TerminalVisibilityState::default());
+    world.insert_resource(crate::startup::DaemonConnectionState::default());
+    world.insert_resource(crate::startup::StartupConnectState::default());
+
+    world.run_system_once(crate::startup::setup_scene).unwrap();
+
+    let commands = client.sent_commands.lock().unwrap().clone();
+    assert_eq!(commands.len(), 1);
+    assert!(matches!(
+        &commands[0].1,
+        crate::terminals::TerminalCommand::SendCommand(value)
+            if value == "claude --resume claude-session-1"
+    ));
+    let catalog = world.resource::<crate::agents::AgentCatalog>();
+    assert_eq!(catalog.order.len(), 1);
+    assert_eq!(catalog.uid(catalog.order[0]), Some("agent-good"));
+    let status = &world
+        .resource::<crate::app::AppSessionState>()
+        .recovery_status;
+    assert_eq!(
+        status.title.as_deref(),
+        Some("Automatic recovery completed: 1 restored, 1 failed")
+    );
+    assert!(status
+        .details
+        .iter()
+        .any(|line| line.contains("BROKEN-PI") && line.contains("Pi session path missing")));
+}
+
+#[test]
+fn startup_restore_reports_invalid_claude_recovery_and_does_not_spawn_default_agent() {
+    let client = Arc::new(crate::tests::FakeDaemonClient::default());
+    let dir = temp_dir("neozeus-startup-invalid-claude-recovery");
+    let app_state_path = dir.join("neozeus-state.v1");
+    std::fs::write(
+        &app_state_path,
+        "neozeus state version 4\n[agent]\nagent_uid=\"agent-uid-1\"\nlabel=\"ALPHA\"\nkind=\"claude\"\nrecovery_mode=\"claude\"\nrecovery_session_id=\"\"\nrecovery_cwd=\"/tmp/demo\"\norder_index=0\n[/agent]\n",
+    )
+    .expect("app state should write");
+
+    let mut world = World::default();
+    world.insert_resource(Assets::<Image>::default());
+    world.insert_resource(crate::terminals::TerminalManager::default());
+    world.insert_resource(crate::terminals::TerminalFocusState::default());
+    world.insert_resource(crate::terminals::TerminalPresentationStore::default());
+    world.insert_resource(crate::agents::AgentCatalog::default());
+    world.insert_resource(crate::agents::AgentRuntimeIndex::default());
+    world.insert_resource(crate::app::AppSessionState::default());
+    world.insert_resource(crate::aegis::AegisPolicyStore::default());
+    world.insert_resource(crate::aegis::AegisRuntimeStore::default());
+    world.insert_resource(crate::conversations::ConversationStore::default());
+    world.insert_resource(crate::conversations::ConversationPersistenceState::default());
+    world.insert_resource(crate::hud::HudInputCaptureState::default());
+    world.insert_resource(crate::terminals::TerminalViewState::default());
+    world.init_resource::<Messages<RequestRedraw>>();
+    world.insert_resource(Time::<()>::default());
+    world.insert_resource(fake_runtime_spawner(client.clone()));
+    world.insert_resource(crate::app::AppStatePersistenceState {
+        path: Some(app_state_path),
+        dirty_since_secs: None,
+    });
+    world.insert_resource(crate::terminals::TerminalNotesState::default());
+    world.insert_resource(crate::hud::TerminalVisibilityState::default());
+    world.insert_resource(crate::startup::DaemonConnectionState::default());
+    world.insert_resource(crate::startup::StartupConnectState::default());
+
+    world.run_system_once(crate::startup::setup_scene).unwrap();
+
+    assert!(client.created_sessions.lock().unwrap().is_empty());
+    assert!(world
+        .resource::<crate::agents::AgentCatalog>()
+        .order
+        .is_empty());
+    let status = &world
+        .resource::<crate::app::AppSessionState>()
+        .recovery_status;
+    assert_eq!(
+        status.title.as_deref(),
+        Some("Automatic recovery completed: 0 restored, 1 failed")
+    );
+    assert!(status
+        .details
+        .iter()
+        .any(|line| line.contains("ALPHA") && line.contains("Claude session id missing")));
+}
+
+#[test]
+fn startup_restore_reports_invalid_codex_recovery_and_does_not_spawn_default_agent() {
+    let client = Arc::new(crate::tests::FakeDaemonClient::default());
+    let dir = temp_dir("neozeus-startup-invalid-codex-recovery");
+    let app_state_path = dir.join("neozeus-state.v1");
+    std::fs::write(
+        &app_state_path,
+        "neozeus state version 4\n[agent]\nagent_uid=\"agent-uid-2\"\nlabel=\"BETA\"\nkind=\"codex\"\nrecovery_mode=\"codex\"\nrecovery_session_id=\"codex-thread-1\"\nrecovery_cwd=\"\"\norder_index=0\n[/agent]\n",
+    )
+    .expect("app state should write");
+
+    let mut world = World::default();
+    world.insert_resource(Assets::<Image>::default());
+    world.insert_resource(crate::terminals::TerminalManager::default());
+    world.insert_resource(crate::terminals::TerminalFocusState::default());
+    world.insert_resource(crate::terminals::TerminalPresentationStore::default());
+    world.insert_resource(crate::agents::AgentCatalog::default());
+    world.insert_resource(crate::agents::AgentRuntimeIndex::default());
+    world.insert_resource(crate::app::AppSessionState::default());
+    world.insert_resource(crate::aegis::AegisPolicyStore::default());
+    world.insert_resource(crate::aegis::AegisRuntimeStore::default());
+    world.insert_resource(crate::conversations::ConversationStore::default());
+    world.insert_resource(crate::conversations::ConversationPersistenceState::default());
+    world.insert_resource(crate::hud::HudInputCaptureState::default());
+    world.insert_resource(crate::terminals::TerminalViewState::default());
+    world.init_resource::<Messages<RequestRedraw>>();
+    world.insert_resource(Time::<()>::default());
+    world.insert_resource(fake_runtime_spawner(client.clone()));
+    world.insert_resource(crate::app::AppStatePersistenceState {
+        path: Some(app_state_path),
+        dirty_since_secs: None,
+    });
+    world.insert_resource(crate::terminals::TerminalNotesState::default());
+    world.insert_resource(crate::hud::TerminalVisibilityState::default());
+    world.insert_resource(crate::startup::DaemonConnectionState::default());
+    world.insert_resource(crate::startup::StartupConnectState::default());
+
+    world.run_system_once(crate::startup::setup_scene).unwrap();
+
+    assert!(client.created_sessions.lock().unwrap().is_empty());
+    assert!(world
+        .resource::<crate::agents::AgentCatalog>()
+        .order
+        .is_empty());
+    let status = &world
+        .resource::<crate::app::AppSessionState>()
+        .recovery_status;
+    assert_eq!(
+        status.title.as_deref(),
+        Some("Automatic recovery completed: 0 restored, 1 failed")
+    );
+    assert!(status
+        .details
+        .iter()
+        .any(|line| line.contains("BETA") && line.contains("Codex cwd missing")));
+}
+
+#[test]
 fn startup_respawns_codex_agent_from_recovery_spec_when_daemon_is_empty() {
     let client = Arc::new(crate::tests::FakeDaemonClient::default());
     let dir = temp_dir("neozeus-startup-codex-recovery");

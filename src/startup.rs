@@ -502,7 +502,7 @@ fn restore_startup_terminals(ctx: &mut SceneSetupContext) {
     let default_owned_tmux_sessions = OwnedTmuxSessionStore::default();
     let mut default_active_terminal_content =
         crate::terminals::ActiveTerminalContentState::default();
-    restore_app(
+    let summary = restore_app(
         &mut ctx.agent_catalog,
         &mut ctx.runtime_index,
         &mut ctx.app_session,
@@ -526,6 +526,23 @@ fn restore_startup_terminals(ctx: &mut SceneSetupContext) {
         &ctx.time,
         &mut ctx.redraws,
     );
+    if summary.snapshot_found {
+        let title = format!(
+            "Automatic recovery completed: {} restored, {} failed",
+            summary.restored_agents,
+            summary.failed_agents.len()
+        );
+        let tone = if summary.failed_agents.is_empty() {
+            crate::app::RecoveryStatusTone::Success
+        } else {
+            crate::app::RecoveryStatusTone::Error
+        };
+        ctx.app_session
+            .recovery_status
+            .show(tone, title, summary.failed_agents);
+    } else {
+        ctx.app_session.recovery_status.clear();
+    }
 
     hydrate_startup_owned_tmux_state(ctx);
 

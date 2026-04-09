@@ -82,6 +82,40 @@ impl FocusIntentState {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum RecoveryStatusTone {
+    #[default]
+    Info,
+    Success,
+    Error,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct RecoveryStatusState {
+    pub(crate) title: Option<String>,
+    pub(crate) details: Vec<String>,
+    pub(crate) tone: RecoveryStatusTone,
+}
+
+impl RecoveryStatusState {
+    pub(crate) fn clear(&mut self) {
+        self.title = None;
+        self.details.clear();
+        self.tone = RecoveryStatusTone::Info;
+    }
+
+    pub(crate) fn show(
+        &mut self,
+        tone: RecoveryStatusTone,
+        title: impl Into<String>,
+        details: Vec<String>,
+    ) {
+        self.title = Some(title.into());
+        self.details = details;
+        self.tone = tone;
+    }
+}
+
 #[derive(Resource, Clone, Debug, Default, PartialEq)]
 pub(crate) struct AppSessionState {
     pub(crate) focus_intent: FocusIntentState,
@@ -91,6 +125,7 @@ pub(crate) struct AppSessionState {
     pub(crate) rename_agent_dialog: RenameAgentDialogState,
     pub(crate) aegis_dialog: AegisDialogState,
     pub(crate) reset_dialog: ResetDialogState,
+    pub(crate) recovery_status: RecoveryStatusState,
 }
 
 impl AppSessionState {
