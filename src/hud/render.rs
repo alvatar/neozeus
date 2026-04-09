@@ -10,7 +10,7 @@ use crate::{
         create_agent_name_field_rect, create_agent_starting_folder_rect,
         message_box_action_buttons, message_box_rect, rename_agent_dialog_rect,
         rename_agent_name_field_rect, rename_agent_submit_button_rect, task_dialog_action_buttons,
-        task_dialog_rect, MessageDialogFocus, TaskDialogFocus, TextEditorState,
+        task_dialog_rect, wrapped_text_rows, MessageDialogFocus, TaskDialogFocus, TextEditorState,
     },
     startup::DaemonConnectionState,
 };
@@ -344,6 +344,7 @@ fn slice_chars(text: &str, start_chars: usize, max_chars: usize) -> String {
 ///
 /// Returning `(start, end, line)` triples lets selection logic translate between line-local character
 /// columns and whole-buffer byte ranges.
+#[cfg(test)]
 fn message_box_lines(text: &str) -> Vec<(usize, usize, &str)> {
     text.split('\n')
         .scan(0usize, |start, line| {
@@ -366,87 +367,70 @@ fn editor_selection_status(editor: &TextEditorState) -> String {
         .unwrap_or_else(|| "No mark".to_owned())
 }
 
-#[derive(Clone, Debug)]
-struct WrappedEditorRow<'a> {
-    line_start_byte: usize,
-    line_end_byte: usize,
-    line_text: &'a str,
-    segment_start_col: usize,
-    segment_len: usize,
-    display_text: String,
-    cursor_col: Option<usize>,
+#[cfg(test)]
+type WrappedEditorRow<'a> = crate::composer::WrappedTextRow<'a>;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum CursorVisualSpan<'a> {
+    InvertedGlyph {
+        leading_text: &'a str,
+        glyph: &'a str,
+        trailing_text: &'a str,
+    },
+    BoundaryBlock {
+        leading_text: &'a str,
+    },
 }
 
+fn byte_index_for_char(text: &str, chars: usize) -> usize {
+    let mut byte_index = 0;
+    for ch in text.chars().take(chars) {
+        byte_index += ch.len_utf8();
+    }
+    byte_index
+}
+
+fn cursor_visual_span(display_text: &str, cursor_col: usize) -> CursorVisualSpan<'_> {
+    let display_len = display_text.chars().count();
+    if cursor_col < display_len {
+        let glyph_start = byte_index_for_char(display_text, cursor_col);
+        let glyph_end = byte_index_for_char(display_text, cursor_col + 1);
+        CursorVisualSpan::InvertedGlyph {
+            leading_text: &display_text[..glyph_start],
+            glyph: &display_text[glyph_start..glyph_end],
+            trailing_text: &display_text[glyph_end..],
+        }
+    } else {
+        CursorVisualSpan::BoundaryBlock {
+            leading_text: display_text,
+        }
+    }
+}
+
+#[cfg(test)]
+fn cursor_byte_for_line_column(text: &str, cursor_line: usize, cursor_col: usize) -> usize {
+    let Some((line_start_byte, line_end_byte, line_text)) =
+        message_box_lines(text).into_iter().nth(cursor_line)
+    else {
+        return text.len();
+    };
+    let bounded_cursor = cursor_col.min(line_text.chars().count());
+    line_start_byte
+        + byte_index_for_char(line_text, bounded_cursor).min(line_end_byte - line_start_byte)
+}
+
+#[cfg(test)]
 fn wrapped_editor_rows<'a>(
     text: &'a str,
     max_visible_cols: usize,
     cursor_line: usize,
     cursor_col: usize,
 ) -> (Vec<WrappedEditorRow<'a>>, usize) {
-    let mut rows = Vec::new();
-    let mut cursor_row = 0;
-    for (line_index, (line_start_byte, line_end_byte, line_text)) in
-        message_box_lines(text).into_iter().enumerate()
-    {
-        let line_char_count = line_text.chars().count();
-        if line_char_count == 0 {
-            if line_index == cursor_line {
-                cursor_row = rows.len();
-            }
-            rows.push(WrappedEditorRow {
-                line_start_byte,
-                line_end_byte,
-                line_text,
-                segment_start_col: 0,
-                segment_len: 0,
-                display_text: String::new(),
-                cursor_col: (line_index == cursor_line).then_some(0),
-            });
-            continue;
-        }
-
-        let cursor_segment_start = if line_index == cursor_line {
-            if cursor_col == line_char_count && line_char_count % max_visible_cols == 0 {
-                line_char_count.saturating_sub(max_visible_cols)
-            } else {
-                (cursor_col / max_visible_cols) * max_visible_cols
-            }
-        } else {
-            usize::MAX
-        };
-
-        for segment_start_col in (0..line_char_count).step_by(max_visible_cols) {
-            let segment_len = (line_char_count - segment_start_col).min(max_visible_cols);
-            if line_index == cursor_line && segment_start_col == cursor_segment_start {
-                cursor_row = rows.len();
-            }
-            rows.push(WrappedEditorRow {
-                line_start_byte,
-                line_end_byte,
-                line_text,
-                segment_start_col,
-                segment_len,
-                display_text: slice_chars(line_text, segment_start_col, segment_len),
-                cursor_col: (line_index == cursor_line
-                    && segment_start_col == cursor_segment_start)
-                    .then_some(cursor_col.saturating_sub(segment_start_col)),
-            });
-        }
-    }
-
-    if rows.is_empty() {
-        rows.push(WrappedEditorRow {
-            line_start_byte: 0,
-            line_end_byte: 0,
-            line_text: "",
-            segment_start_col: 0,
-            segment_len: 0,
-            display_text: String::new(),
-            cursor_col: Some(0),
-        });
-    }
-
-    (rows, cursor_row)
+    wrapped_text_rows(
+        text,
+        max_visible_cols,
+        cursor_byte_for_line_column(text, cursor_line, cursor_col),
+    )
 }
 
 /// Draws the wrapped modal text editor body, including visible lines, selection, and cursor.
@@ -474,10 +458,8 @@ fn draw_text_editor_body(
     let content_y = body_rect.y + 16.0;
     let max_visible_lines = ((body_rect.h - 24.0) / line_height).floor().max(1.0) as usize;
     let max_visible_cols = ((body_rect.w - 36.0) / 10.0).floor().max(8.0) as usize;
-    let (cursor_line, cursor_col) = editor.cursor_line_and_column();
     let selection = editor.region_bounds();
-    let (rows, cursor_row) =
-        wrapped_editor_rows(&editor.text, max_visible_cols, cursor_line, cursor_col);
+    let (rows, cursor_row) = wrapped_text_rows(&editor.text, max_visible_cols, editor.cursor);
     let start_row = cursor_row.saturating_sub(max_visible_lines.saturating_sub(1));
     let end_row = (start_row + max_visible_lines).min(rows.len());
 
@@ -504,68 +486,119 @@ fn draw_text_editor_body(
         }
 
         if let Some((selection_start, selection_end)) = selection {
-            let line_selection_start = selection_start.max(row.line_start_byte);
-            let line_selection_end = selection_end.min(row.line_end_byte);
-            if line_selection_start < line_selection_end {
-                let selection_start_col = editor.text[row.line_start_byte..line_selection_start]
+            let row_selection_start = selection_start.max(row.display_start_byte);
+            let row_selection_end = selection_end.min(row.display_end_byte);
+            if row_selection_start < row_selection_end {
+                let local_start = editor.text[row.display_start_byte..row_selection_start]
                     .chars()
                     .count();
-                let selection_end_col = editor.text[row.line_start_byte..line_selection_end]
+                let local_end = editor.text[row.display_start_byte..row_selection_end]
                     .chars()
                     .count();
-                let row_selection_start = selection_start_col.max(row.segment_start_col);
-                let row_selection_end =
-                    selection_end_col.min(row.segment_start_col.saturating_add(row.segment_len));
-                if row_selection_start < row_selection_end {
-                    let local_start = row_selection_start - row.segment_start_col;
-                    let local_end = row_selection_end - row.segment_start_col;
-                    let before_selection =
-                        slice_chars(row.line_text, row.segment_start_col, local_start);
-                    let before_selection_end =
-                        slice_chars(row.line_text, row.segment_start_col, local_end);
-                    let selection_x = content_x + painter.text_size(&before_selection, text_size).x;
-                    let selection_end_x =
-                        content_x + painter.text_size(&before_selection_end, text_size).x;
-                    painter.fill_rect(
-                        HudRect {
-                            x: selection_x,
-                            y: y - 2.0,
-                            w: (selection_end_x - selection_x).max(6.0),
-                            h: line_height - 4.0,
-                        },
-                        HudColors::ROW_FOCUSED,
-                        3.0,
-                    );
-                }
+                let before_selection = slice_chars(row.display_text, 0, local_start);
+                let before_selection_end = slice_chars(row.display_text, 0, local_end);
+                let selection_x = content_x + painter.text_size(&before_selection, text_size).x;
+                let selection_end_x =
+                    content_x + painter.text_size(&before_selection_end, text_size).x;
+                painter.fill_rect(
+                    HudRect {
+                        x: selection_x,
+                        y: y - 2.0,
+                        w: (selection_end_x - selection_x).max(6.0),
+                        h: line_height - 4.0,
+                    },
+                    HudColors::ROW_FOCUSED,
+                    3.0,
+                );
             }
-        }
-
-        if !row.display_text.is_empty() {
-            painter.label(
-                Vec2::new(content_x, y),
-                &row.display_text,
-                text_size,
-                HudColors::TEXT,
-                VelloTextAnchor::TopLeft,
-            );
         }
 
         if focused {
             if let Some(visible_cursor_col) = row.cursor_col {
-                let before_cursor =
-                    slice_chars(row.line_text, row.segment_start_col, visible_cursor_col);
-                let cursor_x = content_x + painter.text_size(&before_cursor, text_size).x;
-                painter.fill_rect(
-                    HudRect {
-                        x: cursor_x,
-                        y,
-                        w: 2.5,
-                        h: 20.0,
-                    },
-                    HudColors::BORDER,
-                    1.0,
+                match cursor_visual_span(row.display_text, visible_cursor_col) {
+                    CursorVisualSpan::InvertedGlyph {
+                        leading_text,
+                        glyph,
+                        trailing_text,
+                    } => {
+                        if !leading_text.is_empty() {
+                            painter.label(
+                                Vec2::new(content_x, y),
+                                leading_text,
+                                text_size,
+                                HudColors::TEXT,
+                                VelloTextAnchor::TopLeft,
+                            );
+                        }
+                        let cursor_x = content_x + painter.text_size(leading_text, text_size).x;
+                        let glyph_width = painter.text_size(glyph, text_size).x.max(10.0);
+                        painter.fill_rect(
+                            HudRect {
+                                x: cursor_x - 1.0,
+                                y: y - 1.0,
+                                w: glyph_width + 2.0,
+                                h: 22.0,
+                            },
+                            HudColors::TEXT,
+                            2.0,
+                        );
+                        painter.label(
+                            Vec2::new(cursor_x, y),
+                            glyph,
+                            text_size,
+                            HudColors::MESSAGE_BOX,
+                            VelloTextAnchor::TopLeft,
+                        );
+                        if !trailing_text.is_empty() {
+                            painter.label(
+                                Vec2::new(cursor_x + glyph_width, y),
+                                trailing_text,
+                                text_size,
+                                HudColors::TEXT,
+                                VelloTextAnchor::TopLeft,
+                            );
+                        }
+                    }
+                    CursorVisualSpan::BoundaryBlock { leading_text } => {
+                        if !leading_text.is_empty() {
+                            painter.label(
+                                Vec2::new(content_x, y),
+                                leading_text,
+                                text_size,
+                                HudColors::TEXT,
+                                VelloTextAnchor::TopLeft,
+                            );
+                        }
+                        let cursor_x = content_x + painter.text_size(leading_text, text_size).x;
+                        painter.fill_rect(
+                            HudRect {
+                                x: cursor_x - 1.0,
+                                y: y - 1.0,
+                                w: 11.0,
+                                h: 22.0,
+                            },
+                            HudColors::TEXT,
+                            2.0,
+                        );
+                    }
+                }
+            } else if !row.display_text.is_empty() {
+                painter.label(
+                    Vec2::new(content_x, y),
+                    row.display_text,
+                    text_size,
+                    HudColors::TEXT,
+                    VelloTextAnchor::TopLeft,
                 );
             }
+        } else if !row.display_text.is_empty() {
+            painter.label(
+                Vec2::new(content_x, y),
+                row.display_text,
+                text_size,
+                HudColors::TEXT,
+                VelloTextAnchor::TopLeft,
+            );
         }
     }
 
@@ -1386,7 +1419,9 @@ pub(crate) fn render_hud_modal_scene(
 
 #[cfg(test)]
 mod tests {
-    use super::{single_line_field_viewport, wrapped_editor_rows};
+    use super::{
+        cursor_visual_span, single_line_field_viewport, wrapped_editor_rows, CursorVisualSpan,
+    };
 
     #[test]
     fn single_line_field_viewport_keeps_cursor_visible_at_end_of_long_text() {
@@ -1408,10 +1443,7 @@ mod tests {
     #[test]
     fn wrapped_editor_rows_wraps_long_line_and_tracks_cursor_segment() {
         let (rows, cursor_row) = wrapped_editor_rows("abcdefghij", 4, 0, 9);
-        let displays = rows
-            .iter()
-            .map(|row| row.display_text.clone())
-            .collect::<Vec<_>>();
+        let displays = rows.iter().map(|row| row.display_text).collect::<Vec<_>>();
         assert_eq!(displays, vec!["abcd", "efgh", "ij"]);
         assert_eq!(cursor_row, 2);
         assert_eq!(rows[2].cursor_col, Some(1));
@@ -1424,5 +1456,24 @@ mod tests {
         assert_eq!(cursor_row, 1);
         assert_eq!(rows[1].display_text, "efgh");
         assert_eq!(rows[1].cursor_col, Some(4));
+    }
+
+    #[test]
+    fn wrapped_editor_rows_wraps_whole_words_without_hiding_characters() {
+        let (rows, _cursor_row) = wrapped_editor_rows("hello world", 7, 0, 0);
+        let displays = rows.iter().map(|row| row.display_text).collect::<Vec<_>>();
+        assert_eq!(displays, vec!["hello ", "world"]);
+    }
+
+    #[test]
+    fn cursor_visual_span_inverts_the_character_under_cursor() {
+        assert_eq!(
+            cursor_visual_span("abcd", 1),
+            CursorVisualSpan::InvertedGlyph {
+                leading_text: "a",
+                glyph: "b",
+                trailing_text: "cd",
+            }
+        );
     }
 }

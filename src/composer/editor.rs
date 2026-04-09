@@ -2,8 +2,9 @@ use crate::shared::text_cursor::{
     next_char_boundary, previous_char_boundary, word_backward_boundary, word_forward_boundary,
 };
 
-use super::state::{
-    TextEditorDraft, TextEditorState, TextEditorYankState, TEXT_EDITOR_KILL_RING_LIMIT,
+use super::{
+    state::{TextEditorDraft, TextEditorState, TextEditorYankState, TEXT_EDITOR_KILL_RING_LIMIT},
+    wrapped_text_rows,
 };
 
 impl TextEditorState {
@@ -182,6 +183,11 @@ impl TextEditorState {
         true
     }
 
+    /// Moves up using wrapped visual rows.
+    pub(crate) fn move_up_wrapped(&mut self, max_visible_cols: usize) -> bool {
+        self.move_wrapped(-1, max_visible_cols)
+    }
+
     /// Moves down.
     pub(crate) fn move_down(&mut self) -> bool {
         let (_, line_end) = current_line_bounds(&self.text, self.cursor);
@@ -200,6 +206,11 @@ impl TextEditorState {
         self.preferred_column = Some(target_column);
         self.yank_state = None;
         true
+    }
+
+    /// Moves down using wrapped visual rows.
+    pub(crate) fn move_down_wrapped(&mut self, max_visible_cols: usize) -> bool {
+        self.move_wrapped(1, max_visible_cols)
     }
 
     /// Moves word backward.
@@ -364,6 +375,37 @@ impl TextEditorState {
         )
     }
 
+    fn move_wrapped(&mut self, direction: isize, max_visible_cols: usize) -> bool {
+        let (rows, cursor_row) = wrapped_text_rows(&self.text, max_visible_cols, self.cursor);
+        let Some(current_row) = rows.get(cursor_row) else {
+            return false;
+        };
+        let target_row_index = if direction < 0 {
+            cursor_row.checked_sub(direction.unsigned_abs())
+        } else {
+            cursor_row.checked_add(direction as usize)
+        };
+        let Some(target_row_index) = target_row_index else {
+            return false;
+        };
+        let Some(target_row) = rows.get(target_row_index) else {
+            return false;
+        };
+        let target_column = self
+            .preferred_column
+            .unwrap_or_else(|| current_row.cursor_col.unwrap_or(current_row.segment_len));
+        let clamped_target = target_column.min(target_row.segment_len);
+        self.cursor = advance_by_chars(
+            &self.text,
+            target_row.display_start_byte,
+            target_row.display_end_byte,
+            clamped_target,
+        );
+        self.preferred_column = Some(target_column);
+        self.yank_state = None;
+        true
+    }
+
     /// Handles insert text internal.
     fn insert_text_internal(&mut self, at: usize, text: &str, clear_yank_state: bool) -> usize {
         // Keep the editor or collection mutation explicit so cursor state and stored data stay synchronized after each change.
@@ -487,4 +529,29 @@ fn advance_by_chars(text: &str, start: usize, end: usize, count: usize) -> usize
 /// Returns whether word char.
 fn is_word_char(ch: char) -> bool {
     ch.is_alphanumeric() || ch == '_'
+}
+
+#[cfg(test)]
+mod tests {
+    use super::TextEditorState;
+
+    #[test]
+    fn move_up_wrapped_moves_within_single_logical_line() {
+        let mut editor = TextEditorState::default();
+        editor.load_text("hello world");
+        editor.cursor = 8;
+
+        assert!(editor.move_up_wrapped(7));
+        assert_eq!(editor.cursor, 2);
+    }
+
+    #[test]
+    fn move_down_wrapped_moves_to_next_visual_row_in_same_logical_line() {
+        let mut editor = TextEditorState::default();
+        editor.load_text("hello world");
+        editor.cursor = 2;
+
+        assert!(editor.move_down_wrapped(7));
+        assert_eq!(editor.cursor, 8);
+    }
 }

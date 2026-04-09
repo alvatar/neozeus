@@ -1282,12 +1282,26 @@ fn message_box_event_text(event: &KeyboardInput) -> Option<String> {
 ///
 /// The function returns whether the editor state changed so the caller can request redraw only when
 /// necessary.
+fn handle_text_editor_vertical_motion(
+    editor: &mut crate::composer::TextEditorState,
+    wrapped_visible_cols: Option<usize>,
+    down: bool,
+) -> bool {
+    match (wrapped_visible_cols, down) {
+        (Some(cols), true) => editor.move_down_wrapped(cols),
+        (Some(cols), false) => editor.move_up_wrapped(cols),
+        (None, true) => editor.move_down(),
+        (None, false) => editor.move_up(),
+    }
+}
+
 fn handle_text_editor_event(
     editor: &mut crate::composer::TextEditorState,
     event: &KeyboardInput,
     ctrl: bool,
     alt: bool,
     super_key: bool,
+    wrapped_visible_cols: Option<usize>,
 ) -> bool {
     // Keep the control flow staged so each branch owns one behavior path and later branches only run when earlier capture rules do not apply.
     if ctrl && !alt && !super_key {
@@ -1301,10 +1315,12 @@ fn handle_text_editor_event(
             KeyCode::KeyH => editor.delete_backward_char(),
             KeyCode::KeyJ => editor.newline_and_indent(),
             KeyCode::KeyK => editor.kill_to_end_of_line(),
-            KeyCode::KeyN => editor.move_down(),
+            KeyCode::KeyN => handle_text_editor_vertical_motion(editor, wrapped_visible_cols, true),
             KeyCode::KeyU => editor.kill_all(),
             KeyCode::KeyO => editor.open_line(),
-            KeyCode::KeyP => editor.move_up(),
+            KeyCode::KeyP => {
+                handle_text_editor_vertical_motion(editor, wrapped_visible_cols, false)
+            }
             KeyCode::KeyW => editor.kill_region(),
             KeyCode::KeyY => editor.yank(),
             _ => false,
@@ -1326,8 +1342,12 @@ fn handle_text_editor_event(
             KeyCode::Delete => editor.delete_forward_char(),
             KeyCode::ArrowLeft => editor.move_left(),
             KeyCode::ArrowRight => editor.move_right(),
-            KeyCode::ArrowUp => editor.move_up(),
-            KeyCode::ArrowDown => editor.move_down(),
+            KeyCode::ArrowUp => {
+                handle_text_editor_vertical_motion(editor, wrapped_visible_cols, false)
+            }
+            KeyCode::ArrowDown => {
+                handle_text_editor_vertical_motion(editor, wrapped_visible_cols, true)
+            }
             KeyCode::Home => editor.move_line_start(),
             KeyCode::End => editor.move_line_end(),
             KeyCode::Tab => editor.insert_text("\t"),
@@ -1398,6 +1418,7 @@ pub(crate) fn handle_terminal_message_box_keyboard(
                 &mut app_session,
                 event,
                 modifiers,
+                crate::composer::aegis_visible_cols(&primary_window),
                 &mut emitted_commands,
             );
             needs_redraw |= outcome.needs_redraw;
@@ -1519,6 +1540,7 @@ pub(crate) fn handle_terminal_message_box_keyboard(
                 &mut app_session,
                 event,
                 modifiers,
+                crate::composer::message_box_visible_cols(&primary_window),
                 current_clipboard_text.as_deref(),
                 &mut emitted_commands,
             );
@@ -1547,6 +1569,7 @@ pub(crate) fn handle_terminal_message_box_keyboard(
                 &mut app_session,
                 event,
                 modifiers,
+                crate::composer::task_dialog_visible_cols(&primary_window),
                 &mut emitted_commands,
             );
             needs_redraw |= outcome.needs_redraw;

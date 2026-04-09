@@ -290,6 +290,7 @@ pub(super) fn handle_aegis_dialog_key(
     app_session: &mut AppSessionState,
     event: &KeyboardInput,
     modifiers: KeyModifiers,
+    wrapped_visible_cols: usize,
     emitted_commands: &mut Vec<AppCommand>,
 ) -> ModalKeyResult {
     match dialog_shell_action(event, modifiers) {
@@ -312,6 +313,7 @@ pub(super) fn handle_aegis_dialog_key(
                 modifiers.ctrl,
                 modifiers.alt,
                 modifiers.super_key,
+                Some(wrapped_visible_cols),
             ),
             true,
         ),
@@ -360,6 +362,7 @@ impl MessageDialogClipboardIngressState {
         app_session: &mut AppSessionState,
         event: &KeyboardInput,
         modifiers: KeyModifiers,
+        wrapped_visible_cols: usize,
         current_clipboard_text: Option<&str>,
         emitted_commands: &mut Vec<AppCommand>,
     ) -> ModalKeyResult {
@@ -375,9 +378,13 @@ impl MessageDialogClipboardIngressState {
                     handle_message_dialog_clipboard_text(app_session, text)
                 }),
             ClipboardIngressDecision::Swallow => ModalKeyResult::stop(),
-            ClipboardIngressDecision::None => {
-                handle_message_dialog_key(app_session, event, modifiers, emitted_commands)
-            }
+            ClipboardIngressDecision::None => handle_message_dialog_key(
+                app_session,
+                event,
+                modifiers,
+                wrapped_visible_cols,
+                emitted_commands,
+            ),
         }
     }
 
@@ -492,6 +499,7 @@ pub(super) fn handle_message_dialog_key(
     app_session: &mut AppSessionState,
     event: &KeyboardInput,
     modifiers: KeyModifiers,
+    wrapped_visible_cols: usize,
     emitted_commands: &mut Vec<AppCommand>,
 ) -> ModalKeyResult {
     if modifiers.ctrl_only() && event.key_code == KeyCode::KeyS {
@@ -520,6 +528,7 @@ pub(super) fn handle_message_dialog_key(
             modifiers.ctrl,
             modifiers.alt,
             modifiers.super_key,
+            Some(wrapped_visible_cols),
         )),
         MessageDialogFocus::AppendButton => {
             if modifiers.plain() && matches!(event.key_code, KeyCode::Enter | KeyCode::Space) {
@@ -555,6 +564,7 @@ pub(super) fn handle_task_dialog_key(
     app_session: &mut AppSessionState,
     event: &KeyboardInput,
     modifiers: KeyModifiers,
+    wrapped_visible_cols: usize,
     emitted_commands: &mut Vec<AppCommand>,
 ) -> ModalKeyResult {
     if modifiers.ctrl_only() && event.key_code == KeyCode::KeyT {
@@ -585,6 +595,7 @@ pub(super) fn handle_task_dialog_key(
             modifiers.ctrl,
             modifiers.alt,
             modifiers.super_key,
+            Some(wrapped_visible_cols),
         )),
         TaskDialogFocus::ClearDoneButton => {
             if modifiers.plain() && matches!(event.key_code, KeyCode::Enter | KeyCode::Space) {
@@ -843,6 +854,33 @@ mod tests {
     }
 
     #[test]
+    fn message_dialog_arrow_up_moves_within_wrapped_visual_rows() {
+        let mut app_session = AppSessionState::default();
+        app_session.composer.open_message(AgentId(1));
+        app_session.composer.message_editor.load_text("hello world");
+        app_session.composer.message_editor.cursor = 8;
+        let mut commands = Vec::new();
+
+        let outcome = handle_message_dialog_key(
+            &mut app_session,
+            &pressed(KeyCode::ArrowUp, Key::ArrowUp, None),
+            KeyModifiers {
+                ctrl: false,
+                alt: false,
+                super_key: false,
+                shift: false,
+            },
+            7,
+            &mut commands,
+        );
+
+        assert!(outcome.needs_redraw);
+        assert!(!outcome.stop);
+        assert!(commands.is_empty());
+        assert_eq!(app_session.composer.message_editor.cursor, 2);
+    }
+
+    #[test]
     fn real_escape_still_cancels_message_box() {
         let mut app_session = AppSessionState::default();
         app_session.composer.open_message(AgentId(1));
@@ -864,6 +902,7 @@ mod tests {
                 super_key: false,
                 shift: false,
             },
+            80,
             &mut commands,
         );
 

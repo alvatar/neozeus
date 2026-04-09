@@ -17,6 +17,10 @@ const CREATE_AGENT_DIALOG_RADIO_SIZE: f32 = 22.0;
 const CREATE_AGENT_DIALOG_RADIO_GAP: f32 = 20.0;
 const CLONE_AGENT_DIALOG_HEIGHT_RATIO: f32 = 0.24;
 const AEGIS_DIALOG_HEIGHT_RATIO: f32 = 0.42;
+const TEXT_EDITOR_BODY_INSET_X: f32 = 22.0;
+const TEXT_EDITOR_BODY_TOP_Y: f32 = 64.0;
+const TEXT_EDITOR_BODY_BOTTOM_GAP: f32 = 12.0;
+const TEXT_EDITOR_CHAR_WIDTH: f32 = 10.0;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum MessageBoxAction {
@@ -263,16 +267,45 @@ pub(crate) fn rename_agent_submit_button_rect(window: &Window) -> HudRect {
     }
 }
 
-pub(crate) fn aegis_prompt_field_rect(window: &Window) -> HudRect {
-    let rect = aegis_dialog_rect(window);
-    let enable_rect = aegis_enable_button_rect(window);
-    let info_row_y = enable_rect.y - 26.0;
+fn shared_text_editor_body_rect(rect: HudRect, button_row_y: f32) -> HudRect {
+    let info_row_y = button_row_y - 26.0;
     HudRect {
-        x: rect.x + 22.0,
-        y: rect.y + 64.0,
-        w: rect.w - 44.0,
-        h: (info_row_y - 12.0 - (rect.y + 64.0)).max(96.0),
+        x: rect.x + TEXT_EDITOR_BODY_INSET_X,
+        y: rect.y + TEXT_EDITOR_BODY_TOP_Y,
+        w: rect.w - (TEXT_EDITOR_BODY_INSET_X * 2.0),
+        h: (info_row_y - TEXT_EDITOR_BODY_BOTTOM_GAP - (rect.y + TEXT_EDITOR_BODY_TOP_Y)).max(96.0),
     }
+}
+
+fn text_editor_visible_cols(body_rect: HudRect) -> usize {
+    ((body_rect.w - 36.0) / TEXT_EDITOR_CHAR_WIDTH)
+        .floor()
+        .max(8.0) as usize
+}
+
+pub(crate) fn message_box_visible_cols(window: &Window) -> usize {
+    text_editor_visible_cols(shared_text_editor_body_rect(
+        message_box_rect(window),
+        message_box_action_buttons(window)[0].1.y,
+    ))
+}
+
+pub(crate) fn task_dialog_visible_cols(window: &Window) -> usize {
+    text_editor_visible_cols(shared_text_editor_body_rect(
+        task_dialog_rect(window),
+        task_dialog_action_buttons(window)[0].1.y,
+    ))
+}
+
+pub(crate) fn aegis_visible_cols(window: &Window) -> usize {
+    text_editor_visible_cols(aegis_prompt_field_rect(window))
+}
+
+pub(crate) fn aegis_prompt_field_rect(window: &Window) -> HudRect {
+    shared_text_editor_body_rect(
+        aegis_dialog_rect(window),
+        aegis_enable_button_rect(window).y,
+    )
 }
 
 pub(crate) fn aegis_enable_button_rect(window: &Window) -> HudRect {
