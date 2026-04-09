@@ -1689,6 +1689,68 @@ fn startup_reaps_unpersisted_disconnected_session_instead_of_restoring_it() {
     assert_eq!(client.created_sessions.lock().unwrap().len(), 1);
 }
 
+#[test]
+fn startup_respawns_claude_agent_from_recovery_spec_when_daemon_is_empty() {
+    let client = Arc::new(crate::tests::FakeDaemonClient::default());
+    let dir = temp_dir("neozeus-startup-claude-recovery");
+    let app_state_path = dir.join("neozeus-state.v1");
+    std::fs::write(
+        &app_state_path,
+        "neozeus state version 3\n[agent]\nagent_uid=\"agent-uid-1\"\nlabel=\"ALPHA\"\nkind=\"claude\"\nrecovery_mode=\"claude\"\nrecovery_session_id=\"claude-session-1\"\nrecovery_cwd=\"/tmp/demo\"\norder_index=0\nfocused=1\n[/agent]\n",
+    )
+    .expect("app state should write");
+
+    let mut world = World::default();
+    world.insert_resource(Assets::<Image>::default());
+    world.insert_resource(crate::terminals::TerminalManager::default());
+    world.insert_resource(crate::terminals::TerminalFocusState::default());
+    world.insert_resource(crate::terminals::TerminalPresentationStore::default());
+    world.insert_resource(crate::agents::AgentCatalog::default());
+    world.insert_resource(crate::agents::AgentRuntimeIndex::default());
+    world.insert_resource(crate::app::AppSessionState::default());
+    world.insert_resource(crate::aegis::AegisPolicyStore::default());
+    world.insert_resource(crate::aegis::AegisRuntimeStore::default());
+    world.insert_resource(crate::conversations::ConversationStore::default());
+    world.insert_resource(crate::conversations::ConversationPersistenceState::default());
+    world.insert_resource(crate::hud::HudInputCaptureState::default());
+    world.insert_resource(crate::terminals::TerminalViewState::default());
+    world.init_resource::<Messages<RequestRedraw>>();
+    world.insert_resource(Time::<()>::default());
+    world.insert_resource(fake_runtime_spawner(client.clone()));
+    world.insert_resource(crate::app::AppStatePersistenceState {
+        path: Some(app_state_path),
+        dirty_since_secs: None,
+    });
+    world.insert_resource(crate::terminals::TerminalNotesState::default());
+    world.insert_resource(crate::hud::TerminalVisibilityState::default());
+    world.insert_resource(crate::startup::DaemonConnectionState::default());
+    world.insert_resource(crate::startup::StartupConnectState::default());
+
+    world.run_system_once(crate::startup::setup_scene).unwrap();
+
+    let created_sessions = client.created_sessions.lock().unwrap().clone();
+    assert_eq!(created_sessions.len(), 1);
+    assert_eq!(created_sessions[0].1.as_deref(), Some("/tmp/demo"));
+    let commands = client.sent_commands.lock().unwrap().clone();
+    assert_eq!(commands.len(), 1);
+    assert!(matches!(
+        &commands[0].1,
+        crate::terminals::TerminalCommand::SendCommand(value)
+            if value == "claude --resume claude-session-1"
+    ));
+    let catalog = world.resource::<crate::agents::AgentCatalog>();
+    let restored_agent = *catalog
+        .order
+        .first()
+        .expect("restored Claude agent should exist");
+    assert_eq!(catalog.uid(restored_agent), Some("agent-uid-1"));
+    assert!(matches!(
+        catalog.recovery_spec(restored_agent),
+        Some(crate::agents::AgentRecoverySpec::Claude { session_id, cwd, .. })
+            if session_id == "claude-session-1" && cwd == "/tmp/demo"
+    ));
+}
+
 /// Verifies the cold-start fallback path that spawns a brand-new initial terminal when restore/import
 /// finds nothing usable.
 #[test]

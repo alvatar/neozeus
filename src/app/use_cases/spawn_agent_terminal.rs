@@ -1,5 +1,7 @@
 use crate::{
-    agents::{AgentCatalog, AgentId, AgentKind, AgentMetadata, AgentRuntimeIndex},
+    agents::{
+        AgentCatalog, AgentId, AgentKind, AgentMetadata, AgentRecoverySpec, AgentRuntimeIndex,
+    },
     app::{mark_app_state_dirty, AppStatePersistenceState},
     hud::{HudInputCaptureState, TerminalVisibilityState},
     shared::pi_session_files::make_new_session_path,
@@ -16,12 +18,18 @@ use super::{
     apply_focus_intent,
 };
 use bevy::{prelude::*, window::RequestRedraw};
+use std::{
+    sync::atomic::{AtomicU64, Ordering},
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct AgentLaunchSpec {
     pub(crate) startup_command: Option<String>,
     pub(crate) metadata: AgentMetadata,
 }
+
+static NEXT_PROVIDER_SESSION_COUNTER: AtomicU64 = AtomicU64::new(1);
 
 fn shell_quote(value: &str) -> String {
     if value.is_empty() {
@@ -38,6 +46,24 @@ fn shell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
 }
 
+fn generate_provider_session_id() -> String {
+    let now_nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or(0);
+    let counter = NEXT_PROVIDER_SESSION_COUNTER.fetch_add(1, Ordering::Relaxed) as u128;
+    let mixed = now_nanos ^ counter;
+    let tail = (now_nanos.wrapping_add(counter)) & 0xffff_ffff_ffff;
+    format!(
+        "{:08x}-{:04x}-{:04x}-{:04x}-{:012x}",
+        ((mixed >> 96) & 0xffff_ffff) as u32,
+        ((mixed >> 80) & 0xffff) as u16,
+        ((mixed >> 64) & 0xffff) as u16,
+        ((mixed >> 48) & 0xffff) as u16,
+        tail as u64,
+    )
+}
+
 fn build_agent_launch_spec(
     kind: AgentKind,
     working_directory: Option<&str>,
@@ -47,10 +73,88 @@ fn build_agent_launch_spec(
         return Ok(pi_launch_spec_for_session_path(session_path, false, None));
     }
 
+    if kind == AgentKind::Claude {
+        let session_id = generate_provider_session_id();
+        let cwd = crate::shared::pi_session_files::resolve_session_cwd(working_directory)?;
+        return Ok(AgentLaunchSpec {
+            startup_command: Some(format!("claude --session-id {}", shell_quote(&session_id))),
+            metadata: AgentMetadata {
+                clone_source_session_path: None,
+                recovery: Some(AgentRecoverySpec::Claude {
+                    session_id,
+                    cwd,
+                    model: None,
+                    profile: None,
+                }),
+            },
+        });
+    }
+
     Ok(AgentLaunchSpec {
         startup_command: kind.bootstrap_command().map(str::to_owned),
         metadata: AgentMetadata::default(),
     })
+}
+
+pub(crate) fn launch_spec_for_recovery_spec(recovery: &AgentRecoverySpec) -> AgentLaunchSpec {
+    match recovery {
+        AgentRecoverySpec::Pi {
+            session_path,
+            is_workdir,
+            workdir_slug,
+            ..
+        } => {
+            pi_launch_spec_for_session_path(session_path.clone(), *is_workdir, workdir_slug.clone())
+        }
+        AgentRecoverySpec::Claude {
+            session_id,
+            cwd: _,
+            model,
+            profile,
+        } => {
+            let mut command = format!("claude --resume {}", shell_quote(session_id));
+            if let Some(model) = model {
+                command.push_str(" --model ");
+                command.push_str(&shell_quote(model));
+            }
+            if let Some(profile) = profile {
+                command.push_str(" -p ");
+                command.push_str(&shell_quote(profile));
+            }
+            AgentLaunchSpec {
+                startup_command: Some(command),
+                metadata: AgentMetadata {
+                    clone_source_session_path: None,
+                    recovery: Some(recovery.clone()),
+                },
+            }
+        }
+        AgentRecoverySpec::Codex {
+            session_id,
+            cwd,
+            model,
+            profile,
+        } => {
+            let mut command = format!("codex resume {}", shell_quote(session_id));
+            if let Some(model) = model {
+                command.push_str(" -m ");
+                command.push_str(&shell_quote(model));
+            }
+            if let Some(profile) = profile {
+                command.push_str(" -p ");
+                command.push_str(&shell_quote(profile));
+            }
+            command.push_str(" -C ");
+            command.push_str(&shell_quote(cwd));
+            AgentLaunchSpec {
+                startup_command: Some(command),
+                metadata: AgentMetadata {
+                    clone_source_session_path: None,
+                    recovery: Some(recovery.clone()),
+                },
+            }
+        }
+    }
 }
 
 pub(crate) fn pi_launch_spec_for_session_path(
@@ -58,12 +162,19 @@ pub(crate) fn pi_launch_spec_for_session_path(
     is_workdir: bool,
     workdir_slug: Option<String>,
 ) -> AgentLaunchSpec {
+    let cwd = crate::shared::pi_session_files::read_session_header(&session_path)
+        .map(|header| header.cwd)
+        .unwrap_or_default();
     AgentLaunchSpec {
         startup_command: Some(format!("pi --session {}", shell_quote(&session_path))),
         metadata: AgentMetadata {
-            clone_source_session_path: Some(session_path),
-            is_workdir,
-            workdir_slug,
+            clone_source_session_path: Some(session_path.clone()),
+            recovery: Some(AgentRecoverySpec::Pi {
+                session_path,
+                cwd,
+                is_workdir,
+                workdir_slug,
+            }),
         },
     }
 }
@@ -107,6 +218,119 @@ pub(crate) fn spawn_runtime_terminal_session(
     clippy::too_many_arguments,
     reason = "spawn crosses daemon, agent, session, and presentation state"
 )]
+fn spawn_agent_terminal_internal(
+    agent_catalog: &mut AgentCatalog,
+    runtime_index: &mut AgentRuntimeIndex,
+    app_session: &mut AppSessionState,
+    selection: &mut crate::hud::AgentListSelection,
+    terminal_manager: &mut TerminalManager,
+    focus_state: &mut TerminalFocusState,
+    owned_tmux_sessions: &OwnedTmuxSessionStore,
+    active_terminal_content: &mut ActiveTerminalContentState,
+    runtime_spawner: &TerminalRuntimeSpawner,
+    input_capture: &mut HudInputCaptureState,
+    app_state_persistence: &mut AppStatePersistenceState,
+    visibility_state: &mut TerminalVisibilityState,
+    view_state: &mut TerminalViewState,
+    presentation_store: Option<&mut TerminalPresentationStore>,
+    time: &Time,
+    prefix: &str,
+    kind: AgentKind,
+    label: Option<String>,
+    working_directory: Option<&str>,
+    launch: AgentLaunchSpec,
+    focus_terminal: bool,
+    persist_mutation: bool,
+    restored_agent_uid: Option<String>,
+    redraws: &mut MessageWriter<RequestRedraw>,
+) -> Result<AgentId, String> {
+    let capabilities = kind.capabilities();
+    let pending_identity = match restored_agent_uid {
+        Some(agent_uid) => {
+            let label = label
+                .as_deref()
+                .and_then(|value| agent_catalog.validate_new_label(Some(value)).ok().flatten())
+                .or(label)
+                .unwrap_or_else(|| format!("RESTORED-{}", agent_catalog.order.len() + 1));
+            crate::agents::PendingAgentIdentity {
+                uid: agent_uid,
+                label,
+                kind,
+                capabilities,
+                metadata: launch.metadata.clone(),
+            }
+        }
+        None => agent_catalog.allocate_identity_with_metadata(
+            label.as_deref(),
+            kind,
+            capabilities,
+            launch.metadata.clone(),
+        )?,
+    };
+    let agent_uid = pending_identity.uid.clone();
+    let agent_label = pending_identity.label.clone();
+    let mut env_overrides = vec![
+        ("NEOZEUS_AGENT_UID".to_owned(), agent_uid),
+        ("NEOZEUS_AGENT_LABEL".to_owned(), agent_label),
+        ("NEOZEUS_AGENT_KIND".to_owned(), kind.env_name().to_owned()),
+    ];
+    if let Some(socket_path) = resolve_daemon_socket_path() {
+        env_overrides.extend(crate::shared::daemon_socket::daemon_socket_env_pairs(
+            &socket_path,
+        ));
+    }
+    let (session_name, terminal_id, _) = spawn_runtime_terminal_session(
+        terminal_manager,
+        focus_state,
+        runtime_spawner,
+        prefix,
+        working_directory,
+        launch.startup_command.as_deref(),
+        &env_overrides,
+        focus_terminal,
+    )?;
+
+    let agent_id = agent_catalog.create_agent_from_identity(pending_identity);
+    let runtime = terminal_manager
+        .get(terminal_id)
+        .map(|terminal| &terminal.snapshot.runtime);
+    runtime_index.link_terminal(agent_id, terminal_id, session_name.clone(), runtime);
+    if focus_terminal {
+        app_session
+            .focus_intent
+            .focus_agent(agent_id, VisibilityMode::FocusedOnly);
+        apply_focus_intent(
+            app_session,
+            agent_catalog,
+            runtime_index,
+            owned_tmux_sessions,
+            selection,
+            active_terminal_content,
+            terminal_manager,
+            focus_state,
+            input_capture,
+            view_state,
+            visibility_state,
+        );
+    }
+    if persist_mutation {
+        mark_app_state_dirty(app_state_persistence, Some(time));
+    }
+    if let Some(presentation_store) = presentation_store {
+        presentation_store.mark_startup_pending(terminal_id);
+    }
+    append_debug_log(format!(
+        "spawned agent {} terminal {} session={}",
+        agent_id.0, terminal_id.0, session_name
+    ));
+    redraws.write(RequestRedraw);
+    Ok(agent_id)
+}
+
+#[allow(
+    clippy::too_many_arguments,
+    reason = "spawn crosses daemon, agent, session, and presentation state"
+)]
 pub(crate) fn spawn_agent_terminal_with_launch_spec(
     agent_catalog: &mut AgentCatalog,
     runtime_index: &mut AgentRuntimeIndex,
@@ -130,67 +354,88 @@ pub(crate) fn spawn_agent_terminal_with_launch_spec(
     launch: AgentLaunchSpec,
     redraws: &mut MessageWriter<RequestRedraw>,
 ) -> Result<AgentId, String> {
-    let identity = agent_catalog.allocate_identity_with_metadata(
-        label.as_deref(),
-        kind,
-        kind.capabilities(),
-        launch.metadata,
-    )?;
-    let mut env_overrides = vec![
-        ("NEOZEUS_AGENT_UID".to_owned(), identity.uid.clone()),
-        ("NEOZEUS_AGENT_LABEL".to_owned(), identity.label.clone()),
-        (
-            "NEOZEUS_AGENT_KIND".to_owned(),
-            identity.kind.env_name().to_owned(),
-        ),
-    ];
-    if let Some(socket_path) = resolve_daemon_socket_path() {
-        env_overrides.extend(crate::shared::daemon_socket::daemon_socket_env_pairs(
-            &socket_path,
-        ));
-    }
-    let (session_name, terminal_id, _) = spawn_runtime_terminal_session(
-        terminal_manager,
-        focus_state,
-        runtime_spawner,
-        prefix,
-        working_directory,
-        launch.startup_command.as_deref(),
-        &env_overrides,
-        true,
-    )?;
-
-    let agent_id = agent_catalog.create_agent_from_identity(identity);
-    let runtime = terminal_manager
-        .get(terminal_id)
-        .map(|terminal| &terminal.snapshot.runtime);
-    runtime_index.link_terminal(agent_id, terminal_id, session_name.clone(), runtime);
-    app_session
-        .focus_intent
-        .focus_agent(agent_id, VisibilityMode::FocusedOnly);
-    apply_focus_intent(
-        app_session,
+    spawn_agent_terminal_internal(
         agent_catalog,
         runtime_index,
-        owned_tmux_sessions,
+        app_session,
         selection,
-        active_terminal_content,
         terminal_manager,
         focus_state,
+        owned_tmux_sessions,
+        active_terminal_content,
+        runtime_spawner,
         input_capture,
-        view_state,
+        app_state_persistence,
         visibility_state,
-    );
-    mark_app_state_dirty(app_state_persistence, Some(time));
-    if let Some(presentation_store) = presentation_store {
-        presentation_store.mark_startup_pending(terminal_id);
-    }
-    append_debug_log(format!(
-        "spawned agent {} terminal {} session={}",
-        agent_id.0, terminal_id.0, session_name
-    ));
-    redraws.write(RequestRedraw);
-    Ok(agent_id)
+        view_state,
+        presentation_store,
+        time,
+        prefix,
+        kind,
+        label,
+        working_directory,
+        launch,
+        true,
+        true,
+        None,
+        redraws,
+    )
+}
+
+#[allow(
+    clippy::too_many_arguments,
+    reason = "startup recovery respawn crosses daemon, agent, session, and presentation state"
+)]
+pub(crate) fn respawn_recovered_agent_with_launch_spec(
+    agent_catalog: &mut AgentCatalog,
+    runtime_index: &mut AgentRuntimeIndex,
+    app_session: &mut AppSessionState,
+    selection: &mut crate::hud::AgentListSelection,
+    terminal_manager: &mut TerminalManager,
+    focus_state: &mut TerminalFocusState,
+    owned_tmux_sessions: &OwnedTmuxSessionStore,
+    active_terminal_content: &mut ActiveTerminalContentState,
+    runtime_spawner: &TerminalRuntimeSpawner,
+    input_capture: &mut HudInputCaptureState,
+    app_state_persistence: &mut AppStatePersistenceState,
+    visibility_state: &mut TerminalVisibilityState,
+    view_state: &mut TerminalViewState,
+    presentation_store: Option<&mut TerminalPresentationStore>,
+    time: &Time,
+    prefix: &str,
+    kind: AgentKind,
+    agent_uid: String,
+    label: Option<String>,
+    working_directory: Option<&str>,
+    launch: AgentLaunchSpec,
+    redraws: &mut MessageWriter<RequestRedraw>,
+) -> Result<AgentId, String> {
+    spawn_agent_terminal_internal(
+        agent_catalog,
+        runtime_index,
+        app_session,
+        selection,
+        terminal_manager,
+        focus_state,
+        owned_tmux_sessions,
+        active_terminal_content,
+        runtime_spawner,
+        input_capture,
+        app_state_persistence,
+        visibility_state,
+        view_state,
+        presentation_store,
+        time,
+        prefix,
+        kind,
+        label,
+        working_directory,
+        launch,
+        false,
+        false,
+        Some(agent_uid),
+        redraws,
+    )
 }
 
 #[allow(
@@ -265,8 +510,7 @@ pub(crate) fn attach_restored_terminal(
     label: Option<String>,
     agent_uid: Option<String>,
     clone_source_session_path: Option<String>,
-    is_workdir: bool,
-    workdir_slug: Option<String>,
+    recovery: Option<AgentRecoverySpec>,
 ) -> Result<(AgentId, crate::terminals::TerminalId), String> {
     // Walk the lifecycle in explicit stages so each side effect happens only after its prerequisites have been established.
     let (terminal_id, _) = attach_terminal_session(
@@ -279,8 +523,7 @@ pub(crate) fn attach_restored_terminal(
     let capabilities = kind.capabilities();
     let metadata = AgentMetadata {
         clone_source_session_path,
-        is_workdir,
-        workdir_slug,
+        recovery,
     };
     let agent_id = match agent_uid {
         Some(agent_uid) => agent_catalog.create_agent_with_uid_and_metadata(

@@ -5,8 +5,8 @@ use super::{
 };
 use crate::{
     agents::{
-        parse_agent_context_pct_milli, AgentCatalog, AgentKind, AgentMetadata, AgentRuntimeIndex,
-        AgentStatusStore,
+        parse_agent_context_pct_milli, AgentCatalog, AgentKind, AgentMetadata, AgentRecoverySpec,
+        AgentRuntimeIndex, AgentStatusStore,
     },
     app::AppSessionState,
     conversations::{AgentTaskStore, ConversationStore, MessageAuthor, MessageDeliveryState},
@@ -208,8 +208,12 @@ fn sync_hud_view_models_prefixes_workdir_agents_with_marker() {
         AgentKind::Pi.capabilities(),
         AgentMetadata {
             clone_source_session_path: Some("/tmp/pi-alpha.jsonl".into()),
-            is_workdir: true,
-            workdir_slug: None,
+            recovery: Some(AgentRecoverySpec::Pi {
+                session_path: "/tmp/pi-alpha.jsonl".into(),
+                cwd: "/tmp/demo".into(),
+                is_workdir: true,
+                workdir_slug: None,
+            }),
         },
     );
 

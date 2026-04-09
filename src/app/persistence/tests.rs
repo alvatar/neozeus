@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
-    agents::{AgentCatalog, AgentKind, AgentMetadata, AgentRuntimeIndex},
-    shared::app_state_file::PersistedAgentKind,
+    agents::{AgentCatalog, AgentKind, AgentMetadata, AgentRecoverySpec, AgentRuntimeIndex},
+    shared::app_state_file::{PersistedAgentKind, PersistedAgentRecoverySpec},
     tests::{insert_terminal_manager_resources, temp_dir, test_bridge},
 };
 use bevy::{
@@ -43,9 +43,13 @@ fn app_state_parse_and_serialize_roundtrip() {
                 runtime_session_name: Some("neozeus-session-a\rtab\tquoted\"".into()),
                 label: Some("agent 1\nrow\rand\ttabs\\slash".into()),
                 kind: PersistedAgentKind::Claude,
-                clone_source_session_path: Some("/tmp/pi-session-a.jsonl".into()),
-                is_workdir: true,
-                workdir_slug: None,
+                recovery: Some(PersistedAgentRecoverySpec::Claude {
+                    session_id: "claude-session-a".into(),
+                    cwd: "/tmp/demo".into(),
+                    model: Some("sonnet".into()),
+                    profile: None,
+                }),
+                clone_source_session_path: None,
                 aegis_enabled: true,
                 aegis_prompt_text: Some("continue cleanly".into()),
                 order_index: 0,
@@ -56,9 +60,8 @@ fn app_state_parse_and_serialize_roundtrip() {
                 runtime_session_name: Some("neozeus-session-b".into()),
                 label: None,
                 kind: PersistedAgentKind::Terminal,
+                recovery: None,
                 clone_source_session_path: None,
-                is_workdir: false,
-                workdir_slug: None,
                 aegis_enabled: false,
                 aegis_prompt_text: None,
                 order_index: 1,
@@ -82,7 +85,7 @@ fn app_state_parse_defaults_missing_kind_to_pi() {
     assert_eq!(parsed.agents[0].kind, PersistedAgentKind::Pi);
     assert_eq!(parsed.agents[0].agent_uid, None);
     assert_eq!(parsed.agents[0].clone_source_session_path, None);
-    assert!(!parsed.agents[0].is_workdir);
+    assert_eq!(parsed.agents[0].recovery, None);
     assert!(!parsed.agents[0].aegis_enabled);
     assert_eq!(parsed.agents[0].aegis_prompt_text, None);
 }
@@ -109,7 +112,7 @@ fn app_state_load_falls_back_to_legacy_terminal_sessions() {
     assert_eq!(persisted.agents[0].label.as_deref(), Some("agent 1"));
     assert_eq!(persisted.agents[0].kind, PersistedAgentKind::Pi);
     assert_eq!(persisted.agents[0].clone_source_session_path, None);
-    assert!(!persisted.agents[0].is_workdir);
+    assert_eq!(persisted.agents[0].recovery, None);
     assert!(!persisted.agents[0].aegis_enabled);
     assert_eq!(persisted.agents[0].aegis_prompt_text, None);
     assert_eq!(persisted.agents[0].order_index, 0);
@@ -126,9 +129,13 @@ fn reconcile_persisted_agents_restores_prunes_and_imports() {
                 runtime_session_name: Some("neozeus-session-a".into()),
                 label: Some("one".into()),
                 kind: PersistedAgentKind::Pi,
+                recovery: Some(PersistedAgentRecoverySpec::Pi {
+                    session_path: "/tmp/pi-session-a.jsonl".into(),
+                    cwd: Some("/tmp/demo".into()),
+                    is_workdir: true,
+                    workdir_slug: None,
+                }),
                 clone_source_session_path: Some("/tmp/pi-session-a.jsonl".into()),
-                is_workdir: true,
-                workdir_slug: None,
                 aegis_enabled: true,
                 aegis_prompt_text: Some("prompt a".into()),
                 order_index: 0,
@@ -139,9 +146,8 @@ fn reconcile_persisted_agents_restores_prunes_and_imports() {
                 runtime_session_name: Some("neozeus-session-b".into()),
                 label: None,
                 kind: PersistedAgentKind::Terminal,
+                recovery: None,
                 clone_source_session_path: None,
-                is_workdir: false,
-                workdir_slug: None,
                 aegis_enabled: false,
                 aegis_prompt_text: None,
                 order_index: 1,
@@ -190,7 +196,13 @@ fn reconcile_persisted_agents_restores_prunes_and_imports() {
         restore[0].clone_source_session_path.as_deref(),
         Some("/tmp/pi-session-a.jsonl")
     );
-    assert!(restore[0].is_workdir);
+    assert!(matches!(
+        restore[0].recovery,
+        Some(PersistedAgentRecoverySpec::Pi {
+            is_workdir: true,
+            ..
+        })
+    ));
     assert!(restore[0].aegis_enabled);
     assert_eq!(restore[0].aegis_prompt_text.as_deref(), Some("prompt a"));
     assert_eq!(prune.len(), 1);
@@ -209,9 +221,8 @@ fn reconcile_persisted_agents_prefers_agent_uid_over_stale_runtime_session_name(
             runtime_session_name: Some("neozeus-session-stale".into()),
             label: Some("alpha".into()),
             kind: PersistedAgentKind::Pi,
+            recovery: None,
             clone_source_session_path: None,
-            is_workdir: false,
-            workdir_slug: None,
             aegis_enabled: true,
             aegis_prompt_text: Some("keep going".into()),
             order_index: 0,
@@ -260,9 +271,13 @@ fn saving_app_state_persists_agent_order_labels_focus_and_uids() {
         AgentKind::Claude,
         AgentKind::Claude.capabilities(),
         AgentMetadata {
-            clone_source_session_path: Some("/tmp/alpha-session.jsonl".into()),
-            is_workdir: true,
-            workdir_slug: None,
+            clone_source_session_path: None,
+            recovery: Some(AgentRecoverySpec::Claude {
+                session_id: "claude-session-alpha".into(),
+                cwd: "/tmp/alpha".into(),
+                model: Some("sonnet".into()),
+                profile: None,
+            }),
         },
     );
     let beta = agent_catalog.create_agent(
@@ -303,7 +318,7 @@ fn saving_app_state_persists_agent_order_labels_focus_and_uids() {
     assert_eq!(persisted.agents[0].label.as_deref(), Some("BETA"));
     assert_eq!(persisted.agents[0].kind, PersistedAgentKind::Terminal);
     assert_eq!(persisted.agents[0].clone_source_session_path, None);
-    assert!(!persisted.agents[0].is_workdir);
+    assert_eq!(persisted.agents[0].recovery, None);
     assert!(!persisted.agents[0].aegis_enabled);
     assert_eq!(persisted.agents[0].aegis_prompt_text, None);
     assert!(persisted.agents[0].last_focused);
@@ -316,9 +331,12 @@ fn saving_app_state_persists_agent_order_labels_focus_and_uids() {
     assert_eq!(persisted.agents[1].kind, PersistedAgentKind::Claude);
     assert_eq!(
         persisted.agents[1].clone_source_session_path.as_deref(),
-        Some("/tmp/alpha-session.jsonl")
+        None
     );
-    assert!(persisted.agents[1].is_workdir);
+    assert!(matches!(
+        persisted.agents[1].recovery,
+        Some(PersistedAgentRecoverySpec::Claude { .. })
+    ));
     assert!(persisted.agents[1].aegis_enabled);
     assert_eq!(
         persisted.agents[1].aegis_prompt_text.as_deref(),

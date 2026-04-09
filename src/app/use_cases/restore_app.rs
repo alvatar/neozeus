@@ -14,7 +14,10 @@ use crate::{
 };
 
 use super::super::session::{AppSessionState, VisibilityMode};
-use super::{apply_focus_intent, attach_restored_terminal, spawn_agent_terminal};
+use super::{
+    apply_focus_intent, attach_restored_terminal, launch_spec_for_recovery_spec,
+    respawn_recovered_agent_with_launch_spec, spawn_agent_terminal,
+};
 use bevy::prelude::*;
 
 fn agent_kind_from_daemon_session(session: &DaemonSessionInfo) -> AgentKind {
@@ -37,6 +40,52 @@ fn agent_kind_from_daemon_session(session: &DaemonSessionInfo) -> AgentKind {
 /// Handles startup focus candidate is interactive.
 fn startup_focus_candidate_is_interactive(session: &DaemonSessionInfo) -> bool {
     matches!(session.runtime.lifecycle, TerminalLifecycle::Running)
+}
+
+fn persisted_recovery_to_agent_recovery(
+    recovery: crate::shared::app_state_file::PersistedAgentRecoverySpec,
+) -> Option<crate::agents::AgentRecoverySpec> {
+    match recovery {
+        crate::shared::app_state_file::PersistedAgentRecoverySpec::Pi {
+            session_path,
+            cwd,
+            is_workdir,
+            workdir_slug,
+        } => Some(crate::agents::AgentRecoverySpec::Pi {
+            cwd: cwd
+                .or_else(|| {
+                    crate::shared::pi_session_files::read_session_header(&session_path)
+                        .ok()
+                        .map(|header| header.cwd)
+                })
+                .unwrap_or_default(),
+            session_path,
+            is_workdir,
+            workdir_slug,
+        }),
+        crate::shared::app_state_file::PersistedAgentRecoverySpec::Claude {
+            session_id,
+            cwd,
+            model,
+            profile,
+        } => Some(crate::agents::AgentRecoverySpec::Claude {
+            session_id,
+            cwd,
+            model,
+            profile,
+        }),
+        crate::shared::app_state_file::PersistedAgentRecoverySpec::Codex {
+            session_id,
+            cwd,
+            model,
+            profile,
+        } => Some(crate::agents::AgentRecoverySpec::Codex {
+            session_id,
+            cwd,
+            model,
+            profile,
+        }),
+    }
 }
 
 #[allow(
@@ -117,9 +166,8 @@ pub(crate) fn restore_app(
                         crate::shared::app_state_file::PersistedAgentKind::Verifier
                     }
                 },
+                recovery: None,
                 clone_source_session_path: None,
-                is_workdir: false,
-                workdir_slug: None,
                 aegis_enabled: false,
                 aegis_prompt_text: None,
                 order_index: next_import_order,
@@ -143,6 +191,7 @@ pub(crate) fn restore_app(
         mark_app_state_dirty(app_state_persistence, None);
     }
 
+    let mut respawned_focus_agent = None;
     for record in ordered_reconciled_persisted_agents(&restore, &importable) {
         let Some(runtime_session_name) = record.runtime_session_name.clone() else {
             append_debug_log("startup attach skipped for record missing runtime session name");
@@ -172,8 +221,9 @@ pub(crate) fn restore_app(
             record.label,
             record.agent_uid,
             record.clone_source_session_path,
-            record.is_workdir,
-            record.workdir_slug,
+            record
+                .recovery
+                .and_then(persisted_recovery_to_agent_recovery),
         ) {
             Ok((agent_id, terminal_id)) => {
                 if let Some(agent_uid) = agent_catalog.uid(agent_id) {
@@ -205,6 +255,74 @@ pub(crate) fn restore_app(
                         .unwrap_or("<missing-session>")
                 ));
             }
+        }
+    }
+
+    let respawnable = prune
+        .iter()
+        .filter(|record| record.recovery.is_some())
+        .cloned()
+        .collect::<Vec<_>>();
+    for record in respawnable {
+        let Some(agent_uid) = record.agent_uid.clone() else {
+            append_debug_log("startup respawn skipped for recoverable record missing agent uid");
+            continue;
+        };
+        let Some(recovery) = record
+            .recovery
+            .clone()
+            .and_then(persisted_recovery_to_agent_recovery)
+        else {
+            append_debug_log(
+                "startup respawn skipped for recoverable record missing valid recovery spec",
+            );
+            continue;
+        };
+        let launch = launch_spec_for_recovery_spec(&recovery);
+        let working_directory = match &recovery {
+            crate::agents::AgentRecoverySpec::Pi { cwd, .. }
+            | crate::agents::AgentRecoverySpec::Claude { cwd, .. }
+            | crate::agents::AgentRecoverySpec::Codex { cwd, .. } => Some(cwd.as_str()),
+        };
+        match respawn_recovered_agent_with_launch_spec(
+            agent_catalog,
+            runtime_index,
+            app_session,
+            selection,
+            terminal_manager,
+            focus_state,
+            owned_tmux_sessions,
+            active_terminal_content,
+            runtime_spawner,
+            input_capture,
+            app_state_persistence,
+            visibility_state,
+            view_state,
+            presentation_store.as_deref_mut(),
+            time,
+            PERSISTENT_SESSION_PREFIX,
+            match record.kind {
+                crate::shared::app_state_file::PersistedAgentKind::Pi => AgentKind::Pi,
+                crate::shared::app_state_file::PersistedAgentKind::Claude => AgentKind::Claude,
+                crate::shared::app_state_file::PersistedAgentKind::Codex => AgentKind::Codex,
+                crate::shared::app_state_file::PersistedAgentKind::Terminal => AgentKind::Terminal,
+                crate::shared::app_state_file::PersistedAgentKind::Verifier => AgentKind::Verifier,
+            },
+            agent_uid.clone(),
+            record.label.clone(),
+            working_directory,
+            launch,
+            redraws,
+        ) {
+            Ok(agent_id) => {
+                if record.last_focused {
+                    respawned_focus_agent = Some(agent_id);
+                }
+            }
+            Err(error) => append_debug_log(format!(
+                "startup respawn failed for {}: {error}",
+                record.label.as_deref().unwrap_or("<unlabeled-agent>")
+            )),
         }
     }
 
@@ -258,6 +376,23 @@ pub(crate) fn restore_app(
                 visibility_state,
             );
         }
+    } else if let Some(agent_id) = respawned_focus_agent {
+        app_session
+            .focus_intent
+            .focus_agent(agent_id, VisibilityMode::FocusedOnly);
+        apply_focus_intent(
+            app_session,
+            agent_catalog,
+            runtime_index,
+            owned_tmux_sessions,
+            selection,
+            active_terminal_content,
+            terminal_manager,
+            focus_state,
+            input_capture,
+            view_state,
+            visibility_state,
+        );
     } else if !agent_catalog.order.is_empty() {
         app_session.focus_intent.clear(VisibilityMode::ShowAll);
         apply_focus_intent(

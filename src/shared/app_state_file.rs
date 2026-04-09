@@ -4,6 +4,7 @@ use std::{env, path::PathBuf};
 pub const APP_STATE_FILENAME: &str = "neozeus-state.v1";
 pub const APP_STATE_VERSION_V1: &str = "neozeus state version 1";
 pub const APP_STATE_VERSION_V2: &str = "neozeus state version 2";
+pub const APP_STATE_VERSION_V3: &str = "neozeus state version 3";
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum PersistedAgentKind {
@@ -39,14 +40,35 @@ impl PersistedAgentKind {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PersistedAgentRecoverySpec {
+    Pi {
+        session_path: String,
+        cwd: Option<String>,
+        is_workdir: bool,
+        workdir_slug: Option<String>,
+    },
+    Claude {
+        session_id: String,
+        cwd: String,
+        model: Option<String>,
+        profile: Option<String>,
+    },
+    Codex {
+        session_id: String,
+        cwd: String,
+        model: Option<String>,
+        profile: Option<String>,
+    },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PersistedAgentState {
     pub agent_uid: Option<String>,
     pub runtime_session_name: Option<String>,
     pub label: Option<String>,
     pub kind: PersistedAgentKind,
+    pub recovery: Option<PersistedAgentRecoverySpec>,
     pub clone_source_session_path: Option<String>,
-    pub is_workdir: bool,
-    pub workdir_slug: Option<String>,
     pub aegis_enabled: bool,
     pub aegis_prompt_text: Option<String>,
     pub order_index: u64,
@@ -107,6 +129,7 @@ pub fn parse_persisted_app_state(text: &str) -> PersistedAppState {
     match version_line {
         APP_STATE_VERSION_V1 => parse_persisted_app_state_v1(text),
         APP_STATE_VERSION_V2 => parse_persisted_app_state_v2(text),
+        APP_STATE_VERSION_V3 => parse_persisted_app_state_v3(text),
         _ => PersistedAppState::default(),
     }
 }
@@ -119,13 +142,23 @@ fn parse_persisted_app_state_v2(text: &str) -> PersistedAppState {
     parse_persisted_app_state_with(text, false)
 }
 
+fn parse_persisted_app_state_v3(text: &str) -> PersistedAppState {
+    parse_persisted_app_state_with(text, false)
+}
+
 fn parse_persisted_app_state_with(text: &str, legacy_session_name_key: bool) -> PersistedAppState {
     let mut persisted = PersistedAppState::default();
-    let mut agent_uid = None;
-    let mut runtime_session_name = None;
-    let mut label = None;
+    let mut agent_uid: Option<String> = None;
+    let mut runtime_session_name: Option<String> = None;
+    let mut label: Option<String> = None;
     let mut kind = None;
-    let mut clone_source_session_path = None;
+    let mut clone_source_session_path: Option<String> = None;
+    let mut recovery_mode = None::<String>;
+    let mut recovery_session_path: Option<String> = None;
+    let mut recovery_session_id: Option<String> = None;
+    let mut recovery_cwd: Option<String> = None;
+    let mut recovery_model: Option<String> = None;
+    let mut recovery_profile: Option<String> = None;
     let mut is_workdir = false;
     let mut workdir_slug = None;
     let mut aegis_enabled = false;
@@ -150,6 +183,12 @@ fn parse_persisted_app_state_with(text: &str, legacy_session_name_key: bool) -> 
                 label = None;
                 kind = None;
                 clone_source_session_path = None;
+                recovery_mode = None;
+                recovery_session_path = None;
+                recovery_session_id = None;
+                recovery_cwd = None;
+                recovery_model = None;
+                recovery_profile = None;
                 is_workdir = false;
                 workdir_slug = None;
                 aegis_enabled = false;
@@ -164,14 +203,61 @@ fn parse_persisted_app_state_with(text: &str, legacy_session_name_key: bool) -> 
                         (order_index.take(), last_focused.take())
                     {
                         if agent_uid.is_some() || has_runtime_hint {
+                            let kind = kind.take().unwrap_or(PersistedAgentKind::Pi);
+                            let clone_source_session_path = clone_source_session_path.take();
+                            let workdir_slug = workdir_slug.take();
+                            let recovery = match recovery_mode.take().as_deref() {
+                                Some("pi") => recovery_session_path.take().map(|session_path| {
+                                    PersistedAgentRecoverySpec::Pi {
+                                        session_path,
+                                        cwd: recovery_cwd.take(),
+                                        is_workdir,
+                                        workdir_slug: workdir_slug.clone(),
+                                    }
+                                }),
+                                Some("claude") => {
+                                    recovery_session_id.take().and_then(|session_id| {
+                                        recovery_cwd.take().map(|cwd| {
+                                            PersistedAgentRecoverySpec::Claude {
+                                                session_id,
+                                                cwd,
+                                                model: recovery_model.take(),
+                                                profile: recovery_profile.take(),
+                                            }
+                                        })
+                                    })
+                                }
+                                Some("codex") => {
+                                    recovery_session_id.take().and_then(|session_id| {
+                                        recovery_cwd.take().map(|cwd| {
+                                            PersistedAgentRecoverySpec::Codex {
+                                                session_id,
+                                                cwd,
+                                                model: recovery_model.take(),
+                                                profile: recovery_profile.take(),
+                                            }
+                                        })
+                                    })
+                                }
+                                _ => match (&kind, clone_source_session_path.as_ref()) {
+                                    (PersistedAgentKind::Pi, Some(session_path)) => {
+                                        Some(PersistedAgentRecoverySpec::Pi {
+                                            session_path: session_path.clone(),
+                                            cwd: None,
+                                            is_workdir,
+                                            workdir_slug: workdir_slug.clone(),
+                                        })
+                                    }
+                                    _ => None,
+                                },
+                            };
                             persisted.agents.push(PersistedAgentState {
                                 agent_uid: agent_uid.take(),
                                 runtime_session_name: runtime_session_name.take(),
                                 label: label.take(),
-                                kind: kind.take().unwrap_or(PersistedAgentKind::Pi),
-                                clone_source_session_path: clone_source_session_path.take(),
-                                is_workdir,
-                                workdir_slug: workdir_slug.take(),
+                                kind,
+                                recovery,
+                                clone_source_session_path,
                                 aegis_enabled,
                                 aegis_prompt_text: aegis_prompt_text.take(),
                                 order_index,
@@ -208,6 +294,29 @@ fn parse_persisted_app_state_with(text: &str, legacy_session_name_key: bool) -> 
                     }
                     "clone_source_session_path" => {
                         clone_source_session_path =
+                            unquote_escaped_string(value, EXTENDED_QUOTED_STRING_ESCAPES)
+                    }
+                    "recovery_mode" => {
+                        recovery_mode =
+                            unquote_escaped_string(value, EXTENDED_QUOTED_STRING_ESCAPES)
+                    }
+                    "recovery_session_path" => {
+                        recovery_session_path =
+                            unquote_escaped_string(value, EXTENDED_QUOTED_STRING_ESCAPES)
+                    }
+                    "recovery_session_id" => {
+                        recovery_session_id =
+                            unquote_escaped_string(value, EXTENDED_QUOTED_STRING_ESCAPES)
+                    }
+                    "recovery_cwd" => {
+                        recovery_cwd = unquote_escaped_string(value, EXTENDED_QUOTED_STRING_ESCAPES)
+                    }
+                    "recovery_model" => {
+                        recovery_model =
+                            unquote_escaped_string(value, EXTENDED_QUOTED_STRING_ESCAPES)
+                    }
+                    "recovery_profile" => {
+                        recovery_profile =
                             unquote_escaped_string(value, EXTENDED_QUOTED_STRING_ESCAPES)
                     }
                     "workdir" => {

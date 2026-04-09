@@ -77,11 +77,32 @@ impl AgentKind {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum AgentRecoverySpec {
+    Pi {
+        session_path: String,
+        cwd: String,
+        is_workdir: bool,
+        workdir_slug: Option<String>,
+    },
+    Claude {
+        session_id: String,
+        cwd: String,
+        model: Option<String>,
+        profile: Option<String>,
+    },
+    Codex {
+        session_id: String,
+        cwd: String,
+        model: Option<String>,
+        profile: Option<String>,
+    },
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct AgentMetadata {
     pub(crate) clone_source_session_path: Option<String>,
-    pub(crate) is_workdir: bool,
-    pub(crate) workdir_slug: Option<String>,
+    pub(crate) recovery: Option<AgentRecoverySpec>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -332,18 +353,29 @@ impl AgentCatalog {
             .and_then(|record| record.metadata.clone_source_session_path.as_deref())
     }
 
-    /// Returns whether one agent represents a workdir checkout.
-    pub(crate) fn is_workdir(&self, agent_id: AgentId) -> bool {
+    pub(crate) fn recovery_spec(&self, agent_id: AgentId) -> Option<&AgentRecoverySpec> {
         self.agents
             .get(&agent_id)
-            .map(|record| record.metadata.is_workdir)
-            .unwrap_or(false)
+            .and_then(|record| record.metadata.recovery.as_ref())
     }
 
+    /// Returns whether one agent represents a workdir checkout.
+    pub(crate) fn is_workdir(&self, agent_id: AgentId) -> bool {
+        matches!(
+            self.recovery_spec(agent_id),
+            Some(AgentRecoverySpec::Pi {
+                is_workdir: true,
+                ..
+            })
+        )
+    }
+
+    #[cfg(test)]
     pub(crate) fn workdir_slug(&self, agent_id: AgentId) -> Option<&str> {
-        self.agents
-            .get(&agent_id)
-            .and_then(|record| record.metadata.workdir_slug.as_deref())
+        match self.recovery_spec(agent_id) {
+            Some(AgentRecoverySpec::Pi { workdir_slug, .. }) => workdir_slug.as_deref(),
+            _ => None,
+        }
     }
 
     /// Iterates agents in current user-defined display order.

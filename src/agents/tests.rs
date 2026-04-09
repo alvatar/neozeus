@@ -132,8 +132,12 @@ fn catalog_retains_clone_provenance_and_workdir_metadata() {
         AgentKind::Pi.capabilities(),
         AgentMetadata {
             clone_source_session_path: Some("/tmp/pi-session-alpha.jsonl".into()),
-            is_workdir: true,
-            workdir_slug: None,
+            recovery: Some(super::AgentRecoverySpec::Pi {
+                session_path: "/tmp/pi-session-alpha.jsonl".into(),
+                cwd: "/tmp/demo".into(),
+                is_workdir: true,
+                workdir_slug: None,
+            }),
         },
     );
 

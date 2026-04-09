@@ -2,8 +2,9 @@ use crate::{
     agents::{AgentCatalog, AgentRuntimeIndex},
     shared::{
         app_state_file::{
-            parse_persisted_app_state, PersistedAgentKind, PersistedAgentState, PersistedAppState,
-            APP_STATE_VERSION_V1, APP_STATE_VERSION_V2,
+            parse_persisted_app_state, PersistedAgentKind, PersistedAgentRecoverySpec,
+            PersistedAgentState, PersistedAppState, APP_STATE_VERSION_V1, APP_STATE_VERSION_V2,
+            APP_STATE_VERSION_V3,
         },
         text_escape::{quote_escaped_string, EXTENDED_QUOTED_STRING_ESCAPES},
     },
@@ -22,9 +23,9 @@ const APP_STATE_SAVE_DEBOUNCE_SECS: f32 = 0.3;
 
 pub(crate) use crate::shared::app_state_file::resolve_app_state_path;
 
-/// Serializes persisted app-state metadata into the current version-2 app-state format.
+/// Serializes persisted app-state metadata into the current version-3 app-state format.
 pub(crate) fn serialize_persisted_app_state(state: &PersistedAppState) -> String {
-    let mut output = String::from(APP_STATE_VERSION_V2);
+    let mut output = String::from(APP_STATE_VERSION_V3);
     output.push('\n');
     let mut ordered = state.agents.clone();
     ordered.sort_by_key(|record| record.order_index);
@@ -61,12 +62,89 @@ pub(crate) fn serialize_persisted_app_state(state: &PersistedAppState) -> String
                 quote_escaped_string(&clone_source_session_path, EXTENDED_QUOTED_STRING_ESCAPES)
             ));
         }
-        output.push_str(&format!("workdir={}\n", u8::from(record.is_workdir)));
-        if let Some(workdir_slug) = record.workdir_slug {
-            output.push_str(&format!(
-                "workdir_slug={}\n",
-                quote_escaped_string(&workdir_slug, EXTENDED_QUOTED_STRING_ESCAPES)
-            ));
+        match record.recovery {
+            Some(PersistedAgentRecoverySpec::Pi {
+                session_path,
+                cwd,
+                is_workdir,
+                workdir_slug,
+            }) => {
+                output.push_str("recovery_mode=\"pi\"\n");
+                output.push_str(&format!(
+                    "recovery_session_path={}\n",
+                    quote_escaped_string(&session_path, EXTENDED_QUOTED_STRING_ESCAPES)
+                ));
+                if let Some(cwd) = cwd {
+                    output.push_str(&format!(
+                        "recovery_cwd={}\n",
+                        quote_escaped_string(&cwd, EXTENDED_QUOTED_STRING_ESCAPES)
+                    ));
+                }
+                output.push_str(&format!("workdir={}\n", u8::from(is_workdir)));
+                if let Some(workdir_slug) = workdir_slug {
+                    output.push_str(&format!(
+                        "workdir_slug={}\n",
+                        quote_escaped_string(&workdir_slug, EXTENDED_QUOTED_STRING_ESCAPES)
+                    ));
+                }
+            }
+            Some(PersistedAgentRecoverySpec::Claude {
+                session_id,
+                cwd,
+                model,
+                profile,
+            }) => {
+                output.push_str("recovery_mode=\"claude\"\n");
+                output.push_str(&format!(
+                    "recovery_session_id={}\n",
+                    quote_escaped_string(&session_id, EXTENDED_QUOTED_STRING_ESCAPES)
+                ));
+                output.push_str(&format!(
+                    "recovery_cwd={}\n",
+                    quote_escaped_string(&cwd, EXTENDED_QUOTED_STRING_ESCAPES)
+                ));
+                if let Some(model) = model {
+                    output.push_str(&format!(
+                        "recovery_model={}\n",
+                        quote_escaped_string(&model, EXTENDED_QUOTED_STRING_ESCAPES)
+                    ));
+                }
+                if let Some(profile) = profile {
+                    output.push_str(&format!(
+                        "recovery_profile={}\n",
+                        quote_escaped_string(&profile, EXTENDED_QUOTED_STRING_ESCAPES)
+                    ));
+                }
+            }
+            Some(PersistedAgentRecoverySpec::Codex {
+                session_id,
+                cwd,
+                model,
+                profile,
+            }) => {
+                output.push_str("recovery_mode=\"codex\"\n");
+                output.push_str(&format!(
+                    "recovery_session_id={}\n",
+                    quote_escaped_string(&session_id, EXTENDED_QUOTED_STRING_ESCAPES)
+                ));
+                output.push_str(&format!(
+                    "recovery_cwd={}\n",
+                    quote_escaped_string(&cwd, EXTENDED_QUOTED_STRING_ESCAPES)
+                ));
+                if let Some(model) = model {
+                    output.push_str(&format!(
+                        "recovery_model={}\n",
+                        quote_escaped_string(&model, EXTENDED_QUOTED_STRING_ESCAPES)
+                    ));
+                }
+                if let Some(profile) = profile {
+                    output.push_str(&format!(
+                        "recovery_profile={}\n",
+                        quote_escaped_string(&profile, EXTENDED_QUOTED_STRING_ESCAPES)
+                    ));
+                }
+            }
+            None => {}
         }
         output.push_str(&format!(
             "aegis_enabled={}\n",
@@ -111,9 +189,8 @@ fn map_legacy_sessions_to_app_state(
                 runtime_session_name: Some(record.session_name.clone()),
                 label: record.label.clone(),
                 kind: PersistedAgentKind::Pi,
+                recovery: None,
                 clone_source_session_path: None,
-                is_workdir: false,
-                workdir_slug: None,
                 aegis_enabled: false,
                 aegis_prompt_text: None,
                 order_index: record.creation_index,
@@ -133,7 +210,10 @@ pub(crate) fn load_persisted_app_state_from(path: &PathBuf) -> PersistedAppState
                 .find(|line| !line.trim().is_empty())
                 .map(str::trim)
                 .unwrap_or_default();
-            if matches!(version_line, APP_STATE_VERSION_V1 | APP_STATE_VERSION_V2) {
+            if matches!(
+                version_line,
+                APP_STATE_VERSION_V1 | APP_STATE_VERSION_V2 | APP_STATE_VERSION_V3
+            ) {
                 parse_persisted_app_state(&text)
             } else {
                 map_legacy_sessions_to_app_state(&load_persisted_terminal_sessions_from(path))
@@ -195,11 +275,46 @@ fn build_persisted_app_state(
                     crate::agents::AgentKind::Terminal => PersistedAgentKind::Terminal,
                     crate::agents::AgentKind::Verifier => PersistedAgentKind::Verifier,
                 },
+                recovery: agent_catalog
+                    .recovery_spec(*agent_id)
+                    .map(|spec| match spec {
+                        crate::agents::AgentRecoverySpec::Pi {
+                            session_path,
+                            cwd,
+                            is_workdir,
+                            workdir_slug,
+                        } => PersistedAgentRecoverySpec::Pi {
+                            session_path: session_path.clone(),
+                            cwd: Some(cwd.clone()),
+                            is_workdir: *is_workdir,
+                            workdir_slug: workdir_slug.clone(),
+                        },
+                        crate::agents::AgentRecoverySpec::Claude {
+                            session_id,
+                            cwd,
+                            model,
+                            profile,
+                        } => PersistedAgentRecoverySpec::Claude {
+                            session_id: session_id.clone(),
+                            cwd: cwd.clone(),
+                            model: model.clone(),
+                            profile: profile.clone(),
+                        },
+                        crate::agents::AgentRecoverySpec::Codex {
+                            session_id,
+                            cwd,
+                            model,
+                            profile,
+                        } => PersistedAgentRecoverySpec::Codex {
+                            session_id: session_id.clone(),
+                            cwd: cwd.clone(),
+                            model: model.clone(),
+                            profile: profile.clone(),
+                        },
+                    }),
                 clone_source_session_path: agent_catalog
                     .clone_source_session_path(*agent_id)
                     .map(str::to_owned),
-                is_workdir: agent_catalog.is_workdir(*agent_id),
-                workdir_slug: agent_catalog.workdir_slug(*agent_id).map(str::to_owned),
                 aegis_enabled: aegis_policy.is_some_and(|policy| policy.enabled),
                 aegis_prompt_text: aegis_policy.map(|policy| policy.prompt_text.clone()),
                 order_index: index as u64,

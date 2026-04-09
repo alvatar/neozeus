@@ -491,8 +491,7 @@ fn global_clone_shortcut_opens_clone_agent_dialog_for_selected_pi_agent() {
         crate::agents::AgentKind::Pi.capabilities(),
         crate::agents::AgentMetadata {
             clone_source_session_path: Some("/tmp/pi-alpha.jsonl".into()),
-            is_workdir: false,
-            workdir_slug: None,
+            recovery: None,
         },
     );
     world.insert_resource(ButtonInput::<KeyCode>::default());
@@ -608,8 +607,7 @@ fn global_clone_shortcut_does_nothing_while_modal_has_keyboard_capture() {
         crate::agents::AgentKind::Pi.capabilities(),
         crate::agents::AgentMetadata {
             clone_source_session_path: Some("/tmp/pi-alpha.jsonl".into()),
-            is_workdir: false,
-            workdir_slug: None,
+            recovery: None,
         },
     );
     world.insert_resource(ButtonInput::<KeyCode>::default());
@@ -677,8 +675,7 @@ fn end_to_end_clone_shortcut_plain_clone_creates_agent() {
             crate::agents::AgentKind::Pi.capabilities(),
             crate::agents::AgentMetadata {
                 clone_source_session_path: Some(source_session.to_string_lossy().into_owned()),
-                is_workdir: false,
-                workdir_slug: None,
+                recovery: None,
             },
         );
     world.insert_resource(crate::hud::AgentListSelection::Agent(source_agent));
@@ -737,8 +734,7 @@ fn end_to_end_clone_shortcut_workdir_clone_creates_agent() {
             crate::agents::AgentKind::Pi.capabilities(),
             crate::agents::AgentMetadata {
                 clone_source_session_path: Some(source_session.to_string_lossy().into_owned()),
-                is_workdir: false,
-                workdir_slug: None,
+                recovery: None,
             },
         );
     world.insert_resource(crate::hud::AgentListSelection::Agent(source_agent));

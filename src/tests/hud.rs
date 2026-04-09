@@ -1638,7 +1638,7 @@ fn create_agent_request_bootstraps_selected_cli_command() {
         matches!(command, crate::terminals::TerminalCommand::SendCommand(value) if value.starts_with("pi --session "))
     }));
     assert!(commands.iter().any(|(_, command)| {
-        matches!(command, crate::terminals::TerminalCommand::SendCommand(value) if value == "claude")
+        matches!(command, crate::terminals::TerminalCommand::SendCommand(value) if value.starts_with("claude --session-id "))
     }));
     assert!(commands.iter().any(|(_, command)| {
         matches!(command, crate::terminals::TerminalCommand::SendCommand(value) if value == "codex")
@@ -1654,6 +1654,15 @@ fn create_agent_request_bootstraps_selected_cli_command() {
         .expect("Pi agent should persist clone provenance");
     assert!(session_path.ends_with(".jsonl"));
     assert!(!catalog.is_workdir(pi_agent));
+    let claude_agent = catalog
+        .iter()
+        .find_map(|(agent_id, label)| (label == "CLAUDE-AGENT").then_some(agent_id))
+        .expect("Claude agent should exist");
+    assert!(matches!(
+        catalog.recovery_spec(claude_agent),
+        Some(crate::agents::AgentRecoverySpec::Claude { session_id, cwd, .. })
+            if !session_id.trim().is_empty() && cwd.ends_with("/code")
+    ));
 }
 
 /// Verifies that creating a terminal session does not inject any agent bootstrap command payload.
@@ -1781,8 +1790,7 @@ fn clone_pi_agent_request_rejects_duplicate_name() {
             crate::agents::AgentKind::Pi.capabilities(),
             crate::agents::AgentMetadata {
                 clone_source_session_path: Some(source_session.to_string_lossy().into_owned()),
-                is_workdir: false,
-                workdir_slug: None,
+                recovery: None,
             },
         );
     world.resource_mut::<AgentCatalog>().create_agent(
@@ -1821,8 +1829,7 @@ fn clone_pi_agent_request_creates_top_level_pi_clone_and_focuses_it() {
             crate::agents::AgentKind::Pi.capabilities(),
             crate::agents::AgentMetadata {
                 clone_source_session_path: Some(source_session.to_string_lossy().into_owned()),
-                is_workdir: false,
-                workdir_slug: None,
+                recovery: None,
             },
         );
 
@@ -1891,8 +1898,7 @@ fn clone_pi_agent_request_creates_workdir_clone_and_persists_metadata() {
             crate::agents::AgentKind::Pi.capabilities(),
             crate::agents::AgentMetadata {
                 clone_source_session_path: Some(source_session.to_string_lossy().into_owned()),
-                is_workdir: false,
-                workdir_slug: None,
+                recovery: None,
             },
         );
     let app_state_path = temp_dir("clone-pi-workdir-appstate").join("neozeus-state.v1");
@@ -1949,8 +1955,14 @@ fn clone_pi_agent_request_creates_workdir_clone_and_persists_metadata() {
         persisted_clone.clone_source_session_path.as_deref(),
         Some(clone_session_path.as_str())
     );
-    assert!(persisted_clone.is_workdir);
-    assert_eq!(persisted_clone.workdir_slug.as_deref(), Some("CHILD-WT"));
+    assert!(matches!(
+        persisted_clone.recovery,
+        Some(crate::shared::app_state_file::PersistedAgentRecoverySpec::Pi {
+            is_workdir: true,
+            workdir_slug: Some(ref slug),
+            ..
+        }) if slug == "CHILD-WT"
+    ));
 }
 
 #[test]
@@ -1968,8 +1980,7 @@ fn clone_pi_agent_request_sanitizes_workdir_slug_without_changing_display_label(
             crate::agents::AgentKind::Pi.capabilities(),
             crate::agents::AgentMetadata {
                 clone_source_session_path: Some(source_session.to_string_lossy().into_owned()),
-                is_workdir: false,
-                workdir_slug: None,
+                recovery: None,
             },
         );
 
@@ -2022,8 +2033,7 @@ fn clone_pi_agent_request_rejects_non_git_workdir_source() {
             crate::agents::AgentKind::Pi.capabilities(),
             crate::agents::AgentMetadata {
                 clone_source_session_path: Some(source_session.to_string_lossy().into_owned()),
-                is_workdir: false,
-                workdir_slug: None,
+                recovery: None,
             },
         );
 

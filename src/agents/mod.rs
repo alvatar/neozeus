@@ -3,7 +3,8 @@ mod runtime_index;
 mod status;
 
 pub(crate) use catalog::{
-    uppercase_agent_label_text, AgentCatalog, AgentId, AgentKind, AgentMetadata,
+    uppercase_agent_label_text, AgentCatalog, AgentId, AgentKind, AgentMetadata, AgentRecoverySpec,
+    PendingAgentIdentity,
 };
 
 #[cfg(test)]
