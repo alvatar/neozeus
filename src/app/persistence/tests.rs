@@ -45,45 +45,64 @@ fn app_state_path_prefers_state_home_then_home_state_then_config() {
     );
 }
 
-/// Verifies that the current app-state persistence format round-trips losslessly.
+/// Verifies that the canonical recovery snapshot format round-trips its minimal recoverable-agent
+/// payload losslessly.
 #[test]
 fn app_state_parse_and_serialize_roundtrip() {
     let persisted = PersistedAppState {
-        agents: vec![
-            PersistedAgentState {
-                agent_uid: Some("agent-uid-a".into()),
-                runtime_session_name: Some("neozeus-session-a\rtab\tquoted\"".into()),
-                label: Some("agent 1\nrow\rand\ttabs\\slash".into()),
-                kind: PersistedAgentKind::Claude,
-                recovery: Some(PersistedAgentRecoverySpec::Claude {
-                    session_id: "claude-session-a".into(),
-                    cwd: "/tmp/demo".into(),
-                    model: Some("sonnet".into()),
-                    profile: None,
-                }),
-                clone_source_session_path: None,
-                aegis_enabled: true,
-                aegis_prompt_text: Some("continue cleanly".into()),
-                order_index: 0,
-                last_focused: true,
-            },
-            PersistedAgentState {
-                agent_uid: Some("agent-uid-b".into()),
-                runtime_session_name: Some("neozeus-session-b".into()),
-                label: None,
-                kind: PersistedAgentKind::Terminal,
-                recovery: None,
-                clone_source_session_path: None,
-                aegis_enabled: false,
-                aegis_prompt_text: None,
-                order_index: 1,
-                last_focused: false,
-            },
-        ],
+        agents: vec![PersistedAgentState {
+            agent_uid: Some("agent-uid-a".into()),
+            runtime_session_name: None,
+            label: Some("agent 1\nrow\rand\ttabs\\slash".into()),
+            kind: PersistedAgentKind::Claude,
+            recovery: Some(PersistedAgentRecoverySpec::Claude {
+                session_id: "claude-session-a".into(),
+                cwd: "/tmp/demo".into(),
+                model: Some("sonnet".into()),
+                profile: None,
+            }),
+            clone_source_session_path: None,
+            aegis_enabled: false,
+            aegis_prompt_text: None,
+            order_index: 0,
+            last_focused: false,
+        }],
     };
 
     let serialized = serialize_persisted_app_state(&persisted);
+    assert!(serialized.starts_with(crate::shared::app_state_file::APP_STATE_VERSION_V4));
     assert_eq!(parse_persisted_app_state(&serialized), persisted);
+}
+
+#[test]
+fn canonical_snapshot_serializer_omits_non_recovery_fields() {
+    let persisted = PersistedAppState {
+        agents: vec![PersistedAgentState {
+            agent_uid: Some("agent-uid-a".into()),
+            runtime_session_name: Some("neozeus-session-a".into()),
+            label: Some("ALPHA".into()),
+            kind: PersistedAgentKind::Pi,
+            recovery: Some(PersistedAgentRecoverySpec::Pi {
+                session_path: "/tmp/pi-alpha.jsonl".into(),
+                cwd: Some("/tmp/demo".into()),
+                is_workdir: true,
+                workdir_slug: Some("alpha-wt".into()),
+            }),
+            clone_source_session_path: Some("/tmp/pi-alpha.jsonl".into()),
+            aegis_enabled: true,
+            aegis_prompt_text: Some("continue cleanly".into()),
+            order_index: 0,
+            last_focused: true,
+        }],
+    };
+
+    let serialized = serialize_persisted_app_state(&persisted);
+    assert!(!serialized.contains("runtime_session_name="));
+    assert!(!serialized.contains("clone_source_session_path="));
+    assert!(!serialized.contains("aegis_enabled="));
+    assert!(!serialized.contains("aegis_prompt_text="));
+    assert!(!serialized.contains("focused="));
+    assert!(serialized.contains("recovery_mode=\"pi\""));
 }
 
 /// Verifies that older app-state files without explicit kind metadata default to `pi`.
@@ -264,9 +283,10 @@ fn reconcile_persisted_agents_prefers_agent_uid_over_stale_runtime_session_name(
     assert!(import.is_empty());
 }
 
-/// Verifies that saving app state preserves user agent order, labels, kinds, focus, and stable ids.
+/// Verifies that the canonical snapshot persists only recoverable agents with their minimal
+/// restore truth.
 #[test]
-fn saving_app_state_persists_agent_order_labels_focus_and_uids() {
+fn saving_app_state_persists_only_recoverable_agents_and_recovery_specs() {
     let dir = temp_dir("neozeus-app-state-save");
     let path = dir.join("neozeus-state.v1");
     let (bridge_one, _) = test_bridge();
@@ -321,44 +341,30 @@ fn saving_app_state_persists_agent_order_labels_focus_and_uids() {
     world.run_system_once(save_app_state_if_dirty).unwrap();
     let serialized = fs::read_to_string(&path).expect("app state file missing");
     let persisted = parse_persisted_app_state(&serialized);
-    assert_eq!(persisted.agents.len(), 2);
+    assert_eq!(persisted.agents.len(), 1);
     assert_eq!(
+        persisted.agents[0].agent_uid.as_deref(),
+        Some(alpha_uid.as_str())
+    );
+    assert_ne!(
         persisted.agents[0].agent_uid.as_deref(),
         Some(beta_uid.as_str())
     );
     assert_eq!(persisted.agents[0].runtime_session_name, None);
-    assert_eq!(persisted.agents[0].label.as_deref(), Some("BETA"));
-    assert_eq!(persisted.agents[0].kind, PersistedAgentKind::Terminal);
+    assert_eq!(persisted.agents[0].label.as_deref(), Some("ALPHA"));
+    assert_eq!(persisted.agents[0].kind, PersistedAgentKind::Claude);
     assert_eq!(persisted.agents[0].clone_source_session_path, None);
-    assert_eq!(persisted.agents[0].recovery, None);
     assert!(!persisted.agents[0].aegis_enabled);
     assert_eq!(persisted.agents[0].aegis_prompt_text, None);
-    assert!(persisted.agents[0].last_focused);
-    assert_eq!(
-        persisted.agents[1].agent_uid.as_deref(),
-        Some(alpha_uid.as_str())
-    );
-    assert_eq!(persisted.agents[1].runtime_session_name, None);
-    assert_eq!(persisted.agents[1].label.as_deref(), Some("ALPHA"));
-    assert_eq!(persisted.agents[1].kind, PersistedAgentKind::Claude);
-    assert_eq!(
-        persisted.agents[1].clone_source_session_path.as_deref(),
-        None
-    );
+    assert!(!persisted.agents[0].last_focused);
     assert!(matches!(
-        persisted.agents[1].recovery,
+        persisted.agents[0].recovery,
         Some(PersistedAgentRecoverySpec::Claude { .. })
     ));
-    assert!(persisted.agents[1].aegis_enabled);
-    assert_eq!(
-        persisted.agents[1].aegis_prompt_text.as_deref(),
-        Some("keep pushing cleanly")
-    );
-    assert!(!persisted.agents[1].last_focused);
 }
 
 #[test]
-fn saving_app_state_persists_disabled_aegis_prompt() {
+fn saving_app_state_does_not_persist_aegis_policy() {
     let dir = temp_dir("neozeus-app-state-save-disabled-aegis");
     let path = dir.join("neozeus-state.v1");
     let (bridge, _) = test_bridge();
@@ -394,12 +400,7 @@ fn saving_app_state_persists_disabled_aegis_prompt() {
     world.run_system_once(save_app_state_if_dirty).unwrap();
     let serialized = fs::read_to_string(&path).expect("app state file missing");
     let persisted = parse_persisted_app_state(&serialized);
-    assert_eq!(persisted.agents.len(), 1);
-    assert!(!persisted.agents[0].aegis_enabled);
-    assert_eq!(
-        persisted.agents[0].aegis_prompt_text.as_deref(),
-        Some("keep pushing cleanly")
-    );
+    assert_eq!(persisted.agents.len(), 0);
 }
 
 /// Verifies the debounce behavior of the app-state save system.

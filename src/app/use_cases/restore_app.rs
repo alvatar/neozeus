@@ -1,5 +1,5 @@
 use crate::{
-    aegis::{AegisPolicyStore, AegisRuntimeState, AegisRuntimeStore},
+    aegis::{AegisPolicyStore, AegisRuntimeStore},
     agents::{AgentCatalog, AgentKind, AgentRuntimeIndex},
     app::{
         load_persisted_app_state_from, mark_app_state_dirty, ordered_reconciled_persisted_agents,
@@ -88,6 +88,19 @@ fn persisted_recovery_to_agent_recovery(
     }
 }
 
+fn clone_provenance_from_recovery(
+    recovery: &Option<crate::agents::AgentRecoverySpec>,
+) -> Option<String> {
+    match recovery {
+        Some(crate::agents::AgentRecoverySpec::Pi { session_path, .. }) => {
+            Some(session_path.clone())
+        }
+        Some(crate::agents::AgentRecoverySpec::Claude { .. })
+        | Some(crate::agents::AgentRecoverySpec::Codex { .. })
+        | None => None,
+    }
+}
+
 #[allow(
     clippy::too_many_arguments,
     reason = "restore spans persistence, daemon discovery, agent state, and presentation state"
@@ -105,8 +118,8 @@ pub(crate) fn restore_app(
     runtime_spawner: &TerminalRuntimeSpawner,
     input_capture: &mut crate::hud::HudInputCaptureState,
     app_state_persistence: &mut AppStatePersistenceState,
-    aegis_policy: &mut AegisPolicyStore,
-    aegis_runtime: &mut AegisRuntimeStore,
+    _aegis_policy: &mut AegisPolicyStore,
+    _aegis_runtime: &mut AegisRuntimeStore,
     visibility_state: &mut crate::hud::TerminalVisibilityState,
     view_state: &mut TerminalViewState,
     presentation_store: Option<&mut TerminalPresentationStore>,
@@ -201,6 +214,10 @@ pub(crate) fn restore_app(
         let should_mark_startup_pending = live_session_lookup
             .get(runtime_session_name.as_str())
             .is_some_and(|session| startup_focus_candidate_is_interactive(session));
+        let recovery = record
+            .recovery
+            .and_then(persisted_recovery_to_agent_recovery);
+        let clone_source_session_path = clone_provenance_from_recovery(&recovery);
         match attach_restored_terminal(
             agent_catalog,
             runtime_index,
@@ -220,26 +237,10 @@ pub(crate) fn restore_app(
             },
             record.label,
             record.agent_uid,
-            record.clone_source_session_path,
-            record
-                .recovery
-                .and_then(persisted_recovery_to_agent_recovery),
+            clone_source_session_path,
+            recovery,
         ) {
-            Ok((agent_id, terminal_id)) => {
-                if let Some(agent_uid) = agent_catalog.uid(agent_id) {
-                    if let Some(prompt_text) = record.aegis_prompt_text.as_ref() {
-                        let _ = if record.aegis_enabled {
-                            aegis_policy.enable(agent_uid, prompt_text.clone())
-                        } else {
-                            aegis_policy.upsert_disabled_prompt(agent_uid, prompt_text.clone())
-                        };
-                    }
-                    if record.aegis_enabled {
-                        let _ = aegis_runtime.set_state(agent_id, AegisRuntimeState::Armed);
-                    } else {
-                        let _ = aegis_runtime.clear(agent_id);
-                    }
-                }
+            Ok((_, terminal_id)) => {
                 if should_mark_startup_pending {
                     if let Some(presentation_store) = presentation_store.as_deref_mut() {
                         presentation_store.mark_startup_pending(terminal_id);

@@ -5,6 +5,7 @@ pub const APP_STATE_FILENAME: &str = "neozeus-state.v1";
 pub const APP_STATE_VERSION_V1: &str = "neozeus state version 1";
 pub const APP_STATE_VERSION_V2: &str = "neozeus state version 2";
 pub const APP_STATE_VERSION_V3: &str = "neozeus state version 3";
+pub const APP_STATE_VERSION_V4: &str = "neozeus state version 4";
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum PersistedAgentKind {
@@ -129,7 +130,7 @@ pub fn parse_persisted_app_state(text: &str) -> PersistedAppState {
     match version_line {
         APP_STATE_VERSION_V1 => parse_persisted_app_state_v1(text),
         APP_STATE_VERSION_V2 => parse_persisted_app_state_v2(text),
-        APP_STATE_VERSION_V3 => parse_persisted_app_state_v3(text),
+        APP_STATE_VERSION_V3 | APP_STATE_VERSION_V4 => parse_persisted_app_state_v3(text),
         _ => PersistedAppState::default(),
     }
 }
@@ -199,9 +200,7 @@ fn parse_persisted_app_state_with(text: &str, legacy_session_name_key: bool) -> 
             "[/agent]" => {
                 if in_agent {
                     let has_runtime_hint = runtime_session_name.is_some();
-                    if let (Some(order_index), Some(last_focused)) =
-                        (order_index.take(), last_focused.take())
-                    {
+                    if let Some(order_index) = order_index.take() {
                         if agent_uid.is_some() || has_runtime_hint {
                             let kind = kind.take().unwrap_or(PersistedAgentKind::Pi);
                             let clone_source_session_path = clone_source_session_path.take();
@@ -261,7 +260,7 @@ fn parse_persisted_app_state_with(text: &str, legacy_session_name_key: bool) -> 
                                 aegis_enabled,
                                 aegis_prompt_text: aegis_prompt_text.take(),
                                 order_index,
-                                last_focused,
+                                last_focused: last_focused.take().unwrap_or(false),
                             });
                         }
                     }

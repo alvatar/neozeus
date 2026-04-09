@@ -63,6 +63,7 @@ impl AegisPolicyStore {
         true
     }
 
+    #[cfg(test)]
     pub(crate) fn upsert_disabled_prompt(&mut self, agent_uid: &str, prompt_text: String) -> bool {
         let policy = self
             .policies_by_agent_uid
