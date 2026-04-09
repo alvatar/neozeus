@@ -30,6 +30,7 @@ pub enum TerminalCommand {
     InputEvent(String),
     SendCommand(String),
     ScrollDisplay(i32),
+    ScrollToBottom,
     SetSelection {
         anchor: TerminalViewportPoint,
         focus: TerminalViewportPoint,
@@ -384,15 +385,18 @@ pub fn encode_wire_terminal_command(buffer: &mut Vec<u8>, command: &TerminalComm
             push_u8(buffer, 3);
             push_i32(buffer, *delta);
         }
-        TerminalCommand::SetSelection { anchor, focus } => {
+        TerminalCommand::ScrollToBottom => {
             push_u8(buffer, 4);
+        }
+        TerminalCommand::SetSelection { anchor, focus } => {
+            push_u8(buffer, 5);
             push_usize(buffer, anchor.col);
             push_usize(buffer, anchor.row);
             push_usize(buffer, focus.col);
             push_usize(buffer, focus.row);
         }
         TerminalCommand::ClearSelection => {
-            push_u8(buffer, 5);
+            push_u8(buffer, 6);
         }
     }
 }
@@ -403,7 +407,8 @@ pub fn decode_wire_terminal_command(decoder: &mut Decoder<'_>) -> Result<Termina
         1 => Ok(TerminalCommand::InputEvent(decoder.read_string()?)),
         2 => Ok(TerminalCommand::SendCommand(decoder.read_string()?)),
         3 => Ok(TerminalCommand::ScrollDisplay(decoder.read_i32()?)),
-        4 => Ok(TerminalCommand::SetSelection {
+        4 => Ok(TerminalCommand::ScrollToBottom),
+        5 => Ok(TerminalCommand::SetSelection {
             anchor: TerminalViewportPoint {
                 col: decoder.read_usize()?,
                 row: decoder.read_usize()?,
@@ -413,7 +418,7 @@ pub fn decode_wire_terminal_command(decoder: &mut Decoder<'_>) -> Result<Termina
                 row: decoder.read_usize()?,
             },
         }),
-        5 => Ok(TerminalCommand::ClearSelection),
+        6 => Ok(TerminalCommand::ClearSelection),
         tag => Err(format!("unknown terminal command tag {tag}")),
     }
 }
@@ -654,6 +659,24 @@ mod tests {
             request: DaemonRequest::SendCommand {
                 session_id: "alpha".into(),
                 command: TerminalCommand::SendCommand("echo hi".into()),
+            },
+        };
+        let mut bytes = Vec::new();
+        write_client_message(&mut bytes, &message).unwrap();
+        let mut cursor = Cursor::new(bytes);
+        let payload = super::read_frame(&mut cursor).unwrap();
+        let mut decoder = super::Decoder::new(&payload);
+        assert_eq!(decode_client_message(&mut decoder).unwrap(), message);
+        decoder.finish().unwrap();
+    }
+
+    #[test]
+    fn subset_client_message_roundtrips_scroll_to_bottom_command() {
+        let message = ClientMessage::Request {
+            request_id: 8,
+            request: DaemonRequest::SendCommand {
+                session_id: "alpha".into(),
+                command: TerminalCommand::ScrollToBottom,
             },
         };
         let mut bytes = Vec::new();

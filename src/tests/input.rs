@@ -270,6 +270,16 @@ fn dispatch_terminal_wheel(world: &mut World, event: MouseWheel) {
     world.run_system_once(zoom_terminal_view).unwrap();
 }
 
+fn set_terminal_surface_rows(
+    world: &mut World,
+    terminal_id: crate::terminals::TerminalId,
+    rows: usize,
+) {
+    let mut manager = world.resource_mut::<TerminalManager>();
+    let terminal = manager.get_mut(terminal_id).expect("terminal should exist");
+    terminal.snapshot.surface = Some(crate::terminals::TerminalSurface::new(80, rows));
+}
+
 /// Builds a unique temporary directory path for one filesystem-backed input test.
 fn unique_temp_dir(prefix: &str) -> std::path::PathBuf {
     let nanos = std::time::SystemTime::now()
@@ -2319,6 +2329,85 @@ fn wheel_scroll_accumulates_fractional_pixel_deltas() {
     assert_eq!(
         input_rx.try_recv().unwrap(),
         TerminalCommand::ScrollDisplay(1)
+    );
+}
+
+#[test]
+fn direct_input_end_scrolls_terminal_to_bottom() {
+    let (mut world, terminal_id, input_rx) =
+        world_with_active_terminal_and_receiver(Vec2::new(10.0, 10.0), false, Vec2::ZERO);
+    let mut hud_state = crate::hud::HudState::default();
+    hud_state.open_direct_terminal_input(terminal_id);
+    insert_test_hud_state(&mut world, hud_state);
+    set_terminal_surface_rows(&mut world, terminal_id, 40);
+
+    dispatch_terminal_ui_key(&mut world, pressed_key(KeyCode::End, Key::End));
+
+    assert_eq!(
+        input_rx.try_recv().unwrap(),
+        TerminalCommand::ScrollToBottom
+    );
+}
+
+#[test]
+fn direct_input_page_keys_jump_by_visible_rows() {
+    let (mut world, terminal_id, input_rx) =
+        world_with_active_terminal_and_receiver(Vec2::new(10.0, 10.0), false, Vec2::ZERO);
+    let mut hud_state = crate::hud::HudState::default();
+    hud_state.open_direct_terminal_input(terminal_id);
+    insert_test_hud_state(&mut world, hud_state);
+    set_terminal_surface_rows(&mut world, terminal_id, 40);
+
+    dispatch_terminal_ui_key(&mut world, pressed_key(KeyCode::PageUp, Key::PageUp));
+    dispatch_terminal_ui_key(&mut world, pressed_key(KeyCode::PageDown, Key::PageDown));
+
+    assert_eq!(
+        input_rx.try_recv().unwrap(),
+        TerminalCommand::ScrollDisplay(39)
+    );
+    assert_eq!(
+        input_rx.try_recv().unwrap(),
+        TerminalCommand::ScrollDisplay(-39)
+    );
+}
+
+#[test]
+fn control_v_scrolls_many_rows_down_when_terminal_is_not_captured() {
+    let (mut world, terminal_id, input_rx) =
+        world_with_active_terminal_and_receiver(Vec2::new(10.0, 10.0), false, Vec2::ZERO);
+    set_terminal_surface_rows(&mut world, terminal_id, 40);
+    world
+        .resource_mut::<ButtonInput<KeyCode>>()
+        .press(KeyCode::ControlLeft);
+
+    dispatch_terminal_ui_key(
+        &mut world,
+        pressed_key(KeyCode::KeyV, Key::Character("v".into())),
+    );
+
+    assert_eq!(
+        input_rx.try_recv().unwrap(),
+        TerminalCommand::ScrollDisplay(-39)
+    );
+}
+
+#[test]
+fn meta_v_scrolls_many_rows_up_when_terminal_is_not_captured() {
+    let (mut world, terminal_id, input_rx) =
+        world_with_active_terminal_and_receiver(Vec2::new(10.0, 10.0), false, Vec2::ZERO);
+    set_terminal_surface_rows(&mut world, terminal_id, 40);
+    world
+        .resource_mut::<ButtonInput<KeyCode>>()
+        .press(KeyCode::SuperLeft);
+
+    dispatch_terminal_ui_key(
+        &mut world,
+        pressed_key(KeyCode::KeyV, Key::Character("v".into())),
+    );
+
+    assert_eq!(
+        input_rx.try_recv().unwrap(),
+        TerminalCommand::ScrollDisplay(39)
     );
 }
 

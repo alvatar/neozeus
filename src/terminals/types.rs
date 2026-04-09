@@ -300,6 +300,7 @@ pub(crate) enum TerminalCommand {
     InputEvent(String),
     SendCommand(String),
     ScrollDisplay(i32),
+    ScrollToBottom,
     SetSelection {
         anchor: TerminalViewportPoint,
         focus: TerminalViewportPoint,

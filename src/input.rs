@@ -16,7 +16,7 @@ use crate::{
     hud::{HudInputCaptureState, HudLayoutState},
     terminals::{
         terminal_texture_screen_size, ActiveTerminalContentState, TerminalCommand,
-        TerminalDisplayMode, TerminalFocusState, TerminalManager, TerminalPanel,
+        TerminalDisplayMode, TerminalFocusState, TerminalId, TerminalManager, TerminalPanel,
         TerminalPointerState, TerminalPresentation, TerminalPresentationStore, TerminalViewState,
         TerminalViewportPoint,
     },
@@ -1020,6 +1020,22 @@ pub(crate) fn drag_terminal_view(
 ///
 /// `Shift + wheel` is reserved for zoom and is ignored here. HUD-owned regions are also ignored so
 /// module scrolling keeps priority when the cursor is over HUD content.
+const TERMINAL_PAGE_SCROLL_FALLBACK_ROWS: i32 = 20;
+
+fn terminal_page_scroll_rows(terminal_manager: &TerminalManager, terminal_id: TerminalId) -> i32 {
+    terminal_manager
+        .get(terminal_id)
+        .and_then(|terminal| terminal.snapshot.surface.as_ref())
+        .map(|surface| surface.rows.saturating_sub(1))
+        .filter(|rows| *rows > 0)
+        .and_then(|rows| i32::try_from(rows).ok())
+        .unwrap_or(TERMINAL_PAGE_SCROLL_FALLBACK_ROWS)
+}
+
+#[allow(
+    clippy::too_many_arguments,
+    reason = "wheel scrolling needs keyboard, window focus, HUD hit-testing, terminal routing, and pointer remainder state together"
+)]
 pub(crate) fn scroll_terminal_with_mouse_wheel(
     keys: Res<ButtonInput<KeyCode>>,
     primary_window: Single<&Window, With<PrimaryWindow>>,
@@ -1153,6 +1169,30 @@ pub(crate) fn handle_terminal_direct_input_keyboard(
                     .toggle_direct_terminal_input(&mut app_session.composer, target_terminal);
                 mode_changed = true;
                 break;
+            }
+            if !ctrl && !alt && !super_key {
+                match event.key_code {
+                    KeyCode::End => {
+                        terminal.bridge.note_key_event(event);
+                        terminal.bridge.send(TerminalCommand::ScrollToBottom);
+                        continue;
+                    }
+                    KeyCode::PageUp => {
+                        terminal.bridge.note_key_event(event);
+                        terminal.bridge.send(TerminalCommand::ScrollDisplay(
+                            terminal_page_scroll_rows(&terminal_manager, target_terminal),
+                        ));
+                        continue;
+                    }
+                    KeyCode::PageDown => {
+                        terminal.bridge.note_key_event(event);
+                        terminal.bridge.send(TerminalCommand::ScrollDisplay(
+                            -terminal_page_scroll_rows(&terminal_manager, target_terminal),
+                        ));
+                        continue;
+                    }
+                    _ => {}
+                }
             }
             if let Some(command) = keyboard_input_to_terminal_command(event, &keys) {
                 terminal.bridge.note_key_event(event);
@@ -1468,14 +1508,38 @@ pub(crate) fn handle_terminal_message_box_keyboard(
     let Some(active_id) = focus_state.active_id() else {
         return;
     };
+    let page_rows = terminal_page_scroll_rows(&_terminal_manager, active_id);
     for event in messages.read() {
         if event.state != ButtonState::Pressed {
             continue;
         }
 
-        if ctrl && !alt && !super_key && event.key_code == KeyCode::KeyT {
-            if let Some(agent_id) = runtime_index.agent_for_terminal(active_id) {
-                app_commands.write(AppCommand::Task(AppTaskCommand::ClearDone { agent_id }));
+        if ctrl && !alt && !super_key {
+            match event.key_code {
+                KeyCode::KeyT => {
+                    if let Some(agent_id) = runtime_index.agent_for_terminal(active_id) {
+                        app_commands
+                            .write(AppCommand::Task(AppTaskCommand::ClearDone { agent_id }));
+                    }
+                    break;
+                }
+                KeyCode::KeyV => {
+                    if let Some(terminal) = _terminal_manager.get(active_id) {
+                        terminal
+                            .bridge
+                            .send(TerminalCommand::ScrollDisplay(-page_rows));
+                    }
+                    break;
+                }
+                _ => {}
+            }
+        }
+
+        if super_key && !ctrl && !alt && event.key_code == KeyCode::KeyV {
+            if let Some(terminal) = _terminal_manager.get(active_id) {
+                terminal
+                    .bridge
+                    .send(TerminalCommand::ScrollDisplay(page_rows));
             }
             break;
         }
