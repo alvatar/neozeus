@@ -568,6 +568,12 @@ mod tests {
             world.resource::<AegisRuntimeStore>().state(agent_id),
             Some(AegisRuntimeState::Halted)
         );
+        assert_eq!(
+            world
+                .resource::<ConversationPersistenceState>()
+                .dirty_since_secs,
+            Some(5.0)
+        );
         let conversation_id = world
             .resource::<ConversationStore>()
             .conversation_for_agent(agent_id)

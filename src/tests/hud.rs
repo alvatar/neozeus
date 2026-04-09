@@ -2404,6 +2404,15 @@ fn killing_agent_cascade_kills_owned_tmux_children() {
             created_unix: 0,
         });
     assert!(world
+        .resource_mut::<crate::aegis::AegisPolicyStore>()
+        .enable(&agent_uid, "continue cleanly".into()));
+    assert!(world
+        .resource_mut::<crate::aegis::AegisRuntimeStore>()
+        .set_state(
+            agent_id,
+            crate::aegis::AegisRuntimeState::PendingDelay { deadline_secs: 6.0 }
+        ));
+    assert!(world
         .resource_mut::<crate::conversations::AgentTaskStore>()
         .set_text(agent_id, "- [ ] task"));
     let conversation_id = world
@@ -2460,6 +2469,14 @@ fn killing_agent_cascade_kills_owned_tmux_children() {
             .dirty_since_secs,
         Some(1.0)
     );
+    assert!(world
+        .resource::<crate::aegis::AegisPolicyStore>()
+        .policy(&agent_uid)
+        .is_none());
+    assert!(world
+        .resource::<crate::aegis::AegisRuntimeStore>()
+        .state(agent_id)
+        .is_none());
 }
 
 /// Verifies that parent deletion cascades only the active agent's owned tmux children and leaves
