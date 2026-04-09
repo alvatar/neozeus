@@ -144,6 +144,7 @@ fn working_agent_row_transition_requests_redraw_for_hud_feedback() {
                 uploaded_revision: 0,
                 uploaded_active_override_revision: None,
                 uploaded_text_selection_revision: None,
+                uploaded_surface: None,
                 panel_entity,
                 frame_entity: Entity::PLACEHOLDER,
             },

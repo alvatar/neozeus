@@ -110,6 +110,7 @@ pub(crate) struct PresentedTerminal {
     pub(crate) uploaded_revision: u64,
     pub(crate) uploaded_active_override_revision: Option<u64>,
     pub(crate) uploaded_text_selection_revision: Option<u64>,
+    pub(crate) uploaded_surface: Option<super::types::TerminalSurface>,
     pub(crate) panel_entity: Entity,
     pub(crate) frame_entity: Entity,
 }

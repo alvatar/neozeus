@@ -529,6 +529,7 @@ fn dump_terminal_font_reference_sample() {
             uploaded_revision: 0,
             uploaded_active_override_revision: None,
             uploaded_text_selection_revision: None,
+            uploaded_surface: None,
             panel_entity: Entity::PLACEHOLDER,
             frame_entity: Entity::PLACEHOLDER,
         },

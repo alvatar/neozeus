@@ -115,6 +115,7 @@ fn spawn_terminal_presentation(
             uploaded_revision: 0,
             uploaded_active_override_revision: None,
             uploaded_text_selection_revision: None,
+            uploaded_surface: None,
             panel_entity,
             frame_entity,
         },

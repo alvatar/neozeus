@@ -319,6 +319,30 @@ pub(crate) fn sync_terminal_texture(
                 dirty_rows = (0..surface.rows).collect();
             }
 
+            if !full_redraw
+                && terminal.pending_damage == Some(TerminalDamage::Full)
+                && presented_terminal.uploaded_active_override_revision == active_override_revision
+                && presented_terminal.uploaded_text_selection_revision
+                    == terminal_selection_revision
+            {
+                if let Some(rows) =
+                    presented_terminal
+                        .uploaded_surface
+                        .as_ref()
+                        .and_then(|previous| {
+                            translate_terminal_viewport_pixels(
+                                pixels,
+                                upload_state.texture_size,
+                                upload_state.cell_size,
+                                previous,
+                                surface,
+                            )
+                        })
+                {
+                    dirty_rows = rows;
+                }
+            }
+
             if full_redraw {
                 clear_terminal_pixels(pixels);
             }
@@ -349,6 +373,7 @@ pub(crate) fn sync_terminal_texture(
             presented_terminal.uploaded_revision = terminal.surface_revision;
             presented_terminal.uploaded_active_override_revision = active_override_revision;
             presented_terminal.uploaded_text_selection_revision = terminal_selection_revision;
+            presented_terminal.uploaded_surface = Some(surface.clone());
             terminal.pending_damage = None;
         } else {
             append_debug_log("texture sync: target image missing in assets");
@@ -365,6 +390,129 @@ fn clear_terminal_pixels(buffer: &mut [u8]) {
             DEFAULT_BG.b(),
             DEFAULT_BG.a(),
         ]);
+    }
+}
+
+/// Tries to reuse already-rasterized pixels for pure viewport scroll translation.
+///
+/// When the visible surface only changed by a vertical `display_offset` shift and the overlapping
+/// rows still match exactly, the existing texture can be shifted by whole cell rows and only the
+/// newly exposed rows plus cursor rows need repainting.
+fn translate_terminal_viewport_pixels(
+    buffer: &mut [u8],
+    texture_size: UVec2,
+    cell_size: UVec2,
+    previous: &TerminalSurface,
+    current: &TerminalSurface,
+) -> Option<Vec<usize>> {
+    let shift_rows = detect_vertical_surface_translation(previous, current)?;
+    let shift_px = shift_rows
+        .unsigned_abs()
+        .saturating_mul(cell_size.y as usize);
+    if shift_px == 0 || shift_px >= texture_size.y as usize {
+        return None;
+    }
+
+    shift_terminal_pixel_rows(buffer, texture_size, shift_rows);
+
+    let mut dirty = exposed_rows_for_translation(current.rows, shift_rows);
+    if let Some(cursor) = previous
+        .cursor
+        .as_ref()
+        .filter(|cursor| cursor.y < current.rows)
+    {
+        dirty.push(cursor.y);
+    }
+    if let Some(cursor) = current
+        .cursor
+        .as_ref()
+        .filter(|cursor| cursor.y < current.rows)
+    {
+        dirty.push(cursor.y);
+    }
+    dirty.sort_unstable();
+    dirty.dedup();
+    Some(dirty)
+}
+
+fn detect_vertical_surface_translation(
+    previous: &TerminalSurface,
+    current: &TerminalSurface,
+) -> Option<isize> {
+    if previous.cols != current.cols || previous.rows != current.rows {
+        return None;
+    }
+
+    let shift_rows = current.display_offset as isize - previous.display_offset as isize;
+    if shift_rows == 0 || shift_rows.unsigned_abs() >= current.rows {
+        return None;
+    }
+
+    if shift_rows > 0 {
+        let shift = shift_rows as usize;
+        for row in shift..current.rows {
+            if !surface_rows_match(previous, row - shift, current, row) {
+                return None;
+            }
+        }
+    } else {
+        let shift = shift_rows.unsigned_abs();
+        for row in 0..(current.rows - shift) {
+            if !surface_rows_match(previous, row + shift, current, row) {
+                return None;
+            }
+        }
+    }
+
+    Some(shift_rows)
+}
+
+fn surface_rows_match(
+    previous: &TerminalSurface,
+    previous_row: usize,
+    current: &TerminalSurface,
+    current_row: usize,
+) -> bool {
+    (0..current.cols).all(|x| previous.cell(x, previous_row) == current.cell(x, current_row))
+}
+
+fn exposed_rows_for_translation(rows: usize, shift_rows: isize) -> Vec<usize> {
+    if shift_rows > 0 {
+        (0..shift_rows as usize).collect()
+    } else {
+        ((rows - shift_rows.unsigned_abs())..rows).collect()
+    }
+}
+
+fn shift_terminal_pixel_rows(buffer: &mut [u8], texture_size: UVec2, shift_rows: isize) {
+    let stride = texture_size.x as usize * 4;
+    let total_rows = texture_size.y as usize;
+    let shift = shift_rows.unsigned_abs();
+    if shift == 0 || shift >= total_rows {
+        return;
+    }
+
+    let blank_pixel = [
+        DEFAULT_BG.r(),
+        DEFAULT_BG.g(),
+        DEFAULT_BG.b(),
+        DEFAULT_BG.a(),
+    ];
+    let fill_rows = |buffer: &mut [u8], start_row: usize, end_row: usize| {
+        for row in start_row..end_row.min(total_rows) {
+            let row_slice = &mut buffer[row * stride..(row + 1) * stride];
+            for pixel in row_slice.chunks_exact_mut(4) {
+                pixel.copy_from_slice(&blank_pixel);
+            }
+        }
+    };
+
+    if shift_rows > 0 {
+        buffer.copy_within(0..(total_rows - shift) * stride, shift * stride);
+        fill_rows(buffer, 0, shift);
+    } else {
+        buffer.copy_within(shift * stride..total_rows * stride, 0);
+        fill_rows(buffer, total_rows - shift, total_rows);
     }
 }
 
