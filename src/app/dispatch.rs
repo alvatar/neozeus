@@ -16,7 +16,7 @@ use crate::{
 
 use super::{
     commands::{
-        AegisCommand, AgentCommand, AppCommand, ComposerCommand, OwnedTmuxCommand,
+        AegisCommand, AgentCommand, AppCommand, ComposerCommand, OwnedTmuxCommand, RecoveryCommand,
         TaskCommand as AppTaskCommand, WidgetCommand,
     },
     session::{AppSessionState, VisibilityMode},
@@ -419,7 +419,6 @@ fn apply_agent_command(command: &AgentCommand, ctx: &mut AppCommandContext) {
                 &mut ctx.view_state,
                 &mut ctx.visibility_state,
             );
-            mark_app_state_dirty(&mut ctx.app_state_persistence, Some(&ctx.time));
             ctx.redraws.write(RequestRedraw);
         }
         AgentCommand::KillSelected => {
@@ -634,6 +633,34 @@ fn apply_aegis_command(command: &AegisCommand, ctx: &mut AppCommandContext) {
     }
 }
 
+fn apply_recovery_command(command: &RecoveryCommand, ctx: &mut AppCommandContext) {
+    match command {
+        RecoveryCommand::ResetAll => use_cases::reset_runtime_from_snapshot(
+            &mut ctx.agent_catalog,
+            &mut ctx.runtime_index,
+            &mut ctx.app_session,
+            &mut ctx.selection,
+            &mut ctx.terminal_manager,
+            &mut ctx.focus_state,
+            &mut ctx.owned_tmux_sessions,
+            &mut ctx.active_terminal_content,
+            &ctx.runtime_spawner,
+            &mut ctx.input_capture,
+            &mut ctx.app_state_persistence,
+            &mut ctx.aegis_policy,
+            &mut ctx.aegis_runtime,
+            &mut ctx.visibility_state,
+            &mut ctx.view_state,
+            ctx.presentation_store.as_deref_mut(),
+            &mut ctx.conversations,
+            &mut ctx.conversation_persistence,
+            &mut ctx.task_store,
+            &ctx.time,
+            &mut ctx.redraws,
+        ),
+    }
+}
+
 fn apply_widget_command(command: &WidgetCommand, ctx: &mut AppCommandContext) {
     match command {
         WidgetCommand::Toggle(widget_id) => {
@@ -662,6 +689,7 @@ pub(super) fn apply_app_commands(
             AppCommand::Task(command) => apply_task_command(command, &mut ctx),
             AppCommand::Composer(command) => apply_composer_command(command, &mut ctx),
             AppCommand::Aegis(command) => apply_aegis_command(command, &mut ctx),
+            AppCommand::Recovery(command) => apply_recovery_command(command, &mut ctx),
             AppCommand::Widget(command) => apply_widget_command(command, &mut ctx),
         }
     }

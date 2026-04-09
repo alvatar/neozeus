@@ -17,6 +17,7 @@ pub(crate) enum AppCommand {
     Task(TaskCommand),
     Composer(ComposerCommand),
     Aegis(AegisCommand),
+    Recovery(RecoveryCommand),
     Widget(WidgetCommand),
 }
 
@@ -77,6 +78,11 @@ pub(crate) enum AegisCommand {
     Disable {
         agent_id: AgentId,
     },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum RecoveryCommand {
+    ResetAll,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

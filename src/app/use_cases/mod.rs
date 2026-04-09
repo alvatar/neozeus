@@ -5,6 +5,7 @@ mod conversation;
 mod focus_agent;
 mod kill_selected_agent;
 mod owned_tmux;
+mod recovery;
 mod restore_app;
 mod spawn_agent_terminal;
 mod tasks;
@@ -20,6 +21,7 @@ pub(crate) use conversation::{send_message, send_outbound_message, OutboundMessa
 pub(crate) use focus_agent::{apply_focus_intent, focus_agent, focus_agent_without_persist};
 pub(crate) use kill_selected_agent::kill_selected_agent;
 pub(crate) use owned_tmux::{kill_selected_owned_tmux, select_owned_tmux};
+pub(crate) use recovery::reset_runtime_from_snapshot;
 pub(crate) use restore_app::restore_app;
 pub(crate) use spawn_agent_terminal::{
     attach_restored_terminal, claude_fork_launch_spec, codex_fork_launch_spec,

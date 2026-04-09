@@ -352,6 +352,7 @@ fn world_with_active_terminal_and_receiver_and_mailbox(
     world.insert_resource(TerminalVisibilityState::default());
     world.insert_resource(crate::terminals::TerminalViewState::default());
     init_hud_commands(&mut world);
+    world.init_resource::<Messages<RequestRedraw>>();
     world.spawn((window, PrimaryWindow));
     world.spawn((
         TerminalPanel { id: terminal_id },
@@ -1429,6 +1430,67 @@ fn kill_active_terminal_shortcut_only_uses_plain_ctrl_k() {
     assert!(!should_kill_active_terminal(&event, &alt_ctrl_keys));
 }
 
+#[test]
+fn ctrl_alt_r_opens_reset_dialog_without_emitting_command() {
+    let mut world = World::default();
+    world.insert_resource(ButtonInput::<KeyCode>::default());
+    world.insert_resource(AppSessionState::default());
+    world.insert_resource(crate::hud::HudInputCaptureState::default());
+    world.init_resource::<Messages<KeyboardInput>>();
+    world.init_resource::<Messages<AppExit>>();
+    world.init_resource::<Messages<RequestRedraw>>();
+    world.init_resource::<Messages<AppCommand>>();
+    world.init_resource::<Messages<RequestRedraw>>();
+
+    let mut keys = ButtonInput::<KeyCode>::default();
+    keys.press(KeyCode::ControlLeft);
+    keys.press(KeyCode::AltLeft);
+    world.insert_resource(keys);
+    world
+        .resource_mut::<Messages<KeyboardInput>>()
+        .write(pressed_text(KeyCode::KeyR, Some("r")));
+
+    world
+        .run_system_once(handle_terminal_lifecycle_shortcuts)
+        .unwrap();
+
+    assert!(world.resource::<AppSessionState>().reset_dialog.visible);
+    assert!(world.resource::<Messages<AppCommand>>().is_empty());
+    assert_eq!(world.resource::<Messages<RequestRedraw>>().len(), 1);
+}
+
+#[test]
+fn ctrl_alt_r_is_suppressed_while_other_modal_has_keyboard_capture() {
+    let mut world = World::default();
+    world.insert_resource(ButtonInput::<KeyCode>::default());
+    world.insert_resource(AppSessionState::default());
+    world
+        .resource_mut::<AppSessionState>()
+        .create_agent_dialog
+        .open(CreateAgentKind::Pi);
+    world.insert_resource(crate::hud::HudInputCaptureState::default());
+    world.init_resource::<Messages<KeyboardInput>>();
+    world.init_resource::<Messages<AppExit>>();
+    world.init_resource::<Messages<RequestRedraw>>();
+    world.init_resource::<Messages<AppCommand>>();
+    world.init_resource::<Messages<RequestRedraw>>();
+
+    let mut keys = ButtonInput::<KeyCode>::default();
+    keys.press(KeyCode::ControlLeft);
+    keys.press(KeyCode::AltLeft);
+    world.insert_resource(keys);
+    world
+        .resource_mut::<Messages<KeyboardInput>>()
+        .write(pressed_text(KeyCode::KeyR, Some("r")));
+
+    world
+        .run_system_once(handle_terminal_lifecycle_shortcuts)
+        .unwrap();
+
+    assert!(!world.resource::<AppSessionState>().reset_dialog.visible);
+    assert!(world.resource::<Messages<AppCommand>>().is_empty());
+}
+
 /// Verifies that the application-exit shortcut is accepted only for unmodified `F10`.
 #[test]
 fn exit_application_shortcut_only_uses_plain_f10() {
@@ -1470,6 +1532,7 @@ fn ctrl_k_removes_disconnected_active_terminal_in_one_press() {
     world.insert_resource(keys);
     world.init_resource::<Messages<KeyboardInput>>();
     world.init_resource::<Messages<AppExit>>();
+    world.init_resource::<Messages<RequestRedraw>>();
     world
         .resource_mut::<Messages<KeyboardInput>>()
         .write(pressed_text(KeyCode::KeyK, Some("k")));
@@ -1521,6 +1584,7 @@ fn ctrl_k_removes_terminal_when_daemon_runtime_is_disconnected_but_local_snapsho
     world.insert_resource(keys);
     world.init_resource::<Messages<KeyboardInput>>();
     world.init_resource::<Messages<AppExit>>();
+    world.init_resource::<Messages<RequestRedraw>>();
     world
         .resource_mut::<Messages<KeyboardInput>>()
         .write(pressed_text(KeyCode::KeyK, Some("k")));
@@ -1551,6 +1615,7 @@ fn f10_enqueues_app_exit() {
     init_hud_commands(&mut world);
     world.init_resource::<Messages<KeyboardInput>>();
     world.init_resource::<Messages<AppExit>>();
+    world.init_resource::<Messages<RequestRedraw>>();
 
     world
         .resource_mut::<Messages<KeyboardInput>>()
@@ -1565,7 +1630,7 @@ fn f10_enqueues_app_exit() {
 }
 
 /// Verifies that clicking empty background clears focus, restores `ShowAll`, resets view offset, and
-/// marks session persistence dirty.
+/// clears focus/visibility without mutating recoverable snapshot persistence.
 #[test]
 fn background_click_hides_active_terminal() {
     // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
@@ -1600,7 +1665,7 @@ fn background_click_hides_active_terminal() {
     assert!(world
         .resource::<AppStatePersistenceState>()
         .dirty_since_secs
-        .is_some());
+        .is_none());
     assert!(manager.get(terminal_id).is_some());
 }
 
@@ -3652,6 +3717,7 @@ fn ctrl_k_kills_selected_agent_without_hidden_session_state() {
     world.insert_resource(keys);
     world.init_resource::<Messages<KeyboardInput>>();
     world.init_resource::<Messages<AppExit>>();
+    world.init_resource::<Messages<RequestRedraw>>();
     world
         .resource_mut::<Messages<KeyboardInput>>()
         .write(pressed_text(KeyCode::KeyK, Some("k")));
@@ -3881,6 +3947,7 @@ fn lifecycle_shortcuts_are_suppressed_while_message_box_is_open() {
     init_hud_commands(&mut world);
     world.init_resource::<Messages<KeyboardInput>>();
     world.init_resource::<Messages<AppExit>>();
+    world.init_resource::<Messages<RequestRedraw>>();
     world
         .resource_mut::<Messages<KeyboardInput>>()
         .write(pressed_text(KeyCode::KeyK, Some("k")));
@@ -3901,6 +3968,7 @@ fn ctrl_k_kills_selected_owned_tmux_session_before_selected_agent_row() {
     world.insert_resource(ButtonInput::<KeyCode>::default());
     world.init_resource::<Messages<KeyboardInput>>();
     world.init_resource::<Messages<AppExit>>();
+    world.init_resource::<Messages<RequestRedraw>>();
     world
         .resource_mut::<ButtonInput<KeyCode>>()
         .press(KeyCode::ControlLeft);
@@ -3941,6 +4009,7 @@ fn lifecycle_shortcuts_are_suppressed_while_direct_input_is_open() {
     init_hud_commands(&mut world);
     world.init_resource::<Messages<KeyboardInput>>();
     world.init_resource::<Messages<AppExit>>();
+    world.init_resource::<Messages<RequestRedraw>>();
     world
         .resource_mut::<Messages<KeyboardInput>>()
         .write(pressed_text(KeyCode::KeyK, Some("k")));

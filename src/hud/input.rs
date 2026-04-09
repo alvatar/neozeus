@@ -5,9 +5,9 @@ use crate::{
     },
     composer::{
         aegis_dialog_target_at, clone_agent_dialog_target_at, create_agent_dialog_target_at,
-        message_box_action_at, rename_agent_dialog_target_at, task_dialog_action_at,
-        AegisDialogTarget, CloneAgentDialogTarget, CreateAgentDialogTarget,
-        RenameAgentDialogTarget,
+        message_box_action_at, rename_agent_dialog_target_at, reset_dialog_target_at,
+        task_dialog_action_at, AegisDialogTarget, CloneAgentDialogTarget, CreateAgentDialogTarget,
+        RenameAgentDialogTarget, ResetDialogTarget,
     },
     text_selection::AgentListTextSelectionState,
 };
@@ -99,6 +99,7 @@ fn handle_hud_pointer_input_with_context(ctx: &mut HudPointerContext<'_, '_>) {
     if handle_create_agent_dialog_pointer(ctx)
         || handle_clone_agent_dialog_pointer(ctx)
         || handle_rename_agent_dialog_pointer(ctx)
+        || handle_reset_dialog_pointer(ctx)
         || handle_aegis_dialog_pointer(ctx)
         || handle_message_dialog_pointer(ctx)
         || handle_task_dialog_pointer(ctx)
@@ -219,6 +220,33 @@ fn handle_rename_agent_dialog_pointer(ctx: &mut HudPointerContext<'_, '_>) -> bo
                     {
                         ctx.app_commands.write(command);
                     }
+                }
+            }
+            ctx.redraws.write(RequestRedraw);
+        }
+    }
+    true
+}
+
+fn handle_reset_dialog_pointer(ctx: &mut HudPointerContext<'_, '_>) -> bool {
+    if !ctx.app_session.reset_dialog.visible {
+        return false;
+    }
+    ctx.layout_state.drag = None;
+    let Some(cursor) = cursor_hud_position(&ctx.primary_window) else {
+        return true;
+    };
+    if ctx.mouse_buttons.just_pressed(MouseButton::Left) {
+        if let Some(target) = reset_dialog_target_at(&ctx.primary_window, cursor) {
+            match target {
+                ResetDialogTarget::CancelButton => {
+                    ctx.app_session.reset_dialog.focus = crate::app::ResetDialogFocus::CancelButton;
+                    ctx.app_session.reset_dialog.close();
+                }
+                ResetDialogTarget::ResetButton => {
+                    ctx.app_session.reset_dialog.focus = crate::app::ResetDialogFocus::ResetButton;
+                    ctx.app_commands
+                        .write(AppCommand::Recovery(crate::app::RecoveryCommand::ResetAll));
                 }
             }
             ctx.redraws.write(RequestRedraw);

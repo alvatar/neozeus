@@ -17,6 +17,8 @@ const CREATE_AGENT_DIALOG_RADIO_SIZE: f32 = 22.0;
 const CREATE_AGENT_DIALOG_RADIO_GAP: f32 = 20.0;
 const CLONE_AGENT_DIALOG_HEIGHT_RATIO: f32 = 0.24;
 const AEGIS_DIALOG_HEIGHT_RATIO: f32 = 0.42;
+const RESET_DIALOG_WIDTH_RATIO: f32 = 0.38;
+const RESET_DIALOG_HEIGHT_RATIO: f32 = 0.18;
 const TEXT_EDITOR_BODY_INSET_X: f32 = 22.0;
 const TEXT_EDITOR_BODY_TOP_Y: f32 = 64.0;
 const TEXT_EDITOR_BODY_BOTTOM_GAP: f32 = 12.0;
@@ -58,6 +60,12 @@ pub(crate) enum RenameAgentDialogTarget {
 pub(crate) enum AegisDialogTarget {
     PromptField,
     EnableButton,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ResetDialogTarget {
+    CancelButton,
+    ResetButton,
 }
 
 /// Computes the outer rectangle for the message-box modal.
@@ -191,6 +199,57 @@ pub(crate) fn rename_agent_dialog_rect(window: &Window) -> HudRect {
         w: size.x,
         h: size.y,
     }
+}
+
+pub(crate) fn reset_dialog_rect(window: &Window) -> HudRect {
+    let size = Vec2::new(
+        (window.width() * RESET_DIALOG_WIDTH_RATIO).clamp(420.0, 720.0),
+        (window.height() * RESET_DIALOG_HEIGHT_RATIO).clamp(160.0, 220.0),
+    );
+    HudRect {
+        x: window.width() * 0.5 - size.x * 0.5,
+        y: window.height() * 0.5 - size.y * 0.5,
+        w: size.x,
+        h: size.y,
+    }
+}
+
+pub(crate) fn reset_dialog_buttons(
+    window: &Window,
+) -> [(ResetDialogTarget, HudRect, &'static str); 2] {
+    let rect = reset_dialog_rect(window);
+    let base_y = rect.y + rect.h - 40.0;
+    let reset_x = rect.x + rect.w - 24.0 - ACTION_BUTTON_W;
+    let cancel_x = reset_x - ACTION_BUTTON_GAP - ACTION_BUTTON_W;
+    [
+        (
+            ResetDialogTarget::CancelButton,
+            HudRect {
+                x: cancel_x,
+                y: base_y,
+                w: ACTION_BUTTON_W,
+                h: ACTION_BUTTON_H,
+            },
+            "Cancel",
+        ),
+        (
+            ResetDialogTarget::ResetButton,
+            HudRect {
+                x: reset_x,
+                y: base_y,
+                w: ACTION_BUTTON_W,
+                h: ACTION_BUTTON_H,
+            },
+            "Reset",
+        ),
+    ]
+}
+
+pub(crate) fn reset_dialog_target_at(window: &Window, point: Vec2) -> Option<ResetDialogTarget> {
+    reset_dialog_buttons(window)
+        .into_iter()
+        .find(|(_, rect, _)| rect.contains(point))
+        .map(|(target, _, _)| target)
 }
 
 pub(crate) fn aegis_dialog_rect(window: &Window) -> HudRect {

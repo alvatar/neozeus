@@ -10,7 +10,7 @@ mod use_cases;
 
 pub(crate) use commands::{
     AegisCommand, AgentCommand, AppCommand, ComposerCommand, ComposerRequest, OwnedTmuxCommand,
-    TaskCommand, WidgetCommand,
+    RecoveryCommand, TaskCommand, WidgetCommand,
 };
 pub(crate) use persistence::{
     load_persisted_app_state_from, mark_app_state_dirty, ordered_reconciled_persisted_agents,
@@ -19,7 +19,7 @@ pub(crate) use persistence::{
 };
 pub(crate) use session::{
     AegisDialogField, AppSessionState, CloneAgentDialogField, CreateAgentDialogField,
-    CreateAgentKind, RenameAgentDialogField, TextFieldState, VisibilityMode,
+    CreateAgentKind, RenameAgentDialogField, ResetDialogFocus, TextFieldState, VisibilityMode,
 };
 pub(crate) use use_cases::{
     clear_composer_and_direct_input, focus_agent_without_persist, open_composer, restore_app,

@@ -1,7 +1,7 @@
 use crate::{
     app::{
         AegisDialogField, AppCommand, AppSessionState, CloneAgentDialogField, ComposerCommand,
-        CreateAgentDialogField, RenameAgentDialogField,
+        CreateAgentDialogField, RecoveryCommand, RenameAgentDialogField, ResetDialogFocus,
     },
     composer::{MessageDialogFocus, TaskDialogFocus},
 };
@@ -287,6 +287,44 @@ pub(super) fn handle_rename_agent_dialog_key(
         clear_error,
         &mut app_session.rename_agent_dialog.error,
     )
+}
+
+pub(super) fn handle_reset_dialog_key(
+    app_session: &mut AppSessionState,
+    event: &KeyboardInput,
+    modifiers: KeyModifiers,
+    emitted_commands: &mut Vec<AppCommand>,
+) -> ModalKeyResult {
+    match dialog_shell_action(event, modifiers) {
+        DialogShellAction::Escape => {
+            app_session.reset_dialog.close();
+            return ModalKeyResult::redraw_and_stop();
+        }
+        DialogShellAction::Tab { reverse } => {
+            app_session.reset_dialog.cycle_focus(reverse);
+            return ModalKeyResult::redraw();
+        }
+        DialogShellAction::None => {}
+    }
+
+    match app_session.reset_dialog.focus {
+        ResetDialogFocus::CancelButton => {
+            if modifiers.plain() && matches!(event.key_code, KeyCode::Enter | KeyCode::Space) {
+                app_session.reset_dialog.close();
+                ModalKeyResult::redraw_and_stop()
+            } else {
+                ModalKeyResult::default()
+            }
+        }
+        ResetDialogFocus::ResetButton => {
+            if modifiers.plain() && matches!(event.key_code, KeyCode::Enter | KeyCode::Space) {
+                emitted_commands.push(AppCommand::Recovery(RecoveryCommand::ResetAll));
+                ModalKeyResult::redraw_and_stop()
+            } else {
+                ModalKeyResult::default()
+            }
+        }
+    }
 }
 
 pub(super) fn handle_aegis_dialog_key(
@@ -698,13 +736,13 @@ fn handle_agent_name_field_event(
 #[cfg(test)]
 mod tests {
     use super::{
-        handle_message_dialog_clipboard_text, handle_message_dialog_key,
+        handle_message_dialog_clipboard_text, handle_message_dialog_key, handle_reset_dialog_key,
         message_dialog_requests_clipboard_paste, ClipboardIngressDecision, KeyModifiers,
         MessageDialogClipboardIngressState, MESSAGE_DIALOG_CLIPBOARD_ESCAPE_GRACE,
     };
     use crate::{
         agents::AgentId,
-        app::{AppCommand, AppSessionState, ComposerCommand},
+        app::{AppCommand, AppSessionState, ComposerCommand, RecoveryCommand, ResetDialogFocus},
         composer::MessageDialogFocus,
     };
     use bevy::{
@@ -881,6 +919,33 @@ mod tests {
         assert!(!outcome.stop);
         assert!(commands.is_empty());
         assert_eq!(app_session.composer.message_editor.cursor, 2);
+    }
+
+    #[test]
+    fn reset_dialog_confirm_emits_reset_command() {
+        let mut app_session = AppSessionState::default();
+        app_session.reset_dialog.open();
+        app_session.reset_dialog.focus = ResetDialogFocus::ResetButton;
+        let mut commands = Vec::new();
+
+        let outcome = handle_reset_dialog_key(
+            &mut app_session,
+            &pressed(KeyCode::Enter, Key::Enter, None),
+            KeyModifiers {
+                ctrl: false,
+                alt: false,
+                super_key: false,
+                shift: false,
+            },
+            &mut commands,
+        );
+
+        assert!(outcome.stop);
+        assert!(outcome.needs_redraw);
+        assert_eq!(
+            commands,
+            vec![AppCommand::Recovery(RecoveryCommand::ResetAll)]
+        );
     }
 
     #[test]

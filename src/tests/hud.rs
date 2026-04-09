@@ -38,7 +38,18 @@ use bevy::{
     prelude::*,
     window::{PrimaryWindow, RequestRedraw},
 };
-use std::{fs, path::PathBuf, process::Command, sync::Arc, time::Duration};
+use std::{
+    fs,
+    path::PathBuf,
+    process::Command,
+    sync::{Arc, Mutex, OnceLock},
+    time::Duration,
+};
+
+fn home_env_test_lock() -> &'static Mutex<()> {
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
+}
 
 fn sqlite3_available() -> bool {
     Command::new("sqlite3")
@@ -1622,6 +1633,7 @@ fn create_agent_request_bootstraps_selected_cli_command() {
     if !sqlite3_available() {
         return;
     }
+    let _home_lock = home_env_test_lock().lock().unwrap();
     let previous_home = std::env::var_os("HOME");
     let codex_home = temp_dir("neozeus-codex-create-test-home");
     std::env::set_var("HOME", &codex_home);
@@ -1861,6 +1873,7 @@ fn clone_codex_agent_request_forks_and_captures_child_recovery_spec() {
     if !sqlite3_available() {
         return;
     }
+    let _home_lock = home_env_test_lock().lock().unwrap();
     let previous_home = std::env::var_os("HOME");
     let codex_home = temp_dir("neozeus-codex-clone-test-home");
     std::env::set_var("HOME", &codex_home);

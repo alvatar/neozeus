@@ -146,7 +146,19 @@ mod tests {
         codex_home_dir_with, latest_codex_state_db_path_with, list_codex_threads_with_sqlite3_path,
         wait_for_new_codex_thread_id,
     };
-    use std::{collections::BTreeSet, path::PathBuf, process::Command, thread, time::Duration};
+    use std::{
+        collections::BTreeSet,
+        path::PathBuf,
+        process::Command,
+        sync::{Mutex, OnceLock},
+        thread,
+        time::Duration,
+    };
+
+    fn home_env_test_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
 
     fn temp_dir(prefix: &str) -> PathBuf {
         let nanos = std::time::SystemTime::now()
@@ -239,6 +251,7 @@ mod tests {
         if !sqlite3_available() {
             return;
         }
+        let _home_lock = home_env_test_lock().lock().unwrap();
         let home = temp_dir("codex-state-capture");
         let db = home.join(".codex").join("state_5.sqlite");
         build_state_db(&db, &[("thread-a", "/tmp/a", 10, "first")]);

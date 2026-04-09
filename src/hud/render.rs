@@ -1,7 +1,7 @@
 use crate::{
     app::{
         AegisDialogField, AppSessionState, CloneAgentDialogField, CreateAgentDialogField,
-        RenameAgentDialogField, TextFieldState,
+        RenameAgentDialogField, ResetDialogFocus, TextFieldState,
     },
     composer::{
         aegis_dialog_rect, aegis_enable_button_rect, clone_agent_dialog_rect,
@@ -9,9 +9,9 @@ use crate::{
         create_agent_create_button_rect, create_agent_dialog_rect, create_agent_kind_option_rects,
         create_agent_name_field_rect, create_agent_starting_folder_rect,
         message_box_action_buttons, message_box_rect, rename_agent_dialog_rect,
-        rename_agent_name_field_rect, rename_agent_submit_button_rect, task_dialog_action_buttons,
-        task_dialog_rect, wrapped_text_rows_measured, MessageDialogFocus, TaskDialogFocus,
-        TextEditorState,
+        rename_agent_name_field_rect, rename_agent_submit_button_rect, reset_dialog_buttons,
+        reset_dialog_rect, task_dialog_action_buttons, task_dialog_rect,
+        wrapped_text_rows_measured, MessageDialogFocus, TaskDialogFocus, TextEditorState,
     },
     startup::DaemonConnectionState,
 };
@@ -1083,6 +1083,49 @@ fn draw_text_editor_dialog(
 }
 
 /// Draws the message-box modal, including title, editor body, buttons, and status line.
+fn draw_reset_dialog(painter: &mut HudPainter, window: &Window, app_session: &AppSessionState) {
+    if !app_session.reset_dialog.visible {
+        return;
+    }
+
+    let dialog = &app_session.reset_dialog;
+    let rect = reset_dialog_rect(window);
+    let buttons = reset_dialog_buttons(window);
+    painter.fill_rect(rect, HudColors::MESSAGE_BOX, 12.0);
+    painter.stroke_rect(rect, HudColors::BORDER, 12.0);
+    painter.label(
+        Vec2::new(rect.x + 24.0, rect.y + 14.0),
+        "Reset runtime",
+        20.0,
+        HudColors::TEXT,
+        VelloTextAnchor::TopLeft,
+    );
+    painter.label(
+        Vec2::new(rect.x + 24.0, rect.y + 56.0),
+        "Kill all live agents, terminals, and owned tmux sessions, then rebuild from the saved snapshot.",
+        16.0,
+        HudColors::TEXT_MUTED,
+        VelloTextAnchor::TopLeft,
+    );
+    draw_dialog_button_row(
+        painter,
+        buttons.into_iter().map(|(target, rect, label)| {
+            (
+                rect,
+                label,
+                match target {
+                    crate::composer::ResetDialogTarget::CancelButton => {
+                        dialog.focus == ResetDialogFocus::CancelButton
+                    }
+                    crate::composer::ResetDialogTarget::ResetButton => {
+                        dialog.focus == ResetDialogFocus::ResetButton
+                    }
+                },
+            )
+        }),
+    );
+}
+
 fn draw_aegis_dialog(painter: &mut HudPainter, window: &Window, app_session: &AppSessionState) {
     if !app_session.aegis_dialog.visible {
         return;
@@ -1425,6 +1468,7 @@ pub(crate) fn render_hud_modal_scene(
     draw_create_agent_dialog(&mut painter, &primary_window, &app_session);
     draw_clone_agent_dialog(&mut painter, &primary_window, &app_session);
     draw_rename_agent_dialog(&mut painter, &primary_window, &app_session);
+    draw_reset_dialog(&mut painter, &primary_window, &app_session);
     draw_aegis_dialog(&mut painter, &primary_window, &app_session);
     draw_message_box(
         &mut painter,

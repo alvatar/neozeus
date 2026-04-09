@@ -203,14 +203,19 @@ pub(crate) fn handle_global_terminal_spawn_shortcut(
 /// otherwise scan the frame's key presses for `F10` to exit or `Ctrl+k` to kill the currently
 /// selected row. Exit short-circuits the loop because the rest of the frame does not matter once
 /// shutdown is requested.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "lifecycle shortcut handling now owns reset-dialog open plus existing selection/exit routing"
+)]
 pub(crate) fn handle_terminal_lifecycle_shortcuts(
     mut messages: MessageReader<KeyboardInput>,
     keys: Res<ButtonInput<KeyCode>>,
-    app_session: Res<AppSessionState>,
+    mut app_session: ResMut<AppSessionState>,
     input_capture: Res<HudInputCaptureState>,
     selection: Option<Res<crate::hud::AgentListSelection>>,
     mut app_commands: MessageWriter<AppCommand>,
     mut app_exits: MessageWriter<AppExit>,
+    mut redraws: MessageWriter<RequestRedraw>,
 ) {
     // Keep the control flow staged so each branch owns one behavior path and later branches only run when earlier capture rules do not apply.
     if app_session.keyboard_capture_active(&input_capture) {
@@ -223,6 +228,17 @@ pub(crate) fn handle_terminal_lifecycle_shortcuts(
     for event in messages.read() {
         if should_exit_application(event, &keys) {
             app_exits.write(AppExit::Success);
+            break;
+        }
+        let (ctrl, alt, super_key) = has_plain_modifiers(&keys);
+        if ctrl
+            && alt
+            && !super_key
+            && event.state == ButtonState::Pressed
+            && event.key_code == KeyCode::KeyR
+        {
+            app_session.reset_dialog.open();
+            redraws.write(RequestRedraw);
             break;
         }
         if should_kill_active_terminal(event, &keys) {
@@ -1418,6 +1434,33 @@ pub(crate) fn handle_terminal_message_box_keyboard(
         super_key,
         shift: keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight),
     };
+
+    if app_session.reset_dialog.visible {
+        let mut needs_redraw = false;
+        let mut emitted_commands = Vec::new();
+        for event in messages.read() {
+            if event.state != ButtonState::Pressed {
+                continue;
+            }
+            let outcome = modal_dialogs::handle_reset_dialog_key(
+                &mut app_session,
+                event,
+                modifiers,
+                &mut emitted_commands,
+            );
+            needs_redraw |= outcome.needs_redraw;
+            if outcome.stop {
+                break;
+            }
+        }
+        for command in emitted_commands {
+            app_commands.write(command);
+        }
+        if needs_redraw {
+            redraws.write(RequestRedraw);
+        }
+        return;
+    }
 
     if app_session.aegis_dialog.visible {
         let mut needs_redraw = false;

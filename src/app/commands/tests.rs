@@ -1,4 +1,4 @@
-use super::{AegisCommand, AppCommand, ComposerCommand, ComposerRequest};
+use super::{AegisCommand, AppCommand, ComposerCommand, ComposerRequest, RecoveryCommand};
 use crate::{agents::AgentId, composer::ComposerMode};
 
 /// Verifies that app command can wrap composer request.
@@ -19,4 +19,10 @@ fn app_command_can_wrap_aegis_request() {
         prompt_text: "keep going".into(),
     });
     assert!(matches!(command, AppCommand::Aegis(_)));
+}
+
+#[test]
+fn app_command_can_wrap_recovery_request() {
+    let command = AppCommand::Recovery(RecoveryCommand::ResetAll);
+    assert!(matches!(command, AppCommand::Recovery(_)));
 }

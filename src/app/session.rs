@@ -6,7 +6,7 @@ use bevy::prelude::Resource;
 pub(crate) use create_agent_dialog::{
     AegisDialogField, AegisDialogState, CloneAgentDialogField, CloneAgentDialogState,
     CreateAgentDialogField, CreateAgentDialogState, CreateAgentKind, RenameAgentDialogField,
-    RenameAgentDialogState, TextFieldState,
+    RenameAgentDialogState, ResetDialogFocus, ResetDialogState, TextFieldState,
 };
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -24,6 +24,7 @@ pub(crate) enum DialogInputOwner {
     CloneAgent,
     RenameAgent,
     Aegis,
+    Reset,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -89,6 +90,7 @@ pub(crate) struct AppSessionState {
     pub(crate) clone_agent_dialog: CloneAgentDialogState,
     pub(crate) rename_agent_dialog: RenameAgentDialogState,
     pub(crate) aegis_dialog: AegisDialogState,
+    pub(crate) reset_dialog: ResetDialogState,
 }
 
 impl AppSessionState {
@@ -109,6 +111,8 @@ impl AppSessionState {
             InputOwner::Dialog(DialogInputOwner::RenameAgent)
         } else if self.aegis_dialog.visible {
             InputOwner::Dialog(DialogInputOwner::Aegis)
+        } else if self.reset_dialog.visible {
+            InputOwner::Dialog(DialogInputOwner::Reset)
         } else if let Some(terminal_id) = input_capture.direct_input_terminal {
             InputOwner::DirectTerminal(terminal_id)
         } else {
@@ -129,6 +133,7 @@ impl AppSessionState {
             || self.clone_agent_dialog.visible
             || self.rename_agent_dialog.visible
             || self.aegis_dialog.visible
+            || self.reset_dialog.visible
     }
 
     pub(crate) fn modal_input_owner(&self, input_capture: &HudInputCaptureState) -> bool {

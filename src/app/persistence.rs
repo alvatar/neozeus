@@ -326,6 +326,29 @@ fn build_persisted_app_state(
     PersistedAppState { agents }
 }
 
+fn write_file_atomically(path: &PathBuf, content: &str) -> Result<(), String> {
+    let mut tmp_path = path.clone();
+    let file_name = path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .ok_or_else(|| format!("invalid app state file name {}", path.display()))?;
+    tmp_path.set_file_name(format!(".{file_name}.tmp"));
+    fs::write(&tmp_path, content).map_err(|error| {
+        format!(
+            "failed to write temp app state {}: {error}",
+            tmp_path.display()
+        )
+    })?;
+    fs::rename(&tmp_path, path).map_err(|error| {
+        let _ = fs::remove_file(&tmp_path);
+        format!(
+            "failed to replace app state {} from {}: {error}",
+            path.display(),
+            tmp_path.display()
+        )
+    })
+}
+
 /// Writes the app-state persistence file once the debounce window has elapsed.
 pub(crate) fn save_app_state_if_dirty(
     time: Res<Time>,
@@ -358,8 +381,8 @@ pub(crate) fn save_app_state_if_dirty(
         }
     }
     let serialized = serialize_persisted_app_state(&persisted);
-    if let Err(error) = fs::write(path, serialized) {
-        append_debug_log(format!("app state save failed {}: {error}", path.display()));
+    if let Err(error) = write_file_atomically(path, &serialized) {
+        append_debug_log(format!("app state save failed {}", error));
     } else {
         append_debug_log(format!("app state saved {}", path.display()));
     }

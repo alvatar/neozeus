@@ -368,8 +368,19 @@ pub(crate) enum AegisDialogField {
     EnableButton,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum ResetDialogFocus {
+    #[default]
+    CancelButton,
+    ResetButton,
+}
+
 impl DialogTabOrder for AegisDialogField {
     const TAB_ORDER: &'static [Self] = &[Self::Prompt, Self::EnableButton];
+}
+
+impl DialogTabOrder for ResetDialogFocus {
+    const TAB_ORDER: &'static [Self] = &[Self::CancelButton, Self::ResetButton];
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -409,6 +420,12 @@ pub(crate) struct AegisDialogState {
     pub(crate) prompt_editor: TextEditorState,
     pub(crate) focus: AegisDialogField,
     pub(crate) error: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct ResetDialogState {
+    pub(crate) visible: bool,
+    pub(crate) focus: ResetDialogFocus,
 }
 
 impl CreateAgentDialogState {
@@ -566,6 +583,22 @@ impl CloneAgentDialogState {
             label: crate::agents::uppercase_agent_label_text(label),
             workdir: self.supports_workdir() && self.workdir,
         }))
+    }
+}
+
+impl ResetDialogState {
+    pub(crate) fn open(&mut self) {
+        self.visible = true;
+        self.focus = ResetDialogFocus::CancelButton;
+    }
+
+    pub(crate) fn close(&mut self) {
+        self.visible = false;
+        self.focus = ResetDialogFocus::CancelButton;
+    }
+
+    pub(crate) fn cycle_focus(&mut self, reverse: bool) {
+        cycle_dialog_focus(&mut self.focus, reverse);
     }
 }
 

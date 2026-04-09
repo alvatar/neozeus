@@ -10,6 +10,18 @@ use bevy::{
 };
 use std::{fs, time::Duration};
 
+#[test]
+fn write_file_atomically_replaces_target_via_temp_file() {
+    let dir = temp_dir("neozeus-app-state-atomic");
+    let path = dir.join("neozeus-state.v1");
+    std::fs::write(&path, "old").unwrap();
+
+    write_file_atomically(&path, "new").unwrap();
+
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "new");
+    assert!(!dir.join(".neozeus-state.v1.tmp").exists());
+}
+
 /// Verifies the search-order logic for the app-state persistence file.
 #[test]
 fn app_state_path_prefers_state_home_then_home_state_then_config() {

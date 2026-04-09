@@ -1,6 +1,6 @@
 use crate::{
     agents::{AgentCatalog, AgentId, AgentRuntimeIndex},
-    app::{mark_app_state_dirty, AppStatePersistenceState},
+    app::AppStatePersistenceState,
     hud::{HudInputCaptureState, TerminalVisibilityPolicy, TerminalVisibilityState},
     terminals::{
         ActiveTerminalContentState, OwnedTmuxSessionStore, TerminalFocusState, TerminalManager,
@@ -195,5 +195,5 @@ pub(crate) fn focus_agent(
         visibility_state,
         redraws,
     );
-    mark_app_state_dirty(app_state_persistence, Some(time));
+    let _ = (app_state_persistence, time);
 }
