@@ -1,5 +1,5 @@
 mod aegis;
-mod clone_pi_agent;
+mod clone_agent;
 mod composer;
 mod conversation;
 mod focus_agent;
@@ -13,7 +13,7 @@ mod terminals;
 mod widgets;
 
 pub(crate) use aegis::{disable_aegis, enable_aegis};
-pub(crate) use clone_pi_agent::clone_agent;
+pub(crate) use clone_agent::clone_agent;
 pub(crate) use composer::{
     cancel_composer, clear_composer_and_direct_input, open_composer, submit_composer,
 };

@@ -1949,7 +1949,7 @@ fn clone_codex_agent_request_forks_and_captures_child_recovery_spec() {
 }
 
 #[test]
-fn clone_pi_agent_request_rejects_non_pi_source() {
+fn clone_agent_request_rejects_non_pi_source() {
     let client = Arc::new(FakeDaemonClient::default());
     let mut world = clone_test_world(client.clone());
     let source_agent = world.resource_mut::<AgentCatalog>().create_agent(
@@ -1974,7 +1974,7 @@ fn clone_pi_agent_request_rejects_non_pi_source() {
 }
 
 #[test]
-fn clone_pi_agent_request_rejects_missing_clone_provenance() {
+fn clone_agent_request_rejects_missing_clone_provenance() {
     let client = Arc::new(FakeDaemonClient::default());
     let mut world = clone_test_world(client.clone());
     let source_agent = world.resource_mut::<AgentCatalog>().create_agent(
@@ -1998,7 +1998,7 @@ fn clone_pi_agent_request_rejects_missing_clone_provenance() {
 }
 
 #[test]
-fn clone_pi_agent_request_rejects_duplicate_name() {
+fn clone_agent_request_rejects_duplicate_name() {
     let client = Arc::new(FakeDaemonClient::default());
     let mut world = clone_test_world(client.clone());
     let source_dir = temp_dir("clone-pi-duplicate-source");
@@ -2036,7 +2036,7 @@ fn clone_pi_agent_request_rejects_duplicate_name() {
 }
 
 #[test]
-fn clone_pi_agent_request_creates_top_level_pi_clone_and_focuses_it() {
+fn clone_agent_request_creates_top_level_pi_clone_and_focuses_it() {
     let client = Arc::new(FakeDaemonClient::default());
     let mut world = clone_test_world(client.clone());
     let source_dir = temp_dir("clone-pi-source");
@@ -2106,7 +2106,7 @@ fn clone_pi_agent_request_creates_top_level_pi_clone_and_focuses_it() {
 }
 
 #[test]
-fn clone_pi_agent_request_creates_workdir_clone_and_persists_metadata() {
+fn clone_agent_request_creates_workdir_clone_and_persists_metadata() {
     let client = Arc::new(FakeDaemonClient::default());
     let mut world = clone_test_world(client.clone());
     let repo = init_git_repo();
@@ -2186,7 +2186,7 @@ fn clone_pi_agent_request_creates_workdir_clone_and_persists_metadata() {
 }
 
 #[test]
-fn clone_pi_agent_request_sanitizes_workdir_slug_without_changing_display_label() {
+fn clone_agent_request_sanitizes_workdir_slug_without_changing_display_label() {
     let client = Arc::new(FakeDaemonClient::default());
     let mut world = clone_test_world(client.clone());
     let repo = init_git_repo();
@@ -2231,7 +2231,7 @@ fn clone_pi_agent_request_sanitizes_workdir_slug_without_changing_display_label(
 }
 
 #[test]
-fn clone_pi_agent_request_rejects_non_git_workdir_source() {
+fn clone_agent_request_rejects_non_git_workdir_source() {
     let client = Arc::new(FakeDaemonClient::default());
     let mut world = clone_test_world(client.clone());
     let source_dir = temp_dir("clone-pi-non-git-source");
