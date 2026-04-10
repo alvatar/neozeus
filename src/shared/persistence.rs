@@ -1,4 +1,46 @@
-use std::{fs, path::Path};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
+
+pub fn resolve_state_path_with(
+    xdg_state_home: Option<&str>,
+    home: Option<&str>,
+    xdg_config_home: Option<&str>,
+    app_dir: &str,
+    filename: &str,
+) -> Option<PathBuf> {
+    if let Some(xdg_state_home) = xdg_state_home.filter(|value| !value.is_empty()) {
+        return Some(PathBuf::from(xdg_state_home).join(app_dir).join(filename));
+    }
+    if let Some(home) = home.filter(|value| !value.is_empty()) {
+        return Some(
+            PathBuf::from(home)
+                .join(format!(".local/state/{app_dir}"))
+                .join(filename),
+        );
+    }
+    if let Some(xdg_config_home) = xdg_config_home.filter(|value| !value.is_empty()) {
+        return Some(PathBuf::from(xdg_config_home).join(app_dir).join(filename));
+    }
+    None
+}
+
+pub fn resolve_config_path_with(
+    xdg_config_home: Option<&str>,
+    home: Option<&str>,
+    app_dir: &str,
+    filename: &str,
+) -> Option<PathBuf> {
+    if let Some(xdg_config_home) = xdg_config_home.filter(|value| !value.is_empty()) {
+        return Some(PathBuf::from(xdg_config_home).join(app_dir).join(filename));
+    }
+    home.filter(|value| !value.is_empty()).map(|home| {
+        PathBuf::from(home)
+            .join(format!(".config/{app_dir}"))
+            .join(filename)
+    })
+}
 
 /// Atomically replaces the target file by writing a sibling temp file and renaming it into place.
 ///
@@ -24,7 +66,7 @@ pub fn write_file_atomically(path: &Path, content: &str) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::write_file_atomically;
+    use super::{resolve_config_path_with, resolve_state_path_with, write_file_atomically};
     use std::{
         path::PathBuf,
         sync::atomic::{AtomicU64, Ordering},
@@ -42,6 +84,46 @@ mod tests {
         let path = std::env::temp_dir().join(format!("{prefix}-{stamp:032x}-{id:016x}"));
         std::fs::create_dir_all(&path).expect("temp dir should create");
         path
+    }
+
+    #[test]
+    fn resolve_state_path_prefers_xdg_state_then_home_then_xdg_config() {
+        assert_eq!(
+            resolve_state_path_with(
+                Some("/tmp/state"),
+                Some("/tmp/home"),
+                Some("/tmp/config"),
+                "neozeus",
+                "state.v1"
+            ),
+            Some(PathBuf::from("/tmp/state/neozeus/state.v1"))
+        );
+        assert_eq!(
+            resolve_state_path_with(
+                None,
+                Some("/tmp/home"),
+                Some("/tmp/config"),
+                "neozeus",
+                "state.v1"
+            ),
+            Some(PathBuf::from("/tmp/home/.local/state/neozeus/state.v1"))
+        );
+        assert_eq!(
+            resolve_state_path_with(None, None, Some("/tmp/config"), "neozeus", "state.v1"),
+            Some(PathBuf::from("/tmp/config/neozeus/state.v1"))
+        );
+    }
+
+    #[test]
+    fn resolve_config_path_prefers_xdg_config_then_home_config() {
+        assert_eq!(
+            resolve_config_path_with(Some("/tmp/config"), Some("/tmp/home"), "neozeus", "hud.v1"),
+            Some(PathBuf::from("/tmp/config/neozeus/hud.v1"))
+        );
+        assert_eq!(
+            resolve_config_path_with(None, Some("/tmp/home"), "neozeus", "hud.v1"),
+            Some(PathBuf::from("/tmp/home/.config/neozeus/hud.v1"))
+        );
     }
 
     #[test]

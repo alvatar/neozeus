@@ -6,7 +6,7 @@ use super::{
 use bevy::prelude::*;
 use std::{collections::BTreeMap, env, fs, path::PathBuf};
 
-use crate::shared::persistence::write_file_atomically;
+use crate::shared::persistence::{resolve_config_path_with, write_file_atomically};
 
 const HUD_LAYOUT_FILENAME: &str = "hud-layout.v1";
 const HUD_LAYOUT_VERSION_V1: &str = "version 1";
@@ -37,15 +37,7 @@ fn resolve_hud_layout_path_with(
     xdg_config_home: Option<&str>,
     home: Option<&str>,
 ) -> Option<PathBuf> {
-    if let Some(xdg) = xdg_config_home.filter(|value| !value.is_empty()) {
-        return Some(PathBuf::from(xdg).join("neozeus").join(HUD_LAYOUT_FILENAME));
-    }
-
-    home.filter(|value| !value.is_empty()).map(|value| {
-        PathBuf::from(value)
-            .join(".config/neozeus")
-            .join(HUD_LAYOUT_FILENAME)
-    })
+    resolve_config_path_with(xdg_config_home, home, "neozeus", HUD_LAYOUT_FILENAME)
 }
 
 /// Resolves the HUD layout path from the real process environment.

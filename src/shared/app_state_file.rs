@@ -1,4 +1,7 @@
-use super::text_escape::{unquote_escaped_string, EXTENDED_QUOTED_STRING_ESCAPES};
+use super::{
+    persistence::resolve_state_path_with,
+    text_escape::{unquote_escaped_string, EXTENDED_QUOTED_STRING_ESCAPES},
+};
 use std::{env, path::PathBuf};
 
 pub const APP_STATE_FILENAME: &str = "neozeus-state.v1";
@@ -87,28 +90,13 @@ pub fn resolve_app_state_path_with(
     home: Option<&str>,
     xdg_config_home: Option<&str>,
 ) -> Option<PathBuf> {
-    if let Some(xdg_state_home) = xdg_state_home.filter(|value| !value.is_empty()) {
-        return Some(
-            PathBuf::from(xdg_state_home)
-                .join("neozeus")
-                .join(APP_STATE_FILENAME),
-        );
-    }
-    if let Some(home) = home.filter(|value| !value.is_empty()) {
-        return Some(
-            PathBuf::from(home)
-                .join(".local/state/neozeus")
-                .join(APP_STATE_FILENAME),
-        );
-    }
-    if let Some(xdg_config_home) = xdg_config_home.filter(|value| !value.is_empty()) {
-        return Some(
-            PathBuf::from(xdg_config_home)
-                .join("neozeus")
-                .join(APP_STATE_FILENAME),
-        );
-    }
-    None
+    resolve_state_path_with(
+        xdg_state_home,
+        home,
+        xdg_config_home,
+        "neozeus",
+        APP_STATE_FILENAME,
+    )
 }
 
 /// Resolves the live app-state persistence path from the current environment.

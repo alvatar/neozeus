@@ -2,7 +2,7 @@ use super::debug::append_debug_log;
 use bevy::prelude::*;
 use std::{collections::HashMap, env, fs, path::PathBuf};
 
-use crate::shared::persistence::write_file_atomically;
+use crate::shared::persistence::{resolve_state_path_with, write_file_atomically};
 
 const TERMINAL_NOTES_FILENAME: &str = "notes.v1";
 const TERMINAL_NOTES_VERSION_V1: &str = "version 1";
@@ -106,32 +106,13 @@ fn resolve_terminal_notes_path_with(
     home: Option<&str>,
     xdg_config_home: Option<&str>,
 ) -> Option<PathBuf> {
-    // Process the input incrementally so each transformation stays local and malformed data fails at the narrowest point.
-    if let Some(xdg_state_home) = xdg_state_home.filter(|value| !value.is_empty()) {
-        return Some(
-            PathBuf::from(xdg_state_home)
-                .join("neozeus")
-                .join(TERMINAL_NOTES_FILENAME),
-        );
-    }
-
-    if let Some(home) = home.filter(|value| !value.is_empty()) {
-        return Some(
-            PathBuf::from(home)
-                .join(".local/state/neozeus")
-                .join(TERMINAL_NOTES_FILENAME),
-        );
-    }
-
-    if let Some(xdg_config_home) = xdg_config_home.filter(|value| !value.is_empty()) {
-        return Some(
-            PathBuf::from(xdg_config_home)
-                .join("neozeus")
-                .join(TERMINAL_NOTES_FILENAME),
-        );
-    }
-
-    None
+    resolve_state_path_with(
+        xdg_state_home,
+        home,
+        xdg_config_home,
+        "neozeus",
+        TERMINAL_NOTES_FILENAME,
+    )
 }
 
 /// Resolves the live notes persistence path from the current process environment.

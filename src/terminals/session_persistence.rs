@@ -1,6 +1,9 @@
 #[cfg(test)]
 use crate::shared::text_escape::quote_escaped_string;
-use crate::shared::text_escape::{unquote_escaped_string, EXTENDED_QUOTED_STRING_ESCAPES};
+use crate::shared::{
+    persistence::resolve_state_path_with,
+    text_escape::{unquote_escaped_string, EXTENDED_QUOTED_STRING_ESCAPES},
+};
 
 use super::debug::append_debug_log;
 use std::{env, fs, path::PathBuf};
@@ -52,32 +55,13 @@ fn resolve_terminal_sessions_path_with(
     home: Option<&str>,
     xdg_config_home: Option<&str>,
 ) -> Option<PathBuf> {
-    // Process the input incrementally so each transformation stays local and malformed data fails at the narrowest point.
-    if let Some(xdg_state_home) = xdg_state_home.filter(|value| !value.is_empty()) {
-        return Some(
-            PathBuf::from(xdg_state_home)
-                .join("neozeus")
-                .join(TERMINAL_SESSIONS_FILENAME),
-        );
-    }
-
-    if let Some(home) = home.filter(|value| !value.is_empty()) {
-        return Some(
-            PathBuf::from(home)
-                .join(".local/state/neozeus")
-                .join(TERMINAL_SESSIONS_FILENAME),
-        );
-    }
-
-    if let Some(xdg_config_home) = xdg_config_home.filter(|value| !value.is_empty()) {
-        return Some(
-            PathBuf::from(xdg_config_home)
-                .join("neozeus")
-                .join(TERMINAL_SESSIONS_FILENAME),
-        );
-    }
-
-    None
+    resolve_state_path_with(
+        xdg_state_home,
+        home,
+        xdg_config_home,
+        "neozeus",
+        TERMINAL_SESSIONS_FILENAME,
+    )
 }
 
 /// Resolves the live terminal-session persistence path from the current environment.

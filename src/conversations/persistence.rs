@@ -1,7 +1,7 @@
 use crate::{
     agents::{AgentCatalog, AgentRuntimeIndex},
     shared::{
-        persistence::write_file_atomically,
+        persistence::{resolve_state_path_with, write_file_atomically},
         text_escape::{quote_escaped_string, unquote_escaped_string, BASIC_QUOTED_STRING_ESCAPES},
     },
 };
@@ -52,28 +52,13 @@ pub(crate) fn resolve_conversations_path_with(
     home: Option<&str>,
     xdg_config_home: Option<&str>,
 ) -> Option<PathBuf> {
-    // Process the input incrementally so each transformation stays local and malformed data fails at the narrowest point.
-    if let Some(xdg) = xdg_state_home.filter(|value| !value.is_empty()) {
-        return Some(
-            PathBuf::from(xdg)
-                .join("neozeus")
-                .join(CONVERSATIONS_FILENAME),
-        );
-    }
-    if let Some(home) = home.filter(|value| !value.is_empty()) {
-        return Some(
-            PathBuf::from(home)
-                .join(".local/state/neozeus")
-                .join(CONVERSATIONS_FILENAME),
-        );
-    }
-    xdg_config_home
-        .filter(|value| !value.is_empty())
-        .map(|config| {
-            PathBuf::from(config)
-                .join("neozeus")
-                .join(CONVERSATIONS_FILENAME)
-        })
+    resolve_state_path_with(
+        xdg_state_home,
+        home,
+        xdg_config_home,
+        "neozeus",
+        CONVERSATIONS_FILENAME,
+    )
 }
 
 /// Resolves conversations path.
