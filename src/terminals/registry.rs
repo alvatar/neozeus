@@ -20,6 +20,10 @@ pub(crate) struct ManagedTerminal {
     pub(crate) surface_revision: u64,
 }
 
+/// Runtime-facing terminal focus projection.
+///
+/// The app's authoritative user selection lives in [`crate::app::FocusIntentState`]; this state is
+/// the projected terminal-id view consumed by terminal systems and presentation code.
 #[derive(Resource, Default, Clone)]
 pub(crate) struct TerminalFocusState {
     active_id: Option<TerminalId>,

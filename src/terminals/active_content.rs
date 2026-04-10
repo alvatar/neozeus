@@ -17,6 +17,10 @@ pub(crate) struct ActiveTerminalContentSyncState {
 /// The default mode is the focused agent terminal. When a tmux child row is selected, the app
 /// stores the selected session id plus the resolved owner terminal here so the terminal renderer can
 /// consume an explicit presentation contract instead of reaching back into HUD state.
+/// Derived active-terminal content projection.
+///
+/// The selected terminal row/focus intent determines whether the active panel shows the focused
+/// agent terminal or an owned tmux child override; this state stores only that projected result.
 #[derive(Resource, Default, Clone, Debug, PartialEq)]
 pub(crate) struct ActiveTerminalContentState {
     selected_owned_tmux_session_uid: Option<String>,

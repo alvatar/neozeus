@@ -2,6 +2,7 @@ use super::registry::TerminalId;
 use bevy::prelude::*;
 use std::collections::{HashMap, HashSet};
 
+/// Derived per-terminal camera/view projection keyed off the projected active terminal.
 #[derive(Resource)]
 pub(crate) struct TerminalViewState {
     pub(crate) distance: f32,

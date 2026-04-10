@@ -299,6 +299,10 @@ impl HudLayoutState {
     }
 }
 
+/// Derived input-capture projection for the currently active terminal.
+///
+/// Direct-input capture is reconciled against projected terminal focus; it should not outlive or
+/// diverge from the authoritative focus intent.
 #[derive(Resource, Default)]
 pub(crate) struct HudInputCaptureState {
     pub(crate) direct_input_terminal: Option<TerminalId>,
@@ -357,6 +361,7 @@ pub(crate) enum TerminalVisibilityPolicy {
     Isolate(TerminalId),
 }
 
+/// Derived terminal-visibility policy projected from focus intent and visibility mode.
 #[derive(Resource, Default)]
 pub(crate) struct TerminalVisibilityState {
     pub(crate) policy: TerminalVisibilityPolicy,

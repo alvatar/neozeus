@@ -53,6 +53,11 @@ pub(crate) enum FocusIntentTarget {
     OwnedTmux(String),
 }
 
+/// Authoritative user-level focus selection.
+///
+/// Other resources such as agent-list selection, terminal focus, visibility, active terminal
+/// content, and direct-input capture are projections derived from this intent, not independent
+/// sources of truth.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct FocusIntentState {
     pub(crate) target: FocusIntentTarget,

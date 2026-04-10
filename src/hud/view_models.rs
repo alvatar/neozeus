@@ -12,6 +12,10 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
+/// Derived UI row selection projected from [`crate::app::FocusIntentState`].
+///
+/// This resource exists so HUD systems can render and interact in row-space, but focus authority
+/// lives in the session focus intent and is projected here.
 #[derive(Resource, Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) enum AgentListSelection {
     #[default]
