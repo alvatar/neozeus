@@ -2,6 +2,8 @@ use super::debug::append_debug_log;
 use bevy::prelude::*;
 use std::{collections::HashMap, env, fs, path::PathBuf};
 
+use crate::shared::persistence::write_file_atomically;
+
 const TERMINAL_NOTES_FILENAME: &str = "notes.v1";
 const TERMINAL_NOTES_VERSION_V1: &str = "version 1";
 const TERMINAL_NOTES_VERSION_V2: &str = "version 2";
@@ -314,7 +316,7 @@ pub(crate) fn save_terminal_notes_if_dirty(
         notes_by_agent_uid: notes_state.notes_by_agent_uid.clone(),
         legacy_notes_by_session: notes_state.legacy_notes_by_session.clone(),
     });
-    if let Err(error) = fs::write(path, serialized) {
+    if let Err(error) = write_file_atomically(path, &serialized) {
         append_debug_log(format!(
             "terminal notes save failed {}: {error}",
             path.display()

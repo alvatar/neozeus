@@ -6,6 +6,8 @@ use super::{
 use bevy::prelude::*;
 use std::{collections::BTreeMap, env, fs, path::PathBuf};
 
+use crate::shared::persistence::write_file_atomically;
+
 const HUD_LAYOUT_FILENAME: &str = "hud-layout.v1";
 const HUD_LAYOUT_VERSION_V1: &str = "version 1";
 const HUD_LAYOUT_VERSION_V2: &str = "version 2";
@@ -329,7 +331,7 @@ pub(crate) fn save_hud_layout_if_dirty(
     }
 
     let serialized = serialize_persisted_hud_state(&persisted);
-    if let Err(error) = fs::write(path, serialized) {
+    if let Err(error) = write_file_atomically(path, &serialized) {
         append_hud_log(format!(
             "hud layout save failed {}: {error}",
             path.display()

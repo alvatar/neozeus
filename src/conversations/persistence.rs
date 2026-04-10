@@ -1,7 +1,8 @@
 use crate::{
     agents::{AgentCatalog, AgentRuntimeIndex},
-    shared::text_escape::{
-        quote_escaped_string, unquote_escaped_string, BASIC_QUOTED_STRING_ESCAPES,
+    shared::{
+        persistence::write_file_atomically,
+        text_escape::{quote_escaped_string, unquote_escaped_string, BASIC_QUOTED_STRING_ESCAPES},
     },
 };
 
@@ -422,7 +423,7 @@ pub(crate) fn save_conversations_if_dirty(
     }
 
     let serialized = serialize_persisted_conversations(&persisted);
-    if let Err(error) = fs::write(path, serialized) {
+    if let Err(error) = write_file_atomically(path, &serialized) {
         crate::terminals::append_debug_log(format!(
             "conversations save failed {}: {error}",
             path.display()

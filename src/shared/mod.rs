@@ -5,6 +5,7 @@ pub mod command_runner;
 pub mod daemon_client_core;
 pub mod daemon_socket;
 pub mod daemon_wire;
+pub mod persistence;
 pub mod pi_session_files;
 pub mod readback;
 pub mod send_command;

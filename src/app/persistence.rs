@@ -7,6 +7,7 @@ use crate::{
             PersistedAgentState, PersistedAppState, APP_STATE_VERSION_V1, APP_STATE_VERSION_V2,
             APP_STATE_VERSION_V3, APP_STATE_VERSION_V4,
         },
+        persistence::write_file_atomically,
         text_escape::{quote_escaped_string, EXTENDED_QUOTED_STRING_ESCAPES},
     },
     terminals::{
@@ -331,29 +332,6 @@ fn build_persisted_app_state(
         })
         .collect();
     PersistedAppState { agents }
-}
-
-fn write_file_atomically(path: &PathBuf, content: &str) -> Result<(), String> {
-    let mut tmp_path = path.clone();
-    let file_name = path
-        .file_name()
-        .and_then(|value| value.to_str())
-        .ok_or_else(|| format!("invalid app state file name {}", path.display()))?;
-    tmp_path.set_file_name(format!(".{file_name}.tmp"));
-    fs::write(&tmp_path, content).map_err(|error| {
-        format!(
-            "failed to write temp app state {}: {error}",
-            tmp_path.display()
-        )
-    })?;
-    fs::rename(&tmp_path, path).map_err(|error| {
-        let _ = fs::remove_file(&tmp_path);
-        format!(
-            "failed to replace app state {} from {}: {error}",
-            path.display(),
-            tmp_path.display()
-        )
-    })
 }
 
 /// Writes the app-state persistence file once the debounce window has elapsed.

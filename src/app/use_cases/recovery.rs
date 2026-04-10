@@ -125,17 +125,27 @@ pub(crate) fn reset_runtime_from_snapshot(
             time,
             redraws,
         );
-        let title = format!(
-            "Reset recovery completed: {} restored, {} failed",
-            summary.restored_agents,
-            summary.failed_agents.len()
-        );
+        let title = if summary.skipped_agents.is_empty() {
+            format!(
+                "Reset recovery completed: {} restored, {} failed",
+                summary.restored_agents,
+                summary.failed_agents.len()
+            )
+        } else {
+            format!(
+                "Reset recovery completed: {} restored, {} failed, {} skipped",
+                summary.restored_agents,
+                summary.failed_agents.len(),
+                summary.skipped_agents.len()
+            )
+        };
         let tone = if summary.failed_agents.is_empty() {
             crate::app::RecoveryStatusTone::Success
         } else {
             crate::app::RecoveryStatusTone::Error
         };
         status_details.extend(summary.failed_agents);
+        status_details.extend(summary.skipped_agents);
         app_session
             .recovery_status
             .show(tone, title, status_details);

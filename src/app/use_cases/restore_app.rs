@@ -139,6 +139,16 @@ pub(crate) struct RecoveryExecutionSummary {
     pub(crate) snapshot_found: bool,
     pub(crate) restored_agents: usize,
     pub(crate) failed_agents: Vec<String>,
+    pub(crate) skipped_agents: Vec<String>,
+}
+
+fn skipped_live_only_restore_message(
+    record: &crate::shared::app_state_file::PersistedAgentState,
+) -> String {
+    format!(
+        "startup skipped live-only agent {}: runtime session unavailable",
+        record.label.as_deref().unwrap_or("<unlabeled-agent>")
+    )
 }
 
 #[allow(
@@ -324,6 +334,12 @@ pub(crate) fn restore_app(
                 summary.failed_agents.push(message);
             }
         }
+    }
+
+    for record in prune.iter().filter(|record| record.recovery.is_none()) {
+        let message = skipped_live_only_restore_message(record);
+        append_debug_log(message.clone());
+        summary.skipped_agents.push(message);
     }
 
     let respawnable = prune
@@ -539,10 +555,13 @@ pub(crate) fn restore_app(
 
 #[cfg(test)]
 mod tests {
-    use super::agent_kind_from_daemon_session;
+    use super::{agent_kind_from_daemon_session, skipped_live_only_restore_message};
     use crate::{
         agents::AgentKind,
-        shared::daemon_wire::{DaemonAgentKind, DaemonSessionMetadata},
+        shared::{
+            app_state_file::{PersistedAgentKind, PersistedAgentState},
+            daemon_wire::{DaemonAgentKind, DaemonSessionMetadata},
+        },
         terminals::{DaemonSessionInfo, TerminalLifecycle, TerminalRuntimeState},
     };
 
@@ -593,6 +612,27 @@ mod tests {
         assert_eq!(
             agent_kind_from_daemon_session(&session_with_kind(None)),
             AgentKind::Terminal
+        );
+    }
+
+    #[test]
+    fn skipped_live_only_message_uses_agent_label_when_present() {
+        let record = PersistedAgentState {
+            agent_uid: Some("agent-uid-1".into()),
+            runtime_session_name: Some("neozeus-session-a".into()),
+            label: Some("ALPHA".into()),
+            kind: PersistedAgentKind::Terminal,
+            recovery: None,
+            clone_source_session_path: None,
+            aegis_enabled: false,
+            aegis_prompt_text: None,
+            order_index: 0,
+            last_focused: false,
+        };
+
+        assert_eq!(
+            skipped_live_only_restore_message(&record),
+            "startup skipped live-only agent ALPHA: runtime session unavailable"
         );
     }
 }
