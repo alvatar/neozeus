@@ -2173,7 +2173,10 @@ fn clone_agent_request_creates_workdir_clone_and_persists_metadata() {
         .iter()
         .find(|record| record.label.as_deref() == Some("CHILD-WT"))
         .expect("persisted workdir clone should exist");
-    assert_eq!(persisted_clone.clone_source_session_path, None);
+    assert_eq!(
+        persisted_clone.clone_source_session_path.as_deref(),
+        Some(clone_session_path.as_str())
+    );
     assert!(matches!(
         &persisted_clone.recovery,
         Some(crate::shared::app_state_file::PersistedAgentRecoverySpec::Pi {

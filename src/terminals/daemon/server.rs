@@ -12,7 +12,7 @@ use super::{
 };
 use std::{
     collections::HashMap,
-    fs,
+    fs, io,
     os::unix::net::{UnixListener, UnixStream},
     path::Path,
     sync::{
@@ -224,7 +224,8 @@ fn run_server_loop(socket_path: &Path, stop: Arc<AtomicBool>) -> Result<(), Stri
 /// Binds the daemon's Unix listener socket, cleaning up stale socket files when needed.
 ///
 /// If an existing socket still accepts connections, it is treated as a running daemon and binding is
-/// refused.
+/// refused. Failed connection attempts are only treated as stale when the error class is one we know
+/// is safe to replace; ambiguous errors leave the socket in place and fail startup conservatively.
 fn bind_listener(socket_path: &Path) -> Result<UnixListener, String> {
     // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
     if let Some(parent) = socket_path.parent() {
@@ -243,13 +244,20 @@ fn bind_listener(socket_path: &Path) -> Result<UnixListener, String> {
                     socket_path.display()
                 ))
             }
-            Err(_) => {
-                fs::remove_file(socket_path).map_err(|error| {
+            Err(error) if stale_socket_connect_error(&error) => {
+                fs::remove_file(socket_path).map_err(|remove_error| {
                     format!(
-                        "failed to remove stale daemon socket {}: {error}",
-                        socket_path.display()
+                        "failed to remove stale daemon socket {} after {:?}: {remove_error}",
+                        socket_path.display(),
+                        error.kind()
                     )
                 })?;
+            }
+            Err(error) => {
+                return Err(format!(
+                    "existing daemon socket {} is not safely replaceable: {error}",
+                    socket_path.display()
+                ));
             }
         }
     }
@@ -259,6 +267,13 @@ fn bind_listener(socket_path: &Path) -> Result<UnixListener, String> {
             socket_path.display()
         )
     })
+}
+
+fn stale_socket_connect_error(error: &io::Error) -> bool {
+    matches!(
+        error.kind(),
+        io::ErrorKind::ConnectionRefused | io::ErrorKind::NotFound
+    )
 }
 
 /// Services one daemon client connection until the socket closes.

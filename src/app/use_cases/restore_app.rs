@@ -158,7 +158,7 @@ pub(crate) fn restore_app(
     runtime_spawner: &TerminalRuntimeSpawner,
     input_capture: &mut crate::hud::HudInputCaptureState,
     app_state_persistence: &mut AppStatePersistenceState,
-    _aegis_policy: &mut AegisPolicyStore,
+    aegis_policy: &mut AegisPolicyStore,
     _aegis_runtime: &mut AegisRuntimeStore,
     visibility_state: &mut crate::hud::TerminalVisibilityState,
     view_state: &mut TerminalViewState,
@@ -265,7 +265,10 @@ pub(crate) fn restore_app(
         let recovery = record
             .recovery
             .and_then(persisted_recovery_to_agent_recovery);
-        let clone_source_session_path = clone_provenance_from_recovery(&recovery);
+        let clone_source_session_path = record
+            .clone_source_session_path
+            .clone()
+            .or_else(|| clone_provenance_from_recovery(&recovery));
         match attach_restored_terminal(
             agent_catalog,
             runtime_index,
@@ -288,8 +291,21 @@ pub(crate) fn restore_app(
             clone_source_session_path,
             recovery,
         ) {
-            Ok((_, terminal_id)) => {
+            Ok((agent_id, terminal_id)) => {
                 summary.restored_agents += 1;
+                if record.aegis_enabled || record.aegis_prompt_text.is_some() {
+                    if let Some(agent_uid) = agent_catalog.uid(agent_id) {
+                        let prompt_text = record
+                            .aegis_prompt_text
+                            .clone()
+                            .unwrap_or_else(|| crate::aegis::DEFAULT_AEGIS_PROMPT.to_owned());
+                        let _ = aegis_policy.restore_policy(
+                            agent_uid,
+                            record.aegis_enabled,
+                            prompt_text,
+                        );
+                    }
+                }
                 if should_mark_startup_pending {
                     if let Some(presentation_store) = presentation_store.as_deref_mut() {
                         presentation_store.mark_startup_pending(terminal_id);
@@ -383,6 +399,19 @@ pub(crate) fn restore_app(
         ) {
             Ok(agent_id) => {
                 summary.restored_agents += 1;
+                if record.aegis_enabled || record.aegis_prompt_text.is_some() {
+                    if let Some(agent_uid) = agent_catalog.uid(agent_id) {
+                        let prompt_text = record
+                            .aegis_prompt_text
+                            .clone()
+                            .unwrap_or_else(|| crate::aegis::DEFAULT_AEGIS_PROMPT.to_owned());
+                        let _ = aegis_policy.restore_policy(
+                            agent_uid,
+                            record.aegis_enabled,
+                            prompt_text,
+                        );
+                    }
+                }
                 if record.last_focused {
                     respawned_focus_agent = Some(agent_id);
                 }

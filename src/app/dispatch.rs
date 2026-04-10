@@ -647,6 +647,7 @@ fn apply_recovery_command(command: &RecoveryCommand, ctx: &mut AppCommandContext
             &ctx.runtime_spawner,
             &mut ctx.input_capture,
             &mut ctx.app_state_persistence,
+            &mut ctx.notes_state,
             &mut ctx.aegis_policy,
             &mut ctx.aegis_runtime,
             &mut ctx.visibility_state,

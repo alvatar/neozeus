@@ -39,6 +39,24 @@ impl AegisPolicyStore {
         self.policies_by_agent_uid.get(agent_uid)
     }
 
+    pub(crate) fn restore_policy(
+        &mut self,
+        agent_uid: &str,
+        enabled: bool,
+        prompt_text: String,
+    ) -> bool {
+        let policy = self
+            .policies_by_agent_uid
+            .entry(agent_uid.to_owned())
+            .or_default();
+        if policy.enabled == enabled && policy.prompt_text == prompt_text {
+            return false;
+        }
+        policy.enabled = enabled;
+        policy.prompt_text = prompt_text;
+        true
+    }
+
     pub(crate) fn enable(&mut self, agent_uid: &str, prompt_text: String) -> bool {
         let policy = self
             .policies_by_agent_uid

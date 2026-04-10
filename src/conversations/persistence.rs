@@ -39,6 +39,12 @@ pub(crate) struct ConversationPersistenceState {
     pub(crate) dirty_since_secs: Option<f32>,
 }
 
+impl ConversationPersistenceState {
+    pub(crate) fn clear_runtime_state(&mut self) {
+        self.dirty_since_secs = None;
+    }
+}
+
 /// Resolves conversations path with.
 pub(crate) fn resolve_conversations_path_with(
     xdg_state_home: Option<&str>,

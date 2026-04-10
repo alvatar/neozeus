@@ -32,6 +32,12 @@ impl TerminalNotesState {
         self.dirty_since_secs = None;
     }
 
+    pub(crate) fn clear_runtime_state(&mut self) {
+        self.notes_by_agent_uid.clear();
+        self.legacy_notes_by_session.clear();
+        self.dirty_since_secs = None;
+    }
+
     /// Returns the stored note text for one session, if any.
     ///
     /// The returned slice borrows directly from the internal map so callers can inspect notes without

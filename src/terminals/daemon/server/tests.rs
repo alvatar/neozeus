@@ -1,5 +1,5 @@
 use super::*;
-use std::{path::PathBuf, time::Duration};
+use std::{io, path::PathBuf, time::Duration};
 
 pub(crate) struct DaemonServerHandle {
     stop: Arc<AtomicBool>,
@@ -54,4 +54,29 @@ fn wait_for_socket(socket_path: &Path, timeout: Duration) -> Result<(), String> 
         }
         thread::sleep(Duration::from_millis(10));
     }
+}
+
+#[test]
+fn stale_socket_classifier_accepts_only_safe_replacement_errors() {
+    assert!(stale_socket_connect_error(&io::Error::from(
+        io::ErrorKind::ConnectionRefused
+    )));
+    assert!(stale_socket_connect_error(&io::Error::from(
+        io::ErrorKind::NotFound
+    )));
+    assert!(!stale_socket_connect_error(&io::Error::from(
+        io::ErrorKind::PermissionDenied
+    )));
+}
+
+#[test]
+fn bind_listener_refuses_to_replace_active_socket() {
+    let dir = crate::tests::temp_dir("neozeus-daemon-bind-active");
+    let socket_path = dir.join("daemon.sock");
+    let _listener = bind_listener(&socket_path).expect("initial bind should succeed");
+
+    let error = bind_listener(&socket_path).expect_err("active socket should be refused");
+    assert!(error.contains("daemon already running at"));
+    assert!(socket_path.exists());
+    let _client = UnixStream::connect(&socket_path).expect("active socket should remain usable");
 }

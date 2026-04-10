@@ -5,7 +5,8 @@ use crate::{
     hud::{HudInputCaptureState, TerminalVisibilityState},
     terminals::{
         append_debug_log, ActiveTerminalContentState, OwnedTmuxSessionStore, TerminalFocusState,
-        TerminalManager, TerminalPresentationStore, TerminalRuntimeSpawner, TerminalViewState,
+        TerminalManager, TerminalNotesState, TerminalPresentationStore, TerminalRuntimeSpawner,
+        TerminalViewState,
     },
 };
 use bevy::{prelude::Time, window::RequestRedraw};
@@ -28,6 +29,7 @@ pub(crate) fn reset_runtime_from_snapshot(
     runtime_spawner: &TerminalRuntimeSpawner,
     input_capture: &mut HudInputCaptureState,
     app_state_persistence: &mut AppStatePersistenceState,
+    notes_state: &mut TerminalNotesState,
     aegis_policy: &mut crate::aegis::AegisPolicyStore,
     aegis_runtime: &mut crate::aegis::AegisRuntimeStore,
     visibility_state: &mut TerminalVisibilityState,
@@ -78,8 +80,9 @@ pub(crate) fn reset_runtime_from_snapshot(
     *visibility_state = TerminalVisibilityState::default();
     *selection = crate::hud::AgentListSelection::None;
     *conversations = ConversationStore::default();
-    *conversation_persistence = ConversationPersistenceState::default();
+    conversation_persistence.clear_runtime_state();
     *tasks = AgentTaskStore::default();
+    notes_state.clear_runtime_state();
     *aegis_policy = crate::aegis::AegisPolicyStore::default();
     *aegis_runtime = crate::aegis::AegisRuntimeStore::default();
     app_session

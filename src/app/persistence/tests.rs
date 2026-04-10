@@ -75,7 +75,7 @@ fn app_state_parse_and_serialize_roundtrip() {
 }
 
 #[test]
-fn canonical_snapshot_serializer_omits_non_recovery_fields() {
+fn canonical_snapshot_serializer_includes_runtime_focus_clone_and_aegis_fields() {
     let persisted = PersistedAppState {
         agents: vec![PersistedAgentState {
             agent_uid: Some("agent-uid-a".into()),
@@ -97,11 +97,11 @@ fn canonical_snapshot_serializer_omits_non_recovery_fields() {
     };
 
     let serialized = serialize_persisted_app_state(&persisted);
-    assert!(!serialized.contains("runtime_session_name="));
-    assert!(!serialized.contains("clone_source_session_path="));
-    assert!(!serialized.contains("aegis_enabled="));
-    assert!(!serialized.contains("aegis_prompt_text="));
-    assert!(!serialized.contains("focused="));
+    assert!(serialized.contains("runtime_session_name=\"neozeus-session-a\""));
+    assert!(serialized.contains("clone_source_session_path=\"/tmp/pi-alpha.jsonl\""));
+    assert!(serialized.contains("aegis_enabled=1"));
+    assert!(serialized.contains("aegis_prompt_text=\"continue cleanly\""));
+    assert!(serialized.contains("focused=1"));
     assert!(serialized.contains("recovery_mode=\"pi\""));
 }
 
@@ -283,10 +283,9 @@ fn reconcile_persisted_agents_prefers_agent_uid_over_stale_runtime_session_name(
     assert!(import.is_empty());
 }
 
-/// Verifies that the canonical snapshot persists only recoverable agents with their minimal
-/// restore truth.
+/// Verifies that the canonical snapshot persists both recoverable and live-only agents truthfully.
 #[test]
-fn saving_app_state_persists_only_recoverable_agents_and_recovery_specs() {
+fn saving_app_state_persists_runtime_focus_clone_and_aegis_truth() {
     let dir = temp_dir("neozeus-app-state-save");
     let path = dir.join("neozeus-state.v1");
     let (bridge_one, _) = test_bridge();
@@ -321,15 +320,21 @@ fn saving_app_state_persists_only_recoverable_agents_and_recovery_specs() {
     let beta_uid = agent_catalog.uid(beta).unwrap().to_owned();
     let mut aegis_policy = crate::aegis::AegisPolicyStore::default();
     assert!(aegis_policy.enable(&alpha_uid, "keep pushing cleanly".into()));
+    assert!(aegis_policy.restore_policy(&beta_uid, false, "hold position".into()));
     runtime_index.link_terminal(alpha, id_one, "neozeus-session-a".into(), None);
     runtime_index.link_terminal(beta, id_two, "neozeus-session-b".into(), None);
     agent_catalog.move_to_index(beta, 0);
+    let mut app_session = crate::app::AppSessionState::default();
+    app_session
+        .focus_intent
+        .focus_agent(beta, crate::app::VisibilityMode::FocusedOnly);
 
     let mut world = World::default();
     let mut time = Time::<()>::default();
     time.advance_by(Duration::from_secs(1));
     world.insert_resource(time);
     insert_terminal_manager_resources(&mut world, manager);
+    world.insert_resource(app_session);
     world.insert_resource(agent_catalog);
     world.insert_resource(runtime_index);
     world.insert_resource(aegis_policy);
@@ -341,30 +346,52 @@ fn saving_app_state_persists_only_recoverable_agents_and_recovery_specs() {
     world.run_system_once(save_app_state_if_dirty).unwrap();
     let serialized = fs::read_to_string(&path).expect("app state file missing");
     let persisted = parse_persisted_app_state(&serialized);
-    assert_eq!(persisted.agents.len(), 1);
+    assert_eq!(persisted.agents.len(), 2);
+
+    let beta_record = persisted
+        .agents
+        .iter()
+        .find(|record| record.agent_uid.as_deref() == Some(beta_uid.as_str()))
+        .expect("beta should persist");
     assert_eq!(
-        persisted.agents[0].agent_uid.as_deref(),
-        Some(alpha_uid.as_str())
+        beta_record.runtime_session_name.as_deref(),
+        Some("neozeus-session-b")
     );
-    assert_ne!(
-        persisted.agents[0].agent_uid.as_deref(),
-        Some(beta_uid.as_str())
+    assert_eq!(beta_record.label.as_deref(), Some("BETA"));
+    assert_eq!(beta_record.kind, PersistedAgentKind::Terminal);
+    assert_eq!(beta_record.recovery, None);
+    assert!(!beta_record.aegis_enabled);
+    assert_eq!(
+        beta_record.aegis_prompt_text.as_deref(),
+        Some("hold position")
     );
-    assert_eq!(persisted.agents[0].runtime_session_name, None);
-    assert_eq!(persisted.agents[0].label.as_deref(), Some("ALPHA"));
-    assert_eq!(persisted.agents[0].kind, PersistedAgentKind::Claude);
-    assert_eq!(persisted.agents[0].clone_source_session_path, None);
-    assert!(!persisted.agents[0].aegis_enabled);
-    assert_eq!(persisted.agents[0].aegis_prompt_text, None);
-    assert!(!persisted.agents[0].last_focused);
+    assert!(beta_record.last_focused);
+
+    let alpha_record = persisted
+        .agents
+        .iter()
+        .find(|record| record.agent_uid.as_deref() == Some(alpha_uid.as_str()))
+        .expect("alpha should persist");
+    assert_eq!(
+        alpha_record.runtime_session_name.as_deref(),
+        Some("neozeus-session-a")
+    );
+    assert_eq!(alpha_record.label.as_deref(), Some("ALPHA"));
+    assert_eq!(alpha_record.kind, PersistedAgentKind::Claude);
+    assert!(!alpha_record.last_focused);
+    assert!(alpha_record.aegis_enabled);
+    assert_eq!(
+        alpha_record.aegis_prompt_text.as_deref(),
+        Some("keep pushing cleanly")
+    );
     assert!(matches!(
-        persisted.agents[0].recovery,
+        alpha_record.recovery,
         Some(PersistedAgentRecoverySpec::Claude { .. })
     ));
 }
 
 #[test]
-fn saving_app_state_does_not_persist_aegis_policy() {
+fn saving_app_state_persists_disabled_aegis_prompt() {
     let dir = temp_dir("neozeus-app-state-save-disabled-aegis");
     let path = dir.join("neozeus-state.v1");
     let (bridge, _) = test_bridge();
@@ -382,13 +409,14 @@ fn saving_app_state_does_not_persist_aegis_policy() {
     let mut runtime_index = AgentRuntimeIndex::default();
     runtime_index.link_terminal(agent_id, terminal_id, "neozeus-session-a".into(), None);
     let mut aegis_policy = crate::aegis::AegisPolicyStore::default();
-    assert!(aegis_policy.upsert_disabled_prompt(&agent_uid, "keep pushing cleanly".into()));
+    assert!(aegis_policy.restore_policy(&agent_uid, false, "keep pushing cleanly".into()));
 
     let mut world = World::default();
     let mut time = Time::<()>::default();
     time.advance_by(Duration::from_secs(1));
     world.insert_resource(time);
     insert_terminal_manager_resources(&mut world, manager);
+    world.insert_resource(crate::app::AppSessionState::default());
     world.insert_resource(agent_catalog);
     world.insert_resource(runtime_index);
     world.insert_resource(aegis_policy);
@@ -400,7 +428,12 @@ fn saving_app_state_does_not_persist_aegis_policy() {
     world.run_system_once(save_app_state_if_dirty).unwrap();
     let serialized = fs::read_to_string(&path).expect("app state file missing");
     let persisted = parse_persisted_app_state(&serialized);
-    assert_eq!(persisted.agents.len(), 0);
+    assert_eq!(persisted.agents.len(), 1);
+    assert!(!persisted.agents[0].aegis_enabled);
+    assert_eq!(
+        persisted.agents[0].aegis_prompt_text.as_deref(),
+        Some("keep pushing cleanly")
+    );
 }
 
 /// Verifies the debounce behavior of the app-state save system.
@@ -414,6 +447,7 @@ fn app_state_save_waits_for_debounce_window() {
     time.advance_by(Duration::from_millis(100));
     world.insert_resource(time);
     world.insert_resource(crate::terminals::TerminalFocusState::default());
+    world.insert_resource(crate::app::AppSessionState::default());
     world.insert_resource(AgentCatalog::default());
     world.insert_resource(AgentRuntimeIndex::default());
     world.insert_resource(crate::aegis::AegisPolicyStore::default());

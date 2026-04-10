@@ -1,5 +1,6 @@
 use crate::{
     agents::{AgentCatalog, AgentRuntimeIndex},
+    app::AppSessionState,
     shared::{
         app_state_file::{
             parse_persisted_app_state, PersistedAgentKind, PersistedAgentRecoverySpec,
@@ -35,6 +36,12 @@ pub(crate) fn serialize_persisted_app_state(state: &PersistedAppState) -> String
             output.push_str(&format!(
                 "agent_uid={}\n",
                 quote_escaped_string(&agent_uid, EXTENDED_QUOTED_STRING_ESCAPES)
+            ));
+        }
+        if let Some(runtime_session_name) = record.runtime_session_name {
+            output.push_str(&format!(
+                "runtime_session_name={}\n",
+                quote_escaped_string(&runtime_session_name, EXTENDED_QUOTED_STRING_ESCAPES)
             ));
         }
         if let Some(label) = record.label {
@@ -134,7 +141,24 @@ pub(crate) fn serialize_persisted_app_state(state: &PersistedAppState) -> String
             }
             None => {}
         }
+        if let Some(clone_source_session_path) = record.clone_source_session_path {
+            output.push_str(&format!(
+                "clone_source_session_path={}\n",
+                quote_escaped_string(&clone_source_session_path, EXTENDED_QUOTED_STRING_ESCAPES)
+            ));
+        }
+        output.push_str(&format!(
+            "aegis_enabled={}\n",
+            u8::from(record.aegis_enabled)
+        ));
+        if let Some(aegis_prompt_text) = record.aegis_prompt_text {
+            output.push_str(&format!(
+                "aegis_prompt_text={}\n",
+                quote_escaped_string(&aegis_prompt_text, EXTENDED_QUOTED_STRING_ESCAPES)
+            ));
+        }
         output.push_str(&format!("order_index={}\n", record.order_index));
+        output.push_str(&format!("focused={}\n", u8::from(record.last_focused)));
         output.push_str("[/agent]\n");
     }
     output
@@ -227,14 +251,17 @@ pub(crate) fn mark_app_state_dirty(
 
 fn build_persisted_app_state(
     _focus_state: &TerminalFocusState,
+    app_session: &AppSessionState,
     agent_catalog: &AgentCatalog,
-    _runtime_index: &AgentRuntimeIndex,
-    _aegis_policy: &crate::aegis::AegisPolicyStore,
+    runtime_index: &AgentRuntimeIndex,
+    aegis_policy: &crate::aegis::AegisPolicyStore,
 ) -> PersistedAppState {
+    let focused_agent = app_session.focus_intent.selected_agent();
     let agents = agent_catalog
         .order
         .iter()
-        .filter_map(|agent_id| {
+        .enumerate()
+        .map(|(index, agent_id)| {
             let agent_uid = agent_catalog.uid(*agent_id).map(str::to_owned);
             let recovery = agent_catalog
                 .recovery_spec(*agent_id)
@@ -272,17 +299,18 @@ fn build_persisted_app_state(
                         model: model.clone(),
                         profile: profile.clone(),
                     },
-                })?;
-            Some((agent_uid, recovery, *agent_id))
-        })
-        .enumerate()
-        .map(
-            |(index, (agent_uid, recovery, agent_id))| PersistedAgentState {
+                });
+            let (aegis_enabled, aegis_prompt_text) = agent_uid
+                .as_deref()
+                .and_then(|agent_uid| aegis_policy.policy(agent_uid))
+                .map(|policy| (policy.enabled, Some(policy.prompt_text.clone())))
+                .unwrap_or((false, None));
+            PersistedAgentState {
                 agent_uid,
-                runtime_session_name: None,
-                label: agent_catalog.label(agent_id).map(str::to_owned),
+                runtime_session_name: runtime_index.session_name(*agent_id).map(str::to_owned),
+                label: agent_catalog.label(*agent_id).map(str::to_owned),
                 kind: match agent_catalog
-                    .kind(agent_id)
+                    .kind(*agent_id)
                     .unwrap_or(crate::agents::AgentKind::Pi)
                 {
                     crate::agents::AgentKind::Pi => PersistedAgentKind::Pi,
@@ -291,14 +319,16 @@ fn build_persisted_app_state(
                     crate::agents::AgentKind::Terminal => PersistedAgentKind::Terminal,
                     crate::agents::AgentKind::Verifier => PersistedAgentKind::Verifier,
                 },
-                recovery: Some(recovery),
-                clone_source_session_path: None,
-                aegis_enabled: false,
-                aegis_prompt_text: None,
+                recovery,
+                clone_source_session_path: agent_catalog
+                    .clone_source_session_path(*agent_id)
+                    .map(str::to_owned),
+                aegis_enabled,
+                aegis_prompt_text,
                 order_index: index as u64,
-                last_focused: false,
-            },
-        )
+                last_focused: focused_agent == Some(*agent_id),
+            }
+        })
         .collect();
     PersistedAppState { agents }
 }
@@ -330,6 +360,7 @@ fn write_file_atomically(path: &PathBuf, content: &str) -> Result<(), String> {
 pub(crate) fn save_app_state_if_dirty(
     time: Res<Time>,
     focus_state: Res<TerminalFocusState>,
+    app_session: Res<AppSessionState>,
     agent_catalog: Res<AgentCatalog>,
     runtime_index: Res<AgentRuntimeIndex>,
     aegis_policy: Res<crate::aegis::AegisPolicyStore>,
@@ -345,8 +376,13 @@ pub(crate) fn save_app_state_if_dirty(
         persistence_state.dirty_since_secs = None;
         return;
     };
-    let persisted =
-        build_persisted_app_state(&focus_state, &agent_catalog, &runtime_index, &aegis_policy);
+    let persisted = build_persisted_app_state(
+        &focus_state,
+        &app_session,
+        &agent_catalog,
+        &runtime_index,
+        &aegis_policy,
+    );
     if let Some(parent) = path.parent() {
         if let Err(error) = fs::create_dir_all(parent) {
             append_debug_log(format!(

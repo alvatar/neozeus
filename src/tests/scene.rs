@@ -1001,7 +1001,7 @@ fn startup_restore_backfills_missing_agent_uid_and_marks_app_state_dirty() {
 }
 
 #[test]
-fn startup_restore_ignores_legacy_aegis_fields_in_recovery_snapshot() {
+fn startup_restore_rehydrates_aegis_policy_from_persisted_snapshot() {
     let client = Arc::new(crate::tests::FakeDaemonClient::default());
     client.set_session_runtime(
         "neozeus-session-a",
@@ -1049,10 +1049,12 @@ fn startup_restore_ignores_legacy_aegis_fields_in_recovery_snapshot() {
     assert_eq!(catalog.uid(restored_agent), Some("agent-uid-1"));
     let _ = catalog;
 
-    assert!(world
+    let policy = world
         .resource::<crate::aegis::AegisPolicyStore>()
         .policy("agent-uid-1")
-        .is_none());
+        .expect("persisted Aegis policy should restore");
+    assert!(policy.enabled);
+    assert_eq!(policy.prompt_text, "continue cleanly");
     assert!(world
         .resource::<crate::aegis::AegisRuntimeStore>()
         .state(restored_agent)
@@ -2022,6 +2024,8 @@ fn reset_runtime_kills_live_sessions_and_rebuilds_from_snapshot() {
         });
     let dir = temp_dir("neozeus-reset-rebuild");
     let app_state_path = dir.join("neozeus-state.v1");
+    let conversations_path = dir.join("conversations.v1");
+    let notes_path = dir.join("notes.v1");
     std::fs::write(
         &app_state_path,
         "neozeus state version 3\n[agent]\nagent_uid=\"agent-uid-1\"\nlabel=\"ALPHA\"\nkind=\"claude\"\nrecovery_mode=\"claude\"\nrecovery_session_id=\"claude-session-1\"\nrecovery_cwd=\"/tmp/demo\"\norder_index=0\nfocused=1\n[/agent]\n",
@@ -2039,7 +2043,10 @@ fn reset_runtime_kills_live_sessions_and_rebuilds_from_snapshot() {
     world.insert_resource(crate::aegis::AegisPolicyStore::default());
     world.insert_resource(crate::aegis::AegisRuntimeStore::default());
     world.insert_resource(crate::conversations::ConversationStore::default());
-    world.insert_resource(crate::conversations::ConversationPersistenceState::default());
+    world.insert_resource(crate::conversations::ConversationPersistenceState {
+        path: Some(conversations_path.clone()),
+        dirty_since_secs: Some(1.0),
+    });
     world.insert_resource(crate::conversations::AgentTaskStore::default());
     world.insert_resource(crate::conversations::MessageTransportAdapter);
     world.insert_resource(crate::hud::HudInputCaptureState::default());
@@ -2048,10 +2055,15 @@ fn reset_runtime_kills_live_sessions_and_rebuilds_from_snapshot() {
     world.insert_resource(Time::<()>::default());
     world.insert_resource(fake_runtime_spawner(client.clone()));
     world.insert_resource(crate::app::AppStatePersistenceState {
-        path: Some(app_state_path),
+        path: Some(app_state_path.clone()),
         dirty_since_secs: None,
     });
-    world.insert_resource(crate::terminals::TerminalNotesState::default());
+    let mut notes_state = crate::terminals::TerminalNotesState::default();
+    notes_state.path = Some(notes_path.clone());
+    notes_state.dirty_since_secs = Some(1.0);
+    assert!(notes_state.set_note_text_by_agent_uid("agent-uid-live", "- [ ] stale task"));
+    assert!(notes_state.set_note_text("neozeus-live-a", "legacy note"));
+    world.insert_resource(notes_state);
     world.insert_resource(crate::hud::TerminalVisibilityState::default());
     world.insert_resource(crate::startup::DaemonConnectionState::default());
     world.insert_resource(crate::startup::StartupConnectState::default());
@@ -2070,6 +2082,22 @@ fn reset_runtime_kills_live_sessions_and_rebuilds_from_snapshot() {
 
     assert!(client.owned_tmux_sessions.lock().unwrap().is_empty());
     assert!(!client.sessions.lock().unwrap().contains("neozeus-live-a"));
+    let notes_state = world.resource::<crate::terminals::TerminalNotesState>();
+    assert_eq!(notes_state.path.as_ref(), Some(&notes_path));
+    assert_eq!(notes_state.dirty_since_secs, None);
+    assert!(notes_state
+        .note_text_by_agent_uid("agent-uid-live")
+        .is_none());
+    assert!(notes_state.note_text("neozeus-live-a").is_none());
+    let app_state_persistence = world.resource::<crate::app::AppStatePersistenceState>();
+    assert_eq!(app_state_persistence.path.as_ref(), Some(&app_state_path));
+    let conversation_persistence =
+        world.resource::<crate::conversations::ConversationPersistenceState>();
+    assert_eq!(
+        conversation_persistence.path.as_ref(),
+        Some(&conversations_path)
+    );
+    assert_eq!(conversation_persistence.dirty_since_secs, None);
     let commands = client.sent_commands.lock().unwrap().clone();
     assert!(commands.iter().any(|(_, command)| matches!(
         command,
