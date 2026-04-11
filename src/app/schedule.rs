@@ -34,6 +34,7 @@ use crate::{
 use super::{
     dispatch::{apply_app_commands, sync_agents_from_terminals},
     output::request_final_frame_capture,
+    session::AppSessionState,
 };
 use bevy::prelude::*;
 
@@ -51,6 +52,10 @@ pub(crate) enum NeoZeusSet {
     HudAnimation,
     HudRender,
     Redraw,
+}
+
+fn advance_recovery_status_timeout(time: Res<Time>, mut app_session: ResMut<AppSessionState>) {
+    app_session.recovery_status.tick(time.delta_secs());
 }
 
 fn configure_update_set_ordering(app: &mut App) {
@@ -238,6 +243,7 @@ pub(crate) fn configure_app_schedule(app: &mut App) {
     .add_systems(
         Update,
         (
+            advance_recovery_status_timeout,
             animate_hud_modules,
             sync_task_notes_projection,
             save_hud_layout_if_dirty,

@@ -1,8 +1,8 @@
 use super::{
     AegisDialogField, AegisDialogState, AppSessionState, CloneAgentDialogField,
     CloneAgentDialogState, CreateAgentDialogField, CreateAgentDialogState, CreateAgentKind,
-    DialogInputOwner, FocusIntentState, InputOwner, RenameAgentDialogField, RenameAgentDialogState,
-    TextFieldState, VisibilityMode,
+    DialogInputOwner, FocusIntentState, InputOwner, RecoveryStatusState, RecoveryStatusTone,
+    RenameAgentDialogField, RenameAgentDialogState, TextFieldState, VisibilityMode,
 };
 use crate::hud::HudInputCaptureState;
 
@@ -253,6 +253,36 @@ fn aegis_dialog_counts_as_keyboard_capture() {
         session.input_owner(&HudInputCaptureState::default()),
         InputOwner::Dialog(DialogInputOwner::Aegis)
     );
+}
+
+#[test]
+fn recovery_status_auto_dismisses_after_timeout() {
+    let mut status = RecoveryStatusState::default();
+
+    status.show(RecoveryStatusTone::Success, "done", vec!["detail".into()]);
+    assert_eq!(status.title.as_deref(), Some("done"));
+    assert_eq!(status.remaining_secs, Some(5.0));
+
+    status.tick(4.0);
+    assert_eq!(status.title.as_deref(), Some("done"));
+    assert_eq!(status.remaining_secs, Some(1.0));
+
+    status.tick(1.1);
+    assert_eq!(status.title, None);
+    assert!(status.details.is_empty());
+    assert_eq!(status.remaining_secs, None);
+}
+
+#[test]
+fn recovery_status_show_resets_timeout_when_reused() {
+    let mut status = RecoveryStatusState::default();
+
+    status.show(RecoveryStatusTone::Info, "first", Vec::new());
+    status.tick(4.5);
+    status.show(RecoveryStatusTone::Error, "second", Vec::new());
+
+    assert_eq!(status.title.as_deref(), Some("second"));
+    assert_eq!(status.remaining_secs, Some(5.0));
 }
 
 #[test]

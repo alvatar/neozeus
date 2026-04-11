@@ -107,11 +107,14 @@ pub(crate) enum RecoveryStatusTone {
     Error,
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) const RECOVERY_STATUS_AUTO_DISMISS_SECS: f32 = 5.0;
+
+#[derive(Clone, Debug, Default, PartialEq)]
 pub(crate) struct RecoveryStatusState {
     pub(crate) title: Option<String>,
     pub(crate) details: Vec<String>,
     pub(crate) tone: RecoveryStatusTone,
+    pub(crate) remaining_secs: Option<f32>,
 }
 
 impl RecoveryStatusState {
@@ -119,6 +122,7 @@ impl RecoveryStatusState {
         self.title = None;
         self.details.clear();
         self.tone = RecoveryStatusTone::Info;
+        self.remaining_secs = None;
     }
 
     pub(crate) fn show(
@@ -130,6 +134,17 @@ impl RecoveryStatusState {
         self.title = Some(title.into());
         self.details = details;
         self.tone = tone;
+        self.remaining_secs = Some(RECOVERY_STATUS_AUTO_DISMISS_SECS);
+    }
+
+    pub(crate) fn tick(&mut self, delta_secs: f32) {
+        let Some(remaining_secs) = self.remaining_secs.as_mut() else {
+            return;
+        };
+        *remaining_secs -= delta_secs.max(0.0);
+        if *remaining_secs <= 0.0 {
+            self.clear();
+        }
     }
 
     pub(crate) fn show_reset_requested(&mut self) {
