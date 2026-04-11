@@ -199,7 +199,7 @@ pub fn read_server_message(reader: &mut impl Read) -> Result<ServerMessage, Stri
     Ok(message)
 }
 
-pub(crate) fn write_frame(writer: &mut impl Write, payload: &[u8]) -> Result<(), String> {
+pub fn write_frame(writer: &mut impl Write, payload: &[u8]) -> Result<(), String> {
     let len = u32::try_from(payload.len()).map_err(|_| "protocol frame too large".to_owned())?;
     writer
         .write_all(&len.to_le_bytes())
@@ -212,7 +212,7 @@ pub(crate) fn write_frame(writer: &mut impl Write, payload: &[u8]) -> Result<(),
         .map_err(|error| format!("failed to flush frame payload: {error}"))
 }
 
-pub(crate) fn read_frame(reader: &mut impl Read) -> Result<Vec<u8>, String> {
+pub fn read_frame(reader: &mut impl Read) -> Result<Vec<u8>, String> {
     let mut len_buf = [0_u8; 4];
     reader
         .read_exact(&mut len_buf)

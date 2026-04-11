@@ -121,14 +121,14 @@ pub(crate) fn write_client_message(
 ) -> Result<(), String> {
     let mut payload = Vec::new();
     encode_client_message(&mut payload, message);
-    write_frame(writer, &payload)
+    wire::write_frame(writer, &payload)
 }
 
 /// Reads, decodes, and validates one length-prefixed client message frame.
 ///
 /// Decoding rejects truncated payloads and trailing bytes after a valid message.
 pub(crate) fn read_client_message(reader: &mut impl Read) -> Result<ClientMessage, String> {
-    let payload = read_frame(reader)?;
+    let payload = wire::read_frame(reader)?;
     let mut decoder = Decoder::new(&payload);
     let message = decode_client_message(&mut decoder)?;
     decoder.finish()?;
@@ -144,51 +144,18 @@ pub(crate) fn write_server_message(
 ) -> Result<(), String> {
     let mut payload = Vec::new();
     encode_server_message(&mut payload, message);
-    write_frame(writer, &payload)
+    wire::write_frame(writer, &payload)
 }
 
 /// Reads, decodes, and validates one length-prefixed server message frame.
 ///
 /// This is shared by real clients and compatibility tests.
 pub(crate) fn read_server_message(reader: &mut impl Read) -> Result<ServerMessage, String> {
-    let payload = read_frame(reader)?;
+    let payload = wire::read_frame(reader)?;
     let mut decoder = Decoder::new(&payload);
     let message = decode_server_message(&mut decoder)?;
     decoder.finish()?;
     Ok(message)
-}
-
-/// Writes one raw protocol frame as `<u32 little-endian length><payload>`.
-///
-/// The writer is flushed before returning so request/response round-trips are not delayed in socket
-/// buffers.
-fn write_frame(writer: &mut impl Write, payload: &[u8]) -> Result<(), String> {
-    let len = u32::try_from(payload.len()).map_err(|_| "protocol frame too large".to_owned())?;
-    writer
-        .write_all(&len.to_le_bytes())
-        .map_err(|error| format!("failed to write frame length: {error}"))?;
-    writer
-        .write_all(payload)
-        .map_err(|error| format!("failed to write frame payload: {error}"))?;
-    writer
-        .flush()
-        .map_err(|error| format!("failed to flush frame payload: {error}"))
-}
-
-/// Reads one raw length-prefixed protocol frame into memory.
-///
-/// The whole payload is buffered because higher-level decoders work over byte slices.
-fn read_frame(reader: &mut impl Read) -> Result<Vec<u8>, String> {
-    let mut len_buf = [0_u8; 4];
-    reader
-        .read_exact(&mut len_buf)
-        .map_err(|error| format!("failed to read frame length: {error}"))?;
-    let len = u32::from_le_bytes(len_buf) as usize;
-    let mut payload = vec![0_u8; len];
-    reader
-        .read_exact(&mut payload)
-        .map_err(|error| format!("failed to read frame payload: {error}"))?;
-    Ok(payload)
 }
 
 /// Encodes one client message into the protocol payload format.
