@@ -532,10 +532,10 @@ impl TerminalDaemonClient for FakeDaemonClient {
             .collect())
     }
 
-    fn update_session_metadata_label(
+    fn update_session_metadata(
         &self,
         session_id: &str,
-        agent_label: Option<&str>,
+        metadata: &neozeus::shared::daemon_wire::DaemonSessionMetadata,
     ) -> Result<(), String> {
         if *self.fail_update_session_metadata.lock().unwrap() {
             return Err("update metadata failed".into());
@@ -543,9 +543,7 @@ impl TerminalDaemonClient for FakeDaemonClient {
         self.session_metadata
             .lock()
             .unwrap()
-            .entry(session_id.to_owned())
-            .or_default()
-            .agent_label = agent_label.map(str::to_owned);
+            .insert(session_id.to_owned(), metadata.clone());
         Ok(())
     }
 

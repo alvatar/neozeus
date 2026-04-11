@@ -220,8 +220,11 @@ impl DaemonSession {
         }
     }
 
-    pub(crate) fn update_metadata_label(&self, agent_label: Option<String>) {
-        lock(&self.metadata).agent_label = agent_label;
+    pub(crate) fn update_metadata(
+        &self,
+        metadata: crate::shared::daemon_wire::DaemonSessionMetadata,
+    ) {
+        *lock(&self.metadata) = metadata;
     }
 
     fn current_runtime(&self) -> TerminalRuntimeState {

@@ -120,7 +120,7 @@ pub enum DaemonRequest {
     },
     UpdateSessionMetadata {
         session_id: String,
-        agent_label: Option<String>,
+        metadata: DaemonSessionMetadata,
     },
 }
 
@@ -227,14 +227,11 @@ fn encode_request(buffer: &mut Vec<u8>, request: &DaemonRequest) {
         }
         DaemonRequest::UpdateSessionMetadata {
             session_id,
-            agent_label,
+            metadata,
         } => {
             push_u8(buffer, 13);
             push_string(buffer, session_id);
-            push_bool(buffer, agent_label.is_some());
-            if let Some(agent_label) = agent_label {
-                push_string(buffer, agent_label);
-            }
+            encode_daemon_session_metadata(buffer, metadata);
         }
     }
 }

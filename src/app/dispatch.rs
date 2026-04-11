@@ -85,25 +85,23 @@ pub(crate) struct FocusProjectionContext<'w> {
 
 #[allow(
     clippy::too_many_arguments,
-    reason = "terminal reconciliation now owns cleanup parity across agent, task, conversation, and note stores"
+    reason = "stale-terminal purge spans agent/task/conversation/notes/aegis/app-state stores"
 )]
-pub(crate) fn sync_agents_from_terminals(
-    time: Res<Time>,
-    mut agent_catalog: ResMut<AgentCatalog>,
-    mut runtime_index: ResMut<AgentRuntimeIndex>,
-    mut app_session: ResMut<AppSessionState>,
-    mut task_store: ResMut<AgentTaskStore>,
-    mut conversations: ResMut<ConversationStore>,
-    mut conversation_persistence: ResMut<ConversationPersistenceState>,
-    mut notes_state: ResMut<TerminalNotesState>,
-    mut aegis_policy: ResMut<crate::aegis::AegisPolicyStore>,
-    mut aegis_runtime: ResMut<crate::aegis::AegisRuntimeStore>,
-    mut app_state_persistence: ResMut<AppStatePersistenceState>,
-    mut focus: FocusProjectionContext,
-) {
-    // Rebuild the derived or projected state from the authoritative resources in one pass so partial updates cannot drift.
-    let existing_terminals = focus
-        .terminal_manager
+fn remove_stale_terminal_agents(
+    time: &Time,
+    agent_catalog: &mut AgentCatalog,
+    runtime_index: &mut AgentRuntimeIndex,
+    app_session: &mut AppSessionState,
+    task_store: &mut AgentTaskStore,
+    conversations: &mut ConversationStore,
+    conversation_persistence: &mut ConversationPersistenceState,
+    notes_state: &mut TerminalNotesState,
+    aegis_policy: &mut crate::aegis::AegisPolicyStore,
+    aegis_runtime: &mut crate::aegis::AegisRuntimeStore,
+    app_state_persistence: &mut AppStatePersistenceState,
+    terminal_manager: &TerminalManager,
+) -> bool {
+    let existing_terminals = terminal_manager
         .terminal_ids()
         .iter()
         .copied()
@@ -119,26 +117,36 @@ pub(crate) fn sync_agents_from_terminals(
         if let Some(agent_id) = runtime_index.remove_terminal(terminal_id) {
             removed_any_terminal = true;
             purge_removed_agent_state(
-                &time,
+                time,
                 agent_id,
-                &mut agent_catalog,
-                &mut app_session,
-                &mut task_store,
-                &mut conversations,
-                &mut conversation_persistence,
-                &mut notes_state,
-                &mut aegis_policy,
-                &mut aegis_runtime,
-                &mut app_state_persistence,
+                agent_catalog,
+                app_session,
+                task_store,
+                conversations,
+                conversation_persistence,
+                notes_state,
+                aegis_policy,
+                aegis_runtime,
+                app_state_persistence,
             );
         }
     }
+    removed_any_terminal
+}
 
-    for terminal_id in focus.terminal_manager.terminal_ids().iter().copied() {
-        let Some(terminal) = focus.terminal_manager.get(terminal_id) else {
+fn sync_runtime_agents_from_terminals(
+    agent_catalog: &mut AgentCatalog,
+    runtime_index: &mut AgentRuntimeIndex,
+    terminal_manager: &TerminalManager,
+    runtime_spawner: &TerminalRuntimeSpawner,
+) {
+    // Session existence and lifecycle belong to the daemon/runtime index; app uid/label/kind stay
+    // app-owned and are mirrored back into daemon metadata when a live session is adopted.
+    for terminal_id in terminal_manager.terminal_ids().iter().copied() {
+        let Some(terminal) = terminal_manager.get(terminal_id) else {
             continue;
         };
-        let _agent_id = runtime_index
+        let agent_id = runtime_index
             .agent_for_terminal(terminal_id)
             .unwrap_or_else(|| {
                 let kind = if terminal.session_name.starts_with(VERIFIER_SESSION_PREFIX) {
@@ -154,10 +162,63 @@ pub(crate) fn sync_agents_from_terminals(
                     terminal.session_name.clone(),
                     Some(&terminal.snapshot.runtime),
                 );
+                if let Err(error) = use_cases::sync_agent_metadata_to_daemon(
+                    runtime_spawner,
+                    runtime_index,
+                    agent_catalog,
+                    agent_id,
+                ) {
+                    append_debug_log(format!(
+                        "failed to mirror imported terminal metadata for {}: {error}",
+                        terminal.session_name
+                    ));
+                }
                 agent_id
             });
+        let _ = agent_id;
         runtime_index.update_runtime(terminal_id, &terminal.snapshot.runtime);
     }
+}
+
+#[allow(
+    clippy::too_many_arguments,
+    reason = "terminal reconciliation owns stale-agent purge plus runtime/metadata sync"
+)]
+pub(crate) fn sync_agents_from_terminals(
+    time: Res<Time>,
+    mut agent_catalog: ResMut<AgentCatalog>,
+    mut runtime_index: ResMut<AgentRuntimeIndex>,
+    mut app_session: ResMut<AppSessionState>,
+    mut task_store: ResMut<AgentTaskStore>,
+    mut conversations: ResMut<ConversationStore>,
+    mut conversation_persistence: ResMut<ConversationPersistenceState>,
+    mut notes_state: ResMut<TerminalNotesState>,
+    mut aegis_policy: ResMut<crate::aegis::AegisPolicyStore>,
+    mut aegis_runtime: ResMut<crate::aegis::AegisRuntimeStore>,
+    mut app_state_persistence: ResMut<AppStatePersistenceState>,
+    runtime_spawner: Res<TerminalRuntimeSpawner>,
+    mut focus: FocusProjectionContext,
+) {
+    let removed_any_terminal = remove_stale_terminal_agents(
+        &time,
+        &mut agent_catalog,
+        &mut runtime_index,
+        &mut app_session,
+        &mut task_store,
+        &mut conversations,
+        &mut conversation_persistence,
+        &mut notes_state,
+        &mut aegis_policy,
+        &mut aegis_runtime,
+        &mut app_state_persistence,
+        &focus.terminal_manager,
+    );
+    sync_runtime_agents_from_terminals(
+        &mut agent_catalog,
+        &mut runtime_index,
+        &focus.terminal_manager,
+        &runtime_spawner,
+    );
 
     if removed_any_terminal {
         let default_owned_tmux_sessions = OwnedTmuxSessionStore::default();
@@ -287,18 +348,27 @@ fn apply_agent_command(command: &AgentCommand, ctx: &mut AppCommandContext) {
         AgentCommand::Rename { agent_id, label } => {
             match ctx.agent_catalog.validate_rename_label(*agent_id, label) {
                 Ok(label) => {
-                    if let Some(session_name) = ctx.runtime_index.session_name(*agent_id) {
-                        if let Err(error) = ctx
-                            .runtime_spawner
-                            .update_session_metadata_label(session_name, Some(label.as_str()))
-                        {
-                            ctx.app_session.rename_agent_dialog.error = Some(error.clone());
-                            append_debug_log(format!(
-                                "rename agent failed for {session_name}: {error}"
-                            ));
-                            ctx.redraws.write(RequestRedraw);
-                            return;
+                    let sync_result = match (
+                        ctx.agent_catalog.uid(*agent_id),
+                        ctx.agent_catalog.kind(*agent_id),
+                    ) {
+                        (Some(agent_uid), Some(agent_kind)) => {
+                            use_cases::sync_session_agent_metadata(
+                                &ctx.runtime_spawner,
+                                ctx.runtime_index.session_name(*agent_id),
+                                agent_uid,
+                                label.as_str(),
+                                agent_kind,
+                            )
                         }
+                        (None, _) => Err(format!("missing stable uid for agent {}", agent_id.0)),
+                        (_, None) => Err(format!("missing kind for agent {}", agent_id.0)),
+                    };
+                    if let Err(error) = sync_result {
+                        ctx.app_session.rename_agent_dialog.error = Some(error.clone());
+                        append_debug_log(format!("rename agent failed: {error}"));
+                        ctx.redraws.write(RequestRedraw);
+                        return;
                     }
                     match ctx.agent_catalog.rename_agent(*agent_id, label) {
                         Ok(()) => {

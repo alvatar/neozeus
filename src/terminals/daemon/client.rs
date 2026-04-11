@@ -29,11 +29,11 @@ pub(crate) struct AttachedDaemonSession {
 pub(crate) trait TerminalDaemonClient: Send + Sync {
     /// Returns the daemon's current session list with runtime/revision metadata.
     fn list_sessions(&self) -> Result<Vec<DaemonSessionInfo>, String>;
-    /// Updates mutable session metadata stored by the daemon.
-    fn update_session_metadata_label(
+    /// Updates the daemon-side metadata mirror for one live session.
+    fn update_session_metadata(
         &self,
         session_id: &str,
-        agent_label: Option<&str>,
+        metadata: &crate::shared::daemon_wire::DaemonSessionMetadata,
     ) -> Result<(), String>;
     /// Asks the daemon to create a new session id using the provided prefix, optional working directory,
     /// and per-session environment overrides.
@@ -193,14 +193,14 @@ impl TerminalDaemonClient for SocketTerminalDaemonClient {
         }
     }
 
-    fn update_session_metadata_label(
+    fn update_session_metadata(
         &self,
         session_id: &str,
-        agent_label: Option<&str>,
+        metadata: &crate::shared::daemon_wire::DaemonSessionMetadata,
     ) -> Result<(), String> {
         match self.request(DaemonRequest::UpdateSessionMetadata {
             session_id: session_id.to_owned(),
-            agent_label: agent_label.map(str::to_owned),
+            metadata: metadata.clone(),
         })? {
             DaemonResponse::Ack => Ok(()),
             response => Err(format!(

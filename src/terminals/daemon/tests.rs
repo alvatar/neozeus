@@ -497,7 +497,14 @@ fn daemon_update_session_metadata_label_updates_live_session_list() {
         .expect("daemon session should be created");
 
     client
-        .update_session_metadata_label(&session_id, Some("BETA"))
+        .update_session_metadata(
+            &session_id,
+            &crate::shared::daemon_wire::DaemonSessionMetadata {
+                agent_uid: None,
+                agent_label: Some("BETA".into()),
+                agent_kind: None,
+            },
+        )
         .expect("metadata update should succeed");
     let session = client
         .list_sessions()

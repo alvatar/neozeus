@@ -199,14 +199,14 @@ impl TerminalRuntimeSpawner {
     }
 
     /// Updates mutable daemon-side session metadata.
-    pub(crate) fn update_session_metadata_label(
+    pub(crate) fn update_session_metadata(
         &self,
         session_id: &str,
-        agent_label: Option<&str>,
+        metadata: &crate::shared::daemon_wire::DaemonSessionMetadata,
     ) -> Result<(), String> {
         self.daemon_client()?
             .client()
-            .update_session_metadata_label(session_id, agent_label)
+            .update_session_metadata(session_id, metadata)
     }
 
     /// Asks the daemon to resize one named session to the requested terminal grid.

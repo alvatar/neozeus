@@ -2,6 +2,7 @@ mod aegis;
 mod clone_agent;
 mod composer;
 mod conversation;
+mod daemon_metadata;
 mod focus_agent;
 mod kill_selected_agent;
 mod owned_tmux;
@@ -18,6 +19,7 @@ pub(crate) use composer::{
     cancel_composer, clear_composer_and_direct_input, open_composer, submit_composer,
 };
 pub(crate) use conversation::{send_message, send_outbound_message, OutboundMessageSource};
+pub(crate) use daemon_metadata::{sync_agent_metadata_to_daemon, sync_session_agent_metadata};
 pub(crate) use focus_agent::{
     clear_focus_without_persist, focus_agent, focus_agent_without_persist,
     focus_owned_tmux_without_persist, focus_terminal_without_persist, project_focus_intent,

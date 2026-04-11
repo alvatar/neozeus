@@ -152,12 +152,12 @@ impl DaemonRegistry {
         Ok(session_id)
     }
 
-    fn update_session_metadata_label(
+    fn update_session_metadata(
         &self,
         session_id: &str,
-        agent_label: Option<String>,
+        metadata: crate::shared::daemon_wire::DaemonSessionMetadata,
     ) -> Result<(), String> {
-        self.session(session_id)?.update_metadata_label(agent_label);
+        self.session(session_id)?.update_metadata(metadata);
         Ok(())
     }
 
@@ -428,9 +428,9 @@ fn handle_request(
         }
         DaemonRequest::UpdateSessionMetadata {
             session_id,
-            agent_label,
+            metadata,
         } => {
-            registry.update_session_metadata_label(&session_id, agent_label)?;
+            registry.update_session_metadata(&session_id, metadata)?;
             Ok(DaemonResponse::Ack)
         }
     }

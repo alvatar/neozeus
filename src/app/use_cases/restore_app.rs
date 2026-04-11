@@ -259,6 +259,9 @@ pub(crate) fn restore_app(
         let Some(session) = live_session_lookup.get(session_name.as_str()) else {
             continue;
         };
+        // Daemon metadata contributes only the live-session identity mirror (uid/label/kind).
+        // Recovery provenance, clone provenance, Aegis state, and conversations/tasks remain
+        // app-owned and are reconstructed only from persisted app state.
         let keep = startup_focus_candidate_is_interactive(session);
         if keep {
             importable.push(crate::shared::app_state_file::PersistedAgentState {
@@ -318,6 +321,9 @@ pub(crate) fn restore_app(
             .clone_source_session_path
             .clone()
             .or_else(|| clone_provenance_from_recovery(&recovery));
+        // For restore/import attach, the daemon owns session existence/runtime and the app owns
+        // stable uid/label/kind plus all recovery metadata; attach reuses the live session and then
+        // re-mirrors the app-owned identity back into daemon metadata.
         match attach_restored_terminal(
             agent_catalog,
             runtime_index,

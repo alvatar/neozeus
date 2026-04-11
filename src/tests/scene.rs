@@ -982,7 +982,7 @@ fn startup_restore_backfills_missing_agent_uid_and_marks_app_state_dirty() {
     world.insert_resource(crate::terminals::TerminalViewState::default());
     world.init_resource::<Messages<RequestRedraw>>();
     world.insert_resource(Time::<()>::default());
-    world.insert_resource(fake_runtime_spawner(client));
+    world.insert_resource(fake_runtime_spawner(client.clone()));
     world.insert_resource(crate::app::AppStatePersistenceState {
         path: Some(app_state_path),
         dirty_since_secs: None,
@@ -1004,6 +1004,16 @@ fn startup_restore_backfills_missing_agent_uid_and_marks_app_state_dirty() {
             .resource::<crate::app::AppStatePersistenceState>()
             .dirty_since_secs,
         Some(0.0)
+    );
+    let session_metadata = client.session_metadata.lock().unwrap();
+    let mirrored = session_metadata
+        .get("neozeus-session-a")
+        .expect("restored session should mirror app-owned identity back into daemon metadata");
+    assert_eq!(mirrored.agent_uid.as_deref(), Some(restored_uid));
+    assert_eq!(mirrored.agent_label.as_deref(), Some("ALPHA"));
+    assert_eq!(
+        mirrored.agent_kind,
+        Some(crate::shared::daemon_wire::DaemonAgentKind::Pi)
     );
 }
 

@@ -199,10 +199,10 @@ impl TerminalDaemonClient for FakeDaemonClient {
             .collect())
     }
 
-    fn update_session_metadata_label(
+    fn update_session_metadata(
         &self,
         _session_id: &str,
-        _agent_label: Option<&str>,
+        _metadata: &crate::shared::daemon_wire::DaemonSessionMetadata,
     ) -> Result<(), String> {
         Ok(())
     }

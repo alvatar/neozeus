@@ -3801,6 +3801,7 @@ fn terminal_focus_sync_does_not_rewrite_agent_list_selection() {
     world.insert_resource(crate::aegis::AegisPolicyStore::default());
     world.insert_resource(crate::aegis::AegisRuntimeStore::default());
     world.insert_resource(AppStatePersistenceState::default());
+    world.insert_resource(fake_runtime_spawner(Arc::new(FakeDaemonClient::default())));
     world.insert_resource(crate::hud::AgentListSelection::OwnedTmux(
         "tmux-session-1".into(),
     ));
@@ -3892,6 +3893,7 @@ fn sync_agents_from_terminals_cleans_tasks_conversations_notes_and_persistence_f
     world.insert_resource(crate::conversations::ConversationPersistenceState::default());
     world.insert_resource(notes_state);
     world.insert_resource(AppStatePersistenceState::default());
+    world.insert_resource(fake_runtime_spawner(Arc::new(FakeDaemonClient::default())));
     world.insert_resource(manager);
 
     world

@@ -64,7 +64,7 @@ pub(crate) enum DaemonRequest {
     },
     UpdateSessionMetadata {
         session_id: String,
-        agent_label: Option<String>,
+        metadata: DaemonSessionMetadata,
     },
 }
 
@@ -311,13 +311,11 @@ fn encode_request(buffer: &mut Vec<u8>, request: &DaemonRequest) {
         }
         DaemonRequest::UpdateSessionMetadata {
             session_id,
-            agent_label,
+            metadata,
         } => {
             push_u8(buffer, 13);
             push_string(buffer, session_id);
-            push_option(buffer, agent_label.as_ref(), |buffer, value| {
-                push_string(buffer, value);
-            });
+            wire::encode_daemon_session_metadata(buffer, metadata);
         }
     }
 }
@@ -377,7 +375,7 @@ fn decode_request(decoder: &mut Decoder<'_>) -> Result<DaemonRequest, String> {
         12 => Ok(DaemonRequest::ListSessionsDetailed),
         13 => Ok(DaemonRequest::UpdateSessionMetadata {
             session_id: decoder.read_string()?,
-            agent_label: decoder.read_option(|decoder| decoder.read_string())?,
+            metadata: wire::decode_daemon_session_metadata(decoder)?,
         }),
         tag => Err(format!("unknown daemon request tag {tag}")),
     }

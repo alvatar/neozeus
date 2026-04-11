@@ -15,7 +15,7 @@ use crate::{
 
 use super::{
     super::session::{AppSessionState, VisibilityMode},
-    focus_agent_without_persist,
+    focus_agent_without_persist, sync_agent_metadata_to_daemon,
 };
 use bevy::{prelude::*, window::RequestRedraw};
 use std::{
@@ -352,6 +352,13 @@ fn spawn_agent_terminal_internal(
         .get(terminal_id)
         .map(|terminal| &terminal.snapshot.runtime);
     runtime_index.link_terminal(agent_id, terminal_id, session_name.clone(), runtime);
+    if let Err(error) =
+        sync_agent_metadata_to_daemon(runtime_spawner, runtime_index, agent_catalog, agent_id)
+    {
+        append_debug_log(format!(
+            "failed to mirror agent metadata to daemon for session {session_name}: {error}"
+        ));
+    }
     if focus_terminal {
         focus_agent_without_persist(
             agent_id,
@@ -654,7 +661,15 @@ pub(crate) fn attach_restored_terminal(
     let runtime = terminal_manager
         .get(terminal_id)
         .map(|terminal| &terminal.snapshot.runtime);
-    runtime_index.link_terminal(agent_id, terminal_id, session_name, runtime);
+    runtime_index.link_terminal(agent_id, terminal_id, session_name.clone(), runtime);
+    if let Err(error) =
+        sync_agent_metadata_to_daemon(runtime_spawner, runtime_index, agent_catalog, agent_id)
+    {
+        append_debug_log(format!(
+            "restored session metadata mirror failed for {}: {error}",
+            session_name
+        ));
+    }
     let _ = presentation_store;
     Ok((agent_id, terminal_id))
 }
@@ -698,10 +713,10 @@ mod tests {
             Ok(Vec::new())
         }
 
-        fn update_session_metadata_label(
+        fn update_session_metadata(
             &self,
             _session_id: &str,
-            _agent_label: Option<&str>,
+            _metadata: &crate::shared::daemon_wire::DaemonSessionMetadata,
         ) -> Result<(), String> {
             Ok(())
         }
