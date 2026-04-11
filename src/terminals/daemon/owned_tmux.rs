@@ -26,16 +26,7 @@ fn tmux_program() -> std::ffi::OsString {
     std::ffi::OsString::from("tmux")
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct OwnedTmuxSessionInfo {
-    pub(crate) session_uid: String,
-    pub(crate) owner_agent_uid: String,
-    pub(crate) tmux_name: String,
-    pub(crate) display_name: String,
-    pub(crate) cwd: String,
-    pub(crate) attached: bool,
-    pub(crate) created_unix: u64,
-}
+pub(crate) use crate::shared::daemon_wire::OwnedTmuxSessionInfo;
 
 pub(super) fn discover_owned_tmux_sessions() -> Result<Vec<OwnedTmuxSessionInfo>, String> {
     let listed = run_tmux(

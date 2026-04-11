@@ -1,7 +1,8 @@
 use std::io::{Read, Write};
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub enum TerminalLifecycle {
+    #[default]
     Running,
     Exited {
         code: Option<u32>,
@@ -11,11 +12,50 @@ pub enum TerminalLifecycle {
     Failed,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct TerminalRuntimeState {
     pub status: String,
     pub lifecycle: TerminalLifecycle,
     pub last_error: Option<String>,
+}
+
+impl TerminalRuntimeState {
+    pub fn is_interactive(&self) -> bool {
+        matches!(self.lifecycle, TerminalLifecycle::Running)
+    }
+
+    pub fn running(status: impl Into<String>) -> Self {
+        Self {
+            status: status.into(),
+            lifecycle: TerminalLifecycle::Running,
+            last_error: None,
+        }
+    }
+
+    pub fn failed(status: impl Into<String>) -> Self {
+        let status = status.into();
+        Self {
+            status: status.clone(),
+            lifecycle: TerminalLifecycle::Failed,
+            last_error: Some(status),
+        }
+    }
+
+    pub fn disconnected(status: impl Into<String>) -> Self {
+        Self {
+            status: status.into(),
+            lifecycle: TerminalLifecycle::Disconnected,
+            last_error: None,
+        }
+    }
+
+    pub fn exited(status: impl Into<String>, code: Option<u32>, signal: Option<String>) -> Self {
+        Self {
+            status: status.into(),
+            lifecycle: TerminalLifecycle::Exited { code, signal },
+            last_error: None,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

@@ -1,13 +1,10 @@
-use super::{
-    super::types::{
-        TerminalCell, TerminalCellContent, TerminalCellStyle, TerminalCommand, TerminalCursor,
-        TerminalCursorShape, TerminalDamage, TerminalFrameUpdate, TerminalLifecycle,
-        TerminalRuntimeState, TerminalSnapshot, TerminalSurface, TerminalUnderlineStyle,
-        TerminalUpdate,
-    },
-    owned_tmux::OwnedTmuxSessionInfo,
+use super::super::types::{
+    TerminalCell, TerminalCellContent, TerminalCellStyle, TerminalCommand, TerminalCursor,
+    TerminalCursorShape, TerminalDamage, TerminalFrameUpdate, TerminalRuntimeState,
+    TerminalSnapshot, TerminalSurface, TerminalUnderlineStyle, TerminalUpdate,
 };
-use crate::shared::daemon_wire::{self as wire, DaemonSessionMetadata};
+pub(crate) use crate::shared::daemon_wire::DaemonSessionInfo;
+use crate::shared::daemon_wire::{self as wire, DaemonSessionMetadata, OwnedTmuxSessionInfo};
 use bevy_egui::egui;
 use std::io::{Read, Write};
 
@@ -104,15 +101,6 @@ pub(crate) enum DaemonResponse {
         revision: u64,
     },
     Ack,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub(crate) struct DaemonSessionInfo {
-    pub(crate) session_id: String,
-    pub(crate) runtime: TerminalRuntimeState,
-    pub(crate) revision: u64,
-    pub(crate) created_order: u64,
-    pub(crate) metadata: DaemonSessionMetadata,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -574,12 +562,12 @@ fn decode_event(decoder: &mut Decoder<'_>) -> Result<DaemonEvent, String> {
 
 /// Encodes one terminal command into its tagged wire representation.
 fn encode_command(buffer: &mut Vec<u8>, command: &TerminalCommand) {
-    wire::encode_wire_terminal_command(buffer, &to_wire_command(command));
+    wire::encode_wire_terminal_command(buffer, command);
 }
 
 /// Decodes one terminal command from the payload stream.
 fn decode_command(decoder: &mut Decoder<'_>) -> Result<TerminalCommand, String> {
-    wire::decode_wire_terminal_command(decoder).map(from_wire_command)
+    wire::decode_wire_terminal_command(decoder)
 }
 
 /// Encodes a full terminal snapshot consisting of optional surface plus runtime state.
@@ -839,93 +827,12 @@ fn decode_cursor_shape(decoder: &mut Decoder<'_>) -> Result<TerminalCursorShape,
 
 /// Encodes the runtime status string, lifecycle enum, and optional last-error text.
 fn encode_runtime_state(buffer: &mut Vec<u8>, state: &TerminalRuntimeState) {
-    wire::encode_wire_runtime_state(buffer, &to_wire_runtime_state(state));
+    wire::encode_wire_runtime_state(buffer, state);
 }
 
 /// Decodes runtime status metadata from the payload stream.
 fn decode_runtime_state(decoder: &mut Decoder<'_>) -> Result<TerminalRuntimeState, String> {
-    wire::decode_wire_runtime_state(decoder).map(from_wire_runtime_state)
-}
-
-fn to_wire_command(command: &TerminalCommand) -> wire::TerminalCommand {
-    match command {
-        TerminalCommand::InputText(text) => wire::TerminalCommand::InputText(text.clone()),
-        TerminalCommand::InputEvent(event) => wire::TerminalCommand::InputEvent(event.clone()),
-        TerminalCommand::SendCommand(command) => {
-            wire::TerminalCommand::SendCommand(command.clone())
-        }
-        TerminalCommand::ScrollDisplay(lines) => wire::TerminalCommand::ScrollDisplay(*lines),
-        TerminalCommand::SetSelection { anchor, focus } => wire::TerminalCommand::SetSelection {
-            anchor: wire::TerminalViewportPoint {
-                col: anchor.col,
-                row: anchor.row,
-            },
-            focus: wire::TerminalViewportPoint {
-                col: focus.col,
-                row: focus.row,
-            },
-        },
-        TerminalCommand::ClearSelection => wire::TerminalCommand::ClearSelection,
-    }
-}
-
-fn from_wire_command(command: wire::TerminalCommand) -> TerminalCommand {
-    match command {
-        wire::TerminalCommand::InputText(text) => TerminalCommand::InputText(text),
-        wire::TerminalCommand::InputEvent(event) => TerminalCommand::InputEvent(event),
-        wire::TerminalCommand::SendCommand(command) => TerminalCommand::SendCommand(command),
-        wire::TerminalCommand::ScrollDisplay(lines) => TerminalCommand::ScrollDisplay(lines),
-        wire::TerminalCommand::SetSelection { anchor, focus } => TerminalCommand::SetSelection {
-            anchor: super::super::types::TerminalViewportPoint {
-                col: anchor.col,
-                row: anchor.row,
-            },
-            focus: super::super::types::TerminalViewportPoint {
-                col: focus.col,
-                row: focus.row,
-            },
-        },
-        wire::TerminalCommand::ClearSelection => TerminalCommand::ClearSelection,
-    }
-}
-
-fn to_wire_runtime_state(state: &TerminalRuntimeState) -> wire::TerminalRuntimeState {
-    wire::TerminalRuntimeState {
-        status: state.status.clone(),
-        lifecycle: to_wire_lifecycle(&state.lifecycle),
-        last_error: state.last_error.clone(),
-    }
-}
-
-fn from_wire_runtime_state(state: wire::TerminalRuntimeState) -> TerminalRuntimeState {
-    TerminalRuntimeState {
-        status: state.status,
-        lifecycle: from_wire_lifecycle(state.lifecycle),
-        last_error: state.last_error,
-    }
-}
-
-fn to_wire_lifecycle(lifecycle: &TerminalLifecycle) -> wire::TerminalLifecycle {
-    match lifecycle {
-        TerminalLifecycle::Running => wire::TerminalLifecycle::Running,
-        TerminalLifecycle::Exited { code, signal } => wire::TerminalLifecycle::Exited {
-            code: *code,
-            signal: signal.clone(),
-        },
-        TerminalLifecycle::Disconnected => wire::TerminalLifecycle::Disconnected,
-        TerminalLifecycle::Failed => wire::TerminalLifecycle::Failed,
-    }
-}
-
-fn from_wire_lifecycle(lifecycle: wire::TerminalLifecycle) -> TerminalLifecycle {
-    match lifecycle {
-        wire::TerminalLifecycle::Running => TerminalLifecycle::Running,
-        wire::TerminalLifecycle::Exited { code, signal } => {
-            TerminalLifecycle::Exited { code, signal }
-        }
-        wire::TerminalLifecycle::Disconnected => TerminalLifecycle::Disconnected,
-        wire::TerminalLifecycle::Failed => TerminalLifecycle::Failed,
-    }
+    wire::decode_wire_runtime_state(decoder)
 }
 
 /// Encodes an `egui::Color32` as four raw RGBA bytes.

@@ -192,72 +192,7 @@ pub(crate) enum TerminalDamage {
     Rows(Vec<usize>),
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub(crate) enum TerminalLifecycle {
-    #[default]
-    Running,
-    Exited {
-        code: Option<u32>,
-        signal: Option<String>,
-    },
-    Disconnected,
-    Failed,
-}
-
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub(crate) struct TerminalRuntimeState {
-    pub(crate) status: String,
-    pub(crate) lifecycle: TerminalLifecycle,
-    pub(crate) last_error: Option<String>,
-}
-
-impl TerminalRuntimeState {
-    /// Returns whether keyboard/input events should still be routed into the terminal runtime.
-    pub(crate) fn is_interactive(&self) -> bool {
-        matches!(self.lifecycle, TerminalLifecycle::Running)
-    }
-
-    /// Constructs a running runtime state with no last-error payload.
-    pub(crate) fn running(status: impl Into<String>) -> Self {
-        Self {
-            status: status.into(),
-            lifecycle: TerminalLifecycle::Running,
-            last_error: None,
-        }
-    }
-
-    /// Constructs a failed runtime state and mirrors the status string into `last_error`.
-    pub(crate) fn failed(status: impl Into<String>) -> Self {
-        let status = status.into();
-        Self {
-            status: status.clone(),
-            lifecycle: TerminalLifecycle::Failed,
-            last_error: Some(status),
-        }
-    }
-
-    /// Constructs a disconnected runtime state.
-    pub(crate) fn disconnected(status: impl Into<String>) -> Self {
-        Self {
-            status: status.into(),
-            lifecycle: TerminalLifecycle::Disconnected,
-            last_error: None,
-        }
-    }
-
-    /// Constructs an exited runtime state carrying the optional exit code and signal metadata.
-    pub(crate) fn exited(
-        status: impl Into<String>,
-        code: Option<u32>,
-        signal: Option<String>,
-    ) -> Self {
-        Self {
-            status: status.into(),
-            lifecycle: TerminalLifecycle::Exited { code, signal },
-            last_error: None,
-        }
-    }
-}
+pub(crate) use crate::shared::daemon_wire::{TerminalLifecycle, TerminalRuntimeState};
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub(crate) struct TerminalSnapshot {
@@ -288,24 +223,7 @@ pub(crate) type DrainedTerminalUpdates = (
     u64,
 );
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct TerminalViewportPoint {
-    pub(crate) col: usize,
-    pub(crate) row: usize,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum TerminalCommand {
-    InputText(String),
-    InputEvent(String),
-    SendCommand(String),
-    ScrollDisplay(i32),
-    SetSelection {
-        anchor: TerminalViewportPoint,
-        focus: TerminalViewportPoint,
-    },
-    ClearSelection,
-}
+pub(crate) use crate::shared::daemon_wire::{TerminalCommand, TerminalViewportPoint};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct TerminalDimensions {

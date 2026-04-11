@@ -414,7 +414,7 @@ pub(crate) fn reconcile_persisted_agents(
     let mut restore = Vec::new();
     let mut prune = Vec::new();
     for record in &persisted.agents {
-        let matched_session_name = record
+        let matched_session_name: Option<&str> = record
             .agent_uid
             .as_deref()
             .and_then(|agent_uid| live_by_uid.get(agent_uid).copied())
