@@ -3,6 +3,7 @@ mod daemon_client;
 use self::daemon_client::{OwnedTmuxCreator, SocketOwnedTmuxClient};
 use neozeus::shared::{
     daemon_socket::daemon_socket_path_from_env_map, daemon_wire::OwnedTmuxSessionInfo,
+    shell::shell_quote,
 };
 use std::{collections::HashMap, path::Path};
 
@@ -111,18 +112,6 @@ fn shell_join(args: &[String]) -> String {
         .map(|arg| shell_quote(arg))
         .collect::<Vec<_>>()
         .join(" ")
-}
-
-fn shell_quote(value: &str) -> String {
-    if !value.is_empty()
-        && value
-            .chars()
-            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '/' | '.' | '_' | '-' | ':'))
-    {
-        value.to_owned()
-    } else {
-        format!("'{}'", value.replace('\'', "'\\''"))
-    }
 }
 
 #[cfg(test)]

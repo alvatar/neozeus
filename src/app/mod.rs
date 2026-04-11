@@ -23,8 +23,9 @@ pub(crate) use session::{
     VisibilityMode,
 };
 pub(crate) use use_cases::{
-    clear_composer_and_direct_input, focus_agent_without_persist, open_composer, restore_app,
-    send_outbound_message, spawn_runtime_terminal_session, OutboundMessageSource,
+    clear_composer_and_direct_input, focus_agent_without_persist, open_composer,
+    render_recovery_status_summary, restore_app, send_outbound_message,
+    spawn_runtime_terminal_session, OutboundMessageSource,
 };
 
 pub(crate) use bootstrap::build_app;

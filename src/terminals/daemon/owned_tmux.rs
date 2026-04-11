@@ -1,4 +1,4 @@
-use crate::shared::command_runner::run_command_with_timeout;
+use crate::shared::{command_runner::run_command_with_timeout, shell::shell_quote};
 use std::{
     collections::HashMap,
     process::Command,
@@ -451,10 +451,6 @@ fn extract_env_assignment(command: &str, key: &str) -> String {
 
 fn is_tmux_missing_error(error: &str) -> bool {
     error.contains("can't find") || error.contains("not found")
-}
-
-fn shell_quote(value: &str) -> String {
-    format!("'{}'", value.replace('\'', "'\\''"))
 }
 
 fn run_tmux<const N: usize>(args: [&str; N], timeout: Duration) -> Result<String, String> {

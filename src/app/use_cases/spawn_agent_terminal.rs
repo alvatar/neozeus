@@ -4,7 +4,7 @@ use crate::{
     },
     app::{mark_app_state_dirty, AppStatePersistenceState},
     hud::{HudInputCaptureState, TerminalVisibilityState},
-    shared::pi_session_files::make_new_session_path,
+    shared::{pi_session_files::make_new_session_path, shell::shell_quote},
     terminals::{
         append_debug_log, attach_terminal_session, resolve_daemon_socket_path,
         ActiveTerminalContentState, OwnedTmuxSessionStore, TerminalBridge, TerminalFocusState,
@@ -30,21 +30,6 @@ pub(crate) struct AgentLaunchSpec {
 }
 
 static NEXT_PROVIDER_SESSION_COUNTER: AtomicU64 = AtomicU64::new(1);
-
-fn shell_quote(value: &str) -> String {
-    if value.is_empty() {
-        return "''".to_owned();
-    }
-    if value.bytes().all(|byte| {
-        matches!(
-            byte,
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'/' | b'.' | b'_' | b'-'
-        )
-    }) {
-        return value.to_owned();
-    }
-    format!("'{}'", value.replace('\'', "'\\''"))
-}
 
 pub(crate) fn generate_provider_session_id() -> String {
     let now_nanos = SystemTime::now()

@@ -142,6 +142,45 @@ pub(crate) struct RecoveryExecutionSummary {
     pub(crate) skipped_agents: Vec<String>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct RecoveryStatusPresentation {
+    pub(crate) tone: crate::app::RecoveryStatusTone,
+    pub(crate) title: String,
+    pub(crate) details: Vec<String>,
+}
+
+pub(crate) fn render_recovery_status_summary(
+    title_prefix: &str,
+    summary: &RecoveryExecutionSummary,
+    mut details: Vec<String>,
+) -> RecoveryStatusPresentation {
+    let title = if summary.skipped_agents.is_empty() {
+        format!(
+            "{title_prefix}: {} restored, {} failed",
+            summary.restored_agents,
+            summary.failed_agents.len()
+        )
+    } else {
+        format!(
+            "{title_prefix}: {} restored, {} failed, {} skipped",
+            summary.restored_agents,
+            summary.failed_agents.len(),
+            summary.skipped_agents.len()
+        )
+    };
+    details.extend(summary.failed_agents.iter().cloned());
+    details.extend(summary.skipped_agents.iter().cloned());
+    RecoveryStatusPresentation {
+        tone: if summary.failed_agents.is_empty() {
+            crate::app::RecoveryStatusTone::Success
+        } else {
+            crate::app::RecoveryStatusTone::Error
+        },
+        title,
+        details,
+    }
+}
+
 fn skipped_live_only_restore_message(
     record: &crate::shared::app_state_file::PersistedAgentState,
 ) -> String {
@@ -377,7 +416,10 @@ pub(crate) fn restore_app(
             summary.failed_agents.push(message);
             continue;
         }
-        let launch = launch_spec_for_recovery_spec(&recovery);
+        let mut launch = launch_spec_for_recovery_spec(&recovery);
+        if record.clone_source_session_path.is_some() {
+            launch.metadata.clone_source_session_path = record.clone_source_session_path.clone();
+        }
         let working_directory = match &recovery {
             crate::agents::AgentRecoverySpec::Pi { cwd, .. }
             | crate::agents::AgentRecoverySpec::Claude { cwd, .. }
@@ -555,7 +597,10 @@ pub(crate) fn restore_app(
 
 #[cfg(test)]
 mod tests {
-    use super::{agent_kind_from_daemon_session, skipped_live_only_restore_message};
+    use super::{
+        agent_kind_from_daemon_session, render_recovery_status_summary,
+        skipped_live_only_restore_message, RecoveryExecutionSummary,
+    };
     use crate::{
         agents::AgentKind,
         shared::{
@@ -613,6 +658,40 @@ mod tests {
             agent_kind_from_daemon_session(&session_with_kind(None)),
             AgentKind::Terminal
         );
+    }
+
+    #[test]
+    fn render_recovery_status_summary_keeps_reset_and_startup_counting_semantics_aligned() {
+        let summary = RecoveryExecutionSummary {
+            snapshot_found: true,
+            restored_agents: 2,
+            failed_agents: vec!["failed-a".into()],
+            skipped_agents: vec!["skipped-b".into()],
+        };
+
+        let startup = render_recovery_status_summary(
+            "Automatic recovery completed",
+            &summary,
+            vec!["Automatic recovery started from saved snapshot".into()],
+        );
+        let reset = render_recovery_status_summary(
+            "Reset recovery completed",
+            &summary,
+            vec!["Reset confirmed".into()],
+        );
+
+        assert_eq!(
+            startup.title,
+            "Automatic recovery completed: 2 restored, 1 failed, 1 skipped"
+        );
+        assert_eq!(
+            reset.title,
+            "Reset recovery completed: 2 restored, 1 failed, 1 skipped"
+        );
+        assert_eq!(startup.tone, crate::app::RecoveryStatusTone::Error);
+        assert_eq!(reset.tone, crate::app::RecoveryStatusTone::Error);
+        assert_eq!(startup.details[1..], ["failed-a", "skipped-b"]);
+        assert_eq!(reset.details[1..], ["failed-a", "skipped-b"]);
     }
 
     #[test]

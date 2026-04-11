@@ -22,7 +22,7 @@ pub(crate) use focus_agent::{apply_focus_intent, focus_agent, focus_agent_withou
 pub(crate) use kill_selected_agent::kill_selected_agent;
 pub(crate) use owned_tmux::{kill_selected_owned_tmux, select_owned_tmux};
 pub(crate) use recovery::reset_runtime_from_snapshot;
-pub(crate) use restore_app::restore_app;
+pub(crate) use restore_app::{render_recovery_status_summary, restore_app};
 pub(crate) use spawn_agent_terminal::{
     attach_restored_terminal, claude_fork_launch_spec, codex_fork_launch_spec,
     generate_provider_session_id, launch_spec_for_recovery_spec, pi_launch_spec_for_session_path,

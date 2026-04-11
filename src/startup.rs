@@ -527,19 +527,14 @@ fn restore_startup_terminals(ctx: &mut SceneSetupContext) {
         &mut ctx.redraws,
     );
     if summary.snapshot_found {
-        let title = format!(
-            "Automatic recovery completed: {} restored, {} failed",
-            summary.restored_agents,
-            summary.failed_agents.len()
+        let status = crate::app::render_recovery_status_summary(
+            "Automatic recovery completed",
+            &summary,
+            vec!["Automatic recovery started from saved snapshot".to_owned()],
         );
-        let tone = if summary.failed_agents.is_empty() {
-            crate::app::RecoveryStatusTone::Success
-        } else {
-            crate::app::RecoveryStatusTone::Error
-        };
-        let mut details = vec!["Automatic recovery started from saved snapshot".to_owned()];
-        details.extend(summary.failed_agents);
-        ctx.app_session.recovery_status.show(tone, title, details);
+        ctx.app_session
+            .recovery_status
+            .show(status.tone, status.title, status.details);
     } else {
         ctx.app_session.recovery_status.clear();
     }

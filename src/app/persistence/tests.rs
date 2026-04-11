@@ -109,6 +109,23 @@ fn app_state_parse_defaults_missing_kind_to_pi() {
     assert_eq!(parsed.agents[0].aegis_prompt_text, None);
 }
 
+#[test]
+fn parse_persisted_app_state_flushes_complete_final_agent_block_at_eof() {
+    let parsed = parse_persisted_app_state(
+        "neozeus state version 4\n[agent]\nagent_uid=\"agent-uid-1\"\nruntime_session_name=\"neozeus-session-a\"\nlabel=\"ALPHA\"\nkind=\"terminal\"\norder_index=0\nfocused=1\n",
+    );
+
+    assert_eq!(parsed.agents.len(), 1);
+    assert_eq!(parsed.agents[0].agent_uid.as_deref(), Some("agent-uid-1"));
+    assert_eq!(
+        parsed.agents[0].runtime_session_name.as_deref(),
+        Some("neozeus-session-a")
+    );
+    assert_eq!(parsed.agents[0].label.as_deref(), Some("ALPHA"));
+    assert_eq!(parsed.agents[0].kind, PersistedAgentKind::Terminal);
+    assert!(parsed.agents[0].last_focused);
+}
+
 /// Verifies that legacy terminal-session state migrates into the new app-state model on read.
 #[test]
 fn app_state_load_falls_back_to_legacy_terminal_sessions() {
@@ -376,6 +393,55 @@ fn saving_app_state_persists_runtime_focus_clone_and_aegis_truth() {
         alpha_record.recovery,
         Some(PersistedAgentRecoverySpec::Claude { .. })
     ));
+}
+
+#[test]
+fn saving_app_state_does_not_mark_any_agent_focused_when_owned_tmux_has_focus() {
+    let dir = temp_dir("neozeus-app-state-save-owned-tmux-focus");
+    let path = dir.join("neozeus-state.v1");
+    let (bridge_one, _) = test_bridge();
+    let (bridge_two, _) = test_bridge();
+    let mut manager = crate::terminals::TerminalManager::default();
+    let id_one = manager.create_terminal_with_session(bridge_one, "neozeus-session-a".into());
+    let id_two = manager.create_terminal_with_session(bridge_two, "neozeus-session-b".into());
+    manager.focus_terminal(id_two);
+
+    let mut agent_catalog = AgentCatalog::default();
+    let alpha = agent_catalog.create_agent(
+        Some("alpha".into()),
+        AgentKind::Claude,
+        AgentKind::Claude.capabilities(),
+    );
+    let beta = agent_catalog.create_agent(
+        Some("beta".into()),
+        AgentKind::Terminal,
+        AgentKind::Terminal.capabilities(),
+    );
+    let mut runtime_index = AgentRuntimeIndex::default();
+    runtime_index.link_terminal(alpha, id_one, "neozeus-session-a".into(), None);
+    runtime_index.link_terminal(beta, id_two, "neozeus-session-b".into(), None);
+    let mut app_session = crate::app::AppSessionState::default();
+    app_session.focus_intent.focus_owned_tmux("tmux-1".into());
+
+    let mut world = World::default();
+    let mut time = Time::<()>::default();
+    time.advance_by(Duration::from_secs(1));
+    world.insert_resource(time);
+    insert_terminal_manager_resources(&mut world, manager);
+    world.insert_resource(app_session);
+    world.insert_resource(agent_catalog);
+    world.insert_resource(runtime_index);
+    world.insert_resource(crate::aegis::AegisPolicyStore::default());
+    world.insert_resource(AppStatePersistenceState {
+        path: Some(path.clone()),
+        dirty_since_secs: Some(0.0),
+    });
+
+    world.run_system_once(save_app_state_if_dirty).unwrap();
+    let persisted =
+        parse_persisted_app_state(&fs::read_to_string(&path).expect("app state file missing"));
+    assert_eq!(persisted.agents.len(), 2);
+    assert!(persisted.agents.iter().all(|record| !record.last_focused));
 }
 
 #[test]

@@ -15,6 +15,7 @@ use crate::{
         CreateAgentDialogTarget, MessageDialogFocus, RenameAgentDialogTarget, TaskDialogFocus,
     },
     hud::{HudInputCaptureState, HudLayoutState},
+    shared::linux_display::LinuxDisplayEnvironment,
     terminals::{
         terminal_texture_screen_size, ActiveTerminalContentState, TerminalCommand,
         TerminalDisplayMode, TerminalFocusState, TerminalId, TerminalManager, TerminalPanel,
@@ -556,10 +557,9 @@ fn read_linux_primary_selection_text_with(
     display: Option<&str>,
     mut run_command: impl FnMut(&str, &[&str]) -> Option<Vec<u8>>,
 ) -> Option<String> {
-    let prefer_wayland = wayland_display.is_some()
-        || session_type.is_some_and(|value| value.eq_ignore_ascii_case("wayland"));
-    let prefer_x11 =
-        display.is_some() || session_type.is_some_and(|value| value.eq_ignore_ascii_case("x11"));
+    let env = LinuxDisplayEnvironment::new(session_type, wayland_display, display);
+    let prefer_wayland = env.prefers_wayland();
+    let prefer_x11 = env.prefers_x11();
     let mut candidates = Vec::new();
     if prefer_wayland {
         candidates.push(("wl-paste", ["--primary", "--no-newline"].as_slice()));
@@ -611,10 +611,9 @@ fn write_linux_primary_selection_text_with(
     text: &str,
     mut run_command: impl FnMut(&str, &[&str], &str) -> bool,
 ) -> bool {
-    let prefer_wayland = wayland_display.is_some()
-        || session_type.is_some_and(|value| value.eq_ignore_ascii_case("wayland"));
-    let prefer_x11 =
-        display.is_some() || session_type.is_some_and(|value| value.eq_ignore_ascii_case("x11"));
+    let env = LinuxDisplayEnvironment::new(session_type, wayland_display, display);
+    let prefer_wayland = env.prefers_wayland();
+    let prefer_x11 = env.prefers_x11();
     let mut candidates = Vec::new();
     if prefer_wayland {
         candidates.push(("wl-copy", ["--primary", "--type", "text/plain"].as_slice()));

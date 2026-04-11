@@ -135,6 +135,89 @@ fn parse_persisted_app_state_v3(text: &str) -> PersistedAppState {
     parse_persisted_app_state_with(text, false)
 }
 
+fn finalize_parsed_agent_record(
+    persisted: &mut PersistedAppState,
+    agent_uid: &mut Option<String>,
+    runtime_session_name: &mut Option<String>,
+    label: &mut Option<String>,
+    kind: &mut Option<PersistedAgentKind>,
+    clone_source_session_path: &mut Option<String>,
+    recovery_mode: &mut Option<String>,
+    recovery_session_path: &mut Option<String>,
+    recovery_session_id: &mut Option<String>,
+    recovery_cwd: &mut Option<String>,
+    recovery_model: &mut Option<String>,
+    recovery_profile: &mut Option<String>,
+    is_workdir: bool,
+    workdir_slug: &mut Option<String>,
+    aegis_enabled: bool,
+    aegis_prompt_text: &mut Option<String>,
+    order_index: &mut Option<u64>,
+    last_focused: &mut Option<bool>,
+) {
+    let has_runtime_hint = runtime_session_name.is_some();
+    if let Some(order_index) = order_index.take() {
+        if agent_uid.is_some() || has_runtime_hint {
+            let kind = kind.take().unwrap_or(PersistedAgentKind::Pi);
+            let clone_source_session_path = clone_source_session_path.take();
+            let workdir_slug = workdir_slug.take();
+            let recovery = match recovery_mode.take().as_deref() {
+                Some("pi") => recovery_session_path.take().map(|session_path| {
+                    PersistedAgentRecoverySpec::Pi {
+                        session_path,
+                        cwd: recovery_cwd.take(),
+                        is_workdir,
+                        workdir_slug: workdir_slug.clone(),
+                    }
+                }),
+                Some("claude") => recovery_session_id.take().and_then(|session_id| {
+                    recovery_cwd
+                        .take()
+                        .map(|cwd| PersistedAgentRecoverySpec::Claude {
+                            session_id,
+                            cwd,
+                            model: recovery_model.take(),
+                            profile: recovery_profile.take(),
+                        })
+                }),
+                Some("codex") => recovery_session_id.take().and_then(|session_id| {
+                    recovery_cwd
+                        .take()
+                        .map(|cwd| PersistedAgentRecoverySpec::Codex {
+                            session_id,
+                            cwd,
+                            model: recovery_model.take(),
+                            profile: recovery_profile.take(),
+                        })
+                }),
+                _ => match (&kind, clone_source_session_path.as_ref()) {
+                    (PersistedAgentKind::Pi, Some(session_path)) => {
+                        Some(PersistedAgentRecoverySpec::Pi {
+                            session_path: session_path.clone(),
+                            cwd: None,
+                            is_workdir,
+                            workdir_slug: workdir_slug.clone(),
+                        })
+                    }
+                    _ => None,
+                },
+            };
+            persisted.agents.push(PersistedAgentState {
+                agent_uid: agent_uid.take(),
+                runtime_session_name: runtime_session_name.take(),
+                label: label.take(),
+                kind,
+                recovery,
+                clone_source_session_path,
+                aegis_enabled,
+                aegis_prompt_text: aegis_prompt_text.take(),
+                order_index,
+                last_focused: last_focused.take().unwrap_or(false),
+            });
+        }
+    }
+}
+
 fn parse_persisted_app_state_with(text: &str, legacy_session_name_key: bool) -> PersistedAppState {
     let mut persisted = PersistedAppState::default();
     let mut agent_uid: Option<String> = None;
@@ -187,71 +270,26 @@ fn parse_persisted_app_state_with(text: &str, legacy_session_name_key: bool) -> 
             }
             "[/agent]" => {
                 if in_agent {
-                    let has_runtime_hint = runtime_session_name.is_some();
-                    if let Some(order_index) = order_index.take() {
-                        if agent_uid.is_some() || has_runtime_hint {
-                            let kind = kind.take().unwrap_or(PersistedAgentKind::Pi);
-                            let clone_source_session_path = clone_source_session_path.take();
-                            let workdir_slug = workdir_slug.take();
-                            let recovery = match recovery_mode.take().as_deref() {
-                                Some("pi") => recovery_session_path.take().map(|session_path| {
-                                    PersistedAgentRecoverySpec::Pi {
-                                        session_path,
-                                        cwd: recovery_cwd.take(),
-                                        is_workdir,
-                                        workdir_slug: workdir_slug.clone(),
-                                    }
-                                }),
-                                Some("claude") => {
-                                    recovery_session_id.take().and_then(|session_id| {
-                                        recovery_cwd.take().map(|cwd| {
-                                            PersistedAgentRecoverySpec::Claude {
-                                                session_id,
-                                                cwd,
-                                                model: recovery_model.take(),
-                                                profile: recovery_profile.take(),
-                                            }
-                                        })
-                                    })
-                                }
-                                Some("codex") => {
-                                    recovery_session_id.take().and_then(|session_id| {
-                                        recovery_cwd.take().map(|cwd| {
-                                            PersistedAgentRecoverySpec::Codex {
-                                                session_id,
-                                                cwd,
-                                                model: recovery_model.take(),
-                                                profile: recovery_profile.take(),
-                                            }
-                                        })
-                                    })
-                                }
-                                _ => match (&kind, clone_source_session_path.as_ref()) {
-                                    (PersistedAgentKind::Pi, Some(session_path)) => {
-                                        Some(PersistedAgentRecoverySpec::Pi {
-                                            session_path: session_path.clone(),
-                                            cwd: None,
-                                            is_workdir,
-                                            workdir_slug: workdir_slug.clone(),
-                                        })
-                                    }
-                                    _ => None,
-                                },
-                            };
-                            persisted.agents.push(PersistedAgentState {
-                                agent_uid: agent_uid.take(),
-                                runtime_session_name: runtime_session_name.take(),
-                                label: label.take(),
-                                kind,
-                                recovery,
-                                clone_source_session_path,
-                                aegis_enabled,
-                                aegis_prompt_text: aegis_prompt_text.take(),
-                                order_index,
-                                last_focused: last_focused.take().unwrap_or(false),
-                            });
-                        }
-                    }
+                    finalize_parsed_agent_record(
+                        &mut persisted,
+                        &mut agent_uid,
+                        &mut runtime_session_name,
+                        &mut label,
+                        &mut kind,
+                        &mut clone_source_session_path,
+                        &mut recovery_mode,
+                        &mut recovery_session_path,
+                        &mut recovery_session_id,
+                        &mut recovery_cwd,
+                        &mut recovery_model,
+                        &mut recovery_profile,
+                        is_workdir,
+                        &mut workdir_slug,
+                        aegis_enabled,
+                        &mut aegis_prompt_text,
+                        &mut order_index,
+                        &mut last_focused,
+                    );
                 }
                 in_agent = false;
             }
@@ -325,6 +363,29 @@ fn parse_persisted_app_state_with(text: &str, legacy_session_name_key: bool) -> 
                 }
             }
         }
+    }
+
+    if in_agent {
+        finalize_parsed_agent_record(
+            &mut persisted,
+            &mut agent_uid,
+            &mut runtime_session_name,
+            &mut label,
+            &mut kind,
+            &mut clone_source_session_path,
+            &mut recovery_mode,
+            &mut recovery_session_path,
+            &mut recovery_session_id,
+            &mut recovery_cwd,
+            &mut recovery_model,
+            &mut recovery_profile,
+            is_workdir,
+            &mut workdir_slug,
+            aegis_enabled,
+            &mut aegis_prompt_text,
+            &mut order_index,
+            &mut last_focused,
+        );
     }
 
     persisted

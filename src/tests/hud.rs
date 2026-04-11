@@ -3833,6 +3833,17 @@ fn sync_agents_from_terminals_cleans_tasks_conversations_notes_and_persistence_f
     let agent_uid = catalog.uid(agent_id).unwrap().to_owned();
     let mut runtime_index = AgentRuntimeIndex::default();
     runtime_index.link_terminal(agent_id, terminal_id, "alpha-session".into(), None);
+    let mut focus_state = crate::terminals::TerminalFocusState::default();
+    focus_state.focus_terminal(&manager, terminal_id);
+    let mut input_capture = crate::hud::HudInputCaptureState::default();
+    input_capture.direct_input_terminal = Some(terminal_id);
+    let mut view_state = TerminalViewState::default();
+    view_state.focus_terminal(Some(terminal_id));
+    let visibility_state = TerminalVisibilityState {
+        policy: TerminalVisibilityPolicy::Isolate(terminal_id),
+    };
+    let mut active_terminal_content = crate::terminals::ActiveTerminalContentState::default();
+    active_terminal_content.select_owned_tmux("tmux-session-1".into(), Some(terminal_id));
     let _ = manager.remove_terminal(terminal_id);
 
     let mut task_store = crate::conversations::AgentTaskStore::default();
@@ -3861,10 +3872,20 @@ fn sync_agents_from_terminals_cleans_tasks_conversations_notes_and_persistence_f
     world.insert_resource(Time::<()>::default());
     world.insert_resource(catalog);
     world.insert_resource(runtime_index);
-    world.insert_resource(AppSessionState::default());
+    let mut app_session = AppSessionState::default();
+    app_session
+        .focus_intent
+        .focus_agent(agent_id, crate::app::VisibilityMode::FocusedOnly);
+    world.insert_resource(app_session);
     world.insert_resource(aegis_policy);
     world.insert_resource(aegis_runtime);
     world.insert_resource(crate::hud::AgentListSelection::Agent(agent_id));
+    world.insert_resource(focus_state);
+    world.insert_resource(input_capture);
+    world.insert_resource(visibility_state);
+    world.insert_resource(view_state);
+    world.insert_resource(active_terminal_content);
+    world.insert_resource(crate::terminals::OwnedTmuxSessionStore::default());
     world.insert_resource(task_store);
     world.insert_resource(conversations);
     world.insert_resource(crate::conversations::ConversationPersistenceState::default());
@@ -3885,6 +3906,37 @@ fn sync_agents_from_terminals_cleans_tasks_conversations_notes_and_persistence_f
         *world.resource::<crate::hud::AgentListSelection>(),
         crate::hud::AgentListSelection::None
     );
+    assert_eq!(
+        world
+            .resource::<AppSessionState>()
+            .focus_intent
+            .selected_agent(),
+        None
+    );
+    assert_eq!(
+        world.resource::<AppSessionState>().visibility_mode(),
+        crate::app::VisibilityMode::ShowAll
+    );
+    assert_eq!(
+        world
+            .resource::<crate::terminals::TerminalFocusState>()
+            .active_id(),
+        None
+    );
+    assert_eq!(
+        world
+            .resource::<crate::hud::HudInputCaptureState>()
+            .direct_input_terminal,
+        None
+    );
+    assert_eq!(
+        world.resource::<TerminalVisibilityState>().policy,
+        TerminalVisibilityPolicy::ShowAll
+    );
+    assert!(world
+        .resource::<crate::terminals::ActiveTerminalContentState>()
+        .selected_owned_tmux_session_uid()
+        .is_none());
     assert_eq!(
         world
             .resource::<crate::conversations::AgentTaskStore>()

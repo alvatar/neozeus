@@ -14,6 +14,7 @@ use crate::{
         HudTextureCaptureConfig, HudWidgetBloom, TerminalVisibilityState, ThreadView,
         WindowCaptureConfig,
     },
+    shared::linux_display::LinuxDisplayEnvironment,
     terminals::{
         TerminalFontState, TerminalGlyphCache, TerminalManager, TerminalPointerState,
         TerminalPresentationStore, TerminalRuntimeSpawner, TerminalViewState,
@@ -167,12 +168,7 @@ pub(crate) fn resolve_disable_pipelined_rendering_for(
         );
     }
     !output_mode.is_offscreen()
-        && (session_type
-            .map(str::trim)
-            .is_some_and(|value| value.eq_ignore_ascii_case("wayland"))
-            || wayland_display
-                .map(str::trim)
-                .is_some_and(|value| !value.is_empty()))
+        && LinuxDisplayEnvironment::new(session_type, wayland_display, None).prefers_wayland()
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -205,19 +201,13 @@ pub(crate) fn should_force_x11_backend(
     }
     match backend {
         LinuxWindowBackend::Wayland => false,
-        LinuxWindowBackend::X11 => display
-            .map(str::trim)
-            .is_some_and(|value| !value.is_empty()),
+        LinuxWindowBackend::X11 => {
+            LinuxDisplayEnvironment::new(session_type, wayland_display, display)
+                .x11_display_present()
+        }
         LinuxWindowBackend::Auto => {
-            display
-                .map(str::trim)
-                .is_some_and(|value| !value.is_empty())
-                && (session_type
-                    .map(str::trim)
-                    .is_some_and(|value| value.eq_ignore_ascii_case("wayland"))
-                    || wayland_display
-                        .map(str::trim)
-                        .is_some_and(|value| !value.is_empty()))
+            let env = LinuxDisplayEnvironment::new(session_type, wayland_display, display);
+            env.x11_display_present() && env.prefers_wayland()
         }
     }
 }
