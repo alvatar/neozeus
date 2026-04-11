@@ -64,6 +64,39 @@ pub(crate) struct SpawnAgentRequest<'a> {
     pub(crate) restored_agent_uid: Option<String>,
 }
 
+pub(crate) struct SpawnRuntimeTerminalSessionContext<'a> {
+    pub(crate) terminal_manager: &'a mut TerminalManager,
+    pub(crate) focus_state: &'a mut TerminalFocusState,
+    pub(crate) runtime_spawner: &'a TerminalRuntimeSpawner,
+}
+
+pub(crate) struct SpawnRuntimeTerminalSessionRequest<'a> {
+    pub(crate) prefix: &'a str,
+    pub(crate) working_directory: Option<&'a str>,
+    pub(crate) startup_command: Option<&'a str>,
+    pub(crate) env_overrides: &'a [(String, String)],
+    pub(crate) focus: bool,
+}
+
+pub(crate) struct AttachRestoredTerminalContext<'a> {
+    pub(crate) agent_catalog: &'a mut AgentCatalog,
+    pub(crate) runtime_index: &'a mut AgentRuntimeIndex,
+    pub(crate) terminal_manager: &'a mut TerminalManager,
+    pub(crate) focus_state: &'a mut TerminalFocusState,
+    pub(crate) runtime_spawner: &'a TerminalRuntimeSpawner,
+    pub(crate) presentation_store: Option<&'a mut TerminalPresentationStore>,
+}
+
+pub(crate) struct AttachRestoredTerminalRequest {
+    pub(crate) session_name: String,
+    pub(crate) focus: bool,
+    pub(crate) kind: AgentKind,
+    pub(crate) label: Option<String>,
+    pub(crate) agent_uid: Option<String>,
+    pub(crate) clone_source_session_path: Option<String>,
+    pub(crate) recovery: Option<AgentRecoverySpec>,
+}
+
 use std::time::Duration;
 
 #[cfg(test)]
@@ -193,14 +226,18 @@ mod tests {
         let mut focus_state = TerminalFocusState::default();
 
         let error = spawn_runtime_terminal_session(
-            &mut terminal_manager,
-            &mut focus_state,
-            &runtime_spawner,
-            "neozeus-session-",
-            None,
-            None,
-            &[],
-            true,
+            &mut super::SpawnRuntimeTerminalSessionContext {
+                terminal_manager: &mut terminal_manager,
+                focus_state: &mut focus_state,
+                runtime_spawner: &runtime_spawner,
+            },
+            super::SpawnRuntimeTerminalSessionRequest {
+                prefix: "neozeus-session-",
+                working_directory: None,
+                startup_command: None,
+                env_overrides: &[],
+                focus: true,
+            },
         )
         .err()
         .expect("attach failure should bubble up");

@@ -557,14 +557,18 @@ fn register_startup_loading_terminal(
 fn setup_verifier_terminal(ctx: &mut SceneSetupContext, config: AutoVerifyConfig) {
     // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
     let (session_name, terminal_id, dispatcher_bridge) = match spawn_runtime_terminal_session(
-        &mut ctx.terminal_manager,
-        &mut ctx.focus_state,
-        &ctx.runtime_spawner,
-        VERIFIER_SESSION_PREFIX,
-        None,
-        None,
-        &[],
-        true,
+        &mut crate::app::SpawnRuntimeTerminalSessionContext {
+            terminal_manager: &mut ctx.terminal_manager,
+            focus_state: &mut ctx.focus_state,
+            runtime_spawner: &ctx.runtime_spawner,
+        },
+        crate::app::SpawnRuntimeTerminalSessionRequest {
+            prefix: VERIFIER_SESSION_PREFIX,
+            working_directory: None,
+            startup_command: None,
+            env_overrides: &[],
+            focus: true,
+        },
     ) {
         Ok(result) => result,
         Err(error) => {

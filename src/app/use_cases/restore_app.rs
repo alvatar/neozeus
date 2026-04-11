@@ -325,22 +325,29 @@ pub(crate) fn restore_app(ctx: &mut RestoreAppContext<'_, '_>) -> RecoveryExecut
         // For restore/import attach, the daemon owns session existence/runtime and the app owns
         // stable uid/label/kind plus all recovery metadata; attach reuses the live session and then
         // re-mirrors the app-owned identity back into daemon metadata.
-        match attach_restored_terminal(
-            agent_catalog,
-            runtime_index,
-            app_session,
-            terminal_manager,
-            focus_state,
-            runtime_spawner,
-            presentation_store_slot,
-            runtime_session_name,
-            false,
-            AgentKind::from_persisted_kind(record.kind),
-            record.label,
-            record.agent_uid,
-            clone_source_session_path,
-            recovery,
-        ) {
+        let attach_result = {
+            let mut attach_ctx = super::AttachRestoredTerminalContext {
+                agent_catalog,
+                runtime_index,
+                terminal_manager,
+                focus_state,
+                runtime_spawner,
+                presentation_store: presentation_store_slot,
+            };
+            attach_restored_terminal(
+                &mut attach_ctx,
+                super::AttachRestoredTerminalRequest {
+                    session_name: runtime_session_name,
+                    focus: false,
+                    kind: AgentKind::from_persisted_kind(record.kind),
+                    label: record.label,
+                    agent_uid: record.agent_uid,
+                    clone_source_session_path,
+                    recovery,
+                },
+            )
+        };
+        match attach_result {
             Ok((agent_id, terminal_id)) => {
                 summary.restored_agents += 1;
                 if record.aegis_enabled || record.aegis_prompt_text.is_some() {

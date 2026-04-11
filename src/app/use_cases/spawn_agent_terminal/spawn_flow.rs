@@ -67,15 +67,20 @@ fn spawn_agent_terminal_internal(
             &socket_path,
         ));
     }
-    let (session_name, terminal_id, _) = spawn_runtime_terminal_session(
+    let mut runtime_ctx = SpawnRuntimeTerminalSessionContext {
         terminal_manager,
         focus_state,
         runtime_spawner,
-        prefix,
-        working_directory,
-        launch.startup_command.as_deref(),
-        &env_overrides,
-        focus_terminal,
+    };
+    let (session_name, terminal_id, _) = spawn_runtime_terminal_session(
+        &mut runtime_ctx,
+        SpawnRuntimeTerminalSessionRequest {
+            prefix,
+            working_directory,
+            startup_command: launch.startup_command.as_deref(),
+            env_overrides: &env_overrides,
+            focus: focus_terminal,
+        },
     )?;
 
     let agent_id = agent_catalog.create_agent_from_identity(pending_identity);

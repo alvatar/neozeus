@@ -28,7 +28,8 @@ pub(crate) use use_cases::{
     clear_composer_and_direct_input, focus_agent_without_persist, focus_terminal_without_persist,
     open_composer, render_recovery_status_summary, restore_app, send_outbound_message,
     spawn_runtime_terminal_session, FocusMutationContext, FocusProjectionContext,
-    OutboundMessageSource, RestoreAppContext,
+    OutboundMessageSource, RestoreAppContext, SpawnRuntimeTerminalSessionContext,
+    SpawnRuntimeTerminalSessionRequest,
 };
 
 pub(crate) use bootstrap::build_app;
