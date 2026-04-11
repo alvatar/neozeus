@@ -1,14 +1,21 @@
 use crate::{
     agents::{AgentCatalog, AgentRuntimeIndex},
     shared::{
-        persistence::{resolve_state_path_with, write_file_atomically},
+        persistence::{
+            first_non_empty_trimmed_line, load_text_file_or_default, mark_dirty_since,
+            non_empty_trimmed_lines_after_header, resolve_state_path_with, save_debounce_elapsed,
+            write_file_atomically,
+        },
         text_escape::{quote_escaped_string, unquote_escaped_string, BASIC_QUOTED_STRING_ESCAPES},
     },
 };
 
 use super::{ConversationStore, MessageAuthor, MessageDeliveryState};
 use bevy::prelude::*;
-use std::{env, fs, path::PathBuf};
+use std::{
+    env, fs,
+    path::{Path, PathBuf},
+};
 
 const CONVERSATIONS_FILENAME: &str = "conversations.v1";
 const CONVERSATIONS_VERSION_V1: &str = "version 1";
@@ -154,11 +161,7 @@ pub(super) fn serialize_persisted_conversations(persisted: &PersistedConversatio
 
 /// Parses persisted conversations.
 pub(super) fn parse_persisted_conversations(text: &str) -> PersistedConversations {
-    let version = text
-        .lines()
-        .find(|line| !line.trim().is_empty())
-        .map(str::trim)
-        .unwrap_or_default();
+    let version = first_non_empty_trimmed_line(text);
     match version {
         CONVERSATIONS_VERSION_V1 => parse_persisted_conversations_with(text, true),
         CONVERSATIONS_VERSION_V2 => parse_persisted_conversations_with(text, false),
@@ -177,14 +180,7 @@ fn parse_persisted_conversations_with(
     let mut pending_delivery: Option<String> = None;
     let mut pending_error: Option<String> = None;
 
-    for (line_index, raw_line) in text.lines().enumerate() {
-        let line = raw_line.trim();
-        if line.is_empty() {
-            continue;
-        }
-        if line_index == 0 {
-            continue;
-        }
+    for line in non_empty_trimmed_lines_after_header(text) {
         match line {
             "[conversation]" => {
                 if let Some(current) = current.take() {
@@ -270,20 +266,13 @@ fn parse_persisted_conversations_with(
 }
 
 /// Loads persisted conversations from.
-fn load_persisted_conversations_from(path: &PathBuf) -> PersistedConversations {
-    match fs::read_to_string(path) {
-        Ok(text) => parse_persisted_conversations(&text),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            PersistedConversations::default()
-        }
-        Err(error) => {
-            crate::terminals::append_debug_log(format!(
-                "conversations load failed {}: {error}",
-                path.display()
-            ));
-            PersistedConversations::default()
-        }
-    }
+fn load_persisted_conversations_from(path: &Path) -> PersistedConversations {
+    load_text_file_or_default(path, parse_persisted_conversations, |path, error| {
+        crate::terminals::append_debug_log(format!(
+            "conversations load failed {}: {error}",
+            path.display()
+        ));
+    })
 }
 
 /// Builds persisted conversations.
@@ -357,7 +346,7 @@ pub(super) fn restore_persisted_conversations(
 ///
 /// Startup uses this wrapper so the on-disk schema stays local to this module.
 pub(crate) fn restore_persisted_conversations_from_path(
-    path: &PathBuf,
+    path: &Path,
     agent_catalog: &AgentCatalog,
     runtime_index: &AgentRuntimeIndex,
     conversations: &mut ConversationStore,
@@ -371,9 +360,7 @@ pub(crate) fn mark_conversations_dirty(
     persistence_state: &mut ConversationPersistenceState,
     time: Option<&Time>,
 ) {
-    if persistence_state.dirty_since_secs.is_none() {
-        persistence_state.dirty_since_secs = Some(time.map(Time::elapsed_secs).unwrap_or(0.0));
-    }
+    mark_dirty_since(&mut persistence_state.dirty_since_secs, time);
 }
 
 /// Saves conversations if dirty.
@@ -384,10 +371,11 @@ pub(crate) fn save_conversations_if_dirty(
     mut persistence_state: ResMut<ConversationPersistenceState>,
 ) {
     // Process the input incrementally so each transformation stays local and malformed data fails at the narrowest point.
-    let Some(dirty_since) = persistence_state.dirty_since_secs else {
-        return;
-    };
-    if time.elapsed_secs() - dirty_since < CONVERSATIONS_SAVE_DEBOUNCE_SECS {
+    if !save_debounce_elapsed(
+        persistence_state.dirty_since_secs,
+        time.elapsed_secs(),
+        CONVERSATIONS_SAVE_DEBOUNCE_SECS,
+    ) {
         return;
     }
     let Some(path) = persistence_state.path.as_ref() else {

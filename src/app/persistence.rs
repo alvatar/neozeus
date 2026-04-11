@@ -7,7 +7,10 @@ use crate::{
             PersistedAgentState, PersistedAppState, APP_STATE_VERSION_V1, APP_STATE_VERSION_V2,
             APP_STATE_VERSION_V3, APP_STATE_VERSION_V4,
         },
-        persistence::write_file_atomically,
+        persistence::{
+            first_non_empty_trimmed_line, mark_dirty_since, save_debounce_elapsed,
+            write_file_atomically,
+        },
         text_escape::{quote_escaped_string, EXTENDED_QUOTED_STRING_ESCAPES},
     },
     terminals::{
@@ -16,7 +19,11 @@ use crate::{
     },
 };
 use bevy::prelude::*;
-use std::{collections::BTreeSet, fs, path::PathBuf};
+use std::{
+    collections::BTreeSet,
+    fs,
+    path::{Path, PathBuf},
+};
 
 #[cfg(test)]
 use crate::shared::app_state_file::resolve_app_state_path_with;
@@ -204,14 +211,10 @@ fn map_legacy_sessions_to_app_state(
 
 /// Loads persisted app-state metadata from disk, falling back to legacy terminal-session state when
 /// the new app-state file does not yet exist.
-pub(crate) fn load_persisted_app_state_from(path: &PathBuf) -> PersistedAppState {
+pub(crate) fn load_persisted_app_state_from(path: &Path) -> PersistedAppState {
     match fs::read_to_string(path) {
         Ok(text) => {
-            let version_line = text
-                .lines()
-                .find(|line| !line.trim().is_empty())
-                .map(str::trim)
-                .unwrap_or_default();
+            let version_line = first_non_empty_trimmed_line(&text);
             if matches!(
                 version_line,
                 APP_STATE_VERSION_V1
@@ -228,7 +231,7 @@ pub(crate) fn load_persisted_app_state_from(path: &PathBuf) -> PersistedAppState
             resolve_terminal_sessions_path()
                 .as_ref()
                 .filter(|legacy_path| legacy_path.exists())
-                .map(load_persisted_terminal_sessions_from)
+                .map(|legacy_path| load_persisted_terminal_sessions_from(legacy_path))
                 .as_ref()
                 .map(map_legacy_sessions_to_app_state)
                 .unwrap_or_default()
@@ -245,9 +248,7 @@ pub(crate) fn mark_app_state_dirty(
     persistence_state: &mut AppStatePersistenceState,
     time: Option<&Time>,
 ) {
-    if persistence_state.dirty_since_secs.is_none() {
-        persistence_state.dirty_since_secs = Some(time.map(Time::elapsed_secs).unwrap_or(0.0));
-    }
+    mark_dirty_since(&mut persistence_state.dirty_since_secs, time);
 }
 
 fn build_persisted_app_state(
@@ -316,16 +317,10 @@ fn build_persisted_app_state(
                 agent_uid,
                 runtime_session_name: runtime_index.session_name(*agent_id).map(str::to_owned),
                 label: agent_catalog.label(*agent_id).map(str::to_owned),
-                kind: match agent_catalog
+                kind: agent_catalog
                     .kind(*agent_id)
                     .unwrap_or(crate::agents::AgentKind::Pi)
-                {
-                    crate::agents::AgentKind::Pi => PersistedAgentKind::Pi,
-                    crate::agents::AgentKind::Claude => PersistedAgentKind::Claude,
-                    crate::agents::AgentKind::Codex => PersistedAgentKind::Codex,
-                    crate::agents::AgentKind::Terminal => PersistedAgentKind::Terminal,
-                    crate::agents::AgentKind::Verifier => PersistedAgentKind::Verifier,
-                },
+                    .persisted_kind(),
                 recovery,
                 clone_source_session_path: agent_catalog
                     .clone_source_session_path(*agent_id)
@@ -350,10 +345,11 @@ pub(crate) fn save_app_state_if_dirty(
     aegis_policy: Res<crate::aegis::AegisPolicyStore>,
     mut persistence_state: ResMut<AppStatePersistenceState>,
 ) {
-    let Some(dirty_since) = persistence_state.dirty_since_secs else {
-        return;
-    };
-    if time.elapsed_secs() - dirty_since < APP_STATE_SAVE_DEBOUNCE_SECS {
+    if !save_debounce_elapsed(
+        persistence_state.dirty_since_secs,
+        time.elapsed_secs(),
+        APP_STATE_SAVE_DEBOUNCE_SECS,
+    ) {
         return;
     }
     let Some(path) = persistence_state.path.as_ref() else {

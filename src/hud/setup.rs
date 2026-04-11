@@ -58,7 +58,7 @@ pub(crate) fn setup_hud(
     let persisted = persistence_state
         .path
         .as_ref()
-        .map(load_persisted_hud_modules_from)
+        .map(|path| load_persisted_hud_modules_from(path))
         .unwrap_or_default();
     layout_state.modules.clear();
     layout_state.z_order.clear();

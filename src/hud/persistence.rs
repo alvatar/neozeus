@@ -4,9 +4,17 @@ use super::{
     widgets::{HudWidgetKey, HUD_WIDGET_DEFINITIONS},
 };
 use bevy::prelude::*;
-use std::{collections::BTreeMap, env, fs, path::PathBuf};
+use std::{
+    collections::BTreeMap,
+    env, fs,
+    path::{Path, PathBuf},
+};
 
-use crate::shared::persistence::{resolve_config_path_with, write_file_atomically};
+use crate::shared::persistence::{
+    first_non_empty_trimmed_line, load_text_file_or_default, mark_dirty_since,
+    non_empty_trimmed_lines_after_header, resolve_config_path_with, save_debounce_elapsed,
+    write_file_atomically,
+};
 
 const HUD_LAYOUT_FILENAME: &str = "hud-layout.v1";
 const HUD_LAYOUT_VERSION_V1: &str = "version 1";
@@ -57,15 +65,7 @@ pub(crate) fn resolve_hud_layout_path() -> Option<PathBuf> {
 fn parse_v1_hud_state(text: &str) -> PersistedHudState {
     // Process the input incrementally so each transformation stays local and malformed data fails at the narrowest point.
     let mut persisted = PersistedHudState::default();
-    for (line_index, line) in text.lines().enumerate() {
-        let line = line.trim();
-        if line.is_empty() {
-            continue;
-        }
-        if line_index == 0 {
-            continue;
-        }
-
+    for line in non_empty_trimmed_lines_after_header(text) {
         let mut parts = line.split_whitespace();
         let Some(module_name) = parts.next() else {
             continue;
@@ -120,15 +120,7 @@ fn parse_v2_hud_state(text: &str) -> PersistedHudState {
     let mut h = None;
     let mut in_module = false;
 
-    for (line_index, raw_line) in text.lines().enumerate() {
-        let line = raw_line.trim();
-        if line.is_empty() {
-            continue;
-        }
-        if line_index == 0 {
-            continue;
-        }
-
+    for line in non_empty_trimmed_lines_after_header(text) {
         match line {
             "[module]" => {
                 in_module = true;
@@ -180,11 +172,7 @@ fn parse_v2_hud_state(text: &str) -> PersistedHudState {
 ///
 /// Unknown versions are logged and treated as empty state rather than hard errors.
 fn parse_persisted_hud_state(text: &str) -> PersistedHudState {
-    let version_line = text
-        .lines()
-        .find(|line| !line.trim().is_empty())
-        .map(str::trim)
-        .unwrap_or_default();
+    let version_line = first_non_empty_trimmed_line(text);
     match version_line {
         HUD_LAYOUT_VERSION_V1 => parse_v1_hud_state(text),
         HUD_LAYOUT_VERSION_V2 => parse_v2_hud_state(text),
@@ -234,18 +222,13 @@ fn parse_hud_module_id(name: &str) -> Option<HudWidgetKey> {
 ///
 /// Missing files are treated as "no saved layout"; other I/O failures are logged and also fall back
 /// to defaults.
-fn load_persisted_hud_state_from(path: &PathBuf) -> PersistedHudState {
-    match fs::read_to_string(path) {
-        Ok(text) => parse_persisted_hud_state(&text),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => PersistedHudState::default(),
-        Err(error) => {
-            append_hud_log(format!(
-                "hud layout load failed {}: {error}",
-                path.display()
-            ));
-            PersistedHudState::default()
-        }
-    }
+fn load_persisted_hud_state_from(path: &Path) -> PersistedHudState {
+    load_text_file_or_default(path, parse_persisted_hud_state, |path, error| {
+        append_hud_log(format!(
+            "hud layout load failed {}: {error}",
+            path.display()
+        ));
+    })
 }
 
 /// Loads persisted HUD module enablement/rect overrides from disk.
@@ -253,7 +236,7 @@ fn load_persisted_hud_state_from(path: &PathBuf) -> PersistedHudState {
 /// Missing files or unreadable data degrade to an empty override map so startup can keep the built-in
 /// defaults without having to know about the on-disk representation.
 pub(crate) fn load_persisted_hud_modules_from(
-    path: &PathBuf,
+    path: &Path,
 ) -> BTreeMap<HudWidgetKey, (bool, HudRect)> {
     load_persisted_hud_state_from(path)
         .modules
@@ -272,22 +255,20 @@ pub(crate) fn save_hud_layout_if_dirty(
     mut persistence_state: ResMut<HudPersistenceState>,
 ) {
     // Process the input incrementally so each transformation stays local and malformed data fails at the narrowest point.
-    if layout_state.drag.is_some() {
-        if layout_state.dirty_layout && persistence_state.dirty_since_secs.is_none() {
-            persistence_state.dirty_since_secs = Some(time.elapsed_secs());
-        }
+    let started_dirty_window =
+        layout_state.dirty_layout && persistence_state.dirty_since_secs.is_none();
+    if layout_state.dirty_layout {
+        mark_dirty_since(&mut persistence_state.dirty_since_secs, Some(&time));
+    }
+    if layout_state.drag.is_some() || started_dirty_window {
         return;
     }
 
-    if layout_state.dirty_layout && persistence_state.dirty_since_secs.is_none() {
-        persistence_state.dirty_since_secs = Some(time.elapsed_secs());
-        return;
-    }
-
-    let Some(dirty_since) = persistence_state.dirty_since_secs else {
-        return;
-    };
-    if time.elapsed_secs() - dirty_since < HUD_LAYOUT_SAVE_DEBOUNCE_SECS {
+    if !save_debounce_elapsed(
+        persistence_state.dirty_since_secs,
+        time.elapsed_secs(),
+        HUD_LAYOUT_SAVE_DEBOUNCE_SECS,
+    ) {
         return;
     }
     let Some(path) = persistence_state.path.as_ref() else {

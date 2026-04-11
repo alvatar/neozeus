@@ -22,11 +22,7 @@ use bevy::prelude::*;
 
 fn agent_kind_from_daemon_session(session: &DaemonSessionInfo) -> AgentKind {
     match session.metadata.agent_kind {
-        Some(crate::shared::daemon_wire::DaemonAgentKind::Pi) => AgentKind::Pi,
-        Some(crate::shared::daemon_wire::DaemonAgentKind::Claude) => AgentKind::Claude,
-        Some(crate::shared::daemon_wire::DaemonAgentKind::Codex) => AgentKind::Codex,
-        Some(crate::shared::daemon_wire::DaemonAgentKind::Terminal) => AgentKind::Terminal,
-        Some(crate::shared::daemon_wire::DaemonAgentKind::Verifier) => AgentKind::Verifier,
+        Some(kind) => AgentKind::from_daemon_kind(kind),
         None if session
             .session_id
             .starts_with(crate::terminals::VERIFIER_SESSION_PREFIX) =>
@@ -220,7 +216,7 @@ pub(crate) fn restore_app(
     let persisted = app_state_persistence
         .path
         .as_ref()
-        .map(load_persisted_app_state_from)
+        .map(|path| load_persisted_app_state_from(path))
         .unwrap_or_default();
     let mut summary = RecoveryExecutionSummary {
         snapshot_found: !persisted.agents.is_empty(),
@@ -268,17 +264,7 @@ pub(crate) fn restore_app(
                 agent_uid: session.metadata.agent_uid.clone(),
                 runtime_session_name: Some(session_name),
                 label: session.metadata.agent_label.clone(),
-                kind: match agent_kind_from_daemon_session(session) {
-                    AgentKind::Pi => crate::shared::app_state_file::PersistedAgentKind::Pi,
-                    AgentKind::Claude => crate::shared::app_state_file::PersistedAgentKind::Claude,
-                    AgentKind::Codex => crate::shared::app_state_file::PersistedAgentKind::Codex,
-                    AgentKind::Terminal => {
-                        crate::shared::app_state_file::PersistedAgentKind::Terminal
-                    }
-                    AgentKind::Verifier => {
-                        crate::shared::app_state_file::PersistedAgentKind::Verifier
-                    }
-                },
+                kind: agent_kind_from_daemon_session(session).persisted_kind(),
                 recovery: None,
                 clone_source_session_path: None,
                 aegis_enabled: false,
@@ -334,13 +320,7 @@ pub(crate) fn restore_app(
             presentation_store_slot,
             runtime_session_name,
             false,
-            match record.kind {
-                crate::shared::app_state_file::PersistedAgentKind::Pi => AgentKind::Pi,
-                crate::shared::app_state_file::PersistedAgentKind::Claude => AgentKind::Claude,
-                crate::shared::app_state_file::PersistedAgentKind::Codex => AgentKind::Codex,
-                crate::shared::app_state_file::PersistedAgentKind::Terminal => AgentKind::Terminal,
-                crate::shared::app_state_file::PersistedAgentKind::Verifier => AgentKind::Verifier,
-            },
+            AgentKind::from_persisted_kind(record.kind),
             record.label,
             record.agent_uid,
             clone_source_session_path,
@@ -451,13 +431,7 @@ pub(crate) fn restore_app(
             presentation_store.as_deref_mut(),
             time,
             PERSISTENT_SESSION_PREFIX,
-            match record.kind {
-                crate::shared::app_state_file::PersistedAgentKind::Pi => AgentKind::Pi,
-                crate::shared::app_state_file::PersistedAgentKind::Claude => AgentKind::Claude,
-                crate::shared::app_state_file::PersistedAgentKind::Codex => AgentKind::Codex,
-                crate::shared::app_state_file::PersistedAgentKind::Terminal => AgentKind::Terminal,
-                crate::shared::app_state_file::PersistedAgentKind::Verifier => AgentKind::Verifier,
-            },
+            AgentKind::from_persisted_kind(record.kind),
             agent_uid.clone(),
             record.label.clone(),
             working_directory,

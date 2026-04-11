@@ -114,7 +114,7 @@ pub(crate) fn reset_runtime_from_snapshot(
     let should_rebuild = app_state_persistence
         .path
         .as_ref()
-        .map(load_persisted_app_state_from)
+        .map(|path| load_persisted_app_state_from(path))
         .is_some_and(|persisted| !persisted.agents.is_empty());
     if should_rebuild {
         status_details.push("Automatic recovery started from saved snapshot".into());

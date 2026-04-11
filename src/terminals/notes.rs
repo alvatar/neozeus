@@ -1,8 +1,15 @@
 use super::debug::append_debug_log;
 use bevy::prelude::*;
-use std::{collections::HashMap, env, fs, path::PathBuf};
+use std::{
+    collections::HashMap,
+    env, fs,
+    path::{Path, PathBuf},
+};
 
-use crate::shared::persistence::{resolve_state_path_with, write_file_atomically};
+use crate::shared::persistence::{
+    first_non_empty_trimmed_line, load_text_file_or_default, mark_dirty_since,
+    resolve_state_path_with, save_debounce_elapsed, write_file_atomically,
+};
 
 const TERMINAL_NOTES_FILENAME: &str = "notes.v1";
 const TERMINAL_NOTES_VERSION_V1: &str = "version 1";
@@ -130,20 +137,13 @@ pub(crate) fn resolve_terminal_notes_path() -> Option<PathBuf> {
 ///
 /// Read failures other than `NotFound` are logged and also fall back to an empty map, because notes
 /// persistence should not block application startup.
-pub(crate) fn load_terminal_notes_from(path: &PathBuf) -> PersistedTerminalNotes {
-    match fs::read_to_string(path) {
-        Ok(text) => parse_terminal_notes(&text),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            PersistedTerminalNotes::default()
-        }
-        Err(error) => {
-            append_debug_log(format!(
-                "terminal notes load failed {}: {error}",
-                path.display()
-            ));
-            PersistedTerminalNotes::default()
-        }
-    }
+pub(crate) fn load_terminal_notes_from(path: &Path) -> PersistedTerminalNotes {
+    load_text_file_or_default(path, parse_terminal_notes, |path, error| {
+        append_debug_log(format!(
+            "terminal notes load failed {}: {error}",
+            path.display()
+        ));
+    })
 }
 
 /// Parses the line-oriented notes persistence format into a per-session map.
@@ -152,11 +152,16 @@ pub(crate) fn load_terminal_notes_from(path: &PathBuf) -> PersistedTerminalNotes
 /// bodies terminate at a lone `.` line. Leading `.` in note content is escaped by doubling it, so the
 /// parser also has to undo that escaping on load.
 fn parse_terminal_notes(text: &str) -> PersistedTerminalNotes {
-    let mut lines = text.lines();
-    let Some(version) = lines.next() else {
+    let version = first_non_empty_trimmed_line(text);
+    if version.is_empty() {
         return PersistedTerminalNotes::default();
-    };
-    let version = version.trim();
+    }
+    let mut lines = text.lines();
+    for line in lines.by_ref() {
+        if !line.trim().is_empty() {
+            break;
+        }
+    }
     if version != TERMINAL_NOTES_VERSION_V1 && version != TERMINAL_NOTES_VERSION_V2 {
         append_debug_log(format!(
             "terminal notes: unexpected version line `{version}`"
@@ -257,9 +262,7 @@ fn serialize_terminal_notes(notes: &PersistedTerminalNotes) -> String {
 /// The first-write-wins timestamp is what powers the later debounce logic in
 /// [`save_terminal_notes_if_dirty`].
 pub(crate) fn mark_terminal_notes_dirty(notes_state: &mut TerminalNotesState, time: Option<&Time>) {
-    if notes_state.dirty_since_secs.is_none() {
-        notes_state.dirty_since_secs = Some(time.map(Time::elapsed_secs).unwrap_or(0.0));
-    }
+    mark_dirty_since(&mut notes_state.dirty_since_secs, time);
 }
 
 /// Writes the notes file once the dirty debounce window has elapsed.
@@ -272,10 +275,11 @@ pub(crate) fn save_terminal_notes_if_dirty(
     mut notes_state: ResMut<TerminalNotesState>,
 ) {
     // Process the input incrementally so each transformation stays local and malformed data fails at the narrowest point.
-    let Some(dirty_since) = notes_state.dirty_since_secs else {
-        return;
-    };
-    if time.elapsed_secs() - dirty_since < TERMINAL_NOTES_SAVE_DEBOUNCE_SECS {
+    if !save_debounce_elapsed(
+        notes_state.dirty_since_secs,
+        time.elapsed_secs(),
+        TERMINAL_NOTES_SAVE_DEBOUNCE_SECS,
+    ) {
         return;
     }
     let Some(path) = notes_state.path.as_ref() else {

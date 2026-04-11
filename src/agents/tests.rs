@@ -2,6 +2,7 @@ use super::{
     AgentCapabilities, AgentCatalog, AgentDurability, AgentId, AgentKind, AgentMetadata,
     AgentRuntimeIndex, AgentRuntimeLifecycle,
 };
+use crate::shared::{app_state_file::PersistedAgentKind, daemon_wire::DaemonAgentKind};
 use crate::terminals::{TerminalId, TerminalRuntimeState};
 
 /// Verifies that catalog assigns stable default labels in creation order.
@@ -203,6 +204,40 @@ fn catalog_reports_agent_durability_without_callers_peeking_at_recovery_presence
 }
 
 /// Verifies that runtime index links terminal session and runtime state.
+#[test]
+fn agent_kind_conversion_helpers_cover_all_persisted_and_daemon_variants() {
+    let cases = [
+        (AgentKind::Pi, PersistedAgentKind::Pi, DaemonAgentKind::Pi),
+        (
+            AgentKind::Claude,
+            PersistedAgentKind::Claude,
+            DaemonAgentKind::Claude,
+        ),
+        (
+            AgentKind::Codex,
+            PersistedAgentKind::Codex,
+            DaemonAgentKind::Codex,
+        ),
+        (
+            AgentKind::Terminal,
+            PersistedAgentKind::Terminal,
+            DaemonAgentKind::Terminal,
+        ),
+        (
+            AgentKind::Verifier,
+            PersistedAgentKind::Verifier,
+            DaemonAgentKind::Verifier,
+        ),
+    ];
+
+    for (agent_kind, persisted_kind, daemon_kind) in cases {
+        assert_eq!(agent_kind.persisted_kind(), persisted_kind);
+        assert_eq!(agent_kind.daemon_kind(), daemon_kind);
+        assert_eq!(AgentKind::from_persisted_kind(persisted_kind), agent_kind);
+        assert_eq!(AgentKind::from_daemon_kind(daemon_kind), agent_kind);
+    }
+}
+
 #[test]
 fn runtime_index_links_terminal_session_and_runtime_state() {
     // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.

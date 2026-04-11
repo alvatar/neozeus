@@ -1,12 +1,24 @@
 #[cfg(test)]
 use crate::shared::text_escape::quote_escaped_string;
 use crate::shared::{
-    persistence::resolve_state_path_with,
+    persistence::{
+        first_non_empty_trimmed_line, load_text_file_or_default,
+        non_empty_trimmed_lines_after_header, resolve_state_path_with,
+    },
     text_escape::{unquote_escaped_string, EXTENDED_QUOTED_STRING_ESCAPES},
 };
 
+#[cfg(test)]
+use crate::shared::persistence::save_debounce_elapsed;
+
 use super::debug::append_debug_log;
-use std::{env, fs, path::PathBuf};
+use std::{
+    env,
+    path::{Path, PathBuf},
+};
+
+#[cfg(test)]
+use std::fs;
 
 #[cfg(test)]
 use super::{
@@ -90,15 +102,7 @@ fn parse_quoted_string(value: &str) -> Option<String> {
 fn parse_v1_terminal_sessions(text: &str) -> PersistedTerminalSessions {
     // Process the input incrementally so each transformation stays local and malformed data fails at the narrowest point.
     let mut persisted = PersistedTerminalSessions::default();
-    for (line_index, line) in text.lines().enumerate() {
-        let line = line.trim();
-        if line.is_empty() {
-            continue;
-        }
-        if line_index == 0 {
-            continue;
-        }
-
+    for line in non_empty_trimmed_lines_after_header(text) {
         let mut parts = line.split_whitespace();
         let Some(kind) = parts.next() else {
             continue;
@@ -156,15 +160,7 @@ fn parse_v2_terminal_sessions(text: &str) -> PersistedTerminalSessions {
     let mut last_focused = None;
     let mut in_session = false;
 
-    for (line_index, raw_line) in text.lines().enumerate() {
-        let line = raw_line.trim();
-        if line.is_empty() {
-            continue;
-        }
-        if line_index == 0 {
-            continue;
-        }
-
+    for line in non_empty_trimmed_lines_after_header(text) {
         match line {
             "[session]" => {
                 in_session = true;
@@ -214,11 +210,7 @@ fn parse_v2_terminal_sessions(text: &str) -> PersistedTerminalSessions {
 /// Unknown versions are logged and treated as an empty persistence file rather than as a hard error,
 /// which keeps startup resilient to corrupted or future-version files.
 fn parse_persisted_terminal_sessions(text: &str) -> PersistedTerminalSessions {
-    let version_line = text
-        .lines()
-        .find(|line| !line.trim().is_empty())
-        .map(str::trim)
-        .unwrap_or_default();
+    let version_line = first_non_empty_trimmed_line(text);
     match version_line {
         TERMINAL_SESSIONS_VERSION_V1 => parse_v1_terminal_sessions(text),
         TERMINAL_SESSIONS_VERSION_V2 => parse_v2_terminal_sessions(text),
@@ -267,20 +259,13 @@ pub(crate) fn serialize_persisted_terminal_sessions(
 ///
 /// Missing files are normal and return the default empty structure. Other read failures are logged
 /// and also degrade to the default so startup can continue.
-pub(crate) fn load_persisted_terminal_sessions_from(path: &PathBuf) -> PersistedTerminalSessions {
-    match fs::read_to_string(path) {
-        Ok(text) => parse_persisted_terminal_sessions(&text),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            PersistedTerminalSessions::default()
-        }
-        Err(error) => {
-            append_debug_log(format!(
-                "terminal sessions load failed {}: {error}",
-                path.display()
-            ));
-            PersistedTerminalSessions::default()
-        }
-    }
+pub(crate) fn load_persisted_terminal_sessions_from(path: &Path) -> PersistedTerminalSessions {
+    load_text_file_or_default(path, parse_persisted_terminal_sessions, |path, error| {
+        append_debug_log(format!(
+            "terminal sessions load failed {}: {error}",
+            path.display()
+        ));
+    })
 }
 
 /// Builds the persistence snapshot that should be written for the current terminal state.
@@ -330,10 +315,11 @@ pub(crate) fn save_terminal_sessions_if_dirty(
     mut persistence_state: ResMut<TerminalSessionPersistenceState>,
 ) {
     // Process the input incrementally so each transformation stays local and malformed data fails at the narrowest point.
-    let Some(dirty_since) = persistence_state.dirty_since_secs else {
-        return;
-    };
-    if time.elapsed_secs() - dirty_since < TERMINAL_SESSIONS_SAVE_DEBOUNCE_SECS {
+    if !save_debounce_elapsed(
+        persistence_state.dirty_since_secs,
+        time.elapsed_secs(),
+        TERMINAL_SESSIONS_SAVE_DEBOUNCE_SECS,
+    ) {
         return;
     }
     let Some(path) = persistence_state.path.as_ref() else {

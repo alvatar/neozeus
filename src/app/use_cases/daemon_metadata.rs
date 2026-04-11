@@ -1,18 +1,8 @@
 use crate::{
     agents::{AgentCatalog, AgentId, AgentKind, AgentRuntimeIndex},
-    shared::daemon_wire::{DaemonAgentKind, DaemonSessionMetadata},
+    shared::daemon_wire::DaemonSessionMetadata,
     terminals::TerminalRuntimeSpawner,
 };
-
-fn daemon_agent_kind(kind: AgentKind) -> DaemonAgentKind {
-    match kind {
-        AgentKind::Pi => DaemonAgentKind::Pi,
-        AgentKind::Claude => DaemonAgentKind::Claude,
-        AgentKind::Codex => DaemonAgentKind::Codex,
-        AgentKind::Terminal => DaemonAgentKind::Terminal,
-        AgentKind::Verifier => DaemonAgentKind::Verifier,
-    }
-}
 
 /// Pushes app-owned agent identity into one live daemon session's metadata.
 ///
@@ -36,7 +26,7 @@ pub(crate) fn sync_session_agent_metadata(
     let metadata = DaemonSessionMetadata {
         agent_uid: Some(agent_uid.to_owned()),
         agent_label: Some(agent_label.to_owned()),
-        agent_kind: Some(daemon_agent_kind(agent_kind)),
+        agent_kind: Some(agent_kind.daemon_kind()),
     };
     runtime_spawner.update_session_metadata(session_name, &metadata)?;
     Ok(true)

@@ -126,6 +126,40 @@ fn parse_persisted_app_state_flushes_complete_final_agent_block_at_eof() {
     assert!(parsed.agents[0].last_focused);
 }
 
+#[test]
+fn parse_persisted_app_state_flushes_complete_open_block_before_next_agent_header() {
+    let parsed = parse_persisted_app_state(
+        "neozeus state version 4\n[agent]\nagent_uid=\"agent-uid-1\"\nruntime_session_name=\"neozeus-session-a\"\norder_index=0\n[agent]\nagent_uid=\"agent-uid-2\"\nruntime_session_name=\"neozeus-session-b\"\norder_index=1\n[/agent]\n",
+    );
+
+    assert_eq!(parsed.agents.len(), 2);
+    assert_eq!(parsed.agents[0].agent_uid.as_deref(), Some("agent-uid-1"));
+    assert_eq!(parsed.agents[1].agent_uid.as_deref(), Some("agent-uid-2"));
+    assert_eq!(parsed.agents[0].order_index, 0);
+    assert_eq!(parsed.agents[1].order_index, 1);
+}
+
+#[test]
+fn parse_persisted_app_state_drops_incomplete_truncated_agent_blocks() {
+    let parsed = parse_persisted_app_state(
+        "neozeus state version 4\n[agent]\nagent_uid=\"agent-uid-1\"\nruntime_session_name=\"neozeus-session-a\"\norder_index=0\n[/agent]\n[agent]\nagent_uid=\"agent-uid-2\"\nruntime_session_name=\"neozeus-session-b\"\n",
+    );
+
+    assert_eq!(parsed.agents.len(), 1);
+    assert_eq!(parsed.agents[0].agent_uid.as_deref(), Some("agent-uid-1"));
+}
+
+#[test]
+fn parse_persisted_app_state_ignores_unknown_sections_and_fields() {
+    let parsed = parse_persisted_app_state(
+        "neozeus state version 4\n[agent]\nagent_uid=\"agent-uid-1\"\nruntime_session_name=\"neozeus-session-a\"\nunknown_field=\"ignored\"\norder_index=0\n[/agent]\n[garbage]\nthis is not key value\n[/garbage]\n[agent]\nagent_uid=\"agent-uid-2\"\nruntime_session_name=\"neozeus-session-b\"\norder_index=1\n[/agent]\n",
+    );
+
+    assert_eq!(parsed.agents.len(), 2);
+    assert_eq!(parsed.agents[0].agent_uid.as_deref(), Some("agent-uid-1"));
+    assert_eq!(parsed.agents[1].agent_uid.as_deref(), Some("agent-uid-2"));
+}
+
 /// Verifies that legacy terminal-session state migrates into the new app-state model on read.
 #[test]
 fn app_state_load_falls_back_to_legacy_terminal_sessions() {

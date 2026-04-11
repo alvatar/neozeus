@@ -1,4 +1,7 @@
-use crate::shared::agent_durability::AgentDurability;
+use crate::shared::{
+    agent_durability::AgentDurability, app_state_file::PersistedAgentKind,
+    daemon_wire::DaemonAgentKind,
+};
 use bevy::prelude::Resource;
 use std::{
     collections::BTreeMap,
@@ -74,6 +77,46 @@ impl AgentKind {
             Self::Codex => "codex",
             Self::Terminal => "terminal",
             Self::Verifier => "verifier",
+        }
+    }
+
+    pub(crate) const fn persisted_kind(self) -> PersistedAgentKind {
+        match self {
+            Self::Pi => PersistedAgentKind::Pi,
+            Self::Claude => PersistedAgentKind::Claude,
+            Self::Codex => PersistedAgentKind::Codex,
+            Self::Terminal => PersistedAgentKind::Terminal,
+            Self::Verifier => PersistedAgentKind::Verifier,
+        }
+    }
+
+    pub(crate) const fn daemon_kind(self) -> DaemonAgentKind {
+        match self {
+            Self::Pi => DaemonAgentKind::Pi,
+            Self::Claude => DaemonAgentKind::Claude,
+            Self::Codex => DaemonAgentKind::Codex,
+            Self::Terminal => DaemonAgentKind::Terminal,
+            Self::Verifier => DaemonAgentKind::Verifier,
+        }
+    }
+
+    pub(crate) const fn from_persisted_kind(kind: PersistedAgentKind) -> Self {
+        match kind {
+            PersistedAgentKind::Pi => Self::Pi,
+            PersistedAgentKind::Claude => Self::Claude,
+            PersistedAgentKind::Codex => Self::Codex,
+            PersistedAgentKind::Terminal => Self::Terminal,
+            PersistedAgentKind::Verifier => Self::Verifier,
+        }
+    }
+
+    pub(crate) const fn from_daemon_kind(kind: DaemonAgentKind) -> Self {
+        match kind {
+            DaemonAgentKind::Pi => Self::Pi,
+            DaemonAgentKind::Claude => Self::Claude,
+            DaemonAgentKind::Codex => Self::Codex,
+            DaemonAgentKind::Terminal => Self::Terminal,
+            DaemonAgentKind::Verifier => Self::Verifier,
         }
     }
 }
