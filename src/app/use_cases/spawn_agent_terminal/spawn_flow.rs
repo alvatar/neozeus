@@ -91,22 +91,23 @@ fn spawn_agent_terminal_internal(
         ));
     }
     if focus_terminal {
-        focus_agent_without_persist(
-            agent_id,
-            VisibilityMode::FocusedOnly,
-            app_session,
-            agent_catalog,
-            runtime_index,
-            owned_tmux_sessions,
-            selection,
-            active_terminal_content,
-            terminal_manager,
-            focus_state,
-            input_capture,
-            view_state,
-            visibility_state,
+        let mut focus_ctx = super::super::FocusMutationContext {
+            session: app_session,
+            projection: super::super::FocusProjectionContext {
+                agent_catalog,
+                runtime_index,
+                owned_tmux_sessions,
+                selection,
+                active_terminal_content,
+                terminal_manager,
+                focus_state,
+                input_capture,
+                view_state,
+                visibility_state,
+            },
             redraws,
-        );
+        };
+        focus_agent_without_persist(agent_id, VisibilityMode::FocusedOnly, &mut focus_ctx);
     }
     apply_provider_metadata_capture(agent_catalog, agent_id, provider_capture);
     if persist_mutation {

@@ -272,22 +272,23 @@ fn focus_verification_agent_for_terminal(
     terminal_id: TerminalId,
 ) -> Option<crate::agents::AgentId> {
     let agent_id = ctx.runtime_index.agent_for_terminal(terminal_id)?;
-    focus_agent_without_persist(
-        agent_id,
-        VisibilityMode::FocusedOnly,
-        &mut ctx.app_session,
-        &ctx.agent_catalog,
-        &ctx.runtime_index,
-        &ctx.owned_tmux_sessions,
-        &mut ctx.selection,
-        &mut ctx.active_terminal_content,
-        &mut ctx.terminal_manager,
-        &mut ctx.focus_state,
-        &mut ctx.input_capture,
-        &mut ctx.view_state,
-        &mut ctx.visibility_state,
-        &mut ctx.redraws,
-    );
+    let mut focus_ctx = crate::app::FocusMutationContext {
+        session: &mut ctx.app_session,
+        projection: crate::app::FocusProjectionContext {
+            agent_catalog: &ctx.agent_catalog,
+            runtime_index: &ctx.runtime_index,
+            owned_tmux_sessions: &ctx.owned_tmux_sessions,
+            selection: &mut ctx.selection,
+            active_terminal_content: &mut ctx.active_terminal_content,
+            terminal_manager: &mut ctx.terminal_manager,
+            focus_state: &mut ctx.focus_state,
+            input_capture: &mut ctx.input_capture,
+            view_state: &mut ctx.view_state,
+            visibility_state: &mut ctx.visibility_state,
+        },
+        redraws: &mut ctx.redraws,
+    };
+    focus_agent_without_persist(agent_id, VisibilityMode::FocusedOnly, &mut focus_ctx);
     Some(agent_id)
 }
 

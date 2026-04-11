@@ -125,39 +125,30 @@ pub(crate) fn kill_selected_agent(
     let _ = ctx.aegis_runtime.clear(selected_agent);
     ctx.view_state.forget_terminal(terminal_id);
     ctx.app_session.composer.unbind_agent(selected_agent);
+    let mut focus_ctx = super::FocusMutationContext {
+        session: ctx.app_session,
+        projection: super::FocusProjectionContext {
+            agent_catalog: ctx.agent_catalog,
+            runtime_index: ctx.runtime_index,
+            owned_tmux_sessions: ctx.owned_tmux_sessions,
+            selection: ctx.selection,
+            active_terminal_content: ctx.active_terminal_content,
+            terminal_manager: ctx.terminal_manager,
+            focus_state: ctx.focus_state,
+            input_capture: ctx.input_capture,
+            view_state: ctx.view_state,
+            visibility_state: ctx.visibility_state,
+        },
+        redraws: ctx.redraws,
+    };
     if let Some(replacement_agent) = replacement_agent {
         focus_agent_without_persist(
             replacement_agent,
-            ctx.app_session.visibility_mode(),
-            ctx.app_session,
-            ctx.agent_catalog,
-            ctx.runtime_index,
-            ctx.owned_tmux_sessions,
-            ctx.selection,
-            ctx.active_terminal_content,
-            ctx.terminal_manager,
-            ctx.focus_state,
-            ctx.input_capture,
-            ctx.view_state,
-            ctx.visibility_state,
-            ctx.redraws,
+            focus_ctx.session.visibility_mode(),
+            &mut focus_ctx,
         );
     } else {
-        clear_focus_without_persist(
-            VisibilityMode::ShowAll,
-            ctx.app_session,
-            ctx.agent_catalog,
-            ctx.runtime_index,
-            ctx.owned_tmux_sessions,
-            ctx.selection,
-            ctx.active_terminal_content,
-            ctx.terminal_manager,
-            ctx.focus_state,
-            ctx.input_capture,
-            ctx.view_state,
-            ctx.visibility_state,
-            ctx.redraws,
-        );
+        clear_focus_without_persist(VisibilityMode::ShowAll, &mut focus_ctx);
     }
     Ok(Some(selected_agent))
 }

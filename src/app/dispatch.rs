@@ -227,37 +227,37 @@ pub(crate) fn sync_agents_from_terminals(
         let mut default_input_capture = HudInputCaptureState::default();
         let mut default_view_state = TerminalViewState::default();
         let mut default_visibility_state = TerminalVisibilityState::default();
-        use_cases::project_focus_intent(
-            &mut app_session,
-            &agent_catalog,
-            &runtime_index,
-            focus
+        let mut focus_projection = use_cases::FocusProjectionContext {
+            agent_catalog: &agent_catalog,
+            runtime_index: &runtime_index,
+            owned_tmux_sessions: focus
                 .owned_tmux_sessions
                 .as_deref()
                 .unwrap_or(&default_owned_tmux_sessions),
-            &mut focus.selection,
-            focus
+            selection: &mut focus.selection,
+            active_terminal_content: focus
                 .active_terminal_content
                 .as_deref_mut()
                 .unwrap_or(&mut default_active_terminal_content),
-            &mut focus.terminal_manager,
-            focus
+            terminal_manager: &mut focus.terminal_manager,
+            focus_state: focus
                 .focus_state
                 .as_deref_mut()
                 .unwrap_or(&mut default_focus_state),
-            focus
+            input_capture: focus
                 .input_capture
                 .as_deref_mut()
                 .unwrap_or(&mut default_input_capture),
-            focus
+            view_state: focus
                 .view_state
                 .as_deref_mut()
                 .unwrap_or(&mut default_view_state),
-            focus
+            visibility_state: focus
                 .visibility_state
                 .as_deref_mut()
                 .unwrap_or(&mut default_visibility_state),
-        );
+        };
+        use_cases::project_focus_intent(&mut app_session, &mut focus_projection);
     }
 }
 
@@ -423,44 +423,42 @@ fn apply_agent_command(command: &AgentCommand, ctx: &mut AppCommandContext) {
             }
         }
         AgentCommand::Focus(agent_id) => {
-            use_cases::focus_agent(
-                *agent_id,
-                VisibilityMode::ShowAll,
-                &mut ctx.app_session,
-                &ctx.agent_catalog,
-                &ctx.runtime_index,
-                &ctx.owned_tmux_sessions,
-                &mut ctx.selection,
-                &mut ctx.active_terminal_content,
-                &mut ctx.terminal_manager,
-                &mut ctx.focus_state,
-                &mut ctx.input_capture,
-                &mut ctx.app_state_persistence,
-                &mut ctx.view_state,
-                &mut ctx.visibility_state,
-                &ctx.time,
-                &mut ctx.redraws,
-            );
+            let mut focus_ctx = use_cases::FocusMutationContext {
+                session: &mut ctx.app_session,
+                projection: use_cases::FocusProjectionContext {
+                    agent_catalog: &ctx.agent_catalog,
+                    runtime_index: &ctx.runtime_index,
+                    owned_tmux_sessions: &ctx.owned_tmux_sessions,
+                    selection: &mut ctx.selection,
+                    active_terminal_content: &mut ctx.active_terminal_content,
+                    terminal_manager: &mut ctx.terminal_manager,
+                    focus_state: &mut ctx.focus_state,
+                    input_capture: &mut ctx.input_capture,
+                    view_state: &mut ctx.view_state,
+                    visibility_state: &mut ctx.visibility_state,
+                },
+                redraws: &mut ctx.redraws,
+            };
+            use_cases::focus_agent(*agent_id, VisibilityMode::ShowAll, &mut focus_ctx);
         }
         AgentCommand::Inspect(agent_id) => {
-            use_cases::focus_agent(
-                *agent_id,
-                VisibilityMode::FocusedOnly,
-                &mut ctx.app_session,
-                &ctx.agent_catalog,
-                &ctx.runtime_index,
-                &ctx.owned_tmux_sessions,
-                &mut ctx.selection,
-                &mut ctx.active_terminal_content,
-                &mut ctx.terminal_manager,
-                &mut ctx.focus_state,
-                &mut ctx.input_capture,
-                &mut ctx.app_state_persistence,
-                &mut ctx.view_state,
-                &mut ctx.visibility_state,
-                &ctx.time,
-                &mut ctx.redraws,
-            );
+            let mut focus_ctx = use_cases::FocusMutationContext {
+                session: &mut ctx.app_session,
+                projection: use_cases::FocusProjectionContext {
+                    agent_catalog: &ctx.agent_catalog,
+                    runtime_index: &ctx.runtime_index,
+                    owned_tmux_sessions: &ctx.owned_tmux_sessions,
+                    selection: &mut ctx.selection,
+                    active_terminal_content: &mut ctx.active_terminal_content,
+                    terminal_manager: &mut ctx.terminal_manager,
+                    focus_state: &mut ctx.focus_state,
+                    input_capture: &mut ctx.input_capture,
+                    view_state: &mut ctx.view_state,
+                    visibility_state: &mut ctx.visibility_state,
+                },
+                redraws: &mut ctx.redraws,
+            };
+            use_cases::focus_agent(*agent_id, VisibilityMode::FocusedOnly, &mut focus_ctx);
         }
         AgentCommand::Reorder {
             agent_id,
@@ -472,21 +470,23 @@ fn apply_agent_command(command: &AgentCommand, ctx: &mut AppCommandContext) {
             }
         }
         AgentCommand::ClearFocus => {
-            use_cases::clear_focus_without_persist(
-                VisibilityMode::ShowAll,
-                &mut ctx.app_session,
-                &ctx.agent_catalog,
-                &ctx.runtime_index,
-                &ctx.owned_tmux_sessions,
-                &mut ctx.selection,
-                &mut ctx.active_terminal_content,
-                &mut ctx.terminal_manager,
-                &mut ctx.focus_state,
-                &mut ctx.input_capture,
-                &mut ctx.view_state,
-                &mut ctx.visibility_state,
-                &mut ctx.redraws,
-            );
+            let mut focus_ctx = use_cases::FocusMutationContext {
+                session: &mut ctx.app_session,
+                projection: use_cases::FocusProjectionContext {
+                    agent_catalog: &ctx.agent_catalog,
+                    runtime_index: &ctx.runtime_index,
+                    owned_tmux_sessions: &ctx.owned_tmux_sessions,
+                    selection: &mut ctx.selection,
+                    active_terminal_content: &mut ctx.active_terminal_content,
+                    terminal_manager: &mut ctx.terminal_manager,
+                    focus_state: &mut ctx.focus_state,
+                    input_capture: &mut ctx.input_capture,
+                    view_state: &mut ctx.view_state,
+                    visibility_state: &mut ctx.visibility_state,
+                },
+                redraws: &mut ctx.redraws,
+            };
+            use_cases::clear_focus_without_persist(VisibilityMode::ShowAll, &mut focus_ctx);
         }
         AgentCommand::KillSelected => {
             let agent_id = match ctx.app_session.focus_intent.selected_agent() {
@@ -547,21 +547,23 @@ fn apply_owned_tmux_command(command: &OwnedTmuxCommand, ctx: &mut AppCommandCont
             );
         }
         OwnedTmuxCommand::ClearSelection => {
-            use_cases::clear_focus_without_persist(
-                VisibilityMode::ShowAll,
-                &mut ctx.app_session,
-                &ctx.agent_catalog,
-                &ctx.runtime_index,
-                &ctx.owned_tmux_sessions,
-                &mut ctx.selection,
-                &mut ctx.active_terminal_content,
-                &mut ctx.terminal_manager,
-                &mut ctx.focus_state,
-                &mut ctx.input_capture,
-                &mut ctx.view_state,
-                &mut ctx.visibility_state,
-                &mut ctx.redraws,
-            );
+            let mut focus_ctx = use_cases::FocusMutationContext {
+                session: &mut ctx.app_session,
+                projection: use_cases::FocusProjectionContext {
+                    agent_catalog: &ctx.agent_catalog,
+                    runtime_index: &ctx.runtime_index,
+                    owned_tmux_sessions: &ctx.owned_tmux_sessions,
+                    selection: &mut ctx.selection,
+                    active_terminal_content: &mut ctx.active_terminal_content,
+                    terminal_manager: &mut ctx.terminal_manager,
+                    focus_state: &mut ctx.focus_state,
+                    input_capture: &mut ctx.input_capture,
+                    view_state: &mut ctx.view_state,
+                    visibility_state: &mut ctx.visibility_state,
+                },
+                redraws: &mut ctx.redraws,
+            };
+            use_cases::clear_focus_without_persist(VisibilityMode::ShowAll, &mut focus_ctx);
         }
         OwnedTmuxCommand::KillSelected => {
             use_cases::kill_selected_owned_tmux(

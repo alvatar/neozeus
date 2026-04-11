@@ -23,6 +23,7 @@ pub(crate) use daemon_metadata::{sync_agent_metadata_to_daemon, sync_session_age
 pub(crate) use focus_agent::{
     clear_focus_without_persist, focus_agent, focus_agent_without_persist,
     focus_owned_tmux_without_persist, focus_terminal_without_persist, project_focus_intent,
+    FocusMutationContext, FocusProjectionContext,
 };
 pub(crate) use kill_selected_agent::{kill_selected_agent, KillSelectedAgentContext};
 pub(crate) use owned_tmux::{kill_selected_owned_tmux, select_owned_tmux};

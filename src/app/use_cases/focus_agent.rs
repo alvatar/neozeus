@@ -1,15 +1,32 @@
 use crate::{
     agents::{AgentCatalog, AgentId, AgentRuntimeIndex},
-    app::AppStatePersistenceState,
+    app::session::{AppSessionState, FocusIntentTarget, VisibilityMode},
     hud::{HudInputCaptureState, TerminalVisibilityPolicy, TerminalVisibilityState},
     terminals::{
         ActiveTerminalContentState, OwnedTmuxSessionStore, TerminalFocusState, TerminalManager,
         TerminalViewState,
     },
 };
+use bevy::{prelude::MessageWriter, window::RequestRedraw};
 
-use super::super::session::{AppSessionState, FocusIntentTarget, VisibilityMode};
-use bevy::{prelude::Time, window::RequestRedraw};
+pub(crate) struct FocusProjectionContext<'a> {
+    pub(crate) agent_catalog: &'a AgentCatalog,
+    pub(crate) runtime_index: &'a AgentRuntimeIndex,
+    pub(crate) owned_tmux_sessions: &'a OwnedTmuxSessionStore,
+    pub(crate) selection: &'a mut crate::hud::AgentListSelection,
+    pub(crate) active_terminal_content: &'a mut ActiveTerminalContentState,
+    pub(crate) terminal_manager: &'a mut TerminalManager,
+    pub(crate) focus_state: &'a mut TerminalFocusState,
+    pub(crate) input_capture: &'a mut HudInputCaptureState,
+    pub(crate) view_state: &'a mut TerminalViewState,
+    pub(crate) visibility_state: &'a mut TerminalVisibilityState,
+}
+
+pub(crate) struct FocusMutationContext<'a, 'w> {
+    pub(crate) session: &'a mut AppSessionState,
+    pub(crate) projection: FocusProjectionContext<'a>,
+    pub(crate) redraws: &'a mut MessageWriter<'w, RequestRedraw>,
+}
 
 fn terminal_visibility_policy(
     visibility_mode: VisibilityMode,
@@ -25,26 +42,21 @@ fn terminal_visibility_policy(
     }
 }
 
-fn reconcile_focus_intent(
-    session: &mut AppSessionState,
-    agent_catalog: &AgentCatalog,
-    terminal_manager: &TerminalManager,
-    owned_tmux_sessions: &OwnedTmuxSessionStore,
-) {
+fn reconcile_focus_intent(session: &mut AppSessionState, ctx: &FocusProjectionContext<'_>) {
     match &session.focus_intent.target {
         FocusIntentTarget::None => {}
         FocusIntentTarget::Agent(agent_id) => {
-            if agent_catalog.uid(*agent_id).is_none() {
+            if ctx.agent_catalog.uid(*agent_id).is_none() {
                 session.focus_intent.clear(VisibilityMode::ShowAll);
             }
         }
         FocusIntentTarget::Terminal(terminal_id) => {
-            if !terminal_manager.contains_terminal(*terminal_id) {
+            if !ctx.terminal_manager.contains_terminal(*terminal_id) {
                 session.focus_intent.clear(VisibilityMode::ShowAll);
             }
         }
         FocusIntentTarget::OwnedTmux(session_uid) => {
-            if owned_tmux_sessions.session(session_uid).is_none() {
+            if ctx.owned_tmux_sessions.session(session_uid).is_none() {
                 session.focus_intent.clear(VisibilityMode::ShowAll);
             }
         }
@@ -70,263 +82,113 @@ fn project_terminal_focus(
     }
 }
 
-#[allow(
-    clippy::too_many_arguments,
-    reason = "focus intent fans out into selection, active terminal content, focus, view, visibility, and input projections"
-)]
 pub(crate) fn project_focus_intent(
     session: &mut AppSessionState,
-    agent_catalog: &AgentCatalog,
-    runtime_index: &AgentRuntimeIndex,
-    owned_tmux_sessions: &OwnedTmuxSessionStore,
-    selection: &mut crate::hud::AgentListSelection,
-    active_terminal_content: &mut ActiveTerminalContentState,
-    terminal_manager: &mut TerminalManager,
-    focus_state: &mut TerminalFocusState,
-    input_capture: &mut HudInputCaptureState,
-    view_state: &mut TerminalViewState,
-    visibility_state: &mut TerminalVisibilityState,
+    ctx: &mut FocusProjectionContext<'_>,
 ) {
-    reconcile_focus_intent(
-        session,
-        agent_catalog,
-        terminal_manager,
-        owned_tmux_sessions,
-    );
+    reconcile_focus_intent(session, ctx);
 
     let focused_terminal_id = match &session.focus_intent.target {
         FocusIntentTarget::None => {
-            *selection = crate::hud::AgentListSelection::None;
-            active_terminal_content.clear();
+            *ctx.selection = crate::hud::AgentListSelection::None;
+            ctx.active_terminal_content.clear();
             None
         }
         FocusIntentTarget::Agent(agent_id) => {
-            *selection = crate::hud::AgentListSelection::Agent(*agent_id);
-            active_terminal_content.clear();
-            runtime_index.primary_terminal(*agent_id)
+            *ctx.selection = crate::hud::AgentListSelection::Agent(*agent_id);
+            ctx.active_terminal_content.clear();
+            ctx.runtime_index.primary_terminal(*agent_id)
         }
         FocusIntentTarget::Terminal(terminal_id) => {
-            *selection = crate::hud::AgentListSelection::None;
-            active_terminal_content.clear();
+            *ctx.selection = crate::hud::AgentListSelection::None;
+            ctx.active_terminal_content.clear();
             Some(*terminal_id)
         }
         FocusIntentTarget::OwnedTmux(session_uid) => {
-            *selection = crate::hud::AgentListSelection::OwnedTmux(session_uid.clone());
-            let owner_terminal_id = owned_tmux_sessions
+            *ctx.selection = crate::hud::AgentListSelection::OwnedTmux(session_uid.clone());
+            let owner_terminal_id = ctx
+                .owned_tmux_sessions
                 .session(session_uid)
-                .and_then(|owned_tmux| agent_catalog.find_by_uid(&owned_tmux.owner_agent_uid))
-                .and_then(|agent_id| runtime_index.primary_terminal(agent_id));
-            active_terminal_content.select_owned_tmux(session_uid.clone(), owner_terminal_id);
+                .and_then(|owned_tmux| ctx.agent_catalog.find_by_uid(&owned_tmux.owner_agent_uid))
+                .and_then(|agent_id| ctx.runtime_index.primary_terminal(agent_id));
+            ctx.active_terminal_content
+                .select_owned_tmux(session_uid.clone(), owner_terminal_id);
             owner_terminal_id
         }
     };
 
     project_terminal_focus(
         focused_terminal_id,
-        terminal_manager,
-        focus_state,
-        view_state,
+        ctx.terminal_manager,
+        ctx.focus_state,
+        ctx.view_state,
     );
-    visibility_state.policy =
+    ctx.visibility_state.policy =
         terminal_visibility_policy(session.visibility_mode(), focused_terminal_id);
-    input_capture.reconcile_direct_terminal_input(focus_state.active_id());
+    ctx.input_capture
+        .reconcile_direct_terminal_input(ctx.focus_state.active_id());
 }
 
-#[allow(
-    clippy::too_many_arguments,
-    reason = "focus mutation updates intent plus all runtime-facing mirrors"
-)]
+fn redraw(ctx: &mut FocusMutationContext<'_, '_>) {
+    ctx.redraws.write(RequestRedraw);
+}
+
 pub(crate) fn clear_focus_without_persist(
     visibility_mode: VisibilityMode,
-    session: &mut AppSessionState,
-    agent_catalog: &AgentCatalog,
-    runtime_index: &AgentRuntimeIndex,
-    owned_tmux_sessions: &OwnedTmuxSessionStore,
-    selection: &mut crate::hud::AgentListSelection,
-    active_terminal_content: &mut ActiveTerminalContentState,
-    terminal_manager: &mut TerminalManager,
-    focus_state: &mut TerminalFocusState,
-    input_capture: &mut HudInputCaptureState,
-    view_state: &mut TerminalViewState,
-    visibility_state: &mut TerminalVisibilityState,
-    redraws: &mut bevy::prelude::MessageWriter<RequestRedraw>,
+    ctx: &mut FocusMutationContext<'_, '_>,
 ) {
-    session.focus_intent.clear(visibility_mode);
-    project_focus_intent(
-        session,
-        agent_catalog,
-        runtime_index,
-        owned_tmux_sessions,
-        selection,
-        active_terminal_content,
-        terminal_manager,
-        focus_state,
-        input_capture,
-        view_state,
-        visibility_state,
-    );
-    redraws.write(RequestRedraw);
+    ctx.session.focus_intent.clear(visibility_mode);
+    project_focus_intent(ctx.session, &mut ctx.projection);
+    redraw(ctx);
 }
 
-#[allow(
-    clippy::too_many_arguments,
-    reason = "focus mutation updates intent plus all runtime-facing mirrors"
-)]
 pub(crate) fn focus_agent_without_persist(
     agent_id: AgentId,
     visibility_mode: VisibilityMode,
-    session: &mut AppSessionState,
-    agent_catalog: &AgentCatalog,
-    runtime_index: &AgentRuntimeIndex,
-    owned_tmux_sessions: &OwnedTmuxSessionStore,
-    selection: &mut crate::hud::AgentListSelection,
-    active_terminal_content: &mut ActiveTerminalContentState,
-    terminal_manager: &mut TerminalManager,
-    focus_state: &mut TerminalFocusState,
-    input_capture: &mut HudInputCaptureState,
-    view_state: &mut TerminalViewState,
-    visibility_state: &mut TerminalVisibilityState,
-    redraws: &mut bevy::prelude::MessageWriter<RequestRedraw>,
+    ctx: &mut FocusMutationContext<'_, '_>,
 ) {
-    session.focus_intent.focus_agent(agent_id, visibility_mode);
-    project_focus_intent(
-        session,
-        agent_catalog,
-        runtime_index,
-        owned_tmux_sessions,
-        selection,
-        active_terminal_content,
-        terminal_manager,
-        focus_state,
-        input_capture,
-        view_state,
-        visibility_state,
-    );
-    redraws.write(RequestRedraw);
+    ctx.session
+        .focus_intent
+        .focus_agent(agent_id, visibility_mode);
+    project_focus_intent(ctx.session, &mut ctx.projection);
+    redraw(ctx);
 }
 
-#[allow(
-    clippy::too_many_arguments,
-    reason = "focus mutation updates intent plus all runtime-facing mirrors"
-)]
 pub(crate) fn focus_terminal_without_persist(
     terminal_id: crate::terminals::TerminalId,
     visibility_mode: VisibilityMode,
-    session: &mut AppSessionState,
-    agent_catalog: &AgentCatalog,
-    runtime_index: &AgentRuntimeIndex,
-    owned_tmux_sessions: &OwnedTmuxSessionStore,
-    selection: &mut crate::hud::AgentListSelection,
-    active_terminal_content: &mut ActiveTerminalContentState,
-    terminal_manager: &mut TerminalManager,
-    focus_state: &mut TerminalFocusState,
-    input_capture: &mut HudInputCaptureState,
-    view_state: &mut TerminalViewState,
-    visibility_state: &mut TerminalVisibilityState,
-    redraws: &mut bevy::prelude::MessageWriter<RequestRedraw>,
+    ctx: &mut FocusMutationContext<'_, '_>,
 ) {
-    session
+    ctx.session
         .focus_intent
         .focus_terminal(terminal_id, visibility_mode);
-    project_focus_intent(
-        session,
-        agent_catalog,
-        runtime_index,
-        owned_tmux_sessions,
-        selection,
-        active_terminal_content,
-        terminal_manager,
-        focus_state,
-        input_capture,
-        view_state,
-        visibility_state,
-    );
-    redraws.write(RequestRedraw);
+    project_focus_intent(ctx.session, &mut ctx.projection);
+    redraw(ctx);
 }
 
-#[allow(
-    clippy::too_many_arguments,
-    reason = "focus mutation updates intent plus all runtime-facing mirrors"
-)]
 pub(crate) fn focus_owned_tmux_without_persist(
     session_uid: &str,
-    session: &mut AppSessionState,
-    agent_catalog: &AgentCatalog,
-    runtime_index: &AgentRuntimeIndex,
-    owned_tmux_sessions: &OwnedTmuxSessionStore,
-    selection: &mut crate::hud::AgentListSelection,
-    active_terminal_content: &mut ActiveTerminalContentState,
-    terminal_manager: &mut TerminalManager,
-    focus_state: &mut TerminalFocusState,
-    input_capture: &mut HudInputCaptureState,
-    view_state: &mut TerminalViewState,
-    visibility_state: &mut TerminalVisibilityState,
-    redraws: &mut bevy::prelude::MessageWriter<RequestRedraw>,
+    ctx: &mut FocusMutationContext<'_, '_>,
 ) {
-    session
+    ctx.session
         .focus_intent
         .focus_owned_tmux(session_uid.to_owned());
-    project_focus_intent(
-        session,
-        agent_catalog,
-        runtime_index,
-        owned_tmux_sessions,
-        selection,
-        active_terminal_content,
-        terminal_manager,
-        focus_state,
-        input_capture,
-        view_state,
-        visibility_state,
-    );
-    redraws.write(RequestRedraw);
+    project_focus_intent(ctx.session, &mut ctx.projection);
+    redraw(ctx);
 }
 
-#[allow(
-    clippy::too_many_arguments,
-    reason = "focus agent updates focus intent plus all runtime-facing mirrors"
-)]
 /// Focuses agent.
 pub(crate) fn focus_agent(
     agent_id: AgentId,
     visibility_mode: VisibilityMode,
-    session: &mut AppSessionState,
-    agent_catalog: &AgentCatalog,
-    runtime_index: &AgentRuntimeIndex,
-    owned_tmux_sessions: &OwnedTmuxSessionStore,
-    selection: &mut crate::hud::AgentListSelection,
-    active_terminal_content: &mut ActiveTerminalContentState,
-    terminal_manager: &mut TerminalManager,
-    focus_state: &mut TerminalFocusState,
-    input_capture: &mut HudInputCaptureState,
-    app_state_persistence: &mut AppStatePersistenceState,
-    view_state: &mut TerminalViewState,
-    visibility_state: &mut TerminalVisibilityState,
-    time: &Time,
-    redraws: &mut bevy::prelude::MessageWriter<RequestRedraw>,
+    ctx: &mut FocusMutationContext<'_, '_>,
 ) {
-    focus_agent_without_persist(
-        agent_id,
-        visibility_mode,
-        session,
-        agent_catalog,
-        runtime_index,
-        owned_tmux_sessions,
-        selection,
-        active_terminal_content,
-        terminal_manager,
-        focus_state,
-        input_capture,
-        view_state,
-        visibility_state,
-        redraws,
-    );
-    let _ = (app_state_persistence, time);
+    focus_agent_without_persist(agent_id, visibility_mode, ctx);
 }
 
 #[cfg(test)]
 mod tests {
-    use super::project_focus_intent;
+    use super::{project_focus_intent, FocusProjectionContext};
     use crate::{
         agents::{AgentCatalog, AgentId, AgentKind, AgentRuntimeIndex},
         app::{session::FocusIntentTarget, AppSessionState, VisibilityMode},
@@ -354,6 +216,23 @@ mod tests {
         agent_b: AgentId,
         terminal_a: crate::terminals::TerminalId,
         terminal_b: crate::terminals::TerminalId,
+    }
+
+    impl FocusFixture {
+        fn projection_context(&mut self) -> FocusProjectionContext<'_> {
+            FocusProjectionContext {
+                agent_catalog: &self.agent_catalog,
+                runtime_index: &self.runtime_index,
+                owned_tmux_sessions: &self.owned_tmux_sessions,
+                selection: &mut self.selection,
+                active_terminal_content: &mut self.active_terminal_content,
+                terminal_manager: &mut self.terminal_manager,
+                focus_state: &mut self.focus_state,
+                input_capture: &mut self.input_capture,
+                view_state: &mut self.view_state,
+                visibility_state: &mut self.visibility_state,
+            }
+        }
     }
 
     fn focus_fixture() -> FocusFixture {
@@ -425,19 +304,7 @@ mod tests {
             .focus_intent
             .focus_agent(fixture.agent_b, VisibilityMode::FocusedOnly);
 
-        project_focus_intent(
-            &mut session,
-            &fixture.agent_catalog,
-            &fixture.runtime_index,
-            &fixture.owned_tmux_sessions,
-            &mut fixture.selection,
-            &mut fixture.active_terminal_content,
-            &mut fixture.terminal_manager,
-            &mut fixture.focus_state,
-            &mut fixture.input_capture,
-            &mut fixture.view_state,
-            &mut fixture.visibility_state,
-        );
+        project_focus_intent(&mut session, &mut fixture.projection_context());
 
         assert_eq!(
             fixture.selection,
@@ -466,19 +333,7 @@ mod tests {
             .focus_intent
             .focus_terminal(fixture.terminal_a, VisibilityMode::FocusedOnly);
 
-        project_focus_intent(
-            &mut session,
-            &fixture.agent_catalog,
-            &fixture.runtime_index,
-            &fixture.owned_tmux_sessions,
-            &mut fixture.selection,
-            &mut fixture.active_terminal_content,
-            &mut fixture.terminal_manager,
-            &mut fixture.focus_state,
-            &mut fixture.input_capture,
-            &mut fixture.view_state,
-            &mut fixture.visibility_state,
-        );
+        project_focus_intent(&mut session, &mut fixture.projection_context());
 
         assert_eq!(fixture.selection, crate::hud::AgentListSelection::None);
         assert_eq!(fixture.focus_state.active_id(), Some(fixture.terminal_a));
@@ -494,35 +349,11 @@ mod tests {
         let mut fixture = focus_fixture();
         let mut session = AppSessionState::default();
         session.focus_intent.focus_owned_tmux("tmux-1".into());
-        project_focus_intent(
-            &mut session,
-            &fixture.agent_catalog,
-            &fixture.runtime_index,
-            &fixture.owned_tmux_sessions,
-            &mut fixture.selection,
-            &mut fixture.active_terminal_content,
-            &mut fixture.terminal_manager,
-            &mut fixture.focus_state,
-            &mut fixture.input_capture,
-            &mut fixture.view_state,
-            &mut fixture.visibility_state,
-        );
+        project_focus_intent(&mut session, &mut fixture.projection_context());
         fixture.input_capture.direct_input_terminal = fixture.focus_state.active_id();
         session.focus_intent.clear(VisibilityMode::ShowAll);
 
-        project_focus_intent(
-            &mut session,
-            &fixture.agent_catalog,
-            &fixture.runtime_index,
-            &fixture.owned_tmux_sessions,
-            &mut fixture.selection,
-            &mut fixture.active_terminal_content,
-            &mut fixture.terminal_manager,
-            &mut fixture.focus_state,
-            &mut fixture.input_capture,
-            &mut fixture.view_state,
-            &mut fixture.visibility_state,
-        );
+        project_focus_intent(&mut session, &mut fixture.projection_context());
 
         assert_eq!(fixture.selection, crate::hud::AgentListSelection::None);
         assert_eq!(fixture.focus_state.active_id(), None);
@@ -546,19 +377,7 @@ mod tests {
         let mut session = AppSessionState::default();
         session.focus_intent.focus_owned_tmux("tmux-1".into());
 
-        project_focus_intent(
-            &mut session,
-            &fixture.agent_catalog,
-            &fixture.runtime_index,
-            &fixture.owned_tmux_sessions,
-            &mut fixture.selection,
-            &mut fixture.active_terminal_content,
-            &mut fixture.terminal_manager,
-            &mut fixture.focus_state,
-            &mut fixture.input_capture,
-            &mut fixture.view_state,
-            &mut fixture.visibility_state,
-        );
+        project_focus_intent(&mut session, &mut fixture.projection_context());
 
         assert_eq!(
             fixture.selection,
@@ -586,19 +405,7 @@ mod tests {
             .focus_agent(fixture.agent_a, VisibilityMode::FocusedOnly);
         fixture.input_capture.direct_input_terminal = Some(fixture.terminal_b);
 
-        project_focus_intent(
-            &mut session,
-            &fixture.agent_catalog,
-            &fixture.runtime_index,
-            &fixture.owned_tmux_sessions,
-            &mut fixture.selection,
-            &mut fixture.active_terminal_content,
-            &mut fixture.terminal_manager,
-            &mut fixture.focus_state,
-            &mut fixture.input_capture,
-            &mut fixture.view_state,
-            &mut fixture.visibility_state,
-        );
+        project_focus_intent(&mut session, &mut fixture.projection_context());
 
         assert_eq!(fixture.focus_state.active_id(), Some(fixture.terminal_a));
         assert_eq!(fixture.input_capture.direct_input_terminal, None);
@@ -613,19 +420,7 @@ mod tests {
             VisibilityMode::FocusedOnly,
         );
 
-        project_focus_intent(
-            &mut session,
-            &fixture.agent_catalog,
-            &fixture.runtime_index,
-            &fixture.owned_tmux_sessions,
-            &mut fixture.selection,
-            &mut fixture.active_terminal_content,
-            &mut fixture.terminal_manager,
-            &mut fixture.focus_state,
-            &mut fixture.input_capture,
-            &mut fixture.view_state,
-            &mut fixture.visibility_state,
-        );
+        project_focus_intent(&mut session, &mut fixture.projection_context());
 
         assert_eq!(session.focus_intent.target, FocusIntentTarget::None);
         assert_eq!(fixture.selection, crate::hud::AgentListSelection::None);

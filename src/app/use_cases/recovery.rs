@@ -88,8 +88,7 @@ pub(crate) fn reset_runtime_from_snapshot(
     app_session
         .focus_intent
         .clear(crate::app::VisibilityMode::ShowAll);
-    project_focus_intent(
-        app_session,
+    let mut focus_projection = super::FocusProjectionContext {
         agent_catalog,
         runtime_index,
         owned_tmux_sessions,
@@ -100,7 +99,8 @@ pub(crate) fn reset_runtime_from_snapshot(
         input_capture,
         view_state,
         visibility_state,
-    );
+    };
+    project_focus_intent(app_session, &mut focus_projection);
     let mut presentation_store = presentation_store;
     if let Some(presentation_store) = presentation_store.as_deref_mut() {
         *presentation_store = TerminalPresentationStore::default();

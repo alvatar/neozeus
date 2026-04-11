@@ -501,10 +501,28 @@ pub(crate) fn restore_app(
         &imported_session_names,
     ) {
         if let Some(agent_id) = runtime_index.agent_for_session(session_name) {
-            focus_agent_without_persist(
-                agent_id,
-                VisibilityMode::FocusedOnly,
-                app_session,
+            let mut focus_ctx = super::FocusMutationContext {
+                session: app_session,
+                projection: super::FocusProjectionContext {
+                    agent_catalog,
+                    runtime_index,
+                    owned_tmux_sessions,
+                    selection,
+                    active_terminal_content,
+                    terminal_manager,
+                    focus_state,
+                    input_capture,
+                    view_state,
+                    visibility_state,
+                },
+                redraws,
+            };
+            focus_agent_without_persist(agent_id, VisibilityMode::FocusedOnly, &mut focus_ctx);
+        }
+    } else if let Some(agent_id) = respawned_focus_agent {
+        let mut focus_ctx = super::FocusMutationContext {
+            session: app_session,
+            projection: super::FocusProjectionContext {
                 agent_catalog,
                 runtime_index,
                 owned_tmux_sessions,
@@ -515,42 +533,28 @@ pub(crate) fn restore_app(
                 input_capture,
                 view_state,
                 visibility_state,
-                redraws,
-            );
-        }
-    } else if let Some(agent_id) = respawned_focus_agent {
-        focus_agent_without_persist(
-            agent_id,
-            VisibilityMode::FocusedOnly,
-            app_session,
-            agent_catalog,
-            runtime_index,
-            owned_tmux_sessions,
-            selection,
-            active_terminal_content,
-            terminal_manager,
-            focus_state,
-            input_capture,
-            view_state,
-            visibility_state,
+            },
             redraws,
-        );
+        };
+        focus_agent_without_persist(agent_id, VisibilityMode::FocusedOnly, &mut focus_ctx);
     } else if !agent_catalog.order.is_empty() {
-        clear_focus_without_persist(
-            VisibilityMode::ShowAll,
-            app_session,
-            agent_catalog,
-            runtime_index,
-            owned_tmux_sessions,
-            selection,
-            active_terminal_content,
-            terminal_manager,
-            focus_state,
-            input_capture,
-            view_state,
-            visibility_state,
+        let mut focus_ctx = super::FocusMutationContext {
+            session: app_session,
+            projection: super::FocusProjectionContext {
+                agent_catalog,
+                runtime_index,
+                owned_tmux_sessions,
+                selection,
+                active_terminal_content,
+                terminal_manager,
+                focus_state,
+                input_capture,
+                view_state,
+                visibility_state,
+            },
             redraws,
-        );
+        };
+        clear_focus_without_persist(VisibilityMode::ShowAll, &mut focus_ctx);
     } else if !summary.snapshot_found {
         let _ = spawn_agent_terminal(
             agent_catalog,

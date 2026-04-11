@@ -584,22 +584,23 @@ fn setup_verifier_terminal(ctx: &mut SceneSetupContext, config: AutoVerifyConfig
         &default_owned_tmux_sessions,
         &mut default_active_terminal_content,
     );
-    focus_terminal_without_persist(
-        terminal_id,
-        VisibilityMode::FocusedOnly,
-        &mut ctx.app_session,
-        &ctx.agent_catalog,
-        &ctx.runtime_index,
-        projection.owned_tmux_sessions,
-        projection.selection,
-        projection.active_terminal_content,
-        &mut ctx.terminal_manager,
-        &mut ctx.focus_state,
-        &mut ctx.input_capture,
-        &mut ctx.view_state,
-        &mut ctx.visibility_state,
-        &mut ctx.redraws,
-    );
+    let mut focus_ctx = crate::app::FocusMutationContext {
+        session: &mut ctx.app_session,
+        projection: crate::app::FocusProjectionContext {
+            agent_catalog: &ctx.agent_catalog,
+            runtime_index: &ctx.runtime_index,
+            owned_tmux_sessions: projection.owned_tmux_sessions,
+            selection: projection.selection,
+            active_terminal_content: projection.active_terminal_content,
+            terminal_manager: &mut ctx.terminal_manager,
+            focus_state: &mut ctx.focus_state,
+            input_capture: &mut ctx.input_capture,
+            view_state: &mut ctx.view_state,
+            visibility_state: &mut ctx.visibility_state,
+        },
+        redraws: &mut ctx.redraws,
+    };
+    focus_terminal_without_persist(terminal_id, VisibilityMode::FocusedOnly, &mut focus_ctx);
     register_startup_loading_terminal(ctx, terminal_id);
     append_debug_log(format!(
         "spawned verifier terminal {} session={}",
