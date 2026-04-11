@@ -1,3 +1,4 @@
+use crate::shared::agent_durability::AgentDurability;
 use bevy::prelude::Resource;
 use std::{
     collections::BTreeMap,
@@ -144,6 +145,18 @@ fn generate_agent_uid() -> AgentUid {
 }
 
 impl AgentCatalog {
+    pub(crate) fn classify_durability(
+        kind: AgentKind,
+        recovery: Option<&AgentRecoverySpec>,
+    ) -> AgentDurability {
+        let _ = kind;
+        if recovery.is_some() {
+            AgentDurability::Recoverable
+        } else {
+            AgentDurability::LiveOnly
+        }
+    }
+
     /// Validates that one explicit user-facing create label is non-empty after trimming and unique.
     pub(crate) fn validate_new_label(&self, label: Option<&str>) -> Result<Option<String>, String> {
         let Some(label) = normalize_requested_label(label) else {
@@ -357,6 +370,12 @@ impl AgentCatalog {
         self.agents
             .get(&agent_id)
             .and_then(|record| record.metadata.recovery.as_ref())
+    }
+
+    pub(crate) fn durability(&self, agent_id: AgentId) -> Option<AgentDurability> {
+        self.agents
+            .get(&agent_id)
+            .map(|record| Self::classify_durability(record.kind, record.metadata.recovery.as_ref()))
     }
 
     pub(crate) fn set_recovery_spec(

@@ -1,6 +1,6 @@
 use super::{
-    AgentCapabilities, AgentCatalog, AgentId, AgentKind, AgentMetadata, AgentRuntimeIndex,
-    AgentRuntimeLifecycle,
+    AgentCapabilities, AgentCatalog, AgentDurability, AgentId, AgentKind, AgentMetadata,
+    AgentRuntimeIndex, AgentRuntimeLifecycle,
 };
 use crate::terminals::{TerminalId, TerminalRuntimeState};
 
@@ -147,6 +147,59 @@ fn catalog_retains_clone_provenance_and_workdir_metadata() {
     );
     assert!(catalog.is_workdir(agent_id));
     assert_eq!(catalog.kind(agent_id), Some(AgentKind::Pi));
+}
+
+#[test]
+fn durability_classification_is_explicit_for_live_only_and_recoverable_agents() {
+    assert_eq!(
+        AgentCatalog::classify_durability(AgentKind::Terminal, None),
+        AgentDurability::LiveOnly
+    );
+    assert_eq!(
+        AgentCatalog::classify_durability(
+            AgentKind::Verifier,
+            Some(&super::AgentRecoverySpec::Claude {
+                session_id: "session-1".into(),
+                cwd: "/tmp/demo".into(),
+                model: None,
+                profile: None,
+            })
+        ),
+        AgentDurability::Recoverable
+    );
+}
+
+#[test]
+fn catalog_reports_agent_durability_without_callers_peeking_at_recovery_presence() {
+    let mut catalog = AgentCatalog::default();
+    let live_only = catalog.create_agent(
+        Some("alpha".into()),
+        AgentKind::Terminal,
+        AgentCapabilities::terminal_defaults(),
+    );
+    let recoverable = catalog.create_agent_with_metadata(
+        Some("beta".into()),
+        AgentKind::Pi,
+        AgentKind::Pi.capabilities(),
+        AgentMetadata {
+            clone_source_session_path: Some("/tmp/pi-session-beta.jsonl".into()),
+            recovery: Some(super::AgentRecoverySpec::Pi {
+                session_path: "/tmp/pi-session-beta.jsonl".into(),
+                cwd: "/tmp/demo".into(),
+                is_workdir: false,
+                workdir_slug: None,
+            }),
+        },
+    );
+
+    assert_eq!(
+        catalog.durability(live_only),
+        Some(AgentDurability::LiveOnly)
+    );
+    assert_eq!(
+        catalog.durability(recoverable),
+        Some(AgentDurability::Recoverable)
+    );
 }
 
 /// Verifies that runtime index links terminal session and runtime state.

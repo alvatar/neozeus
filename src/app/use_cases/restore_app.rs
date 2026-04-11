@@ -375,7 +375,10 @@ pub(crate) fn restore_app(
         }
     }
 
-    for record in prune.iter().filter(|record| record.recovery.is_none()) {
+    for record in prune
+        .iter()
+        .filter(|record| record.durability() == crate::agents::AgentDurability::LiveOnly)
+    {
         let message = skipped_live_only_restore_message(record);
         append_debug_log(message.clone());
         summary.skipped_agents.push(message);
@@ -383,7 +386,7 @@ pub(crate) fn restore_app(
 
     let respawnable = prune
         .iter()
-        .filter(|record| record.recovery.is_some())
+        .filter(|record| record.durability() == crate::agents::AgentDurability::Recoverable)
         .cloned()
         .collect::<Vec<_>>();
     for record in respawnable {
@@ -692,6 +695,50 @@ mod tests {
         assert_eq!(reset.tone, crate::app::RecoveryStatusTone::Error);
         assert_eq!(startup.details[1..], ["failed-a", "skipped-b"]);
         assert_eq!(reset.details[1..], ["failed-a", "skipped-b"]);
+    }
+
+    #[test]
+    fn persisted_agent_durability_is_live_only_without_recovery_and_recoverable_with_recovery() {
+        let live_only = PersistedAgentState {
+            agent_uid: Some("agent-live".into()),
+            runtime_session_name: Some("neozeus-session-live".into()),
+            label: Some("LIVE".into()),
+            kind: PersistedAgentKind::Terminal,
+            recovery: None,
+            clone_source_session_path: None,
+            aegis_enabled: false,
+            aegis_prompt_text: None,
+            order_index: 0,
+            last_focused: false,
+        };
+        let recoverable = PersistedAgentState {
+            agent_uid: Some("agent-pi".into()),
+            runtime_session_name: None,
+            label: Some("PI".into()),
+            kind: PersistedAgentKind::Pi,
+            recovery: Some(
+                crate::shared::app_state_file::PersistedAgentRecoverySpec::Pi {
+                    session_path: "/tmp/pi-session.jsonl".into(),
+                    cwd: Some("/tmp/demo".into()),
+                    is_workdir: false,
+                    workdir_slug: None,
+                },
+            ),
+            clone_source_session_path: Some("/tmp/pi-session.jsonl".into()),
+            aegis_enabled: false,
+            aegis_prompt_text: None,
+            order_index: 1,
+            last_focused: false,
+        };
+
+        assert_eq!(
+            live_only.durability(),
+            crate::agents::AgentDurability::LiveOnly
+        );
+        assert_eq!(
+            recoverable.durability(),
+            crate::agents::AgentDurability::Recoverable
+        );
     }
 
     #[test]

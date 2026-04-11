@@ -2,6 +2,7 @@ mod catalog;
 mod runtime_index;
 mod status;
 
+pub(crate) use crate::shared::agent_durability::AgentDurability;
 pub(crate) use catalog::{
     uppercase_agent_label_text, AgentCatalog, AgentId, AgentKind, AgentMetadata, AgentRecoverySpec,
     PendingAgentIdentity,

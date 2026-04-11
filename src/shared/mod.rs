@@ -1,3 +1,4 @@
+pub mod agent_durability;
 pub mod app_state_file;
 pub mod capture;
 pub mod codex_state;

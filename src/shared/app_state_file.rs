@@ -79,6 +79,16 @@ pub struct PersistedAgentState {
     pub last_focused: bool,
 }
 
+impl PersistedAgentState {
+    pub fn durability(&self) -> crate::shared::agent_durability::AgentDurability {
+        if self.recovery.is_some() {
+            crate::shared::agent_durability::AgentDurability::Recoverable
+        } else {
+            crate::shared::agent_durability::AgentDurability::LiveOnly
+        }
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct PersistedAppState {
     pub agents: Vec<PersistedAgentState>,
