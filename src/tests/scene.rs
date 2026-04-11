@@ -399,6 +399,13 @@ fn setup_scene_auto_verify_uses_shared_spawn_attach_flow_and_isolates_verifier_t
     let terminal_id = terminal_ids[0];
     assert_eq!(
         world
+            .resource::<crate::app::AppSessionState>()
+            .focus_intent
+            .target,
+        crate::app::FocusIntentTarget::Terminal(terminal_id)
+    );
+    assert_eq!(
+        world
             .resource::<crate::hud::TerminalVisibilityState>()
             .policy,
         TerminalVisibilityPolicy::Isolate(terminal_id)

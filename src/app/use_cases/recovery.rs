@@ -12,7 +12,7 @@ use crate::{
 };
 use bevy::{prelude::Time, window::RequestRedraw};
 
-use super::{clear_composer_and_direct_input, restore_app};
+use super::{clear_composer_and_direct_input, project_focus_intent, restore_app};
 
 #[allow(
     clippy::too_many_arguments,
@@ -79,7 +79,6 @@ pub(crate) fn reset_runtime_from_snapshot(
     *active_terminal_content = ActiveTerminalContentState::default();
     *view_state = TerminalViewState::default();
     *visibility_state = TerminalVisibilityState::default();
-    *selection = crate::hud::AgentListSelection::None;
     *conversations = ConversationStore::default();
     conversation_persistence.clear_runtime_state();
     *tasks = AgentTaskStore::default();
@@ -89,6 +88,19 @@ pub(crate) fn reset_runtime_from_snapshot(
     app_session
         .focus_intent
         .clear(crate::app::VisibilityMode::ShowAll);
+    project_focus_intent(
+        app_session,
+        agent_catalog,
+        runtime_index,
+        owned_tmux_sessions,
+        selection,
+        active_terminal_content,
+        terminal_manager,
+        focus_state,
+        input_capture,
+        view_state,
+        visibility_state,
+    );
     let mut presentation_store = presentation_store;
     if let Some(presentation_store) = presentation_store.as_deref_mut() {
         *presentation_store = TerminalPresentationStore::default();

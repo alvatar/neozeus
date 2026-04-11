@@ -15,8 +15,8 @@ use crate::{
 
 use super::super::session::{AppSessionState, VisibilityMode};
 use super::{
-    apply_focus_intent, attach_restored_terminal, launch_spec_for_recovery_spec,
-    respawn_recovered_agent_with_launch_spec, spawn_agent_terminal,
+    attach_restored_terminal, clear_focus_without_persist, focus_agent_without_persist,
+    launch_spec_for_recovery_spec, respawn_recovered_agent_with_launch_spec, spawn_agent_terminal,
 };
 use bevy::prelude::*;
 
@@ -521,10 +521,9 @@ pub(crate) fn restore_app(
         &imported_session_names,
     ) {
         if let Some(agent_id) = runtime_index.agent_for_session(session_name) {
-            app_session
-                .focus_intent
-                .focus_agent(agent_id, VisibilityMode::FocusedOnly);
-            apply_focus_intent(
+            focus_agent_without_persist(
+                agent_id,
+                VisibilityMode::FocusedOnly,
                 app_session,
                 agent_catalog,
                 runtime_index,
@@ -536,13 +535,13 @@ pub(crate) fn restore_app(
                 input_capture,
                 view_state,
                 visibility_state,
+                redraws,
             );
         }
     } else if let Some(agent_id) = respawned_focus_agent {
-        app_session
-            .focus_intent
-            .focus_agent(agent_id, VisibilityMode::FocusedOnly);
-        apply_focus_intent(
+        focus_agent_without_persist(
+            agent_id,
+            VisibilityMode::FocusedOnly,
             app_session,
             agent_catalog,
             runtime_index,
@@ -554,10 +553,11 @@ pub(crate) fn restore_app(
             input_capture,
             view_state,
             visibility_state,
+            redraws,
         );
     } else if !agent_catalog.order.is_empty() {
-        app_session.focus_intent.clear(VisibilityMode::ShowAll);
-        apply_focus_intent(
+        clear_focus_without_persist(
+            VisibilityMode::ShowAll,
             app_session,
             agent_catalog,
             runtime_index,
@@ -569,6 +569,7 @@ pub(crate) fn restore_app(
             input_capture,
             view_state,
             visibility_state,
+            redraws,
         );
     } else if !summary.snapshot_found {
         let _ = spawn_agent_terminal(

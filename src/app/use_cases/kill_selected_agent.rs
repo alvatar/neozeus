@@ -14,7 +14,7 @@ use crate::{
 
 use super::{
     super::session::{AppSessionState, VisibilityMode},
-    apply_focus_intent,
+    clear_focus_without_persist, focus_agent_without_persist,
 };
 use bevy::{prelude::*, window::RequestRedraw};
 
@@ -120,25 +120,38 @@ pub(crate) fn kill_selected_agent(
     view_state.forget_terminal(terminal_id);
     app_session.composer.unbind_agent(selected_agent);
     if let Some(replacement_agent) = replacement_agent {
-        app_session
-            .focus_intent
-            .focus_agent(replacement_agent, app_session.visibility_mode());
+        focus_agent_without_persist(
+            replacement_agent,
+            app_session.visibility_mode(),
+            app_session,
+            agent_catalog,
+            runtime_index,
+            owned_tmux_sessions,
+            selection,
+            active_terminal_content,
+            terminal_manager,
+            focus_state,
+            input_capture,
+            view_state,
+            visibility_state,
+            redraws,
+        );
     } else {
-        app_session.focus_intent.clear(VisibilityMode::ShowAll);
+        clear_focus_without_persist(
+            VisibilityMode::ShowAll,
+            app_session,
+            agent_catalog,
+            runtime_index,
+            owned_tmux_sessions,
+            selection,
+            active_terminal_content,
+            terminal_manager,
+            focus_state,
+            input_capture,
+            view_state,
+            visibility_state,
+            redraws,
+        );
     }
-    apply_focus_intent(
-        app_session,
-        agent_catalog,
-        runtime_index,
-        owned_tmux_sessions,
-        selection,
-        active_terminal_content,
-        terminal_manager,
-        focus_state,
-        input_capture,
-        view_state,
-        visibility_state,
-    );
-    redraws.write(RequestRedraw);
     Ok(Some(selected_agent))
 }

@@ -8,7 +8,7 @@ use crate::{
     },
 };
 
-use super::apply_focus_intent;
+use super::{clear_focus_without_persist, focus_owned_tmux_without_persist};
 use bevy::{prelude::MessageWriter, window::RequestRedraw};
 
 #[allow(
@@ -35,10 +35,8 @@ pub(crate) fn select_owned_tmux(
     if owned_tmux_sessions.session(session_uid).is_none() {
         let _ = refresh_owned_tmux_sessions_now(runtime_spawner, owned_tmux_sessions);
     }
-    app_session
-        .focus_intent
-        .focus_owned_tmux(session_uid.to_owned());
-    apply_focus_intent(
+    focus_owned_tmux_without_persist(
+        session_uid,
         app_session,
         agent_catalog,
         runtime_index,
@@ -50,9 +48,8 @@ pub(crate) fn select_owned_tmux(
         input_capture,
         view_state,
         visibility_state,
+        redraws,
     );
-
-    redraws.write(RequestRedraw);
 }
 
 #[allow(
@@ -78,7 +75,8 @@ pub(crate) fn kill_selected_owned_tmux(
     let Some(session_uid) = (match &app_session.focus_intent.target {
         crate::app::session::FocusIntentTarget::OwnedTmux(session_uid) => Some(session_uid.clone()),
         crate::app::session::FocusIntentTarget::None
-        | crate::app::session::FocusIntentTarget::Agent(_) => active_terminal_content
+        | crate::app::session::FocusIntentTarget::Agent(_)
+        | crate::app::session::FocusIntentTarget::Terminal(_) => active_terminal_content
             .selected_owned_tmux_session_uid()
             .map(str::to_owned),
     }) else {
@@ -89,8 +87,8 @@ pub(crate) fn kill_selected_owned_tmux(
         Ok(()) => {
             owned_tmux_sessions.record_removed_session(&session_uid);
             let _ = refresh_owned_tmux_sessions_now(runtime_spawner, owned_tmux_sessions);
-            app_session.focus_intent.clear(VisibilityMode::ShowAll);
-            apply_focus_intent(
+            clear_focus_without_persist(
+                VisibilityMode::ShowAll,
                 app_session,
                 agent_catalog,
                 runtime_index,
@@ -102,15 +100,17 @@ pub(crate) fn kill_selected_owned_tmux(
                 input_capture,
                 view_state,
                 visibility_state,
+                redraws,
             );
         }
         Err(error) => {
             let _ = refresh_owned_tmux_sessions_now(runtime_spawner, owned_tmux_sessions);
             if owned_tmux_sessions.session(&session_uid).is_some() {
                 active_terminal_content.set_last_error(error);
+                redraws.write(RequestRedraw);
             } else {
-                app_session.focus_intent.clear(VisibilityMode::ShowAll);
-                apply_focus_intent(
+                clear_focus_without_persist(
+                    VisibilityMode::ShowAll,
                     app_session,
                     agent_catalog,
                     runtime_index,
@@ -122,10 +122,9 @@ pub(crate) fn kill_selected_owned_tmux(
                     input_capture,
                     view_state,
                     visibility_state,
+                    redraws,
                 );
             }
         }
     }
-
-    redraws.write(RequestRedraw);
 }

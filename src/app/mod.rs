@@ -17,14 +17,16 @@ pub(crate) use persistence::{
     reconcile_persisted_agents, resolve_app_state_path, save_app_state_if_dirty,
     AppStatePersistenceState,
 };
+#[cfg(test)]
+pub(crate) use session::FocusIntentTarget;
 pub(crate) use session::{
     AegisDialogField, AppSessionState, CloneAgentDialogField, CreateAgentDialogField,
     CreateAgentKind, RecoveryStatusTone, RenameAgentDialogField, ResetDialogFocus, TextFieldState,
     VisibilityMode,
 };
 pub(crate) use use_cases::{
-    clear_composer_and_direct_input, focus_agent_without_persist, open_composer,
-    render_recovery_status_summary, restore_app, send_outbound_message,
+    clear_composer_and_direct_input, focus_agent_without_persist, focus_terminal_without_persist,
+    open_composer, render_recovery_status_summary, restore_app, send_outbound_message,
     spawn_runtime_terminal_session, OutboundMessageSource,
 };
 

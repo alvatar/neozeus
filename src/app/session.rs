@@ -50,6 +50,7 @@ pub(crate) enum FocusIntentTarget {
     #[default]
     None,
     Agent(AgentId),
+    Terminal(TerminalId),
     OwnedTmux(String),
 }
 
@@ -70,6 +71,15 @@ impl FocusIntentState {
         self.visibility_mode = visibility_mode;
     }
 
+    pub(crate) fn focus_terminal(
+        &mut self,
+        terminal_id: TerminalId,
+        visibility_mode: VisibilityMode,
+    ) {
+        self.target = FocusIntentTarget::Terminal(terminal_id);
+        self.visibility_mode = visibility_mode;
+    }
+
     pub(crate) fn focus_owned_tmux(&mut self, session_uid: String) {
         self.target = FocusIntentTarget::OwnedTmux(session_uid);
     }
@@ -82,7 +92,9 @@ impl FocusIntentState {
     pub(crate) fn selected_agent(&self) -> Option<AgentId> {
         match self.target {
             FocusIntentTarget::Agent(agent_id) => Some(agent_id),
-            FocusIntentTarget::None | FocusIntentTarget::OwnedTmux(_) => None,
+            FocusIntentTarget::None
+            | FocusIntentTarget::Terminal(_)
+            | FocusIntentTarget::OwnedTmux(_) => None,
         }
     }
 }

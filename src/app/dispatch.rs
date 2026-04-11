@@ -33,7 +33,6 @@ fn purge_removed_agent_state(
     agent_id: crate::agents::AgentId,
     agent_catalog: &mut AgentCatalog,
     app_session: &mut AppSessionState,
-    selection: &mut crate::hud::AgentListSelection,
     task_store: &mut AgentTaskStore,
     conversations: &mut ConversationStore,
     conversation_persistence: &mut ConversationPersistenceState,
@@ -47,7 +46,6 @@ fn purge_removed_agent_state(
     app_session.composer.unbind_agent(agent_id);
     if app_session.focus_intent.selected_agent() == Some(agent_id) {
         app_session.focus_intent.clear(VisibilityMode::ShowAll);
-        *selection = crate::hud::AgentListSelection::None;
     }
 
     if task_store.remove_agent(agent_id) {
@@ -125,7 +123,6 @@ pub(crate) fn sync_agents_from_terminals(
                 agent_id,
                 &mut agent_catalog,
                 &mut app_session,
-                &mut focus.selection,
                 &mut task_store,
                 &mut conversations,
                 &mut conversation_persistence,
@@ -169,7 +166,7 @@ pub(crate) fn sync_agents_from_terminals(
         let mut default_input_capture = HudInputCaptureState::default();
         let mut default_view_state = TerminalViewState::default();
         let mut default_visibility_state = TerminalVisibilityState::default();
-        use_cases::apply_focus_intent(
+        use_cases::project_focus_intent(
             &mut app_session,
             &agent_catalog,
             &runtime_index,
@@ -405,8 +402,8 @@ fn apply_agent_command(command: &AgentCommand, ctx: &mut AppCommandContext) {
             }
         }
         AgentCommand::ClearFocus => {
-            ctx.app_session.focus_intent.clear(VisibilityMode::ShowAll);
-            use_cases::apply_focus_intent(
+            use_cases::clear_focus_without_persist(
+                VisibilityMode::ShowAll,
                 &mut ctx.app_session,
                 &ctx.agent_catalog,
                 &ctx.runtime_index,
@@ -418,25 +415,18 @@ fn apply_agent_command(command: &AgentCommand, ctx: &mut AppCommandContext) {
                 &mut ctx.input_capture,
                 &mut ctx.view_state,
                 &mut ctx.visibility_state,
+                &mut ctx.redraws,
             );
-            ctx.redraws.write(RequestRedraw);
         }
         AgentCommand::KillSelected => {
             let agent_id = match ctx.app_session.focus_intent.selected_agent() {
                 Some(agent_id) => agent_id,
                 None => match *ctx.selection {
-                    crate::hud::AgentListSelection::Agent(agent_id) => {
-                        let visibility_mode = ctx.app_session.visibility_mode();
-                        ctx.app_session
-                            .focus_intent
-                            .focus_agent(agent_id, visibility_mode);
-                        agent_id
-                    }
+                    crate::hud::AgentListSelection::Agent(agent_id) => agent_id,
                     crate::hud::AgentListSelection::None
                     | crate::hud::AgentListSelection::OwnedTmux(_) => return,
                 },
             };
-            ctx.active_terminal_content.clear();
             if let Err(error) = use_cases::kill_selected_agent(
                 agent_id,
                 &ctx.time,
@@ -488,8 +478,8 @@ fn apply_owned_tmux_command(command: &OwnedTmuxCommand, ctx: &mut AppCommandCont
             );
         }
         OwnedTmuxCommand::ClearSelection => {
-            ctx.app_session.focus_intent.clear(VisibilityMode::ShowAll);
-            use_cases::apply_focus_intent(
+            use_cases::clear_focus_without_persist(
+                VisibilityMode::ShowAll,
                 &mut ctx.app_session,
                 &ctx.agent_catalog,
                 &ctx.runtime_index,
@@ -501,8 +491,8 @@ fn apply_owned_tmux_command(command: &OwnedTmuxCommand, ctx: &mut AppCommandCont
                 &mut ctx.input_capture,
                 &mut ctx.view_state,
                 &mut ctx.visibility_state,
+                &mut ctx.redraws,
             );
-            ctx.redraws.write(RequestRedraw);
         }
         OwnedTmuxCommand::KillSelected => {
             use_cases::kill_selected_owned_tmux(

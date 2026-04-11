@@ -1,17 +1,14 @@
 use crate::{
     agents::{AgentCatalog, AgentRuntimeIndex},
     app::{
-        resolve_app_state_path, restore_app, spawn_runtime_terminal_session, AppSessionState,
-        AppStatePersistenceState,
+        focus_terminal_without_persist, resolve_app_state_path, restore_app,
+        spawn_runtime_terminal_session, AppSessionState, AppStatePersistenceState, VisibilityMode,
     },
     conversations::{
         resolve_conversations_path, restore_persisted_conversations_from_path,
         ConversationPersistenceState, ConversationStore,
     },
-    hud::{
-        hud_needs_redraw, HudInputCaptureState, HudLayoutState, TerminalVisibilityPolicy,
-        TerminalVisibilityState,
-    },
+    hud::{hud_needs_redraw, HudInputCaptureState, HudLayoutState, TerminalVisibilityState},
     terminals::{
         append_debug_log, refresh_owned_tmux_sessions_now, resolve_terminal_notes_path,
         terminal_readiness_for_id, OwnedTmuxSessionStore, TerminalCameraMarker, TerminalFocusState,
@@ -217,10 +214,10 @@ pub(crate) fn choose_startup_focus_session_name<'a>(
 #[cfg(test)]
 pub(crate) fn startup_visibility_policy_for_focus(
     focused_id: Option<crate::terminals::TerminalId>,
-) -> TerminalVisibilityPolicy {
+) -> crate::hud::TerminalVisibilityPolicy {
     focused_id
-        .map(TerminalVisibilityPolicy::Isolate)
-        .unwrap_or(TerminalVisibilityPolicy::ShowAll)
+        .map(crate::hud::TerminalVisibilityPolicy::Isolate)
+        .unwrap_or(crate::hud::TerminalVisibilityPolicy::ShowAll)
 }
 
 /// Requests another frame while any terminal or HUD visual state is still changing.
@@ -469,7 +466,32 @@ fn setup_verifier_terminal(ctx: &mut SceneSetupContext, config: AutoVerifyConfig
             return;
         }
     };
-    ctx.visibility_state.policy = TerminalVisibilityPolicy::Isolate(terminal_id);
+    let default_owned_tmux_sessions = OwnedTmuxSessionStore::default();
+    let mut default_active_terminal_content =
+        crate::terminals::ActiveTerminalContentState::default();
+    let mut default_selection = crate::hud::AgentListSelection::default();
+    focus_terminal_without_persist(
+        terminal_id,
+        VisibilityMode::FocusedOnly,
+        &mut ctx.app_session,
+        &ctx.agent_catalog,
+        &ctx.runtime_index,
+        ctx.owned_tmux_sessions
+            .as_deref()
+            .unwrap_or(&default_owned_tmux_sessions),
+        ctx.selection
+            .as_deref_mut()
+            .unwrap_or(&mut default_selection),
+        ctx.active_terminal_content
+            .as_deref_mut()
+            .unwrap_or(&mut default_active_terminal_content),
+        &mut ctx.terminal_manager,
+        &mut ctx.focus_state,
+        &mut ctx.input_capture,
+        &mut ctx.view_state,
+        &mut ctx.visibility_state,
+        &mut ctx.redraws,
+    );
     register_startup_loading_terminal(ctx, terminal_id);
     append_debug_log(format!(
         "spawned verifier terminal {} session={}",

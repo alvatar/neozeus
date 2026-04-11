@@ -15,7 +15,7 @@ use crate::{
 
 use super::{
     super::session::{AppSessionState, VisibilityMode},
-    apply_focus_intent,
+    focus_agent_without_persist,
 };
 use bevy::{prelude::*, window::RequestRedraw};
 use std::{
@@ -353,10 +353,9 @@ fn spawn_agent_terminal_internal(
         .map(|terminal| &terminal.snapshot.runtime);
     runtime_index.link_terminal(agent_id, terminal_id, session_name.clone(), runtime);
     if focus_terminal {
-        app_session
-            .focus_intent
-            .focus_agent(agent_id, VisibilityMode::FocusedOnly);
-        apply_focus_intent(
+        focus_agent_without_persist(
+            agent_id,
+            VisibilityMode::FocusedOnly,
             app_session,
             agent_catalog,
             runtime_index,
@@ -368,6 +367,7 @@ fn spawn_agent_terminal_internal(
             input_capture,
             view_state,
             visibility_state,
+            redraws,
         );
     }
     if let Some((cwd, known_thread_ids)) = codex_capture {
@@ -424,7 +424,9 @@ fn spawn_agent_terminal_internal(
         "spawned agent {} terminal {} session={}",
         agent_id.0, terminal_id.0, session_name
     ));
-    redraws.write(RequestRedraw);
+    if !focus_terminal {
+        redraws.write(RequestRedraw);
+    }
     Ok(agent_id)
 }
 
