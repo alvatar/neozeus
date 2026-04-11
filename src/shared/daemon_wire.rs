@@ -148,6 +148,7 @@ pub enum ClientMessage {
 pub enum DaemonRequest {
     ListSessions,
     ListSessionsDetailed,
+    ListOwnedTmuxSessions,
     CreateOwnedTmuxSession {
         owner_agent_uid: String,
         display_name: String,
@@ -176,6 +177,7 @@ pub enum ServerMessage {
 pub enum DaemonResponse {
     SessionList { sessions: Vec<DaemonSessionInfo> },
     SessionListDetailed { sessions: Vec<DaemonSessionInfo> },
+    OwnedTmuxSessionList { sessions: Vec<OwnedTmuxSessionInfo> },
     OwnedTmuxSessionCreated { session: OwnedTmuxSessionInfo },
     Ack,
 }
@@ -233,15 +235,16 @@ fn encode_client_message(buffer: &mut Vec<u8>, message: &ClientMessage) {
         } => {
             push_u8(buffer, 0);
             push_u64(buffer, *request_id);
-            encode_request(buffer, request);
+            encode_core_daemon_request(buffer, request);
         }
     }
 }
 
-fn encode_request(buffer: &mut Vec<u8>, request: &DaemonRequest) {
+pub fn encode_core_daemon_request(buffer: &mut Vec<u8>, request: &DaemonRequest) {
     match request {
         DaemonRequest::ListSessions => push_u8(buffer, 1),
         DaemonRequest::ListSessionsDetailed => push_u8(buffer, 12),
+        DaemonRequest::ListOwnedTmuxSessions => push_u8(buffer, 7),
         DaemonRequest::CreateOwnedTmuxSession {
             owner_agent_uid,
             display_name,
@@ -276,6 +279,32 @@ fn encode_request(buffer: &mut Vec<u8>, request: &DaemonRequest) {
     }
 }
 
+pub fn decode_core_daemon_request_with_tag(
+    decoder: &mut Decoder<'_>,
+    tag: u8,
+) -> Result<DaemonRequest, String> {
+    match tag {
+        1 => Ok(DaemonRequest::ListSessions),
+        4 => Ok(DaemonRequest::SendCommand {
+            session_id: decoder.read_string()?,
+            command: decode_wire_terminal_command(decoder)?,
+        }),
+        7 => Ok(DaemonRequest::ListOwnedTmuxSessions),
+        8 => Ok(DaemonRequest::CreateOwnedTmuxSession {
+            owner_agent_uid: decoder.read_string()?,
+            display_name: decoder.read_string()?,
+            cwd: decoder.read_option(|decoder| decoder.read_string())?,
+            command: decoder.read_string()?,
+        }),
+        12 => Ok(DaemonRequest::ListSessionsDetailed),
+        13 => Ok(DaemonRequest::UpdateSessionMetadata {
+            session_id: decoder.read_string()?,
+            metadata: decode_daemon_session_metadata(decoder)?,
+        }),
+        tag => Err(format!("unknown daemon request tag {tag}")),
+    }
+}
+
 fn decode_server_message(decoder: &mut Decoder<'_>) -> Result<ServerMessage, String> {
     match decoder.read_u8()? {
         0 => Ok(ServerMessage::Response {
@@ -286,12 +315,18 @@ fn decode_server_message(decoder: &mut Decoder<'_>) -> Result<ServerMessage, Str
     }
 }
 
-fn decode_response(decoder: &mut Decoder<'_>) -> Result<DaemonResponse, String> {
-    match decoder.read_u8()? {
+pub fn decode_core_daemon_response_with_tag(
+    decoder: &mut Decoder<'_>,
+    tag: u8,
+) -> Result<DaemonResponse, String> {
+    match tag {
         1 => Ok(DaemonResponse::SessionList {
             sessions: decoder.read_vec(decode_wire_daemon_session_info_legacy)?,
         }),
         4 => Ok(DaemonResponse::Ack),
+        5 => Ok(DaemonResponse::OwnedTmuxSessionList {
+            sessions: decoder.read_vec(decode_owned_tmux_session_info)?,
+        }),
         6 => Ok(DaemonResponse::OwnedTmuxSessionCreated {
             session: decode_owned_tmux_session_info(decoder)?,
         }),
@@ -299,6 +334,33 @@ fn decode_response(decoder: &mut Decoder<'_>) -> Result<DaemonResponse, String> 
             sessions: decoder.read_vec(decode_wire_daemon_session_info)?,
         }),
         tag => Err(format!("unknown daemon response tag {tag}")),
+    }
+}
+
+fn decode_response(decoder: &mut Decoder<'_>) -> Result<DaemonResponse, String> {
+    let tag = decoder.read_u8()?;
+    decode_core_daemon_response_with_tag(decoder, tag)
+}
+
+pub fn encode_core_daemon_response(buffer: &mut Vec<u8>, response: &DaemonResponse) {
+    match response {
+        DaemonResponse::SessionList { sessions } => {
+            push_u8(buffer, 1);
+            push_vec(buffer, sessions, encode_wire_daemon_session_info_legacy);
+        }
+        DaemonResponse::SessionListDetailed { sessions } => {
+            push_u8(buffer, 8);
+            push_vec(buffer, sessions, encode_wire_daemon_session_info);
+        }
+        DaemonResponse::OwnedTmuxSessionList { sessions } => {
+            push_u8(buffer, 5);
+            push_vec(buffer, sessions, encode_owned_tmux_session_info);
+        }
+        DaemonResponse::OwnedTmuxSessionCreated { session } => {
+            push_u8(buffer, 6);
+            encode_owned_tmux_session_info(buffer, session);
+        }
+        DaemonResponse::Ack => push_u8(buffer, 4),
     }
 }
 
@@ -521,6 +583,13 @@ pub(crate) fn decode_result<T>(
         0 => Ok(Ok(decode_ok(decoder)?)),
         1 => Ok(Err(decoder.read_string()?)),
         tag => Err(format!("unknown result tag {tag}")),
+    }
+}
+
+pub(crate) fn push_vec<T>(buffer: &mut Vec<u8>, items: &[T], encode: impl Fn(&mut Vec<u8>, &T)) {
+    push_u32(buffer, u32::try_from(items.len()).unwrap_or(u32::MAX));
+    for item in items {
+        encode(buffer, item);
     }
 }
 
@@ -817,6 +886,11 @@ mod tests {
                     Ok(DaemonResponse::Ack) => {
                         super::push_u8(buffer, 0);
                         super::push_u8(buffer, 4);
+                    }
+                    Ok(DaemonResponse::OwnedTmuxSessionList { sessions }) => {
+                        super::push_u8(buffer, 0);
+                        super::push_u8(buffer, 5);
+                        super::push_vec(buffer, sessions, super::encode_owned_tmux_session_info);
                     }
                     Ok(DaemonResponse::OwnedTmuxSessionCreated { session }) => {
                         super::push_u8(buffer, 0);

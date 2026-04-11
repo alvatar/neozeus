@@ -191,8 +191,6 @@ fn decode_client_message(decoder: &mut Decoder<'_>) -> Result<ClientMessage, Str
 fn encode_request(buffer: &mut Vec<u8>, request: &DaemonRequest) {
     // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
     match request {
-        DaemonRequest::ListSessions => push_u8(buffer, 1),
-        DaemonRequest::ListSessionsDetailed => push_u8(buffer, 12),
         DaemonRequest::CreateSession {
             prefix,
             cwd,
@@ -209,22 +207,6 @@ fn encode_request(buffer: &mut Vec<u8>, request: &DaemonRequest) {
                 push_string(buffer, value);
             });
         }
-        DaemonRequest::ListOwnedTmuxSessions => push_u8(buffer, 7),
-        DaemonRequest::CreateOwnedTmuxSession {
-            owner_agent_uid,
-            display_name,
-            cwd,
-            command,
-        } => {
-            push_u8(buffer, 8);
-            push_string(buffer, owner_agent_uid);
-            push_string(buffer, display_name);
-            push_bool(buffer, cwd.is_some());
-            if let Some(cwd) = cwd {
-                push_string(buffer, cwd);
-            }
-            push_string(buffer, command);
-        }
         DaemonRequest::CaptureOwnedTmuxSession { session_uid, lines } => {
             push_u8(buffer, 9);
             push_string(buffer, session_uid);
@@ -233,14 +215,6 @@ fn encode_request(buffer: &mut Vec<u8>, request: &DaemonRequest) {
         DaemonRequest::AttachSession { session_id } => {
             push_u8(buffer, 3);
             push_string(buffer, session_id);
-        }
-        DaemonRequest::SendCommand {
-            session_id,
-            command,
-        } => {
-            push_u8(buffer, 4);
-            push_string(buffer, session_id);
-            encode_command(buffer, command);
         }
         DaemonRequest::ResizeSession {
             session_id,
@@ -264,13 +238,13 @@ fn encode_request(buffer: &mut Vec<u8>, request: &DaemonRequest) {
             push_u8(buffer, 11);
             push_string(buffer, owner_agent_uid);
         }
-        DaemonRequest::UpdateSessionMetadata {
-            session_id,
-            metadata,
-        } => {
-            push_u8(buffer, 13);
-            push_string(buffer, session_id);
-            wire::encode_daemon_session_metadata(buffer, metadata);
+        DaemonRequest::ListSessions
+        | DaemonRequest::ListSessionsDetailed
+        | DaemonRequest::ListOwnedTmuxSessions
+        | DaemonRequest::CreateOwnedTmuxSession { .. }
+        | DaemonRequest::SendCommand { .. }
+        | DaemonRequest::UpdateSessionMetadata { .. } => {
+            wire::encode_core_daemon_request(buffer, &to_shared_request(request));
         }
     }
 }
@@ -279,7 +253,6 @@ fn encode_request(buffer: &mut Vec<u8>, request: &DaemonRequest) {
 fn decode_request(decoder: &mut Decoder<'_>) -> Result<DaemonRequest, String> {
     // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
     match decoder.read_u8()? {
-        1 => Ok(DaemonRequest::ListSessions),
         2 => {
             let prefix = decoder.read_string()?;
             let cwd = if decoder.read_bool()? {
@@ -298,10 +271,6 @@ fn decode_request(decoder: &mut Decoder<'_>) -> Result<DaemonRequest, String> {
         3 => Ok(DaemonRequest::AttachSession {
             session_id: decoder.read_string()?,
         }),
-        4 => Ok(DaemonRequest::SendCommand {
-            session_id: decoder.read_string()?,
-            command: decode_command(decoder)?,
-        }),
         5 => Ok(DaemonRequest::ResizeSession {
             session_id: decoder.read_string()?,
             cols: decoder.read_usize()?,
@@ -309,13 +278,6 @@ fn decode_request(decoder: &mut Decoder<'_>) -> Result<DaemonRequest, String> {
         }),
         6 => Ok(DaemonRequest::KillSession {
             session_id: decoder.read_string()?,
-        }),
-        7 => Ok(DaemonRequest::ListOwnedTmuxSessions),
-        8 => Ok(DaemonRequest::CreateOwnedTmuxSession {
-            owner_agent_uid: decoder.read_string()?,
-            display_name: decoder.read_string()?,
-            cwd: decoder.read_option(|decoder| decoder.read_string())?,
-            command: decoder.read_string()?,
         }),
         9 => Ok(DaemonRequest::CaptureOwnedTmuxSession {
             session_uid: decoder.read_string()?,
@@ -327,18 +289,131 @@ fn decode_request(decoder: &mut Decoder<'_>) -> Result<DaemonRequest, String> {
         11 => Ok(DaemonRequest::KillOwnedTmuxSessionsForAgent {
             owner_agent_uid: decoder.read_string()?,
         }),
-        12 => Ok(DaemonRequest::ListSessionsDetailed),
-        13 => Ok(DaemonRequest::UpdateSessionMetadata {
-            session_id: decoder.read_string()?,
-            metadata: wire::decode_daemon_session_metadata(decoder)?,
-        }),
-        tag => Err(format!("unknown daemon request tag {tag}")),
+        tag => from_shared_request(wire::decode_core_daemon_request_with_tag(decoder, tag)?),
     }
 }
 
 /// Encodes one server message into the protocol payload format.
 ///
 /// Responses and events share the same outer tagged envelope.
+fn to_shared_request(request: &DaemonRequest) -> wire::DaemonRequest {
+    match request {
+        DaemonRequest::ListSessions => wire::DaemonRequest::ListSessions,
+        DaemonRequest::ListSessionsDetailed => wire::DaemonRequest::ListSessionsDetailed,
+        DaemonRequest::ListOwnedTmuxSessions => wire::DaemonRequest::ListOwnedTmuxSessions,
+        DaemonRequest::CreateOwnedTmuxSession {
+            owner_agent_uid,
+            display_name,
+            cwd,
+            command,
+        } => wire::DaemonRequest::CreateOwnedTmuxSession {
+            owner_agent_uid: owner_agent_uid.clone(),
+            display_name: display_name.clone(),
+            cwd: cwd.clone(),
+            command: command.clone(),
+        },
+        DaemonRequest::SendCommand {
+            session_id,
+            command,
+        } => wire::DaemonRequest::SendCommand {
+            session_id: session_id.clone(),
+            command: command.clone(),
+        },
+        DaemonRequest::UpdateSessionMetadata {
+            session_id,
+            metadata,
+        } => wire::DaemonRequest::UpdateSessionMetadata {
+            session_id: session_id.clone(),
+            metadata: metadata.clone(),
+        },
+        DaemonRequest::CreateSession { .. }
+        | DaemonRequest::CaptureOwnedTmuxSession { .. }
+        | DaemonRequest::AttachSession { .. }
+        | DaemonRequest::ResizeSession { .. }
+        | DaemonRequest::KillSession { .. }
+        | DaemonRequest::KillOwnedTmuxSession { .. }
+        | DaemonRequest::KillOwnedTmuxSessionsForAgent { .. } => {
+            unreachable!("extension-only request cannot be converted into shared core request")
+        }
+    }
+}
+
+fn from_shared_request(request: wire::DaemonRequest) -> Result<DaemonRequest, String> {
+    match request {
+        wire::DaemonRequest::ListSessions => Ok(DaemonRequest::ListSessions),
+        wire::DaemonRequest::ListSessionsDetailed => Ok(DaemonRequest::ListSessionsDetailed),
+        wire::DaemonRequest::ListOwnedTmuxSessions => Ok(DaemonRequest::ListOwnedTmuxSessions),
+        wire::DaemonRequest::CreateOwnedTmuxSession {
+            owner_agent_uid,
+            display_name,
+            cwd,
+            command,
+        } => Ok(DaemonRequest::CreateOwnedTmuxSession {
+            owner_agent_uid,
+            display_name,
+            cwd,
+            command,
+        }),
+        wire::DaemonRequest::SendCommand {
+            session_id,
+            command,
+        } => Ok(DaemonRequest::SendCommand {
+            session_id,
+            command,
+        }),
+        wire::DaemonRequest::UpdateSessionMetadata {
+            session_id,
+            metadata,
+        } => Ok(DaemonRequest::UpdateSessionMetadata {
+            session_id,
+            metadata,
+        }),
+    }
+}
+
+fn to_shared_response(response: &DaemonResponse) -> Result<wire::DaemonResponse, ()> {
+    match response {
+        DaemonResponse::SessionList { sessions } => Ok(wire::DaemonResponse::SessionList {
+            sessions: sessions.clone(),
+        }),
+        DaemonResponse::SessionListDetailed { sessions } => {
+            Ok(wire::DaemonResponse::SessionListDetailed {
+                sessions: sessions.clone(),
+            })
+        }
+        DaemonResponse::OwnedTmuxSessionList { sessions } => {
+            Ok(wire::DaemonResponse::OwnedTmuxSessionList {
+                sessions: sessions.clone(),
+            })
+        }
+        DaemonResponse::OwnedTmuxSessionCreated { session } => {
+            Ok(wire::DaemonResponse::OwnedTmuxSessionCreated {
+                session: session.clone(),
+            })
+        }
+        DaemonResponse::Ack => Ok(wire::DaemonResponse::Ack),
+        DaemonResponse::SessionCreated { .. }
+        | DaemonResponse::OwnedTmuxSessionCapture { .. }
+        | DaemonResponse::SessionAttached { .. } => Err(()),
+    }
+}
+
+fn from_shared_response(response: wire::DaemonResponse) -> DaemonResponse {
+    match response {
+        wire::DaemonResponse::SessionList { sessions } => DaemonResponse::SessionList { sessions },
+        wire::DaemonResponse::SessionListDetailed { sessions } => {
+            DaemonResponse::SessionListDetailed { sessions }
+        }
+        wire::DaemonResponse::OwnedTmuxSessionList { sessions } => {
+            DaemonResponse::OwnedTmuxSessionList { sessions }
+        }
+        wire::DaemonResponse::OwnedTmuxSessionCreated { session } => {
+            DaemonResponse::OwnedTmuxSessionCreated { session }
+        }
+        wire::DaemonResponse::Ack => DaemonResponse::Ack,
+    }
+}
+
 fn encode_server_message(buffer: &mut Vec<u8>, message: &ServerMessage) {
     match message {
         ServerMessage::Response {
@@ -370,15 +445,11 @@ fn decode_server_message(decoder: &mut Decoder<'_>) -> Result<ServerMessage, Str
 /// Encodes one daemon response variant into its tagged wire representation.
 fn encode_response(buffer: &mut Vec<u8>, response: &DaemonResponse) {
     // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
+    if let Ok(shared) = to_shared_response(response) {
+        wire::encode_core_daemon_response(buffer, &shared);
+        return;
+    }
     match response {
-        DaemonResponse::SessionList { sessions } => {
-            push_u8(buffer, 1);
-            push_vec(buffer, sessions, encode_session_info_legacy);
-        }
-        DaemonResponse::SessionListDetailed { sessions } => {
-            push_u8(buffer, 8);
-            push_vec(buffer, sessions, encode_session_info);
-        }
         DaemonResponse::SessionCreated { session_id } => {
             push_u8(buffer, 2);
             push_string(buffer, session_id);
@@ -393,29 +464,25 @@ fn encode_response(buffer: &mut Vec<u8>, response: &DaemonResponse) {
             encode_snapshot(buffer, snapshot);
             push_u64(buffer, *revision);
         }
-        DaemonResponse::Ack => push_u8(buffer, 4),
         DaemonResponse::OwnedTmuxSessionList { sessions } => {
             push_u8(buffer, 5);
             push_vec(buffer, sessions, encode_owned_tmux_session_info);
-        }
-        DaemonResponse::OwnedTmuxSessionCreated { session } => {
-            push_u8(buffer, 6);
-            encode_owned_tmux_session_info(buffer, session);
         }
         DaemonResponse::OwnedTmuxSessionCapture { session_uid, text } => {
             push_u8(buffer, 7);
             push_string(buffer, session_uid);
             push_string(buffer, text);
         }
+        DaemonResponse::SessionList { .. }
+        | DaemonResponse::SessionListDetailed { .. }
+        | DaemonResponse::OwnedTmuxSessionCreated { .. }
+        | DaemonResponse::Ack => unreachable!("shared-core responses must have been handled above"),
     }
 }
 
 /// Decodes one daemon response variant from the payload stream.
 fn decode_response(decoder: &mut Decoder<'_>) -> Result<DaemonResponse, String> {
     match decoder.read_u8()? {
-        1 => Ok(DaemonResponse::SessionList {
-            sessions: decoder.read_vec(decode_session_info_legacy)?,
-        }),
         2 => Ok(DaemonResponse::SessionCreated {
             session_id: decoder.read_string()?,
         }),
@@ -424,21 +491,14 @@ fn decode_response(decoder: &mut Decoder<'_>) -> Result<DaemonResponse, String> 
             snapshot: decode_snapshot(decoder)?,
             revision: decoder.read_u64()?,
         }),
-        4 => Ok(DaemonResponse::Ack),
         5 => Ok(DaemonResponse::OwnedTmuxSessionList {
             sessions: decoder.read_vec(decode_owned_tmux_session_info)?,
-        }),
-        6 => Ok(DaemonResponse::OwnedTmuxSessionCreated {
-            session: decode_owned_tmux_session_info(decoder)?,
         }),
         7 => Ok(DaemonResponse::OwnedTmuxSessionCapture {
             session_uid: decoder.read_string()?,
             text: decoder.read_string()?,
         }),
-        8 => Ok(DaemonResponse::SessionListDetailed {
-            sessions: decoder.read_vec(decode_session_info)?,
-        }),
-        tag => Err(format!("unknown daemon response tag {tag}")),
+        tag => wire::decode_core_daemon_response_with_tag(decoder, tag).map(from_shared_response),
     }
 }
 
@@ -469,36 +529,6 @@ fn decode_owned_tmux_session_info(
     })
 }
 
-fn encode_session_info_legacy(buffer: &mut Vec<u8>, info: &DaemonSessionInfo) {
-    push_string(buffer, &info.session_id);
-    encode_runtime_state(buffer, &info.runtime);
-    // Keep the wire format compatible with protocol v1 daemons/clients. Session list ordering is
-    // already defined by server response order, so `created_order` stays server-side only.
-    push_u64(buffer, info.revision);
-}
-
-fn encode_session_info(buffer: &mut Vec<u8>, info: &DaemonSessionInfo) {
-    encode_session_info_legacy(buffer, info);
-    wire::encode_daemon_session_metadata(buffer, &info.metadata);
-}
-
-/// Decodes session metadata from the wire format, defaulting missing legacy `created_order` to 0.
-fn decode_session_info_legacy(decoder: &mut Decoder<'_>) -> Result<DaemonSessionInfo, String> {
-    Ok(DaemonSessionInfo {
-        session_id: decoder.read_string()?,
-        runtime: decode_runtime_state(decoder)?,
-        revision: decoder.read_u64()?,
-        created_order: 0,
-        metadata: DaemonSessionMetadata::default(),
-    })
-}
-
-fn decode_session_info(decoder: &mut Decoder<'_>) -> Result<DaemonSessionInfo, String> {
-    let mut info = decode_session_info_legacy(decoder)?;
-    info.metadata = wire::decode_daemon_session_metadata(decoder)?;
-    Ok(info)
-}
-
 /// Encodes one async daemon event into its tagged wire representation.
 fn encode_event(buffer: &mut Vec<u8>, event: &DaemonEvent) {
     match event {
@@ -525,16 +555,6 @@ fn decode_event(decoder: &mut Decoder<'_>) -> Result<DaemonEvent, String> {
         }),
         tag => Err(format!("unknown daemon event tag {tag}")),
     }
-}
-
-/// Encodes one terminal command into its tagged wire representation.
-fn encode_command(buffer: &mut Vec<u8>, command: &TerminalCommand) {
-    wire::encode_wire_terminal_command(buffer, command);
-}
-
-/// Decodes one terminal command from the payload stream.
-fn decode_command(decoder: &mut Decoder<'_>) -> Result<TerminalCommand, String> {
-    wire::decode_wire_terminal_command(decoder)
 }
 
 /// Encodes a full terminal snapshot consisting of optional surface plus runtime state.
