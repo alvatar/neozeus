@@ -137,12 +137,14 @@ pub struct OwnedTmuxSessionInfo {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub enum ClientMessage {
-    Request {
-        request_id: u64,
-        request: DaemonRequest,
-    },
+pub enum RequestEnvelope<Request> {
+    Request { request_id: u64, request: Request },
 }
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum NeverEvent {}
+
+pub type ClientMessage = RequestEnvelope<DaemonRequest>;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum DaemonRequest {
@@ -166,12 +168,15 @@ pub enum DaemonRequest {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub enum ServerMessage {
+pub enum ServerEnvelope<Response, Event> {
     Response {
         request_id: u64,
-        response: Result<DaemonResponse, String>,
+        response: Result<Response, String>,
     },
+    Event(Event),
 }
+
+pub type ServerMessage = ServerEnvelope<DaemonResponse, NeverEvent>;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum DaemonResponse {
@@ -374,7 +379,7 @@ pub fn encode_owned_tmux_session_info(buffer: &mut Vec<u8>, info: &OwnedTmuxSess
     push_u64(buffer, info.created_unix);
 }
 
-pub(crate) fn decode_owned_tmux_session_info(
+pub fn decode_owned_tmux_session_info(
     decoder: &mut Decoder<'_>,
 ) -> Result<OwnedTmuxSessionInfo, String> {
     Ok(OwnedTmuxSessionInfo {
@@ -903,6 +908,7 @@ mod tests {
                     }
                 }
             }
+            ServerMessage::Event(event) => match *event {},
         }
     }
 

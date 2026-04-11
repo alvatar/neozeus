@@ -1,3 +1,9 @@
+//! Terminal-daemon wire extensions.
+//!
+//! `crate::shared::daemon_wire` owns the canonical core daemon protocol shared with helper CLIs.
+//! This module only defines the terminal-local request/response/event extensions that depend on
+//! `terminals::types` payloads such as snapshots and frame updates.
+
 use super::super::types::{
     TerminalCell, TerminalCellContent, TerminalCellStyle, TerminalCommand, TerminalCursor,
     TerminalCursorShape, TerminalDamage, TerminalFrameUpdate, TerminalRuntimeState,
@@ -10,13 +16,7 @@ use std::io::{Read, Write};
 
 type Decoder<'a> = wire::Decoder<'a>;
 
-#[derive(Clone, Debug, PartialEq)]
-pub(crate) enum ClientMessage {
-    Request {
-        request_id: u64,
-        request: DaemonRequest,
-    },
-}
+pub(crate) type ClientMessage = wire::RequestEnvelope<DaemonRequest>;
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum DaemonRequest {
@@ -65,14 +65,7 @@ pub(crate) enum DaemonRequest {
     },
 }
 
-#[derive(Clone, Debug, PartialEq)]
-pub(crate) enum ServerMessage {
-    Response {
-        request_id: u64,
-        response: Result<DaemonResponse, String>,
-    },
-    Event(DaemonEvent),
-}
+pub(crate) type ServerMessage = wire::ServerEnvelope<DaemonResponse, DaemonEvent>;
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum DaemonResponse {
@@ -466,7 +459,7 @@ fn encode_response(buffer: &mut Vec<u8>, response: &DaemonResponse) {
         }
         DaemonResponse::OwnedTmuxSessionList { sessions } => {
             push_u8(buffer, 5);
-            push_vec(buffer, sessions, encode_owned_tmux_session_info);
+            push_vec(buffer, sessions, wire::encode_owned_tmux_session_info);
         }
         DaemonResponse::OwnedTmuxSessionCapture { session_uid, text } => {
             push_u8(buffer, 7);
@@ -492,7 +485,7 @@ fn decode_response(decoder: &mut Decoder<'_>) -> Result<DaemonResponse, String> 
             revision: decoder.read_u64()?,
         }),
         5 => Ok(DaemonResponse::OwnedTmuxSessionList {
-            sessions: decoder.read_vec(decode_owned_tmux_session_info)?,
+            sessions: decoder.read_vec(wire::decode_owned_tmux_session_info)?,
         }),
         7 => Ok(DaemonResponse::OwnedTmuxSessionCapture {
             session_uid: decoder.read_string()?,
@@ -500,33 +493,6 @@ fn decode_response(decoder: &mut Decoder<'_>) -> Result<DaemonResponse, String> 
         }),
         tag => wire::decode_core_daemon_response_with_tag(decoder, tag).map(from_shared_response),
     }
-}
-
-/// Encodes the subset of session metadata that belongs on the daemon wire format.
-///
-/// `created_order` intentionally stays off-wire for protocol v1 compatibility.
-fn encode_owned_tmux_session_info(buffer: &mut Vec<u8>, info: &OwnedTmuxSessionInfo) {
-    push_string(buffer, &info.session_uid);
-    push_string(buffer, &info.owner_agent_uid);
-    push_string(buffer, &info.tmux_name);
-    push_string(buffer, &info.display_name);
-    push_string(buffer, &info.cwd);
-    push_bool(buffer, info.attached);
-    push_u64(buffer, info.created_unix);
-}
-
-fn decode_owned_tmux_session_info(
-    decoder: &mut Decoder<'_>,
-) -> Result<OwnedTmuxSessionInfo, String> {
-    Ok(OwnedTmuxSessionInfo {
-        session_uid: decoder.read_string()?,
-        owner_agent_uid: decoder.read_string()?,
-        tmux_name: decoder.read_string()?,
-        display_name: decoder.read_string()?,
-        cwd: decoder.read_string()?,
-        attached: decoder.read_bool()?,
-        created_unix: decoder.read_u64()?,
-    })
 }
 
 /// Encodes one async daemon event into its tagged wire representation.
