@@ -387,10 +387,27 @@ fn spawn_agent_terminal_internal(
                     }),
                 );
             }
-            Ok(None) => append_debug_log(format!(
-                "codex recovery capture timed out for agent {}",
-                agent_id.0
-            )),
+            Ok(None) => match crate::shared::codex_state::latest_codex_thread_id_for_cwd(&cwd) {
+                Ok(Some(session_id)) => {
+                    let _ = agent_catalog.set_recovery_spec(
+                        agent_id,
+                        Some(AgentRecoverySpec::Codex {
+                            session_id,
+                            cwd,
+                            model: None,
+                            profile: None,
+                        }),
+                    );
+                }
+                Ok(None) => append_debug_log(format!(
+                    "codex recovery capture timed out for agent {}",
+                    agent_id.0
+                )),
+                Err(error) => append_debug_log(format!(
+                    "codex recovery fallback failed for agent {}: {error}",
+                    agent_id.0
+                )),
+            },
             Err(error) => append_debug_log(format!(
                 "codex recovery capture failed for agent {}: {error}",
                 agent_id.0

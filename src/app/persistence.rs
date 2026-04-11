@@ -264,43 +264,49 @@ fn build_persisted_app_state(
         .enumerate()
         .map(|(index, agent_id)| {
             let agent_uid = agent_catalog.uid(*agent_id).map(str::to_owned);
-            let recovery = agent_catalog
-                .recovery_spec(*agent_id)
-                .map(|spec| match spec {
-                    crate::agents::AgentRecoverySpec::Pi {
-                        session_path,
-                        cwd,
-                        is_workdir,
-                        workdir_slug,
-                    } => PersistedAgentRecoverySpec::Pi {
-                        session_path: session_path.clone(),
-                        cwd: Some(cwd.clone()),
-                        is_workdir: *is_workdir,
-                        workdir_slug: workdir_slug.clone(),
-                    },
-                    crate::agents::AgentRecoverySpec::Claude {
-                        session_id,
-                        cwd,
-                        model,
-                        profile,
-                    } => PersistedAgentRecoverySpec::Claude {
-                        session_id: session_id.clone(),
-                        cwd: cwd.clone(),
-                        model: model.clone(),
-                        profile: profile.clone(),
-                    },
-                    crate::agents::AgentRecoverySpec::Codex {
-                        session_id,
-                        cwd,
-                        model,
-                        profile,
-                    } => PersistedAgentRecoverySpec::Codex {
-                        session_id: session_id.clone(),
-                        cwd: cwd.clone(),
-                        model: model.clone(),
-                        profile: profile.clone(),
-                    },
-                });
+            let durability = agent_catalog
+                .durability(*agent_id)
+                .unwrap_or(crate::agents::AgentDurability::LiveOnly);
+            let recovery = match durability {
+                crate::agents::AgentDurability::Recoverable => agent_catalog
+                    .recovery_spec(*agent_id)
+                    .map(|spec| match spec {
+                        crate::agents::AgentRecoverySpec::Pi {
+                            session_path,
+                            cwd,
+                            is_workdir,
+                            workdir_slug,
+                        } => PersistedAgentRecoverySpec::Pi {
+                            session_path: session_path.clone(),
+                            cwd: Some(cwd.clone()),
+                            is_workdir: *is_workdir,
+                            workdir_slug: workdir_slug.clone(),
+                        },
+                        crate::agents::AgentRecoverySpec::Claude {
+                            session_id,
+                            cwd,
+                            model,
+                            profile,
+                        } => PersistedAgentRecoverySpec::Claude {
+                            session_id: session_id.clone(),
+                            cwd: cwd.clone(),
+                            model: model.clone(),
+                            profile: profile.clone(),
+                        },
+                        crate::agents::AgentRecoverySpec::Codex {
+                            session_id,
+                            cwd,
+                            model,
+                            profile,
+                        } => PersistedAgentRecoverySpec::Codex {
+                            session_id: session_id.clone(),
+                            cwd: cwd.clone(),
+                            model: model.clone(),
+                            profile: profile.clone(),
+                        },
+                    }),
+                crate::agents::AgentDurability::LiveOnly => None,
+            };
             let (aegis_enabled, aegis_prompt_text) = agent_uid
                 .as_deref()
                 .and_then(|agent_uid| aegis_policy.policy(agent_uid))

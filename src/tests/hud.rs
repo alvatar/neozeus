@@ -3835,8 +3835,9 @@ fn sync_agents_from_terminals_cleans_tasks_conversations_notes_and_persistence_f
     runtime_index.link_terminal(agent_id, terminal_id, "alpha-session".into(), None);
     let mut focus_state = crate::terminals::TerminalFocusState::default();
     focus_state.focus_terminal(&manager, terminal_id);
-    let mut input_capture = crate::hud::HudInputCaptureState::default();
-    input_capture.direct_input_terminal = Some(terminal_id);
+    let input_capture = crate::hud::HudInputCaptureState {
+        direct_input_terminal: Some(terminal_id),
+    };
     let mut view_state = TerminalViewState::default();
     view_state.focus_terminal(Some(terminal_id));
     let visibility_state = TerminalVisibilityState {

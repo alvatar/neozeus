@@ -110,6 +110,25 @@ pub fn codex_thread_ids() -> Result<BTreeSet<String>, String> {
         .collect())
 }
 
+pub fn latest_codex_thread_id_for_cwd(cwd: &str) -> Result<Option<String>, String> {
+    let matches = list_codex_threads()?
+        .into_iter()
+        .filter(|thread| thread.cwd == cwd)
+        .collect::<Vec<_>>();
+    match matches.as_slice() {
+        [] => Ok(None),
+        [thread] => Ok(Some(thread.id.clone())),
+        _ => Err(format!(
+            "ambiguous Codex thread lookup for cwd {cwd}: {}",
+            matches
+                .iter()
+                .map(|thread| thread.id.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        )),
+    }
+}
+
 pub fn wait_for_new_codex_thread_id(
     cwd: &str,
     known_thread_ids: &BTreeSet<String>,
@@ -124,7 +143,10 @@ pub fn wait_for_new_codex_thread_id(
             .collect::<Vec<_>>();
         match matches.as_slice() {
             [thread] => return Ok(Some(thread.id.clone())),
-            [] if start.elapsed() >= timeout => return Ok(None),
+            [] if start.elapsed() >= timeout => {
+                let fallback = latest_codex_thread_id_for_cwd(cwd)?;
+                return Ok(fallback.filter(|thread_id| !thread_id.trim().is_empty()));
+            }
             [] => std::thread::sleep(Duration::from_millis(100)),
             _ => {
                 let ids = matches
@@ -143,8 +165,8 @@ pub fn wait_for_new_codex_thread_id(
 #[cfg(test)]
 mod tests {
     use super::{
-        codex_home_dir_with, latest_codex_state_db_path_with, list_codex_threads_with_sqlite3_path,
-        wait_for_new_codex_thread_id,
+        codex_home_dir_with, latest_codex_state_db_path_with, latest_codex_thread_id_for_cwd,
+        list_codex_threads_with_sqlite3_path, wait_for_new_codex_thread_id,
     };
     use std::{
         collections::BTreeSet,
@@ -244,6 +266,30 @@ mod tests {
         assert_eq!(threads[0].cwd, "/tmp/b");
         assert_eq!(threads[0].created_at, 20);
         assert_eq!(threads[0].title, "second");
+    }
+
+    #[test]
+    fn latest_codex_thread_id_for_cwd_returns_unique_match() {
+        if !sqlite3_available() {
+            return;
+        }
+        let _home_lock = home_env_test_lock().lock().unwrap();
+        let home = temp_dir("codex-state-latest-by-cwd");
+        let db = home.join(".codex").join("state_7.sqlite");
+        build_state_db(
+            &db,
+            &[
+                ("thread-a", "/tmp/a", 10, "first"),
+                ("thread-b", "/tmp/b", 20, "second"),
+            ],
+        );
+        let previous_home = std::env::var_os("HOME");
+        std::env::set_var("HOME", &home);
+        let result = latest_codex_thread_id_for_cwd("/tmp/b");
+        if let Some(previous_home) = previous_home {
+            std::env::set_var("HOME", previous_home);
+        }
+        assert_eq!(result.unwrap(), Some("thread-b".into()));
     }
 
     #[test]

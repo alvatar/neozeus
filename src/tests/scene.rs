@@ -2633,7 +2633,7 @@ fn reset_runtime_followed_by_conversation_mutation_still_persists_conversations(
         );
     }
     {
-        let time = world.resource::<Time>().clone();
+        let time = *world.resource::<Time>();
         let mut persistence =
             world.resource_mut::<crate::conversations::ConversationPersistenceState>();
         crate::conversations::mark_conversations_dirty(&mut persistence, Some(&time));
@@ -2648,8 +2648,8 @@ fn reset_runtime_followed_by_conversation_mutation_still_persists_conversations(
     let mut restored = crate::conversations::ConversationStore::default();
     crate::conversations::restore_persisted_conversations_from_path(
         &conversations_path,
-        &world.resource::<crate::agents::AgentCatalog>(),
-        &world.resource::<crate::agents::AgentRuntimeIndex>(),
+        world.resource::<crate::agents::AgentCatalog>(),
+        world.resource::<crate::agents::AgentRuntimeIndex>(),
         &mut restored,
     );
     let conversation_id = restored
@@ -2797,7 +2797,7 @@ fn reset_restore_still_supports_truthful_app_state_save() {
         .unwrap();
 
     {
-        let time = world.resource::<Time>().clone();
+        let time = *world.resource::<Time>();
         let mut persistence = world.resource_mut::<crate::app::AppStatePersistenceState>();
         crate::app::mark_app_state_dirty(&mut persistence, Some(&time));
     }

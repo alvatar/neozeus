@@ -145,6 +145,10 @@ fn parse_persisted_app_state_v3(text: &str) -> PersistedAppState {
     parse_persisted_app_state_with(text, false)
 }
 
+#[allow(
+    clippy::too_many_arguments,
+    reason = "parser finalization gathers one fully decoded agent record from line-state accumulators"
+)]
 fn finalize_parsed_agent_record(
     persisted: &mut PersistedAppState,
     agent_uid: &mut Option<String>,
