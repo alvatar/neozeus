@@ -33,7 +33,7 @@ pub(crate) use spawn_agent_terminal::{
     attach_restored_terminal, claude_fork_launch_spec, codex_fork_launch_spec,
     generate_provider_session_id, launch_spec_for_recovery_spec, pi_launch_spec_for_session_path,
     respawn_recovered_agent_with_launch_spec, spawn_agent_terminal,
-    spawn_agent_terminal_with_launch_spec, spawn_runtime_terminal_session,
+    spawn_agent_terminal_with_launch_spec, spawn_runtime_terminal_session, SpawnAgentContext,
 };
 pub(crate) use tasks::{
     append_task, clear_done_tasks, consume_next_task, prepend_task, set_task_text,

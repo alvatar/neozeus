@@ -28,12 +28,41 @@ pub(crate) use spawn_flow::{
     respawn_recovered_agent_with_launch_spec, spawn_agent_terminal,
     spawn_agent_terminal_with_launch_spec,
 };
+pub(crate) struct SpawnAgentContext<'a, 'w> {
+    pub(crate) agent_catalog: &'a mut AgentCatalog,
+    pub(crate) runtime_index: &'a mut AgentRuntimeIndex,
+    pub(crate) app_session: &'a mut AppSessionState,
+    pub(crate) selection: &'a mut crate::hud::AgentListSelection,
+    pub(crate) terminal_manager: &'a mut TerminalManager,
+    pub(crate) focus_state: &'a mut TerminalFocusState,
+    pub(crate) owned_tmux_sessions: &'a OwnedTmuxSessionStore,
+    pub(crate) active_terminal_content: &'a mut ActiveTerminalContentState,
+    pub(crate) runtime_spawner: &'a TerminalRuntimeSpawner,
+    pub(crate) input_capture: &'a mut HudInputCaptureState,
+    pub(crate) app_state_persistence: &'a mut AppStatePersistenceState,
+    pub(crate) visibility_state: &'a mut TerminalVisibilityState,
+    pub(crate) view_state: &'a mut TerminalViewState,
+    pub(crate) presentation_store: Option<&'a mut TerminalPresentationStore>,
+    pub(crate) time: &'a Time,
+    pub(crate) redraws: &'a mut MessageWriter<'w, RequestRedraw>,
+}
 use spawn_launch_specs::build_agent_launch_spec;
 pub(crate) use spawn_launch_specs::{
     claude_fork_launch_spec, codex_fork_launch_spec, generate_provider_session_id,
     launch_spec_for_recovery_spec, pi_launch_spec_for_session_path, AgentLaunchSpec,
 };
 pub(crate) use spawn_runtime_sessions::{attach_restored_terminal, spawn_runtime_terminal_session};
+
+pub(crate) struct SpawnAgentRequest<'a> {
+    pub(crate) prefix: &'a str,
+    pub(crate) kind: AgentKind,
+    pub(crate) label: Option<String>,
+    pub(crate) working_directory: Option<&'a str>,
+    pub(crate) launch: AgentLaunchSpec,
+    pub(crate) focus_terminal: bool,
+    pub(crate) persist_mutation: bool,
+    pub(crate) restored_agent_uid: Option<String>,
+}
 
 use std::time::Duration;
 
@@ -233,22 +262,26 @@ mod tests {
                  mut visibility_state: ResMut<crate::hud::TerminalVisibilityState>,
                  mut view_state: ResMut<TerminalViewState>,
                  mut redraws: MessageWriter<RequestRedraw>| {
+                    let mut spawn_ctx = super::SpawnAgentContext {
+                        agent_catalog: &mut agent_catalog,
+                        runtime_index: &mut runtime_index,
+                        app_session: &mut app_session,
+                        selection: &mut selection,
+                        terminal_manager: &mut terminal_manager,
+                        focus_state: &mut focus_state,
+                        owned_tmux_sessions: &owned_tmux_sessions,
+                        active_terminal_content: &mut active_terminal_content,
+                        runtime_spawner: &runtime_spawner,
+                        input_capture: &mut input_capture,
+                        app_state_persistence: &mut app_state_persistence,
+                        visibility_state: &mut visibility_state,
+                        view_state: &mut view_state,
+                        presentation_store: None,
+                        time: &time,
+                        redraws: &mut redraws,
+                    };
                     spawn_agent_terminal_with_launch_spec(
-                        &mut agent_catalog,
-                        &mut runtime_index,
-                        &mut app_session,
-                        &mut selection,
-                        &mut terminal_manager,
-                        &mut focus_state,
-                        &owned_tmux_sessions,
-                        &mut active_terminal_content,
-                        &runtime_spawner,
-                        &mut input_capture,
-                        &mut app_state_persistence,
-                        &mut visibility_state,
-                        &mut view_state,
-                        None,
-                        &time,
+                        &mut spawn_ctx,
                         "neozeus-session-",
                         AgentKind::Terminal,
                         Some("alpha".into()),
@@ -257,7 +290,6 @@ mod tests {
                             startup_command: None,
                             metadata: AgentMetadata::default(),
                         },
-                        &mut redraws,
                     )
                 },
             )

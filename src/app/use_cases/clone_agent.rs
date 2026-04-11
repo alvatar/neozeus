@@ -113,7 +113,7 @@ pub(crate) fn clone_agent(
         }
     };
 
-    let agent_id = spawn_agent_terminal_with_launch_spec(
+    let mut spawn_ctx = super::SpawnAgentContext {
         agent_catalog,
         runtime_index,
         app_session,
@@ -127,14 +127,17 @@ pub(crate) fn clone_agent(
         app_state_persistence,
         visibility_state,
         view_state,
-        None,
+        presentation_store: None,
         time,
+        redraws,
+    };
+    let agent_id = spawn_agent_terminal_with_launch_spec(
+        &mut spawn_ctx,
         PERSISTENT_SESSION_PREFIX,
         kind,
         Some(label),
         Some(target_cwd.as_str()),
         launch,
-        redraws,
     )?;
     mark_app_state_dirty(app_state_persistence, Some(time));
     Ok(agent_id)

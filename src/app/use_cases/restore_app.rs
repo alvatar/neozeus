@@ -429,7 +429,7 @@ pub(crate) fn restore_app(ctx: &mut RestoreAppContext<'_, '_>) -> RecoveryExecut
             | crate::agents::AgentRecoverySpec::Claude { cwd, .. }
             | crate::agents::AgentRecoverySpec::Codex { cwd, .. } => Some(cwd.as_str()),
         };
-        match respawn_recovered_agent_with_launch_spec(
+        let mut spawn_ctx = super::SpawnAgentContext {
             agent_catalog,
             runtime_index,
             app_session,
@@ -443,15 +443,18 @@ pub(crate) fn restore_app(ctx: &mut RestoreAppContext<'_, '_>) -> RecoveryExecut
             app_state_persistence,
             visibility_state,
             view_state,
-            presentation_store.as_deref_mut(),
+            presentation_store: presentation_store.as_deref_mut(),
             time,
+            redraws,
+        };
+        match respawn_recovered_agent_with_launch_spec(
+            &mut spawn_ctx,
             PERSISTENT_SESSION_PREFIX,
             AgentKind::from_persisted_kind(record.kind),
             agent_uid.clone(),
             record.label.clone(),
             working_directory,
             launch,
-            redraws,
         ) {
             Ok(agent_id) => {
                 summary.restored_agents += 1;
@@ -571,7 +574,7 @@ pub(crate) fn restore_app(ctx: &mut RestoreAppContext<'_, '_>) -> RecoveryExecut
         };
         clear_focus_without_persist(VisibilityMode::ShowAll, &mut focus_ctx);
     } else if !summary.snapshot_found {
-        let _ = spawn_agent_terminal(
+        let mut spawn_ctx = super::SpawnAgentContext {
             agent_catalog,
             runtime_index,
             app_session,
@@ -587,11 +590,14 @@ pub(crate) fn restore_app(ctx: &mut RestoreAppContext<'_, '_>) -> RecoveryExecut
             view_state,
             presentation_store,
             time,
+            redraws,
+        };
+        let _ = spawn_agent_terminal(
+            &mut spawn_ctx,
             PERSISTENT_SESSION_PREFIX,
             AgentKind::Pi,
             None,
             None,
-            redraws,
         );
     }
 

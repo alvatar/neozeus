@@ -1,35 +1,35 @@
 use super::*;
 
-#[allow(
-    clippy::too_many_arguments,
-    reason = "spawn crosses daemon, agent, session, and presentation state"
-)]
 fn spawn_agent_terminal_internal(
-    agent_catalog: &mut AgentCatalog,
-    runtime_index: &mut AgentRuntimeIndex,
-    app_session: &mut AppSessionState,
-    selection: &mut crate::hud::AgentListSelection,
-    terminal_manager: &mut TerminalManager,
-    focus_state: &mut TerminalFocusState,
-    owned_tmux_sessions: &OwnedTmuxSessionStore,
-    active_terminal_content: &mut ActiveTerminalContentState,
-    runtime_spawner: &TerminalRuntimeSpawner,
-    input_capture: &mut HudInputCaptureState,
-    app_state_persistence: &mut AppStatePersistenceState,
-    visibility_state: &mut TerminalVisibilityState,
-    view_state: &mut TerminalViewState,
-    presentation_store: Option<&mut TerminalPresentationStore>,
-    time: &Time,
-    prefix: &str,
-    kind: AgentKind,
-    label: Option<String>,
-    working_directory: Option<&str>,
-    launch: AgentLaunchSpec,
-    focus_terminal: bool,
-    persist_mutation: bool,
-    restored_agent_uid: Option<String>,
-    redraws: &mut MessageWriter<RequestRedraw>,
+    ctx: &mut SpawnAgentContext<'_, '_>,
+    request: SpawnAgentRequest<'_>,
 ) -> Result<AgentId, String> {
+    let agent_catalog = &mut *ctx.agent_catalog;
+    let runtime_index = &mut *ctx.runtime_index;
+    let app_session = &mut *ctx.app_session;
+    let selection = &mut *ctx.selection;
+    let terminal_manager = &mut *ctx.terminal_manager;
+    let focus_state = &mut *ctx.focus_state;
+    let owned_tmux_sessions = ctx.owned_tmux_sessions;
+    let active_terminal_content = &mut *ctx.active_terminal_content;
+    let runtime_spawner = ctx.runtime_spawner;
+    let input_capture = &mut *ctx.input_capture;
+    let app_state_persistence = &mut *ctx.app_state_persistence;
+    let visibility_state = &mut *ctx.visibility_state;
+    let view_state = &mut *ctx.view_state;
+    let presentation_store = ctx.presentation_store.as_deref_mut();
+    let time = ctx.time;
+    let redraws = &mut *ctx.redraws;
+    let SpawnAgentRequest {
+        prefix,
+        kind,
+        label,
+        working_directory,
+        launch,
+        focus_terminal,
+        persist_mutation,
+        restored_agent_uid,
+    } = request;
     let capabilities = kind.capabilities();
     let pending_identity = match restored_agent_uid {
         Some(agent_uid) => {
@@ -126,166 +126,61 @@ fn spawn_agent_terminal_internal(
     Ok(agent_id)
 }
 
-#[allow(
-    clippy::too_many_arguments,
-    reason = "spawn crosses daemon, agent, session, and presentation state"
-)]
 pub(crate) fn spawn_agent_terminal_with_launch_spec(
-    agent_catalog: &mut AgentCatalog,
-    runtime_index: &mut AgentRuntimeIndex,
-    app_session: &mut AppSessionState,
-    selection: &mut crate::hud::AgentListSelection,
-    terminal_manager: &mut TerminalManager,
-    focus_state: &mut TerminalFocusState,
-    owned_tmux_sessions: &OwnedTmuxSessionStore,
-    active_terminal_content: &mut ActiveTerminalContentState,
-    runtime_spawner: &TerminalRuntimeSpawner,
-    input_capture: &mut HudInputCaptureState,
-    app_state_persistence: &mut AppStatePersistenceState,
-    visibility_state: &mut TerminalVisibilityState,
-    view_state: &mut TerminalViewState,
-    presentation_store: Option<&mut TerminalPresentationStore>,
-    time: &Time,
+    ctx: &mut SpawnAgentContext<'_, '_>,
     prefix: &str,
     kind: AgentKind,
     label: Option<String>,
     working_directory: Option<&str>,
     launch: AgentLaunchSpec,
-    redraws: &mut MessageWriter<RequestRedraw>,
 ) -> Result<AgentId, String> {
     spawn_agent_terminal_internal(
-        agent_catalog,
-        runtime_index,
-        app_session,
-        selection,
-        terminal_manager,
-        focus_state,
-        owned_tmux_sessions,
-        active_terminal_content,
-        runtime_spawner,
-        input_capture,
-        app_state_persistence,
-        visibility_state,
-        view_state,
-        presentation_store,
-        time,
-        prefix,
-        kind,
-        label,
-        working_directory,
-        launch,
-        true,
-        true,
-        None,
-        redraws,
+        ctx,
+        SpawnAgentRequest {
+            prefix,
+            kind,
+            label,
+            working_directory,
+            launch,
+            focus_terminal: true,
+            persist_mutation: true,
+            restored_agent_uid: None,
+        },
     )
 }
 
-#[allow(
-    clippy::too_many_arguments,
-    reason = "startup recovery respawn crosses daemon, agent, session, and presentation state"
-)]
 pub(crate) fn respawn_recovered_agent_with_launch_spec(
-    agent_catalog: &mut AgentCatalog,
-    runtime_index: &mut AgentRuntimeIndex,
-    app_session: &mut AppSessionState,
-    selection: &mut crate::hud::AgentListSelection,
-    terminal_manager: &mut TerminalManager,
-    focus_state: &mut TerminalFocusState,
-    owned_tmux_sessions: &OwnedTmuxSessionStore,
-    active_terminal_content: &mut ActiveTerminalContentState,
-    runtime_spawner: &TerminalRuntimeSpawner,
-    input_capture: &mut HudInputCaptureState,
-    app_state_persistence: &mut AppStatePersistenceState,
-    visibility_state: &mut TerminalVisibilityState,
-    view_state: &mut TerminalViewState,
-    presentation_store: Option<&mut TerminalPresentationStore>,
-    time: &Time,
+    ctx: &mut SpawnAgentContext<'_, '_>,
     prefix: &str,
     kind: AgentKind,
     agent_uid: String,
     label: Option<String>,
     working_directory: Option<&str>,
     launch: AgentLaunchSpec,
-    redraws: &mut MessageWriter<RequestRedraw>,
 ) -> Result<AgentId, String> {
     spawn_agent_terminal_internal(
-        agent_catalog,
-        runtime_index,
-        app_session,
-        selection,
-        terminal_manager,
-        focus_state,
-        owned_tmux_sessions,
-        active_terminal_content,
-        runtime_spawner,
-        input_capture,
-        app_state_persistence,
-        visibility_state,
-        view_state,
-        presentation_store,
-        time,
-        prefix,
-        kind,
-        label,
-        working_directory,
-        launch,
-        false,
-        false,
-        Some(agent_uid),
-        redraws,
+        ctx,
+        SpawnAgentRequest {
+            prefix,
+            kind,
+            label,
+            working_directory,
+            launch,
+            focus_terminal: false,
+            persist_mutation: false,
+            restored_agent_uid: Some(agent_uid),
+        },
     )
 }
 
 /// Spawns agent terminal.
-#[allow(
-    clippy::too_many_arguments,
-    reason = "spawn crosses daemon, agent, session, and presentation state"
-)]
 pub(crate) fn spawn_agent_terminal(
-    agent_catalog: &mut AgentCatalog,
-    runtime_index: &mut AgentRuntimeIndex,
-    app_session: &mut AppSessionState,
-    selection: &mut crate::hud::AgentListSelection,
-    terminal_manager: &mut TerminalManager,
-    focus_state: &mut TerminalFocusState,
-    owned_tmux_sessions: &OwnedTmuxSessionStore,
-    active_terminal_content: &mut ActiveTerminalContentState,
-    runtime_spawner: &TerminalRuntimeSpawner,
-    input_capture: &mut HudInputCaptureState,
-    app_state_persistence: &mut AppStatePersistenceState,
-    visibility_state: &mut TerminalVisibilityState,
-    view_state: &mut TerminalViewState,
-    presentation_store: Option<&mut TerminalPresentationStore>,
-    time: &Time,
+    ctx: &mut SpawnAgentContext<'_, '_>,
     prefix: &str,
     kind: AgentKind,
     label: Option<String>,
     working_directory: Option<&str>,
-    redraws: &mut MessageWriter<RequestRedraw>,
 ) -> Result<AgentId, String> {
     let launch = build_agent_launch_spec(kind, working_directory)?;
-    spawn_agent_terminal_with_launch_spec(
-        agent_catalog,
-        runtime_index,
-        app_session,
-        selection,
-        terminal_manager,
-        focus_state,
-        owned_tmux_sessions,
-        active_terminal_content,
-        runtime_spawner,
-        input_capture,
-        app_state_persistence,
-        visibility_state,
-        view_state,
-        presentation_store,
-        time,
-        prefix,
-        kind,
-        label,
-        working_directory,
-        launch,
-        redraws,
-    )
+    spawn_agent_terminal_with_launch_spec(ctx, prefix, kind, label, working_directory, launch)
 }
