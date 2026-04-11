@@ -99,11 +99,19 @@ impl DaemonConnectionState {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum StartupConnectWorkflow {
+    NotStarted,
+    Holding { frames_remaining: u32 },
+    AwaitingDaemon,
+    RestorePending,
+    Finished,
+}
+
 #[derive(Resource)]
 pub(crate) struct StartupConnectState {
     receiver: Option<StartupDaemonConnectReceiver>,
-    restore_started: bool,
-    hold_frames_remaining: u32,
+    workflow: StartupConnectWorkflow,
 }
 
 impl Default for StartupConnectState {
@@ -111,8 +119,7 @@ impl Default for StartupConnectState {
     fn default() -> Self {
         Self {
             receiver: None,
-            restore_started: false,
-            hold_frames_remaining: 8,
+            workflow: StartupConnectWorkflow::NotStarted,
         }
     }
 }
@@ -125,8 +132,7 @@ impl StartupConnectState {
     ) -> Self {
         Self {
             receiver: Some(Arc::new(Mutex::new(receiver))),
-            restore_started: false,
-            hold_frames_remaining: 0,
+            workflow: StartupConnectWorkflow::AwaitingDaemon,
         }
     }
 
@@ -138,11 +144,62 @@ impl StartupConnectState {
 
     /// Starts the background runtime-connect work if it has not started yet.
     fn start_background_connect(&mut self) {
+        if self.receiver.is_some() {
+            return;
+        }
         let (tx, rx) = mpsc::channel();
         self.receiver = Some(Arc::new(Mutex::new(rx)));
+        self.workflow = StartupConnectWorkflow::Holding {
+            frames_remaining: 8,
+        };
         thread::spawn(move || {
             let _ = tx.send(crate::terminals::TerminalDaemonClientResource::system());
         });
+    }
+
+    fn connecting_result(&mut self) -> Option<StartupDaemonConnectResult> {
+        match &mut self.workflow {
+            StartupConnectWorkflow::Holding { frames_remaining } => {
+                if *frames_remaining > 0 {
+                    *frames_remaining -= 1;
+                    None
+                } else {
+                    self.workflow = StartupConnectWorkflow::AwaitingDaemon;
+                    None
+                }
+            }
+            StartupConnectWorkflow::AwaitingDaemon => self
+                .receiver
+                .as_ref()
+                .and_then(|receiver| receiver.lock().ok().and_then(|guard| guard.try_recv().ok())),
+            StartupConnectWorkflow::NotStarted
+            | StartupConnectWorkflow::RestorePending
+            | StartupConnectWorkflow::Finished => None,
+        }
+    }
+
+    fn mark_restore_pending(&mut self) {
+        self.workflow = StartupConnectWorkflow::RestorePending;
+    }
+
+    fn take_restore_pending(&mut self) -> bool {
+        if self.workflow == StartupConnectWorkflow::RestorePending {
+            self.workflow = StartupConnectWorkflow::Finished;
+            true
+        } else {
+            false
+        }
+    }
+
+    fn awaiting_connect_result(&self) -> bool {
+        matches!(
+            self.workflow,
+            StartupConnectWorkflow::Holding { .. } | StartupConnectWorkflow::AwaitingDaemon
+        )
+    }
+
+    fn finish(&mut self) {
+        self.workflow = StartupConnectWorkflow::Finished;
     }
 }
 
@@ -171,6 +228,64 @@ struct SceneSetupContext<'w, 's> {
     active_terminal_content: Option<ResMut<'w, crate::terminals::ActiveTerminalContentState>>,
     redraws: MessageWriter<'w, RequestRedraw>,
     time: Res<'w, Time>,
+}
+
+struct StartupProjectionHandles<'a> {
+    selection: &'a mut crate::hud::AgentListSelection,
+    owned_tmux_sessions: &'a OwnedTmuxSessionStore,
+    active_terminal_content: &'a mut crate::terminals::ActiveTerminalContentState,
+}
+
+fn startup_projection_handles<'a>(
+    selection: Option<&'a mut crate::hud::AgentListSelection>,
+    owned_tmux_sessions: Option<&'a OwnedTmuxSessionStore>,
+    active_terminal_content: Option<&'a mut crate::terminals::ActiveTerminalContentState>,
+    default_selection: &'a mut crate::hud::AgentListSelection,
+    default_owned_tmux_sessions: &'a OwnedTmuxSessionStore,
+    default_active_terminal_content: &'a mut crate::terminals::ActiveTerminalContentState,
+) -> StartupProjectionHandles<'a> {
+    StartupProjectionHandles {
+        selection: selection.unwrap_or(default_selection),
+        owned_tmux_sessions: owned_tmux_sessions.unwrap_or(default_owned_tmux_sessions),
+        active_terminal_content: active_terminal_content.unwrap_or(default_active_terminal_content),
+    }
+}
+
+#[derive(Clone)]
+enum StartupRestoreMode {
+    AutoVerify(AutoVerifyConfig),
+    VerificationScenario,
+    RestoreSessions,
+}
+
+fn choose_startup_restore_mode(
+    auto_verify: Option<&AutoVerifyConfig>,
+    verification_scenario: Option<&VerificationScenarioConfig>,
+) -> StartupRestoreMode {
+    if let Some(config) = auto_verify {
+        StartupRestoreMode::AutoVerify(config.clone())
+    } else if verification_scenario.is_some() {
+        StartupRestoreMode::VerificationScenario
+    } else {
+        StartupRestoreMode::RestoreSessions
+    }
+}
+
+fn startup_restore_status(mode: &StartupRestoreMode) -> &'static str {
+    match mode {
+        StartupRestoreMode::AutoVerify(_) | StartupRestoreMode::VerificationScenario => {
+            "Preparing verification scene…"
+        }
+        StartupRestoreMode::RestoreSessions => "Restoring sessions…",
+    }
+}
+
+fn run_startup_restore_mode(ctx: &mut SceneSetupContext, mode: StartupRestoreMode) {
+    match mode {
+        StartupRestoreMode::AutoVerify(config) => setup_verifier_terminal(ctx, config),
+        StartupRestoreMode::VerificationScenario => {}
+        StartupRestoreMode::RestoreSessions => restore_startup_terminals(ctx),
+    }
 }
 
 /// Collapses the three sources of visual work into a single redraw decision.
@@ -283,7 +398,7 @@ pub(crate) fn setup_scene(world: &mut World) {
         Option<Res<AutoVerifyConfig>>,
         Option<Res<VerificationScenarioConfig>>,
     )> = bevy::ecs::system::SystemState::new(world);
-    let (mut ctx, mut startup_connect, mut connection_state, _auto_verify, verification_scenario) =
+    let (mut ctx, mut startup_connect, mut connection_state, auto_verify, verification_scenario) =
         state.get_mut(world);
     // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
     ctx.commands.spawn((
@@ -319,19 +434,14 @@ pub(crate) fn setup_scene(world: &mut World) {
     }
 
     if ctx.runtime_spawner.is_ready() {
+        let mode =
+            choose_startup_restore_mode(auto_verify.as_deref(), verification_scenario.as_deref());
         connection_state.set_phase(
             StartupConnectPhase::Restoring,
-            if verification_scenario.is_some() {
-                "Preparing verification scene…"
-            } else {
-                "Restoring sessions…"
-            },
+            startup_restore_status(&mode),
         );
-        if let Some(config) = _auto_verify {
-            setup_verifier_terminal(&mut ctx, config.clone());
-        } else if verification_scenario.is_none() {
-            restore_startup_terminals(&mut ctx);
-        }
+        run_startup_restore_mode(&mut ctx, mode);
+        startup_connect.finish();
         connection_state.set_ready();
         ctx.redraws.write(RequestRedraw);
         state.apply(world);
@@ -374,45 +484,41 @@ pub(crate) fn advance_startup_connecting(world: &mut World) {
     // Walk the lifecycle in explicit stages so each side effect happens only after its prerequisites have been established.
     match connection_state.phase {
         StartupConnectPhase::Connecting => {
-            if startup_connect.hold_frames_remaining > 0 {
-                startup_connect.hold_frames_remaining -= 1;
-                ctx.redraws.write(RequestRedraw);
-                finish!();
-            }
-            let Some(receiver) = startup_connect.receiver.as_ref() else {
-                finish!();
-            };
-            let result = receiver.lock().ok().and_then(|guard| guard.try_recv().ok());
-            match result {
+            let was_waiting = startup_connect.awaiting_connect_result();
+            match startup_connect.connecting_result() {
                 Some(Ok(daemon)) => {
+                    let mode = choose_startup_restore_mode(
+                        auto_verify.as_deref(),
+                        verification_scenario.as_deref(),
+                    );
                     ctx.runtime_spawner.install_daemon(daemon);
+                    startup_connect.mark_restore_pending();
                     connection_state.set_phase(
                         StartupConnectPhase::Restoring,
-                        if verification_scenario.is_some() {
-                            "Preparing verification scene…"
-                        } else {
-                            "Restoring sessions…"
-                        },
+                        startup_restore_status(&mode),
                     );
                     ctx.redraws.write(RequestRedraw);
                 }
                 Some(Err(error)) => {
+                    startup_connect.finish();
                     connection_state.set_phase(StartupConnectPhase::Failed, error);
+                    ctx.redraws.write(RequestRedraw);
+                }
+                None if was_waiting => {
                     ctx.redraws.write(RequestRedraw);
                 }
                 None => {}
             }
         }
         StartupConnectPhase::Restoring => {
-            if startup_connect.restore_started || !ctx.runtime_spawner.is_ready() {
+            if !ctx.runtime_spawner.is_ready() || !startup_connect.take_restore_pending() {
                 finish!();
             }
-            startup_connect.restore_started = true;
-            if let Some(config) = auto_verify {
-                setup_verifier_terminal(&mut ctx, config.clone());
-            } else if verification_scenario.is_none() {
-                restore_startup_terminals(&mut ctx);
-            }
+            let mode = choose_startup_restore_mode(
+                auto_verify.as_deref(),
+                verification_scenario.as_deref(),
+            );
+            run_startup_restore_mode(&mut ctx, mode);
             connection_state.set_ready();
             ctx.redraws.write(RequestRedraw);
         }
@@ -470,21 +576,23 @@ fn setup_verifier_terminal(ctx: &mut SceneSetupContext, config: AutoVerifyConfig
     let mut default_active_terminal_content =
         crate::terminals::ActiveTerminalContentState::default();
     let mut default_selection = crate::hud::AgentListSelection::default();
+    let projection = startup_projection_handles(
+        ctx.selection.as_deref_mut(),
+        ctx.owned_tmux_sessions.as_deref(),
+        ctx.active_terminal_content.as_deref_mut(),
+        &mut default_selection,
+        &default_owned_tmux_sessions,
+        &mut default_active_terminal_content,
+    );
     focus_terminal_without_persist(
         terminal_id,
         VisibilityMode::FocusedOnly,
         &mut ctx.app_session,
         &ctx.agent_catalog,
         &ctx.runtime_index,
-        ctx.owned_tmux_sessions
-            .as_deref()
-            .unwrap_or(&default_owned_tmux_sessions),
-        ctx.selection
-            .as_deref_mut()
-            .unwrap_or(&mut default_selection),
-        ctx.active_terminal_content
-            .as_deref_mut()
-            .unwrap_or(&mut default_active_terminal_content),
+        projection.owned_tmux_sessions,
+        projection.selection,
+        projection.active_terminal_content,
         &mut ctx.terminal_manager,
         &mut ctx.focus_state,
         &mut ctx.input_capture,
@@ -559,26 +667,26 @@ pub(crate) fn rehydrate_restored_projection_state(
 fn restore_startup_terminals(ctx: &mut SceneSetupContext) {
     // Walk the lifecycle in explicit stages so each side effect happens only after its prerequisites have been established.
     let mut default_selection = crate::hud::AgentListSelection::None;
-    let selection = ctx
-        .selection
-        .as_deref_mut()
-        .unwrap_or(&mut default_selection);
     let default_owned_tmux_sessions = OwnedTmuxSessionStore::default();
     let mut default_active_terminal_content =
         crate::terminals::ActiveTerminalContentState::default();
+    let projection = startup_projection_handles(
+        ctx.selection.as_deref_mut(),
+        ctx.owned_tmux_sessions.as_deref(),
+        ctx.active_terminal_content.as_deref_mut(),
+        &mut default_selection,
+        &default_owned_tmux_sessions,
+        &mut default_active_terminal_content,
+    );
     let summary = restore_app(
         &mut ctx.agent_catalog,
         &mut ctx.runtime_index,
         &mut ctx.app_session,
-        selection,
+        projection.selection,
         &mut ctx.terminal_manager,
         &mut ctx.focus_state,
-        ctx.owned_tmux_sessions
-            .as_deref()
-            .unwrap_or(&default_owned_tmux_sessions),
-        ctx.active_terminal_content
-            .as_deref_mut()
-            .unwrap_or(&mut default_active_terminal_content),
+        projection.owned_tmux_sessions,
+        projection.active_terminal_content,
         &ctx.runtime_spawner,
         &mut ctx.input_capture,
         &mut ctx.app_state_persistence,

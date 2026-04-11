@@ -255,6 +255,56 @@ fn seed_terminal_surface(
     overrides.set_surface(terminal_id, seeded_inspect_surface(label, accent));
 }
 
+fn verification_agent_kind(scenario: VerificationScenario) -> AgentKind {
+    match scenario {
+        VerificationScenario::WorkingStateIdle | VerificationScenario::WorkingStateWorking => {
+            AgentKind::Pi
+        }
+        VerificationScenario::MessageBoxBloom
+        | VerificationScenario::TaskDialogBloom
+        | VerificationScenario::AgentListBloom
+        | VerificationScenario::InspectSwitchLatency => AgentKind::Verifier,
+    }
+}
+
+fn focus_verification_agent_for_terminal(
+    ctx: &mut VerificationScenarioContext,
+    terminal_id: TerminalId,
+) -> Option<crate::agents::AgentId> {
+    let agent_id = ctx.runtime_index.agent_for_terminal(terminal_id)?;
+    focus_agent_without_persist(
+        agent_id,
+        VisibilityMode::FocusedOnly,
+        &mut ctx.app_session,
+        &ctx.agent_catalog,
+        &ctx.runtime_index,
+        &ctx.owned_tmux_sessions,
+        &mut ctx.selection,
+        &mut ctx.active_terminal_content,
+        &mut ctx.terminal_manager,
+        &mut ctx.focus_state,
+        &mut ctx.input_capture,
+        &mut ctx.view_state,
+        &mut ctx.visibility_state,
+        &mut ctx.redraws,
+    );
+    Some(agent_id)
+}
+
+fn clear_verification_ui(ctx: &mut VerificationScenarioContext) {
+    clear_composer_and_direct_input(
+        &mut ctx.app_session,
+        &mut ctx.input_capture,
+        &mut ctx.redraws,
+    );
+}
+
+fn sync_verification_test_focus_state(_ctx: &mut VerificationScenarioContext) {
+    #[cfg(test)]
+    _ctx.terminal_manager
+        .replace_test_focus_state(&_ctx.focus_state);
+}
+
 /// Starts a background worker that injects the configured auto-verify command after a delay.
 ///
 /// The worker sleeps off-thread, logs the dispatch, sends the command through the terminal bridge,
@@ -472,11 +522,7 @@ pub(crate) fn run_verification_scenario(world: &mut World) {
                 .agent_catalog
                 .validate_new_label(Some(label))
                 .expect("verification labels must remain unique");
-            let agent_kind = match config.scenario {
-                VerificationScenario::WorkingStateIdle
-                | VerificationScenario::WorkingStateWorking => AgentKind::Pi,
-                _ => AgentKind::Verifier,
-            };
+            let agent_kind = verification_agent_kind(config.scenario);
             let agent_id =
                 ctx.agent_catalog
                     .create_agent(label, agent_kind, agent_kind.capabilities());
@@ -497,23 +543,7 @@ pub(crate) fn run_verification_scenario(world: &mut World) {
     match config.scenario {
         VerificationScenario::MessageBoxBloom => {
             let terminal_id = config.terminal_ids[0];
-            if let Some(agent_id) = ctx.runtime_index.agent_for_terminal(terminal_id) {
-                focus_agent_without_persist(
-                    agent_id,
-                    VisibilityMode::FocusedOnly,
-                    &mut ctx.app_session,
-                    &ctx.agent_catalog,
-                    &ctx.runtime_index,
-                    &ctx.owned_tmux_sessions,
-                    &mut ctx.selection,
-                    &mut ctx.active_terminal_content,
-                    &mut ctx.terminal_manager,
-                    &mut ctx.focus_state,
-                    &mut ctx.input_capture,
-                    &mut ctx.view_state,
-                    &mut ctx.visibility_state,
-                    &mut ctx.redraws,
-                );
+            if let Some(agent_id) = focus_verification_agent_for_terminal(&mut ctx, terminal_id) {
                 open_composer(
                     &ComposerRequest {
                         mode: ComposerMode::Message { agent_id },
@@ -533,23 +563,7 @@ pub(crate) fn run_verification_scenario(world: &mut World) {
         VerificationScenario::TaskDialogBloom => {
             let terminal_id = config.terminal_ids[0];
             let note_text = "- [ ] verify bloom layering\n- [ ] keep button text readable";
-            if let Some(agent_id) = ctx.runtime_index.agent_for_terminal(terminal_id) {
-                focus_agent_without_persist(
-                    agent_id,
-                    VisibilityMode::FocusedOnly,
-                    &mut ctx.app_session,
-                    &ctx.agent_catalog,
-                    &ctx.runtime_index,
-                    &ctx.owned_tmux_sessions,
-                    &mut ctx.selection,
-                    &mut ctx.active_terminal_content,
-                    &mut ctx.terminal_manager,
-                    &mut ctx.focus_state,
-                    &mut ctx.input_capture,
-                    &mut ctx.view_state,
-                    &mut ctx.visibility_state,
-                    &mut ctx.redraws,
-                );
+            if let Some(agent_id) = focus_verification_agent_for_terminal(&mut ctx, terminal_id) {
                 let _ = ctx.task_store.set_text(agent_id, note_text);
                 open_composer(
                     &ComposerRequest {
@@ -565,55 +579,13 @@ pub(crate) fn run_verification_scenario(world: &mut World) {
         }
         VerificationScenario::AgentListBloom => {
             let terminal_id = config.terminal_ids[0];
-            if let Some(agent_id) = ctx.runtime_index.agent_for_terminal(terminal_id) {
-                focus_agent_without_persist(
-                    agent_id,
-                    VisibilityMode::FocusedOnly,
-                    &mut ctx.app_session,
-                    &ctx.agent_catalog,
-                    &ctx.runtime_index,
-                    &ctx.owned_tmux_sessions,
-                    &mut ctx.selection,
-                    &mut ctx.active_terminal_content,
-                    &mut ctx.terminal_manager,
-                    &mut ctx.focus_state,
-                    &mut ctx.input_capture,
-                    &mut ctx.view_state,
-                    &mut ctx.visibility_state,
-                    &mut ctx.redraws,
-                );
-            }
-            clear_composer_and_direct_input(
-                &mut ctx.app_session,
-                &mut ctx.input_capture,
-                &mut ctx.redraws,
-            );
+            let _ = focus_verification_agent_for_terminal(&mut ctx, terminal_id);
+            clear_verification_ui(&mut ctx);
         }
         VerificationScenario::WorkingStateIdle | VerificationScenario::WorkingStateWorking => {
             let terminal_id = config.terminal_ids[0];
-            if let Some(agent_id) = ctx.runtime_index.agent_for_terminal(terminal_id) {
-                focus_agent_without_persist(
-                    agent_id,
-                    VisibilityMode::FocusedOnly,
-                    &mut ctx.app_session,
-                    &ctx.agent_catalog,
-                    &ctx.runtime_index,
-                    &ctx.owned_tmux_sessions,
-                    &mut ctx.selection,
-                    &mut ctx.active_terminal_content,
-                    &mut ctx.terminal_manager,
-                    &mut ctx.focus_state,
-                    &mut ctx.input_capture,
-                    &mut ctx.view_state,
-                    &mut ctx.visibility_state,
-                    &mut ctx.redraws,
-                );
-            }
-            clear_composer_and_direct_input(
-                &mut ctx.app_session,
-                &mut ctx.input_capture,
-                &mut ctx.redraws,
-            );
+            let _ = focus_verification_agent_for_terminal(&mut ctx, terminal_id);
+            clear_verification_ui(&mut ctx);
             let working = matches!(config.scenario, VerificationScenario::WorkingStateWorking);
             ctx.verification_overrides
                 .set_surface(terminal_id, seeded_activity_contract_surface(working));
@@ -621,30 +593,9 @@ pub(crate) fn run_verification_scenario(world: &mut World) {
         VerificationScenario::InspectSwitchLatency => {
             let first = config.terminal_ids[0];
             let second = config.terminal_ids[1];
-            clear_composer_and_direct_input(
-                &mut ctx.app_session,
-                &mut ctx.input_capture,
-                &mut ctx.redraws,
-            );
+            clear_verification_ui(&mut ctx);
             if !config.primed {
-                if let Some(agent_id) = ctx.runtime_index.agent_for_terminal(first) {
-                    focus_agent_without_persist(
-                        agent_id,
-                        VisibilityMode::FocusedOnly,
-                        &mut ctx.app_session,
-                        &ctx.agent_catalog,
-                        &ctx.runtime_index,
-                        &ctx.owned_tmux_sessions,
-                        &mut ctx.selection,
-                        &mut ctx.active_terminal_content,
-                        &mut ctx.terminal_manager,
-                        &mut ctx.focus_state,
-                        &mut ctx.input_capture,
-                        &mut ctx.view_state,
-                        &mut ctx.visibility_state,
-                        &mut ctx.redraws,
-                    );
-                }
+                let _ = focus_verification_agent_for_terminal(&mut ctx, first);
                 seed_terminal_surface(
                     &mut ctx.verification_overrides,
                     first,
@@ -658,9 +609,7 @@ pub(crate) fn run_verification_scenario(world: &mut World) {
                     egui::Color32::from_rgb(44, 72, 140),
                 );
                 config.primed = true;
-                #[cfg(test)]
-                ctx.terminal_manager
-                    .replace_test_focus_state(&ctx.focus_state);
+                sync_verification_test_focus_state(&mut ctx);
                 ctx.redraws.write(RequestRedraw);
                 finish!();
             }
@@ -678,29 +627,10 @@ pub(crate) fn run_verification_scenario(world: &mut World) {
                 ctx.redraws.write(RequestRedraw);
                 finish!();
             }
-            if let Some(agent_id) = ctx.runtime_index.agent_for_terminal(second) {
-                focus_agent_without_persist(
-                    agent_id,
-                    VisibilityMode::FocusedOnly,
-                    &mut ctx.app_session,
-                    &ctx.agent_catalog,
-                    &ctx.runtime_index,
-                    &ctx.owned_tmux_sessions,
-                    &mut ctx.selection,
-                    &mut ctx.active_terminal_content,
-                    &mut ctx.terminal_manager,
-                    &mut ctx.focus_state,
-                    &mut ctx.input_capture,
-                    &mut ctx.view_state,
-                    &mut ctx.visibility_state,
-                    &mut ctx.redraws,
-                );
-            }
+            let _ = focus_verification_agent_for_terminal(&mut ctx, second);
         }
     }
-    #[cfg(test)]
-    ctx.terminal_manager
-        .replace_test_focus_state(&ctx.focus_state);
+    sync_verification_test_focus_state(&mut ctx);
     append_debug_log(format!(
         "verification scenario applied: {:?}",
         config.scenario
