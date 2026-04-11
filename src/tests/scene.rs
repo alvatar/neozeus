@@ -2441,6 +2441,16 @@ fn reset_runtime_kills_live_sessions_and_rebuilds_from_snapshot() {
         world.resource::<crate::agents::AgentCatalog>().order.len(),
         1
     );
+    let focused_terminal = world
+        .resource::<crate::terminals::TerminalFocusState>()
+        .active_id()
+        .expect("reset restore should refocus the restored terminal");
+    assert_eq!(
+        world
+            .resource::<crate::hud::TerminalVisibilityState>()
+            .policy,
+        TerminalVisibilityPolicy::Isolate(focused_terminal)
+    );
     let status = &world
         .resource::<crate::app::AppSessionState>()
         .recovery_status;
@@ -2461,6 +2471,99 @@ fn reset_runtime_kills_live_sessions_and_rebuilds_from_snapshot() {
         .details
         .iter()
         .any(|line| line == "Automatic recovery started from saved snapshot"));
+}
+
+#[test]
+fn reset_runtime_rehydrates_persisted_conversations_and_task_notes_after_restore() {
+    let client = Arc::new(crate::tests::FakeDaemonClient::default());
+    let dir = temp_dir("neozeus-reset-rehydrate-projections");
+    let app_state_path = dir.join("neozeus-state.v1");
+    let conversations_path = dir.join("conversations.v1");
+    let notes_path = dir.join("notes.v1");
+    std::fs::write(
+        &app_state_path,
+        "neozeus state version 3\n[agent]\nagent_uid=\"agent-uid-1\"\nlabel=\"ALPHA\"\nkind=\"claude\"\nrecovery_mode=\"claude\"\nrecovery_session_id=\"claude-session-1\"\nrecovery_cwd=\"/tmp/demo\"\norder_index=0\nfocused=1\n[/agent]\n",
+    )
+    .expect("app state should write");
+    std::fs::write(
+        &conversations_path,
+        "version 2\n[conversation]\nagent_uid=\"agent-uid-1\"\n[message]\nauthor=\"user\"\ndelivery=\"delivered\"\nbody=\"hello after reset\"\n",
+    )
+    .expect("conversations should write");
+    std::fs::write(
+        &notes_path,
+        "version 2\nnote agent_uid=agent-uid-1\n- [ ] restored task\n.\n",
+    )
+    .expect("notes should write");
+
+    let mut world = World::default();
+    world.insert_resource(Assets::<Image>::default());
+    world.insert_resource(crate::terminals::TerminalManager::default());
+    world.insert_resource(crate::terminals::TerminalFocusState::default());
+    world.insert_resource(crate::terminals::TerminalPresentationStore::default());
+    world.insert_resource(crate::agents::AgentCatalog::default());
+    world.insert_resource(crate::agents::AgentRuntimeIndex::default());
+    world.insert_resource(crate::app::AppSessionState::default());
+    world.insert_resource(crate::aegis::AegisPolicyStore::default());
+    world.insert_resource(crate::aegis::AegisRuntimeStore::default());
+    world.insert_resource(crate::conversations::ConversationStore::default());
+    world.insert_resource(crate::conversations::ConversationPersistenceState {
+        path: Some(conversations_path),
+        dirty_since_secs: None,
+    });
+    world.insert_resource(crate::conversations::AgentTaskStore::default());
+    world.insert_resource(crate::conversations::MessageTransportAdapter);
+    world.insert_resource(crate::hud::HudInputCaptureState::default());
+    world.insert_resource(crate::terminals::TerminalViewState::default());
+    world.init_resource::<Messages<RequestRedraw>>();
+    world.insert_resource(Time::<()>::default());
+    world.insert_resource(fake_runtime_spawner(client));
+    world.insert_resource(crate::app::AppStatePersistenceState {
+        path: Some(app_state_path),
+        dirty_since_secs: None,
+    });
+    let mut notes_state = crate::terminals::TerminalNotesState::default();
+    notes_state.path = Some(notes_path);
+    world.insert_resource(notes_state);
+    world.insert_resource(crate::hud::TerminalVisibilityState::default());
+    world.insert_resource(crate::startup::DaemonConnectionState::default());
+    world.insert_resource(crate::startup::StartupConnectState::default());
+    world.insert_resource(crate::hud::AgentListSelection::default());
+    crate::tests::insert_default_hud_resources(&mut world);
+    world.init_resource::<Messages<crate::app::AppCommand>>();
+
+    world
+        .resource_mut::<Messages<crate::app::AppCommand>>()
+        .write(crate::app::AppCommand::Recovery(
+            crate::app::RecoveryCommand::ResetAll,
+        ));
+    world
+        .run_system_once(crate::app::run_apply_app_commands)
+        .unwrap();
+
+    let restored_agent = world.resource::<crate::agents::AgentCatalog>().order[0];
+    assert_eq!(
+        world
+            .resource::<crate::conversations::AgentTaskStore>()
+            .text(restored_agent),
+        Some("- [ ] restored task")
+    );
+    let notes_state = world.resource::<crate::terminals::TerminalNotesState>();
+    assert_eq!(
+        notes_state.note_text_by_agent_uid("agent-uid-1"),
+        Some("- [ ] restored task")
+    );
+    let conversations = world.resource::<crate::conversations::ConversationStore>();
+    let conversation_id = conversations
+        .conversation_for_agent(restored_agent)
+        .expect("restored conversation should exist");
+    assert_eq!(
+        conversations.messages_for(conversation_id),
+        vec![(
+            "hello after reset".to_owned(),
+            crate::conversations::MessageDeliveryState::Delivered,
+        )]
+    );
 }
 
 #[test]
@@ -2892,6 +2995,136 @@ fn reset_runtime_tolerates_partial_daemon_kill_failures_without_corrupting_local
     );
     assert!(client.sessions.lock().unwrap().contains("neozeus-live-a"));
     assert_eq!(client.owned_tmux_sessions.lock().unwrap().len(), 1);
+}
+
+#[test]
+fn reset_runtime_reports_success_when_no_saved_snapshot_exists() {
+    let client = Arc::new(crate::tests::FakeDaemonClient::default());
+    let dir = temp_dir("neozeus-reset-no-snapshot");
+    let app_state_path = dir.join("neozeus-state.v1");
+    std::fs::write(&app_state_path, "neozeus state version 4\n").expect("app state should write");
+
+    let mut world = World::default();
+    world.insert_resource(Assets::<Image>::default());
+    world.insert_resource(crate::terminals::TerminalManager::default());
+    world.insert_resource(crate::terminals::TerminalFocusState::default());
+    world.insert_resource(crate::terminals::TerminalPresentationStore::default());
+    world.insert_resource(crate::agents::AgentCatalog::default());
+    world.insert_resource(crate::agents::AgentRuntimeIndex::default());
+    world.insert_resource(crate::app::AppSessionState::default());
+    world.insert_resource(crate::aegis::AegisPolicyStore::default());
+    world.insert_resource(crate::aegis::AegisRuntimeStore::default());
+    world.insert_resource(crate::conversations::ConversationStore::default());
+    world.insert_resource(crate::conversations::ConversationPersistenceState::default());
+    world.insert_resource(crate::conversations::AgentTaskStore::default());
+    world.insert_resource(crate::conversations::MessageTransportAdapter);
+    world.insert_resource(crate::hud::HudInputCaptureState::default());
+    world.insert_resource(crate::terminals::TerminalViewState::default());
+    world.init_resource::<Messages<RequestRedraw>>();
+    world.insert_resource(Time::<()>::default());
+    world.insert_resource(fake_runtime_spawner(client));
+    world.insert_resource(crate::app::AppStatePersistenceState {
+        path: Some(app_state_path),
+        dirty_since_secs: None,
+    });
+    world.insert_resource(crate::terminals::TerminalNotesState::default());
+    world.insert_resource(crate::hud::TerminalVisibilityState::default());
+    world.insert_resource(crate::startup::DaemonConnectionState::default());
+    world.insert_resource(crate::startup::StartupConnectState::default());
+    world.insert_resource(crate::hud::AgentListSelection::default());
+    crate::tests::insert_default_hud_resources(&mut world);
+    world.init_resource::<Messages<crate::app::AppCommand>>();
+
+    world
+        .resource_mut::<Messages<crate::app::AppCommand>>()
+        .write(crate::app::AppCommand::Recovery(
+            crate::app::RecoveryCommand::ResetAll,
+        ));
+    world
+        .run_system_once(crate::app::run_apply_app_commands)
+        .unwrap();
+
+    let status = &world
+        .resource::<crate::app::AppSessionState>()
+        .recovery_status;
+    assert_eq!(
+        status.title.as_deref(),
+        Some("Reset completed: runtime cleared; no saved snapshot to restore")
+    );
+    assert!(status
+        .details
+        .iter()
+        .any(|line| line == "No saved snapshot to restore"));
+}
+
+#[test]
+fn reset_runtime_reports_daemon_discovery_failure_without_corrupting_clear_state() {
+    let dir = temp_dir("neozeus-reset-discovery-failure");
+    let app_state_path = dir.join("neozeus-state.v1");
+    std::fs::write(
+        &app_state_path,
+        "neozeus state version 3\n[agent]\nagent_uid=\"agent-uid-1\"\nlabel=\"ALPHA\"\nkind=\"claude\"\nrecovery_mode=\"claude\"\nrecovery_session_id=\"claude-session-1\"\nrecovery_cwd=\"/tmp/demo\"\norder_index=0\nfocused=1\n[/agent]\n",
+    )
+    .expect("app state should write");
+
+    let mut world = World::default();
+    world.insert_resource(Assets::<Image>::default());
+    world.insert_resource(crate::terminals::TerminalManager::default());
+    world.insert_resource(crate::terminals::TerminalFocusState::default());
+    world.insert_resource(crate::terminals::TerminalPresentationStore::default());
+    world.insert_resource(crate::agents::AgentCatalog::default());
+    world.insert_resource(crate::agents::AgentRuntimeIndex::default());
+    world.insert_resource(crate::app::AppSessionState::default());
+    world.insert_resource(crate::aegis::AegisPolicyStore::default());
+    world.insert_resource(crate::aegis::AegisRuntimeStore::default());
+    world.insert_resource(crate::conversations::ConversationStore::default());
+    world.insert_resource(crate::conversations::ConversationPersistenceState::default());
+    world.insert_resource(crate::conversations::AgentTaskStore::default());
+    world.insert_resource(crate::conversations::MessageTransportAdapter);
+    world.insert_resource(crate::hud::HudInputCaptureState::default());
+    world.insert_resource(crate::terminals::TerminalViewState::default());
+    world.init_resource::<Messages<RequestRedraw>>();
+    world.insert_resource(Time::<()>::default());
+    world.insert_resource(crate::terminals::TerminalRuntimeSpawner::pending_headless());
+    world.insert_resource(crate::app::AppStatePersistenceState {
+        path: Some(app_state_path),
+        dirty_since_secs: None,
+    });
+    world.insert_resource(crate::terminals::TerminalNotesState::default());
+    world.insert_resource(crate::hud::TerminalVisibilityState::default());
+    world.insert_resource(crate::startup::DaemonConnectionState::default());
+    world.insert_resource(crate::startup::StartupConnectState::default());
+    world.insert_resource(crate::hud::AgentListSelection::default());
+    crate::tests::insert_default_hud_resources(&mut world);
+    world.init_resource::<Messages<crate::app::AppCommand>>();
+
+    world
+        .resource_mut::<Messages<crate::app::AppCommand>>()
+        .write(crate::app::AppCommand::Recovery(
+            crate::app::RecoveryCommand::ResetAll,
+        ));
+    world
+        .run_system_once(crate::app::run_apply_app_commands)
+        .unwrap();
+
+    let status = &world
+        .resource::<crate::app::AppSessionState>()
+        .recovery_status;
+    assert_eq!(
+        status.title.as_deref(),
+        Some("Reset recovery completed: 0 restored, 1 failed")
+    );
+    assert!(status.details.iter().any(|line| {
+        line == "daemon session discovery failed: terminal runtime still connecting"
+    }));
+    assert!(world
+        .resource::<crate::agents::AgentCatalog>()
+        .order
+        .is_empty());
+    assert!(world
+        .resource::<crate::terminals::TerminalManager>()
+        .terminal_ids()
+        .is_empty());
 }
 
 #[test]

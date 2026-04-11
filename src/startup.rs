@@ -492,6 +492,48 @@ fn setup_verifier_terminal(ctx: &mut SceneSetupContext, config: AutoVerifyConfig
 /// A subtle but important rule lives here: disconnected/exited sessions may still be restored for
 /// visibility, but they are filtered out of focus selection so startup does not land on a dead
 /// terminal.
+pub(crate) fn rehydrate_restored_projection_state(
+    agent_catalog: &AgentCatalog,
+    runtime_index: &AgentRuntimeIndex,
+    notes_state: &mut crate::terminals::TerminalNotesState,
+    task_store: Option<&mut crate::conversations::AgentTaskStore>,
+    conversation_persistence: &ConversationPersistenceState,
+    conversations: &mut ConversationStore,
+    time: &Time,
+) {
+    if let Some(task_store) = task_store {
+        let mut migrated_legacy_notes = false;
+        for (agent_id, session_name) in runtime_index.session_bindings() {
+            let stable_text = agent_catalog
+                .uid(agent_id)
+                .and_then(|agent_uid| notes_state.note_text_by_agent_uid(agent_uid));
+            if let Some(text) = stable_text {
+                let _ = task_store.set_text(agent_id, text);
+                continue;
+            }
+            let legacy_text = notes_state.note_text(session_name).map(str::to_owned);
+            if let Some(text) = legacy_text.as_deref() {
+                let _ = task_store.set_text(agent_id, text);
+                migrated_legacy_notes |= notes_state.remove_legacy_note_text(session_name);
+            }
+        }
+        if migrated_legacy_notes {
+            crate::terminals::mark_terminal_notes_dirty(notes_state, Some(time));
+        }
+    }
+
+    if let Some(path) = conversation_persistence.path.as_ref() {
+        restore_persisted_conversations_from_path(
+            path,
+            agent_catalog,
+            runtime_index,
+            conversations,
+        );
+    } else {
+        *conversations = ConversationStore::default();
+    }
+}
+
 fn restore_startup_terminals(ctx: &mut SceneSetupContext) {
     // Walk the lifecycle in explicit stages so each side effect happens only after its prerequisites have been established.
     let mut default_selection = crate::hud::AgentListSelection::None;
@@ -541,36 +583,13 @@ fn restore_startup_terminals(ctx: &mut SceneSetupContext) {
 
     hydrate_startup_owned_tmux_state(ctx);
 
-    if let Some(task_store) = ctx.task_store.as_deref_mut() {
-        let mut migrated_legacy_notes = false;
-        for (agent_id, session_name) in ctx.runtime_index.session_bindings() {
-            let stable_text = ctx
-                .agent_catalog
-                .uid(agent_id)
-                .and_then(|agent_uid| ctx.notes_state.note_text_by_agent_uid(agent_uid));
-            if let Some(text) = stable_text {
-                let _ = task_store.set_text(agent_id, text);
-                continue;
-            }
-            let legacy_text = ctx.notes_state.note_text(session_name).map(str::to_owned);
-            if let Some(text) = legacy_text.as_deref() {
-                let _ = task_store.set_text(agent_id, text);
-                migrated_legacy_notes |= ctx.notes_state.remove_legacy_note_text(session_name);
-            }
-        }
-        if migrated_legacy_notes {
-            crate::terminals::mark_terminal_notes_dirty(&mut ctx.notes_state, Some(&ctx.time));
-        }
-    }
-
-    if let Some(path) = ctx.conversation_persistence.path.as_ref() {
-        restore_persisted_conversations_from_path(
-            path,
-            &ctx.agent_catalog,
-            &ctx.runtime_index,
-            &mut ctx.conversations,
-        );
-    } else {
-        *ctx.conversations = ConversationStore::default();
-    }
+    rehydrate_restored_projection_state(
+        &ctx.agent_catalog,
+        &ctx.runtime_index,
+        &mut ctx.notes_state,
+        ctx.task_store.as_deref_mut(),
+        &ctx.conversation_persistence,
+        &mut ctx.conversations,
+        &ctx.time,
+    );
 }

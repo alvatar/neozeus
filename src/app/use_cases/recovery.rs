@@ -3,10 +3,11 @@ use crate::{
     app::{load_persisted_app_state_from, AppStatePersistenceState},
     conversations::{AgentTaskStore, ConversationPersistenceState, ConversationStore},
     hud::{HudInputCaptureState, TerminalVisibilityState},
+    startup::rehydrate_restored_projection_state,
     terminals::{
-        append_debug_log, ActiveTerminalContentState, OwnedTmuxSessionStore, TerminalFocusState,
-        TerminalManager, TerminalNotesState, TerminalPresentationStore, TerminalRuntimeSpawner,
-        TerminalViewState,
+        append_debug_log, load_terminal_notes_from, ActiveTerminalContentState,
+        OwnedTmuxSessionStore, TerminalFocusState, TerminalManager, TerminalNotesState,
+        TerminalPresentationStore, TerminalRuntimeSpawner, TerminalViewState,
     },
 };
 use bevy::{prelude::Time, window::RequestRedraw};
@@ -124,6 +125,19 @@ pub(crate) fn reset_runtime_from_snapshot(
             presentation_store,
             time,
             redraws,
+        );
+        if let Some(path) = notes_state.path.as_ref() {
+            let notes = load_terminal_notes_from(path);
+            notes_state.load(notes);
+        }
+        rehydrate_restored_projection_state(
+            agent_catalog,
+            runtime_index,
+            notes_state,
+            Some(tasks),
+            conversation_persistence,
+            conversations,
+            time,
         );
         let status = crate::app::render_recovery_status_summary(
             "Reset recovery completed",
