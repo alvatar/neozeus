@@ -9,19 +9,20 @@ mod terminals;
 
 use crate::{
     agents::{AgentCatalog, AgentRuntimeIndex},
-    app::AppSessionState,
+    app::{AppCommand, AppSessionState, AppStatePersistenceState},
     conversations::{
         AgentTaskStore, ConversationPersistenceState, ConversationStore, MessageTransportAdapter,
     },
     hud::{
         AgentListView, ComposerView, ConversationListView, HudInputCaptureState, HudLayoutState,
-        HudModalState, InfoBarView, ThreadView,
+        HudModalState, InfoBarView, TerminalVisibilityState, ThreadView,
     },
     terminals::{
         AttachedDaemonSession, DaemonSessionInfo, OwnedTmuxSessionInfo, TerminalBridge,
         TerminalCommand, TerminalDaemonClient, TerminalDaemonClientResource, TerminalDebugStats,
-        TerminalRuntimeSpawner, TerminalRuntimeState, TerminalSnapshot, TerminalSurface,
-        TerminalUpdate, TerminalUpdateMailbox,
+        TerminalNotesState, TerminalPresentationStore, TerminalRuntimeSpawner,
+        TerminalRuntimeState, TerminalSnapshot, TerminalSurface, TerminalUpdate,
+        TerminalUpdateMailbox, TerminalViewState,
     },
 };
 use bevy::{
@@ -30,11 +31,13 @@ use bevy::{
         ButtonState,
     },
     prelude::*,
+    window::RequestRedraw,
 };
 use std::{
     collections::BTreeSet,
     fs,
-    path::PathBuf,
+    path::{Path, PathBuf},
+    process::Command,
     sync::{mpsc, Arc, Mutex},
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -67,6 +70,43 @@ pub(super) fn temp_dir(prefix: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("{prefix}-{nanos}"));
     fs::create_dir_all(&dir).expect("failed to create temp dir");
     dir
+}
+
+pub(super) fn write_pi_session_file(path: &Path, cwd: &str) {
+    let escaped_cwd = cwd.replace('\\', "\\\\").replace('"', "\\\"");
+    let content = format!(
+        "{{\"type\":\"session\",\"version\":3,\"id\":\"parent-id\",\"timestamp\":\"2026-01-01T00:00:00Z\",\"cwd\":\"{escaped_cwd}\"}}\n{{\"type\":\"message\",\"id\":\"m1\",\"message\":{{\"role\":\"user\",\"content\":\"hello\"}}}}\n"
+    );
+    fs::write(path, content).expect("Pi session should write");
+}
+
+fn run_git_test_command(repo_root: &Path, args: &[&str]) {
+    let output = Command::new(args[0])
+        .current_dir(repo_root)
+        .args(&args[1..])
+        .output()
+        .expect("command should run");
+    assert!(
+        output.status.success(),
+        "command {:?} failed: {}",
+        args,
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+pub(super) fn init_git_repo(prefix: &str) -> PathBuf {
+    let repo = temp_dir(prefix);
+    run_git_test_command(&repo, &["git", "init"]);
+    run_git_test_command(
+        &repo,
+        &["git", "config", "user.email", "neozeus@example.test"],
+    );
+    run_git_test_command(&repo, &["git", "config", "user.name", "NeoZeus Test"]);
+    fs::write(repo.join("README.md"), "seed\n").expect("seed file should write");
+    run_git_test_command(&repo, &["git", "add", "README.md"]);
+    run_git_test_command(&repo, &["git", "commit", "-m", "initial"]);
+    run_git_test_command(&repo, &["git", "branch", "-M", "main"]);
+    repo
 }
 
 /// Creates a test terminal bridge together with handles that let the test inspect what was sent.
@@ -279,6 +319,57 @@ pub(super) fn insert_terminal_manager_resources(
 ///
 /// This is the lower-level helper used when a test wants exact control over layout, modal, and input
 /// capture state instead of the defaults from [`insert_default_hud_resources`].
+pub(super) fn ensure_shared_app_command_test_resources(world: &mut World) {
+    if !world.contains_resource::<Time<()>>() {
+        world.insert_resource(Time::<()>::default());
+    }
+    if !world.contains_resource::<Assets<Image>>() {
+        world.insert_resource(Assets::<Image>::default());
+    }
+    if !world.contains_resource::<TerminalPresentationStore>() {
+        world.insert_resource(TerminalPresentationStore::default());
+    }
+    if !world.contains_resource::<TerminalRuntimeSpawner>() {
+        world.insert_resource(fake_runtime_spawner(Arc::new(FakeDaemonClient::default())));
+    }
+    if !world.contains_resource::<ConversationStore>() {
+        world.insert_resource(ConversationStore::default());
+    }
+    if !world.contains_resource::<ConversationPersistenceState>() {
+        world.insert_resource(ConversationPersistenceState::default());
+    }
+    if !world.contains_resource::<AgentTaskStore>() {
+        world.insert_resource(AgentTaskStore::default());
+    }
+    if !world.contains_resource::<MessageTransportAdapter>() {
+        world.insert_resource(MessageTransportAdapter);
+    }
+    if !world.contains_resource::<crate::aegis::AegisPolicyStore>() {
+        world.insert_resource(crate::aegis::AegisPolicyStore::default());
+    }
+    if !world.contains_resource::<crate::aegis::AegisRuntimeStore>() {
+        world.insert_resource(crate::aegis::AegisRuntimeStore::default());
+    }
+    if !world.contains_resource::<TerminalNotesState>() {
+        world.insert_resource(TerminalNotesState::default());
+    }
+    if !world.contains_resource::<AppStatePersistenceState>() {
+        world.insert_resource(AppStatePersistenceState::default());
+    }
+    if !world.contains_resource::<TerminalVisibilityState>() {
+        world.insert_resource(TerminalVisibilityState::default());
+    }
+    if !world.contains_resource::<TerminalViewState>() {
+        world.insert_resource(TerminalViewState::default());
+    }
+    if !world.contains_resource::<Messages<AppCommand>>() {
+        world.init_resource::<Messages<AppCommand>>();
+    }
+    if !world.contains_resource::<Messages<RequestRedraw>>() {
+        world.init_resource::<Messages<RequestRedraw>>();
+    }
+}
+
 pub(super) fn insert_hud_resources(
     world: &mut World,
     layout_state: HudLayoutState,

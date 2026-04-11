@@ -1,7 +1,8 @@
 use super::{
-    capturing_bridge, fake_runtime_spawner, insert_default_hud_resources,
-    insert_terminal_manager_resources, insert_test_hud_state, pressed_text,
-    snapshot_test_hud_state, test_bridge, FakeDaemonClient,
+    capturing_bridge, ensure_shared_app_command_test_resources, fake_runtime_spawner,
+    init_git_repo, insert_default_hud_resources, insert_terminal_manager_resources,
+    insert_test_hud_state, pressed_text, snapshot_test_hud_state, test_bridge,
+    write_pi_session_file, FakeDaemonClient,
 };
 use crate::{
     aegis::DEFAULT_AEGIS_PROMPT,
@@ -36,7 +37,6 @@ use crate::{
 };
 use bevy::{
     app::AppExit,
-    asset::Assets,
     ecs::system::RunSystemOnce,
     input::{
         keyboard::{Key, KeyboardInput},
@@ -44,8 +44,8 @@ use bevy::{
         ButtonInput, ButtonState,
     },
     prelude::{
-        Entity, Image, KeyCode, Messages, MouseButton, Query, Res, Single, Time, Vec2, Visibility,
-        Window, With, World,
+        Entity, KeyCode, Messages, MouseButton, Query, Res, Single, Time, Vec2, Visibility, Window,
+        With, World,
     },
     window::{PrimaryWindow, RequestRedraw},
 };
@@ -103,25 +103,12 @@ fn drain_hud_commands(world: &mut World) -> Vec<AppCommand> {
 /// Ensures app command world resources exists and returns its identifier.
 fn ensure_app_command_world_resources(world: &mut World) {
     // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
-    if !world.contains_resource::<Time<()>>() {
-        world.insert_resource(Time::<()>::default());
-    }
-    if !world.contains_resource::<Assets<Image>>() {
-        world.insert_resource(Assets::<Image>::default());
-    }
-    if !world.contains_resource::<crate::terminals::TerminalPresentationStore>() {
-        world.insert_resource(crate::terminals::TerminalPresentationStore::default());
-    }
+    ensure_shared_app_command_test_resources(world);
     if !world.contains_resource::<TerminalManager>() {
         world.insert_resource(TerminalManager::default());
     }
     if !world.contains_resource::<crate::terminals::TerminalFocusState>() {
         world.insert_resource(crate::terminals::TerminalFocusState::default());
-    }
-    if !world.contains_resource::<crate::terminals::TerminalRuntimeSpawner>() {
-        world.insert_resource(fake_runtime_spawner(std::sync::Arc::new(
-            FakeDaemonClient::default(),
-        )));
     }
     if !world.contains_resource::<AgentCatalog>() {
         world.insert_resource(AgentCatalog::default());
@@ -134,36 +121,6 @@ fn ensure_app_command_world_resources(world: &mut World) {
         world.insert_resource(crate::aegis::AegisPolicyStore::default());
         world.insert_resource(crate::aegis::AegisRuntimeStore::default());
     }
-    if !world.contains_resource::<crate::aegis::AegisPolicyStore>() {
-        world.insert_resource(crate::aegis::AegisPolicyStore::default());
-    }
-    if !world.contains_resource::<crate::aegis::AegisRuntimeStore>() {
-        world.insert_resource(crate::aegis::AegisRuntimeStore::default());
-    }
-    if !world.contains_resource::<ConversationStore>() {
-        world.insert_resource(ConversationStore::default());
-    }
-    if !world.contains_resource::<crate::conversations::ConversationPersistenceState>() {
-        world.insert_resource(crate::conversations::ConversationPersistenceState::default());
-    }
-    if !world.contains_resource::<AgentTaskStore>() {
-        world.insert_resource(AgentTaskStore::default());
-    }
-    if !world.contains_resource::<MessageTransportAdapter>() {
-        world.insert_resource(MessageTransportAdapter);
-    }
-    if !world.contains_resource::<TerminalNotesState>() {
-        world.insert_resource(TerminalNotesState::default());
-    }
-    if !world.contains_resource::<AppStatePersistenceState>() {
-        world.insert_resource(AppStatePersistenceState::default());
-    }
-    if !world.contains_resource::<TerminalVisibilityState>() {
-        world.insert_resource(TerminalVisibilityState::default());
-    }
-    if !world.contains_resource::<crate::terminals::TerminalViewState>() {
-        world.insert_resource(crate::terminals::TerminalViewState::default());
-    }
     if !world.contains_resource::<crate::hud::HudInputCaptureState>() {
         world.insert_resource(crate::hud::HudInputCaptureState::default());
     }
@@ -173,70 +130,12 @@ fn ensure_app_command_world_resources(world: &mut World) {
     if !world.contains_resource::<Messages<AppCommand>>() {
         world.init_resource::<Messages<AppCommand>>();
     }
-    if !world.contains_resource::<Messages<RequestRedraw>>() {
-        world.init_resource::<Messages<RequestRedraw>>();
-    }
 }
 
 /// Handles run app command cycle.
 fn run_app_command_cycle(world: &mut World) {
     ensure_app_command_world_resources(world);
     crate::app::run_apply_app_commands(world);
-}
-
-fn write_pi_session_file(path: &std::path::Path, cwd: &str) {
-    let escaped_cwd = cwd.replace('\\', "\\\\").replace('"', "\\\"");
-    let content = format!(
-        "{{\"type\":\"session\",\"version\":3,\"id\":\"parent-id\",\"timestamp\":\"2026-01-01T00:00:00Z\",\"cwd\":\"{escaped_cwd}\"}}\n{{\"type\":\"message\",\"id\":\"m1\",\"message\":{{\"role\":\"user\",\"content\":\"hello\"}}}}\n"
-    );
-    std::fs::write(path, content).expect("Pi session should write");
-}
-
-fn init_git_repo() -> std::path::PathBuf {
-    let repo = std::path::PathBuf::from("/tmp").join(format!(
-        "neozeus-input-clone-worktree-{}",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|duration| duration.as_nanos())
-            .unwrap_or(0)
-    ));
-    std::fs::create_dir_all(&repo).expect("repo dir should create");
-    for args in [
-        vec!["git", "init"],
-        vec!["git", "config", "user.email", "neozeus@example.test"],
-        vec!["git", "config", "user.name", "NeoZeus Test"],
-    ] {
-        let output = std::process::Command::new(args[0])
-            .current_dir(&repo)
-            .args(&args[1..])
-            .output()
-            .expect("git command should run");
-        assert!(
-            output.status.success(),
-            "command {:?} failed: {}",
-            args,
-            String::from_utf8_lossy(&output.stderr)
-        );
-    }
-    std::fs::write(repo.join("README.md"), "seed\n").unwrap();
-    for args in [
-        vec!["git", "add", "README.md"],
-        vec!["git", "commit", "-m", "initial"],
-        vec!["git", "branch", "-M", "main"],
-    ] {
-        let output = std::process::Command::new(args[0])
-            .current_dir(&repo)
-            .args(&args[1..])
-            .output()
-            .expect("git command should run");
-        assert!(
-            output.status.success(),
-            "command {:?} failed: {}",
-            args,
-            String::from_utf8_lossy(&output.stderr)
-        );
-    }
-    repo
 }
 
 /// Injects one keyboard event into the modal-editor keyboard handler under test.
@@ -777,7 +676,7 @@ fn end_to_end_clone_shortcut_plain_clone_creates_agent() {
 fn end_to_end_clone_shortcut_workdir_clone_creates_agent() {
     let client = std::sync::Arc::new(FakeDaemonClient::default());
     let mut world = World::default();
-    let repo = init_git_repo();
+    let repo = init_git_repo("neozeus-input-clone-worktree");
     let source_session = repo.join("source.jsonl");
     write_pi_session_file(&source_session, repo.to_str().unwrap());
 

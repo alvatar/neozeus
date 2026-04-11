@@ -1,6 +1,7 @@
 use super::{
-    fake_runtime_spawner, insert_default_hud_resources, insert_terminal_manager_resources,
-    insert_test_hud_state, pressed_text, snapshot_test_hud_state, temp_dir, test_bridge,
+    ensure_shared_app_command_test_resources, fake_runtime_spawner, init_git_repo,
+    insert_default_hud_resources, insert_terminal_manager_resources, insert_test_hud_state,
+    pressed_text, snapshot_test_hud_state, temp_dir, test_bridge, write_pi_session_file,
     FakeDaemonClient,
 };
 use crate::agents::{AgentCatalog, AgentRuntimeIndex};
@@ -111,50 +112,7 @@ fn drain_hud_commands(world: &mut World) -> Vec<AppCommand> {
 /// Handles run app commands.
 fn run_app_commands(world: &mut World) {
     // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
-    if !world.contains_resource::<Time<()>>() {
-        world.insert_resource(Time::<()>::default());
-    }
-    if !world.contains_resource::<Assets<Image>>() {
-        world.insert_resource(Assets::<Image>::default());
-    }
-    if !world.contains_resource::<TerminalPresentationStore>() {
-        world.insert_resource(TerminalPresentationStore::default());
-    }
-    if !world.contains_resource::<crate::terminals::TerminalRuntimeSpawner>() {
-        world.insert_resource(fake_runtime_spawner(Arc::new(FakeDaemonClient::default())));
-    }
-    if !world.contains_resource::<crate::conversations::ConversationStore>() {
-        world.insert_resource(crate::conversations::ConversationStore::default());
-    }
-    if !world.contains_resource::<crate::conversations::AgentTaskStore>() {
-        world.insert_resource(crate::conversations::AgentTaskStore::default());
-    }
-    if !world.contains_resource::<crate::conversations::ConversationPersistenceState>() {
-        world.insert_resource(crate::conversations::ConversationPersistenceState::default());
-    }
-    if !world.contains_resource::<crate::conversations::MessageTransportAdapter>() {
-        world.insert_resource(crate::conversations::MessageTransportAdapter);
-    }
-    if !world.contains_resource::<crate::aegis::AegisPolicyStore>() {
-        world.insert_resource(crate::aegis::AegisPolicyStore::default());
-    }
-    if !world.contains_resource::<crate::aegis::AegisRuntimeStore>() {
-        world.insert_resource(crate::aegis::AegisRuntimeStore::default());
-    }
-    if !world.contains_resource::<TerminalNotesState>() {
-        world.insert_resource(TerminalNotesState::default());
-    }
-    if !world.contains_resource::<AppStatePersistenceState>() {
-        world.insert_resource(AppStatePersistenceState::default());
-    }
-    if !world.contains_resource::<TerminalVisibilityState>() {
-        world.insert_resource(TerminalVisibilityState::default());
-    }
-    if !world.contains_resource::<TerminalViewState>() {
-        world.insert_resource(TerminalViewState::default());
-    }
-    world.init_resource::<Messages<AppCommand>>();
-    world.init_resource::<Messages<RequestRedraw>>();
+    ensure_shared_app_command_test_resources(world);
     crate::app::run_apply_app_commands(world);
     world
         .run_system_once(crate::conversations::sync_task_notes_projection)
@@ -180,50 +138,6 @@ fn clone_test_world(client: Arc<FakeDaemonClient>) -> World {
     world.init_resource::<Messages<AppCommand>>();
     world.init_resource::<Messages<RequestRedraw>>();
     world
-}
-
-fn write_pi_session_file(path: &std::path::Path, cwd: &str) {
-    let escaped_cwd = cwd.replace('\\', "\\\\").replace('"', "\\\"");
-    let content = format!(
-        "{{\"type\":\"session\",\"version\":3,\"id\":\"parent-id\",\"timestamp\":\"2026-01-01T00:00:00Z\",\"cwd\":\"{escaped_cwd}\"}}\n{{\"type\":\"message\",\"id\":\"m1\",\"message\":{{\"role\":\"user\",\"content\":\"hello\"}}}}\n"
-    );
-    fs::write(path, content).expect("Pi session should write");
-}
-
-fn run_git(repo_root: &PathBuf, args: &[&str]) {
-    let output = Command::new(args[0])
-        .current_dir(repo_root)
-        .args(&args[1..])
-        .output()
-        .expect("command should run");
-    assert!(
-        output.status.success(),
-        "command {:?} failed: {}",
-        args,
-        String::from_utf8_lossy(&output.stderr)
-    );
-}
-
-fn init_git_repo() -> PathBuf {
-    let repo = PathBuf::from("/tmp").join(format!(
-        "neozeus-clone-worktree-{}",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|duration| duration.as_nanos())
-            .unwrap_or(0)
-    ));
-    fs::create_dir_all(&repo).expect("repo dir should create");
-    run_git(&repo, &["git", "init"]);
-    run_git(
-        &repo,
-        &["git", "config", "user.email", "neozeus@example.test"],
-    );
-    run_git(&repo, &["git", "config", "user.name", "NeoZeus Test"]);
-    fs::write(repo.join("README.md"), "seed\n").unwrap();
-    run_git(&repo, &["git", "add", "README.md"]);
-    run_git(&repo, &["git", "commit", "-m", "initial"]);
-    run_git(&repo, &["git", "branch", "-M", "main"]);
-    repo
 }
 
 /// Verifies that widget toggles snap visibility immediately instead of fading over later animation
@@ -2109,7 +2023,7 @@ fn clone_agent_request_creates_top_level_pi_clone_and_focuses_it() {
 fn clone_agent_request_creates_workdir_clone_and_persists_metadata() {
     let client = Arc::new(FakeDaemonClient::default());
     let mut world = clone_test_world(client.clone());
-    let repo = init_git_repo();
+    let repo = init_git_repo("neozeus-clone-worktree");
     let source_session = repo.join("source.jsonl");
     write_pi_session_file(&source_session, repo.to_str().unwrap());
     let source_agent = world
@@ -2192,7 +2106,7 @@ fn clone_agent_request_creates_workdir_clone_and_persists_metadata() {
 fn clone_agent_request_sanitizes_workdir_slug_without_changing_display_label() {
     let client = Arc::new(FakeDaemonClient::default());
     let mut world = clone_test_world(client.clone());
-    let repo = init_git_repo();
+    let repo = init_git_repo("neozeus-clone-worktree");
     let source_session = repo.join("source.jsonl");
     write_pi_session_file(&source_session, repo.to_str().unwrap());
     let source_agent = world
