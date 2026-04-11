@@ -2,7 +2,6 @@ use crate::{
     composer::ComposerMode,
     conversations::{
         mark_conversations_dirty, AgentTaskStore, ConversationPersistenceState, ConversationStore,
-        MessageTransportAdapter,
     },
     hud::HudInputCaptureState,
 };
@@ -12,50 +11,46 @@ use bevy::window::RequestRedraw;
 
 use super::{send_message, set_task_text};
 
-#[allow(
-    clippy::too_many_arguments,
-    reason = "composer submit fans out into message or task use cases"
-)]
+pub(crate) struct ComposerSubmitContext<'a, 'w> {
+    pub(crate) app_session: &'a mut AppSessionState,
+    pub(crate) conversations: &'a mut ConversationStore,
+    pub(crate) conversation_persistence: &'a mut ConversationPersistenceState,
+    pub(crate) tasks: &'a mut AgentTaskStore,
+    pub(crate) runtime_index: &'a crate::agents::AgentRuntimeIndex,
+    pub(crate) runtime_spawner: &'a crate::terminals::TerminalRuntimeSpawner,
+    pub(crate) time: &'a bevy::prelude::Time,
+    pub(crate) redraws: &'a mut bevy::prelude::MessageWriter<'w, RequestRedraw>,
+}
+
 /// Handles submit composer.
-pub(crate) fn submit_composer(
-    app_session: &mut AppSessionState,
-    conversations: &mut ConversationStore,
-    conversation_persistence: &mut ConversationPersistenceState,
-    tasks: &mut AgentTaskStore,
-    runtime_index: &crate::agents::AgentRuntimeIndex,
-    runtime_spawner: &crate::terminals::TerminalRuntimeSpawner,
-    transport: &MessageTransportAdapter,
-    time: &bevy::prelude::Time,
-    redraws: &mut bevy::prelude::MessageWriter<RequestRedraw>,
-) {
+pub(crate) fn submit_composer(ctx: &mut ComposerSubmitContext<'_, '_>) {
     // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
-    let Some(session) = app_session.composer.session.clone() else {
+    let Some(session) = ctx.app_session.composer.session.clone() else {
         return;
     };
     match session.mode {
         ComposerMode::Message { agent_id } => {
-            let body = app_session.composer.message_editor.text.clone();
+            let body = ctx.app_session.composer.message_editor.text.clone();
             if !body.trim().is_empty() {
                 send_message(
-                    conversations.ensure_conversation(agent_id),
+                    ctx.conversations.ensure_conversation(agent_id),
                     agent_id,
                     body,
-                    conversations,
-                    transport,
-                    runtime_index,
-                    runtime_spawner,
+                    ctx.conversations,
+                    ctx.runtime_index,
+                    ctx.runtime_spawner,
                 );
-                mark_conversations_dirty(conversation_persistence, Some(time));
+                mark_conversations_dirty(ctx.conversation_persistence, Some(ctx.time));
             }
-            app_session.composer.discard_current_message();
+            ctx.app_session.composer.discard_current_message();
         }
         ComposerMode::TaskEdit { agent_id } => {
-            let text = app_session.composer.task_editor.text.clone();
-            let _ = set_task_text(agent_id, &text, tasks);
-            app_session.composer.close_task_editor();
+            let text = ctx.app_session.composer.task_editor.text.clone();
+            let _ = set_task_text(agent_id, &text, ctx.tasks);
+            ctx.app_session.composer.close_task_editor();
         }
     }
-    redraws.write(RequestRedraw);
+    ctx.redraws.write(RequestRedraw);
 }
 
 /// Handles cancel composer.

@@ -14,9 +14,10 @@ mod terminals;
 mod widgets;
 
 pub(crate) use aegis::{disable_aegis, enable_aegis};
-pub(crate) use clone_agent::clone_agent;
+pub(crate) use clone_agent::{clone_agent, CloneAgentContext};
 pub(crate) use composer::{
     cancel_composer, clear_composer_and_direct_input, open_composer, submit_composer,
+    ComposerSubmitContext,
 };
 pub(crate) use conversation::{send_message, send_outbound_message, OutboundMessageSource};
 pub(crate) use daemon_metadata::{sync_agent_metadata_to_daemon, sync_session_agent_metadata};
@@ -26,7 +27,7 @@ pub(crate) use focus_agent::{
     FocusMutationContext, FocusProjectionContext,
 };
 pub(crate) use kill_selected_agent::{kill_selected_agent, KillSelectedAgentContext};
-pub(crate) use owned_tmux::{kill_selected_owned_tmux, select_owned_tmux};
+pub(crate) use owned_tmux::{kill_selected_owned_tmux, select_owned_tmux, OwnedTmuxContext};
 pub(crate) use recovery::{reset_runtime_from_snapshot, ResetRuntimeContext};
 pub(crate) use restore_app::{render_recovery_status_summary, restore_app, RestoreAppContext};
 pub(crate) use spawn_agent_terminal::{

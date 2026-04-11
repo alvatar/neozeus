@@ -1,10 +1,7 @@
 use crate::{
     agents::{AgentCatalog, AgentId, AgentRuntimeIndex, AgentStatus, AgentStatusStore},
     app::{send_outbound_message, OutboundMessageSource},
-    conversations::{
-        mark_conversations_dirty, ConversationPersistenceState, ConversationStore,
-        MessageTransportAdapter,
-    },
+    conversations::{mark_conversations_dirty, ConversationPersistenceState, ConversationStore},
     terminals::TerminalRuntimeSpawner,
 };
 use bevy::prelude::{Res, ResMut, Resource, Time};
@@ -180,7 +177,6 @@ pub(crate) fn advance_aegis_runtime(
     mut status_tracker: ResMut<AegisStatusTracker>,
     mut conversations: ResMut<ConversationStore>,
     mut conversation_persistence: ResMut<ConversationPersistenceState>,
-    transport: Res<MessageTransportAdapter>,
     runtime_index: Res<AgentRuntimeIndex>,
     runtime_spawner: Res<TerminalRuntimeSpawner>,
 ) {
@@ -260,7 +256,6 @@ pub(crate) fn advance_aegis_runtime(
                     policy.prompt_text.clone(),
                     OutboundMessageSource::Aegis,
                     &mut conversations,
-                    &transport,
                     &runtime_index,
                     &runtime_spawner,
                 );
@@ -386,7 +381,7 @@ mod tests {
         world.insert_resource(AegisStatusTracker::default());
         world.insert_resource(ConversationStore::default());
         world.insert_resource(ConversationPersistenceState::default());
-        world.insert_resource(MessageTransportAdapter);
+        world.insert_resource(crate::conversations::MessageTransportAdapter);
         world.insert_resource(runtime_index);
         world.insert_resource(fake_runtime_spawner(client.clone()));
         (world, agent_id, agent_uid, client)

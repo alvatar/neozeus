@@ -1,8 +1,6 @@
 use crate::{
     agents::{AgentId, AgentRuntimeIndex},
-    conversations::{
-        ConversationStore, MessageAuthor, MessageDeliveryState, MessageTransportAdapter,
-    },
+    conversations::{ConversationStore, MessageAuthor, MessageDeliveryState},
     terminals::TerminalRuntimeSpawner,
 };
 
@@ -21,10 +19,6 @@ impl OutboundMessageSource {
     }
 }
 
-#[allow(
-    clippy::too_many_arguments,
-    reason = "message send spans domain store, transport adapter, and runtime mapping"
-)]
 /// Sends one outbound agent message through the canonical conversation/runtime path.
 pub(crate) fn send_outbound_message(
     conversation_id: crate::conversations::ConversationId,
@@ -32,7 +26,6 @@ pub(crate) fn send_outbound_message(
     body: String,
     source: OutboundMessageSource,
     conversations: &mut ConversationStore,
-    _transport: &MessageTransportAdapter,
     runtime_index: &AgentRuntimeIndex,
     runtime_spawner: &TerminalRuntimeSpawner,
 ) -> Result<u64, String> {
@@ -68,7 +61,6 @@ pub(crate) fn send_message(
     sender: AgentId,
     body: String,
     conversations: &mut ConversationStore,
-    transport: &MessageTransportAdapter,
     runtime_index: &AgentRuntimeIndex,
     runtime_spawner: &TerminalRuntimeSpawner,
 ) {
@@ -78,7 +70,6 @@ pub(crate) fn send_message(
         body,
         OutboundMessageSource::User,
         conversations,
-        transport,
         runtime_index,
         runtime_spawner,
     );
@@ -88,7 +79,6 @@ pub(crate) fn send_message(
 mod tests {
     use super::*;
     use crate::{
-        conversations::MessageTransportAdapter,
         terminals::TerminalCommand,
         tests::{fake_runtime_spawner, FakeDaemonClient},
     };
@@ -118,7 +108,6 @@ mod tests {
             "continue cleanly".into(),
             OutboundMessageSource::Aegis,
             &mut conversations,
-            &MessageTransportAdapter,
             &runtime_index,
             &runtime_spawner,
         )
@@ -167,7 +156,6 @@ mod tests {
             "continue cleanly".into(),
             OutboundMessageSource::Aegis,
             &mut conversations,
-            &MessageTransportAdapter,
             &runtime_index,
             &runtime_spawner,
         )

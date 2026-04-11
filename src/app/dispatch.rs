@@ -3,7 +3,6 @@ use crate::{
     app::{mark_app_state_dirty, AppStatePersistenceState},
     conversations::{
         mark_conversations_dirty, AgentTaskStore, ConversationPersistenceState, ConversationStore,
-        MessageTransportAdapter,
     },
     hud::{HudInputCaptureState, HudLayoutState, TerminalVisibilityState},
     terminals::{
@@ -301,7 +300,6 @@ pub(super) struct AppCommandContext<'w> {
     notes_state: ResMut<'w, TerminalNotesState>,
     aegis_policy: ResMut<'w, crate::aegis::AegisPolicyStore>,
     aegis_runtime: ResMut<'w, crate::aegis::AegisRuntimeStore>,
-    transport: Res<'w, MessageTransportAdapter>,
     app_state_persistence: ResMut<'w, AppStatePersistenceState>,
     visibility_state: ResMut<'w, TerminalVisibilityState>,
     view_state: ResMut<'w, TerminalViewState>,
@@ -398,26 +396,29 @@ fn apply_agent_command(command: &AgentCommand, ctx: &mut AppCommandContext) {
             label,
             workdir,
         } => {
-            if let Err(error) = use_cases::clone_agent(
-                &mut ctx.agent_catalog,
-                &mut ctx.runtime_index,
-                &mut ctx.app_session,
-                &mut ctx.selection,
-                &mut ctx.terminal_manager,
-                &mut ctx.focus_state,
-                &ctx.owned_tmux_sessions,
-                &mut ctx.active_terminal_content,
-                &ctx.runtime_spawner,
-                &mut ctx.input_capture,
-                &mut ctx.app_state_persistence,
-                &mut ctx.visibility_state,
-                &mut ctx.view_state,
-                &ctx.time,
-                *source_agent_id,
-                label,
-                *workdir,
-                &mut ctx.redraws,
-            ) {
+            let mut clone_ctx = use_cases::CloneAgentContext {
+                spawn: use_cases::SpawnAgentContext {
+                    agent_catalog: &mut ctx.agent_catalog,
+                    runtime_index: &mut ctx.runtime_index,
+                    app_session: &mut ctx.app_session,
+                    selection: &mut ctx.selection,
+                    terminal_manager: &mut ctx.terminal_manager,
+                    focus_state: &mut ctx.focus_state,
+                    owned_tmux_sessions: &ctx.owned_tmux_sessions,
+                    active_terminal_content: &mut ctx.active_terminal_content,
+                    runtime_spawner: &ctx.runtime_spawner,
+                    input_capture: &mut ctx.input_capture,
+                    app_state_persistence: &mut ctx.app_state_persistence,
+                    visibility_state: &mut ctx.visibility_state,
+                    view_state: &mut ctx.view_state,
+                    presentation_store: None,
+                    time: &ctx.time,
+                    redraws: &mut ctx.redraws,
+                },
+            };
+            if let Err(error) =
+                use_cases::clone_agent(*source_agent_id, label, *workdir, &mut clone_ctx)
+            {
                 ctx.app_session.clone_agent_dialog.error = Some(error.clone());
                 append_debug_log(format!("clone agent failed: {error}"));
                 ctx.redraws.write(RequestRedraw);
@@ -532,22 +533,22 @@ fn apply_agent_command(command: &AgentCommand, ctx: &mut AppCommandContext) {
 fn apply_owned_tmux_command(command: &OwnedTmuxCommand, ctx: &mut AppCommandContext) {
     match command {
         OwnedTmuxCommand::Select { session_uid } => {
-            use_cases::select_owned_tmux(
-                session_uid,
-                &mut ctx.selection,
-                &ctx.agent_catalog,
-                &ctx.runtime_index,
-                &mut ctx.app_session,
-                &mut ctx.terminal_manager,
-                &mut ctx.focus_state,
-                &mut ctx.input_capture,
-                &mut ctx.view_state,
-                &mut ctx.visibility_state,
-                &ctx.runtime_spawner,
-                &mut ctx.owned_tmux_sessions,
-                &mut ctx.active_terminal_content,
-                &mut ctx.redraws,
-            );
+            let mut owned_tmux_ctx = use_cases::OwnedTmuxContext {
+                app_session: &mut ctx.app_session,
+                selection: &mut ctx.selection,
+                agent_catalog: &ctx.agent_catalog,
+                runtime_index: &ctx.runtime_index,
+                terminal_manager: &mut ctx.terminal_manager,
+                focus_state: &mut ctx.focus_state,
+                input_capture: &mut ctx.input_capture,
+                view_state: &mut ctx.view_state,
+                visibility_state: &mut ctx.visibility_state,
+                runtime_spawner: &ctx.runtime_spawner,
+                owned_tmux_sessions: &mut ctx.owned_tmux_sessions,
+                active_terminal_content: &mut ctx.active_terminal_content,
+                redraws: &mut ctx.redraws,
+            };
+            use_cases::select_owned_tmux(session_uid, &mut owned_tmux_ctx);
         }
         OwnedTmuxCommand::ClearSelection => {
             let mut focus_ctx = use_cases::FocusMutationContext {
@@ -569,21 +570,22 @@ fn apply_owned_tmux_command(command: &OwnedTmuxCommand, ctx: &mut AppCommandCont
             use_cases::clear_focus_without_persist(VisibilityMode::ShowAll, &mut focus_ctx);
         }
         OwnedTmuxCommand::KillSelected => {
-            use_cases::kill_selected_owned_tmux(
-                &mut ctx.app_session,
-                &ctx.agent_catalog,
-                &ctx.runtime_index,
-                &mut ctx.terminal_manager,
-                &mut ctx.focus_state,
-                &mut ctx.input_capture,
-                &mut ctx.view_state,
-                &mut ctx.visibility_state,
-                &ctx.runtime_spawner,
-                &mut ctx.selection,
-                &mut ctx.owned_tmux_sessions,
-                &mut ctx.active_terminal_content,
-                &mut ctx.redraws,
-            );
+            let mut owned_tmux_ctx = use_cases::OwnedTmuxContext {
+                app_session: &mut ctx.app_session,
+                selection: &mut ctx.selection,
+                agent_catalog: &ctx.agent_catalog,
+                runtime_index: &ctx.runtime_index,
+                terminal_manager: &mut ctx.terminal_manager,
+                focus_state: &mut ctx.focus_state,
+                input_capture: &mut ctx.input_capture,
+                view_state: &mut ctx.view_state,
+                visibility_state: &mut ctx.visibility_state,
+                runtime_spawner: &ctx.runtime_spawner,
+                owned_tmux_sessions: &mut ctx.owned_tmux_sessions,
+                active_terminal_content: &mut ctx.active_terminal_content,
+                redraws: &mut ctx.redraws,
+            };
+            use_cases::kill_selected_owned_tmux(&mut owned_tmux_ctx);
             if let Some(error) = ctx.active_terminal_content.last_error() {
                 append_debug_log(format!("kill owned tmux failed: {error}"));
             }
@@ -638,17 +640,17 @@ fn apply_composer_command(command: &ComposerCommand, ctx: &mut AppCommandContext
             );
         }
         ComposerCommand::Submit => {
-            use_cases::submit_composer(
-                &mut ctx.app_session,
-                &mut ctx.conversations,
-                &mut ctx.conversation_persistence,
-                &mut ctx.task_store,
-                &ctx.runtime_index,
-                &ctx.runtime_spawner,
-                &ctx.transport,
-                &ctx.time,
-                &mut ctx.redraws,
-            );
+            let mut composer_ctx = use_cases::ComposerSubmitContext {
+                app_session: &mut ctx.app_session,
+                conversations: &mut ctx.conversations,
+                conversation_persistence: &mut ctx.conversation_persistence,
+                tasks: &mut ctx.task_store,
+                runtime_index: &ctx.runtime_index,
+                runtime_spawner: &ctx.runtime_spawner,
+                time: &ctx.time,
+                redraws: &mut ctx.redraws,
+            };
+            use_cases::submit_composer(&mut composer_ctx);
         }
         ComposerCommand::Cancel => {
             use_cases::cancel_composer(&mut ctx.app_session, &mut ctx.redraws);

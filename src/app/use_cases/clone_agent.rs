@@ -1,47 +1,31 @@
 use crate::{
-    agents::{AgentCatalog, AgentId, AgentKind, AgentRecoverySpec, AgentRuntimeIndex},
-    app::{mark_app_state_dirty, AppStatePersistenceState},
-    hud::{HudInputCaptureState, TerminalVisibilityState},
+    agents::{AgentId, AgentKind, AgentRecoverySpec},
+    app::mark_app_state_dirty,
     shared::{
         pi_session_files::{fork_session, read_session_header},
         worktree::{create_worktree, get_current_branch, get_worktree_repo_root, worktree_slug},
     },
-    terminals::{
-        ActiveTerminalContentState, OwnedTmuxSessionStore, TerminalFocusState, TerminalManager,
-        TerminalRuntimeSpawner, TerminalViewState, PERSISTENT_SESSION_PREFIX,
-    },
+    terminals::PERSISTENT_SESSION_PREFIX,
 };
-use bevy::{prelude::Time, window::RequestRedraw};
 
 use super::{
     claude_fork_launch_spec, codex_fork_launch_spec, generate_provider_session_id,
     pi_launch_spec_for_session_path, spawn_agent_terminal_with_launch_spec,
 };
 
-#[allow(
-    clippy::too_many_arguments,
-    reason = "clone spans provenance, worktree setup, terminal spawn, and selection side effects"
-)]
+pub(crate) struct CloneAgentContext<'a, 'w> {
+    pub(crate) spawn: super::SpawnAgentContext<'a, 'w>,
+}
+
 pub(crate) fn clone_agent(
-    agent_catalog: &mut AgentCatalog,
-    runtime_index: &mut AgentRuntimeIndex,
-    app_session: &mut crate::app::AppSessionState,
-    selection: &mut crate::hud::AgentListSelection,
-    terminal_manager: &mut TerminalManager,
-    focus_state: &mut TerminalFocusState,
-    owned_tmux_sessions: &OwnedTmuxSessionStore,
-    active_terminal_content: &mut ActiveTerminalContentState,
-    runtime_spawner: &TerminalRuntimeSpawner,
-    input_capture: &mut HudInputCaptureState,
-    app_state_persistence: &mut AppStatePersistenceState,
-    visibility_state: &mut TerminalVisibilityState,
-    view_state: &mut TerminalViewState,
-    time: &Time,
     source_agent_id: AgentId,
     label: &str,
     workdir: bool,
-    redraws: &mut bevy::prelude::MessageWriter<RequestRedraw>,
+    ctx: &mut CloneAgentContext<'_, '_>,
 ) -> Result<AgentId, String> {
+    let agent_catalog = &mut *ctx.spawn.agent_catalog;
+    let time = ctx.spawn.time;
+
     let label = agent_catalog
         .validate_new_label(Some(label))?
         .ok_or_else(|| "agent name is required".to_owned())?;
@@ -113,32 +97,14 @@ pub(crate) fn clone_agent(
         }
     };
 
-    let mut spawn_ctx = super::SpawnAgentContext {
-        agent_catalog,
-        runtime_index,
-        app_session,
-        selection,
-        terminal_manager,
-        focus_state,
-        owned_tmux_sessions,
-        active_terminal_content,
-        runtime_spawner,
-        input_capture,
-        app_state_persistence,
-        visibility_state,
-        view_state,
-        presentation_store: None,
-        time,
-        redraws,
-    };
     let agent_id = spawn_agent_terminal_with_launch_spec(
-        &mut spawn_ctx,
+        &mut ctx.spawn,
         PERSISTENT_SESSION_PREFIX,
         kind,
         Some(label),
         Some(target_cwd.as_str()),
         launch,
     )?;
-    mark_app_state_dirty(app_state_persistence, Some(time));
+    mark_app_state_dirty(ctx.spawn.app_state_persistence, Some(time));
     Ok(agent_id)
 }
