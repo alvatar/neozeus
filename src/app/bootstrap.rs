@@ -51,20 +51,33 @@ use std::{any::Any, env, sync::Arc, time::Duration};
 /// `Result` errors.
 ///
 /// The important detail here is that Bevy/WGPU can still report "no usable GPU" as a panic during
-/// initialization instead of as a recoverable error. This function temporarily installs a panic
-/// hook that suppresses only that known startup panic, runs [`configure_app`] inside
-/// `catch_unwind`, and then restores the previous hook before returning.
+/// initialization instead of as a recoverable error. [`with_startup_panic_policy`] isolates that
+/// process-global hook swap to the smallest possible wrapper around [`configure_app`] and restores
+/// the previous hook before returning.
 ///
 /// If the panic payload matches the missing-GPU case, the payload is converted into a user-facing
 /// error string; any other panic is rethrown unchanged so genuine bugs do not get silently hidden.
 pub(crate) fn build_app() -> Result<App, String> {
     let mut app = App::new();
+    with_startup_panic_policy(|| {
+        configure_app(&mut app)?;
+        Ok(app)
+    })
+}
+
+/// Runs startup-only initialization behind the narrow missing-GPU panic policy.
+///
+/// This is still a process-global hook swap because Rust panic hooks are global, but the mutation
+/// is now scoped to one helper that does nothing except: install the temporary forwarding hook,
+/// execute the startup closure under `catch_unwind`, and restore the prior hook before returning.
+///
+/// Safety/policy notes:
+/// - only the known missing-GPU startup panic is suppressed from the temporary hook path
+/// - non-matching panics are rethrown unchanged after the hook is restored
+/// - ordinary `Result` errors from the closure pass through untouched
+fn with_startup_panic_policy<T>(run: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
     let previous_hook = Arc::new(std::panic::take_hook());
     let forwarding_hook = previous_hook.clone();
-
-    // Bevy/WGPU still reports missing-adapter startup failure through a panic path in practice.
-    // Intercept only that one startup panic so the caller gets a normal error instead of a noisy
-    // crash, but keep forwarding every other panic to the original hook.
     std::panic::set_hook(Box::new(move |info| {
         if panic_payload_message(info.payload()).is_some_and(is_missing_gpu_panic) {
             return;
@@ -72,18 +85,13 @@ pub(crate) fn build_app() -> Result<App, String> {
         (*forwarding_hook)(info);
     }));
 
-    // Run the full app configuration inside `catch_unwind` so startup panics can be inspected and,
-    // for the known missing-GPU case, converted into a regular `Err(String)`.
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| configure_app(&mut app)));
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(run));
 
-    // Always restore the previous panic hook before returning so the temporary startup policy does
-    // not leak into the rest of the process.
     let restore_hook = previous_hook.clone();
     std::panic::set_hook(Box::new(move |info| (*restore_hook)(info)));
 
     match result {
-        Ok(Ok(())) => Ok(app),
-        Ok(Err(error)) => Err(error),
+        Ok(result) => result,
         Err(payload) => {
             if let Some(error) = format_startup_panic(payload.as_ref()) {
                 Err(error)
@@ -212,22 +220,54 @@ pub(crate) fn should_force_x11_backend(
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct LinuxWindowBackendEnvMutation {
+    set_winit_unix_backend: Option<&'static str>,
+    set_xdg_session_type: Option<&'static str>,
+    clear_wayland_display: bool,
+}
+
+fn linux_window_backend_env_mutation(
+    output_mode: OutputMode,
+    backend: LinuxWindowBackend,
+    session_type: Option<&str>,
+    wayland_display: Option<&str>,
+    display: Option<&str>,
+) -> Option<LinuxWindowBackendEnvMutation> {
+    should_force_x11_backend(output_mode, backend, session_type, wayland_display, display)
+        .then_some(LinuxWindowBackendEnvMutation {
+            set_winit_unix_backend: Some("x11"),
+            set_xdg_session_type: Some("x11"),
+            clear_wayland_display: true,
+        })
+}
+
+fn apply_linux_window_backend_env_mutation(mutation: LinuxWindowBackendEnvMutation) {
+    if let Some(value) = mutation.set_winit_unix_backend {
+        env::set_var("WINIT_UNIX_BACKEND", value);
+    }
+    if let Some(value) = mutation.set_xdg_session_type {
+        env::set_var("XDG_SESSION_TYPE", value);
+    }
+    if mutation.clear_wayland_display {
+        env::remove_var("WAYLAND_DISPLAY");
+    }
+}
+
 /// Handles apply linux window backend policy.
 fn apply_linux_window_backend_policy(output_mode: OutputMode) -> bool {
-    let force_x11 = should_force_x11_backend(
+    let mutation = linux_window_backend_env_mutation(
         output_mode,
         resolve_linux_window_backend(env::var("NEOZEUS_LINUX_WINDOW_BACKEND").ok().as_deref()),
         env::var("XDG_SESSION_TYPE").ok().as_deref(),
         env::var("WAYLAND_DISPLAY").ok().as_deref(),
         env::var("DISPLAY").ok().as_deref(),
     );
-    if !force_x11 {
+    let Some(mutation) = mutation else {
         return false;
-    }
+    };
 
-    env::set_var("WINIT_UNIX_BACKEND", "x11");
-    env::set_var("XDG_SESSION_TYPE", "x11");
-    env::remove_var("WAYLAND_DISPLAY");
+    apply_linux_window_backend_env_mutation(mutation);
     true
 }
 
@@ -560,5 +600,86 @@ fn panic_payload_message(payload: &(dyn Any + Send)) -> Option<&str> {
         Some(*message)
     } else {
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        format_startup_panic, linux_window_backend_env_mutation, with_startup_panic_policy,
+        LinuxWindowBackend, LinuxWindowBackendEnvMutation,
+    };
+    use crate::app::output::OutputMode;
+
+    #[test]
+    fn startup_panic_policy_converts_known_missing_gpu_panics() {
+        let error = with_startup_panic_policy::<()>(|| {
+            panic!(
+                "{}: renderer init failed",
+                crate::app_config::GPU_NOT_FOUND_PANIC_FRAGMENT
+            )
+        })
+        .expect_err("missing gpu panic should be converted into an error");
+
+        assert!(error.contains("could not find a usable graphics adapter"));
+    }
+
+    #[test]
+    fn startup_panic_policy_rethrows_unrelated_panics() {
+        let panic = std::panic::catch_unwind(|| {
+            let _ = with_startup_panic_policy::<()>(|| panic!("bug"));
+        })
+        .expect_err("non-startup panic should keep unwinding");
+
+        let message = panic
+            .downcast_ref::<&'static str>()
+            .copied()
+            .or_else(|| panic.downcast_ref::<String>().map(String::as_str));
+        assert_eq!(message, Some("bug"));
+    }
+
+    #[test]
+    fn linux_window_backend_env_mutation_only_exists_for_forced_x11_cases() {
+        let forced = linux_window_backend_env_mutation(
+            OutputMode::Desktop,
+            LinuxWindowBackend::Auto,
+            Some("wayland"),
+            Some("wayland-1"),
+            Some(":0"),
+        );
+        assert_eq!(
+            forced,
+            Some(LinuxWindowBackendEnvMutation {
+                set_winit_unix_backend: Some("x11"),
+                set_xdg_session_type: Some("x11"),
+                clear_wayland_display: true,
+            })
+        );
+
+        assert_eq!(
+            linux_window_backend_env_mutation(
+                OutputMode::Desktop,
+                LinuxWindowBackend::Wayland,
+                Some("wayland"),
+                Some("wayland-1"),
+                Some(":0"),
+            ),
+            None
+        );
+        assert_eq!(
+            linux_window_backend_env_mutation(
+                OutputMode::OffscreenVerify,
+                LinuxWindowBackend::Auto,
+                Some("wayland"),
+                Some("wayland-1"),
+                Some(":0"),
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn startup_panic_formatter_ignores_unrelated_messages() {
+        assert!(format_startup_panic(&"some other panic").is_none());
     }
 }
