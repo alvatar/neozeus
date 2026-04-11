@@ -1,8 +1,8 @@
-#[path = "../tests/hud.rs"]
+#[path = "../tests/hud/mod.rs"]
 mod hud;
-#[path = "../tests/input.rs"]
+#[path = "../tests/input/mod.rs"]
 mod input;
-#[path = "../tests/scene.rs"]
+#[path = "../tests/scene/mod.rs"]
 mod scene;
 #[path = "../tests/terminals.rs"]
 mod terminals;
