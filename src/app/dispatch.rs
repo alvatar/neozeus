@@ -696,30 +696,33 @@ fn apply_aegis_command(command: &AegisCommand, ctx: &mut AppCommandContext) {
 
 fn apply_recovery_command(command: &RecoveryCommand, ctx: &mut AppCommandContext) {
     match command {
-        RecoveryCommand::ResetAll => use_cases::reset_runtime_from_snapshot(
-            &mut ctx.agent_catalog,
-            &mut ctx.runtime_index,
-            &mut ctx.app_session,
-            &mut ctx.selection,
-            &mut ctx.terminal_manager,
-            &mut ctx.focus_state,
-            &mut ctx.owned_tmux_sessions,
-            &mut ctx.active_terminal_content,
-            &ctx.runtime_spawner,
-            &mut ctx.input_capture,
-            &mut ctx.app_state_persistence,
-            &mut ctx.notes_state,
-            &mut ctx.aegis_policy,
-            &mut ctx.aegis_runtime,
-            &mut ctx.visibility_state,
-            &mut ctx.view_state,
-            ctx.presentation_store.as_deref_mut(),
-            &mut ctx.conversations,
-            &mut ctx.conversation_persistence,
-            &mut ctx.task_store,
-            &ctx.time,
-            &mut ctx.redraws,
-        ),
+        RecoveryCommand::ResetAll => {
+            let mut reset_ctx = use_cases::ResetRuntimeContext {
+                agent_catalog: &mut ctx.agent_catalog,
+                runtime_index: &mut ctx.runtime_index,
+                app_session: &mut ctx.app_session,
+                selection: &mut ctx.selection,
+                terminal_manager: &mut ctx.terminal_manager,
+                focus_state: &mut ctx.focus_state,
+                owned_tmux_sessions: &mut ctx.owned_tmux_sessions,
+                active_terminal_content: &mut ctx.active_terminal_content,
+                runtime_spawner: &ctx.runtime_spawner,
+                input_capture: &mut ctx.input_capture,
+                app_state_persistence: &mut ctx.app_state_persistence,
+                notes_state: &mut ctx.notes_state,
+                aegis_policy: &mut ctx.aegis_policy,
+                aegis_runtime: &mut ctx.aegis_runtime,
+                visibility_state: &mut ctx.visibility_state,
+                view_state: &mut ctx.view_state,
+                presentation_store: ctx.presentation_store.as_deref_mut(),
+                conversations: &mut ctx.conversations,
+                conversation_persistence: &mut ctx.conversation_persistence,
+                tasks: &mut ctx.task_store,
+                time: &ctx.time,
+                redraws: &mut ctx.redraws,
+            };
+            use_cases::reset_runtime_from_snapshot(&mut reset_ctx)
+        }
     }
 }
 

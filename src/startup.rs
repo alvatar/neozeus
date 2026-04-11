@@ -679,26 +679,27 @@ fn restore_startup_terminals(ctx: &mut SceneSetupContext) {
         &default_owned_tmux_sessions,
         &mut default_active_terminal_content,
     );
-    let summary = restore_app(
-        &mut ctx.agent_catalog,
-        &mut ctx.runtime_index,
-        &mut ctx.app_session,
-        projection.selection,
-        &mut ctx.terminal_manager,
-        &mut ctx.focus_state,
-        projection.owned_tmux_sessions,
-        projection.active_terminal_content,
-        &ctx.runtime_spawner,
-        &mut ctx.input_capture,
-        &mut ctx.app_state_persistence,
-        &mut ctx.aegis_policy,
-        &mut ctx.aegis_runtime,
-        &mut ctx.visibility_state,
-        &mut ctx.view_state,
-        Some(&mut ctx.presentation_store),
-        &ctx.time,
-        &mut ctx.redraws,
-    );
+    let mut restore_ctx = crate::app::RestoreAppContext {
+        agent_catalog: &mut ctx.agent_catalog,
+        runtime_index: &mut ctx.runtime_index,
+        app_session: &mut ctx.app_session,
+        selection: projection.selection,
+        terminal_manager: &mut ctx.terminal_manager,
+        focus_state: &mut ctx.focus_state,
+        owned_tmux_sessions: projection.owned_tmux_sessions,
+        active_terminal_content: projection.active_terminal_content,
+        runtime_spawner: &ctx.runtime_spawner,
+        input_capture: &mut ctx.input_capture,
+        app_state_persistence: &mut ctx.app_state_persistence,
+        aegis_policy: &mut ctx.aegis_policy,
+        aegis_runtime: &mut ctx.aegis_runtime,
+        visibility_state: &mut ctx.visibility_state,
+        view_state: &mut ctx.view_state,
+        presentation_store: Some(&mut ctx.presentation_store),
+        time: &ctx.time,
+        redraws: &mut ctx.redraws,
+    };
+    let summary = restore_app(&mut restore_ctx);
     if summary.snapshot_found {
         let status = crate::app::render_recovery_status_summary(
             "Automatic recovery completed",

@@ -186,33 +186,48 @@ fn skipped_live_only_restore_message(
     )
 }
 
-#[allow(
-    clippy::too_many_arguments,
-    reason = "restore spans persistence, daemon discovery, agent state, and presentation state"
-)]
+pub(crate) struct RestoreAppContext<'a, 'w> {
+    pub(crate) agent_catalog: &'a mut AgentCatalog,
+    pub(crate) runtime_index: &'a mut AgentRuntimeIndex,
+    pub(crate) app_session: &'a mut AppSessionState,
+    pub(crate) selection: &'a mut crate::hud::AgentListSelection,
+    pub(crate) terminal_manager: &'a mut TerminalManager,
+    pub(crate) focus_state: &'a mut TerminalFocusState,
+    pub(crate) owned_tmux_sessions: &'a OwnedTmuxSessionStore,
+    pub(crate) active_terminal_content: &'a mut ActiveTerminalContentState,
+    pub(crate) runtime_spawner: &'a TerminalRuntimeSpawner,
+    pub(crate) input_capture: &'a mut crate::hud::HudInputCaptureState,
+    pub(crate) app_state_persistence: &'a mut AppStatePersistenceState,
+    pub(crate) aegis_policy: &'a mut AegisPolicyStore,
+    pub(crate) aegis_runtime: &'a mut AegisRuntimeStore,
+    pub(crate) visibility_state: &'a mut crate::hud::TerminalVisibilityState,
+    pub(crate) view_state: &'a mut TerminalViewState,
+    pub(crate) presentation_store: Option<&'a mut TerminalPresentationStore>,
+    pub(crate) time: &'a Time,
+    pub(crate) redraws: &'a mut MessageWriter<'w, bevy::window::RequestRedraw>,
+}
+
 /// Restores app.
-pub(crate) fn restore_app(
-    agent_catalog: &mut AgentCatalog,
-    runtime_index: &mut AgentRuntimeIndex,
-    app_session: &mut AppSessionState,
-    selection: &mut crate::hud::AgentListSelection,
-    terminal_manager: &mut TerminalManager,
-    focus_state: &mut TerminalFocusState,
-    owned_tmux_sessions: &OwnedTmuxSessionStore,
-    active_terminal_content: &mut ActiveTerminalContentState,
-    runtime_spawner: &TerminalRuntimeSpawner,
-    input_capture: &mut crate::hud::HudInputCaptureState,
-    app_state_persistence: &mut AppStatePersistenceState,
-    aegis_policy: &mut AegisPolicyStore,
-    _aegis_runtime: &mut AegisRuntimeStore,
-    visibility_state: &mut crate::hud::TerminalVisibilityState,
-    view_state: &mut TerminalViewState,
-    presentation_store: Option<&mut TerminalPresentationStore>,
-    time: &Time,
-    redraws: &mut MessageWriter<bevy::window::RequestRedraw>,
-) -> RecoveryExecutionSummary {
+pub(crate) fn restore_app(ctx: &mut RestoreAppContext<'_, '_>) -> RecoveryExecutionSummary {
     // Walk the lifecycle in explicit stages so each side effect happens only after its prerequisites have been established.
-    let mut presentation_store = presentation_store;
+    let agent_catalog = &mut *ctx.agent_catalog;
+    let runtime_index = &mut *ctx.runtime_index;
+    let app_session = &mut *ctx.app_session;
+    let selection = &mut *ctx.selection;
+    let terminal_manager = &mut *ctx.terminal_manager;
+    let focus_state = &mut *ctx.focus_state;
+    let owned_tmux_sessions = ctx.owned_tmux_sessions;
+    let active_terminal_content = &mut *ctx.active_terminal_content;
+    let runtime_spawner = ctx.runtime_spawner;
+    let input_capture = &mut *ctx.input_capture;
+    let app_state_persistence = &mut *ctx.app_state_persistence;
+    let aegis_policy = &mut *ctx.aegis_policy;
+    let _aegis_runtime = &mut *ctx.aegis_runtime;
+    let visibility_state = &mut *ctx.visibility_state;
+    let view_state = &mut *ctx.view_state;
+    let mut presentation_store = ctx.presentation_store.take();
+    let time = ctx.time;
+    let redraws = &mut *ctx.redraws;
     let persisted = app_state_persistence
         .path
         .as_ref()

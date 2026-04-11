@@ -14,34 +14,54 @@ use bevy::{prelude::Time, window::RequestRedraw};
 
 use super::{clear_composer_and_direct_input, project_focus_intent, restore_app};
 
-#[allow(
-    clippy::too_many_arguments,
-    reason = "reset spans daemon teardown, local runtime cleanup, and snapshot-driven rebuild"
-)]
-pub(crate) fn reset_runtime_from_snapshot(
-    agent_catalog: &mut AgentCatalog,
-    runtime_index: &mut AgentRuntimeIndex,
-    app_session: &mut crate::app::AppSessionState,
-    selection: &mut crate::hud::AgentListSelection,
-    terminal_manager: &mut TerminalManager,
-    focus_state: &mut TerminalFocusState,
-    owned_tmux_sessions: &mut OwnedTmuxSessionStore,
-    active_terminal_content: &mut ActiveTerminalContentState,
-    runtime_spawner: &TerminalRuntimeSpawner,
-    input_capture: &mut HudInputCaptureState,
-    app_state_persistence: &mut AppStatePersistenceState,
-    notes_state: &mut TerminalNotesState,
-    aegis_policy: &mut crate::aegis::AegisPolicyStore,
-    aegis_runtime: &mut crate::aegis::AegisRuntimeStore,
-    visibility_state: &mut TerminalVisibilityState,
-    view_state: &mut TerminalViewState,
-    presentation_store: Option<&mut TerminalPresentationStore>,
-    conversations: &mut ConversationStore,
-    conversation_persistence: &mut ConversationPersistenceState,
-    tasks: &mut AgentTaskStore,
-    time: &Time,
-    redraws: &mut bevy::prelude::MessageWriter<RequestRedraw>,
-) {
+pub(crate) struct ResetRuntimeContext<'a, 'w> {
+    pub(crate) agent_catalog: &'a mut AgentCatalog,
+    pub(crate) runtime_index: &'a mut AgentRuntimeIndex,
+    pub(crate) app_session: &'a mut crate::app::AppSessionState,
+    pub(crate) selection: &'a mut crate::hud::AgentListSelection,
+    pub(crate) terminal_manager: &'a mut TerminalManager,
+    pub(crate) focus_state: &'a mut TerminalFocusState,
+    pub(crate) owned_tmux_sessions: &'a mut OwnedTmuxSessionStore,
+    pub(crate) active_terminal_content: &'a mut ActiveTerminalContentState,
+    pub(crate) runtime_spawner: &'a TerminalRuntimeSpawner,
+    pub(crate) input_capture: &'a mut HudInputCaptureState,
+    pub(crate) app_state_persistence: &'a mut AppStatePersistenceState,
+    pub(crate) notes_state: &'a mut TerminalNotesState,
+    pub(crate) aegis_policy: &'a mut crate::aegis::AegisPolicyStore,
+    pub(crate) aegis_runtime: &'a mut crate::aegis::AegisRuntimeStore,
+    pub(crate) visibility_state: &'a mut TerminalVisibilityState,
+    pub(crate) view_state: &'a mut TerminalViewState,
+    pub(crate) presentation_store: Option<&'a mut TerminalPresentationStore>,
+    pub(crate) conversations: &'a mut ConversationStore,
+    pub(crate) conversation_persistence: &'a mut ConversationPersistenceState,
+    pub(crate) tasks: &'a mut AgentTaskStore,
+    pub(crate) time: &'a Time,
+    pub(crate) redraws: &'a mut bevy::prelude::MessageWriter<'w, RequestRedraw>,
+}
+
+pub(crate) fn reset_runtime_from_snapshot(ctx: &mut ResetRuntimeContext<'_, '_>) {
+    let agent_catalog = &mut *ctx.agent_catalog;
+    let runtime_index = &mut *ctx.runtime_index;
+    let app_session = &mut *ctx.app_session;
+    let selection = &mut *ctx.selection;
+    let terminal_manager = &mut *ctx.terminal_manager;
+    let focus_state = &mut *ctx.focus_state;
+    let owned_tmux_sessions = &mut *ctx.owned_tmux_sessions;
+    let active_terminal_content = &mut *ctx.active_terminal_content;
+    let runtime_spawner = ctx.runtime_spawner;
+    let input_capture = &mut *ctx.input_capture;
+    let app_state_persistence = &mut *ctx.app_state_persistence;
+    let notes_state = &mut *ctx.notes_state;
+    let aegis_policy = &mut *ctx.aegis_policy;
+    let aegis_runtime = &mut *ctx.aegis_runtime;
+    let visibility_state = &mut *ctx.visibility_state;
+    let view_state = &mut *ctx.view_state;
+    let mut presentation_store = ctx.presentation_store.take();
+    let conversations = &mut *ctx.conversations;
+    let conversation_persistence = &mut *ctx.conversation_persistence;
+    let tasks = &mut *ctx.tasks;
+    let time = ctx.time;
+    let redraws = &mut *ctx.redraws;
     app_session.reset_dialog.close();
     app_session.recovery_status.show_reset_confirmed();
     clear_composer_and_direct_input(app_session, input_capture, redraws);
@@ -101,7 +121,6 @@ pub(crate) fn reset_runtime_from_snapshot(
         visibility_state,
     };
     project_focus_intent(app_session, &mut focus_projection);
-    let mut presentation_store = presentation_store;
     if let Some(presentation_store) = presentation_store.as_deref_mut() {
         *presentation_store = TerminalPresentationStore::default();
     }
@@ -118,7 +137,7 @@ pub(crate) fn reset_runtime_from_snapshot(
         .is_some_and(|persisted| !persisted.agents.is_empty());
     if should_rebuild {
         status_details.push("Automatic recovery started from saved snapshot".into());
-        let summary = restore_app(
+        let mut restore_ctx = super::RestoreAppContext {
             agent_catalog,
             runtime_index,
             app_session,
@@ -137,7 +156,8 @@ pub(crate) fn reset_runtime_from_snapshot(
             presentation_store,
             time,
             redraws,
-        );
+        };
+        let summary = restore_app(&mut restore_ctx);
         if let Some(path) = notes_state.path.as_ref() {
             let notes = load_terminal_notes_from(path);
             notes_state.load(notes);
