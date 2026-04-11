@@ -497,30 +497,29 @@ fn apply_agent_command(command: &AgentCommand, ctx: &mut AppCommandContext) {
                     | crate::hud::AgentListSelection::OwnedTmux(_) => return,
                 },
             };
-            if let Err(error) = use_cases::kill_selected_agent(
-                agent_id,
-                &ctx.time,
-                &mut ctx.agent_catalog,
-                &mut ctx.runtime_index,
-                &mut ctx.app_session,
-                &mut ctx.selection,
-                &mut ctx.task_store,
-                &mut ctx.conversations,
-                &mut ctx.conversation_persistence,
-                &mut ctx.notes_state,
-                &mut ctx.terminal_manager,
-                &mut ctx.focus_state,
-                &ctx.runtime_spawner,
-                &ctx.owned_tmux_sessions,
-                &mut ctx.active_terminal_content,
-                &mut ctx.input_capture,
-                &mut ctx.app_state_persistence,
-                &mut ctx.aegis_policy,
-                &mut ctx.aegis_runtime,
-                &mut ctx.visibility_state,
-                &mut ctx.view_state,
-                &mut ctx.redraws,
-            ) {
+            let mut kill_ctx = use_cases::KillSelectedAgentContext {
+                agent_catalog: &mut ctx.agent_catalog,
+                runtime_index: &mut ctx.runtime_index,
+                app_session: &mut ctx.app_session,
+                selection: &mut ctx.selection,
+                task_store: &mut ctx.task_store,
+                conversations: &mut ctx.conversations,
+                conversation_persistence: &mut ctx.conversation_persistence,
+                notes_state: &mut ctx.notes_state,
+                terminal_manager: &mut ctx.terminal_manager,
+                focus_state: &mut ctx.focus_state,
+                runtime_spawner: &ctx.runtime_spawner,
+                owned_tmux_sessions: &ctx.owned_tmux_sessions,
+                active_terminal_content: &mut ctx.active_terminal_content,
+                input_capture: &mut ctx.input_capture,
+                app_state_persistence: &mut ctx.app_state_persistence,
+                aegis_policy: &mut ctx.aegis_policy,
+                aegis_runtime: &mut ctx.aegis_runtime,
+                visibility_state: &mut ctx.visibility_state,
+                view_state: &mut ctx.view_state,
+                redraws: &mut ctx.redraws,
+            };
+            if let Err(error) = use_cases::kill_selected_agent(agent_id, &ctx.time, &mut kill_ctx) {
                 append_debug_log(format!("kill selected agent failed: {error}"));
             }
         }

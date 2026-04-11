@@ -31,43 +31,48 @@ fn adjacent_agent_in_catalog(catalog: &AgentCatalog, agent_id: AgentId) -> Optio
     }
 }
 
-#[allow(
-    clippy::too_many_arguments,
-    reason = "kill spans daemon, agent, session, and projection state"
-)]
+pub(crate) struct KillSelectedAgentContext<'a, 'w> {
+    pub(crate) agent_catalog: &'a mut AgentCatalog,
+    pub(crate) runtime_index: &'a mut AgentRuntimeIndex,
+    pub(crate) app_session: &'a mut AppSessionState,
+    pub(crate) selection: &'a mut crate::hud::AgentListSelection,
+    pub(crate) task_store: &'a mut AgentTaskStore,
+    pub(crate) conversations: &'a mut ConversationStore,
+    pub(crate) conversation_persistence: &'a mut ConversationPersistenceState,
+    pub(crate) notes_state: &'a mut TerminalNotesState,
+    pub(crate) terminal_manager: &'a mut TerminalManager,
+    pub(crate) focus_state: &'a mut TerminalFocusState,
+    pub(crate) runtime_spawner: &'a TerminalRuntimeSpawner,
+    pub(crate) owned_tmux_sessions: &'a OwnedTmuxSessionStore,
+    pub(crate) active_terminal_content: &'a mut ActiveTerminalContentState,
+    pub(crate) input_capture: &'a mut HudInputCaptureState,
+    pub(crate) app_state_persistence: &'a mut AppStatePersistenceState,
+    pub(crate) aegis_policy: &'a mut crate::aegis::AegisPolicyStore,
+    pub(crate) aegis_runtime: &'a mut crate::aegis::AegisRuntimeStore,
+    pub(crate) visibility_state: &'a mut TerminalVisibilityState,
+    pub(crate) view_state: &'a mut TerminalViewState,
+    pub(crate) redraws: &'a mut MessageWriter<'w, RequestRedraw>,
+}
+
 /// Deletes the selected agent row and updates the remaining selection/focus state.
 pub(crate) fn kill_selected_agent(
     selected_agent: AgentId,
     time: &Time,
-    agent_catalog: &mut AgentCatalog,
-    runtime_index: &mut AgentRuntimeIndex,
-    app_session: &mut AppSessionState,
-    selection: &mut crate::hud::AgentListSelection,
-    task_store: &mut AgentTaskStore,
-    conversations: &mut ConversationStore,
-    conversation_persistence: &mut ConversationPersistenceState,
-    notes_state: &mut TerminalNotesState,
-    terminal_manager: &mut TerminalManager,
-    focus_state: &mut TerminalFocusState,
-    runtime_spawner: &TerminalRuntimeSpawner,
-    owned_tmux_sessions: &OwnedTmuxSessionStore,
-    active_terminal_content: &mut ActiveTerminalContentState,
-    input_capture: &mut HudInputCaptureState,
-    app_state_persistence: &mut AppStatePersistenceState,
-    aegis_policy: &mut crate::aegis::AegisPolicyStore,
-    aegis_runtime: &mut crate::aegis::AegisRuntimeStore,
-    visibility_state: &mut TerminalVisibilityState,
-    view_state: &mut TerminalViewState,
-    redraws: &mut MessageWriter<RequestRedraw>,
+    ctx: &mut KillSelectedAgentContext<'_, '_>,
 ) -> Result<Option<AgentId>, String> {
     // Walk the lifecycle in explicit stages so each side effect happens only after its prerequisites have been established.
-    let replacement_agent = adjacent_agent_in_catalog(agent_catalog, selected_agent);
-    let owner_agent_uid = agent_catalog
+    let replacement_agent = adjacent_agent_in_catalog(ctx.agent_catalog, selected_agent);
+    let owner_agent_uid = ctx
+        .agent_catalog
         .uid(selected_agent)
         .map(str::to_owned)
         .ok_or_else(|| format!("missing stable uid for agent {}", selected_agent.0))?;
-    if let Err(error) = runtime_spawner.kill_owned_tmux_sessions_for_agent(&owner_agent_uid) {
-        let owner_tmux_still_exists = runtime_spawner
+    if let Err(error) = ctx
+        .runtime_spawner
+        .kill_owned_tmux_sessions_for_agent(&owner_agent_uid)
+    {
+        let owner_tmux_still_exists = ctx
+            .runtime_spawner
             .list_owned_tmux_sessions()
             .map(|sessions| {
                 sessions
@@ -79,10 +84,11 @@ pub(crate) fn kill_selected_agent(
             return Err(error);
         }
     }
-    let Some(terminal_id) = runtime_index.primary_terminal(selected_agent) else {
+    let Some(terminal_id) = ctx.runtime_index.primary_terminal(selected_agent) else {
         return Ok(None);
     };
-    let Some(session_name) = runtime_index
+    let Some(session_name) = ctx
+        .runtime_index
         .session_name(selected_agent)
         .map(str::to_owned)
     else {
@@ -90,10 +96,10 @@ pub(crate) fn kill_selected_agent(
     };
     let removed = kill_terminal_session_and_remove(
         time,
-        terminal_manager,
-        focus_state,
-        runtime_spawner,
-        app_state_persistence,
+        ctx.terminal_manager,
+        ctx.focus_state,
+        ctx.runtime_spawner,
+        ctx.app_state_persistence,
         terminal_id,
         &session_name,
     )?;
@@ -101,56 +107,56 @@ pub(crate) fn kill_selected_agent(
         return Ok(None);
     };
 
-    let _ = runtime_index.remove_terminal(terminal_id);
-    let removed_agent_uid = agent_catalog.uid(selected_agent).map(str::to_owned);
-    let _ = agent_catalog.remove(selected_agent);
-    let removed_tasks = task_store.remove_agent(selected_agent);
-    if conversations.remove_agent(selected_agent) {
-        mark_conversations_dirty(conversation_persistence, Some(time));
+    let _ = ctx.runtime_index.remove_terminal(terminal_id);
+    let removed_agent_uid = ctx.agent_catalog.uid(selected_agent).map(str::to_owned);
+    let _ = ctx.agent_catalog.remove(selected_agent);
+    let removed_tasks = ctx.task_store.remove_agent(selected_agent);
+    if ctx.conversations.remove_agent(selected_agent) {
+        mark_conversations_dirty(ctx.conversation_persistence, Some(time));
     }
     if let Some(agent_uid) = removed_agent_uid.as_deref() {
-        if notes_state.remove_note_text_by_agent_uid(agent_uid) {
-            mark_terminal_notes_dirty(notes_state, Some(time));
+        if ctx.notes_state.remove_note_text_by_agent_uid(agent_uid) {
+            mark_terminal_notes_dirty(ctx.notes_state, Some(time));
         }
-        let _ = aegis_policy.remove(agent_uid);
+        let _ = ctx.aegis_policy.remove(agent_uid);
     } else if removed_tasks {
-        mark_terminal_notes_dirty(notes_state, Some(time));
+        mark_terminal_notes_dirty(ctx.notes_state, Some(time));
     }
-    let _ = aegis_runtime.clear(selected_agent);
-    view_state.forget_terminal(terminal_id);
-    app_session.composer.unbind_agent(selected_agent);
+    let _ = ctx.aegis_runtime.clear(selected_agent);
+    ctx.view_state.forget_terminal(terminal_id);
+    ctx.app_session.composer.unbind_agent(selected_agent);
     if let Some(replacement_agent) = replacement_agent {
         focus_agent_without_persist(
             replacement_agent,
-            app_session.visibility_mode(),
-            app_session,
-            agent_catalog,
-            runtime_index,
-            owned_tmux_sessions,
-            selection,
-            active_terminal_content,
-            terminal_manager,
-            focus_state,
-            input_capture,
-            view_state,
-            visibility_state,
-            redraws,
+            ctx.app_session.visibility_mode(),
+            ctx.app_session,
+            ctx.agent_catalog,
+            ctx.runtime_index,
+            ctx.owned_tmux_sessions,
+            ctx.selection,
+            ctx.active_terminal_content,
+            ctx.terminal_manager,
+            ctx.focus_state,
+            ctx.input_capture,
+            ctx.view_state,
+            ctx.visibility_state,
+            ctx.redraws,
         );
     } else {
         clear_focus_without_persist(
             VisibilityMode::ShowAll,
-            app_session,
-            agent_catalog,
-            runtime_index,
-            owned_tmux_sessions,
-            selection,
-            active_terminal_content,
-            terminal_manager,
-            focus_state,
-            input_capture,
-            view_state,
-            visibility_state,
-            redraws,
+            ctx.app_session,
+            ctx.agent_catalog,
+            ctx.runtime_index,
+            ctx.owned_tmux_sessions,
+            ctx.selection,
+            ctx.active_terminal_content,
+            ctx.terminal_manager,
+            ctx.focus_state,
+            ctx.input_capture,
+            ctx.view_state,
+            ctx.visibility_state,
+            ctx.redraws,
         );
     }
     Ok(Some(selected_agent))
