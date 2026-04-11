@@ -3247,6 +3247,9 @@ fn startup_recovery_status_includes_skipped_live_only_agents_in_title_and_detail
 fn startup_spawns_initial_terminal_when_no_sessions_exist() {
     // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let client = Arc::new(crate::tests::FakeDaemonClient::default());
+    let dir = temp_dir("neozeus-startup-no-sessions");
+    let app_state_path = dir.join("empty-state.v1");
+    std::fs::write(&app_state_path, "neozeus state version 4\n").expect("app state should write");
     let mut world = World::default();
     world.insert_resource(Assets::<Image>::default());
     world.insert_resource(crate::terminals::TerminalManager::default());
@@ -3264,7 +3267,10 @@ fn startup_spawns_initial_terminal_when_no_sessions_exist() {
     world.init_resource::<Messages<RequestRedraw>>();
     world.insert_resource(Time::<()>::default());
     world.insert_resource(fake_runtime_spawner(client.clone()));
-    world.insert_resource(crate::app::AppStatePersistenceState::default());
+    world.insert_resource(crate::app::AppStatePersistenceState {
+        path: Some(app_state_path),
+        dirty_since_secs: None,
+    });
     world.insert_resource(crate::terminals::TerminalNotesState::default());
     world.insert_resource(crate::hud::TerminalVisibilityState::default());
     world.insert_resource(crate::startup::DaemonConnectionState::default());
@@ -3289,6 +3295,11 @@ fn startup_spawns_initial_terminal_when_no_sessions_exist() {
         TerminalVisibilityPolicy::Isolate(terminal_id)
     );
     assert_eq!(client.sessions.lock().unwrap().len(), 1);
+    assert!(world
+        .resource::<crate::app::AppSessionState>()
+        .recovery_status
+        .title
+        .is_none());
 }
 
 /// Verifies that a known missing-GPU startup panic is converted into a friendly user-facing error,
