@@ -457,6 +457,312 @@ fn effective_visibility_policy(
     }
 }
 
+#[derive(Clone, Debug)]
+struct PresentationTransitionContext {
+    active_id: Option<TerminalId>,
+    startup_show_all: bool,
+    visibility_policy: TerminalVisibilityPolicy,
+    active_layout: ActiveTerminalLayout,
+    active_texture_state: TerminalTextureState,
+    active_ready: bool,
+    active_size: Vec2,
+    snap_switch: bool,
+    blend: f32,
+}
+
+#[derive(Clone, Debug)]
+struct PresentationPlan {
+    visible: bool,
+    resolve_startup_pending: bool,
+    target_position: Vec2,
+    target_size: Vec2,
+    target_alpha: f32,
+    target_z: f32,
+    pixel_perfect: bool,
+    sprite_color: Color,
+}
+
+#[allow(
+    clippy::too_many_arguments,
+    reason = "transition planning depends on active focus, previous transition gates, viewport state, and presentation store state together"
+)]
+fn build_presentation_transition_context(
+    time: &Time,
+    terminal_manager: &TerminalManager,
+    focus_state: &TerminalFocusState,
+    font_state: Option<&TerminalFontState>,
+    presentation_store: &TerminalPresentationStore,
+    visibility_state: &TerminalVisibilityState,
+    view_state: &TerminalViewState,
+    layout_state: &HudLayoutState,
+    primary_window: &Window,
+    last_active_id: Option<TerminalId>,
+    last_visibility_policy: Option<TerminalVisibilityPolicy>,
+    last_active_texture_state: Option<TerminalTextureState>,
+    last_active_ready: bool,
+) -> PresentationTransitionContext {
+    let active_id = focus_state.active_id();
+    let startup_show_all = presentation_store.any_startup_pending();
+    let visibility_policy = if startup_show_all {
+        TerminalVisibilityPolicy::ShowAll
+    } else {
+        effective_visibility_policy(terminal_manager, visibility_state)
+    };
+    let default_font_state = TerminalFontState::default();
+    let font_state = font_state.unwrap_or(&default_font_state);
+    let placeholder_dimensions = TerminalDimensions {
+        cols: STARTUP_PLACEHOLDER_COLS as usize,
+        rows: STARTUP_PLACEHOLDER_ROWS as usize,
+    };
+    let active_layout = active_id
+        .map(|_| {
+            active_terminal_layout_for_dimensions(
+                primary_window,
+                layout_state,
+                view_state,
+                target_active_terminal_dimensions(primary_window, layout_state, font_state),
+                font_state,
+            )
+        })
+        .unwrap_or_else(|| {
+            active_terminal_layout_for_dimensions(
+                primary_window,
+                layout_state,
+                view_state,
+                placeholder_dimensions,
+                font_state,
+            )
+        });
+    let active_texture_state = active_layout_texture_state(active_layout);
+    let active_ready = active_id
+        .and_then(|id| {
+            let terminal = terminal_manager.get(id)?;
+            let presented_terminal = presentation_store.get(id)?;
+            Some(active_terminal_ready_for_presentation(
+                terminal,
+                presented_terminal,
+                active_layout,
+            ))
+        })
+        .unwrap_or(false);
+    let snap_switch = last_active_id != active_id
+        || last_visibility_policy != Some(visibility_policy)
+        || last_active_texture_state != active_id.map(|_| active_texture_state.clone())
+        || last_active_ready != active_ready;
+    let active_size = physical_to_logical_size(
+        Vec2::new(
+            active_texture_state.texture_size.x.max(1) as f32,
+            active_texture_state.texture_size.y.max(1) as f32,
+        ),
+        primary_window,
+    );
+    PresentationTransitionContext {
+        active_id,
+        startup_show_all,
+        visibility_policy,
+        active_layout,
+        active_texture_state,
+        active_ready,
+        active_size,
+        snap_switch,
+        blend: 1.0 - (-time.delta_secs() * 10.0).exp(),
+    }
+}
+
+fn terminal_texture_state_for_presentation(
+    terminal: &ManagedTerminal,
+    presented_terminal: &PresentedTerminal,
+    startup_placeholder: bool,
+    terminal_presentable: bool,
+) -> TerminalTextureState {
+    if startup_placeholder && !terminal_presentable {
+        startup_placeholder_texture_state(terminal.snapshot.surface.as_ref(), presented_terminal)
+    } else {
+        presented_terminal.texture_state.clone()
+    }
+}
+
+#[allow(
+    clippy::too_many_arguments,
+    reason = "per-panel presentation planning depends on terminal readiness, viewport state, transition state, and retained presentation state together"
+)]
+fn build_presentation_plan(
+    panel_id: TerminalId,
+    terminal: &ManagedTerminal,
+    presented_terminal: &PresentedTerminal,
+    transition: &PresentationTransitionContext,
+    terminal_manager: &TerminalManager,
+    presentation_store: &TerminalPresentationStore,
+    view_state: &TerminalViewState,
+    layout_state: &HudLayoutState,
+    primary_window: &Window,
+    home_position: Vec2,
+) -> PresentationPlan {
+    let readiness = terminal_readiness_for_id(panel_id, terminal_manager, presentation_store, None);
+    let startup_placeholder = readiness.is_startup_pending();
+    if matches!(readiness, TerminalReadiness::Missing) {
+        return PresentationPlan {
+            visible: false,
+            resolve_startup_pending: false,
+            target_position: home_position,
+            target_size: Vec2::ONE,
+            target_alpha: 0.0,
+            target_z: 0.0,
+            pixel_perfect: false,
+            sprite_color: Color::WHITE,
+        };
+    }
+    if matches!(transition.visibility_policy, TerminalVisibilityPolicy::Isolate(id) if id != panel_id)
+        || (transition.active_id.is_some()
+            && !transition.startup_show_all
+            && Some(panel_id) != transition.active_id)
+    {
+        return PresentationPlan {
+            visible: false,
+            resolve_startup_pending: false,
+            target_position: home_position,
+            target_size: Vec2::ONE,
+            target_alpha: 0.0,
+            target_z: 0.0,
+            pixel_perfect: false,
+            sprite_color: Color::WHITE,
+        };
+    }
+
+    let terminal_presentable = readiness.is_ready_for_capture();
+    let active_ready = Some(panel_id) != transition.active_id
+        || active_terminal_ready_for_presentation(
+            terminal,
+            presented_terminal,
+            transition.active_layout,
+        )
+        || terminal_presentable;
+    if !active_ready && !startup_placeholder {
+        return PresentationPlan {
+            visible: false,
+            resolve_startup_pending: false,
+            target_position: home_position,
+            target_size: Vec2::ONE,
+            target_alpha: 0.0,
+            target_z: 0.0,
+            pixel_perfect: false,
+            sprite_color: Color::WHITE,
+        };
+    }
+
+    let terminal_texture_state = terminal_texture_state_for_presentation(
+        terminal,
+        presented_terminal,
+        startup_placeholder,
+        terminal_presentable,
+    );
+    let smooth_size = smooth_terminal_screen_size(
+        &terminal_texture_state,
+        view_state,
+        primary_window,
+        layout_state,
+    );
+    let (_, viewport_center) = active_terminal_viewport(primary_window, layout_state);
+    let pixel_perfect = !startup_placeholder
+        && Some(panel_id) == transition.active_id
+        && presented_terminal.display_mode == TerminalDisplayMode::PixelPerfect;
+
+    let (target_position, target_size, target_z) = match transition.active_id {
+        Some(id) if id == panel_id => (
+            hud_terminal_target_position(
+                primary_window,
+                layout_state,
+                &transition.active_texture_state,
+            ),
+            transition.active_size,
+            if pixel_perfect { 3.0 } else { 0.3 },
+        ),
+        _ => (
+            viewport_center + view_state.offset + home_position,
+            smooth_size,
+            0.0,
+        ),
+    };
+
+    let sprite_color = if startup_placeholder && !terminal_presentable {
+        if Some(panel_id) == transition.active_id {
+            STARTUP_PLACEHOLDER_ACTIVE_COLOR
+        } else {
+            STARTUP_PLACEHOLDER_COLOR
+        }
+    } else {
+        Color::WHITE
+    };
+
+    PresentationPlan {
+        visible: true,
+        resolve_startup_pending: terminal_presentable,
+        target_position,
+        target_size,
+        target_alpha: 1.0,
+        target_z,
+        pixel_perfect,
+        sprite_color,
+    }
+}
+
+fn apply_presentation_plan(
+    presentation: &mut TerminalPresentation,
+    transform: &mut Transform,
+    sprite: &mut Sprite,
+    visibility: &mut Visibility,
+    plan: &PresentationPlan,
+    snap_switch: bool,
+    blend: f32,
+) {
+    if !plan.visible {
+        *visibility = Visibility::Hidden;
+        return;
+    }
+
+    presentation.target_alpha = plan.target_alpha;
+    presentation.target_position = plan.target_position;
+    presentation.target_size = plan.target_size;
+    presentation.target_z = plan.target_z;
+
+    if snap_switch {
+        presentation.current_position = presentation.target_position;
+        presentation.current_size = presentation.target_size;
+        presentation.current_alpha = presentation.target_alpha;
+        presentation.current_z = presentation.target_z;
+    } else {
+        presentation.current_position = presentation
+            .current_position
+            .lerp(presentation.target_position, blend);
+        presentation.current_size = presentation
+            .current_size
+            .lerp(presentation.target_size, blend);
+        presentation.current_alpha +=
+            (presentation.target_alpha - presentation.current_alpha) * blend;
+        presentation.current_z += (presentation.target_z - presentation.current_z) * blend;
+
+        if plan.pixel_perfect {
+            if presentation
+                .current_position
+                .distance(presentation.target_position)
+                < 0.75
+            {
+                presentation.current_position = presentation.target_position;
+            }
+            if presentation.current_size.distance(presentation.target_size) < 0.75 {
+                presentation.current_size = presentation.target_size;
+            }
+        }
+    }
+
+    *visibility = Visibility::Visible;
+    sprite.custom_size = Some(presentation.current_size.max(Vec2::ONE));
+    sprite.color = plan.sprite_color;
+    transform.translation = presentation.current_position.extend(presentation.current_z);
+    transform.rotation = Quat::IDENTITY;
+    transform.scale = Vec3::ONE;
+}
+
 #[allow(
     clippy::too_many_arguments,
     reason = "presentation sync needs terminal/presentation/view state together"
@@ -488,65 +794,21 @@ pub(crate) fn sync_terminal_presentations(
         &mut Visibility,
     )>,
 ) {
-    let active_id = focus_state.active_id();
-    let startup_show_all = presentation_store.any_startup_pending();
-    let visibility_policy = if startup_show_all {
-        TerminalVisibilityPolicy::ShowAll
-    } else {
-        effective_visibility_policy(&terminal_manager, &visibility_state)
-    };
-    let default_font_state = TerminalFontState::default();
-    let font_state = font_state.as_deref().unwrap_or(&default_font_state);
-    let placeholder_dimensions = TerminalDimensions {
-        cols: STARTUP_PLACEHOLDER_COLS as usize,
-        rows: STARTUP_PLACEHOLDER_ROWS as usize,
-    };
-    let active_layout = active_id
-        .map(|_| {
-            active_terminal_layout_for_dimensions(
-                &primary_window,
-                &layout_state,
-                &view_state,
-                target_active_terminal_dimensions(&primary_window, &layout_state, font_state),
-                font_state,
-            )
-        })
-        .unwrap_or_else(|| {
-            active_terminal_layout_for_dimensions(
-                &primary_window,
-                &layout_state,
-                &view_state,
-                placeholder_dimensions,
-                font_state,
-            )
-        });
-    let active_texture_state = active_layout_texture_state(active_layout);
-    let active_ready = active_id
-        .and_then(|id| {
-            let terminal = terminal_manager.get(id)?;
-            let presented_terminal = presentation_store.get(id)?;
-            Some(active_terminal_ready_for_presentation(
-                terminal,
-                presented_terminal,
-                active_layout,
-            ))
-        })
-        .unwrap_or(false);
-    // These locals are explicit transition gates rather than hidden domain state: when the
-    // active terminal, visibility policy, or active texture contract changes we snap immediately
-    // instead of animating through an invalid intermediate presentation.
-    let snap_switch = *last_active_id != active_id
-        || *last_visibility_policy != Some(visibility_policy)
-        || *last_active_texture_state != active_id.map(|_| active_texture_state.clone())
-        || *last_active_ready != active_ready;
-    let active_size = physical_to_logical_size(
-        Vec2::new(
-            active_texture_state.texture_size.x.max(1) as f32,
-            active_texture_state.texture_size.y.max(1) as f32,
-        ),
+    let transition = build_presentation_transition_context(
+        &time,
+        &terminal_manager,
+        &focus_state,
+        font_state.as_deref(),
+        &presentation_store,
+        &visibility_state,
+        &view_state,
+        &layout_state,
         &primary_window,
+        *last_active_id,
+        *last_visibility_policy,
+        last_active_texture_state.clone(),
+        *last_active_ready,
     );
-    let blend = 1.0 - (-time.delta_secs() * 10.0).exp();
 
     for (panel, mut presentation, mut transform, mut sprite, mut visibility) in &mut panels {
         let Some(terminal) = terminal_manager.get(panel.id) else {
@@ -557,123 +819,38 @@ pub(crate) fn sync_terminal_presentations(
             *visibility = Visibility::Hidden;
             continue;
         };
-        let readiness =
-            terminal_readiness_for_id(panel.id, &terminal_manager, &presentation_store, None);
-        let startup_placeholder = readiness.is_startup_pending();
-        if matches!(readiness, TerminalReadiness::Missing) {
-            *visibility = Visibility::Hidden;
-            continue;
-        }
-        if matches!(visibility_policy, TerminalVisibilityPolicy::Isolate(id) if id != panel.id) {
-            *visibility = Visibility::Hidden;
-            continue;
-        }
-        if active_id.is_some() && !startup_show_all && Some(panel.id) != active_id {
-            *visibility = Visibility::Hidden;
-            continue;
-        }
-        let terminal_presentable = readiness.is_ready_for_capture();
-        let active_ready = Some(panel.id) != active_id
-            || active_terminal_ready_for_presentation(terminal, presented_terminal, active_layout)
-            || terminal_presentable;
-        if !active_ready && !startup_placeholder {
-            *visibility = Visibility::Hidden;
-            continue;
-        }
-
-        let placeholder_texture_state = startup_placeholder_texture_state(
-            terminal.snapshot.surface.as_ref(),
+        let plan = build_presentation_plan(
+            panel.id,
+            terminal,
             presented_terminal,
-        );
-        let terminal_texture_state = if startup_placeholder && !terminal_presentable {
-            &placeholder_texture_state
-        } else {
-            &presented_terminal.texture_state
-        };
-        let smooth_size = smooth_terminal_screen_size(
-            terminal_texture_state,
+            &transition,
+            &terminal_manager,
+            &presentation_store,
             &view_state,
-            &primary_window,
             &layout_state,
+            &primary_window,
+            presentation.home_position,
         );
-        let (_, viewport_center) = active_terminal_viewport(&primary_window, &layout_state);
-        let pixel_perfect = !startup_placeholder
-            && Some(panel.id) == active_id
-            && presented_terminal.display_mode == TerminalDisplayMode::PixelPerfect;
-
-        match active_id {
-            Some(id) if id == panel.id => {
-                presentation.target_alpha = 1.0;
-                presentation.target_position = hud_terminal_target_position(
-                    &primary_window,
-                    &layout_state,
-                    &active_texture_state,
-                );
-                presentation.target_size = active_size;
-                presentation.target_z = if pixel_perfect { 3.0 } else { 0.3 };
-            }
-            _ => {
-                presentation.target_position =
-                    viewport_center + view_state.offset + presentation.home_position;
-                presentation.target_size = smooth_size;
-                presentation.target_alpha = 1.0;
-                presentation.target_z = 0.0;
-            }
-        }
-
-        if snap_switch {
-            presentation.current_position = presentation.target_position;
-            presentation.current_size = presentation.target_size;
-            presentation.current_alpha = presentation.target_alpha;
-            presentation.current_z = presentation.target_z;
-        } else {
-            presentation.current_position = presentation
-                .current_position
-                .lerp(presentation.target_position, blend);
-            presentation.current_size = presentation
-                .current_size
-                .lerp(presentation.target_size, blend);
-            presentation.current_alpha +=
-                (presentation.target_alpha - presentation.current_alpha) * blend;
-            presentation.current_z += (presentation.target_z - presentation.current_z) * blend;
-
-            if pixel_perfect {
-                if presentation
-                    .current_position
-                    .distance(presentation.target_position)
-                    < 0.75
-                {
-                    presentation.current_position = presentation.target_position;
-                }
-                if presentation.current_size.distance(presentation.target_size) < 0.75 {
-                    presentation.current_size = presentation.target_size;
-                }
-            }
-        }
-
-        *visibility = Visibility::Visible;
-        sprite.custom_size = Some(presentation.current_size.max(Vec2::ONE));
-        sprite.color = if startup_placeholder && !terminal_presentable {
-            if Some(panel.id) == active_id {
-                STARTUP_PLACEHOLDER_ACTIVE_COLOR
-            } else {
-                STARTUP_PLACEHOLDER_COLOR
-            }
-        } else {
-            Color::WHITE
-        };
-        transform.translation = presentation.current_position.extend(presentation.current_z);
-        transform.rotation = Quat::IDENTITY;
-        transform.scale = Vec3::ONE;
-        if terminal_presentable {
+        apply_presentation_plan(
+            &mut presentation,
+            &mut transform,
+            &mut sprite,
+            &mut visibility,
+            &plan,
+            transition.snap_switch,
+            transition.blend,
+        );
+        if plan.resolve_startup_pending {
             presentation_store.resolve_startup_pending(panel.id);
         }
     }
 
-    *last_active_id = active_id;
-    *last_visibility_policy = Some(visibility_policy);
-    *last_active_texture_state = active_id.map(|_| active_texture_state);
-    *last_active_ready = active_ready;
+    *last_active_id = transition.active_id;
+    *last_visibility_policy = Some(transition.visibility_policy);
+    *last_active_texture_state = transition
+        .active_id
+        .map(|_| transition.active_texture_state);
+    *last_active_ready = transition.active_ready;
 }
 
 fn terminal_frame_style(state: TerminalFrameVisualState) -> Option<(f32, Color)> {
