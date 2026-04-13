@@ -583,277 +583,298 @@ fn handle_text_editor_event(
     }
 }
 
-#[allow(
-    clippy::too_many_arguments,
-    reason = "dialog keyboard handling needs input, focus, notes, terminal state, HUD state, commands, and redraws together"
-)]
-/// Handles keyboard input for the message box, the task dialog, and the shortcuts that open them.
-///
-/// The function is ordered as a small state machine:
-/// 1. ignore everything when the window is unfocused,
-/// 2. give direct-input mode priority and do nothing if it is active,
-/// 3. if the message box is open, treat keys as editor/send/close commands,
-/// 4. else if the task dialog is open, treat keys as editor/task-management commands,
-/// 5. else, interpret plain terminal shortcuts such as opening the message box, opening the task
-///    dialog, or consuming the next task.
-///
-/// That explicit ordering prevents global shortcuts from firing while a modal editor owns the same
-/// keystrokes.
-pub(crate) fn handle_terminal_message_box_keyboard(
-    mut messages: MessageReader<KeyboardInput>,
-    keys: Res<ButtonInput<KeyCode>>,
-    primary_window: Single<&Window, With<PrimaryWindow>>,
-    _terminal_manager: Res<TerminalManager>,
-    focus_state: Res<TerminalFocusState>,
-    runtime_index: Res<AgentRuntimeIndex>,
-    agent_catalog: Res<AgentCatalog>,
-    aegis_policy: Res<AegisPolicyStore>,
-    mut app_session: ResMut<AppSessionState>,
-    input_capture: Res<HudInputCaptureState>,
-    mut clipboard: Option<ResMut<EguiClipboard>>,
-    mut clipboard_ingress: Local<modal_dialogs::MessageDialogClipboardIngressState>,
-    mut app_commands: MessageWriter<AppCommand>,
-    mut redraws: MessageWriter<RequestRedraw>,
-) {
-    if !primary_window.focused {
-        return;
-    }
-
-    let (ctrl, alt, super_key) = has_plain_modifiers(&keys);
-
-    if input_capture.direct_input_terminal.is_some() {
-        return;
-    }
-
-    let modifiers = modal_dialogs::KeyModifiers {
+fn message_box_key_modifiers(keys: &ButtonInput<KeyCode>) -> modal_dialogs::KeyModifiers {
+    let (ctrl, alt, super_key) = has_plain_modifiers(keys);
+    modal_dialogs::KeyModifiers {
         ctrl,
         alt,
         super_key,
         shift: keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight),
-    };
-
-    if app_session.reset_dialog.visible {
-        let mut needs_redraw = false;
-        let mut emitted_commands = Vec::new();
-        for event in messages.read() {
-            if event.state != ButtonState::Pressed {
-                continue;
-            }
-            let outcome = modal_dialogs::handle_reset_dialog_key(
-                &mut app_session,
-                event,
-                modifiers,
-                &mut emitted_commands,
-            );
-            needs_redraw |= outcome.needs_redraw;
-            if outcome.stop {
-                break;
-            }
-        }
-        for command in emitted_commands {
-            app_commands.write(command);
-        }
-        if needs_redraw {
-            redraws.write(RequestRedraw);
-        }
-        return;
     }
+}
 
-    if app_session.aegis_dialog.visible {
-        let mut needs_redraw = false;
-        let mut emitted_commands = Vec::new();
-        for event in messages.read() {
-            if event.state != ButtonState::Pressed {
-                continue;
-            }
-            let outcome = modal_dialogs::handle_aegis_dialog_key(
-                &mut app_session,
-                event,
-                modifiers,
-                crate::composer::aegis_visible_cols(&primary_window),
-                &mut emitted_commands,
-            );
-            needs_redraw |= outcome.needs_redraw;
-            if outcome.stop {
-                break;
-            }
-        }
-        for command in emitted_commands {
-            app_commands.write(command);
-        }
-        if needs_redraw {
-            redraws.write(RequestRedraw);
-        }
-        return;
-    }
-
-    if app_session.rename_agent_dialog.visible {
-        let mut needs_redraw = false;
-        let mut emitted_commands = Vec::new();
-        for event in messages.read() {
-            if event.state != ButtonState::Pressed {
-                continue;
-            }
-            let outcome = modal_dialogs::handle_rename_agent_dialog_key(
-                &mut app_session,
-                event,
-                modifiers,
-                &mut emitted_commands,
-            );
-            needs_redraw |= outcome.needs_redraw;
-            if outcome.stop {
-                break;
-            }
-        }
-        for command in emitted_commands {
-            app_commands.write(command);
-        }
-        if needs_redraw {
-            redraws.write(RequestRedraw);
-        }
-        return;
-    }
-
-    if app_session.clone_agent_dialog.visible {
-        let mut needs_redraw = false;
-        let mut emitted_commands = Vec::new();
-        for event in messages.read() {
-            if event.state != ButtonState::Pressed {
-                continue;
-            }
-            let outcome = modal_dialogs::handle_clone_agent_dialog_key(
-                &mut app_session,
-                event,
-                modifiers,
-                &mut emitted_commands,
-            );
-            needs_redraw |= outcome.needs_redraw;
-            if outcome.stop {
-                break;
-            }
-        }
-        for command in emitted_commands {
-            app_commands.write(command);
-        }
-        if needs_redraw {
-            redraws.write(RequestRedraw);
-        }
-        return;
-    }
-
-    if app_session.create_agent_dialog.visible {
-        let mut needs_redraw = false;
-        let mut emitted_commands = Vec::new();
-        for event in messages.read() {
-            if event.state != ButtonState::Pressed {
-                continue;
-            }
-            let outcome = modal_dialogs::handle_create_agent_dialog_key(
-                &mut app_session,
-                event,
-                modifiers,
-                &mut emitted_commands,
-            );
-            needs_redraw |= outcome.needs_redraw;
-            if outcome.stop {
-                break;
-            }
-        }
-        for command in emitted_commands {
-            app_commands.write(command);
-        }
-        if needs_redraw {
-            redraws.write(RequestRedraw);
-        }
-        return;
-    }
-
-    let current_clipboard_text = clipboard
-        .as_deref_mut()
+fn current_clipboard_text(clipboard: Option<&mut EguiClipboard>) -> Option<String> {
+    clipboard
         .and_then(EguiClipboard::get_text)
-        .filter(|text| !text.is_empty());
+        .filter(|text| !text.is_empty())
+}
+
+fn write_emitted_commands(
+    app_commands: &mut MessageWriter<AppCommand>,
+    emitted_commands: Vec<AppCommand>,
+) {
+    for command in emitted_commands {
+        app_commands.write(command);
+    }
+}
+
+fn redraw_if_needed(needs_redraw: bool, redraws: &mut MessageWriter<RequestRedraw>) {
+    if needs_redraw {
+        redraws.write(RequestRedraw);
+    }
+}
+
+fn run_modal_handler_loop(
+    messages: &mut MessageReader<KeyboardInput>,
+    app_commands: &mut MessageWriter<AppCommand>,
+    redraws: &mut MessageWriter<RequestRedraw>,
+    mut handle_event: impl FnMut(&KeyboardInput, &mut Vec<AppCommand>) -> modal_dialogs::ModalKeyResult,
+) {
+    let mut needs_redraw = false;
+    let mut emitted_commands = Vec::new();
+    for event in messages.read() {
+        if event.state != ButtonState::Pressed {
+            continue;
+        }
+        let outcome = handle_event(event, &mut emitted_commands);
+        needs_redraw |= outcome.needs_redraw;
+        if outcome.stop {
+            break;
+        }
+    }
+    write_emitted_commands(app_commands, emitted_commands);
+    redraw_if_needed(needs_redraw, redraws);
+}
+
+fn handle_reset_dialog_events(
+    app_session: &mut AppSessionState,
+    messages: &mut MessageReader<KeyboardInput>,
+    modifiers: modal_dialogs::KeyModifiers,
+    app_commands: &mut MessageWriter<AppCommand>,
+    redraws: &mut MessageWriter<RequestRedraw>,
+) -> bool {
+    if !app_session.reset_dialog.visible {
+        return false;
+    }
+    run_modal_handler_loop(
+        messages,
+        app_commands,
+        redraws,
+        |event, emitted_commands| {
+            modal_dialogs::handle_reset_dialog_key(app_session, event, modifiers, emitted_commands)
+        },
+    );
+    true
+}
+
+fn handle_aegis_dialog_events(
+    app_session: &mut AppSessionState,
+    primary_window: &Window,
+    messages: &mut MessageReader<KeyboardInput>,
+    modifiers: modal_dialogs::KeyModifiers,
+    app_commands: &mut MessageWriter<AppCommand>,
+    redraws: &mut MessageWriter<RequestRedraw>,
+) -> bool {
+    if !app_session.aegis_dialog.visible {
+        return false;
+    }
+    let visible_cols = crate::composer::aegis_visible_cols(primary_window);
+    run_modal_handler_loop(
+        messages,
+        app_commands,
+        redraws,
+        |event, emitted_commands| {
+            modal_dialogs::handle_aegis_dialog_key(
+                app_session,
+                event,
+                modifiers,
+                visible_cols,
+                emitted_commands,
+            )
+        },
+    );
+    true
+}
+
+fn handle_rename_dialog_events(
+    app_session: &mut AppSessionState,
+    messages: &mut MessageReader<KeyboardInput>,
+    modifiers: modal_dialogs::KeyModifiers,
+    app_commands: &mut MessageWriter<AppCommand>,
+    redraws: &mut MessageWriter<RequestRedraw>,
+) -> bool {
+    if !app_session.rename_agent_dialog.visible {
+        return false;
+    }
+    run_modal_handler_loop(
+        messages,
+        app_commands,
+        redraws,
+        |event, emitted_commands| {
+            modal_dialogs::handle_rename_agent_dialog_key(
+                app_session,
+                event,
+                modifiers,
+                emitted_commands,
+            )
+        },
+    );
+    true
+}
+
+fn handle_clone_dialog_events(
+    app_session: &mut AppSessionState,
+    messages: &mut MessageReader<KeyboardInput>,
+    modifiers: modal_dialogs::KeyModifiers,
+    app_commands: &mut MessageWriter<AppCommand>,
+    redraws: &mut MessageWriter<RequestRedraw>,
+) -> bool {
+    if !app_session.clone_agent_dialog.visible {
+        return false;
+    }
+    run_modal_handler_loop(
+        messages,
+        app_commands,
+        redraws,
+        |event, emitted_commands| {
+            modal_dialogs::handle_clone_agent_dialog_key(
+                app_session,
+                event,
+                modifiers,
+                emitted_commands,
+            )
+        },
+    );
+    true
+}
+
+fn handle_create_dialog_events(
+    app_session: &mut AppSessionState,
+    messages: &mut MessageReader<KeyboardInput>,
+    modifiers: modal_dialogs::KeyModifiers,
+    app_commands: &mut MessageWriter<AppCommand>,
+    redraws: &mut MessageWriter<RequestRedraw>,
+) -> bool {
+    if !app_session.create_agent_dialog.visible {
+        return false;
+    }
+    run_modal_handler_loop(
+        messages,
+        app_commands,
+        redraws,
+        |event, emitted_commands| {
+            modal_dialogs::handle_create_agent_dialog_key(
+                app_session,
+                event,
+                modifiers,
+                emitted_commands,
+            )
+        },
+    );
+    true
+}
+
+fn sync_message_editor_clipboard_ingress(
+    app_session: &AppSessionState,
+    clipboard: Option<&mut EguiClipboard>,
+    clipboard_ingress: &mut modal_dialogs::MessageDialogClipboardIngressState,
+) {
+    let current_clipboard_text = current_clipboard_text(clipboard);
     clipboard_ingress.sync_visibility(
         app_session.composer.message_editor.visible,
         current_clipboard_text.as_deref(),
     );
+}
 
-    if app_session.composer.message_editor.visible {
-        let mut needs_redraw = false;
-        let mut emitted_commands = Vec::new();
-        for event in messages.read() {
-            if event.state != ButtonState::Pressed {
-                continue;
-            }
-            let current_clipboard_text = clipboard
-                .as_deref_mut()
-                .and_then(EguiClipboard::get_text)
-                .filter(|text| !text.is_empty());
-            let outcome = clipboard_ingress.handle_key(
-                &mut app_session,
+#[allow(
+    clippy::too_many_arguments,
+    reason = "message editor path needs clipboard ingress, visible cols, commands, redraws, and session state together"
+)]
+fn handle_message_editor_events(
+    app_session: &mut AppSessionState,
+    primary_window: &Window,
+    messages: &mut MessageReader<KeyboardInput>,
+    modifiers: modal_dialogs::KeyModifiers,
+    clipboard: Option<&mut EguiClipboard>,
+    clipboard_ingress: &mut modal_dialogs::MessageDialogClipboardIngressState,
+    app_commands: &mut MessageWriter<AppCommand>,
+    redraws: &mut MessageWriter<RequestRedraw>,
+) -> bool {
+    if !app_session.composer.message_editor.visible {
+        return false;
+    }
+    let visible_cols = crate::composer::message_box_visible_cols(primary_window);
+    let mut clipboard = clipboard;
+    run_modal_handler_loop(
+        messages,
+        app_commands,
+        redraws,
+        |event, emitted_commands| {
+            let current_clipboard_text = current_clipboard_text(clipboard.as_deref_mut());
+            clipboard_ingress.handle_key(
+                app_session,
                 event,
                 modifiers,
-                crate::composer::message_box_visible_cols(&primary_window),
+                visible_cols,
                 current_clipboard_text.as_deref(),
-                &mut emitted_commands,
-            );
-            needs_redraw |= outcome.needs_redraw;
-            if outcome.stop {
-                break;
-            }
-        }
-        for command in emitted_commands {
-            app_commands.write(command);
-        }
-        if needs_redraw {
-            redraws.write(RequestRedraw);
-        }
-        return;
-    }
+                emitted_commands,
+            )
+        },
+    );
+    true
+}
 
-    if app_session.composer.task_editor.visible {
-        let mut needs_redraw = false;
-        let mut emitted_commands = Vec::new();
-        for event in messages.read() {
-            if event.state != ButtonState::Pressed {
-                continue;
-            }
-            let outcome = modal_dialogs::handle_task_dialog_key(
-                &mut app_session,
+fn handle_task_editor_events(
+    app_session: &mut AppSessionState,
+    primary_window: &Window,
+    messages: &mut MessageReader<KeyboardInput>,
+    modifiers: modal_dialogs::KeyModifiers,
+    app_commands: &mut MessageWriter<AppCommand>,
+    redraws: &mut MessageWriter<RequestRedraw>,
+) -> bool {
+    if !app_session.composer.task_editor.visible {
+        return false;
+    }
+    let visible_cols = crate::composer::task_dialog_visible_cols(primary_window);
+    run_modal_handler_loop(
+        messages,
+        app_commands,
+        redraws,
+        |event, emitted_commands| {
+            modal_dialogs::handle_task_dialog_key(
+                app_session,
                 event,
                 modifiers,
-                crate::composer::task_dialog_visible_cols(&primary_window),
-                &mut emitted_commands,
-            );
-            needs_redraw |= outcome.needs_redraw;
-            if outcome.stop {
-                break;
-            }
-        }
-        for command in emitted_commands {
-            app_commands.write(command);
-        }
-        if needs_redraw {
-            redraws.write(RequestRedraw);
-        }
-        return;
-    }
+                visible_cols,
+                emitted_commands,
+            )
+        },
+    );
+    true
+}
 
+#[allow(
+    clippy::too_many_arguments,
+    reason = "plain terminal shortcuts still need runtime selection, dialogs, commands, and redraws together"
+)]
+fn handle_plain_terminal_shortcuts(
+    app_session: &mut AppSessionState,
+    messages: &mut MessageReader<KeyboardInput>,
+    modifiers: modal_dialogs::KeyModifiers,
+    terminal_manager: &TerminalManager,
+    focus_state: &TerminalFocusState,
+    runtime_index: &AgentRuntimeIndex,
+    agent_catalog: &AgentCatalog,
+    aegis_policy: &AegisPolicyStore,
+    app_commands: &mut MessageWriter<AppCommand>,
+    redraws: &mut MessageWriter<RequestRedraw>,
+) {
     let Some(active_id) = focus_state.active_id() else {
         return;
     };
-    let Some(active_terminal) = _terminal_manager.get(active_id) else {
+    let Some(active_terminal) = terminal_manager.get(active_id) else {
         return;
     };
     if !terminal_is_interactive(&active_terminal.snapshot.runtime) {
         return;
     }
-    let page_rows = terminal_page_scroll_rows(&_terminal_manager, active_id);
+    let page_rows = terminal_page_scroll_rows(terminal_manager, active_id);
     for event in messages.read() {
         if event.state != ButtonState::Pressed {
             continue;
         }
 
-        if ctrl && !alt && !super_key {
+        if modifiers.ctrl && !modifiers.alt && !modifiers.super_key {
             match event.key_code {
                 KeyCode::KeyT => {
                     if let Some(agent_id) = runtime_index.agent_for_terminal(active_id) {
@@ -863,7 +884,7 @@ pub(crate) fn handle_terminal_message_box_keyboard(
                     break;
                 }
                 KeyCode::KeyV => {
-                    if let Some(terminal) = _terminal_manager.get(active_id) {
+                    if let Some(terminal) = terminal_manager.get(active_id) {
                         terminal
                             .bridge
                             .send(TerminalCommand::ScrollDisplay(-page_rows));
@@ -874,8 +895,12 @@ pub(crate) fn handle_terminal_message_box_keyboard(
             }
         }
 
-        if alt && !ctrl && !super_key && event.key_code == KeyCode::KeyV {
-            if let Some(terminal) = _terminal_manager.get(active_id) {
+        if modifiers.alt
+            && !modifiers.ctrl
+            && !modifiers.super_key
+            && event.key_code == KeyCode::KeyV
+        {
+            if let Some(terminal) = terminal_manager.get(active_id) {
                 terminal
                     .bridge
                     .send(TerminalCommand::ScrollDisplay(page_rows));
@@ -883,7 +908,7 @@ pub(crate) fn handle_terminal_message_box_keyboard(
             break;
         }
 
-        if ctrl || alt || super_key {
+        if modifiers.ctrl || modifiers.alt || modifiers.super_key {
             continue;
         }
 
@@ -945,6 +970,136 @@ pub(crate) fn handle_terminal_message_box_keyboard(
             _ => {}
         }
     }
+}
+
+#[allow(
+    clippy::too_many_arguments,
+    reason = "dialog keyboard handling needs input, focus, notes, terminal state, HUD state, commands, and redraws together"
+)]
+/// Handles keyboard input for the message box, the task dialog, and the shortcuts that open them.
+///
+/// The function is ordered as a small state machine:
+/// 1. ignore everything when the window is unfocused,
+/// 2. give direct-input mode priority and do nothing if it is active,
+/// 3. if the message box is open, treat keys as editor/send/close commands,
+/// 4. else if the task dialog is open, treat keys as editor/task-management commands,
+/// 5. else, interpret plain terminal shortcuts such as opening the message box, opening the task
+///    dialog, or consuming the next task.
+///
+/// That explicit ordering prevents global shortcuts from firing while a modal editor owns the same
+/// keystrokes.
+pub(crate) fn handle_terminal_message_box_keyboard(
+    mut messages: MessageReader<KeyboardInput>,
+    keys: Res<ButtonInput<KeyCode>>,
+    primary_window: Single<&Window, With<PrimaryWindow>>,
+    _terminal_manager: Res<TerminalManager>,
+    focus_state: Res<TerminalFocusState>,
+    runtime_index: Res<AgentRuntimeIndex>,
+    agent_catalog: Res<AgentCatalog>,
+    aegis_policy: Res<AegisPolicyStore>,
+    mut app_session: ResMut<AppSessionState>,
+    input_capture: Res<HudInputCaptureState>,
+    mut clipboard: Option<ResMut<EguiClipboard>>,
+    mut clipboard_ingress: Local<modal_dialogs::MessageDialogClipboardIngressState>,
+    mut app_commands: MessageWriter<AppCommand>,
+    mut redraws: MessageWriter<RequestRedraw>,
+) {
+    if !primary_window.focused {
+        return;
+    }
+    if input_capture.direct_input_terminal.is_some() {
+        return;
+    }
+
+    let modifiers = message_box_key_modifiers(&keys);
+
+    if handle_reset_dialog_events(
+        &mut app_session,
+        &mut messages,
+        modifiers,
+        &mut app_commands,
+        &mut redraws,
+    ) {
+        return;
+    }
+    if handle_aegis_dialog_events(
+        &mut app_session,
+        &primary_window,
+        &mut messages,
+        modifiers,
+        &mut app_commands,
+        &mut redraws,
+    ) {
+        return;
+    }
+    if handle_rename_dialog_events(
+        &mut app_session,
+        &mut messages,
+        modifiers,
+        &mut app_commands,
+        &mut redraws,
+    ) {
+        return;
+    }
+    if handle_clone_dialog_events(
+        &mut app_session,
+        &mut messages,
+        modifiers,
+        &mut app_commands,
+        &mut redraws,
+    ) {
+        return;
+    }
+    if handle_create_dialog_events(
+        &mut app_session,
+        &mut messages,
+        modifiers,
+        &mut app_commands,
+        &mut redraws,
+    ) {
+        return;
+    }
+
+    sync_message_editor_clipboard_ingress(
+        &app_session,
+        clipboard.as_deref_mut(),
+        &mut clipboard_ingress,
+    );
+    if handle_message_editor_events(
+        &mut app_session,
+        &primary_window,
+        &mut messages,
+        modifiers,
+        clipboard.as_deref_mut(),
+        &mut clipboard_ingress,
+        &mut app_commands,
+        &mut redraws,
+    ) {
+        return;
+    }
+    if handle_task_editor_events(
+        &mut app_session,
+        &primary_window,
+        &mut messages,
+        modifiers,
+        &mut app_commands,
+        &mut redraws,
+    ) {
+        return;
+    }
+
+    handle_plain_terminal_shortcuts(
+        &mut app_session,
+        &mut messages,
+        modifiers,
+        &_terminal_manager,
+        &focus_state,
+        &runtime_index,
+        &agent_catalog,
+        &aegis_policy,
+        &mut app_commands,
+        &mut redraws,
+    );
 }
 
 #[cfg(test)]
