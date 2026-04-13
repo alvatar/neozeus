@@ -573,6 +573,36 @@ fn setup_hud_widget_bloom_uses_logical_window_size_for_targets() {
         .all(|image| image.texture_descriptor.format == TextureFormat::Rgba16Float));
 }
 
+#[test]
+fn ensure_bloom_target_images_reuses_matching_handles_and_replaces_mismatched_ones() {
+    let mut images = Assets::<Image>::default();
+    let expected_size = UVec2::new(640, 360);
+    let wrong_size = UVec2::new(320, 180);
+    let source_image = images.add(bloom_target_image(expected_size));
+    let blur_small_image = images.add(bloom_target_image(wrong_size));
+
+    let mut pass = AgentListBloomPass {
+        source_image: source_image.clone(),
+        blur_small_image: blur_small_image.clone(),
+        ..AgentListBloomPass::default()
+    };
+
+    ensure_bloom_target_images(&mut images, &mut pass, expected_size);
+
+    assert_eq!(pass.source_image, source_image);
+    assert_ne!(pass.blur_small_image, blur_small_image);
+    for handle in [
+        &pass.source_image,
+        &pass.blur_small_image,
+        &pass.blur_wide_image,
+    ] {
+        let image = images.get(handle).expect("bloom target image exists");
+        assert_eq!(image.texture_descriptor.size.width, expected_size.x);
+        assert_eq!(image.texture_descriptor.size.height, expected_size.y);
+        assert_eq!(image.texture_descriptor.format, TextureFormat::Rgba16Float);
+    }
+}
+
 /// Verifies that bloom sync creates the expected set of source border sprites for the active agent
 /// row.
 ///

@@ -174,6 +174,166 @@ fn insert_test_hud_state_into_app(app: &mut App, hud_state: HudState) {
     insert_test_hud_state(app.world_mut(), hud_state);
 }
 
+#[test]
+fn build_presentation_plan_hides_non_active_panels_outside_startup_show_all() {
+    let window = Window {
+        resolution: (1400, 900).into(),
+        ..Default::default()
+    };
+    let layout_state = HudLayoutState::default();
+    let view_state = TerminalViewState::default();
+    let font_state = TerminalFontState::default();
+    let active_layout = active_terminal_layout_for_dimensions(
+        &window,
+        &layout_state,
+        &view_state,
+        target_active_terminal_dimensions(&window, &layout_state, &font_state),
+        &font_state,
+    );
+    let active_texture_state = active_layout_texture_state(active_layout);
+
+    let mut terminal_manager = TerminalManager::default();
+    let active_id = terminal_manager.create_terminal(test_bridge().0);
+    let other_id = terminal_manager.create_terminal(test_bridge().0);
+    terminal_manager
+        .get_mut(active_id)
+        .unwrap()
+        .snapshot
+        .surface = Some(TerminalSurface::new(80, 24));
+    terminal_manager.get_mut(other_id).unwrap().snapshot.surface =
+        Some(TerminalSurface::new(80, 24));
+
+    let mut presentation_store = TerminalPresentationStore::default();
+    for id in [active_id, other_id] {
+        presentation_store.register(
+            id,
+            PresentedTerminal {
+                image: Default::default(),
+                texture_state: active_texture_state.clone(),
+                desired_texture_state: active_texture_state.clone(),
+                display_mode: TerminalDisplayMode::Smooth,
+                uploaded_revision: 0,
+                uploaded_active_override_revision: None,
+                uploaded_text_selection_revision: None,
+                uploaded_surface: None,
+                panel_entity: Entity::PLACEHOLDER,
+                frame_entity: Entity::PLACEHOLDER,
+            },
+        );
+    }
+
+    let plan = build_presentation_plan(
+        other_id,
+        terminal_manager.get(other_id).unwrap(),
+        presentation_store.get(other_id).unwrap(),
+        &PresentationTransitionContext {
+            active_id: Some(active_id),
+            startup_show_all: false,
+            visibility_policy: crate::hud::TerminalVisibilityPolicy::ShowAll,
+            active_layout,
+            active_texture_state: active_texture_state.clone(),
+            active_ready: true,
+            active_size: terminal_texture_screen_size(
+                &active_texture_state,
+                &view_state,
+                &window,
+                &layout_state,
+                false,
+            ),
+            snap_switch: false,
+            blend: 0.5,
+        },
+        &terminal_manager,
+        &presentation_store,
+        &view_state,
+        &layout_state,
+        &window,
+        Vec2::new(12.0, -8.0),
+    );
+
+    assert!(!plan.visible);
+    assert!(!plan.resolve_startup_pending);
+}
+
+#[test]
+fn build_presentation_plan_keeps_active_startup_placeholder_visible_until_ready() {
+    let window = Window {
+        resolution: (1400, 900).into(),
+        ..Default::default()
+    };
+    let layout_state = HudLayoutState::default();
+    let view_state = TerminalViewState::default();
+    let font_state = TerminalFontState::default();
+    let active_layout = active_terminal_layout_for_dimensions(
+        &window,
+        &layout_state,
+        &view_state,
+        target_active_terminal_dimensions(&window, &layout_state, &font_state),
+        &font_state,
+    );
+    let active_texture_state = active_layout_texture_state(active_layout);
+
+    let mut terminal_manager = TerminalManager::default();
+    let active_id = terminal_manager.create_terminal(test_bridge().0);
+    terminal_manager
+        .get_mut(active_id)
+        .unwrap()
+        .snapshot
+        .surface = Some(TerminalSurface::new(80, 24));
+
+    let mut presentation_store = TerminalPresentationStore::default();
+    presentation_store.register(
+        active_id,
+        PresentedTerminal {
+            image: Default::default(),
+            texture_state: Default::default(),
+            desired_texture_state: Default::default(),
+            display_mode: TerminalDisplayMode::PixelPerfect,
+            uploaded_revision: 0,
+            uploaded_active_override_revision: None,
+            uploaded_text_selection_revision: None,
+            uploaded_surface: None,
+            panel_entity: Entity::PLACEHOLDER,
+            frame_entity: Entity::PLACEHOLDER,
+        },
+    );
+    presentation_store.mark_startup_pending(active_id);
+
+    let plan = build_presentation_plan(
+        active_id,
+        terminal_manager.get(active_id).unwrap(),
+        presentation_store.get(active_id).unwrap(),
+        &PresentationTransitionContext {
+            active_id: Some(active_id),
+            startup_show_all: true,
+            visibility_policy: crate::hud::TerminalVisibilityPolicy::ShowAll,
+            active_layout,
+            active_texture_state: active_texture_state.clone(),
+            active_ready: false,
+            active_size: terminal_texture_screen_size(
+                &active_texture_state,
+                &view_state,
+                &window,
+                &layout_state,
+                false,
+            ),
+            snap_switch: true,
+            blend: 1.0,
+        },
+        &terminal_manager,
+        &presentation_store,
+        &view_state,
+        &layout_state,
+        &window,
+        Vec2::ZERO,
+    );
+
+    assert!(plan.visible);
+    assert!(!plan.resolve_startup_pending);
+    assert_eq!(plan.sprite_color, STARTUP_PLACEHOLDER_ACTIVE_COLOR);
+    assert!(!plan.pixel_perfect);
+}
+
 #[derive(Default)]
 struct FakeDaemonClient {
     sessions: Mutex<BTreeSet<String>>,

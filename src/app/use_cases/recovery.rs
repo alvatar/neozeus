@@ -150,7 +150,6 @@ pub(crate) fn reset_runtime_from_snapshot(ctx: &mut ResetRuntimeContext<'_, '_>)
             input_capture,
             app_state_persistence,
             aegis_policy,
-            aegis_runtime,
             visibility_state,
             view_state,
             presentation_store,

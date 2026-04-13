@@ -1,5 +1,5 @@
 use crate::{
-    aegis::{AegisPolicyStore, AegisRuntimeStore},
+    aegis::AegisPolicyStore,
     agents::{AgentCatalog, AgentKind, AgentRuntimeIndex},
     app::{
         load_persisted_app_state_from, mark_app_state_dirty, ordered_reconciled_persisted_agents,
@@ -436,15 +436,10 @@ fn build_attach_intents(plan: &RestorePlan, inventory: &LiveSessionInventory) ->
 
 fn attach_live_agents(
     exec: &mut RestoreExecution<'_, '_>,
-    plan: &RestorePlan,
-    inventory: &LiveSessionInventory,
+    intents: &[AttachIntent],
     progress: &mut RestoreProgress,
 ) {
-    for record in ordered_reconciled_persisted_agents(&plan.restore, &plan.importable) {
-        let Some(intent) = attach_intent_from_record(record.clone(), inventory) else {
-            append_debug_log("startup attach skipped for record missing runtime session name");
-            continue;
-        };
+    for intent in intents {
         let attach_result = {
             let mut attach_ctx = super::AttachRestoredTerminalContext {
                 agent_catalog: exec.agent_catalog,
@@ -784,7 +779,6 @@ pub(crate) struct RestoreAppContext<'a, 'w> {
     pub(crate) input_capture: &'a mut crate::hud::HudInputCaptureState,
     pub(crate) app_state_persistence: &'a mut AppStatePersistenceState,
     pub(crate) aegis_policy: &'a mut AegisPolicyStore,
-    pub(crate) aegis_runtime: &'a mut AegisRuntimeStore,
     pub(crate) visibility_state: &'a mut crate::hud::TerminalVisibilityState,
     pub(crate) view_state: &'a mut TerminalViewState,
     pub(crate) presentation_store: Option<&'a mut TerminalPresentationStore>,
@@ -794,7 +788,6 @@ pub(crate) struct RestoreAppContext<'a, 'w> {
 
 /// Restores app.
 pub(crate) fn restore_app(ctx: &mut RestoreAppContext<'_, '_>) -> RecoveryExecutionSummary {
-    let _ = &mut *ctx.aegis_runtime;
     let snapshot = load_restore_snapshot(ctx.app_state_persistence);
     let mut progress = RestoreProgress {
         summary: RecoveryExecutionSummary {
@@ -815,6 +808,7 @@ pub(crate) fn restore_app(ctx: &mut RestoreAppContext<'_, '_>) -> RecoveryExecut
         }
     };
     let plan = plan_restore(&snapshot, &inventory);
+    let attach_intents = build_attach_intents(&plan, &inventory);
     if plan.should_mark_app_state_dirty {
         mark_app_state_dirty(ctx.app_state_persistence, None);
     }
@@ -839,8 +833,7 @@ pub(crate) fn restore_app(ctx: &mut RestoreAppContext<'_, '_>) -> RecoveryExecut
         time: ctx.time,
         redraws: ctx.redraws,
     };
-    let _ = build_attach_intents(&plan, &inventory);
-    attach_live_agents(&mut exec, &plan, &inventory, &mut progress);
+    attach_live_agents(&mut exec, &attach_intents, &mut progress);
     record_skipped_live_only_agents(&plan, &mut progress);
     respawn_recoverable_agents(&mut exec, &plan, &mut progress);
     finalize_restore_focus(
@@ -857,8 +850,10 @@ pub(crate) fn restore_app(ctx: &mut RestoreAppContext<'_, '_>) -> RecoveryExecut
 #[cfg(test)]
 mod tests {
     use super::{
-        agent_kind_from_daemon_session, render_recovery_status_summary,
-        skipped_live_only_restore_message, RecoveryExecutionSummary,
+        agent_kind_from_daemon_session, build_attach_intents, build_live_session_inventory,
+        build_restore_focus_candidates, plan_restore, render_recovery_status_summary,
+        skipped_live_only_restore_message, LiveSessionInventory, RecoveryExecutionSummary,
+        RestorePlan, RestoreSnapshot,
     };
     use crate::{
         agents::AgentKind,
@@ -870,11 +865,19 @@ mod tests {
     };
 
     fn session_with_kind(agent_kind: Option<DaemonAgentKind>) -> DaemonSessionInfo {
+        session_with_metadata("neozeus-session-1", TerminalLifecycle::Running, agent_kind)
+    }
+
+    fn session_with_metadata(
+        session_id: &str,
+        lifecycle: TerminalLifecycle,
+        agent_kind: Option<DaemonAgentKind>,
+    ) -> DaemonSessionInfo {
         DaemonSessionInfo {
-            session_id: "neozeus-session-1".into(),
+            session_id: session_id.into(),
             runtime: TerminalRuntimeState {
                 status: "running".into(),
-                lifecycle: TerminalLifecycle::Running,
+                lifecycle,
                 last_error: None,
             },
             revision: 0,
@@ -884,6 +887,24 @@ mod tests {
                 agent_label: None,
                 agent_kind,
             },
+        }
+    }
+
+    fn persisted_record(
+        runtime_session_name: Option<&str>,
+        last_focused: bool,
+    ) -> PersistedAgentState {
+        PersistedAgentState {
+            agent_uid: Some("agent-uid-1".into()),
+            runtime_session_name: runtime_session_name.map(str::to_owned),
+            label: Some("AGENT".into()),
+            kind: PersistedAgentKind::Terminal,
+            recovery: None,
+            clone_source_session_path: None,
+            aegis_enabled: false,
+            aegis_prompt_text: None,
+            order_index: 0,
+            last_focused,
         }
     }
 
@@ -1016,5 +1037,106 @@ mod tests {
             skipped_live_only_restore_message(&record),
             "startup skipped live-only agent ALPHA: runtime session unavailable"
         );
+    }
+
+    #[test]
+    fn plan_restore_reaps_noninteractive_imports_and_marks_state_dirty() {
+        let snapshot = RestoreSnapshot::default();
+        let inventory = build_live_session_inventory(vec![
+            session_with_metadata(
+                "neozeus-session-running",
+                TerminalLifecycle::Running,
+                Some(DaemonAgentKind::Terminal),
+            ),
+            session_with_metadata(
+                "neozeus-session-exited",
+                TerminalLifecycle::Exited {
+                    code: Some(0),
+                    signal: None,
+                },
+                Some(DaemonAgentKind::Terminal),
+            ),
+        ]);
+
+        let plan = plan_restore(&snapshot, &inventory);
+
+        assert!(plan.should_mark_app_state_dirty);
+        assert_eq!(plan.importable.len(), 1);
+        assert_eq!(
+            plan.importable[0].runtime_session_name.as_deref(),
+            Some("neozeus-session-running")
+        );
+        assert_eq!(
+            plan.reapable_session_names,
+            vec!["neozeus-session-exited".to_owned()]
+        );
+    }
+
+    #[test]
+    fn build_restore_focus_candidates_ignores_noninteractive_last_focused_sessions() {
+        let plan = RestorePlan {
+            restore: vec![
+                persisted_record(Some("neozeus-session-exited"), true),
+                persisted_record(Some("neozeus-session-running"), false),
+            ],
+            ..RestorePlan::default()
+        };
+        let inventory: LiveSessionInventory = build_live_session_inventory(vec![
+            session_with_metadata(
+                "neozeus-session-exited",
+                TerminalLifecycle::Exited {
+                    code: Some(0),
+                    signal: None,
+                },
+                Some(DaemonAgentKind::Terminal),
+            ),
+            session_with_metadata(
+                "neozeus-session-running",
+                TerminalLifecycle::Running,
+                Some(DaemonAgentKind::Terminal),
+            ),
+        ]);
+
+        let candidates = build_restore_focus_candidates(&plan, &inventory);
+
+        assert_eq!(candidates.restored_focus_session, None);
+        assert_eq!(
+            candidates.restored_session_names,
+            vec!["neozeus-session-running".to_owned()]
+        );
+    }
+
+    #[test]
+    fn build_attach_intents_derives_pi_clone_provenance_from_recovery_when_missing() {
+        let plan = RestorePlan {
+            restore: vec![PersistedAgentState {
+                kind: PersistedAgentKind::Pi,
+                recovery: Some(
+                    crate::shared::app_state_file::PersistedAgentRecoverySpec::Pi {
+                        session_path: "/tmp/pi-session.jsonl".into(),
+                        cwd: Some("/tmp/demo".into()),
+                        is_workdir: false,
+                        workdir_slug: None,
+                    },
+                ),
+                clone_source_session_path: None,
+                ..persisted_record(Some("neozeus-session-running"), false)
+            }],
+            ..RestorePlan::default()
+        };
+        let inventory = build_live_session_inventory(vec![session_with_metadata(
+            "neozeus-session-running",
+            TerminalLifecycle::Running,
+            Some(DaemonAgentKind::Pi),
+        )]);
+
+        let intents = build_attach_intents(&plan, &inventory);
+
+        assert_eq!(intents.len(), 1);
+        assert_eq!(
+            intents[0].clone_source_session_path.as_deref(),
+            Some("/tmp/pi-session.jsonl")
+        );
+        assert!(intents[0].should_mark_startup_pending);
     }
 }

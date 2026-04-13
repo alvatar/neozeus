@@ -145,6 +145,94 @@ fn set_colored_text(
     }
 }
 
+#[test]
+fn terminal_raster_work_plan_preserves_row_damage_for_incremental_uploads() {
+    let mut manager = TerminalManager::default();
+    let terminal_id = manager.create_terminal(test_bridge());
+    let terminal = manager.get_mut(terminal_id).expect("terminal should exist");
+    terminal.snapshot.surface = Some(TerminalSurface::new(4, 3));
+    terminal.surface_revision = 2;
+    terminal.pending_damage = Some(TerminalDamage::Rows(vec![1, 2]));
+
+    let surface = terminal.snapshot.surface.as_ref().unwrap();
+    let upload_state = TerminalTextureState {
+        texture_size: UVec2::new(40, 30),
+        cell_size: UVec2::new(10, 10),
+    };
+    let presented = PresentedTerminal {
+        image: Default::default(),
+        texture_state: upload_state.clone(),
+        desired_texture_state: upload_state.clone(),
+        display_mode: TerminalDisplayMode::Smooth,
+        uploaded_revision: 1,
+        uploaded_active_override_revision: None,
+        uploaded_text_selection_revision: None,
+        uploaded_surface: None,
+        panel_entity: Entity::PLACEHOLDER,
+        frame_entity: Entity::PLACEHOLDER,
+    };
+
+    let plan = terminal_raster_work_plan(
+        terminal,
+        surface,
+        &presented,
+        upload_state,
+        None,
+        None,
+        false,
+    );
+
+    assert!(!plan.full_redraw);
+    assert_eq!(plan.dirty_rows, vec![1, 2]);
+}
+
+#[test]
+fn terminal_raster_work_plan_forces_full_redraw_when_texture_contract_changes() {
+    let mut manager = TerminalManager::default();
+    let terminal_id = manager.create_terminal(test_bridge());
+    let terminal = manager.get_mut(terminal_id).expect("terminal should exist");
+    terminal.snapshot.surface = Some(TerminalSurface::new(4, 3));
+    terminal.surface_revision = 1;
+    terminal.pending_damage = Some(TerminalDamage::Rows(vec![2]));
+
+    let surface = terminal.snapshot.surface.as_ref().unwrap();
+    let presented = PresentedTerminal {
+        image: Default::default(),
+        texture_state: TerminalTextureState {
+            texture_size: UVec2::new(40, 30),
+            cell_size: UVec2::new(10, 10),
+        },
+        desired_texture_state: TerminalTextureState {
+            texture_size: UVec2::new(40, 30),
+            cell_size: UVec2::new(10, 10),
+        },
+        display_mode: TerminalDisplayMode::Smooth,
+        uploaded_revision: 1,
+        uploaded_active_override_revision: None,
+        uploaded_text_selection_revision: None,
+        uploaded_surface: None,
+        panel_entity: Entity::PLACEHOLDER,
+        frame_entity: Entity::PLACEHOLDER,
+    };
+    let upload_state = TerminalTextureState {
+        texture_size: UVec2::new(80, 60),
+        cell_size: UVec2::new(20, 20),
+    };
+
+    let plan = terminal_raster_work_plan(
+        terminal,
+        surface,
+        &presented,
+        upload_state,
+        None,
+        None,
+        false,
+    );
+
+    assert!(plan.full_redraw);
+    assert_eq!(plan.dirty_rows, vec![0, 1, 2]);
+}
+
 /// Runs the normal terminal-texture sync pipeline on a supplied surface and returns the rendered
 /// image plus the texture state it ended up using.
 fn render_surface_to_terminal_image(surface: TerminalSurface) -> (Image, TerminalTextureState) {

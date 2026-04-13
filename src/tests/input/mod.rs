@@ -1456,6 +1456,55 @@ fn rename_dialog_typing_uppercases_name_field() {
 }
 
 #[test]
+fn reset_dialog_escape_preempts_rename_dialog() {
+    let (mut world, terminal_id) =
+        world_with_active_terminal(Vec2::new(10.0, 10.0), false, Vec2::ZERO);
+    let agent_id = world
+        .resource::<crate::agents::AgentRuntimeIndex>()
+        .agent_for_terminal(terminal_id)
+        .expect("agent should be linked");
+    {
+        let mut app_session = world.resource_mut::<AppSessionState>();
+        app_session.reset_dialog.visible = true;
+        app_session.rename_agent_dialog.open(agent_id, "AGENT-1");
+    }
+    world.init_resource::<Messages<RequestRedraw>>();
+
+    dispatch_message_box_key(&mut world, pressed_key(KeyCode::Escape, Key::Escape));
+
+    let app_session = world.resource::<AppSessionState>();
+    assert!(!app_session.reset_dialog.visible);
+    assert!(app_session.rename_agent_dialog.visible);
+}
+
+#[test]
+fn rename_dialog_typing_preempts_message_editor_typing() {
+    let (mut world, terminal_id) =
+        world_with_active_terminal(Vec2::new(10.0, 10.0), false, Vec2::ZERO);
+    let agent_id = world
+        .resource::<crate::agents::AgentRuntimeIndex>()
+        .agent_for_terminal(terminal_id)
+        .expect("agent should be linked");
+    let mut hud_state = crate::hud::HudState::default();
+    hud_state.open_message_box(terminal_id);
+    insert_test_hud_state(&mut world, hud_state);
+    {
+        let mut app_session = world.resource_mut::<AppSessionState>();
+        app_session.rename_agent_dialog.open(agent_id, "AGENT-1");
+        app_session.rename_agent_dialog.name_field.clear();
+        app_session.rename_agent_dialog.focus = RenameAgentDialogField::Name;
+        app_session.composer.message_editor.load_text("draft");
+    }
+    world.init_resource::<Messages<RequestRedraw>>();
+
+    dispatch_message_box_key(&mut world, pressed_text(KeyCode::KeyZ, Some("z")));
+
+    let app_session = world.resource::<AppSessionState>();
+    assert_eq!(app_session.rename_agent_dialog.name_field.text, "Z");
+    assert_eq!(app_session.composer.message_editor.text, "draft");
+}
+
+#[test]
 fn rename_dialog_ctrl_u_clears_name_field() {
     let (mut world, terminal_id) =
         world_with_active_terminal(Vec2::new(10.0, 10.0), false, Vec2::ZERO);
