@@ -23,7 +23,9 @@ use super::{
 use bevy::{
     asset::RenderAssetUsages,
     image::ImageSampler,
-    prelude::{Assets, DetectChanges, Image, Res, ResMut, Resource, Single, UVec2, Window, With},
+    prelude::{
+        Assets, DetectChanges, Handle, Image, Res, ResMut, Resource, Single, UVec2, Window, With,
+    },
     render::render_resource::{Extent3d, TextureDimension, TextureFormat},
     window::PrimaryWindow,
 };
@@ -147,6 +149,407 @@ fn cached_or_default_texture_state(
     }
 }
 
+#[derive(Clone, Copy)]
+struct ActiveRasterTarget {
+    active_id: Option<super::registry::TerminalId>,
+    active_layout: Option<super::presentation::ActiveTerminalLayout>,
+}
+
+#[derive(Clone, Debug)]
+struct TerminalRasterWorkPlan {
+    upload_state: TerminalTextureState,
+    active_override_revision: Option<u64>,
+    terminal_selection_revision: Option<u64>,
+    full_redraw: bool,
+    dirty_rows: Vec<usize>,
+}
+
+fn active_raster_target(
+    _terminal_manager: &TerminalManager,
+    focus_state: &TerminalFocusState,
+    primary_window: &Window,
+    layout_state: &HudLayoutState,
+    view_state: &TerminalViewState,
+    font_state: &TerminalFontState,
+) -> ActiveRasterTarget {
+    #[allow(unused_mut)]
+    let mut active_id = focus_state.active_id();
+    #[cfg(test)]
+    {
+        active_id = _terminal_manager
+            .clone_focus_state()
+            .active_id()
+            .or(active_id);
+    }
+    ActiveRasterTarget {
+        active_layout: active_id.map(|_| {
+            active_terminal_layout_for_dimensions(
+                primary_window,
+                layout_state,
+                view_state,
+                target_active_terminal_dimensions(primary_window, layout_state, font_state),
+                font_state,
+            )
+        }),
+        active_id,
+    }
+}
+
+fn raster_source_surface<'a>(
+    terminal_id: super::registry::TerminalId,
+    terminal: &'a super::registry::ManagedTerminal,
+    active_target: ActiveRasterTarget,
+    active_terminal_content: &'a ActiveTerminalContentState,
+    verification_overrides: Option<&'a VerificationTerminalSurfaceOverrides>,
+) -> Option<&'a TerminalSurface> {
+    let override_surface = (Some(terminal_id) == active_target.active_id)
+        .then_some(active_terminal_content.owned_tmux_surface_for(terminal_id))
+        .flatten()
+        .or_else(|| {
+            verification_overrides.and_then(|overrides| overrides.surface_for(terminal_id))
+        });
+    override_surface.or(terminal.snapshot.surface.as_ref())
+}
+
+fn upload_state_for_terminal(
+    terminal_id: super::registry::TerminalId,
+    surface: &TerminalSurface,
+    presented_terminal: &mut PresentedTerminal,
+    active_target: ActiveRasterTarget,
+    font_state: &TerminalFontState,
+) -> TerminalTextureState {
+    let upload_state = if Some(terminal_id) == active_target.active_id {
+        let active_layout = active_target
+            .active_layout
+            .expect("active layout missing for active terminal");
+        let active_target_state = TerminalTextureState {
+            texture_size: active_layout.texture_size,
+            cell_size: active_layout.cell_size,
+        };
+        if can_render_active_layout(surface, active_layout.dimensions) {
+            active_target_state
+        } else {
+            cached_or_default_texture_state(presented_terminal, surface, font_state)
+        }
+    } else if active_target.active_id.is_some() {
+        default_texture_state_for_surface(surface, font_state)
+    } else {
+        cached_or_default_texture_state(presented_terminal, surface, font_state)
+    };
+    presented_terminal.desired_texture_state = upload_state.clone();
+    upload_state
+}
+
+fn active_override_revision_for_terminal(
+    terminal_id: super::registry::TerminalId,
+    active_terminal_content: &ActiveTerminalContentState,
+    verification_overrides: Option<&VerificationTerminalSurfaceOverrides>,
+) -> Option<u64> {
+    active_terminal_content
+        .presentation_override_revision_for(terminal_id)
+        .or_else(|| {
+            verification_overrides
+                .and_then(|overrides| overrides.presentation_override_revision_for(terminal_id))
+        })
+}
+
+fn terminal_raster_work_plan(
+    terminal: &super::registry::ManagedTerminal,
+    surface: &TerminalSurface,
+    presented_terminal: &PresentedTerminal,
+    upload_state: TerminalTextureState,
+    active_override_revision: Option<u64>,
+    terminal_selection_revision: Option<u64>,
+    font_state_changed: bool,
+) -> TerminalRasterWorkPlan {
+    let has_pending_surface = terminal.surface_revision != presented_terminal.uploaded_revision
+        || presented_terminal.uploaded_active_override_revision != active_override_revision
+        || presented_terminal.uploaded_text_selection_revision != terminal_selection_revision;
+    let mut full_redraw = font_state_changed || presented_terminal.texture_state != upload_state;
+    let dirty_rows = if full_redraw {
+        (0..surface.rows).collect::<Vec<_>>()
+    } else if has_pending_surface {
+        match terminal
+            .pending_damage
+            .as_ref()
+            .unwrap_or(&TerminalDamage::Full)
+        {
+            TerminalDamage::Full => {
+                full_redraw = true;
+                (0..surface.rows).collect::<Vec<_>>()
+            }
+            TerminalDamage::Rows(rows) => rows.clone(),
+        }
+    } else {
+        Vec::new()
+    };
+    TerminalRasterWorkPlan {
+        upload_state,
+        active_override_revision,
+        terminal_selection_revision,
+        full_redraw,
+        dirty_rows,
+    }
+}
+
+fn all_surface_rows(surface: &TerminalSurface) -> Vec<usize> {
+    (0..surface.rows).collect()
+}
+
+fn promote_to_full_redraw(
+    surface: &TerminalSurface,
+    full_redraw: &mut bool,
+    dirty_rows: &mut Vec<usize>,
+) {
+    *full_redraw = true;
+    *dirty_rows = all_surface_rows(surface);
+}
+
+fn ensure_terminal_target_image(
+    presented_terminal: &mut PresentedTerminal,
+    images: &mut Assets<Image>,
+    upload_state: &TerminalTextureState,
+    surface: &TerminalSurface,
+    full_redraw: &mut bool,
+    dirty_rows: &mut Vec<usize>,
+) -> Option<Handle<Image>> {
+    if images.get_mut(&presented_terminal.image).is_none() {
+        presented_terminal.image = images.add(create_terminal_image(upload_state.texture_size));
+        promote_to_full_redraw(surface, full_redraw, dirty_rows);
+    }
+    Some(presented_terminal.image.clone())
+}
+
+fn ensure_target_image_matches_upload_state(
+    target_image: &mut Image,
+    upload_state: &TerminalTextureState,
+    surface: &TerminalSurface,
+    full_redraw: &mut bool,
+    dirty_rows: &mut Vec<usize>,
+) {
+    if target_image.texture_descriptor.size.width != upload_state.texture_size.x
+        || target_image.texture_descriptor.size.height != upload_state.texture_size.y
+    {
+        *target_image = create_terminal_image(upload_state.texture_size);
+        promote_to_full_redraw(surface, full_redraw, dirty_rows);
+    }
+}
+
+fn ensure_terminal_pixel_buffer<'a>(
+    target_image: &'a mut Image,
+    upload_state: &TerminalTextureState,
+    surface: &TerminalSurface,
+    full_redraw: &mut bool,
+    dirty_rows: &mut Vec<usize>,
+) -> &'a mut Vec<u8> {
+    let expected_len = (upload_state.texture_size.x * upload_state.texture_size.y * 4) as usize;
+    let pixels = target_image.data.get_or_insert_with(|| {
+        vec![
+            DEFAULT_BG.r(),
+            DEFAULT_BG.g(),
+            DEFAULT_BG.b(),
+            DEFAULT_BG.a(),
+        ]
+    });
+    if pixels.len() != expected_len {
+        pixels.resize(expected_len, DEFAULT_BG.a());
+        for pixel in pixels.chunks_exact_mut(4) {
+            pixel.copy_from_slice(&[
+                DEFAULT_BG.r(),
+                DEFAULT_BG.g(),
+                DEFAULT_BG.b(),
+                DEFAULT_BG.a(),
+            ]);
+        }
+        promote_to_full_redraw(surface, full_redraw, dirty_rows);
+    }
+    pixels
+}
+
+#[allow(
+    clippy::too_many_arguments,
+    reason = "incremental translation eligibility depends on surface, uploaded revisions, and pending damage together"
+)]
+fn maybe_translate_existing_pixels(
+    pixels: &mut [u8],
+    terminal: &super::registry::ManagedTerminal,
+    surface: &TerminalSurface,
+    presented_terminal: &PresentedTerminal,
+    upload_state: &TerminalTextureState,
+    active_override_revision: Option<u64>,
+    terminal_selection_revision: Option<u64>,
+    full_redraw: bool,
+) -> Option<Vec<usize>> {
+    if full_redraw
+        || terminal.pending_damage != Some(TerminalDamage::Full)
+        || presented_terminal.uploaded_active_override_revision != active_override_revision
+        || presented_terminal.uploaded_text_selection_revision != terminal_selection_revision
+    {
+        return None;
+    }
+    presented_terminal
+        .uploaded_surface
+        .as_ref()
+        .and_then(|previous| {
+            translate_terminal_viewport_pixels(
+                pixels,
+                upload_state.texture_size,
+                upload_state.cell_size,
+                previous,
+                surface,
+            )
+        })
+}
+
+fn finalize_terminal_upload(
+    terminal: &mut super::registry::ManagedTerminal,
+    presented_terminal: &mut PresentedTerminal,
+    uploaded_surface: TerminalSurface,
+    plan: &TerminalRasterWorkPlan,
+) {
+    presented_terminal.texture_state = plan.upload_state.clone();
+    presented_terminal.uploaded_revision = terminal.surface_revision;
+    presented_terminal.uploaded_active_override_revision = plan.active_override_revision;
+    presented_terminal.uploaded_text_selection_revision = plan.terminal_selection_revision;
+    presented_terminal.uploaded_surface = Some(uploaded_surface);
+    terminal.pending_damage = None;
+}
+
+#[allow(
+    clippy::too_many_arguments,
+    reason = "one-terminal raster sync still coordinates terminal state, presentation state, renderer, images, and selection"
+)]
+fn sync_one_terminal_texture(
+    terminal_id: super::registry::TerminalId,
+    terminal: &mut super::registry::ManagedTerminal,
+    presentation_store: &mut TerminalPresentationStore,
+    active_target: ActiveRasterTarget,
+    font_state: &TerminalFontState,
+    font_state_changed: bool,
+    active_terminal_content: &ActiveTerminalContentState,
+    verification_overrides: Option<&VerificationTerminalSurfaceOverrides>,
+    terminal_text_selection: &TerminalTextSelectionState,
+    images: &mut Assets<Image>,
+    glyph_cache: &mut TerminalGlyphCache,
+    text_renderer: &mut TerminalTextRenderer,
+) {
+    let Some(surface) = raster_source_surface(
+        terminal_id,
+        terminal,
+        active_target,
+        active_terminal_content,
+        verification_overrides,
+    ) else {
+        terminal.pending_damage = None;
+        return;
+    };
+    let Some(presented_terminal) = presentation_store.get_mut(terminal_id) else {
+        terminal.pending_damage = None;
+        return;
+    };
+
+    let upload_state = upload_state_for_terminal(
+        terminal_id,
+        surface,
+        presented_terminal,
+        active_target,
+        font_state,
+    );
+    let active_override_revision = active_override_revision_for_terminal(
+        terminal_id,
+        active_terminal_content,
+        verification_overrides,
+    );
+    let terminal_selection_revision =
+        terminal_text_selection.presentation_revision_for(terminal_id);
+    let mut plan = terminal_raster_work_plan(
+        terminal,
+        surface,
+        presented_terminal,
+        upload_state,
+        active_override_revision,
+        terminal_selection_revision,
+        font_state_changed,
+    );
+
+    if plan.dirty_rows.is_empty() {
+        return;
+    }
+
+    let Some(image_handle) = ensure_terminal_target_image(
+        presented_terminal,
+        images,
+        &plan.upload_state,
+        surface,
+        &mut plan.full_redraw,
+        &mut plan.dirty_rows,
+    ) else {
+        append_debug_log("texture sync: target image missing in assets");
+        return;
+    };
+    let Some(target_image) = images.get_mut(&image_handle) else {
+        append_debug_log("texture sync: target image missing in assets");
+        return;
+    };
+
+    ensure_target_image_matches_upload_state(
+        target_image,
+        &plan.upload_state,
+        surface,
+        &mut plan.full_redraw,
+        &mut plan.dirty_rows,
+    );
+    let pixels = ensure_terminal_pixel_buffer(
+        target_image,
+        &plan.upload_state,
+        surface,
+        &mut plan.full_redraw,
+        &mut plan.dirty_rows,
+    );
+
+    if let Some(rows) = maybe_translate_existing_pixels(
+        pixels,
+        terminal,
+        surface,
+        presented_terminal,
+        &plan.upload_state,
+        plan.active_override_revision,
+        plan.terminal_selection_revision,
+        plan.full_redraw,
+    ) {
+        plan.dirty_rows = rows;
+    }
+
+    if plan.full_redraw {
+        clear_terminal_pixels(pixels);
+    }
+
+    let compose_started = std::time::Instant::now();
+    repaint_terminal_pixels(
+        pixels,
+        plan.upload_state.texture_size.x,
+        surface,
+        terminal_text_selection.override_selection_for(terminal_id),
+        &plan.dirty_rows,
+        plan.upload_state.cell_size,
+        text_renderer,
+        glyph_cache,
+        font_state,
+    );
+    let compose_elapsed = compose_started.elapsed();
+    terminal
+        .bridge
+        .note_compose(plan.dirty_rows.len(), compose_elapsed.as_micros() as u64);
+
+    if env::var_os("NEOZEUS_DUMP_TEXTURE").is_some() {
+        let dump_path = resolve_debug_texture_dump_path();
+        let _ = dump_terminal_image_ppm(target_image, dump_path.as_path());
+    }
+
+    let uploaded_surface = surface.clone();
+    finalize_terminal_upload(terminal, presented_terminal, uploaded_surface, &plan);
+}
+
 #[allow(
     clippy::too_many_arguments,
     reason = "texture sync needs terminal, presentation, font, HUD layout, window, image, and renderer state together"
@@ -172,7 +575,6 @@ pub(crate) fn sync_terminal_texture(
     mut images: ResMut<Assets<Image>>,
     mut text_renderer: ResMut<TerminalTextRenderer>,
 ) {
-    // Rebuild the derived or projected state from the authoritative resources in one pass so partial updates cannot drift.
     if text_renderer.font_system.is_none() {
         append_debug_log("texture sync: no font system");
         return;
@@ -183,201 +585,30 @@ pub(crate) fn sync_terminal_texture(
         glyph_cache.glyphs.clear();
     }
 
-    #[allow(unused_mut)]
-    let mut active_id = focus_state.active_id();
-    #[cfg(test)]
-    {
-        active_id = terminal_manager
-            .clone_focus_state()
-            .active_id()
-            .or(active_id);
-    }
-    let active_layout = active_id.map(|_| {
-        active_terminal_layout_for_dimensions(
-            &primary_window,
-            &layout_state,
-            &view_state,
-            target_active_terminal_dimensions(&primary_window, &layout_state, &font_state),
-            &font_state,
-        )
-    });
+    let active_target = active_raster_target(
+        &terminal_manager,
+        &focus_state,
+        &primary_window,
+        &layout_state,
+        &view_state,
+        &font_state,
+    );
+    let verification_overrides = verification_overrides.as_deref();
     for (terminal_id, terminal) in terminal_manager.iter_mut() {
-        let override_surface = (Some(terminal_id) == active_id)
-            .then_some(active_terminal_content.owned_tmux_surface_for(terminal_id))
-            .flatten()
-            .or_else(|| {
-                verification_overrides
-                    .as_ref()
-                    .and_then(|overrides| overrides.surface_for(terminal_id))
-            });
-        let Some(surface) = override_surface.or(terminal.snapshot.surface.as_ref()) else {
-            terminal.pending_damage = None;
-            continue;
-        };
-        let Some(presented_terminal) = presentation_store.get_mut(terminal_id) else {
-            terminal.pending_damage = None;
-            continue;
-        };
-
-        let upload_state = if Some(terminal_id) == active_id {
-            let active_layout = active_layout.expect("active layout missing for active terminal");
-            let active_target_state = TerminalTextureState {
-                texture_size: active_layout.texture_size,
-                cell_size: active_layout.cell_size,
-            };
-            if can_render_active_layout(surface, active_layout.dimensions) {
-                presented_terminal.desired_texture_state = active_target_state.clone();
-                active_target_state
-            } else {
-                let cached =
-                    cached_or_default_texture_state(presented_terminal, surface, &font_state);
-                presented_terminal.desired_texture_state = cached.clone();
-                cached
-            }
-        } else {
-            let cached = if active_id.is_some() {
-                default_texture_state_for_surface(surface, &font_state)
-            } else {
-                cached_or_default_texture_state(presented_terminal, surface, &font_state)
-            };
-            presented_terminal.desired_texture_state = cached.clone();
-            cached
-        };
-
-        let active_override_revision = active_terminal_content
-            .presentation_override_revision_for(terminal_id)
-            .or_else(|| {
-                verification_overrides
-                    .as_ref()
-                    .and_then(|overrides| overrides.presentation_override_revision_for(terminal_id))
-            });
-        let terminal_selection_revision =
-            terminal_text_selection.presentation_revision_for(terminal_id);
-        let has_pending_surface = terminal.surface_revision != presented_terminal.uploaded_revision
-            || presented_terminal.uploaded_active_override_revision != active_override_revision
-            || presented_terminal.uploaded_text_selection_revision != terminal_selection_revision;
-        let mut full_redraw =
-            font_state.is_changed() || presented_terminal.texture_state != upload_state;
-        let mut dirty_rows = if full_redraw {
-            (0..surface.rows).collect::<Vec<_>>()
-        } else if has_pending_surface {
-            match terminal
-                .pending_damage
-                .as_ref()
-                .unwrap_or(&TerminalDamage::Full)
-            {
-                TerminalDamage::Full => {
-                    full_redraw = true;
-                    (0..surface.rows).collect::<Vec<_>>()
-                }
-                TerminalDamage::Rows(rows) => rows.clone(),
-            }
-        } else {
-            Vec::new()
-        };
-
-        if dirty_rows.is_empty() {
-            continue;
-        }
-
-        if images.get_mut(&presented_terminal.image).is_none() {
-            presented_terminal.image = images.add(create_terminal_image(upload_state.texture_size));
-            full_redraw = true;
-            dirty_rows = (0..surface.rows).collect();
-        }
-
-        if let Some(target_image) = images.get_mut(&presented_terminal.image) {
-            if target_image.texture_descriptor.size.width != upload_state.texture_size.x
-                || target_image.texture_descriptor.size.height != upload_state.texture_size.y
-            {
-                *target_image = create_terminal_image(upload_state.texture_size);
-                full_redraw = true;
-                dirty_rows = (0..surface.rows).collect();
-            }
-
-            let expected_len =
-                (upload_state.texture_size.x * upload_state.texture_size.y * 4) as usize;
-            let pixels = target_image.data.get_or_insert_with(|| {
-                vec![
-                    DEFAULT_BG.r(),
-                    DEFAULT_BG.g(),
-                    DEFAULT_BG.b(),
-                    DEFAULT_BG.a(),
-                ]
-            });
-            if pixels.len() != expected_len {
-                pixels.resize(expected_len, DEFAULT_BG.a());
-                for pixel in pixels.chunks_exact_mut(4) {
-                    pixel.copy_from_slice(&[
-                        DEFAULT_BG.r(),
-                        DEFAULT_BG.g(),
-                        DEFAULT_BG.b(),
-                        DEFAULT_BG.a(),
-                    ]);
-                }
-                full_redraw = true;
-                dirty_rows = (0..surface.rows).collect();
-            }
-
-            if !full_redraw
-                && terminal.pending_damage == Some(TerminalDamage::Full)
-                && presented_terminal.uploaded_active_override_revision == active_override_revision
-                && presented_terminal.uploaded_text_selection_revision
-                    == terminal_selection_revision
-            {
-                if let Some(rows) =
-                    presented_terminal
-                        .uploaded_surface
-                        .as_ref()
-                        .and_then(|previous| {
-                            translate_terminal_viewport_pixels(
-                                pixels,
-                                upload_state.texture_size,
-                                upload_state.cell_size,
-                                previous,
-                                surface,
-                            )
-                        })
-                {
-                    dirty_rows = rows;
-                }
-            }
-
-            if full_redraw {
-                clear_terminal_pixels(pixels);
-            }
-
-            let compose_started = std::time::Instant::now();
-            repaint_terminal_pixels(
-                pixels,
-                upload_state.texture_size.x,
-                surface,
-                terminal_text_selection.override_selection_for(terminal_id),
-                &dirty_rows,
-                upload_state.cell_size,
-                &mut text_renderer,
-                &mut glyph_cache,
-                &font_state,
-            );
-            let compose_elapsed = compose_started.elapsed();
-            terminal
-                .bridge
-                .note_compose(dirty_rows.len(), compose_elapsed.as_micros() as u64);
-
-            if env::var_os("NEOZEUS_DUMP_TEXTURE").is_some() {
-                let dump_path = resolve_debug_texture_dump_path();
-                let _ = dump_terminal_image_ppm(target_image, dump_path.as_path());
-            }
-
-            presented_terminal.texture_state = upload_state;
-            presented_terminal.uploaded_revision = terminal.surface_revision;
-            presented_terminal.uploaded_active_override_revision = active_override_revision;
-            presented_terminal.uploaded_text_selection_revision = terminal_selection_revision;
-            presented_terminal.uploaded_surface = Some(surface.clone());
-            terminal.pending_damage = None;
-        } else {
-            append_debug_log("texture sync: target image missing in assets");
-        }
+        sync_one_terminal_texture(
+            terminal_id,
+            terminal,
+            &mut presentation_store,
+            active_target,
+            &font_state,
+            font_state.is_changed(),
+            &active_terminal_content,
+            verification_overrides,
+            &terminal_text_selection,
+            &mut images,
+            &mut glyph_cache,
+            &mut text_renderer,
+        );
     }
 }
 
