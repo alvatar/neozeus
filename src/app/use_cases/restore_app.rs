@@ -186,6 +186,591 @@ fn skipped_live_only_restore_message(
     )
 }
 
+#[derive(Clone, Debug, Default)]
+struct RestoreSnapshot {
+    persisted: crate::shared::app_state_file::PersistedAppState,
+    snapshot_found: bool,
+    persisted_missing_agent_uid: bool,
+    next_import_order: u64,
+}
+
+#[derive(Clone, Debug, Default)]
+struct LiveSessionInventory {
+    sessions: Vec<DaemonSessionInfo>,
+    lookup: std::collections::HashMap<String, DaemonSessionInfo>,
+}
+
+#[derive(Clone, Debug, Default)]
+struct RestorePlan {
+    restore: Vec<crate::shared::app_state_file::PersistedAgentState>,
+    prune: Vec<crate::shared::app_state_file::PersistedAgentState>,
+    importable: Vec<crate::shared::app_state_file::PersistedAgentState>,
+    reapable_session_names: Vec<String>,
+    should_mark_app_state_dirty: bool,
+}
+
+#[derive(Clone, Debug)]
+struct AttachIntent {
+    record: crate::shared::app_state_file::PersistedAgentState,
+    runtime_session_name: String,
+    should_mark_startup_pending: bool,
+    recovery: Option<crate::agents::AgentRecoverySpec>,
+    clone_source_session_path: Option<String>,
+}
+
+#[derive(Clone, Debug)]
+struct RespawnIntent {
+    record: crate::shared::app_state_file::PersistedAgentState,
+    agent_uid: String,
+    launch: super::spawn_agent_terminal::AgentLaunchSpec,
+    working_directory: Option<String>,
+}
+
+#[derive(Clone, Debug, Default)]
+struct RestoreFocusCandidates {
+    restored_focus_session: Option<String>,
+    restored_session_names: Vec<String>,
+    imported_session_names: Vec<String>,
+}
+
+#[derive(Clone, Debug, Default)]
+struct RestoreProgress {
+    summary: RecoveryExecutionSummary,
+    respawned_focus_agent: Option<crate::agents::AgentId>,
+}
+
+struct RestoreExecution<'a, 'w> {
+    agent_catalog: &'a mut AgentCatalog,
+    runtime_index: &'a mut AgentRuntimeIndex,
+    app_session: &'a mut AppSessionState,
+    selection: &'a mut crate::hud::AgentListSelection,
+    terminal_manager: &'a mut TerminalManager,
+    focus_state: &'a mut TerminalFocusState,
+    owned_tmux_sessions: &'a OwnedTmuxSessionStore,
+    active_terminal_content: &'a mut ActiveTerminalContentState,
+    runtime_spawner: &'a TerminalRuntimeSpawner,
+    input_capture: &'a mut crate::hud::HudInputCaptureState,
+    app_state_persistence: &'a mut AppStatePersistenceState,
+    aegis_policy: &'a mut AegisPolicyStore,
+    visibility_state: &'a mut crate::hud::TerminalVisibilityState,
+    view_state: &'a mut TerminalViewState,
+    presentation_store: Option<&'a mut TerminalPresentationStore>,
+    time: &'a Time,
+    redraws: &'a mut MessageWriter<'w, bevy::window::RequestRedraw>,
+}
+
+fn load_restore_snapshot(app_state_persistence: &AppStatePersistenceState) -> RestoreSnapshot {
+    let persisted = app_state_persistence
+        .path
+        .as_ref()
+        .map(|path| load_persisted_app_state_from(path))
+        .unwrap_or_default();
+    RestoreSnapshot {
+        snapshot_found: !persisted.agents.is_empty(),
+        persisted_missing_agent_uid: persisted
+            .agents
+            .iter()
+            .any(|record| record.agent_uid.is_none()),
+        next_import_order: persisted
+            .agents
+            .iter()
+            .map(|record| record.order_index)
+            .max()
+            .map(|max| max + 1)
+            .unwrap_or(0),
+        persisted,
+    }
+}
+
+fn build_live_session_inventory(sessions: Vec<DaemonSessionInfo>) -> LiveSessionInventory {
+    let lookup = sessions
+        .iter()
+        .cloned()
+        .map(|session| (session.session_id.clone(), session))
+        .collect();
+    LiveSessionInventory { sessions, lookup }
+}
+
+fn discover_live_sessions(
+    runtime_spawner: &TerminalRuntimeSpawner,
+) -> Result<LiveSessionInventory, String> {
+    runtime_spawner
+        .list_session_infos()
+        .map(build_live_session_inventory)
+}
+
+fn imported_live_session_record(
+    session_name: String,
+    session: &DaemonSessionInfo,
+    order_index: u64,
+) -> crate::shared::app_state_file::PersistedAgentState {
+    crate::shared::app_state_file::PersistedAgentState {
+        agent_uid: session.metadata.agent_uid.clone(),
+        runtime_session_name: Some(session_name),
+        label: session.metadata.agent_label.clone(),
+        kind: agent_kind_from_daemon_session(session).persisted_kind(),
+        recovery: None,
+        clone_source_session_path: None,
+        aegis_enabled: false,
+        aegis_prompt_text: None,
+        order_index,
+        last_focused: false,
+    }
+}
+
+fn classify_importable_and_reapable_live_sessions(
+    import_session_names: Vec<String>,
+    inventory: &LiveSessionInventory,
+    mut next_import_order: u64,
+) -> (
+    Vec<crate::shared::app_state_file::PersistedAgentState>,
+    Vec<String>,
+) {
+    let mut importable = Vec::new();
+    let mut reapable_session_names = Vec::new();
+    for session_name in import_session_names {
+        let Some(session) = inventory.lookup.get(&session_name) else {
+            continue;
+        };
+        if startup_focus_candidate_is_interactive(session) {
+            importable.push(imported_live_session_record(
+                session_name,
+                session,
+                next_import_order,
+            ));
+            next_import_order += 1;
+        } else {
+            reapable_session_names.push(session_name);
+        }
+    }
+    (importable, reapable_session_names)
+}
+
+fn plan_restore(snapshot: &RestoreSnapshot, inventory: &LiveSessionInventory) -> RestorePlan {
+    let (restore, prune, import_session_names) =
+        reconcile_persisted_agents(&snapshot.persisted, &inventory.sessions);
+    let (importable, reapable_session_names) = classify_importable_and_reapable_live_sessions(
+        import_session_names,
+        inventory,
+        snapshot.next_import_order,
+    );
+    RestorePlan {
+        should_mark_app_state_dirty: snapshot.persisted_missing_agent_uid
+            || !prune.is_empty()
+            || !importable.is_empty(),
+        restore,
+        prune,
+        importable,
+        reapable_session_names,
+    }
+}
+
+fn reap_unimportable_live_sessions(
+    runtime_spawner: &TerminalRuntimeSpawner,
+    session_names: &[String],
+) {
+    for session_name in session_names {
+        match runtime_spawner.kill_session(session_name) {
+            Ok(()) => append_debug_log(format!(
+                "startup reaped disconnected unpersisted session {}",
+                session_name
+            )),
+            Err(error) => append_debug_log(format!(
+                "startup skipped disconnected unpersisted session {} after reap failed: {error}",
+                session_name
+            )),
+        }
+    }
+}
+
+fn restore_aegis_for_record(
+    agent_catalog: &AgentCatalog,
+    aegis_policy: &mut AegisPolicyStore,
+    agent_id: crate::agents::AgentId,
+    record: &crate::shared::app_state_file::PersistedAgentState,
+) {
+    if !record.aegis_enabled && record.aegis_prompt_text.is_none() {
+        return;
+    }
+    if let Some(agent_uid) = agent_catalog.uid(agent_id) {
+        let prompt_text = record
+            .aegis_prompt_text
+            .clone()
+            .unwrap_or_else(|| crate::aegis::DEFAULT_AEGIS_PROMPT.to_owned());
+        let _ = aegis_policy.restore_policy(agent_uid, record.aegis_enabled, prompt_text);
+    }
+}
+
+fn attach_intent_from_record(
+    record: crate::shared::app_state_file::PersistedAgentState,
+    inventory: &LiveSessionInventory,
+) -> Option<AttachIntent> {
+    let runtime_session_name = record.runtime_session_name.clone()?;
+    let should_mark_startup_pending = inventory
+        .lookup
+        .get(&runtime_session_name)
+        .is_some_and(startup_focus_candidate_is_interactive);
+    let recovery = record
+        .recovery
+        .clone()
+        .and_then(persisted_recovery_to_agent_recovery);
+    let clone_source_session_path = record
+        .clone_source_session_path
+        .clone()
+        .or_else(|| clone_provenance_from_recovery(&recovery));
+    Some(AttachIntent {
+        record,
+        runtime_session_name,
+        should_mark_startup_pending,
+        recovery,
+        clone_source_session_path,
+    })
+}
+
+fn build_attach_intents(plan: &RestorePlan, inventory: &LiveSessionInventory) -> Vec<AttachIntent> {
+    ordered_reconciled_persisted_agents(&plan.restore, &plan.importable)
+        .into_iter()
+        .filter_map(|record| attach_intent_from_record(record, inventory))
+        .collect()
+}
+
+fn attach_live_agents(
+    exec: &mut RestoreExecution<'_, '_>,
+    plan: &RestorePlan,
+    inventory: &LiveSessionInventory,
+    progress: &mut RestoreProgress,
+) {
+    for record in ordered_reconciled_persisted_agents(&plan.restore, &plan.importable) {
+        let Some(intent) = attach_intent_from_record(record.clone(), inventory) else {
+            append_debug_log("startup attach skipped for record missing runtime session name");
+            continue;
+        };
+        let attach_result = {
+            let mut attach_ctx = super::AttachRestoredTerminalContext {
+                agent_catalog: exec.agent_catalog,
+                runtime_index: exec.runtime_index,
+                terminal_manager: exec.terminal_manager,
+                focus_state: exec.focus_state,
+                runtime_spawner: exec.runtime_spawner,
+                presentation_store: exec.presentation_store.as_deref_mut(),
+            };
+            attach_restored_terminal(
+                &mut attach_ctx,
+                super::AttachRestoredTerminalRequest {
+                    session_name: intent.runtime_session_name.clone(),
+                    focus: false,
+                    kind: AgentKind::from_persisted_kind(intent.record.kind),
+                    label: intent.record.label.clone(),
+                    agent_uid: intent.record.agent_uid.clone(),
+                    clone_source_session_path: intent.clone_source_session_path.clone(),
+                    recovery: intent.recovery.clone(),
+                },
+            )
+        };
+        match attach_result {
+            Ok((agent_id, terminal_id)) => {
+                progress.summary.restored_agents += 1;
+                restore_aegis_for_record(
+                    exec.agent_catalog,
+                    exec.aegis_policy,
+                    agent_id,
+                    &intent.record,
+                );
+                if intent.should_mark_startup_pending {
+                    if let Some(presentation_store) = exec.presentation_store.as_deref_mut() {
+                        presentation_store.mark_startup_pending(terminal_id);
+                    }
+                }
+            }
+            Err(error) => {
+                let message = format!(
+                    "startup attach failed for {}: {error}",
+                    intent.runtime_session_name
+                );
+                append_debug_log(message.clone());
+                progress.summary.failed_agents.push(message);
+            }
+        }
+    }
+}
+
+fn build_respawn_intent(
+    record: &crate::shared::app_state_file::PersistedAgentState,
+) -> Result<RespawnIntent, String> {
+    let agent_uid = record.agent_uid.clone().ok_or_else(|| {
+        "startup respawn skipped for recoverable record missing agent uid".to_owned()
+    })?;
+    let recovery = record
+        .recovery
+        .clone()
+        .and_then(persisted_recovery_to_agent_recovery)
+        .ok_or_else(|| {
+            format!(
+                "startup respawn skipped for {} missing valid recovery spec",
+                record.label.as_deref().unwrap_or("<unlabeled-agent>")
+            )
+        })?;
+    validate_recovery_spec(&recovery).map_err(|error| {
+        format!(
+            "startup respawn skipped for {}: {error}",
+            record.label.as_deref().unwrap_or("<unlabeled-agent>")
+        )
+    })?;
+    let mut launch = launch_spec_for_recovery_spec(&recovery);
+    if record.clone_source_session_path.is_some() {
+        launch.metadata.clone_source_session_path = record.clone_source_session_path.clone();
+    }
+    let working_directory = match recovery {
+        crate::agents::AgentRecoverySpec::Pi { ref cwd, .. }
+        | crate::agents::AgentRecoverySpec::Claude { ref cwd, .. }
+        | crate::agents::AgentRecoverySpec::Codex { ref cwd, .. } => Some(cwd.clone()),
+    };
+    Ok(RespawnIntent {
+        record: record.clone(),
+        agent_uid,
+        launch,
+        working_directory,
+    })
+}
+
+fn build_respawn_intents(
+    prune: &[crate::shared::app_state_file::PersistedAgentState],
+) -> (Vec<RespawnIntent>, Vec<String>) {
+    let mut intents = Vec::new();
+    let mut failures = Vec::new();
+    for record in prune
+        .iter()
+        .filter(|record| record.durability() == crate::agents::AgentDurability::Recoverable)
+    {
+        match build_respawn_intent(record) {
+            Ok(intent) => intents.push(intent),
+            Err(message) => {
+                append_debug_log(message.clone());
+                failures.push(message);
+            }
+        }
+    }
+    (intents, failures)
+}
+
+fn record_skipped_live_only_agents(plan: &RestorePlan, progress: &mut RestoreProgress) {
+    for message in plan
+        .prune
+        .iter()
+        .filter(|record| record.durability() == crate::agents::AgentDurability::LiveOnly)
+        .map(skipped_live_only_restore_message)
+    {
+        append_debug_log(message.clone());
+        progress.summary.skipped_agents.push(message);
+    }
+}
+
+fn respawn_recoverable_agents(
+    exec: &mut RestoreExecution<'_, '_>,
+    plan: &RestorePlan,
+    progress: &mut RestoreProgress,
+) {
+    let (intents, failures) = build_respawn_intents(&plan.prune);
+    progress.summary.failed_agents.extend(failures);
+    for intent in intents {
+        let working_directory = intent.working_directory.as_deref();
+        let mut spawn_ctx = super::SpawnAgentContext {
+            agent_catalog: exec.agent_catalog,
+            runtime_index: exec.runtime_index,
+            app_session: exec.app_session,
+            selection: exec.selection,
+            terminal_manager: exec.terminal_manager,
+            focus_state: exec.focus_state,
+            owned_tmux_sessions: exec.owned_tmux_sessions,
+            active_terminal_content: exec.active_terminal_content,
+            runtime_spawner: exec.runtime_spawner,
+            input_capture: exec.input_capture,
+            app_state_persistence: exec.app_state_persistence,
+            visibility_state: exec.visibility_state,
+            view_state: exec.view_state,
+            presentation_store: exec.presentation_store.as_deref_mut(),
+            time: exec.time,
+            redraws: exec.redraws,
+        };
+        match respawn_recovered_agent_with_launch_spec(
+            &mut spawn_ctx,
+            PERSISTENT_SESSION_PREFIX,
+            AgentKind::from_persisted_kind(intent.record.kind),
+            intent.agent_uid.clone(),
+            intent.record.label.clone(),
+            working_directory,
+            intent.launch,
+        ) {
+            Ok(agent_id) => {
+                progress.summary.restored_agents += 1;
+                restore_aegis_for_record(
+                    exec.agent_catalog,
+                    exec.aegis_policy,
+                    agent_id,
+                    &intent.record,
+                );
+                if intent.record.last_focused {
+                    progress.respawned_focus_agent = Some(agent_id);
+                }
+            }
+            Err(error) => {
+                let message = format!(
+                    "startup respawn failed for {}: {error}",
+                    intent
+                        .record
+                        .label
+                        .as_deref()
+                        .unwrap_or("<unlabeled-agent>")
+                );
+                append_debug_log(message.clone());
+                progress.summary.failed_agents.push(message);
+            }
+        }
+    }
+}
+
+fn build_restore_focus_candidates(
+    plan: &RestorePlan,
+    inventory: &LiveSessionInventory,
+) -> RestoreFocusCandidates {
+    RestoreFocusCandidates {
+        restored_focus_session: plan
+            .restore
+            .iter()
+            .find(|record| {
+                record.last_focused
+                    && record
+                        .runtime_session_name
+                        .as_deref()
+                        .and_then(|session_name| inventory.lookup.get(session_name))
+                        .is_some_and(startup_focus_candidate_is_interactive)
+            })
+            .and_then(|record| record.runtime_session_name.clone()),
+        restored_session_names: plan
+            .restore
+            .iter()
+            .filter(|record| {
+                record
+                    .runtime_session_name
+                    .as_deref()
+                    .and_then(|session_name| inventory.lookup.get(session_name))
+                    .is_some_and(startup_focus_candidate_is_interactive)
+            })
+            .filter_map(|record| record.runtime_session_name.clone())
+            .collect(),
+        imported_session_names: plan
+            .importable
+            .iter()
+            .filter_map(|record| record.runtime_session_name.clone())
+            .collect(),
+    }
+}
+
+fn focus_agent_for_restore(exec: &mut RestoreExecution<'_, '_>, agent_id: crate::agents::AgentId) {
+    let mut focus_ctx = super::FocusMutationContext {
+        session: exec.app_session,
+        projection: super::FocusProjectionContext {
+            agent_catalog: exec.agent_catalog,
+            runtime_index: exec.runtime_index,
+            owned_tmux_sessions: exec.owned_tmux_sessions,
+            selection: exec.selection,
+            active_terminal_content: exec.active_terminal_content,
+            terminal_manager: exec.terminal_manager,
+            focus_state: exec.focus_state,
+            input_capture: exec.input_capture,
+            view_state: exec.view_state,
+            visibility_state: exec.visibility_state,
+        },
+        redraws: exec.redraws,
+    };
+    focus_agent_without_persist(agent_id, VisibilityMode::FocusedOnly, &mut focus_ctx);
+}
+
+fn clear_restore_focus(exec: &mut RestoreExecution<'_, '_>) {
+    let mut focus_ctx = super::FocusMutationContext {
+        session: exec.app_session,
+        projection: super::FocusProjectionContext {
+            agent_catalog: exec.agent_catalog,
+            runtime_index: exec.runtime_index,
+            owned_tmux_sessions: exec.owned_tmux_sessions,
+            selection: exec.selection,
+            active_terminal_content: exec.active_terminal_content,
+            terminal_manager: exec.terminal_manager,
+            focus_state: exec.focus_state,
+            input_capture: exec.input_capture,
+            view_state: exec.view_state,
+            visibility_state: exec.visibility_state,
+        },
+        redraws: exec.redraws,
+    };
+    clear_focus_without_persist(VisibilityMode::ShowAll, &mut focus_ctx);
+}
+
+fn spawn_default_agent_after_empty_restore(exec: &mut RestoreExecution<'_, '_>) {
+    let mut spawn_ctx = super::SpawnAgentContext {
+        agent_catalog: exec.agent_catalog,
+        runtime_index: exec.runtime_index,
+        app_session: exec.app_session,
+        selection: exec.selection,
+        terminal_manager: exec.terminal_manager,
+        focus_state: exec.focus_state,
+        owned_tmux_sessions: exec.owned_tmux_sessions,
+        active_terminal_content: exec.active_terminal_content,
+        runtime_spawner: exec.runtime_spawner,
+        input_capture: exec.input_capture,
+        app_state_persistence: exec.app_state_persistence,
+        visibility_state: exec.visibility_state,
+        view_state: exec.view_state,
+        presentation_store: exec.presentation_store.take(),
+        time: exec.time,
+        redraws: exec.redraws,
+    };
+    let _ = spawn_agent_terminal(
+        &mut spawn_ctx,
+        PERSISTENT_SESSION_PREFIX,
+        AgentKind::Pi,
+        None,
+        None,
+    );
+}
+
+fn finalize_restore_focus(
+    exec: &mut RestoreExecution<'_, '_>,
+    snapshot_found: bool,
+    plan: &RestorePlan,
+    inventory: &LiveSessionInventory,
+    progress: &RestoreProgress,
+) {
+    let candidates = build_restore_focus_candidates(plan, inventory);
+    let restored_focus_session = candidates.restored_focus_session.as_deref();
+    let restored_session_names = candidates
+        .restored_session_names
+        .iter()
+        .map(String::as_str)
+        .collect::<Vec<_>>();
+    let imported_session_names = candidates
+        .imported_session_names
+        .iter()
+        .map(String::as_str)
+        .collect::<Vec<_>>();
+
+    if let Some(session_name) = choose_startup_focus_session_name(
+        restored_focus_session,
+        &restored_session_names,
+        &imported_session_names,
+    ) {
+        if let Some(agent_id) = exec.runtime_index.agent_for_session(session_name) {
+            focus_agent_for_restore(exec, agent_id);
+        }
+    } else if let Some(agent_id) = progress.respawned_focus_agent {
+        focus_agent_for_restore(exec, agent_id);
+    } else if !exec.agent_catalog.order.is_empty() {
+        clear_restore_focus(exec);
+    } else if !snapshot_found {
+        spawn_default_agent_after_empty_restore(exec);
+    }
+}
+
 pub(crate) struct RestoreAppContext<'a, 'w> {
     pub(crate) agent_catalog: &'a mut AgentCatalog,
     pub(crate) runtime_index: &'a mut AgentRuntimeIndex,
@@ -209,406 +794,64 @@ pub(crate) struct RestoreAppContext<'a, 'w> {
 
 /// Restores app.
 pub(crate) fn restore_app(ctx: &mut RestoreAppContext<'_, '_>) -> RecoveryExecutionSummary {
-    // Walk the lifecycle in explicit stages so each side effect happens only after its prerequisites have been established.
-    let agent_catalog = &mut *ctx.agent_catalog;
-    let runtime_index = &mut *ctx.runtime_index;
-    let app_session = &mut *ctx.app_session;
-    let selection = &mut *ctx.selection;
-    let terminal_manager = &mut *ctx.terminal_manager;
-    let focus_state = &mut *ctx.focus_state;
-    let owned_tmux_sessions = ctx.owned_tmux_sessions;
-    let active_terminal_content = &mut *ctx.active_terminal_content;
-    let runtime_spawner = ctx.runtime_spawner;
-    let input_capture = &mut *ctx.input_capture;
-    let app_state_persistence = &mut *ctx.app_state_persistence;
-    let aegis_policy = &mut *ctx.aegis_policy;
-    let _aegis_runtime = &mut *ctx.aegis_runtime;
-    let visibility_state = &mut *ctx.visibility_state;
-    let view_state = &mut *ctx.view_state;
-    let mut presentation_store = ctx.presentation_store.take();
-    let time = ctx.time;
-    let redraws = &mut *ctx.redraws;
-    let persisted = app_state_persistence
-        .path
-        .as_ref()
-        .map(|path| load_persisted_app_state_from(path))
-        .unwrap_or_default();
-    let mut summary = RecoveryExecutionSummary {
-        snapshot_found: !persisted.agents.is_empty(),
-        ..RecoveryExecutionSummary::default()
+    let _ = &mut *ctx.aegis_runtime;
+    let snapshot = load_restore_snapshot(ctx.app_state_persistence);
+    let mut progress = RestoreProgress {
+        summary: RecoveryExecutionSummary {
+            snapshot_found: snapshot.snapshot_found,
+            ..RecoveryExecutionSummary::default()
+        },
+        ..RestoreProgress::default()
     };
-    let live_session_infos = match runtime_spawner.list_session_infos() {
-        Ok(sessions) => sessions,
+    let inventory = match discover_live_sessions(ctx.runtime_spawner) {
+        Ok(inventory) => inventory,
         Err(error) => {
             let message = format!("daemon session discovery failed: {error}");
             append_debug_log(message.clone());
-            if summary.snapshot_found {
-                summary.failed_agents.push(message);
+            if progress.summary.snapshot_found {
+                progress.summary.failed_agents.push(message);
             }
-            return summary;
+            return progress.summary;
         }
     };
-    let (restore, prune, import_session_names) =
-        reconcile_persisted_agents(&persisted, &live_session_infos);
-    let persisted_missing_agent_uid = persisted
-        .agents
-        .iter()
-        .any(|record| record.agent_uid.is_none());
-    let live_session_lookup = live_session_infos
-        .iter()
-        .map(|session| (session.session_id.as_str(), session))
-        .collect::<std::collections::HashMap<_, _>>();
-    let mut importable = Vec::new();
-    let mut next_import_order = persisted
-        .agents
-        .iter()
-        .map(|record| record.order_index)
-        .max()
-        .map(|max| max + 1)
-        .unwrap_or(0);
-    for session_name in import_session_names {
-        let Some(session) = live_session_lookup.get(session_name.as_str()) else {
-            continue;
-        };
-        // Daemon metadata contributes only the live-session identity mirror (uid/label/kind).
-        // Recovery provenance, clone provenance, Aegis state, and conversations/tasks remain
-        // app-owned and are reconstructed only from persisted app state.
-        let keep = startup_focus_candidate_is_interactive(session);
-        if keep {
-            importable.push(crate::shared::app_state_file::PersistedAgentState {
-                agent_uid: session.metadata.agent_uid.clone(),
-                runtime_session_name: Some(session_name),
-                label: session.metadata.agent_label.clone(),
-                kind: agent_kind_from_daemon_session(session).persisted_kind(),
-                recovery: None,
-                clone_source_session_path: None,
-                aegis_enabled: false,
-                aegis_prompt_text: None,
-                order_index: next_import_order,
-                last_focused: false,
-            });
-            next_import_order += 1;
-            continue;
-        }
-        match runtime_spawner.kill_session(&session_name) {
-            Ok(()) => append_debug_log(format!(
-                "startup reaped disconnected unpersisted session {}",
-                session_name
-            )),
-            Err(error) => append_debug_log(format!(
-                "startup skipped disconnected unpersisted session {} after reap failed: {error}",
-                session_name
-            )),
-        }
+    let plan = plan_restore(&snapshot, &inventory);
+    if plan.should_mark_app_state_dirty {
+        mark_app_state_dirty(ctx.app_state_persistence, None);
     }
-    if persisted_missing_agent_uid || !prune.is_empty() || !importable.is_empty() {
-        mark_app_state_dirty(app_state_persistence, None);
-    }
+    reap_unimportable_live_sessions(ctx.runtime_spawner, &plan.reapable_session_names);
 
-    let mut respawned_focus_agent = None;
-    for record in ordered_reconciled_persisted_agents(&restore, &importable) {
-        let Some(runtime_session_name) = record.runtime_session_name.clone() else {
-            append_debug_log("startup attach skipped for record missing runtime session name");
-            continue;
-        };
-        let presentation_store_slot = presentation_store.as_deref_mut();
-        let should_mark_startup_pending = live_session_lookup
-            .get(runtime_session_name.as_str())
-            .is_some_and(|session| startup_focus_candidate_is_interactive(session));
-        let recovery = record
-            .recovery
-            .and_then(persisted_recovery_to_agent_recovery);
-        let clone_source_session_path = record
-            .clone_source_session_path
-            .clone()
-            .or_else(|| clone_provenance_from_recovery(&recovery));
-        // For restore/import attach, the daemon owns session existence/runtime and the app owns
-        // stable uid/label/kind plus all recovery metadata; attach reuses the live session and then
-        // re-mirrors the app-owned identity back into daemon metadata.
-        let attach_result = {
-            let mut attach_ctx = super::AttachRestoredTerminalContext {
-                agent_catalog,
-                runtime_index,
-                terminal_manager,
-                focus_state,
-                runtime_spawner,
-                presentation_store: presentation_store_slot,
-            };
-            attach_restored_terminal(
-                &mut attach_ctx,
-                super::AttachRestoredTerminalRequest {
-                    session_name: runtime_session_name,
-                    focus: false,
-                    kind: AgentKind::from_persisted_kind(record.kind),
-                    label: record.label,
-                    agent_uid: record.agent_uid,
-                    clone_source_session_path,
-                    recovery,
-                },
-            )
-        };
-        match attach_result {
-            Ok((agent_id, terminal_id)) => {
-                summary.restored_agents += 1;
-                if record.aegis_enabled || record.aegis_prompt_text.is_some() {
-                    if let Some(agent_uid) = agent_catalog.uid(agent_id) {
-                        let prompt_text = record
-                            .aegis_prompt_text
-                            .clone()
-                            .unwrap_or_else(|| crate::aegis::DEFAULT_AEGIS_PROMPT.to_owned());
-                        let _ = aegis_policy.restore_policy(
-                            agent_uid,
-                            record.aegis_enabled,
-                            prompt_text,
-                        );
-                    }
-                }
-                if should_mark_startup_pending {
-                    if let Some(presentation_store) = presentation_store.as_deref_mut() {
-                        presentation_store.mark_startup_pending(terminal_id);
-                    }
-                }
-            }
-            Err(error) => {
-                let message = format!(
-                    "startup attach failed for {}: {error}",
-                    record
-                        .runtime_session_name
-                        .as_deref()
-                        .unwrap_or("<missing-session>")
-                );
-                append_debug_log(message.clone());
-                summary.failed_agents.push(message);
-            }
-        }
-    }
+    let mut exec = RestoreExecution {
+        agent_catalog: ctx.agent_catalog,
+        runtime_index: ctx.runtime_index,
+        app_session: ctx.app_session,
+        selection: ctx.selection,
+        terminal_manager: ctx.terminal_manager,
+        focus_state: ctx.focus_state,
+        owned_tmux_sessions: ctx.owned_tmux_sessions,
+        active_terminal_content: ctx.active_terminal_content,
+        runtime_spawner: ctx.runtime_spawner,
+        input_capture: ctx.input_capture,
+        app_state_persistence: ctx.app_state_persistence,
+        aegis_policy: ctx.aegis_policy,
+        visibility_state: ctx.visibility_state,
+        view_state: ctx.view_state,
+        presentation_store: ctx.presentation_store.take(),
+        time: ctx.time,
+        redraws: ctx.redraws,
+    };
+    let _ = build_attach_intents(&plan, &inventory);
+    attach_live_agents(&mut exec, &plan, &inventory, &mut progress);
+    record_skipped_live_only_agents(&plan, &mut progress);
+    respawn_recoverable_agents(&mut exec, &plan, &mut progress);
+    finalize_restore_focus(
+        &mut exec,
+        snapshot.snapshot_found,
+        &plan,
+        &inventory,
+        &progress,
+    );
 
-    for record in prune
-        .iter()
-        .filter(|record| record.durability() == crate::agents::AgentDurability::LiveOnly)
-    {
-        let message = skipped_live_only_restore_message(record);
-        append_debug_log(message.clone());
-        summary.skipped_agents.push(message);
-    }
-
-    let respawnable = prune
-        .iter()
-        .filter(|record| record.durability() == crate::agents::AgentDurability::Recoverable)
-        .cloned()
-        .collect::<Vec<_>>();
-    for record in respawnable {
-        let Some(agent_uid) = record.agent_uid.clone() else {
-            let message =
-                "startup respawn skipped for recoverable record missing agent uid".to_owned();
-            append_debug_log(message.clone());
-            summary.failed_agents.push(message);
-            continue;
-        };
-        let Some(recovery) = record
-            .recovery
-            .clone()
-            .and_then(persisted_recovery_to_agent_recovery)
-        else {
-            let message = format!(
-                "startup respawn skipped for {} missing valid recovery spec",
-                record.label.as_deref().unwrap_or("<unlabeled-agent>")
-            );
-            append_debug_log(message.clone());
-            summary.failed_agents.push(message);
-            continue;
-        };
-        if let Err(error) = validate_recovery_spec(&recovery) {
-            let message = format!(
-                "startup respawn skipped for {}: {error}",
-                record.label.as_deref().unwrap_or("<unlabeled-agent>")
-            );
-            append_debug_log(message.clone());
-            summary.failed_agents.push(message);
-            continue;
-        }
-        let mut launch = launch_spec_for_recovery_spec(&recovery);
-        if record.clone_source_session_path.is_some() {
-            launch.metadata.clone_source_session_path = record.clone_source_session_path.clone();
-        }
-        let working_directory = match &recovery {
-            crate::agents::AgentRecoverySpec::Pi { cwd, .. }
-            | crate::agents::AgentRecoverySpec::Claude { cwd, .. }
-            | crate::agents::AgentRecoverySpec::Codex { cwd, .. } => Some(cwd.as_str()),
-        };
-        let mut spawn_ctx = super::SpawnAgentContext {
-            agent_catalog,
-            runtime_index,
-            app_session,
-            selection,
-            terminal_manager,
-            focus_state,
-            owned_tmux_sessions,
-            active_terminal_content,
-            runtime_spawner,
-            input_capture,
-            app_state_persistence,
-            visibility_state,
-            view_state,
-            presentation_store: presentation_store.as_deref_mut(),
-            time,
-            redraws,
-        };
-        match respawn_recovered_agent_with_launch_spec(
-            &mut spawn_ctx,
-            PERSISTENT_SESSION_PREFIX,
-            AgentKind::from_persisted_kind(record.kind),
-            agent_uid.clone(),
-            record.label.clone(),
-            working_directory,
-            launch,
-        ) {
-            Ok(agent_id) => {
-                summary.restored_agents += 1;
-                if record.aegis_enabled || record.aegis_prompt_text.is_some() {
-                    if let Some(agent_uid) = agent_catalog.uid(agent_id) {
-                        let prompt_text = record
-                            .aegis_prompt_text
-                            .clone()
-                            .unwrap_or_else(|| crate::aegis::DEFAULT_AEGIS_PROMPT.to_owned());
-                        let _ = aegis_policy.restore_policy(
-                            agent_uid,
-                            record.aegis_enabled,
-                            prompt_text,
-                        );
-                    }
-                }
-                if record.last_focused {
-                    respawned_focus_agent = Some(agent_id);
-                }
-            }
-            Err(error) => {
-                let message = format!(
-                    "startup respawn failed for {}: {error}",
-                    record.label.as_deref().unwrap_or("<unlabeled-agent>")
-                );
-                append_debug_log(message.clone());
-                summary.failed_agents.push(message);
-            }
-        }
-    }
-
-    let restored_focus_session = restore
-        .iter()
-        .find(|record| {
-            record.last_focused
-                && record
-                    .runtime_session_name
-                    .as_deref()
-                    .and_then(|session_name| live_session_lookup.get(session_name))
-                    .is_some_and(|session| startup_focus_candidate_is_interactive(session))
-        })
-        .and_then(|record| record.runtime_session_name.as_deref());
-    let restored_session_names = restore
-        .iter()
-        .filter(|record| {
-            record
-                .runtime_session_name
-                .as_deref()
-                .and_then(|session_name| live_session_lookup.get(session_name))
-                .is_some_and(|session| startup_focus_candidate_is_interactive(session))
-        })
-        .filter_map(|record| record.runtime_session_name.as_deref())
-        .collect::<Vec<_>>();
-    let imported_session_names = importable
-        .iter()
-        .filter_map(|record| record.runtime_session_name.as_deref())
-        .collect::<Vec<_>>();
-
-    if let Some(session_name) = choose_startup_focus_session_name(
-        restored_focus_session,
-        &restored_session_names,
-        &imported_session_names,
-    ) {
-        if let Some(agent_id) = runtime_index.agent_for_session(session_name) {
-            let mut focus_ctx = super::FocusMutationContext {
-                session: app_session,
-                projection: super::FocusProjectionContext {
-                    agent_catalog,
-                    runtime_index,
-                    owned_tmux_sessions,
-                    selection,
-                    active_terminal_content,
-                    terminal_manager,
-                    focus_state,
-                    input_capture,
-                    view_state,
-                    visibility_state,
-                },
-                redraws,
-            };
-            focus_agent_without_persist(agent_id, VisibilityMode::FocusedOnly, &mut focus_ctx);
-        }
-    } else if let Some(agent_id) = respawned_focus_agent {
-        let mut focus_ctx = super::FocusMutationContext {
-            session: app_session,
-            projection: super::FocusProjectionContext {
-                agent_catalog,
-                runtime_index,
-                owned_tmux_sessions,
-                selection,
-                active_terminal_content,
-                terminal_manager,
-                focus_state,
-                input_capture,
-                view_state,
-                visibility_state,
-            },
-            redraws,
-        };
-        focus_agent_without_persist(agent_id, VisibilityMode::FocusedOnly, &mut focus_ctx);
-    } else if !agent_catalog.order.is_empty() {
-        let mut focus_ctx = super::FocusMutationContext {
-            session: app_session,
-            projection: super::FocusProjectionContext {
-                agent_catalog,
-                runtime_index,
-                owned_tmux_sessions,
-                selection,
-                active_terminal_content,
-                terminal_manager,
-                focus_state,
-                input_capture,
-                view_state,
-                visibility_state,
-            },
-            redraws,
-        };
-        clear_focus_without_persist(VisibilityMode::ShowAll, &mut focus_ctx);
-    } else if !summary.snapshot_found {
-        let mut spawn_ctx = super::SpawnAgentContext {
-            agent_catalog,
-            runtime_index,
-            app_session,
-            selection,
-            terminal_manager,
-            focus_state,
-            owned_tmux_sessions,
-            active_terminal_content,
-            runtime_spawner,
-            input_capture,
-            app_state_persistence,
-            visibility_state,
-            view_state,
-            presentation_store,
-            time,
-            redraws,
-        };
-        let _ = spawn_agent_terminal(
-            &mut spawn_ctx,
-            PERSISTENT_SESSION_PREFIX,
-            AgentKind::Pi,
-            None,
-            None,
-        );
-    }
-
-    summary
+    progress.summary
 }
 
 #[cfg(test)]
