@@ -623,6 +623,269 @@ fn build_bloom_specs(
     specs
 }
 
+fn create_bloom_images(
+    images: &mut Assets<Image>,
+    target_size: UVec2,
+) -> (Handle<Image>, Handle<Image>, Handle<Image>) {
+    (
+        images.add(bloom_target_image(target_size)),
+        images.add(bloom_target_image(target_size)),
+        images.add(bloom_target_image(target_size)),
+    )
+}
+
+fn spawn_bloom_source_camera(commands: &mut Commands, source_image: &Handle<Image>) -> Entity {
+    commands
+        .spawn((
+            Camera2d,
+            Camera {
+                order: -100,
+                clear_color: ClearColorConfig::Custom(Color::NONE),
+                ..default()
+            },
+            RenderTarget::Image(source_image.clone().into()),
+            RenderLayers::layer(BLOOM_SOURCE_LAYER),
+            AgentListBloomCameraMarker,
+        ))
+        .id()
+}
+
+fn spawn_small_blur_pass(
+    commands: &mut Commands,
+    meshes: &mut Assets<Mesh>,
+    blur_materials: &mut Assets<AgentListBloomBlurMaterial>,
+    source_image: &Handle<Image>,
+    target_image: &Handle<Image>,
+    target_size: UVec2,
+    target_texel_size: Vec2,
+) -> (Entity, Entity) {
+    let small_material = blur_materials.add(AgentListBloomBlurMaterial {
+        image: source_image.clone(),
+        uniform: blur_uniform(target_texel_size, SMALL_BLUR_STEP_SCALE, 1.0),
+    });
+    let blur_small_quad = commands
+        .spawn((
+            Mesh2d(meshes.add(Rectangle::default())),
+            MeshMaterial2d(small_material),
+            fullscreen_transform_for_frame(target_size.as_vec2(), 0.0),
+            RenderLayers::layer(BLOOM_BLUR_SMALL_LAYER),
+            Visibility::Hidden,
+            AgentListBloomBlurSmallQuadMarker,
+        ))
+        .id();
+    let blur_small_camera = commands
+        .spawn((
+            Camera2d,
+            Camera {
+                order: -99,
+                clear_color: ClearColorConfig::Custom(Color::NONE),
+                ..default()
+            },
+            RenderTarget::Image(target_image.clone().into()),
+            RenderLayers::layer(BLOOM_BLUR_SMALL_LAYER),
+            AgentListBloomBlurSmallCameraMarker,
+        ))
+        .id();
+    (blur_small_quad, blur_small_camera)
+}
+
+fn spawn_wide_blur_pass(
+    commands: &mut Commands,
+    meshes: &mut Assets<Mesh>,
+    blur_materials: &mut Assets<AgentListBloomBlurMaterial>,
+    source_image: &Handle<Image>,
+    target_image: &Handle<Image>,
+    target_size: UVec2,
+    target_texel_size: Vec2,
+) -> (Entity, Entity) {
+    let wide_material = blur_materials.add(AgentListBloomBlurMaterial {
+        image: source_image.clone(),
+        uniform: blur_uniform(target_texel_size, WIDE_BLUR_STEP_SCALE, 1.0),
+    });
+    let blur_wide_quad = commands
+        .spawn((
+            Mesh2d(meshes.add(Rectangle::default())),
+            MeshMaterial2d(wide_material),
+            fullscreen_transform_for_frame(target_size.as_vec2(), 0.0),
+            RenderLayers::layer(BLOOM_BLUR_WIDE_LAYER),
+            Visibility::Hidden,
+            AgentListBloomBlurWideQuadMarker,
+        ))
+        .id();
+    let blur_wide_camera = commands
+        .spawn((
+            Camera2d,
+            Camera {
+                order: -98,
+                clear_color: ClearColorConfig::Custom(Color::NONE),
+                ..default()
+            },
+            RenderTarget::Image(target_image.clone().into()),
+            RenderLayers::layer(BLOOM_BLUR_WIDE_LAYER),
+            AgentListBloomBlurWideCameraMarker,
+        ))
+        .id();
+    (blur_wide_quad, blur_wide_camera)
+}
+
+fn spawn_composite_sprites(
+    commands: &mut Commands,
+    blur_small_image: &Handle<Image>,
+    blur_wide_image: &Handle<Image>,
+    primary_window: &Window,
+) -> (Entity, Entity) {
+    let composite_sprite = commands
+        .spawn((
+            Sprite {
+                image: blur_small_image.clone(),
+                color: Color::linear_rgba(SMALL_BLUR_GAIN, SMALL_BLUR_GAIN, SMALL_BLUR_GAIN, 1.0),
+                custom_size: Some(Vec2::new(primary_window.width(), primary_window.height())),
+                ..default()
+            },
+            Transform::from_xyz(0.0, 0.0, BLOOM_COMPOSITE_Z),
+            RenderLayers::layer(BLOOM_COMPOSITE_LAYER),
+            Visibility::Hidden,
+            AgentListBloomCompositeMarker,
+        ))
+        .id();
+    let wide_composite_sprite = commands
+        .spawn((
+            Sprite {
+                image: blur_wide_image.clone(),
+                color: Color::linear_rgba(WIDE_BLUR_GAIN, WIDE_BLUR_GAIN, WIDE_BLUR_GAIN, 1.0),
+                custom_size: Some(Vec2::new(primary_window.width(), primary_window.height())),
+                ..default()
+            },
+            Transform::from_xyz(0.0, 0.0, BLOOM_COMPOSITE_Z + 0.01),
+            RenderLayers::layer(BLOOM_COMPOSITE_LAYER),
+            Visibility::Hidden,
+            AgentListBloomWideCompositeMarker,
+        ))
+        .id();
+    (composite_sprite, wide_composite_sprite)
+}
+
+fn spawn_additive_camera(commands: &mut Commands) {
+    commands.spawn((
+        Camera2d,
+        Camera {
+            order: 100,
+            output_mode: CameraOutputMode::Write {
+                blend_state: Some(additive_blend_state()),
+                clear_color: ClearColorConfig::None,
+            },
+            ..default()
+        },
+        RenderLayers::layer(BLOOM_COMPOSITE_LAYER),
+        AgentListBloomAdditiveCameraMarker,
+    ));
+}
+
+fn spawn_debug_preview_entities(
+    commands: &mut Commands,
+    primary_window: &Window,
+    source_image: &Handle<Image>,
+    blur_small_image: &Handle<Image>,
+    blur_wide_image: &Handle<Image>,
+    debug_previews: bool,
+) {
+    let debug_backdrop = commands
+        .spawn((
+            Sprite {
+                color: Color::srgba(0.0, 0.0, 0.0, 0.92),
+                custom_size: Some(Vec2::new(1.0, 1.0)),
+                ..default()
+            },
+            bloom_debug_backdrop_transform(primary_window, BLOOM_DEBUG_PREVIEW_Z),
+            RenderLayers::layer(0),
+            Visibility::Hidden,
+            AgentListBloomDebugBackdropMarker,
+        ))
+        .id();
+    let debug_source_preview = commands
+        .spawn((
+            Sprite {
+                image: source_image.clone(),
+                color: Color::WHITE,
+                custom_size: Some(Vec2::new(
+                    BLOOM_DEBUG_PREVIEW_WIDTH,
+                    BLOOM_DEBUG_PREVIEW_HEIGHT,
+                )),
+                ..default()
+            },
+            bloom_debug_preview_transform(
+                primary_window,
+                AgentListBloomDebugPreviewStage::Source,
+                BLOOM_DEBUG_PREVIEW_Z + 0.01,
+            ),
+            RenderLayers::layer(0),
+            Visibility::Hidden,
+            AgentListBloomDebugPreviewMarker {
+                stage: AgentListBloomDebugPreviewStage::Source,
+            },
+        ))
+        .id();
+    let debug_small_preview = commands
+        .spawn((
+            Sprite {
+                image: blur_small_image.clone(),
+                color: Color::WHITE,
+                custom_size: Some(Vec2::new(
+                    BLOOM_DEBUG_PREVIEW_WIDTH,
+                    BLOOM_DEBUG_PREVIEW_HEIGHT,
+                )),
+                ..default()
+            },
+            bloom_debug_preview_transform(
+                primary_window,
+                AgentListBloomDebugPreviewStage::SmallBlur,
+                BLOOM_DEBUG_PREVIEW_Z + 0.01,
+            ),
+            RenderLayers::layer(0),
+            Visibility::Hidden,
+            AgentListBloomDebugPreviewMarker {
+                stage: AgentListBloomDebugPreviewStage::SmallBlur,
+            },
+        ))
+        .id();
+    let debug_wide_preview = commands
+        .spawn((
+            Sprite {
+                image: blur_wide_image.clone(),
+                color: Color::WHITE,
+                custom_size: Some(Vec2::new(
+                    BLOOM_DEBUG_PREVIEW_WIDTH,
+                    BLOOM_DEBUG_PREVIEW_HEIGHT,
+                )),
+                ..default()
+            },
+            bloom_debug_preview_transform(
+                primary_window,
+                AgentListBloomDebugPreviewStage::WideBlur,
+                BLOOM_DEBUG_PREVIEW_Z + 0.01,
+            ),
+            RenderLayers::layer(0),
+            Visibility::Hidden,
+            AgentListBloomDebugPreviewMarker {
+                stage: AgentListBloomDebugPreviewStage::WideBlur,
+            },
+        ))
+        .id();
+
+    if debug_previews {
+        commands.entity(debug_backdrop).insert(Visibility::Visible);
+        commands
+            .entity(debug_source_preview)
+            .insert(Visibility::Visible);
+        commands
+            .entity(debug_small_preview)
+            .insert(Visibility::Visible);
+        commands
+            .entity(debug_wide_preview)
+            .insert(Visibility::Visible);
+    }
+}
+
 #[derive(SystemParam)]
 struct HudWidgetBloomSetupContext<'w, 's> {
     commands: Commands<'w, 's>,
@@ -643,244 +906,47 @@ pub(crate) fn setup_hud_widget_bloom(world: &mut World) {
     let mut state: bevy::ecs::system::SystemState<HudWidgetBloomSetupContext> =
         bevy::ecs::system::SystemState::new(world);
     let mut ctx = state.get_mut(world);
-    // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
     let target_size = bloom_target_size(&ctx.primary_window);
     let target_texel_size = Vec2::new(
         1.0 / target_size.x.max(1) as f32,
         1.0 / target_size.y.max(1) as f32,
     );
-    let source_image = ctx.images.add(bloom_target_image(target_size));
-    let blur_small_image = ctx.images.add(bloom_target_image(target_size));
-    let blur_wide_image = ctx.images.add(bloom_target_image(target_size));
-
-    let source_camera = ctx
-        .commands
-        .spawn((
-            Camera2d,
-            Camera {
-                order: -100,
-                clear_color: ClearColorConfig::Custom(Color::NONE),
-                ..default()
-            },
-            RenderTarget::Image(source_image.clone().into()),
-            RenderLayers::layer(BLOOM_SOURCE_LAYER),
-            AgentListBloomCameraMarker,
-        ))
-        .id();
-
-    let small_material = ctx.blur_materials.add(AgentListBloomBlurMaterial {
-        image: source_image.clone(),
-        uniform: blur_uniform(target_texel_size, SMALL_BLUR_STEP_SCALE, 1.0),
-    });
-    let blur_small_quad = ctx
-        .commands
-        .spawn((
-            Mesh2d(ctx.meshes.add(Rectangle::default())),
-            MeshMaterial2d(small_material),
-            fullscreen_transform_for_frame(target_size.as_vec2(), 0.0),
-            RenderLayers::layer(BLOOM_BLUR_SMALL_LAYER),
-            Visibility::Hidden,
-            AgentListBloomBlurSmallQuadMarker,
-        ))
-        .id();
-    let blur_small_camera = ctx
-        .commands
-        .spawn((
-            Camera2d,
-            Camera {
-                order: -99,
-                clear_color: ClearColorConfig::Custom(Color::NONE),
-                ..default()
-            },
-            RenderTarget::Image(blur_small_image.clone().into()),
-            RenderLayers::layer(BLOOM_BLUR_SMALL_LAYER),
-            AgentListBloomBlurSmallCameraMarker,
-        ))
-        .id();
-
-    let wide_material = ctx.blur_materials.add(AgentListBloomBlurMaterial {
-        image: source_image.clone(),
-        uniform: blur_uniform(target_texel_size, WIDE_BLUR_STEP_SCALE, 1.0),
-    });
-    let blur_wide_quad = ctx
-        .commands
-        .spawn((
-            Mesh2d(ctx.meshes.add(Rectangle::default())),
-            MeshMaterial2d(wide_material),
-            fullscreen_transform_for_frame(target_size.as_vec2(), 0.0),
-            RenderLayers::layer(BLOOM_BLUR_WIDE_LAYER),
-            Visibility::Hidden,
-            AgentListBloomBlurWideQuadMarker,
-        ))
-        .id();
-    let blur_wide_camera = ctx
-        .commands
-        .spawn((
-            Camera2d,
-            Camera {
-                order: -98,
-                clear_color: ClearColorConfig::Custom(Color::NONE),
-                ..default()
-            },
-            RenderTarget::Image(blur_wide_image.clone().into()),
-            RenderLayers::layer(BLOOM_BLUR_WIDE_LAYER),
-            AgentListBloomBlurWideCameraMarker,
-        ))
-        .id();
-
-    let composite_sprite = ctx
-        .commands
-        .spawn((
-            Sprite {
-                image: blur_small_image.clone(),
-                color: Color::linear_rgba(SMALL_BLUR_GAIN, SMALL_BLUR_GAIN, SMALL_BLUR_GAIN, 1.0),
-                custom_size: Some(Vec2::new(
-                    ctx.primary_window.width(),
-                    ctx.primary_window.height(),
-                )),
-                ..default()
-            },
-            Transform::from_xyz(0.0, 0.0, BLOOM_COMPOSITE_Z),
-            RenderLayers::layer(BLOOM_COMPOSITE_LAYER),
-            Visibility::Hidden,
-            AgentListBloomCompositeMarker,
-        ))
-        .id();
-
-    let wide_composite_sprite = ctx
-        .commands
-        .spawn((
-            Sprite {
-                image: blur_wide_image.clone(),
-                color: Color::linear_rgba(WIDE_BLUR_GAIN, WIDE_BLUR_GAIN, WIDE_BLUR_GAIN, 1.0),
-                custom_size: Some(Vec2::new(
-                    ctx.primary_window.width(),
-                    ctx.primary_window.height(),
-                )),
-                ..default()
-            },
-            Transform::from_xyz(0.0, 0.0, BLOOM_COMPOSITE_Z + 0.01),
-            RenderLayers::layer(BLOOM_COMPOSITE_LAYER),
-            Visibility::Hidden,
-            AgentListBloomWideCompositeMarker,
-        ))
-        .id();
-
-    ctx.commands.spawn((
-        Camera2d,
-        Camera {
-            order: 100,
-            output_mode: CameraOutputMode::Write {
-                blend_state: Some(additive_blend_state()),
-                clear_color: ClearColorConfig::None,
-            },
-            ..default()
-        },
-        RenderLayers::layer(BLOOM_COMPOSITE_LAYER),
-        AgentListBloomAdditiveCameraMarker,
-    ));
-
-    let debug_backdrop = ctx
-        .commands
-        .spawn((
-            Sprite {
-                color: Color::srgba(0.0, 0.0, 0.0, 0.92),
-                custom_size: Some(Vec2::new(1.0, 1.0)),
-                ..default()
-            },
-            bloom_debug_backdrop_transform(&ctx.primary_window, BLOOM_DEBUG_PREVIEW_Z),
-            RenderLayers::layer(0),
-            Visibility::Hidden,
-            AgentListBloomDebugBackdropMarker,
-        ))
-        .id();
-    let debug_source_preview = ctx
-        .commands
-        .spawn((
-            Sprite {
-                image: source_image.clone(),
-                color: Color::WHITE,
-                custom_size: Some(Vec2::new(
-                    BLOOM_DEBUG_PREVIEW_WIDTH,
-                    BLOOM_DEBUG_PREVIEW_HEIGHT,
-                )),
-                ..default()
-            },
-            bloom_debug_preview_transform(
-                &ctx.primary_window,
-                AgentListBloomDebugPreviewStage::Source,
-                BLOOM_DEBUG_PREVIEW_Z + 0.01,
-            ),
-            RenderLayers::layer(0),
-            Visibility::Hidden,
-            AgentListBloomDebugPreviewMarker {
-                stage: AgentListBloomDebugPreviewStage::Source,
-            },
-        ))
-        .id();
-    let debug_small_preview = ctx
-        .commands
-        .spawn((
-            Sprite {
-                image: blur_small_image.clone(),
-                color: Color::WHITE,
-                custom_size: Some(Vec2::new(
-                    BLOOM_DEBUG_PREVIEW_WIDTH,
-                    BLOOM_DEBUG_PREVIEW_HEIGHT,
-                )),
-                ..default()
-            },
-            bloom_debug_preview_transform(
-                &ctx.primary_window,
-                AgentListBloomDebugPreviewStage::SmallBlur,
-                BLOOM_DEBUG_PREVIEW_Z + 0.01,
-            ),
-            RenderLayers::layer(0),
-            Visibility::Hidden,
-            AgentListBloomDebugPreviewMarker {
-                stage: AgentListBloomDebugPreviewStage::SmallBlur,
-            },
-        ))
-        .id();
-    let debug_wide_preview = ctx
-        .commands
-        .spawn((
-            Sprite {
-                image: blur_wide_image.clone(),
-                color: Color::WHITE,
-                custom_size: Some(Vec2::new(
-                    BLOOM_DEBUG_PREVIEW_WIDTH,
-                    BLOOM_DEBUG_PREVIEW_HEIGHT,
-                )),
-                ..default()
-            },
-            bloom_debug_preview_transform(
-                &ctx.primary_window,
-                AgentListBloomDebugPreviewStage::WideBlur,
-                BLOOM_DEBUG_PREVIEW_Z + 0.01,
-            ),
-            RenderLayers::layer(0),
-            Visibility::Hidden,
-            AgentListBloomDebugPreviewMarker {
-                stage: AgentListBloomDebugPreviewStage::WideBlur,
-            },
-        ))
-        .id();
-
-    if ctx.settings.debug_previews {
-        ctx.commands
-            .entity(debug_backdrop)
-            .insert(Visibility::Visible);
-        ctx.commands
-            .entity(debug_source_preview)
-            .insert(Visibility::Visible);
-        ctx.commands
-            .entity(debug_small_preview)
-            .insert(Visibility::Visible);
-        ctx.commands
-            .entity(debug_wide_preview)
-            .insert(Visibility::Visible);
-    }
+    let (source_image, blur_small_image, blur_wide_image) =
+        create_bloom_images(&mut ctx.images, target_size);
+    let source_camera = spawn_bloom_source_camera(&mut ctx.commands, &source_image);
+    let (blur_small_quad, blur_small_camera) = spawn_small_blur_pass(
+        &mut ctx.commands,
+        &mut ctx.meshes,
+        &mut ctx.blur_materials,
+        &source_image,
+        &blur_small_image,
+        target_size,
+        target_texel_size,
+    );
+    let (blur_wide_quad, blur_wide_camera) = spawn_wide_blur_pass(
+        &mut ctx.commands,
+        &mut ctx.meshes,
+        &mut ctx.blur_materials,
+        &source_image,
+        &blur_wide_image,
+        target_size,
+        target_texel_size,
+    );
+    let (composite_sprite, wide_composite_sprite) = spawn_composite_sprites(
+        &mut ctx.commands,
+        &blur_small_image,
+        &blur_wide_image,
+        &ctx.primary_window,
+    );
+    spawn_additive_camera(&mut ctx.commands);
+    spawn_debug_preview_entities(
+        &mut ctx.commands,
+        &ctx.primary_window,
+        &source_image,
+        &blur_small_image,
+        &blur_wide_image,
+        ctx.settings.debug_previews,
+    );
 
     ctx.bloom.agent_list = AgentListBloomPass {
         source_image,
@@ -1053,34 +1119,23 @@ struct HudWidgetBloomContext<'w, 's> {
     >,
 }
 
-/// Rebuilds the bloom source sprites and composite visibility from live HUD/terminal state.
-///
-/// The sync pass keeps bloom targets sized correctly, suppresses the whole effect while HUD modals are
-/// visible, regenerates the active row's border sprites, updates debug previews when enabled, and
-/// shows or hides the composite sprites based on whether there is any current bloom content.
-pub(crate) fn sync_hud_widget_bloom(world: &mut World) {
-    let mut state: bevy::ecs::system::SystemState<HudWidgetBloomContext> =
-        bevy::ecs::system::SystemState::new(world);
-    let mut ctx = state.get_mut(world);
-    // Rebuild the derived or projected state from the authoritative resources in one pass so partial updates cannot drift.
-    let target_size = bloom_target_size(&ctx.primary_window);
-    let pass = &mut ctx.bloom.agent_list;
-
-    let target_texel_size = Vec2::new(
-        1.0 / target_size.x.max(1) as f32,
-        1.0 / target_size.y.max(1) as f32,
-    );
-
-    if !image_matches_size(&ctx.images, &pass.source_image, target_size) {
-        pass.source_image = ctx.images.add(bloom_target_image(target_size));
+fn ensure_bloom_target_images(
+    images: &mut Assets<Image>,
+    pass: &mut AgentListBloomPass,
+    target_size: UVec2,
+) {
+    if !image_matches_size(images, &pass.source_image, target_size) {
+        pass.source_image = images.add(bloom_target_image(target_size));
     }
-    if !image_matches_size(&ctx.images, &pass.blur_small_image, target_size) {
-        pass.blur_small_image = ctx.images.add(bloom_target_image(target_size));
+    if !image_matches_size(images, &pass.blur_small_image, target_size) {
+        pass.blur_small_image = images.add(bloom_target_image(target_size));
     }
-    if !image_matches_size(&ctx.images, &pass.blur_wide_image, target_size) {
-        pass.blur_wide_image = ctx.images.add(bloom_target_image(target_size));
+    if !image_matches_size(images, &pass.blur_wide_image, target_size) {
+        pass.blur_wide_image = images.add(bloom_target_image(target_size));
     }
+}
 
+fn retarget_bloom_cameras(ctx: &mut HudWidgetBloomContext<'_, '_>, pass: &AgentListBloomPass) {
     if let Some(camera) = pass.source_camera {
         if let Ok(mut target) = ctx.source_cameras.get_mut(camera) {
             *target = RenderTarget::Image(pass.source_image.clone().into());
@@ -1096,7 +1151,14 @@ pub(crate) fn sync_hud_widget_bloom(world: &mut World) {
             *target = RenderTarget::Image(pass.blur_wide_image.clone().into());
         }
     }
+}
 
+fn sync_blur_quads(
+    ctx: &mut HudWidgetBloomContext<'_, '_>,
+    pass: &AgentListBloomPass,
+    target_size: UVec2,
+    target_texel_size: Vec2,
+) {
     if let Some(quad) = pass.blur_small_quad {
         if let Ok((material_handle, mut transform, mut visibility)) =
             ctx.blur_small_quads.get_mut(quad)
@@ -1125,7 +1187,9 @@ pub(crate) fn sync_hud_widget_bloom(world: &mut World) {
             }
         }
     }
+}
 
+fn bloom_specs_for_sync(ctx: &HudWidgetBloomContext<'_, '_>) -> Vec<BloomSourceSpec> {
     let modal_visible = ctx.app_session.modal_visible()
         || ctx
             .startup_connect
@@ -1137,40 +1201,45 @@ pub(crate) fn sync_hud_widget_bloom(world: &mut World) {
         .map(|module| module.shell.enabled && module.shell.current_alpha > 0.01)
         .unwrap_or(false)
         && !modal_visible;
-    let specs = if enabled {
-        let module = ctx
-            .layout_state
-            .get(HudWidgetKey::AgentList)
-            .expect("agent list exists when enabled");
-        let active_row_key =
-            active_bloom_row_key(&ctx.focus_state, &ctx.active_content, &ctx.agent_list_view);
-        let aegis_row_keys = ctx
-            .agent_catalog
-            .as_ref()
-            .map(|agent_catalog| {
-                agent_catalog
-                    .iter()
-                    .filter_map(|(agent_id, _)| {
-                        agent_catalog
-                            .uid(agent_id)
-                            .filter(|agent_uid| ctx.aegis_policy.is_enabled(agent_uid))
-                            .map(|_| AgentListRowKey::Agent(agent_id))
-                    })
-                    .collect::<BTreeSet<_>>()
-            })
-            .unwrap_or_default();
-        build_bloom_specs(
-            module.shell.current_rect,
-            ctx.agent_list_state.scroll_offset,
-            ctx.agent_list_state.hovered_row.as_ref(),
-            active_row_key.as_ref(),
-            &aegis_row_keys,
-            &ctx.agent_list_view,
-        )
-    } else {
-        Vec::new()
-    };
+    if !enabled {
+        return Vec::new();
+    }
+    let module = ctx
+        .layout_state
+        .get(HudWidgetKey::AgentList)
+        .expect("agent list exists when enabled");
+    let active_row_key =
+        active_bloom_row_key(&ctx.focus_state, &ctx.active_content, &ctx.agent_list_view);
+    let aegis_row_keys = ctx
+        .agent_catalog
+        .as_ref()
+        .map(|agent_catalog| {
+            agent_catalog
+                .iter()
+                .filter_map(|(agent_id, _)| {
+                    agent_catalog
+                        .uid(agent_id)
+                        .filter(|agent_uid| ctx.aegis_policy.is_enabled(agent_uid))
+                        .map(|_| AgentListRowKey::Agent(agent_id))
+                })
+                .collect::<BTreeSet<_>>()
+        })
+        .unwrap_or_default();
+    build_bloom_specs(
+        module.shell.current_rect,
+        ctx.agent_list_state.scroll_offset,
+        ctx.agent_list_state.hovered_row.as_ref(),
+        active_row_key.as_ref(),
+        &aegis_row_keys,
+        &ctx.agent_list_view,
+    )
+}
 
+fn sync_bloom_source_sprites(
+    ctx: &mut HudWidgetBloomContext<'_, '_>,
+    specs: &[BloomSourceSpec],
+    target_size: UVec2,
+) {
     let mut existing = std::collections::HashMap::new();
     for (entity, marker, sprite, transform, visibility) in &mut ctx.source_sprites {
         existing.insert(*marker, (entity, sprite.clone(), *transform, *visibility));
@@ -1190,7 +1259,7 @@ pub(crate) fn sync_hud_widget_bloom(world: &mut World) {
         }
     }
 
-    for spec in &specs {
+    for spec in specs {
         let target_rect = scale_rect_into_target(&ctx.primary_window, target_size, spec.rect);
         if let Some((entity, _, _, _)) = existing.get(&spec.key) {
             if let Ok((_, _, mut sprite, mut transform, mut visibility)) =
@@ -1216,12 +1285,14 @@ pub(crate) fn sync_hud_widget_bloom(world: &mut World) {
             ));
         }
     }
+}
 
-    let bloom_ready = image_matches_size(&ctx.images, &pass.source_image, target_size)
-        && image_matches_size(&ctx.images, &pass.blur_small_image, target_size)
-        && image_matches_size(&ctx.images, &pass.blur_wide_image, target_size);
-
-    let active = !specs.is_empty();
+fn sync_bloom_composites(
+    ctx: &mut HudWidgetBloomContext<'_, '_>,
+    pass: &AgentListBloomPass,
+    active: bool,
+    bloom_ready: bool,
+) {
     if let Some(quad) = pass.blur_small_quad {
         if let Ok((_, _, mut visibility)) = ctx.blur_small_quads.get_mut(quad) {
             *visibility = if active {
@@ -1290,7 +1361,9 @@ pub(crate) fn sync_hud_widget_bloom(world: &mut World) {
             };
         }
     }
+}
 
+fn sync_bloom_debug_previews(ctx: &mut HudWidgetBloomContext<'_, '_>, pass: &AgentListBloomPass) {
     let previews_visible = ctx.settings.debug_previews;
     for (mut transform, mut visibility) in &mut ctx.debug_backdrops {
         *transform = bloom_debug_backdrop_transform(&ctx.primary_window, BLOOM_DEBUG_PREVIEW_Z);
@@ -1321,6 +1394,33 @@ pub(crate) fn sync_hud_widget_bloom(world: &mut World) {
             Visibility::Hidden
         };
     }
+}
+
+/// Rebuilds the bloom source sprites and composite visibility from live HUD/terminal state.
+///
+/// The sync pass keeps bloom targets sized correctly, suppresses the whole effect while HUD modals are
+/// visible, regenerates the active row's border sprites, updates debug previews when enabled, and
+/// shows or hides the composite sprites based on whether there is any current bloom content.
+pub(crate) fn sync_hud_widget_bloom(world: &mut World) {
+    let mut state: bevy::ecs::system::SystemState<HudWidgetBloomContext> =
+        bevy::ecs::system::SystemState::new(world);
+    let mut ctx = state.get_mut(world);
+    let target_size = bloom_target_size(&ctx.primary_window);
+    let target_texel_size = Vec2::new(
+        1.0 / target_size.x.max(1) as f32,
+        1.0 / target_size.y.max(1) as f32,
+    );
+    ensure_bloom_target_images(&mut ctx.images, &mut ctx.bloom.agent_list, target_size);
+    let pass_snapshot = ctx.bloom.agent_list.clone();
+    retarget_bloom_cameras(&mut ctx, &pass_snapshot);
+    sync_blur_quads(&mut ctx, &pass_snapshot, target_size, target_texel_size);
+    let specs = bloom_specs_for_sync(&ctx);
+    sync_bloom_source_sprites(&mut ctx, &specs, target_size);
+    let bloom_ready = image_matches_size(&ctx.images, &pass_snapshot.source_image, target_size)
+        && image_matches_size(&ctx.images, &pass_snapshot.blur_small_image, target_size)
+        && image_matches_size(&ctx.images, &pass_snapshot.blur_wide_image, target_size);
+    sync_bloom_composites(&mut ctx, &pass_snapshot, !specs.is_empty(), bloom_ready);
+    sync_bloom_debug_previews(&mut ctx, &pass_snapshot);
     state.apply(world);
 }
 
