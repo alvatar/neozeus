@@ -221,6 +221,7 @@ pub(crate) struct FinalFrameCaptureConfig {
     pub(crate) path: PathBuf,
     pub(crate) request: CaptureRequestState,
     pub(crate) exit_after_capture: bool,
+    pub(crate) exit_after_completion_frames_remaining: u8,
 }
 
 impl FinalFrameCaptureConfig {
@@ -248,6 +249,7 @@ impl FinalFrameCaptureConfig {
                     )
                 })
                 .unwrap_or(true),
+            exit_after_completion_frames_remaining: 0,
         })
     }
 }
@@ -428,7 +430,8 @@ pub(crate) fn request_final_frame_capture(
 fn handle_final_frame_capture_complete(
     event: On<ReadbackComplete>,
     metas: Query<&FinalFrameReadbackMeta>,
-    mut exits: MessageWriter<AppExit>,
+    mut commands: Commands,
+    mut redraws: MessageWriter<RequestRedraw>,
     config: Option<ResMut<FinalFrameCaptureConfig>>,
 ) {
     let Ok(meta) = metas.get(event.entity) else {
@@ -452,12 +455,34 @@ fn handle_final_frame_capture_complete(
             meta.path.display()
         ));
     }
+    commands.entity(event.entity).despawn();
     if let Some(mut config) = config {
-        let exit_after_capture = config.exit_after_capture;
         config.request.mark_completed();
-        if exit_after_capture {
-            exits.write(AppExit::Success);
+        if config.exit_after_capture {
+            config.exit_after_completion_frames_remaining = 2;
+            redraws.write(RequestRedraw);
         }
+    }
+}
+
+pub(crate) fn finalize_final_frame_capture(
+    config: Option<ResMut<FinalFrameCaptureConfig>>,
+    mut exits: MessageWriter<AppExit>,
+    mut redraws: MessageWriter<RequestRedraw>,
+) {
+    let Some(mut config) = config else {
+        return;
+    };
+    if !config.request.completed() || !config.exit_after_capture {
+        return;
+    }
+    if config.exit_after_completion_frames_remaining == 0 {
+        return;
+    }
+    redraws.write(RequestRedraw);
+    config.exit_after_completion_frames_remaining -= 1;
+    if config.exit_after_completion_frames_remaining == 0 {
+        exits.write(AppExit::Success);
     }
 }
 

@@ -216,6 +216,7 @@ fn final_frame_capture_waits_for_target_before_requesting_readback() {
         path: PathBuf::from("/tmp/final-frame-test.ppm"),
         request: CaptureRequestState::new(0),
         exit_after_capture: false,
+        exit_after_completion_frames_remaining: 0,
     });
     world.insert_resource(FinalFrameOutputState::default());
     world.insert_resource(Assets::<Image>::default());
@@ -243,6 +244,7 @@ fn final_frame_capture_waits_for_verification_scenario_to_finish() {
         path: PathBuf::from("/tmp/final-frame-test.ppm"),
         request: CaptureRequestState::new(0),
         exit_after_capture: false,
+        exit_after_completion_frames_remaining: 0,
     });
     world.insert_resource(VerificationScenarioConfig {
         scenario: crate::verification::VerificationScenario::AgentListBloom,
@@ -270,6 +272,7 @@ fn final_frame_capture_waits_for_verification_capture_barrier() {
         path: PathBuf::from("/tmp/final-frame-test.ppm"),
         request: CaptureRequestState::new(0),
         exit_after_capture: false,
+        exit_after_completion_frames_remaining: 0,
     });
     world.insert_resource(VerificationScenarioConfig {
         scenario: crate::verification::VerificationScenario::WorkingStateWorking,
@@ -303,6 +306,41 @@ fn final_frame_capture_waits_for_verification_capture_barrier() {
 /// Readback buffers are aligned per row, so the helper must skip the padded bytes between logical
 /// rows. This test seeds a tiny 2×2 buffer with padding and checks that the output PPM contains only
 /// the logical RGB pixels in the expected order.
+#[test]
+fn finalize_final_frame_capture_waits_two_frames_before_exit() {
+    let mut world = World::default();
+    world.insert_resource(FinalFrameCaptureConfig {
+        path: PathBuf::from("/tmp/final-frame-test.ppm"),
+        request: {
+            let mut request = CaptureRequestState::new(0);
+            request.mark_completed();
+            request
+        },
+        exit_after_capture: true,
+        exit_after_completion_frames_remaining: 2,
+    });
+    world.init_resource::<Messages<AppExit>>();
+    world.init_resource::<Messages<RequestRedraw>>();
+
+    world.run_system_once(finalize_final_frame_capture).unwrap();
+    assert_eq!(world.resource::<Messages<AppExit>>().len(), 0);
+    assert_eq!(
+        world
+            .resource::<FinalFrameCaptureConfig>()
+            .exit_after_completion_frames_remaining,
+        1
+    );
+
+    world.run_system_once(finalize_final_frame_capture).unwrap();
+    assert_eq!(world.resource::<Messages<AppExit>>().len(), 1);
+    assert_eq!(
+        world
+            .resource::<FinalFrameCaptureConfig>()
+            .exit_after_completion_frames_remaining,
+        0
+    );
+}
+
 #[test]
 fn texture_dump_skips_row_padding_for_rgba() {
     let width = 2;

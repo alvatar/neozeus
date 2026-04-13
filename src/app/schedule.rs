@@ -33,7 +33,7 @@ use crate::{
 
 use super::{
     dispatch::{apply_app_commands, sync_agents_from_terminals},
-    output::request_final_frame_capture,
+    output::{finalize_final_frame_capture, request_final_frame_capture},
     session::AppSessionState,
 };
 use bevy::prelude::*;
@@ -270,7 +270,12 @@ pub(crate) fn configure_app_schedule(app: &mut App) {
     )
     .add_systems(
         Update,
-        (request_redraw_while_visuals_active, finalize_window_capture).in_set(NeoZeusSet::Redraw),
+        (
+            request_redraw_while_visuals_active,
+            finalize_window_capture,
+            finalize_final_frame_capture,
+        )
+            .in_set(NeoZeusSet::Redraw),
     );
 }
 

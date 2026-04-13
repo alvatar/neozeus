@@ -339,6 +339,7 @@ pub(crate) fn finalize_window_capture(
 fn handle_hud_texture_capture_complete(
     event: On<ReadbackComplete>,
     metas: Query<&HudTextureReadbackMeta>,
+    mut commands: Commands,
     mut exits: MessageWriter<AppExit>,
     config: Option<ResMut<HudTextureCaptureConfig>>,
 ) {
@@ -360,6 +361,7 @@ fn handle_hud_texture_capture_complete(
     } else {
         crate::terminals::append_debug_log(format!("hud capture wrote {}", meta.path.display()));
     }
+    commands.entity(event.entity).despawn();
     if let Some(mut config) = config {
         config.request.mark_completed();
     }
@@ -369,6 +371,7 @@ fn handle_hud_texture_capture_complete(
 fn handle_hud_composite_capture_complete(
     event: On<ReadbackComplete>,
     metas: Query<&HudTextureReadbackMeta>,
+    mut commands: Commands,
     mut exits: MessageWriter<AppExit>,
     config: Option<ResMut<HudCompositeCaptureConfig>>,
 ) {
@@ -393,6 +396,7 @@ fn handle_hud_composite_capture_complete(
             meta.path.display()
         ));
     }
+    commands.entity(event.entity).despawn();
     if let Some(mut config) = config {
         config.request.mark_completed();
     }
