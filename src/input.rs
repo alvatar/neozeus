@@ -967,6 +967,12 @@ fn handle_plain_terminal_shortcuts(
                 }
                 break;
             }
+            KeyCode::KeyP => {
+                if let Some(agent_id) = runtime_index.agent_for_terminal(active_id) {
+                    app_commands.write(AppCommand::Agent(AppAgentCommand::TogglePaused(agent_id)));
+                }
+                break;
+            }
             _ => {}
         }
     }

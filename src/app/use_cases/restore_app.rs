@@ -313,6 +313,7 @@ fn imported_live_session_record(
         clone_source_session_path: None,
         aegis_enabled: false,
         aegis_prompt_text: None,
+        paused: false,
         order_index,
         last_focused: false,
     }
@@ -465,6 +466,9 @@ fn attach_live_agents(
         match attach_result {
             Ok((agent_id, terminal_id)) => {
                 progress.summary.restored_agents += 1;
+                let _ = exec
+                    .agent_catalog
+                    .set_paused(agent_id, intent.record.paused);
                 restore_aegis_for_record(
                     exec.agent_catalog,
                     exec.aegis_policy,
@@ -598,6 +602,9 @@ fn respawn_recoverable_agents(
         ) {
             Ok(agent_id) => {
                 progress.summary.restored_agents += 1;
+                let _ = exec
+                    .agent_catalog
+                    .set_paused(agent_id, intent.record.paused);
                 restore_aegis_for_record(
                     exec.agent_catalog,
                     exec.aegis_policy,
@@ -903,6 +910,7 @@ mod tests {
             clone_source_session_path: None,
             aegis_enabled: false,
             aegis_prompt_text: None,
+            paused: false,
             order_index: 0,
             last_focused,
         }
@@ -985,6 +993,7 @@ mod tests {
             clone_source_session_path: None,
             aegis_enabled: false,
             aegis_prompt_text: None,
+            paused: false,
             order_index: 0,
             last_focused: false,
         };
@@ -1004,6 +1013,7 @@ mod tests {
             clone_source_session_path: Some("/tmp/pi-session.jsonl".into()),
             aegis_enabled: false,
             aegis_prompt_text: None,
+            paused: false,
             order_index: 1,
             last_focused: false,
         };
@@ -1029,6 +1039,7 @@ mod tests {
             clone_source_session_path: None,
             aegis_enabled: false,
             aegis_prompt_text: None,
+            paused: false,
             order_index: 0,
             last_focused: false,
         };

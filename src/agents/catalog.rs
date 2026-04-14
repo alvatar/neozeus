@@ -165,6 +165,7 @@ struct AgentRecord {
     pub(crate) kind: AgentKind,
     pub(crate) capabilities: AgentCapabilities,
     pub(crate) metadata: AgentMetadata,
+    pub(crate) paused: bool,
 }
 
 #[derive(Resource, Default, Clone, Debug, PartialEq, Eq)]
@@ -275,6 +276,7 @@ impl AgentCatalog {
                 kind: identity.kind,
                 capabilities: identity.capabilities,
                 metadata: identity.metadata,
+                paused: false,
             },
         );
         self.order.push(id);
@@ -339,6 +341,7 @@ impl AgentCatalog {
                 kind,
                 capabilities,
                 metadata,
+                paused: false,
             },
         );
         self.order.push(id);
@@ -354,18 +357,66 @@ impl AgentCatalog {
         Ok(())
     }
 
-    /// Moves one agent to a specific display-order slot.
+    fn display_partition(&self) -> (Vec<AgentId>, Vec<AgentId>) {
+        let mut active = Vec::new();
+        let mut paused = Vec::new();
+        for agent_id in self.order.iter().copied() {
+            if self.is_paused(agent_id) {
+                paused.push(agent_id);
+            } else {
+                active.push(agent_id);
+            }
+        }
+        (active, paused)
+    }
+
+    fn rebuild_order_from_partition(&mut self, active: &[AgentId], paused: &[AgentId]) {
+        let mut next_active = active.iter();
+        let mut next_paused = paused.iter();
+        let pause_by_id = self
+            .agents
+            .iter()
+            .map(|(agent_id, record)| (*agent_id, record.paused))
+            .collect::<BTreeMap<_, _>>();
+        for slot in &mut self.order {
+            if pause_by_id.get(slot).copied().unwrap_or(false) {
+                *slot = *next_paused
+                    .next()
+                    .expect("paused partition must match canonical paused slots");
+            } else {
+                *slot = *next_active
+                    .next()
+                    .expect("active partition must match canonical active slots");
+            }
+        }
+    }
+
+    /// Moves one agent to a specific display-order slot while keeping paused agents projected at the
+    /// bottom without destroying their canonical unpaused position.
     pub(crate) fn move_to_index(&mut self, agent_id: AgentId, target_index: usize) -> bool {
-        let Some(current_index) = self.order.iter().position(|existing| *existing == agent_id)
+        if !self.agents.contains_key(&agent_id) {
+            return false;
+        }
+        let (mut active, mut paused) = self.display_partition();
+        let is_paused = self.is_paused(agent_id);
+        let active_len = active.len();
+        let partition = if is_paused { &mut paused } else { &mut active };
+        let Some(current_index) = partition.iter().position(|existing| *existing == agent_id)
         else {
             return false;
         };
-        let clamped_index = target_index.min(self.order.len().saturating_sub(1));
+        let translated_target = if is_paused {
+            target_index.saturating_sub(active_len)
+        } else {
+            target_index
+        };
+        let clamped_index = translated_target.min(partition.len().saturating_sub(1));
         if current_index == clamped_index {
             return false;
         }
-        self.order.remove(current_index);
-        self.order.insert(clamped_index, agent_id);
+        partition.remove(current_index);
+        partition.insert(clamped_index, agent_id);
+        self.rebuild_order_from_partition(&active, &paused);
         true
     }
 
@@ -400,6 +451,34 @@ impl AgentCatalog {
     /// Returns the retained kind metadata for one agent.
     pub(crate) fn kind(&self, agent_id: AgentId) -> Option<AgentKind> {
         self.agents.get(&agent_id).map(|record| record.kind)
+    }
+
+    pub(crate) fn is_paused(&self, agent_id: AgentId) -> bool {
+        self.agents
+            .get(&agent_id)
+            .is_some_and(|record| record.paused)
+    }
+
+    pub(crate) fn set_paused(&mut self, agent_id: AgentId, paused: bool) -> Result<bool, String> {
+        let Some(record) = self.agents.get_mut(&agent_id) else {
+            return Err(format!("unknown agent {}", agent_id.0));
+        };
+        if record.paused == paused {
+            return Ok(false);
+        }
+        record.paused = paused;
+        Ok(true)
+    }
+
+    pub(crate) fn toggle_paused(&mut self, agent_id: AgentId) -> Result<bool, String> {
+        let paused = !self.is_paused(agent_id);
+        let _ = self.set_paused(agent_id, paused)?;
+        Ok(paused)
+    }
+
+    pub(crate) fn display_order(&self) -> Vec<AgentId> {
+        let (active, paused) = self.display_partition();
+        active.into_iter().chain(paused).collect()
     }
 
     /// Returns the persisted Pi clone provenance session path for one agent, if any.
@@ -452,9 +531,9 @@ impl AgentCatalog {
         }
     }
 
-    /// Iterates agents in current user-defined display order.
+    /// Iterates agents in current projected display order.
     pub(crate) fn iter(&self) -> impl Iterator<Item = (AgentId, &str)> {
-        self.order.iter().copied().filter_map(|agent_id| {
+        self.display_order().into_iter().filter_map(|agent_id| {
             self.agents
                 .get(&agent_id)
                 .map(|record| (agent_id, record.label.as_str()))

@@ -43,6 +43,7 @@ pub(crate) enum AgentCommand {
         agent_id: AgentId,
         target_index: usize,
     },
+    TogglePaused(AgentId),
     ClearFocus,
     KillSelected,
 }

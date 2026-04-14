@@ -295,6 +295,7 @@ pub(super) fn insert_terminal_manager_resources(
                         has_tasks: false,
                         interactive: true,
                         activity: crate::hud::AgentListActivity::Idle,
+                        paused: false,
                         context_pct_milli: None,
                     },
                 })

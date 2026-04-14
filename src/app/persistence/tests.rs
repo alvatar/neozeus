@@ -52,6 +52,7 @@ fn app_state_parse_and_serialize_roundtrip() {
             clone_source_session_path: None,
             aegis_enabled: false,
             aegis_prompt_text: None,
+            paused: false,
             order_index: 0,
             last_focused: false,
         }],
@@ -59,6 +60,29 @@ fn app_state_parse_and_serialize_roundtrip() {
 
     let serialized = serialize_persisted_app_state(&persisted);
     assert!(serialized.starts_with(crate::shared::app_state_file::APP_STATE_VERSION_V4));
+    assert_eq!(parse_persisted_app_state(&serialized), persisted);
+}
+
+#[test]
+fn canonical_snapshot_serializer_roundtrips_paused_agents() {
+    let persisted = PersistedAppState {
+        agents: vec![PersistedAgentState {
+            agent_uid: Some("agent-uid-a".into()),
+            runtime_session_name: Some("neozeus-session-a".into()),
+            label: Some("ALPHA".into()),
+            kind: PersistedAgentKind::Terminal,
+            recovery: None,
+            clone_source_session_path: None,
+            aegis_enabled: false,
+            aegis_prompt_text: None,
+            paused: true,
+            order_index: 0,
+            last_focused: false,
+        }],
+    };
+
+    let serialized = serialize_persisted_app_state(&persisted);
+    assert!(serialized.contains("paused=1"));
     assert_eq!(parse_persisted_app_state(&serialized), persisted);
 }
 
@@ -79,6 +103,7 @@ fn canonical_snapshot_serializer_includes_runtime_focus_clone_and_aegis_fields()
             clone_source_session_path: Some("/tmp/pi-alpha.jsonl".into()),
             aegis_enabled: true,
             aegis_prompt_text: Some("continue cleanly".into()),
+            paused: false,
             order_index: 0,
             last_focused: true,
         }],
@@ -208,6 +233,7 @@ fn reconcile_persisted_agents_restores_prunes_and_imports() {
                 clone_source_session_path: Some("/tmp/pi-session-a.jsonl".into()),
                 aegis_enabled: true,
                 aegis_prompt_text: Some("prompt a".into()),
+                paused: false,
                 order_index: 0,
                 last_focused: true,
             },
@@ -220,6 +246,7 @@ fn reconcile_persisted_agents_restores_prunes_and_imports() {
                 clone_source_session_path: None,
                 aegis_enabled: false,
                 aegis_prompt_text: None,
+                paused: false,
                 order_index: 1,
                 last_focused: false,
             },
@@ -295,6 +322,7 @@ fn reconcile_persisted_agents_prefers_agent_uid_over_stale_runtime_session_name(
             clone_source_session_path: None,
             aegis_enabled: true,
             aegis_prompt_text: Some("keep going".into()),
+            paused: false,
             order_index: 0,
             last_focused: true,
         }],

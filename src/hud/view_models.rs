@@ -59,6 +59,7 @@ pub(crate) enum AgentListRowKind {
         has_tasks: bool,
         interactive: bool,
         activity: AgentListActivity,
+        paused: bool,
         context_pct_milli: Option<i32>,
     },
     OwnedTmux {
@@ -248,6 +249,7 @@ pub(crate) fn sync_hud_view_models(
                 activity: AgentListActivity::from_visual_activity(
                     visual_contract.activity_for_agent(agent_id),
                 ),
+                paused: agent_catalog.is_paused(agent_id),
                 context_pct_milli,
             },
         });

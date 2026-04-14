@@ -123,6 +123,39 @@ fn catalog_move_to_index_reorders_agents() {
     assert_eq!(catalog.uid(gamma), Some(original_uids[2].as_str()));
 }
 
+#[test]
+fn catalog_pause_projects_agent_to_bottom_and_unpause_restores_canonical_position() {
+    let mut catalog = AgentCatalog::default();
+    let alpha = catalog.create_agent(
+        Some("alpha".into()),
+        AgentKind::Terminal,
+        AgentCapabilities::terminal_defaults(),
+    );
+    let beta = catalog.create_agent(
+        Some("beta".into()),
+        AgentKind::Terminal,
+        AgentCapabilities::terminal_defaults(),
+    );
+    let gamma = catalog.create_agent(
+        Some("gamma".into()),
+        AgentKind::Terminal,
+        AgentCapabilities::terminal_defaults(),
+    );
+
+    assert_eq!(catalog.display_order(), vec![alpha, beta, gamma]);
+    assert_eq!(catalog.toggle_paused(beta), Ok(true));
+    assert_eq!(catalog.display_order(), vec![alpha, gamma, beta]);
+    assert_eq!(catalog.order, vec![alpha, beta, gamma]);
+
+    assert!(catalog.move_to_index(gamma, 0));
+    assert_eq!(catalog.display_order(), vec![gamma, alpha, beta]);
+    assert_eq!(catalog.order, vec![gamma, beta, alpha]);
+
+    assert_eq!(catalog.toggle_paused(beta), Ok(false));
+    assert_eq!(catalog.display_order(), vec![gamma, beta, alpha]);
+    assert_eq!(catalog.order, vec![gamma, beta, alpha]);
+}
+
 /// Verifies that durable clone/workdir metadata stays attached to the agent record.
 #[test]
 fn catalog_retains_clone_provenance_and_workdir_metadata() {

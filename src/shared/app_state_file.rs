@@ -77,6 +77,7 @@ pub struct PersistedAgentState {
     pub clone_source_session_path: Option<String>,
     pub aegis_enabled: bool,
     pub aegis_prompt_text: Option<String>,
+    pub paused: bool,
     pub order_index: u64,
     pub last_focused: bool,
 }
@@ -160,6 +161,7 @@ struct ParsedAgentRecordBuilder {
     workdir_slug: Option<String>,
     aegis_enabled: bool,
     aegis_prompt_text: Option<String>,
+    paused: bool,
     order_index: Option<u64>,
     last_focused: Option<bool>,
 }
@@ -219,6 +221,7 @@ impl ParsedAgentRecordBuilder {
                 self.aegis_prompt_text =
                     unquote_escaped_string(value, EXTENDED_QUOTED_STRING_ESCAPES)
             }
+            "paused" => self.paused = value.parse::<u8>().ok().is_some_and(|flag| flag != 0),
             "order_index" => self.order_index = value.parse::<u64>().ok(),
             "focused" => self.last_focused = value.parse::<u8>().ok().map(|flag| flag != 0),
             _ => {}
@@ -282,6 +285,7 @@ impl ParsedAgentRecordBuilder {
             clone_source_session_path: self.clone_source_session_path,
             aegis_enabled: self.aegis_enabled,
             aegis_prompt_text: self.aegis_prompt_text,
+            paused: self.paused,
             order_index,
             last_focused: self.last_focused.unwrap_or(false),
         })

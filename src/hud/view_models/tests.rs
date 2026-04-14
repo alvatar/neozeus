@@ -156,6 +156,62 @@ fn sync_hud_view_models_derives_agent_rows_and_threads() {
 }
 
 #[test]
+fn sync_hud_view_models_projects_paused_agents_after_active_rows() {
+    let mut catalog = AgentCatalog::default();
+    let alpha = catalog.create_agent(
+        Some("alpha".into()),
+        AgentKind::Terminal,
+        AgentKind::Terminal.capabilities(),
+    );
+    let beta = catalog.create_agent(
+        Some("beta".into()),
+        AgentKind::Terminal,
+        AgentKind::Terminal.capabilities(),
+    );
+    let _ = catalog.set_paused(alpha, true);
+
+    let mut world = World::default();
+    world.insert_resource(catalog);
+    world.insert_resource(AgentRuntimeIndex::default());
+    world.insert_resource(AppSessionState::default());
+    world.insert_resource(AgentTaskStore::default());
+    world.insert_resource(ConversationStore::default());
+    world.insert_resource(AgentListView::default());
+    world.insert_resource(ConversationListView::default());
+    world.insert_resource(ThreadView::default());
+    world.insert_resource(ComposerView::default());
+    world.insert_resource(AgentStatusStore::default());
+    world.insert_resource(AgentListSelection::Agent(alpha));
+    world.insert_resource(crate::terminals::OwnedTmuxSessionStore::default());
+    insert_terminal_manager_resources(&mut world, crate::terminals::TerminalManager::default());
+
+    run_synced_hud_view_models(&mut world);
+
+    let rows = &world.resource::<AgentListView>().rows;
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0].label, "BETA");
+    assert_eq!(rows[1].label, "ALPHA");
+    match &rows[1].kind {
+        AgentListRowKind::Agent {
+            paused, agent_id, ..
+        } => {
+            assert!(*paused);
+            assert_eq!(*agent_id, alpha);
+        }
+        other => panic!("expected paused agent row, got {other:?}"),
+    }
+    match &rows[0].kind {
+        AgentListRowKind::Agent {
+            paused, agent_id, ..
+        } => {
+            assert!(!paused);
+            assert_eq!(*agent_id, beta);
+        }
+        other => panic!("expected active agent row, got {other:?}"),
+    }
+}
+
+#[test]
 fn sync_hud_view_models_places_owned_tmux_rows_under_matching_agent() {
     let mut catalog = AgentCatalog::default();
     let agent_id = catalog.create_agent(

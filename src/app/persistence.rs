@@ -165,6 +165,7 @@ pub(crate) fn serialize_persisted_app_state(state: &PersistedAppState) -> String
                 quote_escaped_string(&aegis_prompt_text, EXTENDED_QUOTED_STRING_ESCAPES)
             ));
         }
+        output.push_str(&format!("paused={}\n", u8::from(record.paused)));
         output.push_str(&format!("order_index={}\n", record.order_index));
         output.push_str(&format!("focused={}\n", u8::from(record.last_focused)));
         output.push_str("[/agent]\n");
@@ -202,6 +203,7 @@ fn map_legacy_sessions_to_app_state(
                 clone_source_session_path: None,
                 aegis_enabled: false,
                 aegis_prompt_text: None,
+                paused: false,
                 order_index: record.creation_index,
                 last_focused: record.last_focused,
             })
@@ -327,6 +329,7 @@ fn build_persisted_app_state(
                     .map(str::to_owned),
                 aegis_enabled,
                 aegis_prompt_text,
+                paused: agent_catalog.is_paused(*agent_id),
                 order_index: index as u64,
                 last_focused: focused_agent == Some(*agent_id),
             }

@@ -837,6 +837,13 @@ pub(crate) fn handle_hud_module_shortcuts(
                 }
                 continue;
             }
+
+            if event.key_code == KeyCode::KeyP {
+                if let AgentListSelection::Agent(agent_id) = selection {
+                    app_commands.write(AppCommand::Agent(AgentCommand::TogglePaused(*agent_id)));
+                }
+                continue;
+            }
         }
 
         let module_id = match event.key_code {

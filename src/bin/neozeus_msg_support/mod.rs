@@ -318,6 +318,7 @@ mod tests {
                     clone_source_session_path: None,
                     aegis_enabled: false,
                     aegis_prompt_text: None,
+                    paused: false,
                     order_index: index as u64,
                     last_focused: false,
                 })

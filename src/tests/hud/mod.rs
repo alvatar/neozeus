@@ -392,6 +392,47 @@ fn plain_j_navigates_to_next_agent_and_isolates_it() {
     );
 }
 
+#[test]
+fn plain_p_toggles_paused_state_for_selected_agent_row() {
+    let mut world = World::default();
+    let (bridge_one, _) = test_bridge();
+    let (bridge_two, _) = test_bridge();
+    let mut manager = TerminalManager::default();
+    let id_one = manager.create_terminal(bridge_one);
+    let _id_two = manager.create_terminal(bridge_two);
+    manager.focus_terminal(id_one);
+    insert_terminal_manager_resources(&mut world, manager);
+    let agent_id = world
+        .resource::<crate::agents::AgentRuntimeIndex>()
+        .agent_for_terminal(id_one)
+        .expect("agent should be linked");
+    world.insert_resource(ButtonInput::<KeyCode>::default());
+    insert_default_hud_resources(&mut world);
+    world.insert_resource(crate::hud::AgentListSelection::Agent(agent_id));
+    init_hud_commands(&mut world);
+    world.init_resource::<Messages<KeyboardInput>>();
+    world
+        .resource_mut::<Messages<KeyboardInput>>()
+        .write(pressed_text(KeyCode::KeyP, Some("p")));
+
+    world.run_system_once(handle_hud_module_shortcuts).unwrap();
+    run_app_commands(&mut world);
+    assert!(world
+        .resource::<crate::agents::AgentCatalog>()
+        .is_paused(agent_id));
+
+    world.insert_resource(Messages::<AppCommand>::default());
+    world.insert_resource(Messages::<KeyboardInput>::default());
+    world
+        .resource_mut::<Messages<KeyboardInput>>()
+        .write(pressed_text(KeyCode::KeyP, Some("p")));
+    world.run_system_once(handle_hud_module_shortcuts).unwrap();
+    run_app_commands(&mut world);
+    assert!(!world
+        .resource::<crate::agents::AgentCatalog>()
+        .is_paused(agent_id));
+}
+
 /// Verifies that the down-arrow shortcut uses the same next-agent focus+isolate behavior as `j`.
 #[test]
 fn down_arrow_navigates_to_next_agent_and_isolates_it() {
@@ -2777,6 +2818,7 @@ fn navigating_to_owned_tmux_should_render_capture_in_terminal_panel() {
                     has_tasks: false,
                     interactive: true,
                     activity: crate::hud::AgentListActivity::Idle,
+                    paused: false,
                     context_pct_milli: None,
                 },
             },

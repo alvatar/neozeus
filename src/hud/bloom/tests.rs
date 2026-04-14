@@ -79,8 +79,8 @@ fn agent_list_reference_colors_match_requested_values() {
 
 #[test]
 fn selected_idle_rows_use_red_bloom_contract() {
-    let main = bloom_source_color(AgentListBloomSourceKind::Main, false);
-    let marker = bloom_source_color(AgentListBloomSourceKind::Marker, false);
+    let main = bloom_source_color(AgentListBloomSourceKind::Main, false, false);
+    let marker = bloom_source_color(AgentListBloomSourceKind::Marker, false, false);
 
     let main_linear = main.to_linear();
     let marker_linear = marker.to_linear();
@@ -91,14 +91,26 @@ fn selected_idle_rows_use_red_bloom_contract() {
 
 #[test]
 fn selected_working_rows_use_green_bloom_contract() {
-    let main = bloom_source_color(AgentListBloomSourceKind::Main, true);
-    let marker = bloom_source_color(AgentListBloomSourceKind::Marker, true);
+    let main = bloom_source_color(AgentListBloomSourceKind::Main, false, true);
+    let marker = bloom_source_color(AgentListBloomSourceKind::Marker, false, true);
 
     let main_linear = main.to_linear();
     let marker_linear = marker.to_linear();
     assert!(main_linear.green > main_linear.red);
     assert!(main_linear.green > main_linear.blue);
     assert!(marker_linear.green >= main_linear.green);
+}
+
+#[test]
+fn selected_paused_rows_use_gray_bloom_contract() {
+    let main = bloom_source_color(AgentListBloomSourceKind::Main, true, true);
+    let marker = bloom_source_color(AgentListBloomSourceKind::Marker, true, false);
+
+    let main_linear = main.to_linear();
+    let marker_linear = marker.to_linear();
+    assert!((main_linear.red - main_linear.green).abs() < 0.15);
+    assert!((main_linear.green - main_linear.blue).abs() < 0.15);
+    assert!(marker_linear.red >= main_linear.red);
 }
 
 /// Verifies the permissive parser for the bloom-intensity override.
@@ -156,6 +168,7 @@ fn selected_agent_row_emits_selected_bloom_sources_only_for_that_row() {
                         has_tasks: false,
                         interactive: true,
                         activity: AgentListActivity::Idle,
+                        paused: false,
                         context_pct_milli: None,
                     },
                 },
@@ -169,6 +182,7 @@ fn selected_agent_row_emits_selected_bloom_sources_only_for_that_row() {
                         has_tasks: false,
                         interactive: true,
                         activity: AgentListActivity::Idle,
+                        paused: false,
                         context_pct_milli: None,
                     },
                 },
@@ -180,6 +194,45 @@ fn selected_agent_row_emits_selected_bloom_sources_only_for_that_row() {
     assert!(specs
         .iter()
         .all(|spec| spec.key.terminal_id == crate::terminals::TerminalId(11)));
+}
+
+#[test]
+fn selected_paused_agent_row_emits_gray_bloom_sources_only_for_that_row() {
+    let active_row_key = AgentListRowKey::Agent(crate::agents::AgentId(1));
+    let specs = build_bloom_specs(
+        HudRect {
+            x: 0.0,
+            y: 0.0,
+            w: 400.0,
+            h: 240.0,
+        },
+        0.0,
+        None,
+        Some(&active_row_key),
+        &BTreeSet::new(),
+        &AgentListView {
+            rows: vec![AgentListRowView {
+                key: AgentListRowKey::Agent(crate::agents::AgentId(1)),
+                label: "ALPHA".into(),
+                focused: true,
+                kind: AgentListRowKind::Agent {
+                    agent_id: crate::agents::AgentId(1),
+                    terminal_id: Some(crate::terminals::TerminalId(11)),
+                    has_tasks: false,
+                    interactive: true,
+                    activity: AgentListActivity::Working,
+                    paused: true,
+                    context_pct_milli: None,
+                },
+            }],
+        },
+    );
+
+    assert_eq!(specs.len(), 8);
+    assert!(specs.iter().all(|spec| {
+        let linear = spec.color.to_linear();
+        (linear.red - linear.green).abs() < 0.2 && (linear.green - linear.blue).abs() < 0.2
+    }));
 }
 
 #[test]
@@ -208,6 +261,7 @@ fn selected_working_agent_row_emits_green_bloom_sources_only_for_that_row() {
                         has_tasks: false,
                         interactive: true,
                         activity: AgentListActivity::Working,
+                        paused: false,
                         context_pct_milli: None,
                     },
                 },
@@ -221,6 +275,7 @@ fn selected_working_agent_row_emits_green_bloom_sources_only_for_that_row() {
                         has_tasks: false,
                         interactive: true,
                         activity: AgentListActivity::Idle,
+                        paused: false,
                         context_pct_milli: None,
                     },
                 },
@@ -263,6 +318,7 @@ fn selected_tmux_row_does_not_emit_parent_agent_bloom() {
                         has_tasks: false,
                         interactive: true,
                         activity: AgentListActivity::Idle,
+                        paused: false,
                         context_pct_milli: None,
                     },
                 },
@@ -317,6 +373,7 @@ fn aegis_enabled_rows_emit_pink_outer_bloom_when_unselected() {
                     has_tasks: false,
                     interactive: true,
                     activity: AgentListActivity::Idle,
+                    paused: false,
                     context_pct_milli: None,
                 },
             }],
@@ -359,6 +416,7 @@ fn selected_aegis_agent_emits_both_outer_aegis_and_inner_selection_glow() {
                     has_tasks: false,
                     interactive: true,
                     activity: AgentListActivity::Idle,
+                    paused: false,
                     context_pct_milli: None,
                 },
             }],
@@ -429,6 +487,7 @@ fn unselected_rows_do_not_emit_selected_bloom_sources() {
                     has_tasks: false,
                     interactive: true,
                     activity: AgentListActivity::Idle,
+                    paused: false,
                     context_pct_milli: None,
                 },
             }],
@@ -829,6 +888,7 @@ fn sync_hud_widget_bloom_only_uses_active_agent_source() {
                     has_tasks: false,
                     interactive: true,
                     activity: AgentListActivity::Idle,
+                    paused: false,
                     context_pct_milli: None,
                 },
             },
@@ -842,6 +902,7 @@ fn sync_hud_widget_bloom_only_uses_active_agent_source() {
                     has_tasks: false,
                     interactive: true,
                     activity: AgentListActivity::Working,
+                    paused: false,
                     context_pct_milli: None,
                 },
             },
@@ -916,6 +977,7 @@ fn sync_hud_widget_bloom_includes_selected_tmux_row_only() {
                     has_tasks: false,
                     interactive: true,
                     activity: AgentListActivity::Idle,
+                    paused: false,
                     context_pct_milli: None,
                 },
             },

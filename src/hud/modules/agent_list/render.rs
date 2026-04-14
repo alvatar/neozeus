@@ -13,7 +13,8 @@ use super::{
     row_main_rect, AgentListDragPreview, AgentListRowSection, AGENT_LIST_BLOOM_RED_B,
     AGENT_LIST_BLOOM_RED_G, AGENT_LIST_BLOOM_RED_R, AGENT_LIST_BORDER_ORANGE_B,
     AGENT_LIST_BORDER_ORANGE_G, AGENT_LIST_BORDER_ORANGE_R, AGENT_LIST_HEADER_HEIGHT,
-    AGENT_LIST_LEFT_RAIL_WIDTH, AGENT_LIST_WORKING_GREEN_B, AGENT_LIST_WORKING_GREEN_G,
+    AGENT_LIST_LEFT_RAIL_WIDTH, AGENT_LIST_PAUSED_GRAY_B, AGENT_LIST_PAUSED_GRAY_G,
+    AGENT_LIST_PAUSED_GRAY_R, AGENT_LIST_WORKING_GREEN_B, AGENT_LIST_WORKING_GREEN_G,
     AGENT_LIST_WORKING_GREEN_R, AGENT_ROW_LABEL_SCALE_X, AGENT_ROW_LABEL_SCALE_Y,
     AGENT_ROW_LABEL_TEXT_SIZE, TMUX_ROW_LABEL_SCALE_X, TMUX_ROW_LABEL_SCALE_Y,
     TMUX_ROW_LABEL_TEXT_SIZE,
@@ -54,6 +55,12 @@ const WORKING_ROW_COLOR: peniko::Color = peniko::Color::from_rgba8(
     AGENT_LIST_WORKING_GREEN_B,
     255,
 );
+const PAUSED_ROW_COLOR: peniko::Color = peniko::Color::from_rgba8(
+    AGENT_LIST_PAUSED_GRAY_R,
+    AGENT_LIST_PAUSED_GRAY_G,
+    AGENT_LIST_PAUSED_GRAY_B,
+    255,
+);
 const CONTEXT_BAR_TRACK_COLOR: peniko::Color = HudColors::BUTTON;
 const AGENT_LIST_BORDER_STROKE_WIDTH: f64 = 2.5;
 
@@ -88,12 +95,24 @@ fn draw_button_rect(
 
 fn agent_fill_color(
     activity: AgentListActivity,
+    paused: bool,
     selected: bool,
     hovered: bool,
     dragging: bool,
 ) -> peniko::Color {
     if dragging {
         apply_alpha(EVA_BLACK, 0.98)
+    } else if paused {
+        apply_alpha(
+            PAUSED_ROW_COLOR,
+            if selected {
+                0.18
+            } else if hovered {
+                0.14
+            } else {
+                0.10
+            },
+        )
     } else if activity == AgentListActivity::Working {
         apply_alpha(WORKING_ROW_COLOR, 0.22)
     } else if selected {
@@ -107,11 +126,14 @@ fn agent_fill_color(
 
 fn agent_accent_color(
     activity: AgentListActivity,
+    paused: bool,
     selected: bool,
     dragging: bool,
 ) -> Option<peniko::Color> {
     if dragging {
         Some(EVA_CYAN)
+    } else if paused {
+        Some(PAUSED_ROW_COLOR)
     } else if activity == AgentListActivity::Working {
         Some(WORKING_ROW_COLOR)
     } else if selected {
@@ -122,8 +144,15 @@ fn agent_accent_color(
 }
 
 /// Handles marker fill.
-fn marker_fill(activity: AgentListActivity, has_tasks: bool, interactive: bool) -> peniko::Color {
-    if !interactive {
+fn marker_fill(
+    activity: AgentListActivity,
+    paused: bool,
+    has_tasks: bool,
+    interactive: bool,
+) -> peniko::Color {
+    if paused {
+        PAUSED_ROW_COLOR
+    } else if !interactive {
         DISCONNECTED_RED
     } else if activity == AgentListActivity::Working {
         WORKING_ROW_COLOR
@@ -317,9 +346,16 @@ fn draw_left_rail(painter: &mut HudPainter, content_rect: HudRect) {
     }
 }
 
-fn agent_label_color(activity: AgentListActivity, selected: bool, dragging: bool) -> peniko::Color {
+fn agent_label_color(
+    activity: AgentListActivity,
+    paused: bool,
+    selected: bool,
+    dragging: bool,
+) -> peniko::Color {
     if dragging {
         EVA_CYAN
+    } else if paused {
+        PAUSED_ROW_COLOR
     } else if activity == AgentListActivity::Working {
         WORKING_ROW_COLOR
     } else if selected {
@@ -331,12 +367,15 @@ fn agent_label_color(activity: AgentListActivity, selected: bool, dragging: bool
 
 fn agent_row_stroke(
     activity: AgentListActivity,
+    paused: bool,
     selected: bool,
     hovered: bool,
     dragging: bool,
 ) -> peniko::Color {
     if dragging {
         EVA_CYAN
+    } else if paused {
+        PAUSED_ROW_COLOR
     } else if activity == AgentListActivity::Working {
         WORKING_ROW_COLOR
     } else if selected {
@@ -348,26 +387,31 @@ fn agent_row_stroke(
     }
 }
 
+#[allow(
+    clippy::too_many_arguments,
+    reason = "agent row rendering keeps painter, geometry, activity, pause, task, interactivity, and context inputs explicit"
+)]
 fn render_agent_row(
     painter: &mut HudPainter,
     row: &AgentRow,
     main_rect: HudRect,
     activity: AgentListActivity,
+    paused: bool,
     has_tasks: bool,
     interactive: bool,
     context_pct_milli: Option<i32>,
 ) {
     let marker_rect = agent_row_rect(row.rect, AgentListRowSection::Marker);
     let accent_rect = agent_row_rect(row.rect, AgentListRowSection::Accent);
-    let stroke = agent_row_stroke(activity, row.focused, row.hovered, row.dragging);
-    let fill = agent_fill_color(activity, row.focused, row.hovered, row.dragging);
+    let stroke = agent_row_stroke(activity, paused, row.focused, row.hovered, row.dragging);
+    let fill = agent_fill_color(activity, paused, row.focused, row.hovered, row.dragging);
 
     draw_button_rect(painter, main_rect, stroke, fill);
     draw_button_rect(
         painter,
         marker_rect,
         stroke,
-        marker_fill(activity, has_tasks, interactive),
+        marker_fill(activity, paused, has_tasks, interactive),
     );
     draw_context_bar(
         painter,
@@ -375,7 +419,7 @@ fn render_agent_row(
         marker_rect,
         rendered_context_pct_milli(context_pct_milli),
     );
-    if let Some(accent_fill) = agent_accent_color(activity, row.focused, row.dragging) {
+    if let Some(accent_fill) = agent_accent_color(activity, paused, row.focused, row.dragging) {
         painter.fill_rect(accent_rect, accent_fill, 0.0);
     }
 }
@@ -479,6 +523,7 @@ pub(crate) fn render_content(
                 has_tasks,
                 interactive,
                 activity,
+                paused,
                 context_pct_milli,
                 ..
             } => {
@@ -488,6 +533,7 @@ pub(crate) fn render_content(
                     &row,
                     main_rect,
                     *activity,
+                    *paused,
                     *has_tasks,
                     *interactive,
                     *context_pct_milli,
@@ -555,9 +601,9 @@ pub(crate) fn render_content(
                 AGENT_ROW_LABEL_TEXT_SIZE
             },
             match &row.kind {
-                AgentRowKind::Agent { activity, .. } => {
-                    agent_label_color(*activity, row.focused, row.dragging)
-                }
+                AgentRowKind::Agent {
+                    activity, paused, ..
+                } => agent_label_color(*activity, *paused, row.focused, row.dragging),
                 AgentRowKind::OwnedTmux { orphaned, .. } => {
                     if *orphaned {
                         EVA_EMISSIVE_RED
@@ -589,30 +635,30 @@ mod tests {
         context_segment_rect, context_track_rect, marker_fill, rendered_context_pct_milli,
         tmux_child_chrome_color, tmux_child_connector, tmux_child_fill_color,
         tmux_child_label_color, AGENT_LIST_BORDER_STROKE_WIDTH, EVA_CYAN, EVA_SELECTED,
-        TMUX_CHILD_ORANGE, WORKING_ROW_COLOR,
+        PAUSED_ROW_COLOR, TMUX_CHILD_ORANGE, WORKING_ROW_COLOR,
     };
     use crate::hud::view_models::AgentListActivity;
 
     #[test]
     fn working_agent_rows_use_green_palette() {
         assert_eq!(
-            agent_label_color(AgentListActivity::Working, false, false),
+            agent_label_color(AgentListActivity::Working, false, false, false),
             WORKING_ROW_COLOR
         );
         assert_eq!(
-            agent_row_stroke(AgentListActivity::Working, false, false, false),
+            agent_row_stroke(AgentListActivity::Working, false, false, false, false),
             WORKING_ROW_COLOR
         );
         assert_eq!(
-            agent_fill_color(AgentListActivity::Working, false, false, false),
+            agent_fill_color(AgentListActivity::Working, false, false, false, false),
             super::apply_alpha(WORKING_ROW_COLOR, 0.22)
         );
         assert_eq!(
-            marker_fill(AgentListActivity::Working, false, true),
+            marker_fill(AgentListActivity::Working, false, false, true),
             WORKING_ROW_COLOR
         );
         assert_eq!(
-            agent_accent_color(AgentListActivity::Working, false, false),
+            agent_accent_color(AgentListActivity::Working, false, false, false),
             Some(WORKING_ROW_COLOR)
         );
     }
@@ -620,11 +666,11 @@ mod tests {
     #[test]
     fn dragging_still_overrides_working_green() {
         assert_eq!(
-            agent_label_color(AgentListActivity::Working, false, true),
+            agent_label_color(AgentListActivity::Working, false, false, true),
             EVA_CYAN
         );
         assert_eq!(
-            agent_row_stroke(AgentListActivity::Working, true, true, true),
+            agent_row_stroke(AgentListActivity::Working, false, true, true, true),
             EVA_CYAN
         );
     }
@@ -632,28 +678,48 @@ mod tests {
     #[test]
     fn selected_working_agent_rows_use_working_border_fill_and_label() {
         assert_eq!(
-            agent_label_color(AgentListActivity::Idle, true, false),
+            agent_label_color(AgentListActivity::Idle, false, true, false),
             EVA_SELECTED
         );
         assert_eq!(
-            agent_label_color(AgentListActivity::Working, true, false),
+            agent_label_color(AgentListActivity::Working, false, true, false),
             WORKING_ROW_COLOR
         );
         assert_eq!(
-            agent_row_stroke(AgentListActivity::Idle, true, false, false),
+            agent_row_stroke(AgentListActivity::Idle, false, true, false, false),
             EVA_SELECTED
         );
         assert_eq!(
-            agent_row_stroke(AgentListActivity::Working, true, false, false),
+            agent_row_stroke(AgentListActivity::Working, false, true, false, false),
             WORKING_ROW_COLOR
         );
         assert_eq!(
-            agent_fill_color(AgentListActivity::Working, true, false, false),
+            agent_fill_color(AgentListActivity::Working, false, true, false, false),
             super::apply_alpha(WORKING_ROW_COLOR, 0.22)
         );
         assert_eq!(
-            agent_accent_color(AgentListActivity::Working, true, false),
+            agent_accent_color(AgentListActivity::Working, false, true, false),
             Some(WORKING_ROW_COLOR)
+        );
+    }
+
+    #[test]
+    fn paused_agent_rows_use_gray_palette_even_when_selected() {
+        assert_eq!(
+            agent_label_color(AgentListActivity::Working, true, true, false),
+            PAUSED_ROW_COLOR
+        );
+        assert_eq!(
+            agent_row_stroke(AgentListActivity::Idle, true, true, false, false),
+            PAUSED_ROW_COLOR
+        );
+        assert_eq!(
+            marker_fill(AgentListActivity::Working, true, true, true),
+            PAUSED_ROW_COLOR
+        );
+        assert_eq!(
+            agent_accent_color(AgentListActivity::Idle, true, true, false),
+            Some(PAUSED_ROW_COLOR)
         );
     }
 
@@ -722,11 +788,11 @@ mod tests {
         assert_eq!(tmux_child_chrome_color(true), EVA_SELECTED);
         assert_eq!(tmux_child_label_color(true), EVA_SELECTED);
         assert_eq!(
-            agent_row_stroke(AgentListActivity::Idle, true, false, false),
+            agent_row_stroke(AgentListActivity::Idle, false, true, false, false),
             EVA_SELECTED
         );
         assert_eq!(
-            agent_label_color(AgentListActivity::Idle, true, false),
+            agent_label_color(AgentListActivity::Idle, false, true, false),
             EVA_SELECTED
         );
     }

@@ -7,7 +7,8 @@ use crate::{
 use super::{
     modules::{
         agent_row_rect, agent_rows, row_main_rect, AgentListRowSection, AGENT_LIST_BLOOM_RED_B,
-        AGENT_LIST_BLOOM_RED_G, AGENT_LIST_BLOOM_RED_R, AGENT_LIST_WORKING_GREEN_B,
+        AGENT_LIST_BLOOM_RED_G, AGENT_LIST_BLOOM_RED_R, AGENT_LIST_PAUSED_GRAY_B,
+        AGENT_LIST_PAUSED_GRAY_G, AGENT_LIST_PAUSED_GRAY_R, AGENT_LIST_WORKING_GREEN_B,
         AGENT_LIST_WORKING_GREEN_G, AGENT_LIST_WORKING_GREEN_R,
     },
     state::{AgentListUiState, HudLayoutState, HudRect},
@@ -399,13 +400,30 @@ fn bloom_reference_aegis_pink(scale: f32, alpha: f32) -> Color {
     bloom_reference_color(255, 105, 180, scale, alpha)
 }
 
+fn bloom_reference_paused_gray(scale: f32, alpha: f32) -> Color {
+    bloom_reference_color(
+        AGENT_LIST_PAUSED_GRAY_R,
+        AGENT_LIST_PAUSED_GRAY_G,
+        AGENT_LIST_PAUSED_GRAY_B,
+        scale,
+        alpha,
+    )
+}
+
 /// Chooses the bloom source color for one border strip based on selected-row state.
 ///
-/// Selected working agent rows switch to the working-green bloom palette; all other selected rows
-/// keep the existing selected red palette.
-fn bloom_source_color(kind: AgentListBloomSourceKind, working: bool) -> Color {
+/// Paused selected rows use a dim gray glow, working rows use the green palette, and other selected
+/// rows keep the existing selected red palette.
+fn bloom_source_color(kind: AgentListBloomSourceKind, paused: bool, working: bool) -> Color {
     if kind == AgentListBloomSourceKind::Aegis {
         return bloom_reference_aegis_pink(7.0, 1.0);
+    }
+    if paused {
+        return match kind {
+            AgentListBloomSourceKind::Main => bloom_reference_paused_gray(4.0, 1.0),
+            AgentListBloomSourceKind::Marker => bloom_reference_paused_gray(5.0, 1.0),
+            AgentListBloomSourceKind::Aegis => bloom_reference_aegis_pink(7.0, 1.0),
+        };
     }
     if working {
         return match kind {
@@ -538,6 +556,7 @@ fn build_bloom_specs(
             || aegis_row_keys.contains(&row.key)
     }) {
         let working = row.activity() == Some(crate::hud::view_models::AgentListActivity::Working);
+        let paused = row.paused();
         let terminal_id = if row.is_tmux_child() {
             let Some(terminal_id) = row
                 .owner_agent_id()
@@ -564,7 +583,7 @@ fn build_bloom_specs(
                 w: row.rect.w + 8.0,
                 h: row.rect.h + 6.0,
             };
-            let color = bloom_source_color(AgentListBloomSourceKind::Aegis, false);
+            let color = bloom_source_color(AgentListBloomSourceKind::Aegis, false, false);
             for (segment, border_rect) in bloom_border_rects(expanded_rect, 5.0) {
                 specs.push(BloomSourceSpec {
                     key: AgentListBloomSourceSprite {
@@ -580,7 +599,7 @@ fn build_bloom_specs(
 
         if row.is_tmux_child() {
             let main_rect = row_main_rect(&row);
-            let color = bloom_source_color(AgentListBloomSourceKind::Main, false);
+            let color = bloom_source_color(AgentListBloomSourceKind::Main, false, false);
             for (segment, border_rect) in bloom_border_rects(main_rect, 3.0) {
                 specs.push(BloomSourceSpec {
                     key: AgentListBloomSourceSprite {
@@ -605,7 +624,7 @@ fn build_bloom_specs(
                     2.5,
                 ),
             ] {
-                let color = bloom_source_color(kind, working);
+                let color = bloom_source_color(kind, paused, working);
                 for (segment, border_rect) in bloom_border_rects(rect, thickness) {
                     specs.push(BloomSourceSpec {
                         key: AgentListBloomSourceSprite {

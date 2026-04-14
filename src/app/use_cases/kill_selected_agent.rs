@@ -20,14 +20,12 @@ use bevy::{prelude::*, window::RequestRedraw};
 
 /// Handles adjacent agent in catalog.
 fn adjacent_agent_in_catalog(catalog: &AgentCatalog, agent_id: AgentId) -> Option<AgentId> {
-    let index = catalog
-        .order
-        .iter()
-        .position(|existing| *existing == agent_id)?;
+    let order = catalog.display_order();
+    let index = order.iter().position(|existing| *existing == agent_id)?;
     if index > 0 {
-        catalog.order.get(index - 1).copied()
+        order.get(index - 1).copied()
     } else {
-        catalog.order.get(index + 1).copied()
+        order.get(index + 1).copied()
     }
 }
 

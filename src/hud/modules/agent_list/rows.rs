@@ -31,6 +31,9 @@ pub(crate) const AGENT_LIST_BLOOM_RED_B: u8 = 15;
 pub(crate) const AGENT_LIST_WORKING_GREEN_R: u8 = crate::shared::visual_contracts::WORKING_GREEN_R;
 pub(crate) const AGENT_LIST_WORKING_GREEN_G: u8 = crate::shared::visual_contracts::WORKING_GREEN_G;
 pub(crate) const AGENT_LIST_WORKING_GREEN_B: u8 = crate::shared::visual_contracts::WORKING_GREEN_B;
+pub(crate) const AGENT_LIST_PAUSED_GRAY_R: u8 = 116;
+pub(crate) const AGENT_LIST_PAUSED_GRAY_G: u8 = 118;
+pub(crate) const AGENT_LIST_PAUSED_GRAY_B: u8 = 124;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum AgentListRowSection {
@@ -47,6 +50,7 @@ pub(in crate::hud) enum AgentRowKind {
         has_tasks: bool,
         interactive: bool,
         activity: AgentListActivity,
+        paused: bool,
         context_pct_milli: Option<i32>,
     },
     OwnedTmux {
@@ -85,6 +89,13 @@ impl AgentRow {
         match self.kind {
             AgentRowKind::Agent { activity, .. } => Some(activity),
             AgentRowKind::OwnedTmux { .. } => None,
+        }
+    }
+
+    pub(in crate::hud) fn paused(&self) -> bool {
+        match self.kind {
+            AgentRowKind::Agent { paused, .. } => paused,
+            AgentRowKind::OwnedTmux { .. } => false,
         }
     }
 
@@ -219,6 +230,7 @@ pub(in crate::hud) fn projected_agent_rows(
                     has_tasks,
                     interactive,
                     activity,
+                    paused,
                     context_pct_milli,
                 } => AgentRowKind::Agent {
                     agent_id: *agent_id,
@@ -226,6 +238,7 @@ pub(in crate::hud) fn projected_agent_rows(
                     has_tasks: *has_tasks,
                     interactive: *interactive,
                     activity: *activity,
+                    paused: *paused,
                     context_pct_milli: *context_pct_milli,
                 },
                 AgentListRowKind::OwnedTmux { owner, .. } => AgentRowKind::OwnedTmux {

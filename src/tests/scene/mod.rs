@@ -1547,6 +1547,64 @@ fn startup_restore_reattaches_live_agent_by_runtime_session_name_when_available(
 }
 
 #[test]
+fn startup_restore_preserves_paused_agents_and_projects_them_to_display_bottom() {
+    let client = Arc::new(crate::tests::FakeDaemonClient::default());
+    client.set_session_runtime(
+        "neozeus-live-alpha",
+        crate::terminals::TerminalRuntimeState::running("restored"),
+    );
+    client.set_session_runtime(
+        "neozeus-live-beta",
+        crate::terminals::TerminalRuntimeState::running("restored"),
+    );
+    let dir = temp_dir("neozeus-startup-restore-paused-agents");
+    let app_state_path = dir.join("neozeus-state.v1");
+    std::fs::write(
+        &app_state_path,
+        "neozeus state version 4\n[agent]\nagent_uid=\"agent-uid-1\"\nruntime_session_name=\"neozeus-live-alpha\"\nlabel=\"ALPHA\"\nkind=\"terminal\"\npaused=1\norder_index=0\nfocused=1\n[/agent]\n[agent]\nagent_uid=\"agent-uid-2\"\nruntime_session_name=\"neozeus-live-beta\"\nlabel=\"BETA\"\nkind=\"terminal\"\npaused=0\norder_index=1\nfocused=0\n[/agent]\n",
+    )
+    .expect("app state should write");
+
+    let mut world = World::default();
+    world.insert_resource(Assets::<Image>::default());
+    world.insert_resource(crate::terminals::TerminalManager::default());
+    world.insert_resource(crate::terminals::TerminalFocusState::default());
+    world.insert_resource(crate::terminals::TerminalPresentationStore::default());
+    world.insert_resource(crate::agents::AgentCatalog::default());
+    world.insert_resource(crate::agents::AgentRuntimeIndex::default());
+    world.insert_resource(crate::app::AppSessionState::default());
+    world.insert_resource(crate::aegis::AegisPolicyStore::default());
+    world.insert_resource(crate::aegis::AegisRuntimeStore::default());
+    world.insert_resource(crate::conversations::ConversationStore::default());
+    world.insert_resource(crate::conversations::ConversationPersistenceState::default());
+    world.insert_resource(crate::hud::HudInputCaptureState::default());
+    world.insert_resource(crate::terminals::TerminalViewState::default());
+    world.init_resource::<Messages<RequestRedraw>>();
+    world.insert_resource(Time::<()>::default());
+    world.insert_resource(fake_runtime_spawner(client.clone()));
+    world.insert_resource(crate::app::AppStatePersistenceState {
+        path: Some(app_state_path),
+        dirty_since_secs: None,
+    });
+    world.insert_resource(crate::terminals::TerminalNotesState::default());
+    world.insert_resource(crate::hud::TerminalVisibilityState::default());
+    world.insert_resource(crate::startup::DaemonConnectionState::default());
+    world.insert_resource(crate::startup::StartupConnectState::default());
+
+    world.run_system_once(crate::startup::setup_scene).unwrap();
+
+    let catalog = world.resource::<crate::agents::AgentCatalog>();
+    let display_order = catalog.display_order();
+    assert_eq!(display_order.len(), 2);
+    assert_eq!(catalog.label(display_order[0]), Some("BETA"));
+    assert_eq!(catalog.label(display_order[1]), Some("ALPHA"));
+    let alpha_id = catalog
+        .find_by_uid("agent-uid-1")
+        .expect("alpha should exist");
+    assert!(catalog.is_paused(alpha_id));
+}
+
+#[test]
 fn startup_restore_falls_back_to_recovery_when_runtime_session_is_gone() {
     let client = Arc::new(crate::tests::FakeDaemonClient::default());
     let dir = temp_dir("neozeus-startup-stale-runtime-fallback");

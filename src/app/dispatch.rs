@@ -583,6 +583,19 @@ fn apply_kill_selected_agent_command(ctx: &mut AppCommandContext) {
     }
 }
 
+fn apply_toggle_paused_agent_command(
+    agent_id: crate::agents::AgentId,
+    ctx: &mut AppCommandContext,
+) {
+    match ctx.agent_catalog.toggle_paused(agent_id) {
+        Ok(_) => {
+            mark_app_state_dirty(&mut ctx.app_state_persistence, Some(&ctx.time));
+            ctx.redraws.write(RequestRedraw);
+        }
+        Err(error) => append_debug_log(format!("toggle paused agent failed: {error}")),
+    }
+}
+
 fn apply_agent_command(command: &AgentCommand, ctx: &mut AppCommandContext) {
     match command {
         AgentCommand::Create {
@@ -613,6 +626,7 @@ fn apply_agent_command(command: &AgentCommand, ctx: &mut AppCommandContext) {
                 ctx.redraws.write(RequestRedraw);
             }
         }
+        AgentCommand::TogglePaused(agent_id) => apply_toggle_paused_agent_command(*agent_id, ctx),
         AgentCommand::ClearFocus => apply_clear_focus_command(ctx),
         AgentCommand::KillSelected => apply_kill_selected_agent_command(ctx),
     }
