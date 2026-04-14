@@ -123,6 +123,11 @@ fn selected_agent_context_box_darkens_the_bloom_region_in_final_frame() {
     let agent_list_luma = agent_list_avg[0] + agent_list_avg[1] + agent_list_avg[2];
 
     assert!(
+        context_luma < 15.0,
+        "context box background should be near-opaque dark in the verified region: context_avg={:?}",
+        context_avg,
+    );
+    assert!(
         context_luma < agent_list_luma * 0.45,
         "context box should materially darken the bloom region: context_avg={:?} agent_list_avg={:?}",
         context_avg,

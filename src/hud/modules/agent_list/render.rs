@@ -778,7 +778,7 @@ pub(crate) fn render_hover_overlay(
     let width = text_width + HOVER_CARD_PADDING_X * 2.0;
     let height = HOVER_CARD_PADDING_Y * 2.0 + HOVER_CARD_LINE_HEIGHT * lines.len() as f32;
     let rect = hover_card_rect(window, hovered_row_rect, width, height);
-    painter.fill_rect(rect, apply_alpha(EVA_BLACK, 0.96), 0.0);
+    painter.fill_rect(rect, EVA_BLACK, 0.0);
     painter.stroke_rect_width(rect, apply_alpha(EVA_SELECTED, 0.9), 1.5);
 
     for (index, line) in lines.iter().enumerate() {
