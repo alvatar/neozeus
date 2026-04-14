@@ -104,13 +104,12 @@ pub(crate) fn handle_global_terminal_spawn_shortcut(
     )
 }
 
-pub(crate) fn is_plain_lowercase_character(
+pub(crate) fn is_plain_shortcut_key(
     event: &KeyboardInput,
     keys: &ButtonInput<KeyCode>,
     key_code: KeyCode,
-    expected: &str,
 ) -> bool {
-    shortcut_bindings::is_plain_lowercase_character(event, keys, key_code, expected)
+    shortcut_bindings::is_plain_shortcut_key(event, keys, key_code)
 }
 
 #[allow(
@@ -917,7 +916,7 @@ fn handle_plain_terminal_shortcuts(
             break;
         }
 
-        if modifiers.ctrl || modifiers.alt || modifiers.super_key {
+        if modifiers.ctrl || modifiers.alt || modifiers.super_key || modifiers.shift {
             continue;
         }
 
@@ -977,15 +976,10 @@ fn handle_plain_terminal_shortcuts(
                 break;
             }
             KeyCode::KeyP => {
-                if !modifiers.shift
-                    && matches!(&event.logical_key, Key::Character(text) if text == "p")
-                {
-                    if let Some(agent_id) = runtime_index.agent_for_terminal(active_id) {
-                        app_commands
-                            .write(AppCommand::Agent(AppAgentCommand::TogglePaused(agent_id)));
-                    }
-                    break;
+                if let Some(agent_id) = runtime_index.agent_for_terminal(active_id) {
+                    app_commands.write(AppCommand::Agent(AppAgentCommand::TogglePaused(agent_id)));
                 }
+                break;
             }
             _ => {}
         }

@@ -324,16 +324,23 @@ fn plain_text_uses_text_payload() {
     }
 }
 
-/// Verifies that the global spawn shortcut is accepted only for an unmodified `z` key press.
+/// Verifies that the global spawn shortcut is accepted only for an unmodified physical `z` key press.
 #[test]
 fn global_spawn_shortcut_only_uses_plain_z() {
     let keys = ButtonInput::<KeyCode>::default();
     let event = pressed_text(KeyCode::KeyZ, Some("z"));
     assert!(should_spawn_terminal_globally(&event, &keys));
 
+    let capslock_like_event = pressed_key(KeyCode::KeyZ, Key::Character("Z".into()));
+    assert!(should_spawn_terminal_globally(&capslock_like_event, &keys));
+
     let mut ctrl_keys = ButtonInput::<KeyCode>::default();
     ctrl_keys.press(KeyCode::ControlLeft);
     assert!(!should_spawn_terminal_globally(&event, &ctrl_keys));
+
+    let mut shift_keys = ButtonInput::<KeyCode>::default();
+    shift_keys.press(KeyCode::ShiftLeft);
+    assert!(!should_spawn_terminal_globally(&event, &shift_keys));
 }
 
 /// Verifies that the global spawn shortcut opens the centered create-agent dialog even when another
@@ -771,6 +778,11 @@ fn kill_active_terminal_shortcut_only_uses_plain_ctrl_k() {
     alt_ctrl_keys.press(KeyCode::ControlLeft);
     alt_ctrl_keys.press(KeyCode::AltLeft);
     assert!(!should_kill_active_terminal(&event, &alt_ctrl_keys));
+
+    let mut shift_ctrl_keys = ButtonInput::<KeyCode>::default();
+    shift_ctrl_keys.press(KeyCode::ControlLeft);
+    shift_ctrl_keys.press(KeyCode::ShiftLeft);
+    assert!(!should_kill_active_terminal(&event, &shift_ctrl_keys));
 }
 
 #[test]
@@ -861,6 +873,10 @@ fn exit_application_shortcut_only_uses_plain_f10() {
     let mut alt_keys = ButtonInput::<KeyCode>::default();
     alt_keys.press(KeyCode::AltLeft);
     assert!(!should_exit_application(&event, &alt_keys));
+
+    let mut shift_keys = ButtonInput::<KeyCode>::default();
+    shift_keys.press(KeyCode::ShiftLeft);
+    assert!(!should_exit_application(&event, &shift_keys));
 }
 
 /// Verifies that one plain `Ctrl+k` removes a disconnected active terminal in one shot.
@@ -1914,7 +1930,7 @@ fn plain_p_toggles_paused_state_for_active_terminal_agent() {
     world.insert_resource(Messages::<KeyboardInput>::default());
     world
         .resource_mut::<Messages<KeyboardInput>>()
-        .write(pressed_text(KeyCode::KeyP, Some("p")));
+        .write(pressed_key(KeyCode::KeyP, Key::Character("P".into())));
     world
         .run_system_once(handle_terminal_message_box_keyboard)
         .unwrap();
@@ -1923,7 +1939,7 @@ fn plain_p_toggles_paused_state_for_active_terminal_agent() {
 }
 
 #[test]
-fn uppercase_p_does_not_toggle_paused_state_for_active_terminal_agent() {
+fn shift_p_does_not_toggle_paused_state_for_active_terminal_agent() {
     let (mut world, terminal_id) =
         world_with_active_terminal(Vec2::new(10.0, 10.0), false, Vec2::ZERO);
     let agent_id = world
@@ -1937,7 +1953,7 @@ fn uppercase_p_does_not_toggle_paused_state_for_active_terminal_agent() {
         .press(KeyCode::ShiftLeft);
     world
         .resource_mut::<Messages<KeyboardInput>>()
-        .write(pressed_text(KeyCode::KeyP, Some("P")));
+        .write(pressed_key(KeyCode::KeyP, Key::Character("P".into())));
 
     world
         .run_system_once(handle_terminal_message_box_keyboard)

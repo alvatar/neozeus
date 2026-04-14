@@ -12,23 +12,21 @@ pub(super) fn has_plain_modifiers(keys: &ButtonInput<KeyCode>) -> (bool, bool, b
     )
 }
 
-pub(crate) fn is_plain_lowercase_character(
+pub(super) fn shift_pressed(keys: &ButtonInput<KeyCode>) -> bool {
+    keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight)
+}
+
+pub(crate) fn is_plain_shortcut_key(
     event: &KeyboardInput,
     keys: &ButtonInput<KeyCode>,
     key_code: KeyCode,
-    expected: &str,
 ) -> bool {
     if event.state != ButtonState::Pressed || event.key_code != key_code {
         return false;
     }
 
     let (ctrl, alt, super_key) = has_plain_modifiers(keys);
-    let shift = keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight);
-    if ctrl || alt || super_key || shift {
-        return false;
-    }
-
-    matches!(&event.logical_key, Key::Character(text) if text == expected)
+    !(ctrl || alt || super_key || shift_pressed(keys))
 }
 
 /// Decides whether a keyboard event means "spawn a normal terminal".
@@ -40,12 +38,7 @@ pub(crate) fn should_spawn_terminal_globally(
     event: &KeyboardInput,
     keys: &ButtonInput<KeyCode>,
 ) -> bool {
-    if event.state != ButtonState::Pressed || event.key_code != KeyCode::KeyZ {
-        return false;
-    }
-
-    let (ctrl, alt, super_key) = has_plain_modifiers(keys);
-    !(ctrl || alt || super_key)
+    is_plain_shortcut_key(event, keys, KeyCode::KeyZ)
 }
 
 /// Decides whether a keyboard event means "open the clone-agent dialog".
@@ -53,12 +46,7 @@ pub(crate) fn should_open_clone_agent_dialog(
     event: &KeyboardInput,
     keys: &ButtonInput<KeyCode>,
 ) -> bool {
-    if event.state != ButtonState::Pressed || event.key_code != KeyCode::KeyC {
-        return false;
-    }
-
-    let (ctrl, alt, super_key) = has_plain_modifiers(keys);
-    !(ctrl || alt || super_key)
+    is_plain_shortcut_key(event, keys, KeyCode::KeyC)
 }
 
 /// Decides whether a keyboard event should kill the currently active terminal session.
@@ -73,7 +61,7 @@ pub(crate) fn should_kill_active_terminal(
         return false;
     }
     let (ctrl, alt, super_key) = has_plain_modifiers(keys);
-    ctrl && !alt && !super_key
+    ctrl && !alt && !super_key && !shift_pressed(keys)
 }
 
 /// Decides whether a keyboard event should exit the whole application.
@@ -85,7 +73,7 @@ pub(crate) fn should_exit_application(event: &KeyboardInput, keys: &ButtonInput<
         return false;
     }
     let (ctrl, alt, super_key) = has_plain_modifiers(keys);
-    !(ctrl || alt || super_key)
+    !(ctrl || alt || super_key || shift_pressed(keys))
 }
 
 #[allow(
@@ -181,6 +169,7 @@ pub(crate) fn handle_terminal_lifecycle_shortcuts(
         if ctrl
             && alt
             && !super_key
+            && !shift_pressed(&keys)
             && event.state == ButtonState::Pressed
             && event.key_code == KeyCode::KeyR
         {

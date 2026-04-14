@@ -838,7 +838,7 @@ pub(crate) fn handle_hud_module_shortcuts(
                 continue;
             }
 
-            if crate::input::is_plain_lowercase_character(event, &keys, KeyCode::KeyP, "p") {
+            if crate::input::is_plain_shortcut_key(event, &keys, KeyCode::KeyP) {
                 if let AgentListSelection::Agent(agent_id) = selection {
                     app_commands.write(AppCommand::Agent(AgentCommand::TogglePaused(*agent_id)));
                 }

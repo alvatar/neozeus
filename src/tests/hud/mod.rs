@@ -425,7 +425,7 @@ fn plain_p_toggles_paused_state_for_selected_agent_row() {
     world.insert_resource(Messages::<KeyboardInput>::default());
     world
         .resource_mut::<Messages<KeyboardInput>>()
-        .write(pressed_text(KeyCode::KeyP, Some("p")));
+        .write(pressed_key(KeyCode::KeyP, Key::Character("P".into())));
     world.run_system_once(handle_hud_module_shortcuts).unwrap();
     run_app_commands(&mut world);
     assert!(!world
@@ -434,7 +434,7 @@ fn plain_p_toggles_paused_state_for_selected_agent_row() {
 }
 
 #[test]
-fn uppercase_p_does_not_toggle_paused_state_for_selected_agent_row() {
+fn shift_p_does_not_toggle_paused_state_for_selected_agent_row() {
     let mut world = World::default();
     let (bridge_one, _) = test_bridge();
     let (bridge_two, _) = test_bridge();
@@ -457,7 +457,7 @@ fn uppercase_p_does_not_toggle_paused_state_for_selected_agent_row() {
     world.init_resource::<Messages<KeyboardInput>>();
     world
         .resource_mut::<Messages<KeyboardInput>>()
-        .write(pressed_text(KeyCode::KeyP, Some("P")));
+        .write(pressed_key(KeyCode::KeyP, Key::Character("P".into())));
 
     world.run_system_once(handle_hud_module_shortcuts).unwrap();
     run_app_commands(&mut world);
