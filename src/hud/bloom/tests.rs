@@ -26,8 +26,8 @@ use bevy::{
     camera::{visibility::RenderLayers, RenderTarget},
     ecs::system::RunSystemOnce,
     prelude::{
-        default, Assets, Image, Mesh, Sprite, Transform, Vec2, Vec4, Visibility, Window, With,
-        World,
+        default, Assets, Image, Mesh, Sprite, Transform, Vec2, Vec3, Vec4, Visibility, Window,
+        With, World,
     },
     render::render_resource::TextureFormat,
     sprite_render::{AlphaMode2d, Material2d},
@@ -548,9 +548,11 @@ fn setup_hud_widget_bloom_spawns_camera_and_composite_sprite() {
     let mut world = World::default();
     world.insert_resource(HudBloomSettings::default());
     world.insert_resource(HudWidgetBloom::default());
+    world.insert_resource(HudBloomOcclusionState::default());
     world.insert_resource(Assets::<Image>::default());
     world.insert_resource(Assets::<Mesh>::default());
     world.insert_resource(Assets::<AgentListBloomBlurMaterial>::default());
+    world.insert_resource(Assets::<AgentListBloomCompositeMaterial>::default());
     world.spawn((
         Window {
             resolution: (1400, 900).into(),
@@ -592,16 +594,20 @@ fn setup_hud_widget_bloom_spawns_camera_and_composite_sprite() {
     let mut composite_query = world.query::<(
         &Transform,
         &Visibility,
-        &Sprite,
+        &MeshMaterial2d<AgentListBloomCompositeMaterial>,
         &AgentListBloomCompositeMarker,
     )>();
-    let (transform, visibility, sprite, _) = composite_query.single(&world).unwrap();
+    let (transform, visibility, material_handle, _) = composite_query.single(&world).unwrap();
     assert_eq!(transform.translation.z, agent_list_bloom_z());
     assert_eq!(visibility, &Visibility::Hidden);
     let composite_image_format = {
+        let materials = world.resource::<Assets<AgentListBloomCompositeMaterial>>();
+        let material = materials
+            .get(material_handle.id())
+            .expect("bloom composite material exists");
         let images = world.resource::<Assets<Image>>();
         images
-            .get(sprite.image.id())
+            .get(material.image.id())
             .expect("bloom composite image exists")
             .texture_descriptor
             .format
@@ -619,9 +625,11 @@ fn setup_hud_widget_bloom_uses_logical_window_size_for_targets() {
     let mut world = World::default();
     world.insert_resource(HudBloomSettings::default());
     world.insert_resource(HudWidgetBloom::default());
+    world.insert_resource(HudBloomOcclusionState::default());
     world.insert_resource(Assets::<Image>::default());
     world.insert_resource(Assets::<Mesh>::default());
     world.insert_resource(Assets::<AgentListBloomBlurMaterial>::default());
+    world.insert_resource(Assets::<AgentListBloomCompositeMaterial>::default());
     world.spawn((
         Window {
             resolution: WindowResolution::new(1400, 900).with_scale_factor_override(2.0),
@@ -718,9 +726,11 @@ fn sync_hud_widget_bloom_spawns_agent_list_source_sprites() {
     insert_test_hud_state(&mut world, hud_state);
     world.insert_resource(HudBloomSettings::default());
     world.insert_resource(HudWidgetBloom::default());
+    world.insert_resource(HudBloomOcclusionState::default());
     world.insert_resource(Assets::<Image>::default());
     world.insert_resource(Assets::<Mesh>::default());
     world.insert_resource(Assets::<AgentListBloomBlurMaterial>::default());
+    world.insert_resource(Assets::<AgentListBloomCompositeMaterial>::default());
     world.spawn((
         Window {
             resolution: (1400, 900).into(),
@@ -816,13 +826,13 @@ fn sync_hud_widget_bloom_spawns_agent_list_source_sprites() {
     let mut composite_query = world.query::<(
         &Visibility,
         &Transform,
-        &Sprite,
+        &MeshMaterial2d<AgentListBloomCompositeMaterial>,
         &AgentListBloomCompositeMarker,
     )>();
-    let (visibility, transform, sprite, _) = composite_query.single(&world).unwrap();
+    let (visibility, transform, _material_handle, _) = composite_query.single(&world).unwrap();
     assert_eq!(visibility, &Visibility::Visible);
     assert_eq!(transform.translation.z, agent_list_bloom_z());
-    assert_eq!(sprite.custom_size, Some(Vec2::new(1400.0, 900.0)));
+    assert_eq!(transform.scale, Vec3::new(1400.0, 900.0, 1.0));
 }
 
 /// Verifies that bloom is suppressed while a modal HUD surface is visible.
@@ -855,9 +865,11 @@ fn sync_hud_widget_bloom_hides_sources_and_composite_while_modal_is_visible() {
     insert_test_hud_state(&mut world, hud_state);
     world.insert_resource(HudBloomSettings::default());
     world.insert_resource(HudWidgetBloom::default());
+    world.insert_resource(HudBloomOcclusionState::default());
     world.insert_resource(Assets::<Image>::default());
     world.insert_resource(Assets::<Mesh>::default());
     world.insert_resource(Assets::<AgentListBloomBlurMaterial>::default());
+    world.insert_resource(Assets::<AgentListBloomCompositeMaterial>::default());
     world.spawn((
         Window {
             resolution: (1400, 900).into(),
@@ -948,9 +960,11 @@ fn sync_hud_widget_bloom_only_uses_active_agent_source() {
     insert_test_hud_state(&mut world, hud_state);
     world.insert_resource(HudBloomSettings::default());
     world.insert_resource(HudWidgetBloom::default());
+    world.insert_resource(HudBloomOcclusionState::default());
     world.insert_resource(Assets::<Image>::default());
     world.insert_resource(Assets::<Mesh>::default());
     world.insert_resource(Assets::<AgentListBloomBlurMaterial>::default());
+    world.insert_resource(Assets::<AgentListBloomCompositeMaterial>::default());
     world.spawn((
         Window {
             resolution: (1400, 900).into(),
@@ -1039,9 +1053,11 @@ fn sync_hud_widget_bloom_includes_selected_tmux_row_only() {
     insert_test_hud_state(&mut world, hud_state);
     world.insert_resource(HudBloomSettings::default());
     world.insert_resource(HudWidgetBloom::default());
+    world.insert_resource(HudBloomOcclusionState::default());
     world.insert_resource(Assets::<Image>::default());
     world.insert_resource(Assets::<Mesh>::default());
     world.insert_resource(Assets::<AgentListBloomBlurMaterial>::default());
+    world.insert_resource(Assets::<AgentListBloomCompositeMaterial>::default());
     world.spawn((
         Window {
             resolution: (1400, 900).into(),

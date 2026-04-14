@@ -738,26 +738,21 @@ pub(crate) fn render_hover_overlay(
     content_rect: HudRect,
     painter: &mut HudPainter,
     agent_list_view: &crate::hud::view_models::AgentListView,
-) {
-    let Some(hovered_key) = context_overlay_key(state, selection, agent_list_view) else {
-        return;
-    };
-    let Some(row_view) = agent_list_view
+) -> Option<HudRect> {
+    let hovered_key = context_overlay_key(state, selection, agent_list_view)?;
+    let row_view = agent_list_view
         .rows
         .iter()
-        .find(|row| &row.key == hovered_key)
-    else {
-        return;
-    };
+        .find(|row| &row.key == hovered_key)?;
     let AgentListRowKind::Agent {
         agent_kind,
         session_metrics,
         ..
     } = &row_view.kind
     else {
-        return;
+        return None;
     };
-    let Some(hovered_row_rect) = projected_agent_rows(
+    let hovered_row_rect = projected_agent_rows(
         content_rect,
         state.scroll_offset,
         state.hovered_row.as_ref(),
@@ -766,9 +761,7 @@ pub(crate) fn render_hover_overlay(
     )
     .into_iter()
     .find(|row| &row.key == hovered_key)
-    .map(|row| row_main_rect(&row)) else {
-        return;
-    };
+    .map(|row| row_main_rect(&row))?;
 
     let lines = hover_card_lines(*agent_kind, session_metrics);
     let text_width = lines
@@ -800,6 +793,7 @@ pub(crate) fn render_hover_overlay(
             1.0,
         );
     }
+    Some(rect)
 }
 
 #[cfg(test)]

@@ -136,6 +136,7 @@ pub(super) fn render_hud_modal_scene_impl(
     agent_list_state: Res<AgentListUiState>,
     agent_list_view: Res<AgentListView>,
     selection: Option<Res<crate::hud::view_models::AgentListSelection>>,
+    mut bloom_occlusion: ResMut<crate::hud::HudBloomOcclusionState>,
     app_session: Res<AppSessionState>,
     composer_view: Res<ComposerView>,
     startup_connect: Option<Res<DaemonConnectionState>>,
@@ -144,6 +145,7 @@ pub(super) fn render_hud_modal_scene_impl(
 ) {
     // Build the geometry or layout decisions first, then emit the matching draw operations against the prepared state.
     let mut built = vello::Scene::new();
+    bloom_occlusion.rect = None;
     let mut painter = HudPainter::new(&mut built, &fonts, &primary_window, 1.0);
     if let Some(startup_connect) = startup_connect.as_deref() {
         draw_startup_connect_overlay(&mut painter, &primary_window, startup_connect);
@@ -173,7 +175,7 @@ pub(super) fn render_hud_modal_scene_impl(
         if agent_list_module.shell.enabled || agent_list_alpha > 0.01 {
             let mut painter =
                 HudPainter::new(&mut built, &fonts, &primary_window, agent_list_alpha);
-            modules::render_hover_overlay(
+            bloom_occlusion.rect = modules::render_hover_overlay(
                 &primary_window,
                 &agent_list_state,
                 selection.as_deref(),

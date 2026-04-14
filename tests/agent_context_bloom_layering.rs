@@ -48,7 +48,10 @@ fn read_binary_ppm(path: &Path) -> (u32, u32, Vec<u8>) {
     (width, height, bytes[idx..].to_vec())
 }
 
-fn run_offscreen_scenario(scenario: &str) -> (u32, u32, Vec<u8>) {
+fn run_offscreen_scenario_with_env(
+    scenario: &str,
+    extra_env: &[(&str, &str)],
+) -> (u32, u32, Vec<u8>) {
     let smoke_dir = unique_temp_dir(&format!("neozeus-{scenario}-test"));
     let home = smoke_dir.join("home");
     let xdg_config = smoke_dir.join("xdg-config");
@@ -60,7 +63,8 @@ fn run_offscreen_scenario(scenario: &str) -> (u32, u32, Vec<u8>) {
     }
     let frame_path = smoke_dir.join("final-frame.ppm");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_neozeus"))
+    let mut command = Command::new(env!("CARGO_BIN_EXE_neozeus"));
+    command
         .env("HOME", &home)
         .env("XDG_CONFIG_HOME", &xdg_config)
         .env("XDG_CACHE_HOME", &xdg_cache)
@@ -69,7 +73,11 @@ fn run_offscreen_scenario(scenario: &str) -> (u32, u32, Vec<u8>) {
         .env("NEOZEUS_OUTPUT_MODE", "offscreen")
         .env("NEOZEUS_VERIFY_SCENARIO", scenario)
         .env("NEOZEUS_CAPTURE_FINAL_FRAME_PATH", &frame_path)
-        .env("NEOZEUS_EXIT_AFTER_CAPTURE", "1")
+        .env("NEOZEUS_EXIT_AFTER_CAPTURE", "1");
+    for (key, value) in extra_env {
+        command.env(key, value);
+    }
+    let output = command
         .output()
         .expect("neozeus offscreen run should spawn");
     assert!(
@@ -80,6 +88,10 @@ fn run_offscreen_scenario(scenario: &str) -> (u32, u32, Vec<u8>) {
     );
 
     read_binary_ppm(&frame_path)
+}
+
+fn run_offscreen_scenario(scenario: &str) -> (u32, u32, Vec<u8>) {
+    run_offscreen_scenario_with_env(scenario, &[])
 }
 
 fn average_region_rgb(data: &[u8], width: u32, x0: u32, y0: u32, x1: u32, y1: u32) -> [f32; 3] {
@@ -102,35 +114,35 @@ fn average_region_rgb(data: &[u8], width: u32, x0: u32, y0: u32, x1: u32, y1: u3
 }
 
 #[test]
-fn selected_agent_context_box_darkens_the_bloom_region_in_final_frame() {
+fn selected_agent_context_box_renders_above_agent_bloom_in_overlap_region() {
     let (context_width, context_height, context_frame) =
         run_offscreen_scenario("agent-context-bloom");
-    let (agent_list_width, agent_list_height, agent_list_frame) =
-        run_offscreen_scenario("agent-list-bloom");
+    let (no_bloom_width, no_bloom_height, no_bloom_frame) = run_offscreen_scenario_with_env(
+        "agent-context-bloom",
+        &[("NEOZEUS_AGENT_BLOOM_INTENSITY", "0")],
+    );
     assert_eq!((context_width, context_height), (1920, 1200));
     assert_eq!(
-        (agent_list_width, agent_list_height),
+        (no_bloom_width, no_bloom_height),
         (context_width, context_height)
     );
 
-    // This region covers the deterministic context-box background area immediately to the right of
-    // the selected agent row in the `agent-context-bloom` scenario. Without the box, the same area
-    // remains visibly bloom-tinted; with the box, it should darken substantially.
-    let context_avg = average_region_rgb(&context_frame, context_width, 309, 132, 435, 152);
-    let agent_list_avg =
-        average_region_rgb(&agent_list_frame, agent_list_width, 309, 132, 435, 152);
-    let context_luma = context_avg[0] + context_avg[1] + context_avg[2];
-    let agent_list_luma = agent_list_avg[0] + agent_list_avg[1] + agent_list_avg[2];
+    // This stripe sits just inside the left edge of the context box, in a blank area that should
+    // stay black regardless of whether agent bloom is enabled. If the bloom pass is composited above
+    // the context box, the stripe turns orange even though the box should fully occlude it.
+    let overlap_avg = average_region_rgb(&context_frame, context_width, 290, 130, 298, 176);
+    let no_bloom_avg = average_region_rgb(&no_bloom_frame, no_bloom_width, 290, 130, 298, 176);
+    let channel_delta = [
+        (overlap_avg[0] - no_bloom_avg[0]).abs(),
+        (overlap_avg[1] - no_bloom_avg[1]).abs(),
+        (overlap_avg[2] - no_bloom_avg[2]).abs(),
+    ];
 
     assert!(
-        context_luma < 15.0,
-        "context box background should be near-opaque dark in the verified region: context_avg={:?}",
-        context_avg,
-    );
-    assert!(
-        context_luma < agent_list_luma * 0.45,
-        "context box should materially darken the bloom region: context_avg={:?} agent_list_avg={:?}",
-        context_avg,
-        agent_list_avg,
+        channel_delta.iter().all(|delta| *delta < 8.0),
+        "context box overlap stripe should match the no-bloom box interior, but bloom leaked on top: overlap_avg={:?} no_bloom_avg={:?} delta={:?}",
+        overlap_avg,
+        no_bloom_avg,
+        channel_delta,
     );
 }

@@ -9,10 +9,10 @@ use crate::{
         AgentTaskStore, ConversationPersistenceState, ConversationStore, MessageTransportAdapter,
     },
     hud::{
-        AgentListBloomBlurMaterial, AgentListView, ComposerView, ConversationListView,
-        HudBloomSettings, HudCompositeCaptureConfig, HudOffscreenCompositor, HudPersistenceState,
-        HudTextureCaptureConfig, HudWidgetBloom, TerminalVisibilityState, ThreadView,
-        WindowCaptureConfig,
+        AgentListBloomBlurMaterial, AgentListBloomCompositeMaterial, AgentListView, ComposerView,
+        ConversationListView, HudBloomOcclusionState, HudBloomSettings, HudCompositeCaptureConfig,
+        HudOffscreenCompositor, HudPersistenceState, HudTextureCaptureConfig, HudWidgetBloom,
+        TerminalVisibilityState, ThreadView, WindowCaptureConfig,
     },
     shared::linux_display::LinuxDisplayEnvironment,
     terminals::{
@@ -449,6 +449,7 @@ fn configure_app(app: &mut App) -> Result<(), String> {
     app.add_plugins((
         VelloPlugin::default(),
         Material2dPlugin::<AgentListBloomBlurMaterial>::default(),
+        Material2dPlugin::<AgentListBloomCompositeMaterial>::default(),
     ));
 
     if uses_headless_runner(&output) {
@@ -512,6 +513,7 @@ fn configure_app(app: &mut App) -> Result<(), String> {
         .insert_resource(HudPersistenceState::default())
         .insert_resource(HudOffscreenCompositor::default())
         .insert_resource(HudBloomSettings::default())
+        .insert_resource(HudBloomOcclusionState::default())
         .insert_resource(HudWidgetBloom::default())
         .insert_resource(AgentCatalog::default())
         .insert_resource(AgentRuntimeIndex::default())

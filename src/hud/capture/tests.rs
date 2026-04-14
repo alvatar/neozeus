@@ -1,6 +1,6 @@
 use super::request_hud_composite_capture;
 use crate::{
-    hud::{HudCompositeBloomCameraMarker, HudCompositeCameraMarker},
+    hud::{HudCompositeBloomCameraMarker, HudCompositeCameraMarker, HudCompositeModalCameraMarker},
     shared::{
         capture::ArmedCaptureRequestState,
         readback::{align_copy_bytes_per_row, texture_bytes_to_ppm},
@@ -72,6 +72,7 @@ fn composite_capture_retargets_bloom_camera_to_shared_capture_image() {
     ));
     let main_camera = world.spawn((HudCompositeCameraMarker,)).id();
     let bloom_camera = world.spawn((HudCompositeBloomCameraMarker,)).id();
+    let modal_camera = world.spawn((HudCompositeModalCameraMarker,)).id();
 
     world
         .run_system_once(request_hud_composite_capture)
@@ -83,5 +84,9 @@ fn composite_capture_retargets_bloom_camera_to_shared_capture_image() {
     let Some(RenderTarget::Image(bloom_target)) = world.get::<RenderTarget>(bloom_camera) else {
         panic!("bloom compositor camera should target capture image");
     };
+    let Some(RenderTarget::Image(modal_target)) = world.get::<RenderTarget>(modal_camera) else {
+        panic!("modal compositor camera should target capture image");
+    };
     assert_eq!(main_target.handle, bloom_target.handle);
+    assert_eq!(main_target.handle, modal_target.handle);
 }

@@ -42,6 +42,7 @@ const BLOOM_COMPOSITE_LAYER: usize = HUD_COMPOSITE_BLOOM_RENDER_LAYER;
 const BLOOM_COMPOSITE_Z: f32 = HUD_COMPOSITE_FOREGROUND_Z + 0.1;
 const BLOOM_TARGET_FORMAT: TextureFormat = TextureFormat::Rgba16Float;
 const BLOOM_BLUR_SHADER_PATH: &str = "shaders/hud_agent_list_bloom_blur.wgsl";
+const BLOOM_COMPOSITE_SHADER_PATH: &str = "shaders/hud_agent_list_bloom_composite.wgsl";
 const BLOOM_SCALE_DIVISOR: u32 = 1;
 const DEFAULT_BLOOM_INTENSITY: f32 = 0.10;
 const BLOOM_INTENSITY_SCALE: f32 = 9.0;
@@ -55,6 +56,11 @@ const BLOOM_DEBUG_PREVIEW_HEIGHT: f32 = 120.0;
 const BLOOM_DEBUG_PREVIEW_MARGIN: f32 = 16.0;
 const BLOOM_DEBUG_PREVIEW_GAP: f32 = 12.0;
 const BLOOM_DEBUG_PREVIEW_BACKDROP_PADDING: f32 = 10.0;
+
+#[derive(Resource, Clone, Copy, Debug, Default, PartialEq)]
+pub(crate) struct HudBloomOcclusionState {
+    pub(crate) rect: Option<HudRect>,
+}
 
 #[derive(Resource, Clone, Copy, Debug)]
 pub(crate) struct HudBloomSettings {
@@ -156,6 +162,21 @@ pub(crate) struct AgentListBloomBlurMaterial {
     uniform: AgentListBloomBlurUniform,
 }
 
+#[derive(Clone, Copy, Debug, ShaderType)]
+struct AgentListBloomCompositeUniform {
+    tint: Vec4,
+    occlusion_rect_uv: Vec4,
+}
+
+#[derive(Asset, TypePath, AsBindGroup, Debug, Clone)]
+pub(crate) struct AgentListBloomCompositeMaterial {
+    #[texture(0)]
+    #[sampler(1)]
+    pub(crate) image: Handle<Image>,
+    #[uniform(2)]
+    uniform: AgentListBloomCompositeUniform,
+}
+
 impl Material2d for AgentListBloomBlurMaterial {
     /// Returns the WGSL shader used for the separable blur passes.
     ///
@@ -168,6 +189,16 @@ impl Material2d for AgentListBloomBlurMaterial {
     ///
     /// Intermediate blur passes should overwrite the target pixels instead of alpha-blending with old
     /// data.
+    fn alpha_mode(&self) -> AlphaMode2d {
+        AlphaMode2d::Opaque
+    }
+}
+
+impl Material2d for AgentListBloomCompositeMaterial {
+    fn fragment_shader() -> ShaderRef {
+        BLOOM_COMPOSITE_SHADER_PATH.into()
+    }
+
     fn alpha_mode(&self) -> AlphaMode2d {
         AlphaMode2d::Opaque
     }
@@ -298,6 +329,20 @@ fn rect_transform_for_frame(frame_size: Vec2, rect: HudRect, z: f32) -> Transfor
 /// blur/composite passes need.
 fn fullscreen_transform_for_frame(frame_size: Vec2, z: f32) -> Transform {
     Transform::from_xyz(0.0, 0.0, z).with_scale(Vec3::new(frame_size.x, frame_size.y, 1.0))
+}
+
+fn composite_occlusion_rect_uv(window: &Window, rect: Option<HudRect>) -> Vec4 {
+    let Some(rect) = rect else {
+        return Vec4::new(2.0, 2.0, -1.0, -1.0);
+    };
+    let width = window.width().max(1.0);
+    let height = window.height().max(1.0);
+    Vec4::new(
+        rect.x / width,
+        rect.y / height,
+        (rect.x + rect.w) / width,
+        (rect.y + rect.h) / height,
+    )
 }
 
 /// Scales a HUD rectangle from logical window space into bloom-target pixel space.
@@ -746,19 +791,27 @@ fn spawn_wide_blur_pass(
 
 fn spawn_composite_sprites(
     commands: &mut Commands,
+    meshes: &mut Assets<Mesh>,
+    composite_materials: &mut Assets<AgentListBloomCompositeMaterial>,
     blur_small_image: &Handle<Image>,
     blur_wide_image: &Handle<Image>,
     primary_window: &Window,
 ) -> (Entity, Entity) {
+    let composite_mesh = meshes.add(Rectangle::default());
     let composite_sprite = commands
         .spawn((
-            Sprite {
+            Mesh2d(composite_mesh.clone()),
+            MeshMaterial2d(composite_materials.add(AgentListBloomCompositeMaterial {
                 image: blur_small_image.clone(),
-                color: Color::linear_rgba(SMALL_BLUR_GAIN, SMALL_BLUR_GAIN, SMALL_BLUR_GAIN, 1.0),
-                custom_size: Some(Vec2::new(primary_window.width(), primary_window.height())),
-                ..default()
-            },
-            Transform::from_xyz(0.0, 0.0, BLOOM_COMPOSITE_Z),
+                uniform: AgentListBloomCompositeUniform {
+                    tint: Vec4::new(SMALL_BLUR_GAIN, SMALL_BLUR_GAIN, SMALL_BLUR_GAIN, 1.0),
+                    occlusion_rect_uv: Vec4::new(2.0, 2.0, -1.0, -1.0),
+                },
+            })),
+            fullscreen_transform_for_frame(
+                Vec2::new(primary_window.width(), primary_window.height()),
+                BLOOM_COMPOSITE_Z,
+            ),
             RenderLayers::layer(BLOOM_COMPOSITE_LAYER),
             Visibility::Hidden,
             AgentListBloomCompositeMarker,
@@ -766,13 +819,18 @@ fn spawn_composite_sprites(
         .id();
     let wide_composite_sprite = commands
         .spawn((
-            Sprite {
+            Mesh2d(composite_mesh),
+            MeshMaterial2d(composite_materials.add(AgentListBloomCompositeMaterial {
                 image: blur_wide_image.clone(),
-                color: Color::linear_rgba(WIDE_BLUR_GAIN, WIDE_BLUR_GAIN, WIDE_BLUR_GAIN, 1.0),
-                custom_size: Some(Vec2::new(primary_window.width(), primary_window.height())),
-                ..default()
-            },
-            Transform::from_xyz(0.0, 0.0, BLOOM_COMPOSITE_Z + 0.01),
+                uniform: AgentListBloomCompositeUniform {
+                    tint: Vec4::new(WIDE_BLUR_GAIN, WIDE_BLUR_GAIN, WIDE_BLUR_GAIN, 1.0),
+                    occlusion_rect_uv: Vec4::new(2.0, 2.0, -1.0, -1.0),
+                },
+            })),
+            fullscreen_transform_for_frame(
+                Vec2::new(primary_window.width(), primary_window.height()),
+                BLOOM_COMPOSITE_Z + 0.01,
+            ),
             RenderLayers::layer(BLOOM_COMPOSITE_LAYER),
             Visibility::Hidden,
             AgentListBloomWideCompositeMarker,
@@ -894,6 +952,7 @@ struct HudWidgetBloomSetupContext<'w, 's> {
     images: ResMut<'w, Assets<Image>>,
     meshes: ResMut<'w, Assets<Mesh>>,
     blur_materials: ResMut<'w, Assets<AgentListBloomBlurMaterial>>,
+    composite_materials: ResMut<'w, Assets<AgentListBloomCompositeMaterial>>,
     bloom: ResMut<'w, HudWidgetBloom>,
 }
 
@@ -934,6 +993,8 @@ pub(crate) fn setup_hud_widget_bloom(world: &mut World) {
     );
     let (composite_sprite, wide_composite_sprite) = spawn_composite_sprites(
         &mut ctx.commands,
+        &mut ctx.meshes,
+        &mut ctx.composite_materials,
         &blur_small_image,
         &blur_wide_image,
         &ctx.primary_window,
@@ -1044,10 +1105,12 @@ struct HudWidgetBloomContext<'w, 's> {
     agent_list_state: Res<'w, AgentListUiState>,
     agent_list_view: Res<'w, AgentListView>,
     settings: Res<'w, HudBloomSettings>,
+    occlusion: Res<'w, HudBloomOcclusionState>,
     commands: Commands<'w, 's>,
     bloom: ResMut<'w, HudWidgetBloom>,
     images: ResMut<'w, Assets<Image>>,
     blur_materials: ResMut<'w, Assets<AgentListBloomBlurMaterial>>,
+    composite_materials: ResMut<'w, Assets<AgentListBloomCompositeMaterial>>,
     source_cameras: Query<'w, 's, &'static mut RenderTarget, BloomSourceCameraFilter>,
     blur_small_cameras: Query<'w, 's, &'static mut RenderTarget, BloomBlurSmallCameraFilter>,
     blur_wide_cameras: Query<'w, 's, &'static mut RenderTarget, BloomBlurWideCameraFilter>,
@@ -1055,7 +1118,7 @@ struct HudWidgetBloomContext<'w, 's> {
         'w,
         's,
         (
-            &'static mut Sprite,
+            &'static MeshMaterial2d<AgentListBloomCompositeMaterial>,
             &'static mut Transform,
             &'static mut Visibility,
         ),
@@ -1065,7 +1128,7 @@ struct HudWidgetBloomContext<'w, 's> {
         'w,
         's,
         (
-            &'static mut Sprite,
+            &'static MeshMaterial2d<AgentListBloomCompositeMaterial>,
             &'static mut Transform,
             &'static mut Visibility,
         ),
@@ -1292,6 +1355,7 @@ fn sync_bloom_composites(
     active: bool,
     bloom_ready: bool,
 ) {
+    let occlusion_rect_uv = composite_occlusion_rect_uv(&ctx.primary_window, ctx.occlusion.rect);
     if let Some(quad) = pass.blur_small_quad {
         if let Ok((_, _, mut visibility)) = ctx.blur_small_quads.get_mut(quad) {
             *visibility = if active {
@@ -1311,22 +1375,26 @@ fn sync_bloom_composites(
         }
     }
     if let Some(composite) = pass.composite_sprite {
-        if let Ok((mut sprite, mut transform, mut visibility)) = ctx.composites.get_mut(composite) {
-            sprite.image = pass.blur_small_image.clone();
-            let intensity = ctx.settings.agent_list_intensity * BLOOM_INTENSITY_SCALE;
-            sprite.color = Color::linear_rgba(
-                SMALL_BLUR_GAIN * intensity,
-                SMALL_BLUR_GAIN * intensity,
-                SMALL_BLUR_GAIN * intensity,
-                1.0,
+        if let Ok((material_handle, mut transform, mut visibility)) =
+            ctx.composites.get_mut(composite)
+        {
+            if let Some(material) = ctx.composite_materials.get_mut(material_handle.id()) {
+                let intensity = ctx.settings.agent_list_intensity * BLOOM_INTENSITY_SCALE;
+                material.image = pass.blur_small_image.clone();
+                material.uniform = AgentListBloomCompositeUniform {
+                    tint: Vec4::new(
+                        SMALL_BLUR_GAIN * intensity,
+                        SMALL_BLUR_GAIN * intensity,
+                        SMALL_BLUR_GAIN * intensity,
+                        1.0,
+                    ),
+                    occlusion_rect_uv,
+                };
+            }
+            *transform = fullscreen_transform_for_frame(
+                Vec2::new(ctx.primary_window.width(), ctx.primary_window.height()),
+                BLOOM_COMPOSITE_Z,
             );
-            sprite.custom_size = Some(Vec2::new(
-                ctx.primary_window.width(),
-                ctx.primary_window.height(),
-            ));
-            transform.translation = Vec3::new(0.0, 0.0, BLOOM_COMPOSITE_Z);
-            transform.rotation = Quat::IDENTITY;
-            transform.scale = Vec3::ONE;
             *visibility = if active && bloom_ready {
                 Visibility::Visible
             } else {
@@ -1335,24 +1403,26 @@ fn sync_bloom_composites(
         }
     }
     if let Some(composite) = pass.wide_composite_sprite {
-        if let Ok((mut sprite, mut transform, mut visibility)) =
+        if let Ok((material_handle, mut transform, mut visibility)) =
             ctx.wide_composites.get_mut(composite)
         {
-            sprite.image = pass.blur_wide_image.clone();
-            let intensity = ctx.settings.agent_list_intensity * BLOOM_INTENSITY_SCALE;
-            sprite.color = Color::linear_rgba(
-                WIDE_BLUR_GAIN * intensity,
-                WIDE_BLUR_GAIN * intensity,
-                WIDE_BLUR_GAIN * intensity,
-                1.0,
+            if let Some(material) = ctx.composite_materials.get_mut(material_handle.id()) {
+                let intensity = ctx.settings.agent_list_intensity * BLOOM_INTENSITY_SCALE;
+                material.image = pass.blur_wide_image.clone();
+                material.uniform = AgentListBloomCompositeUniform {
+                    tint: Vec4::new(
+                        WIDE_BLUR_GAIN * intensity,
+                        WIDE_BLUR_GAIN * intensity,
+                        WIDE_BLUR_GAIN * intensity,
+                        1.0,
+                    ),
+                    occlusion_rect_uv,
+                };
+            }
+            *transform = fullscreen_transform_for_frame(
+                Vec2::new(ctx.primary_window.width(), ctx.primary_window.height()),
+                BLOOM_COMPOSITE_Z + 0.01,
             );
-            sprite.custom_size = Some(Vec2::new(
-                ctx.primary_window.width(),
-                ctx.primary_window.height(),
-            ));
-            transform.translation = Vec3::new(0.0, 0.0, BLOOM_COMPOSITE_Z + 0.01);
-            transform.rotation = Quat::IDENTITY;
-            transform.scale = Vec3::ONE;
             *visibility = if active && bloom_ready {
                 Visibility::Visible
             } else {

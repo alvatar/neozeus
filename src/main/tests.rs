@@ -154,6 +154,9 @@ pub(super) fn insert_default_hud_resources(world: &mut World) {
         world.insert_resource(AppSessionState::default());
     }
     world.insert_resource(HudInputCaptureState::default());
+    if !world.contains_resource::<crate::hud::HudBloomOcclusionState>() {
+        world.insert_resource(crate::hud::HudBloomOcclusionState::default());
+    }
     if !world.contains_resource::<crate::hud::AgentListSelection>() {
         world.insert_resource(crate::hud::AgentListSelection::default());
     }

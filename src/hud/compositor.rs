@@ -2,11 +2,13 @@ use bevy::{
     asset::RenderAssetUsages,
     camera::{
         visibility::{NoFrustumCulling, RenderLayers},
-        ClearColorConfig,
+        ClearColorConfig, RenderTarget,
     },
     mesh::Indices,
     prelude::*,
-    render::render_resource::PrimitiveTopology,
+    render::render_resource::{
+        Extent3d, PrimitiveTopology, TextureDimension, TextureFormat, TextureUsages,
+    },
     sprite_render::MeshMaterial2d,
     window::PrimaryWindow,
 };
@@ -16,8 +18,10 @@ use super::HudModalVectorSceneMarker;
 
 pub(crate) const HUD_COMPOSITE_RENDER_LAYER: usize = 28;
 pub(crate) const HUD_COMPOSITE_BLOOM_RENDER_LAYER: usize = 32;
+pub(crate) const HUD_COMPOSITE_MODAL_RENDER_LAYER: usize = 34;
 const HUD_COMPOSITE_CAMERA_ORDER: isize = 50;
 pub(crate) const HUD_COMPOSITE_BLOOM_CAMERA_ORDER: isize = 51;
+pub(crate) const HUD_COMPOSITE_MODAL_CAMERA_ORDER: isize = 52;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum HudCompositeLayerId {
@@ -40,6 +44,12 @@ pub(crate) struct HudCompositeCameraMarker;
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct HudCompositeBloomCameraMarker;
 
+#[derive(Component, Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(crate) struct HudCompositeModalCameraMarker;
+
+#[derive(Component, Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(crate) struct HudCompositeModalSpriteMarker;
+
 pub(crate) const HUD_COMPOSITE_FOREGROUND_Z: f32 = 0.0;
 
 #[derive(Clone, Debug)]
@@ -55,6 +65,9 @@ pub(crate) struct HudOffscreenCompositor {
     layers: Vec<HudCompositeLayer>,
     camera_entity: Option<Entity>,
     bloom_camera_entity: Option<Entity>,
+    modal_camera_entity: Option<Entity>,
+    modal_sprite_entity: Option<Entity>,
+    modal_target_image: Option<Handle<Image>>,
 }
 
 impl Default for HudOffscreenCompositor {
@@ -72,6 +85,9 @@ impl Default for HudOffscreenCompositor {
             }],
             camera_entity: None,
             bloom_camera_entity: None,
+            modal_camera_entity: None,
+            modal_sprite_entity: None,
+            modal_target_image: None,
         }
     }
 }
@@ -90,6 +106,38 @@ impl HudOffscreenCompositor {
 ///
 /// The mesh is authored directly in clip-like space and then rendered by a dedicated compositor
 /// camera, which avoids needing per-frame geometry generation.
+fn create_modal_target_image(size: UVec2) -> Image {
+    let mut image = Image::new_fill(
+        Extent3d {
+            width: size.x.max(1),
+            height: size.y.max(1),
+            depth_or_array_layers: 1,
+        },
+        TextureDimension::D2,
+        &[0, 0, 0, 0],
+        TextureFormat::Rgba8Unorm,
+        RenderAssetUsages::default(),
+    );
+    image.texture_descriptor.usage =
+        TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST | TextureUsages::RENDER_ATTACHMENT;
+    image
+}
+
+fn image_matches_modal_target_size(
+    images: &Assets<Image>,
+    handle: &Handle<Image>,
+    size: UVec2,
+) -> bool {
+    images
+        .get(handle)
+        .map(|image| {
+            image.texture_descriptor.size.width == size.x.max(1)
+                && image.texture_descriptor.size.height == size.y.max(1)
+                && image.texture_descriptor.format == TextureFormat::Rgba8Unorm
+        })
+        .unwrap_or(false)
+}
+
 fn fullscreen_clip_mesh() -> Mesh {
     // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
     let mut mesh = Mesh::new(
@@ -159,6 +207,39 @@ pub(crate) fn setup_hud_offscreen_compositor(
                 .id(),
         );
     }
+    if compositor.modal_camera_entity.is_none() {
+        compositor.modal_camera_entity = Some(
+            commands
+                .spawn((
+                    Camera2d,
+                    Camera {
+                        order: HUD_COMPOSITE_MODAL_CAMERA_ORDER,
+                        clear_color: ClearColorConfig::None,
+                        ..default()
+                    },
+                    RenderLayers::layer(HUD_COMPOSITE_MODAL_RENDER_LAYER),
+                    HudCompositeModalCameraMarker,
+                ))
+                .id(),
+        );
+    }
+    if compositor.modal_sprite_entity.is_none() {
+        compositor.modal_sprite_entity = Some(
+            commands
+                .spawn((
+                    Sprite {
+                        image: Handle::default(),
+                        custom_size: Some(Vec2::ONE),
+                        ..default()
+                    },
+                    Transform::from_xyz(0.0, 0.0, HUD_COMPOSITE_FOREGROUND_Z + 0.02),
+                    RenderLayers::layer(HUD_COMPOSITE_MODAL_RENDER_LAYER),
+                    Visibility::Hidden,
+                    HudCompositeModalSpriteMarker,
+                ))
+                .id(),
+        );
+    }
 
     let mesh_handle = meshes.add(fullscreen_clip_mesh());
     for layer in &mut compositor.layers {
@@ -197,6 +278,8 @@ type HudCompositeQuadQueryItem<'a> = (
     &'a mut Visibility,
 );
 
+type ModalCompositeSpriteQueryItem<'a> = &'a mut Sprite;
+
 #[allow(
     clippy::too_many_arguments,
     reason = "compositor sync needs window, image assets, materials, and visibility queries together"
@@ -208,18 +291,51 @@ type HudCompositeQuadQueryItem<'a> = (
 /// texture size matches the expected primary-window size.
 pub(crate) fn sync_hud_offscreen_compositor(
     mut compositor: ResMut<HudOffscreenCompositor>,
-    images: Res<Assets<Image>>,
+    mut images: ResMut<Assets<Image>>,
     mut vello_materials: ResMut<Assets<VelloCanvasMaterial>>,
     primary_window: Single<&Window, With<PrimaryWindow>>,
     mut commands: Commands,
+    modal_vello_cameras: Query<Entity, With<crate::hud::HudModalCameraMarker>>,
     mut vello_canvases: Query<VelloCanvasQueryItem<'_>, Without<HudCompositeLayerMarker>>,
-    mut quads: Query<HudCompositeQuadQueryItem<'_>>,
+    mut quads: Query<HudCompositeQuadQueryItem<'_>, Without<HudCompositeModalSpriteMarker>>,
+    mut modal_sprite: Query<
+        ModalCompositeSpriteQueryItem<'_>,
+        (
+            With<HudCompositeModalSpriteMarker>,
+            Without<HudCompositeLayerMarker>,
+        ),
+    >,
 ) {
     // Rebuild the derived or projected state from the authoritative resources in one pass so partial updates cannot drift.
     let expected_size = UVec2::new(
         primary_window.physical_width().max(1),
         primary_window.physical_height().max(1),
     );
+    if compositor
+        .modal_target_image
+        .as_ref()
+        .is_none_or(|handle| !image_matches_modal_target_size(&images, handle, expected_size))
+    {
+        compositor.modal_target_image = Some(images.add(create_modal_target_image(expected_size)));
+    }
+    if let Some(modal_target_image) = compositor.modal_target_image.clone() {
+        for modal_camera in &modal_vello_cameras {
+            commands
+                .entity(modal_camera)
+                .insert(RenderTarget::Image(modal_target_image.clone().into()));
+        }
+        if let Some(modal_sprite_entity) = compositor.modal_sprite_entity {
+            if let Ok(mut sprite) = modal_sprite.get_mut(modal_sprite_entity) {
+                sprite.image = modal_target_image;
+                sprite.custom_size =
+                    Some(Vec2::new(primary_window.width(), primary_window.height()));
+                commands
+                    .entity(modal_sprite_entity)
+                    .insert(Visibility::Visible);
+            }
+        }
+    }
+
     let mut vello_texture = None;
     let mut vello_texture_size = None;
     for (entity, material_handle, maybe_visibility, modal_marker) in &mut vello_canvases {
