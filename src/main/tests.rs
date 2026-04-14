@@ -154,9 +154,6 @@ pub(super) fn insert_default_hud_resources(world: &mut World) {
         world.insert_resource(AppSessionState::default());
     }
     world.insert_resource(HudInputCaptureState::default());
-    if !world.contains_resource::<crate::hud::HudBloomOcclusionState>() {
-        world.insert_resource(crate::hud::HudBloomOcclusionState::default());
-    }
     if !world.contains_resource::<crate::hud::AgentListSelection>() {
         world.insert_resource(crate::hud::AgentListSelection::default());
     }
@@ -302,7 +299,6 @@ pub(super) fn insert_terminal_manager_resources(
                         interactive: true,
                         activity: crate::hud::AgentListActivity::Idle,
                         paused: false,
-                        aegis_enabled: false,
                         context_pct_milli: None,
                         agent_kind: crate::agents::AgentKind::Terminal,
                         session_metrics: crate::shared::daemon_wire::DaemonSessionMetrics::default(

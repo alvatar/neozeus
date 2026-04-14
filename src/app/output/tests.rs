@@ -1,6 +1,6 @@
 use super::super::bootstrap::primary_window_config_for;
 use super::*;
-use crate::hud::{HudCompositeBloomCameraMarker, HudCompositeCameraMarker};
+use crate::hud::{AgentListBloomAdditiveCameraMarker, HudCompositeCameraMarker};
 use bevy::{
     ecs::system::RunSystemOnce,
     render::{gpu_readback::Readback, render_resource::TextureFormat},
@@ -133,7 +133,7 @@ fn resolve_scene_output_target_only_switches_between_window_and_single_image() {
 /// Exercises render-target routing as the app flips between offscreen and desktop modes.
 ///
 /// The test first confirms that offscreen mode allocates a shared image target and attaches it to
-/// the terminal, composite, and compositor-bloom cameras. It then flips back to desktop mode and verifies that
+/// the terminal, composite, and bloom cameras. It then flips back to desktop mode and verifies that
 /// those cameras are returned to normal window rendering instead of keeping the stale image target.
 #[test]
 fn sync_final_frame_output_target_assigns_targets_only_in_offscreen_mode() {
@@ -150,7 +150,7 @@ fn sync_final_frame_output_target_assigns_targets_only_in_offscreen_mode() {
     world.spawn((Window::default(), PrimaryWindow));
     let terminal = world.spawn((TerminalCameraMarker,)).id();
     let composite = world.spawn((HudCompositeCameraMarker,)).id();
-    let bloom = world.spawn((HudCompositeBloomCameraMarker,)).id();
+    let bloom = world.spawn((AgentListBloomAdditiveCameraMarker,)).id();
 
     world
         .run_system_once(sync_final_frame_output_target)
@@ -194,7 +194,7 @@ fn sync_final_frame_output_target_only_retargets_existing_scene_cameras() {
     world.spawn((Window::default(), PrimaryWindow));
     world.spawn((TerminalCameraMarker,));
     world.spawn((HudCompositeCameraMarker,));
-    world.spawn((HudCompositeBloomCameraMarker,));
+    world.spawn((AgentListBloomAdditiveCameraMarker,));
     let entity_count_before = world.entities().len();
 
     world

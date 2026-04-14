@@ -6,7 +6,7 @@ mod thread_pane;
 use crate::app::AppCommand;
 
 use super::{
-    render::{HudPainter, HudPainterSet, HudRenderInputs},
+    render::{HudPainter, HudRenderInputs},
     state::{AgentListUiState, ConversationListUiState, HudLayoutState, HudRect},
     view_models::{AgentListView, ConversationListView, InfoBarView},
     widgets::HudWidgetKey,
@@ -14,16 +14,13 @@ use super::{
 use bevy::prelude::Vec2;
 
 pub(in crate::hud) use agent_list::agent_rows;
-#[cfg(test)]
 pub(crate) use agent_list::{
-    agent_row_rect, row_main_rect, AgentListRowSection, AGENT_LIST_PAUSED_GRAY_B,
+    agent_row_rect, render_hover_overlay, reorder_target_index, row_at_point, row_main_rect,
+    selected_text_for_rows, text_row_at_point, AgentListRowSection, AGENT_LIST_BLOOM_RED_B,
+    AGENT_LIST_BLOOM_RED_G, AGENT_LIST_BLOOM_RED_R, AGENT_LIST_BORDER_ORANGE_B,
+    AGENT_LIST_BORDER_ORANGE_G, AGENT_LIST_BORDER_ORANGE_R, AGENT_LIST_PAUSED_GRAY_B,
     AGENT_LIST_PAUSED_GRAY_G, AGENT_LIST_PAUSED_GRAY_R, AGENT_LIST_WORKING_GREEN_B,
     AGENT_LIST_WORKING_GREEN_G, AGENT_LIST_WORKING_GREEN_R,
-};
-pub(crate) use agent_list::{
-    render_hover_overlay, reorder_target_index, row_at_point, selected_text_for_rows,
-    text_row_at_point, AGENT_LIST_BLOOM_RED_B, AGENT_LIST_BLOOM_RED_G, AGENT_LIST_BLOOM_RED_R,
-    AGENT_LIST_BORDER_ORANGE_B, AGENT_LIST_BORDER_ORANGE_G, AGENT_LIST_BORDER_ORANGE_R,
 };
 pub(in crate::hud) use info_bar::{INFO_BAR_BACKGROUND, INFO_BAR_BORDER};
 
@@ -110,16 +107,6 @@ pub(crate) fn clear_hover(
         HudWidgetKey::ConversationList => conversation_list::clear_hover(conversation_list_state),
         _ => false,
     }
-}
-
-/// Renders agent-list content plus any surface-owned bloom-group geometry.
-pub(crate) fn render_agent_list_content_with_bloom(
-    agent_list_state: &AgentListUiState,
-    content_rect: HudRect,
-    painters: &mut HudPainterSet<'_, '_>,
-    inputs: &HudRenderInputs,
-) {
-    agent_list::render_content_with_bloom(agent_list_state, content_rect, painters, inputs);
 }
 
 /// Renders module content.

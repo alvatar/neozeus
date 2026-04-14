@@ -18,7 +18,7 @@ use std::{
 };
 
 const DAEMON_CONNECT_RETRY_TIMEOUT: Duration = Duration::from_secs(2);
-const DAEMON_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+const DAEMON_REQUEST_TIMEOUT: Duration = Duration::from_secs(15);
 
 #[derive(Debug)]
 pub(crate) struct AttachedDaemonSession {

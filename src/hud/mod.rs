@@ -6,8 +6,6 @@ mod input;
 mod modules;
 mod persistence;
 mod render;
-mod render_group;
-mod render_surface;
 mod setup;
 mod state;
 mod view_models;
@@ -15,35 +13,26 @@ mod widgets;
 
 pub(crate) use animation::animate_hud_modules;
 pub(crate) use bloom::{
-    setup_hud_widget_bloom, sync_hud_widget_bloom, AgentListBloomBlurMaterial,
-    AgentListBloomCompositeMaterial, HudBloomOcclusionState, HudBloomSettings, HudWidgetBloom,
+    setup_hud_widget_bloom, sync_hud_widget_bloom, AgentListBloomAdditiveCameraMarker,
+    AgentListBloomBlurMaterial, HudBloomSettings, HudWidgetBloom,
 };
 pub(crate) use capture::{
-    finalize_window_capture, request_hud_bloom_group_capture, request_hud_composite_capture,
-    request_hud_texture_capture, request_window_capture, HudBloomGroupCaptureConfig,
-    HudCompositeCaptureConfig, HudTextureCaptureConfig, WindowCaptureConfig,
+    finalize_window_capture, request_hud_composite_capture, request_hud_texture_capture,
+    request_window_capture, HudCompositeCaptureConfig, HudTextureCaptureConfig,
+    WindowCaptureConfig,
 };
 pub(crate) use compositor::{
-    sync_hud_offscreen_compositor, HudCompositeBloomCameraMarker, HudCompositeCameraMarker,
-    HudOffscreenCompositor,
+    sync_hud_offscreen_compositor, HudCompositeCameraMarker, HudOffscreenCompositor,
 };
-#[cfg(test)]
-pub(crate) use compositor::{HUD_COMPOSITE_BLOOM_CAMERA_ORDER, HUD_COMPOSITE_BLOOM_RENDER_LAYER};
 #[cfg(test)]
 pub(crate) use input::handle_hud_module_shortcuts;
 pub(crate) use input::{
     adjacent_agent_list_target, handle_hud_pointer_input, AgentListNavigationTarget,
 };
 pub(crate) use persistence::{save_hud_layout_if_dirty, HudPersistenceState};
-#[cfg(test)]
-pub(crate) use render::HudModalVectorSceneMarker;
-pub(crate) use render::{render_hud_modal_scene, render_hud_scene, HudModalCameraMarker};
-pub(crate) use render_group::{HudBloomGroupId, HudBloomGroupRegistry, HudBloomGroupRenderState};
-#[cfg(test)]
-pub(crate) use render_group::{HudBloomGroupMarker, HudRenderRoute};
-pub(crate) use render_surface::HudSurfaceRegistry;
-#[cfg(test)]
-pub(crate) use render_surface::{HudSurfaceId, HudSurfaceMarker};
+pub(crate) use render::{
+    render_hud_modal_scene, render_hud_scene, HudModalCameraMarker, HudModalVectorSceneMarker,
+};
 pub(crate) use setup::{hud_needs_redraw, setup_hud, sync_structural_hud_layout};
 pub(crate) use state::{
     AgentListUiState, ConversationListUiState, HudInputCaptureState, HudLayoutState, HudRect,

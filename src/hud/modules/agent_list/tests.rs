@@ -33,7 +33,6 @@ fn agent_row_view(
             interactive: true,
             activity: crate::hud::AgentListActivity::Idle,
             paused: false,
-            aegis_enabled: false,
             context_pct_milli: None,
             agent_kind: crate::agents::AgentKind::Terminal,
             session_metrics: crate::shared::daemon_wire::DaemonSessionMetrics::default(),

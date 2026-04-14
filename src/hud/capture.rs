@@ -21,12 +21,7 @@ use crate::shared::{
     readback::write_texture_dump_to_path,
 };
 
-use super::{
-    compositor::{
-        HudCompositeBloomCameraMarker, HudCompositeCameraMarker, HudCompositeLayerMarker,
-    },
-    render_group::HudBloomGroupMarker,
-};
+use super::compositor::{HudCompositeCameraMarker, HudCompositeLayerMarker};
 
 #[derive(Resource, Clone, Debug)]
 pub(crate) struct HudTextureCaptureConfig {
@@ -56,38 +51,6 @@ impl HudTextureCaptureConfig {
 pub(crate) struct WindowCaptureConfig {
     path: PathBuf,
     request: CaptureRequestState,
-}
-
-#[derive(Resource, Clone, Debug)]
-pub(crate) struct HudBloomGroupCaptureConfig {
-    path: PathBuf,
-    request: CaptureRequestState,
-    group: crate::hud::HudBloomGroupId,
-}
-
-impl HudBloomGroupCaptureConfig {
-    /// Reads the bloom-group capture configuration from the environment.
-    pub(crate) fn from_env() -> Option<Self> {
-        let path = env::var("NEOZEUS_CAPTURE_HUD_BLOOM_GROUP_PATH").ok()?;
-        let group = match env::var("NEOZEUS_CAPTURE_HUD_BLOOM_GROUP").ok()?.trim() {
-            value if value.eq_ignore_ascii_case("agent-list-selection") => {
-                crate::hud::HudBloomGroupId::AgentListSelection
-            }
-            value if value.eq_ignore_ascii_case("agent-list-aegis") => {
-                crate::hud::HudBloomGroupId::AgentListAegis
-            }
-            _ => return None,
-        };
-        let frames_until_capture = env::var("NEOZEUS_CAPTURE_HUD_BLOOM_GROUP_DELAY_FRAMES")
-            .ok()
-            .and_then(|value| value.parse::<u32>().ok())
-            .unwrap_or(2);
-        Some(Self {
-            path: PathBuf::from(path),
-            request: CaptureRequestState::new(frames_until_capture),
-            group,
-        })
-    }
 }
 
 impl WindowCaptureConfig {
@@ -181,10 +144,6 @@ fn composite_capture_target_image(size: UVec2) -> Image {
     image
 }
 
-#[allow(
-    clippy::too_many_arguments,
-    reason = "composite capture routing now includes both main and bloom compositor cameras"
-)]
 /// Advances the HUD-composite capture state machine and spawns a readback request when ready.
 ///
 /// The first stage allocates and attaches a dedicated target image to the composite camera. After
@@ -196,7 +155,6 @@ pub(crate) fn request_hud_composite_capture(
     primary_window: Single<&Window, With<PrimaryWindow>>,
     mut images: ResMut<Assets<Image>>,
     composite_cameras: Query<Entity, With<HudCompositeCameraMarker>>,
-    composite_bloom_cameras: Query<Entity, With<HudCompositeBloomCameraMarker>>,
     composite_layers: Query<&Visibility, With<HudCompositeLayerMarker>>,
     mut redraws: MessageWriter<RequestRedraw>,
 ) {
@@ -220,11 +178,6 @@ pub(crate) fn request_hud_composite_capture(
         commands
             .entity(camera_entity)
             .insert(RenderTarget::Image(image_handle.clone().into()));
-        for bloom_camera in composite_bloom_cameras.iter() {
-            commands
-                .entity(bloom_camera)
-                .insert(RenderTarget::Image(image_handle.clone().into()));
-        }
         config.target_image = Some(image_handle);
         crate::terminals::append_debug_log(format!(
             "hud composite capture target initialized path={} size={}x{} camera={}",
@@ -335,50 +288,6 @@ pub(crate) fn request_hud_texture_capture(
     }
 }
 
-pub(crate) fn request_hud_bloom_group_capture(
-    mut commands: Commands,
-    config: Option<ResMut<HudBloomGroupCaptureConfig>>,
-    images: Res<Assets<Image>>,
-    vello_materials: Res<Assets<VelloCanvasMaterial>>,
-    group_canvases: Query<(&HudBloomGroupMarker, &MeshMaterial2d<VelloCanvasMaterial>)>,
-    mut redraws: MessageWriter<RequestRedraw>,
-) {
-    let Some(mut config) = config else {
-        return;
-    };
-    if config.request.completed() {
-        return;
-    }
-    redraws.write(RequestRedraw);
-    if config.request.requested() {
-        return;
-    }
-    if config.request.wait_delay() {
-        return;
-    }
-
-    for (marker, material_handle) in &group_canvases {
-        if marker.group != config.group {
-            continue;
-        }
-        let Some(material) = vello_materials.get(material_handle.id()) else {
-            continue;
-        };
-        let texture = material.texture.clone();
-        let Some(image) = images.get(texture.id()) else {
-            continue;
-        };
-        commands
-            .spawn((
-                Readback::texture(texture),
-                HudTextureReadbackMeta::from_image(config.path.clone(), image),
-            ))
-            .observe(handle_hud_bloom_group_capture_complete);
-        config.request.mark_requested();
-        return;
-    }
-}
-
 pub(crate) fn request_window_capture(
     mut commands: Commands,
     config: Option<ResMut<WindowCaptureConfig>>,
@@ -457,36 +366,6 @@ fn handle_hud_texture_capture_complete(
         config.request.mark_completed();
     }
     exits.write(AppExit::Success);
-}
-
-fn handle_hud_bloom_group_capture_complete(
-    event: On<ReadbackComplete>,
-    metas: Query<&HudTextureReadbackMeta>,
-    mut commands: Commands,
-    mut exits: MessageWriter<AppExit>,
-    config: Option<ResMut<HudBloomGroupCaptureConfig>>,
-) {
-    let Ok(meta) = metas.get(event.entity) else {
-        return;
-    };
-    let result = write_texture_dump_to_path(
-        &meta.path,
-        meta.width,
-        meta.height,
-        meta.format,
-        event.event(),
-        "hud bloom-group capture",
-    );
-    commands.entity(event.entity).despawn();
-    if let Some(mut config) = config {
-        if config.request.completed() {
-            return;
-        }
-        if result.is_ok() && meta.path.is_file() {
-            config.request.mark_completed();
-            exits.write(AppExit::Success);
-        }
-    }
 }
 
 fn handle_hud_composite_capture_complete(

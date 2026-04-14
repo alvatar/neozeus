@@ -62,7 +62,6 @@ pub(crate) enum AgentListRowKind {
         interactive: bool,
         activity: AgentListActivity,
         paused: bool,
-        aegis_enabled: bool,
         context_pct_milli: Option<i32>,
         session_metrics: DaemonSessionMetrics,
     },
@@ -196,7 +195,6 @@ pub(crate) fn sync_hud_view_models(
     status_store: Res<AgentStatusStore>,
     owned_tmux_sessions: Res<OwnedTmuxSessionStore>,
     live_session_metrics: Res<LiveSessionMetricsStore>,
-    aegis_policy: Res<crate::aegis::AegisPolicyStore>,
     selection: Res<AgentListSelection>,
     mut agent_list: ResMut<AgentListView>,
     mut conversation_list: ResMut<ConversationListView>,
@@ -257,9 +255,6 @@ pub(crate) fn sync_hud_view_models(
                     visual_contract.activity_for_agent(agent_id),
                 ),
                 paused: agent_catalog.is_paused(agent_id),
-                aegis_enabled: agent_catalog
-                    .uid(agent_id)
-                    .is_some_and(|uid| aegis_policy.is_enabled(uid)),
                 context_pct_milli,
                 session_metrics: runtime_index
                     .session_name(agent_id)

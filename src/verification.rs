@@ -46,62 +46,9 @@ pub(crate) enum VerificationScenario {
     MessageBoxBloom,
     TaskDialogBloom,
     AgentListBloom,
-    AgentContextBloom,
     WorkingStateIdle,
     WorkingStateWorking,
     InspectSwitchLatency,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct VerificationScenarioSpec {
-    scenario: VerificationScenario,
-    name: &'static str,
-    required_terminals: usize,
-}
-
-const VERIFICATION_SCENARIO_SPECS: &[VerificationScenarioSpec] = &[
-    VerificationScenarioSpec {
-        scenario: VerificationScenario::MessageBoxBloom,
-        name: "message-box-bloom",
-        required_terminals: 1,
-    },
-    VerificationScenarioSpec {
-        scenario: VerificationScenario::TaskDialogBloom,
-        name: "task-dialog-bloom",
-        required_terminals: 1,
-    },
-    VerificationScenarioSpec {
-        scenario: VerificationScenario::AgentListBloom,
-        name: "agent-list-bloom",
-        required_terminals: 1,
-    },
-    VerificationScenarioSpec {
-        scenario: VerificationScenario::AgentContextBloom,
-        name: "agent-context-bloom",
-        required_terminals: 1,
-    },
-    VerificationScenarioSpec {
-        scenario: VerificationScenario::WorkingStateIdle,
-        name: "working-state-idle",
-        required_terminals: 1,
-    },
-    VerificationScenarioSpec {
-        scenario: VerificationScenario::WorkingStateWorking,
-        name: "working-state-working",
-        required_terminals: 1,
-    },
-    VerificationScenarioSpec {
-        scenario: VerificationScenario::InspectSwitchLatency,
-        name: "inspect-switch-latency",
-        required_terminals: 2,
-    },
-];
-
-fn verification_scenario_spec(scenario: VerificationScenario) -> &'static VerificationScenarioSpec {
-    VERIFICATION_SCENARIO_SPECS
-        .iter()
-        .find(|spec| spec.scenario == scenario)
-        .expect("verification scenario spec should exist")
 }
 
 /// Parses the named built-in verification scenario from an optional raw string.
@@ -109,11 +56,27 @@ fn verification_scenario_spec(scenario: VerificationScenario) -> &'static Verifi
 /// The parser accepts the small fixed scenario vocabulary used by the offscreen verification scripts
 /// and returns `None` for missing or unknown names so callers can treat the feature as disabled.
 fn resolve_verification_scenario(raw: Option<&str>) -> Option<VerificationScenario> {
-    let raw = raw.map(str::trim).filter(|value| !value.is_empty())?;
-    VERIFICATION_SCENARIO_SPECS
-        .iter()
-        .find(|spec| spec.name.eq_ignore_ascii_case(raw))
-        .map(|spec| spec.scenario)
+    match raw.map(str::trim).filter(|value| !value.is_empty()) {
+        Some(value) if value.eq_ignore_ascii_case("message-box-bloom") => {
+            Some(VerificationScenario::MessageBoxBloom)
+        }
+        Some(value) if value.eq_ignore_ascii_case("task-dialog-bloom") => {
+            Some(VerificationScenario::TaskDialogBloom)
+        }
+        Some(value) if value.eq_ignore_ascii_case("agent-list-bloom") => {
+            Some(VerificationScenario::AgentListBloom)
+        }
+        Some(value) if value.eq_ignore_ascii_case("working-state-idle") => {
+            Some(VerificationScenario::WorkingStateIdle)
+        }
+        Some(value) if value.eq_ignore_ascii_case("working-state-working") => {
+            Some(VerificationScenario::WorkingStateWorking)
+        }
+        Some(value) if value.eq_ignore_ascii_case("inspect-switch-latency") => {
+            Some(VerificationScenario::InspectSwitchLatency)
+        }
+        _ => None,
+    }
 }
 
 #[derive(Resource, Clone, Debug)]
@@ -300,7 +263,6 @@ fn verification_agent_kind(scenario: VerificationScenario) -> AgentKind {
         VerificationScenario::MessageBoxBloom
         | VerificationScenario::TaskDialogBloom
         | VerificationScenario::AgentListBloom
-        | VerificationScenario::AgentContextBloom
         | VerificationScenario::InspectSwitchLatency => AgentKind::Verifier,
     }
 }
@@ -378,7 +340,6 @@ struct VerificationScenarioContext<'w> {
     active_terminal_content: ResMut<'w, crate::terminals::ActiveTerminalContentState>,
     app_session: ResMut<'w, AppSessionState>,
     selection: ResMut<'w, AgentListSelection>,
-    agent_list_state: ResMut<'w, crate::hud::AgentListUiState>,
     task_store: ResMut<'w, AgentTaskStore>,
     visibility_state: ResMut<'w, TerminalVisibilityState>,
     view_state: ResMut<'w, TerminalViewState>,
@@ -412,7 +373,6 @@ fn verification_capture_ready(
     scenario: VerificationScenario,
     app_session: &AppSessionState,
     selection: &AgentListSelection,
-    agent_list_state: &crate::hud::AgentListUiState,
     agent_list: &AgentListView,
     focus_state: &TerminalFocusState,
     runtime_index: &AgentRuntimeIndex,
@@ -454,11 +414,6 @@ fn verification_capture_ready(
         VerificationScenario::AgentListBloom => {
             active_terminal_ready && selected_agent_row_is_focused(selection, agent_list)
         }
-        VerificationScenario::AgentContextBloom => {
-            active_terminal_ready
-                && selected_agent_row_is_focused(selection, agent_list)
-                && agent_list_state.show_selected_context
-        }
         VerificationScenario::WorkingStateIdle => {
             active_terminal_matches(VisualAgentActivity::Idle)
         }
@@ -477,7 +432,6 @@ pub(crate) fn sync_verification_capture_barrier(
     verification_scenario: Option<Res<VerificationScenarioConfig>>,
     app_session: Res<AppSessionState>,
     selection: Res<AgentListSelection>,
-    agent_list_state: Res<crate::hud::AgentListUiState>,
     agent_list: Res<AgentListView>,
     focus_state: Res<TerminalFocusState>,
     runtime_index: Res<AgentRuntimeIndex>,
@@ -494,7 +448,6 @@ pub(crate) fn sync_verification_capture_barrier(
                     scenario.scenario,
                     &app_session,
                     &selection,
-                    &agent_list_state,
                     &agent_list,
                     &focus_state,
                     &runtime_index,
@@ -539,7 +492,10 @@ pub(crate) fn run_verification_scenario(world: &mut World) {
         finish!();
     }
 
-    let required_terminals = verification_scenario_spec(config.scenario).required_terminals;
+    let required_terminals = match config.scenario {
+        VerificationScenario::InspectSwitchLatency => 2,
+        _ => 1,
+    };
     while config.terminal_ids.len() < required_terminals {
         let (session_name, terminal_id, bridge) = match spawn_runtime_terminal_session(
             &mut crate::app::SpawnRuntimeTerminalSessionContext {
@@ -630,13 +586,6 @@ pub(crate) fn run_verification_scenario(world: &mut World) {
             let terminal_id = config.terminal_ids[0];
             let _ = focus_verification_agent_for_terminal(&mut ctx, terminal_id);
             clear_verification_ui(&mut ctx);
-            ctx.agent_list_state.show_selected_context = false;
-        }
-        VerificationScenario::AgentContextBloom => {
-            let terminal_id = config.terminal_ids[0];
-            let _ = focus_verification_agent_for_terminal(&mut ctx, terminal_id);
-            clear_verification_ui(&mut ctx);
-            ctx.agent_list_state.show_selected_context = true;
         }
         VerificationScenario::WorkingStateIdle | VerificationScenario::WorkingStateWorking => {
             let terminal_id = config.terminal_ids[0];

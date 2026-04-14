@@ -57,7 +57,7 @@ use render_text_editors::{
 };
 
 pub(crate) use render_primitives::{
-    apply_alpha, interpolate_color, HudColors, HudPainter, HudPainterSet, HudRenderInputs,
+    apply_alpha, interpolate_color, HudColors, HudPainter, HudRenderInputs,
 };
 use render_primitives::{hud_rect_to_scene, log_hud_draw_colors_if_requested};
 
@@ -89,53 +89,22 @@ pub(crate) fn render_hud_scene(
     agent_list_text_selection: Res<crate::text_selection::AgentListTextSelectionState>,
     fonts: Res<Assets<VelloFont>>,
     startup_connect: Option<Res<DaemonConnectionState>>,
-    surfaces: Res<crate::hud::HudSurfaceRegistry>,
-    bloom_groups: Res<crate::hud::HudBloomGroupRegistry>,
-    mut bloom_group_state: ResMut<crate::hud::HudBloomGroupRenderState>,
-    mut scenes: Query<&mut VelloScene2d>,
+    scene: Single<&mut VelloScene2d, With<HudVectorSceneMarker>>,
 ) {
-    let scene_entity = surfaces
-        .scene_entity(crate::hud::render_surface::HudSurfaceId::MainHud)
-        .expect("main HUD surface scene should be registered");
-    let mut built_bloom_group_scenes = std::collections::BTreeMap::new();
-    for group in crate::hud::HudBloomGroupId::ordered_for_surface(
-        crate::hud::render_surface::HudSurfaceId::MainHud,
-    ) {
-        built_bloom_group_scenes.insert(*group, bevy_vello::prelude::vello::Scene::new());
-    }
-    {
-        let mut scene = scenes
-            .get_mut(scene_entity)
-            .expect("main HUD surface scene entity should exist");
-        render_hud_scene_impl(
-            primary_window,
-            layout_state,
-            agent_list_state,
-            conversation_list_state,
-            agent_list_view,
-            conversation_list_view,
-            thread_view,
-            info_bar_view,
-            agent_list_text_selection,
-            fonts,
-            startup_connect,
-            &mut scene,
-            &mut built_bloom_group_scenes,
-        );
-    }
-    let active_groups = built_bloom_group_scenes
-        .iter()
-        .filter_map(|(group, scene)| (!scene.encoding().is_empty()).then_some(*group))
-        .collect();
-    bloom_group_state.set_active_groups(active_groups);
-    for (group, built_scene) in built_bloom_group_scenes {
-        if let Some(entity) = bloom_groups.scene_entity(group) {
-            let mut scene = scenes
-                .get_mut(entity)
-                .expect("bloom group scene entity should exist");
-            *scene = VelloScene2d::from(built_scene);
-        }
-    }
+    render_hud_scene_impl(
+        primary_window,
+        layout_state,
+        agent_list_state,
+        conversation_list_state,
+        agent_list_view,
+        conversation_list_view,
+        thread_view,
+        info_bar_view,
+        agent_list_text_selection,
+        fonts,
+        startup_connect,
+        scene,
+    )
 }
 
 #[allow(
@@ -148,27 +117,18 @@ pub(crate) fn render_hud_modal_scene(
     agent_list_state: Res<AgentListUiState>,
     agent_list_view: Res<AgentListView>,
     selection: Option<Res<crate::hud::view_models::AgentListSelection>>,
-    bloom_occlusion: ResMut<crate::hud::HudBloomOcclusionState>,
     app_session: Res<AppSessionState>,
     composer_view: Res<ComposerView>,
     startup_connect: Option<Res<DaemonConnectionState>>,
     fonts: Res<Assets<VelloFont>>,
-    surfaces: Res<crate::hud::HudSurfaceRegistry>,
-    mut scenes: Query<&mut VelloScene2d>,
+    scene: Single<&mut VelloScene2d, With<HudModalVectorSceneMarker>>,
 ) {
-    let scene_entity = surfaces
-        .scene_entity(crate::hud::render_surface::HudSurfaceId::ModalHud)
-        .expect("modal HUD surface scene should be registered");
-    let scene = scenes
-        .get_mut(scene_entity)
-        .expect("modal HUD surface scene entity should exist");
     render_hud_modal_scene_impl(
         primary_window,
         layout_state,
         agent_list_state,
         agent_list_view,
         selection,
-        bloom_occlusion,
         app_session,
         composer_view,
         startup_connect,
@@ -181,97 +141,8 @@ pub(crate) fn render_hud_modal_scene(
 mod tests {
     use super::{
         active_line_bounds, cursor_visual_span, single_line_field_viewport, wrapped_editor_rows,
-        wrapped_row_is_active, CursorVisualSpan, HudPainterSet,
+        wrapped_row_is_active, CursorVisualSpan,
     };
-    use crate::hud::{HudBloomGroupId, HudRenderRoute, HudSurfaceId};
-    use bevy::prelude::{Assets, Window};
-    use bevy_vello::prelude::{vello, VelloFont};
-
-    #[test]
-    fn bloom_group_contract_is_surface_owned_and_isolated() {
-        assert_eq!(
-            HudBloomGroupId::AgentListSelection.surface(),
-            HudSurfaceId::MainHud
-        );
-        assert_eq!(
-            HudBloomGroupId::AgentListAegis.surface(),
-            HudSurfaceId::MainHud
-        );
-        assert_ne!(
-            HudBloomGroupId::AgentListSelection,
-            HudBloomGroupId::AgentListAegis
-        );
-    }
-
-    #[test]
-    fn render_route_contract_preserves_surface_and_group_identity() {
-        assert_eq!(
-            HudRenderRoute::Base {
-                surface: HudSurfaceId::ModalHud,
-            }
-            .surface(),
-            HudSurfaceId::ModalHud
-        );
-        assert_eq!(
-            HudRenderRoute::Bloom {
-                group: HudBloomGroupId::AgentListSelection,
-            }
-            .surface(),
-            HudSurfaceId::MainHud
-        );
-    }
-
-    #[test]
-    fn painter_set_routes_base_and_bloom_draws_into_separate_scenes() {
-        let mut base = vello::Scene::new();
-        let mut groups = std::collections::BTreeMap::from([
-            (HudBloomGroupId::AgentListSelection, vello::Scene::new()),
-            (HudBloomGroupId::AgentListAegis, vello::Scene::new()),
-        ]);
-        let fonts = Assets::<VelloFont>::default();
-        let window = Window::default();
-        {
-            let mut painters = HudPainterSet::new(&mut base, &mut groups, &fonts, &window, 1.0);
-            painters.with_base_painter(|painter| {
-                painter.fill_rect(
-                    crate::hud::HudRect {
-                        x: 0.0,
-                        y: 0.0,
-                        w: 10.0,
-                        h: 10.0,
-                    },
-                    super::HudColors::TEXT,
-                    0.0,
-                );
-            });
-        }
-        assert!(!base.encoding().is_empty());
-        assert!(groups[&HudBloomGroupId::AgentListSelection]
-            .encoding()
-            .is_empty());
-
-        {
-            let mut painters = HudPainterSet::new(&mut base, &mut groups, &fonts, &window, 1.0);
-            painters.with_bloom_group_painter(HudBloomGroupId::AgentListSelection, |painter| {
-                painter.fill_rect(
-                    crate::hud::HudRect {
-                        x: 0.0,
-                        y: 0.0,
-                        w: 8.0,
-                        h: 8.0,
-                    },
-                    super::HudColors::TEXT_MUTED,
-                    0.0,
-                );
-            });
-        }
-        assert!(!groups[&HudBloomGroupId::AgentListSelection]
-            .encoding()
-            .is_empty());
-        assert!(groups[&HudBloomGroupId::AgentListAegis]
-            .encoding()
-            .is_empty());
-    }
 
     #[test]
     fn single_line_field_viewport_keeps_cursor_visible_at_end_of_long_text() {

@@ -28,9 +28,6 @@ fn run_synced_hud_view_models(world: &mut World) {
     if !world.contains_resource::<crate::terminals::LiveSessionMetricsStore>() {
         world.insert_resource(crate::terminals::LiveSessionMetricsStore::default());
     }
-    if !world.contains_resource::<crate::aegis::AegisPolicyStore>() {
-        world.insert_resource(crate::aegis::AegisPolicyStore::default());
-    }
     if world.contains_resource::<AgentCatalog>()
         && world.contains_resource::<AgentRuntimeIndex>()
         && world.contains_resource::<AgentStatusStore>()

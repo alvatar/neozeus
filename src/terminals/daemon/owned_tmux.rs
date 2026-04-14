@@ -14,8 +14,8 @@ const TMUX_OPTION_OWNER_AGENT_UID: &str = "@neozeus_owner_agent_uid";
 const TMUX_OPTION_DISPLAY_NAME: &str = "@neozeus_name";
 const TMUX_OPTION_CREATED_BY: &str = "@neozeus_created_by";
 const TMUX_CREATED_BY_VALUE: &str = "neozeus";
-const TMUX_DISCOVER_TIMEOUT: Duration = Duration::from_secs(8);
-const TMUX_MUTATION_TIMEOUT: Duration = Duration::from_secs(12);
+const TMUX_DISCOVER_TIMEOUT: Duration = Duration::from_secs(3);
+const TMUX_MUTATION_TIMEOUT: Duration = Duration::from_secs(5);
 static NEXT_OWNED_TMUX_UID_COUNTER: AtomicU64 = AtomicU64::new(1);
 
 fn tmux_program() -> std::ffi::OsString {

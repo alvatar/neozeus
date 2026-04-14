@@ -2,10 +2,8 @@ use super::{
     setup_hud_offscreen_compositor, sync_hud_offscreen_compositor, HudOffscreenCompositor,
 };
 use crate::hud::{
-    HudCompositeBloomCameraMarker, HudCompositeCameraMarker, HudCompositeLayerId,
-    HudCompositeLayerMarker, HudModalVectorSceneMarker, HudSurfaceId, HudSurfaceMarker,
-    HUD_COMPOSITE_BLOOM_CAMERA_ORDER, HUD_COMPOSITE_BLOOM_RENDER_LAYER, HUD_COMPOSITE_FOREGROUND_Z,
-    HUD_COMPOSITE_RENDER_LAYER,
+    HudCompositeCameraMarker, HudCompositeLayerId, HudCompositeLayerMarker,
+    HudModalVectorSceneMarker, HUD_COMPOSITE_FOREGROUND_Z, HUD_COMPOSITE_RENDER_LAYER,
 };
 use bevy::{
     camera::visibility::{NoFrustumCulling, RenderLayers},
@@ -16,69 +14,6 @@ use bevy::{
     window::PrimaryWindow,
 };
 use bevy_vello::render::VelloCanvasMaterial;
-
-#[test]
-fn hud_surface_ordering_contract_is_explicit() {
-    assert_eq!(
-        HudSurfaceId::ordered(),
-        [HudSurfaceId::MainHud, HudSurfaceId::ModalHud]
-    );
-}
-
-#[test]
-fn hud_surface_ordering_contract_only_contains_explicit_main_and_modal_surfaces() {
-    assert_eq!(HudSurfaceId::ordered().len(), 2);
-    assert!(HudSurfaceId::ordered()
-        .iter()
-        .all(|surface| matches!(surface, HudSurfaceId::MainHud | HudSurfaceId::ModalHud)));
-}
-
-#[test]
-fn setup_hud_offscreen_compositor_spawns_bloom_camera_between_main_and_modal_layers() {
-    let mut world = World::default();
-    world.insert_resource(HudOffscreenCompositor::default());
-    world.insert_resource(Assets::<VelloCanvasMaterial>::default());
-    world.insert_resource(Assets::<Mesh>::default());
-    world.spawn((
-        Window {
-            resolution: (1400, 900).into(),
-            ..default()
-        },
-        PrimaryWindow,
-    ));
-
-    world
-        .run_system_once(
-            |mut commands: Commands,
-             mut compositor: ResMut<HudOffscreenCompositor>,
-             mut meshes: ResMut<Assets<Mesh>>,
-             mut composite_materials: ResMut<Assets<VelloCanvasMaterial>>| {
-                setup_hud_offscreen_compositor(
-                    &mut commands,
-                    &mut compositor,
-                    &mut meshes,
-                    &mut composite_materials,
-                );
-            },
-        )
-        .unwrap();
-
-    let mut main_camera_query =
-        world.query_filtered::<(&Camera, &RenderLayers), With<HudCompositeCameraMarker>>();
-    let (main_camera, main_layers) = main_camera_query
-        .single(&world)
-        .expect("main compositor camera should exist");
-    assert_eq!(main_camera.order, 50);
-    assert!(main_layers.intersects(&RenderLayers::layer(HUD_COMPOSITE_RENDER_LAYER)));
-
-    let mut bloom_camera_query =
-        world.query_filtered::<(&Camera, &RenderLayers), With<HudCompositeBloomCameraMarker>>();
-    let (bloom_camera, bloom_layers) = bloom_camera_query
-        .single(&world)
-        .expect("bloom compositor camera should exist");
-    assert_eq!(bloom_camera.order, HUD_COMPOSITE_BLOOM_CAMERA_ORDER);
-    assert!(bloom_layers.intersects(&RenderLayers::layer(HUD_COMPOSITE_BLOOM_RENDER_LAYER)));
-}
 
 /// Verifies that compositor sync hides the upstream Vello canvas and routes its texture through the
 /// compositor quad instead.
@@ -210,9 +145,6 @@ fn sync_hud_offscreen_compositor_leaves_modal_vello_canvas_visible() {
             MeshMaterial2d::<VelloCanvasMaterial>(material),
             Visibility::Visible,
             HudModalVectorSceneMarker,
-            crate::hud::HudSurfaceMarker {
-                id: crate::hud::HudSurfaceId::ModalHud,
-            },
         ))
         .id();
     world
@@ -235,83 +167,6 @@ fn sync_hud_offscreen_compositor_leaves_modal_vello_canvas_visible() {
         .run_system_once(sync_hud_offscreen_compositor)
         .unwrap();
 
-    assert_eq!(
-        world.get::<Visibility>(modal_canvas),
-        Some(&Visibility::Visible)
-    );
-}
-
-#[test]
-fn sync_hud_offscreen_compositor_respects_explicit_surface_ids_not_only_modal_marker_types() {
-    let mut world = World::default();
-    world.insert_resource(HudOffscreenCompositor::default());
-    world.insert_resource(Assets::<Image>::default());
-    world.insert_resource(Assets::<VelloCanvasMaterial>::default());
-    world.insert_resource(Assets::<Mesh>::default());
-    let texture = world.resource_mut::<Assets<Image>>().add(Image::default());
-    {
-        let mut images = world.resource_mut::<Assets<Image>>();
-        let image = images.get_mut(&texture).expect("texture should exist");
-        image.resize(bevy::render::render_resource::Extent3d {
-            width: 1400,
-            height: 900,
-            depth_or_array_layers: 1,
-        });
-    }
-    let material = world
-        .resource_mut::<Assets<VelloCanvasMaterial>>()
-        .add(VelloCanvasMaterial {
-            texture: texture.clone(),
-        });
-    world.spawn((
-        Window {
-            resolution: (1400, 900).into(),
-            ..default()
-        },
-        PrimaryWindow,
-    ));
-    let main_canvas = world
-        .spawn((
-            MeshMaterial2d::<VelloCanvasMaterial>(material.clone()),
-            Visibility::Visible,
-            HudSurfaceMarker {
-                id: HudSurfaceId::MainHud,
-            },
-        ))
-        .id();
-    let modal_canvas = world
-        .spawn((
-            MeshMaterial2d::<VelloCanvasMaterial>(material),
-            Visibility::Visible,
-            HudSurfaceMarker {
-                id: HudSurfaceId::ModalHud,
-            },
-        ))
-        .id();
-    world
-        .run_system_once(
-            |mut commands: Commands,
-             mut compositor: ResMut<HudOffscreenCompositor>,
-             mut meshes: ResMut<Assets<Mesh>>,
-             mut composite_materials: ResMut<Assets<VelloCanvasMaterial>>| {
-                setup_hud_offscreen_compositor(
-                    &mut commands,
-                    &mut compositor,
-                    &mut meshes,
-                    &mut composite_materials,
-                );
-            },
-        )
-        .unwrap();
-
-    world
-        .run_system_once(sync_hud_offscreen_compositor)
-        .unwrap();
-
-    assert_eq!(
-        world.get::<Visibility>(main_canvas),
-        Some(&Visibility::Hidden)
-    );
     assert_eq!(
         world.get::<Visibility>(modal_canvas),
         Some(&Visibility::Visible)

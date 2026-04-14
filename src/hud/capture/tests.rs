@@ -1,21 +1,5 @@
-use super::request_hud_composite_capture;
-use crate::{
-    hud::{
-        HudBloomGroupCaptureConfig, HudBloomGroupId, HudBloomGroupMarker,
-        HudCompositeBloomCameraMarker, HudCompositeCameraMarker,
-    },
-    shared::{
-        capture::ArmedCaptureRequestState,
-        readback::{align_copy_bytes_per_row, texture_bytes_to_ppm},
-    },
-};
-use bevy::{
-    camera::RenderTarget,
-    ecs::system::RunSystemOnce,
-    prelude::*,
-    render::{gpu_readback::Readback, render_resource::TextureFormat},
-    window::{PrimaryWindow, RequestRedraw},
-};
+use crate::shared::readback::{align_copy_bytes_per_row, texture_bytes_to_ppm};
+use bevy::render::render_resource::TextureFormat;
 
 /// Checks that HUD texture dump generation ignores per-row GPU padding for RGBA data.
 ///
@@ -54,75 +38,4 @@ fn texture_dump_swaps_bgra_channels() {
     let bytes = [10u8, 129, 225, 255];
     let ppm = texture_bytes_to_ppm(1, 1, TextureFormat::Bgra8Unorm, &bytes, "hud capture").unwrap();
     assert_eq!(&ppm[11..], &[225, 129, 10]);
-}
-
-#[test]
-fn bloom_group_capture_reads_requested_group_texture() {
-    let mut world = World::default();
-    world.insert_resource(HudBloomGroupCaptureConfig {
-        path: "/tmp/hud-bloom-group-test.ppm".into(),
-        request: crate::shared::capture::CaptureRequestState::new(0),
-        group: HudBloomGroupId::AgentListSelection,
-    });
-    world.insert_resource(Assets::<Image>::default());
-    world.insert_resource(Assets::<bevy_vello::render::VelloCanvasMaterial>::default());
-    world.init_resource::<Messages<RequestRedraw>>();
-    let image = world.resource_mut::<Assets<Image>>().add(Image::default());
-    {
-        let mut images = world.resource_mut::<Assets<Image>>();
-        let image_ref = images.get_mut(&image).unwrap();
-        image_ref.resize(bevy::render::render_resource::Extent3d {
-            width: 1400,
-            height: 900,
-            depth_or_array_layers: 1,
-        });
-    }
-    let material = world
-        .resource_mut::<Assets<bevy_vello::render::VelloCanvasMaterial>>()
-        .add(bevy_vello::render::VelloCanvasMaterial { texture: image });
-    world.spawn((
-        HudBloomGroupMarker {
-            group: HudBloomGroupId::AgentListSelection,
-        },
-        MeshMaterial2d::<bevy_vello::render::VelloCanvasMaterial>(material),
-    ));
-
-    world
-        .run_system_once(super::request_hud_bloom_group_capture)
-        .unwrap();
-
-    assert_eq!(world.query::<&Readback>().iter(&world).count(), 1);
-}
-
-#[test]
-fn composite_capture_retargets_bloom_camera_to_shared_capture_image() {
-    let mut world = World::default();
-    world.insert_resource(super::HudCompositeCaptureConfig {
-        path: "/tmp/hud-composite-test.ppm".into(),
-        request: ArmedCaptureRequestState::new(0),
-        target_image: None,
-    });
-    world.insert_resource(Assets::<Image>::default());
-    world.init_resource::<Messages<RequestRedraw>>();
-    world.spawn((
-        Window {
-            resolution: (1400, 900).into(),
-            ..default()
-        },
-        PrimaryWindow,
-    ));
-    let main_camera = world.spawn((HudCompositeCameraMarker,)).id();
-    let bloom_camera = world.spawn((HudCompositeBloomCameraMarker,)).id();
-
-    world
-        .run_system_once(request_hud_composite_capture)
-        .unwrap();
-
-    let Some(RenderTarget::Image(main_target)) = world.get::<RenderTarget>(main_camera) else {
-        panic!("main compositor camera should target capture image");
-    };
-    let Some(RenderTarget::Image(bloom_target)) = world.get::<RenderTarget>(bloom_camera) else {
-        panic!("bloom compositor camera should target capture image");
-    };
-    assert_eq!(main_target.handle, bloom_target.handle);
 }

@@ -12,15 +12,10 @@ use bevy::{
 };
 use bevy_vello::render::VelloCanvasMaterial;
 
-use super::{
-    render_group::HudBloomGroupMarker,
-    render_surface::{HudSurfaceId, HudSurfaceMarker},
-};
+use super::HudModalVectorSceneMarker;
 
 pub(crate) const HUD_COMPOSITE_RENDER_LAYER: usize = 28;
-pub(crate) const HUD_COMPOSITE_BLOOM_RENDER_LAYER: usize = 32;
 const HUD_COMPOSITE_CAMERA_ORDER: isize = 50;
-pub(crate) const HUD_COMPOSITE_BLOOM_CAMERA_ORDER: isize = 51;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum HudCompositeLayerId {
@@ -40,9 +35,6 @@ pub(crate) struct HudCompositeLayerMarker {
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct HudCompositeCameraMarker;
 
-#[derive(Component, Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub(crate) struct HudCompositeBloomCameraMarker;
-
 pub(crate) const HUD_COMPOSITE_FOREGROUND_Z: f32 = 0.0;
 
 #[derive(Clone, Debug)]
@@ -57,7 +49,6 @@ struct HudCompositeLayer {
 pub(crate) struct HudOffscreenCompositor {
     layers: Vec<HudCompositeLayer>,
     camera_entity: Option<Entity>,
-    bloom_camera_entity: Option<Entity>,
 }
 
 impl Default for HudOffscreenCompositor {
@@ -74,7 +65,6 @@ impl Default for HudOffscreenCompositor {
                 texture: None,
             }],
             camera_entity: None,
-            bloom_camera_entity: None,
         }
     }
 }
@@ -143,25 +133,6 @@ pub(crate) fn setup_hud_offscreen_compositor(
                 .id(),
         );
     }
-    if compositor.bloom_camera_entity.is_none() {
-        compositor.bloom_camera_entity = Some(
-            commands
-                .spawn((
-                    Camera2d,
-                    Camera {
-                        order: HUD_COMPOSITE_BLOOM_CAMERA_ORDER,
-                        output_mode: bevy::camera::CameraOutputMode::Write {
-                            blend_state: Some(crate::hud::bloom::hud_bloom_additive_blend_state()),
-                            clear_color: ClearColorConfig::None,
-                        },
-                        ..default()
-                    },
-                    RenderLayers::layer(HUD_COMPOSITE_BLOOM_RENDER_LAYER),
-                    HudCompositeBloomCameraMarker,
-                ))
-                .id(),
-        );
-    }
 
     let mesh_handle = meshes.add(fullscreen_clip_mesh());
     for layer in &mut compositor.layers {
@@ -190,8 +161,7 @@ type VelloCanvasQueryItem<'a> = (
     Entity,
     &'a MeshMaterial2d<VelloCanvasMaterial>,
     Option<&'a mut Visibility>,
-    Option<&'a HudSurfaceMarker>,
-    Option<&'a HudBloomGroupMarker>,
+    Option<&'a HudModalVectorSceneMarker>,
 );
 
 type HudCompositeQuadQueryItem<'a> = (
@@ -226,13 +196,8 @@ pub(crate) fn sync_hud_offscreen_compositor(
     );
     let mut vello_texture = None;
     let mut vello_texture_size = None;
-    for (entity, material_handle, maybe_visibility, surface_marker, bloom_group_marker) in
-        &mut vello_canvases
-    {
-        if bloom_group_marker.is_some() {
-            continue;
-        }
-        if surface_marker.is_some_and(|marker| marker.id != HudSurfaceId::MainHud) {
+    for (entity, material_handle, maybe_visibility, modal_marker) in &mut vello_canvases {
+        if modal_marker.is_some() {
             continue;
         }
         if let Some(mut visibility) = maybe_visibility {
