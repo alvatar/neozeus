@@ -61,7 +61,7 @@ pub(crate) fn should_kill_active_terminal(
         return false;
     }
     let (ctrl, alt, super_key) = has_plain_modifiers(keys);
-    ctrl && !alt && !super_key && !shift_pressed(keys)
+    ctrl && !alt && !super_key
 }
 
 /// Decides whether a keyboard event should exit the whole application.
@@ -73,7 +73,7 @@ pub(crate) fn should_exit_application(event: &KeyboardInput, keys: &ButtonInput<
         return false;
     }
     let (ctrl, alt, super_key) = has_plain_modifiers(keys);
-    !(ctrl || alt || super_key || shift_pressed(keys))
+    !(ctrl || alt || super_key)
 }
 
 #[allow(
@@ -169,7 +169,6 @@ pub(crate) fn handle_terminal_lifecycle_shortcuts(
         if ctrl
             && alt
             && !super_key
-            && !shift_pressed(&keys)
             && event.state == ButtonState::Pressed
             && event.key_code == KeyCode::KeyR
         {

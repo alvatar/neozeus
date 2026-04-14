@@ -763,13 +763,19 @@ fn create_agent_dialog_submit_emits_create_command() {
     );
 }
 
-/// Verifies that the kill-active-terminal shortcut is accepted only for plain `Ctrl+k`.
+/// Verifies that the kill-active-terminal shortcut is accepted for `Ctrl+k`, regardless of Shift,
+/// and still rejects unrelated modifier mixes.
 #[test]
-fn kill_active_terminal_shortcut_only_uses_plain_ctrl_k() {
+fn kill_active_terminal_shortcut_accepts_ctrl_k_even_with_shift() {
     let event = pressed_text(KeyCode::KeyK, Some("k"));
     let mut ctrl_keys = ButtonInput::<KeyCode>::default();
     ctrl_keys.press(KeyCode::ControlLeft);
     assert!(should_kill_active_terminal(&event, &ctrl_keys));
+
+    let mut shift_ctrl_keys = ButtonInput::<KeyCode>::default();
+    shift_ctrl_keys.press(KeyCode::ControlLeft);
+    shift_ctrl_keys.press(KeyCode::ShiftLeft);
+    assert!(should_kill_active_terminal(&event, &shift_ctrl_keys));
 
     let plain_keys = ButtonInput::<KeyCode>::default();
     assert!(!should_kill_active_terminal(&event, &plain_keys));
@@ -778,11 +784,6 @@ fn kill_active_terminal_shortcut_only_uses_plain_ctrl_k() {
     alt_ctrl_keys.press(KeyCode::ControlLeft);
     alt_ctrl_keys.press(KeyCode::AltLeft);
     assert!(!should_kill_active_terminal(&event, &alt_ctrl_keys));
-
-    let mut shift_ctrl_keys = ButtonInput::<KeyCode>::default();
-    shift_ctrl_keys.press(KeyCode::ControlLeft);
-    shift_ctrl_keys.press(KeyCode::ShiftLeft);
-    assert!(!should_kill_active_terminal(&event, &shift_ctrl_keys));
 }
 
 #[test]
@@ -804,6 +805,44 @@ fn ctrl_alt_r_opens_reset_dialog_without_emitting_command() {
     world
         .resource_mut::<Messages<KeyboardInput>>()
         .write(pressed_text(KeyCode::KeyR, Some("r")));
+
+    world
+        .run_system_once(handle_terminal_lifecycle_shortcuts)
+        .unwrap();
+
+    assert!(world.resource::<AppSessionState>().reset_dialog.visible);
+    assert_eq!(
+        world
+            .resource::<AppSessionState>()
+            .recovery_status
+            .title
+            .as_deref(),
+        Some("Reset requested: confirmation required")
+    );
+    assert!(world.resource::<Messages<AppCommand>>().is_empty());
+    assert_eq!(world.resource::<Messages<RequestRedraw>>().len(), 1);
+}
+
+#[test]
+fn ctrl_alt_shift_r_still_opens_reset_dialog_without_emitting_command() {
+    let mut world = World::default();
+    world.insert_resource(ButtonInput::<KeyCode>::default());
+    world.insert_resource(AppSessionState::default());
+    world.insert_resource(crate::hud::HudInputCaptureState::default());
+    world.init_resource::<Messages<KeyboardInput>>();
+    world.init_resource::<Messages<AppExit>>();
+    world.init_resource::<Messages<RequestRedraw>>();
+    world.init_resource::<Messages<AppCommand>>();
+    world.init_resource::<Messages<RequestRedraw>>();
+
+    let mut keys = ButtonInput::<KeyCode>::default();
+    keys.press(KeyCode::ControlLeft);
+    keys.press(KeyCode::AltLeft);
+    keys.press(KeyCode::ShiftLeft);
+    world.insert_resource(keys);
+    world
+        .resource_mut::<Messages<KeyboardInput>>()
+        .write(pressed_key(KeyCode::KeyR, Key::Character("R".into())));
 
     world
         .run_system_once(handle_terminal_lifecycle_shortcuts)
@@ -859,12 +898,16 @@ fn ctrl_alt_r_is_suppressed_while_other_modal_has_keyboard_capture() {
     assert!(world.resource::<Messages<AppCommand>>().is_empty());
 }
 
-/// Verifies that the application-exit shortcut is accepted only for unmodified `F10`.
+/// Verifies that the application-exit shortcut ignores Shift and only rejects Ctrl/Alt/Super.
 #[test]
-fn exit_application_shortcut_only_uses_plain_f10() {
+fn exit_application_shortcut_ignores_shift() {
     let event = pressed_text(KeyCode::F10, None);
     let plain_keys = ButtonInput::<KeyCode>::default();
     assert!(should_exit_application(&event, &plain_keys));
+
+    let mut shift_keys = ButtonInput::<KeyCode>::default();
+    shift_keys.press(KeyCode::ShiftLeft);
+    assert!(should_exit_application(&event, &shift_keys));
 
     let mut ctrl_keys = ButtonInput::<KeyCode>::default();
     ctrl_keys.press(KeyCode::ControlLeft);
@@ -873,10 +916,6 @@ fn exit_application_shortcut_only_uses_plain_f10() {
     let mut alt_keys = ButtonInput::<KeyCode>::default();
     alt_keys.press(KeyCode::AltLeft);
     assert!(!should_exit_application(&event, &alt_keys));
-
-    let mut shift_keys = ButtonInput::<KeyCode>::default();
-    shift_keys.press(KeyCode::ShiftLeft);
-    assert!(!should_exit_application(&event, &shift_keys));
 }
 
 /// Verifies that one plain `Ctrl+k` removes a disconnected active terminal in one shot.
@@ -2273,6 +2312,29 @@ fn control_v_scrolls_many_rows_down_when_terminal_is_not_captured() {
 }
 
 #[test]
+fn control_shift_v_still_scrolls_many_rows_down_when_terminal_is_not_captured() {
+    let (mut world, terminal_id, input_rx) =
+        world_with_active_terminal_and_receiver(Vec2::new(10.0, 10.0), false, Vec2::ZERO);
+    set_terminal_surface_rows(&mut world, terminal_id, 40);
+    world
+        .resource_mut::<ButtonInput<KeyCode>>()
+        .press(KeyCode::ControlLeft);
+    world
+        .resource_mut::<ButtonInput<KeyCode>>()
+        .press(KeyCode::ShiftLeft);
+
+    dispatch_terminal_ui_key(
+        &mut world,
+        pressed_key(KeyCode::KeyV, Key::Character("V".into())),
+    );
+
+    assert_eq!(
+        input_rx.try_recv().unwrap(),
+        TerminalCommand::ScrollDisplay(-39)
+    );
+}
+
+#[test]
 fn alt_v_scrolls_many_rows_up_when_terminal_is_not_captured() {
     let (mut world, terminal_id, input_rx) =
         world_with_active_terminal_and_receiver(Vec2::new(10.0, 10.0), false, Vec2::ZERO);
@@ -2284,6 +2346,29 @@ fn alt_v_scrolls_many_rows_up_when_terminal_is_not_captured() {
     dispatch_terminal_ui_key(
         &mut world,
         pressed_key(KeyCode::KeyV, Key::Character("v".into())),
+    );
+
+    assert_eq!(
+        input_rx.try_recv().unwrap(),
+        TerminalCommand::ScrollDisplay(39)
+    );
+}
+
+#[test]
+fn alt_shift_v_still_scrolls_many_rows_up_when_terminal_is_not_captured() {
+    let (mut world, terminal_id, input_rx) =
+        world_with_active_terminal_and_receiver(Vec2::new(10.0, 10.0), false, Vec2::ZERO);
+    set_terminal_surface_rows(&mut world, terminal_id, 40);
+    world
+        .resource_mut::<ButtonInput<KeyCode>>()
+        .press(KeyCode::AltLeft);
+    world
+        .resource_mut::<ButtonInput<KeyCode>>()
+        .press(KeyCode::ShiftLeft);
+
+    dispatch_terminal_ui_key(
+        &mut world,
+        pressed_key(KeyCode::KeyV, Key::Character("V".into())),
     );
 
     assert_eq!(
