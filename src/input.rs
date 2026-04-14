@@ -104,14 +104,6 @@ pub(crate) fn handle_global_terminal_spawn_shortcut(
     )
 }
 
-pub(crate) fn is_plain_shortcut_key(
-    event: &KeyboardInput,
-    keys: &ButtonInput<KeyCode>,
-    key_code: KeyCode,
-) -> bool {
-    shortcut_bindings::is_plain_shortcut_key(event, keys, key_code)
-}
-
 #[allow(
     clippy::too_many_arguments,
     reason = "keep crate::input entrypoints stable while shortcut logic lives in a submodule"
@@ -867,16 +859,18 @@ fn handle_plain_terminal_shortcuts(
     app_commands: &mut MessageWriter<AppCommand>,
     redraws: &mut MessageWriter<RequestRedraw>,
 ) {
-    let Some(active_id) = focus_state.active_id() else {
-        return;
-    };
-    let Some(active_terminal) = terminal_manager.get(active_id) else {
-        return;
-    };
-    if !terminal_is_interactive(&active_terminal.snapshot.runtime) {
-        return;
-    }
-    let page_rows = terminal_page_scroll_rows(terminal_manager, active_id);
+    let active_terminal_target = focus_state.active_id().and_then(|active_id| {
+        let active_terminal = terminal_manager.get(active_id)?;
+        terminal_is_interactive(&active_terminal.snapshot.runtime)
+            .then(|| (active_id, runtime_index.agent_for_terminal(active_id)))
+    });
+    let active_id = active_terminal_target.map(|(terminal_id, _)| terminal_id);
+    let active_agent_id = active_terminal_target.and_then(|(_, agent_id)| agent_id);
+    let pause_target = app_session
+        .focus_intent
+        .selected_agent()
+        .or(active_agent_id);
+
     for event in messages.read() {
         if event.state != ButtonState::Pressed {
             continue;
@@ -885,17 +879,20 @@ fn handle_plain_terminal_shortcuts(
         if modifiers.ctrl && !modifiers.alt && !modifiers.super_key {
             match event.key_code {
                 KeyCode::KeyT => {
-                    if let Some(agent_id) = runtime_index.agent_for_terminal(active_id) {
+                    if let Some(agent_id) = active_agent_id {
                         app_commands
                             .write(AppCommand::Task(AppTaskCommand::ClearDone { agent_id }));
                     }
                     break;
                 }
                 KeyCode::KeyV => {
-                    if let Some(terminal) = terminal_manager.get(active_id) {
-                        terminal
-                            .bridge
-                            .send(TerminalCommand::ScrollDisplay(-page_rows));
+                    if let Some(active_id) = active_id {
+                        let page_rows = terminal_page_scroll_rows(terminal_manager, active_id);
+                        if let Some(terminal) = terminal_manager.get(active_id) {
+                            terminal
+                                .bridge
+                                .send(TerminalCommand::ScrollDisplay(-page_rows));
+                        }
                     }
                     break;
                 }
@@ -908,10 +905,13 @@ fn handle_plain_terminal_shortcuts(
             && !modifiers.super_key
             && event.key_code == KeyCode::KeyV
         {
-            if let Some(terminal) = terminal_manager.get(active_id) {
-                terminal
-                    .bridge
-                    .send(TerminalCommand::ScrollDisplay(page_rows));
+            if let Some(active_id) = active_id {
+                let page_rows = terminal_page_scroll_rows(terminal_manager, active_id);
+                if let Some(terminal) = terminal_manager.get(active_id) {
+                    terminal
+                        .bridge
+                        .send(TerminalCommand::ScrollDisplay(page_rows));
+                }
             }
             break;
         }
@@ -922,7 +922,7 @@ fn handle_plain_terminal_shortcuts(
 
         match event.key_code {
             KeyCode::Enter => {
-                if let Some(agent_id) = runtime_index.agent_for_terminal(active_id) {
+                if let Some(agent_id) = active_agent_id {
                     app_commands.write(AppCommand::Composer(ComposerCommand::Open(
                         ComposerRequest {
                             mode: crate::composer::ComposerMode::Message { agent_id },
@@ -932,7 +932,7 @@ fn handle_plain_terminal_shortcuts(
                 break;
             }
             KeyCode::KeyT => {
-                if let Some(agent_id) = runtime_index.agent_for_terminal(active_id) {
+                if let Some(agent_id) = active_agent_id {
                     app_commands.write(AppCommand::Composer(ComposerCommand::Open(
                         ComposerRequest {
                             mode: crate::composer::ComposerMode::TaskEdit { agent_id },
@@ -942,7 +942,7 @@ fn handle_plain_terminal_shortcuts(
                 break;
             }
             KeyCode::KeyR => {
-                if let Some(agent_id) = runtime_index.agent_for_terminal(active_id) {
+                if let Some(agent_id) = active_agent_id {
                     let current_label =
                         agent_catalog.label(agent_id).unwrap_or_default().to_owned();
                     app_session
@@ -953,7 +953,7 @@ fn handle_plain_terminal_shortcuts(
                 break;
             }
             KeyCode::KeyA => {
-                if let Some(agent_id) = runtime_index.agent_for_terminal(active_id) {
+                if let Some(agent_id) = active_agent_id {
                     if let Some(agent_uid) = agent_catalog.uid(agent_id) {
                         if aegis_policy.is_enabled(agent_uid) {
                             app_commands
@@ -970,13 +970,13 @@ fn handle_plain_terminal_shortcuts(
                 break;
             }
             KeyCode::KeyN => {
-                if let Some(agent_id) = runtime_index.agent_for_terminal(active_id) {
+                if let Some(agent_id) = active_agent_id {
                     app_commands.write(AppCommand::Task(AppTaskCommand::ConsumeNext { agent_id }));
                 }
                 break;
             }
             KeyCode::KeyP => {
-                if let Some(agent_id) = runtime_index.agent_for_terminal(active_id) {
+                if let Some(agent_id) = pause_target {
                     app_commands.write(AppCommand::Agent(AppAgentCommand::TogglePaused(agent_id)));
                 }
                 break;

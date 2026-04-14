@@ -170,6 +170,24 @@ fn dispatch_terminal_ui_key(world: &mut World, event: KeyboardInput) {
     }
 }
 
+/// Injects one keyboard event through the full real keyboard shortcut path: direct input, terminal
+/// shortcuts, HUD module shortcuts, then app-command dispatch.
+fn dispatch_full_ui_key(world: &mut World, event: KeyboardInput) {
+    ensure_app_command_world_resources(world);
+    world.insert_resource(Messages::<KeyboardInput>::default());
+    world.resource_mut::<Messages<KeyboardInput>>().write(event);
+    world
+        .run_system_once(handle_terminal_direct_input_keyboard)
+        .unwrap();
+    world
+        .run_system_once(handle_terminal_message_box_keyboard)
+        .unwrap();
+    world.run_system_once(handle_hud_module_shortcuts).unwrap();
+    if !world.resource::<Messages<AppCommand>>().is_empty() {
+        run_app_command_cycle(world);
+    }
+}
+
 fn dispatch_terminal_wheel(world: &mut World, event: MouseWheel) {
     ensure_app_command_world_resources(world);
     world.insert_resource(Messages::<MouseWheel>::default());
@@ -1975,6 +1993,60 @@ fn plain_p_toggles_paused_state_for_active_terminal_agent() {
         .unwrap();
     run_app_command_cycle(&mut world);
     assert!(!world.resource::<AgentCatalog>().is_paused(agent_id));
+}
+
+#[test]
+fn plain_p_toggles_only_once_in_full_keyboard_path() {
+    let (mut world, terminal_id) =
+        world_with_active_terminal(Vec2::new(10.0, 10.0), false, Vec2::ZERO);
+    let agent_id = world
+        .resource::<AgentRuntimeIndex>()
+        .agent_for_terminal(terminal_id)
+        .expect("agent should be linked");
+    world.insert_resource(crate::hud::AgentListSelection::Agent(agent_id));
+    world
+        .resource_mut::<AppSessionState>()
+        .focus_intent
+        .focus_agent(agent_id, crate::app::VisibilityMode::ShowAll);
+
+    dispatch_full_ui_key(&mut world, pressed_text(KeyCode::KeyP, Some("p")));
+
+    assert!(
+        world.resource::<AgentCatalog>().is_paused(agent_id),
+        "plain p should toggle once even when terminal and HUD shortcut systems both run"
+    );
+}
+
+#[test]
+fn plain_p_toggles_selected_focus_agent_without_active_terminal_target() {
+    let (mut world, terminal_id) =
+        world_with_active_terminal(Vec2::new(10.0, 10.0), false, Vec2::ZERO);
+    let agent_id = world
+        .resource::<AgentRuntimeIndex>()
+        .agent_for_terminal(terminal_id)
+        .expect("agent should be linked");
+    let _ = world
+        .resource_mut::<crate::terminals::TerminalFocusState>()
+        .clear_active_terminal();
+    world
+        .resource_mut::<AppSessionState>()
+        .focus_intent
+        .focus_agent(agent_id, crate::app::VisibilityMode::ShowAll);
+    world.init_resource::<Messages<KeyboardInput>>();
+    world.init_resource::<Messages<RequestRedraw>>();
+    world
+        .resource_mut::<Messages<KeyboardInput>>()
+        .write(pressed_text(KeyCode::KeyP, Some("p")));
+
+    world
+        .run_system_once(handle_terminal_message_box_keyboard)
+        .unwrap();
+    run_app_command_cycle(&mut world);
+
+    assert!(
+        world.resource::<AgentCatalog>().is_paused(agent_id),
+        "plain p should still toggle the selected focused agent when no interactive terminal owns the shortcut"
+    );
 }
 
 #[test]

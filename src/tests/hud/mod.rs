@@ -393,7 +393,7 @@ fn plain_j_navigates_to_next_agent_and_isolates_it() {
 }
 
 #[test]
-fn plain_p_toggles_paused_state_for_selected_agent_row() {
+fn plain_p_is_ignored_by_hud_shortcuts_to_avoid_double_toggle() {
     let mut world = World::default();
     let (bridge_one, _) = test_bridge();
     let (bridge_two, _) = test_bridge();
@@ -417,24 +417,13 @@ fn plain_p_toggles_paused_state_for_selected_agent_row() {
 
     world.run_system_once(handle_hud_module_shortcuts).unwrap();
     run_app_commands(&mut world);
-    assert!(world
-        .resource::<crate::agents::AgentCatalog>()
-        .is_paused(agent_id));
-
-    world.insert_resource(Messages::<AppCommand>::default());
-    world.insert_resource(Messages::<KeyboardInput>::default());
-    world
-        .resource_mut::<Messages<KeyboardInput>>()
-        .write(pressed_key(KeyCode::KeyP, Key::Character("P".into())));
-    world.run_system_once(handle_hud_module_shortcuts).unwrap();
-    run_app_commands(&mut world);
     assert!(!world
         .resource::<crate::agents::AgentCatalog>()
         .is_paused(agent_id));
 }
 
 #[test]
-fn shift_p_does_not_toggle_paused_state_for_selected_agent_row() {
+fn shift_p_is_ignored_by_hud_shortcuts() {
     let mut world = World::default();
     let (bridge_one, _) = test_bridge();
     let (bridge_two, _) = test_bridge();
