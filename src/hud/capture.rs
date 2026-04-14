@@ -23,7 +23,6 @@ use crate::shared::{
 
 use super::compositor::{
     HudCompositeBloomCameraMarker, HudCompositeCameraMarker, HudCompositeLayerMarker,
-    HudCompositeModalCameraMarker,
 };
 
 #[derive(Resource, Clone, Debug)]
@@ -163,7 +162,6 @@ pub(crate) fn request_hud_composite_capture(
     mut images: ResMut<Assets<Image>>,
     composite_cameras: Query<Entity, With<HudCompositeCameraMarker>>,
     composite_bloom_cameras: Query<Entity, With<HudCompositeBloomCameraMarker>>,
-    composite_modal_cameras: Query<Entity, With<HudCompositeModalCameraMarker>>,
     composite_layers: Query<&Visibility, With<HudCompositeLayerMarker>>,
     mut redraws: MessageWriter<RequestRedraw>,
 ) {
@@ -190,11 +188,6 @@ pub(crate) fn request_hud_composite_capture(
         for bloom_camera in composite_bloom_cameras.iter() {
             commands
                 .entity(bloom_camera)
-                .insert(RenderTarget::Image(image_handle.clone().into()));
-        }
-        for modal_camera in composite_modal_cameras.iter() {
-            commands
-                .entity(modal_camera)
                 .insert(RenderTarget::Image(image_handle.clone().into()));
         }
         config.target_image = Some(image_handle);

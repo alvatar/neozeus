@@ -3,16 +3,11 @@ use super::{
 };
 use crate::hud::{
     HudCompositeBloomCameraMarker, HudCompositeCameraMarker, HudCompositeLayerId,
-    HudCompositeLayerMarker, HudCompositeModalCameraMarker, HudModalCameraMarker,
-    HudModalVectorSceneMarker, HUD_COMPOSITE_BLOOM_CAMERA_ORDER, HUD_COMPOSITE_BLOOM_RENDER_LAYER,
-    HUD_COMPOSITE_FOREGROUND_Z, HUD_COMPOSITE_MODAL_CAMERA_ORDER, HUD_COMPOSITE_MODAL_RENDER_LAYER,
-    HUD_COMPOSITE_RENDER_LAYER,
+    HudCompositeLayerMarker, HudModalVectorSceneMarker, HUD_COMPOSITE_BLOOM_CAMERA_ORDER,
+    HUD_COMPOSITE_BLOOM_RENDER_LAYER, HUD_COMPOSITE_FOREGROUND_Z, HUD_COMPOSITE_RENDER_LAYER,
 };
 use bevy::{
-    camera::{
-        visibility::{NoFrustumCulling, RenderLayers},
-        RenderTarget,
-    },
+    camera::visibility::{NoFrustumCulling, RenderLayers},
     ecs::system::RunSystemOnce,
     mesh::VertexAttributeValues,
     prelude::*,
@@ -22,7 +17,7 @@ use bevy::{
 use bevy_vello::render::VelloCanvasMaterial;
 
 #[test]
-fn setup_hud_offscreen_compositor_spawns_modal_composite_camera_above_bloom() {
+fn setup_hud_offscreen_compositor_spawns_bloom_camera_between_main_and_modal_layers() {
     let mut world = World::default();
     world.insert_resource(HudOffscreenCompositor::default());
     world.insert_resource(Assets::<VelloCanvasMaterial>::default());
@@ -59,34 +54,13 @@ fn setup_hud_offscreen_compositor_spawns_modal_composite_camera_above_bloom() {
     assert_eq!(main_camera.order, 50);
     assert!(main_layers.intersects(&RenderLayers::layer(HUD_COMPOSITE_RENDER_LAYER)));
 
-    let (bloom_camera_order, bloom_layers_ok) = {
-        let mut bloom_camera_query =
-            world.query_filtered::<(&Camera, &RenderLayers), With<HudCompositeBloomCameraMarker>>();
-        let (bloom_camera, bloom_layers) = bloom_camera_query
-            .single(&world)
-            .expect("bloom compositor camera should exist");
-        (
-            bloom_camera.order,
-            bloom_layers.intersects(&RenderLayers::layer(HUD_COMPOSITE_BLOOM_RENDER_LAYER)),
-        )
-    };
-    assert_eq!(bloom_camera_order, HUD_COMPOSITE_BLOOM_CAMERA_ORDER);
-    assert!(bloom_layers_ok);
-
-    let (modal_camera_order, modal_layers_ok) = {
-        let mut modal_camera_query =
-            world.query_filtered::<(&Camera, &RenderLayers), With<HudCompositeModalCameraMarker>>();
-        let (modal_camera, modal_layers) = modal_camera_query
-            .single(&world)
-            .expect("modal compositor camera should exist");
-        (
-            modal_camera.order,
-            modal_layers.intersects(&RenderLayers::layer(HUD_COMPOSITE_MODAL_RENDER_LAYER)),
-        )
-    };
-    assert_eq!(modal_camera_order, HUD_COMPOSITE_MODAL_CAMERA_ORDER);
-    assert!(modal_layers_ok);
-    assert!(bloom_camera_order < modal_camera_order);
+    let mut bloom_camera_query =
+        world.query_filtered::<(&Camera, &RenderLayers), With<HudCompositeBloomCameraMarker>>();
+    let (bloom_camera, bloom_layers) = bloom_camera_query
+        .single(&world)
+        .expect("bloom compositor camera should exist");
+    assert_eq!(bloom_camera.order, HUD_COMPOSITE_BLOOM_CAMERA_ORDER);
+    assert!(bloom_layers.intersects(&RenderLayers::layer(HUD_COMPOSITE_BLOOM_RENDER_LAYER)));
 }
 
 /// Verifies that compositor sync hides the upstream Vello canvas and routes its texture through the
@@ -183,10 +157,10 @@ fn sync_hud_offscreen_compositor_hides_vello_canvas_and_binds_texture() {
     assert!(quad_layers.intersects(&RenderLayers::layer(HUD_COMPOSITE_RENDER_LAYER)));
 }
 
-/// Verifies that compositor sync retargets the modal Vello camera into an offscreen image and
-/// exposes that image through the topmost modal composite sprite.
+/// Verifies that compositor sync leaves the modal Vello canvas alone instead of hiding it with the
+/// main HUD canvas.
 #[test]
-fn sync_hud_offscreen_compositor_routes_modal_vello_through_top_composite_sprite() {
+fn sync_hud_offscreen_compositor_leaves_modal_vello_canvas_visible() {
     let mut world = World::default();
     world.insert_resource(HudOffscreenCompositor::default());
     world.insert_resource(Assets::<Image>::default());
@@ -214,12 +188,13 @@ fn sync_hud_offscreen_compositor_routes_modal_vello_through_top_composite_sprite
         },
         PrimaryWindow,
     ));
-    world.spawn((
-        MeshMaterial2d::<VelloCanvasMaterial>(material),
-        Visibility::Visible,
-        HudModalVectorSceneMarker,
-    ));
-    let modal_vello_camera = world.spawn((HudModalCameraMarker,)).id();
+    let modal_canvas = world
+        .spawn((
+            MeshMaterial2d::<VelloCanvasMaterial>(material),
+            Visibility::Visible,
+            HudModalVectorSceneMarker,
+        ))
+        .id();
     world
         .run_system_once(
             |mut commands: Commands,
@@ -240,22 +215,10 @@ fn sync_hud_offscreen_compositor_routes_modal_vello_through_top_composite_sprite
         .run_system_once(sync_hud_offscreen_compositor)
         .unwrap();
 
-    let modal_target_handle = match world.get::<RenderTarget>(modal_vello_camera) {
-        Some(RenderTarget::Image(modal_target)) => modal_target.handle.clone(),
-        _ => panic!("modal Vello camera should render into offscreen modal target"),
-    };
-
-    let mut sprite_query =
-        world.query_filtered::<(&Sprite, &Visibility, &RenderLayers), Without<Mesh2d>>();
-    let (sprite, visibility, _layers) = sprite_query
-        .iter(&world)
-        .find(|(sprite, _, layers)| {
-            sprite.image == modal_target_handle
-                && layers.intersects(&RenderLayers::layer(HUD_COMPOSITE_MODAL_RENDER_LAYER))
-        })
-        .expect("modal composite sprite should exist");
-    assert_eq!(visibility, &Visibility::Visible);
-    assert_eq!(sprite.custom_size, Some(Vec2::new(1400.0, 900.0)));
+    assert_eq!(
+        world.get::<Visibility>(modal_canvas),
+        Some(&Visibility::Visible)
+    );
 }
 
 /// Verifies the compositor quad mesh/UV contract expected by the upstream Vello texture-present path.

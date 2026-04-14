@@ -23,13 +23,10 @@ pub(crate) use capture::{
 };
 pub(crate) use compositor::{
     sync_hud_offscreen_compositor, HudCompositeBloomCameraMarker, HudCompositeCameraMarker,
-    HudCompositeModalCameraMarker, HudOffscreenCompositor,
+    HudOffscreenCompositor,
 };
 #[cfg(test)]
-pub(crate) use compositor::{
-    HUD_COMPOSITE_BLOOM_CAMERA_ORDER, HUD_COMPOSITE_BLOOM_RENDER_LAYER,
-    HUD_COMPOSITE_MODAL_CAMERA_ORDER, HUD_COMPOSITE_MODAL_RENDER_LAYER,
-};
+pub(crate) use compositor::{HUD_COMPOSITE_BLOOM_CAMERA_ORDER, HUD_COMPOSITE_BLOOM_RENDER_LAYER};
 #[cfg(test)]
 pub(crate) use input::handle_hud_module_shortcuts;
 pub(crate) use input::{
