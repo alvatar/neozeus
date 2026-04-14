@@ -538,6 +538,7 @@ fn configure_app(app: &mut App) -> Result<(), String> {
         .insert_resource(default_usage_persistence_state())
         .insert_resource(TerminalVisibilityState::default())
         .insert_resource(crate::terminals::OwnedTmuxSessionStore::default())
+        .insert_resource(crate::terminals::LiveSessionMetricsStore::default())
         .insert_resource(crate::terminals::ActiveTerminalContentState::default())
         .insert_resource(crate::terminals::ActiveTerminalContentSyncState::default())
         .insert_resource(crate::text_selection::TerminalTextSelectionState::default())

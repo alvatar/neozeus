@@ -1,10 +1,10 @@
-use crate::hud::view_models::AgentListActivity;
+use crate::hud::view_models::{AgentListActivity, AgentListRowKind};
 
 use super::super::super::render::{
     apply_alpha, interpolate_color, HudColors, HudPainter, HudRenderInputs,
 };
 use super::super::super::state::{AgentListUiState, HudRect, HUD_MODULE_PADDING};
-use bevy::prelude::Vec2;
+use bevy::{prelude::Vec2, window::Window};
 use bevy_vello::{prelude::VelloTextAnchor, vello::peniko};
 
 use super::rows::{AgentRow, AgentRowKind};
@@ -63,6 +63,11 @@ const PAUSED_ROW_COLOR: peniko::Color = peniko::Color::from_rgba8(
 );
 const CONTEXT_BAR_TRACK_COLOR: peniko::Color = HudColors::BUTTON;
 const AGENT_LIST_BORDER_STROKE_WIDTH: f64 = 2.5;
+const HOVER_CARD_TEXT_SIZE: f32 = 14.0;
+const HOVER_CARD_LINE_HEIGHT: f32 = 18.0;
+const HOVER_CARD_PADDING_X: f32 = 12.0;
+const HOVER_CARD_PADDING_Y: f32 = 10.0;
+const HOVER_CARD_MARGIN: f32 = 12.0;
 
 #[allow(
     clippy::too_many_arguments,
@@ -627,17 +632,167 @@ pub(crate) fn render_content(
     }
 }
 
+fn format_agent_metric_bytes(value: u64) -> String {
+    const KIB: u64 = 1024;
+    const MIB: u64 = 1024 * KIB;
+    const GIB: u64 = 1024 * MIB;
+    if value >= GIB {
+        format!("{:.1}G", value as f64 / GIB as f64)
+    } else if value >= MIB {
+        format!("{:.1}M", value as f64 / MIB as f64)
+    } else if value >= KIB {
+        format!("{:.0}K", value as f64 / KIB as f64)
+    } else {
+        format!("{value}B")
+    }
+}
+
+fn format_agent_cpu(cpu_pct_milli: Option<u32>) -> String {
+    cpu_pct_milli
+        .map(|value| format!("{:.1}%", value as f64 / 1000.0))
+        .unwrap_or_else(|| "—".into())
+}
+
+fn format_agent_ram(ram_bytes: Option<u64>) -> String {
+    ram_bytes
+        .map(format_agent_metric_bytes)
+        .unwrap_or_else(|| "—".into())
+}
+
+fn format_agent_network(rx_bytes_per_sec: Option<u64>, tx_bytes_per_sec: Option<u64>) -> String {
+    let rx = rx_bytes_per_sec
+        .map(format_agent_metric_bytes)
+        .unwrap_or_else(|| "—".into());
+    let tx = tx_bytes_per_sec
+        .map(format_agent_metric_bytes)
+        .unwrap_or_else(|| "—".into());
+    format!("↓{rx}/s ↑{tx}/s")
+}
+
+fn hover_card_lines(
+    agent_kind: crate::agents::AgentKind,
+    session_metrics: &crate::shared::daemon_wire::DaemonSessionMetrics,
+) -> [String; 4] {
+    [
+        format!("type  {}", agent_kind.env_name()),
+        format!("cpu   {}", format_agent_cpu(session_metrics.cpu_pct_milli)),
+        format!("ram   {}", format_agent_ram(session_metrics.ram_bytes)),
+        format!(
+            "net   {}",
+            format_agent_network(
+                session_metrics.net_rx_bytes_per_sec,
+                session_metrics.net_tx_bytes_per_sec,
+            )
+        ),
+    ]
+}
+
+fn hover_card_rect(window: &Window, hovered_rect: HudRect, width: f32, height: f32) -> HudRect {
+    let prefer_right_x = hovered_rect.x + hovered_rect.w + HOVER_CARD_MARGIN;
+    let prefer_left_x = hovered_rect.x - width - HOVER_CARD_MARGIN;
+    let max_x = (window.width() - width - HOVER_CARD_MARGIN).max(HOVER_CARD_MARGIN);
+    let x = if prefer_right_x + width <= window.width() - HOVER_CARD_MARGIN {
+        prefer_right_x
+    } else {
+        prefer_left_x.max(HOVER_CARD_MARGIN).min(max_x)
+    };
+    let centered_y = hovered_rect.y + (hovered_rect.h - height) * 0.5;
+    let max_y = (window.height() - height - HOVER_CARD_MARGIN).max(HOVER_CARD_MARGIN);
+    HudRect {
+        x,
+        y: centered_y.clamp(HOVER_CARD_MARGIN, max_y),
+        w: width,
+        h: height,
+    }
+}
+
+pub(crate) fn render_hover_overlay(
+    window: &Window,
+    state: &AgentListUiState,
+    content_rect: HudRect,
+    painter: &mut HudPainter,
+    inputs: &HudRenderInputs,
+) {
+    let Some(hovered_key) = state.hovered_row.as_ref() else {
+        return;
+    };
+    let Some(row_view) = inputs
+        .agent_list_view
+        .rows
+        .iter()
+        .find(|row| &row.key == hovered_key)
+    else {
+        return;
+    };
+    let AgentListRowKind::Agent {
+        agent_kind,
+        session_metrics,
+        ..
+    } = &row_view.kind
+    else {
+        return;
+    };
+    let Some(hovered_row_rect) = projected_agent_rows(
+        content_rect,
+        state.scroll_offset,
+        state.hovered_row.as_ref(),
+        inputs.agent_list_view,
+        None,
+    )
+    .into_iter()
+    .find(|row| &row.key == hovered_key)
+    .map(|row| row_main_rect(&row)) else {
+        return;
+    };
+
+    let lines = hover_card_lines(*agent_kind, session_metrics);
+    let text_width = lines
+        .iter()
+        .map(|line| painter.text_size(line, HOVER_CARD_TEXT_SIZE).x)
+        .fold(0.0, f32::max);
+    let width = text_width + HOVER_CARD_PADDING_X * 2.0;
+    let height = HOVER_CARD_PADDING_Y * 2.0 + HOVER_CARD_LINE_HEIGHT * lines.len() as f32;
+    let rect = hover_card_rect(window, hovered_row_rect, width, height);
+    painter.fill_rect(rect, apply_alpha(EVA_BLACK, 0.96), 0.0);
+    painter.stroke_rect_width(rect, apply_alpha(EVA_SELECTED, 0.9), 1.5);
+
+    for (index, line) in lines.iter().enumerate() {
+        draw_label(
+            painter,
+            Vec2::new(
+                rect.x + HOVER_CARD_PADDING_X,
+                rect.y + HOVER_CARD_PADDING_Y + index as f32 * HOVER_CARD_LINE_HEIGHT,
+            ),
+            line,
+            HOVER_CARD_TEXT_SIZE,
+            if index == 0 {
+                EVA_ORANGE_BRIGHT
+            } else {
+                HudColors::TEXT_MUTED
+            },
+            VelloTextAnchor::TopLeft,
+            0.78,
+            1.0,
+        );
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
         agent_accent_color, agent_fill_color, agent_label_color, agent_row_stroke,
         context_active_segment_range, context_bar_color, context_segment_count,
-        context_segment_rect, context_track_rect, marker_fill, rendered_context_pct_milli,
-        tmux_child_chrome_color, tmux_child_connector, tmux_child_fill_color,
-        tmux_child_label_color, AGENT_LIST_BORDER_STROKE_WIDTH, EVA_CYAN, EVA_SELECTED,
-        PAUSED_ROW_COLOR, TMUX_CHILD_ORANGE, WORKING_ROW_COLOR,
+        context_segment_rect, context_track_rect, format_agent_cpu, format_agent_network,
+        format_agent_ram, hover_card_lines, hover_card_rect, marker_fill,
+        rendered_context_pct_milli, tmux_child_chrome_color, tmux_child_connector,
+        tmux_child_fill_color, tmux_child_label_color, AGENT_LIST_BORDER_STROKE_WIDTH, EVA_CYAN,
+        EVA_SELECTED, PAUSED_ROW_COLOR, TMUX_CHILD_ORANGE, WORKING_ROW_COLOR,
     };
-    use crate::hud::view_models::AgentListActivity;
+    use crate::{
+        agents::AgentKind, hud::view_models::AgentListActivity,
+        shared::daemon_wire::DaemonSessionMetrics,
+    };
+    use bevy::window::Window;
 
     #[test]
     fn working_agent_rows_use_green_palette() {
@@ -820,5 +975,63 @@ mod tests {
     #[test]
     fn tmux_child_connector_stroke_matches_button_border_width() {
         assert_eq!(AGENT_LIST_BORDER_STROKE_WIDTH, 2.5);
+    }
+
+    #[test]
+    fn hover_card_lines_include_kind_and_metric_fields() {
+        let lines = hover_card_lines(
+            AgentKind::Codex,
+            &DaemonSessionMetrics {
+                cpu_pct_milli: Some(12_300),
+                ram_bytes: Some(64 * 1024 * 1024),
+                net_rx_bytes_per_sec: Some(2048),
+                net_tx_bytes_per_sec: Some(1024),
+            },
+        );
+        assert_eq!(lines[0], "type  codex");
+        assert_eq!(lines[1], "cpu   12.3%");
+        assert_eq!(lines[2], "ram   64.0M");
+        assert_eq!(lines[3], "net   ↓2K/s ↑1K/s");
+    }
+
+    #[test]
+    fn hover_card_formatters_use_fallback_marker_when_metrics_are_missing() {
+        assert_eq!(format_agent_cpu(None), "—");
+        assert_eq!(format_agent_ram(None), "—");
+        assert_eq!(format_agent_network(None, None), "↓—/s ↑—/s");
+    }
+
+    #[test]
+    fn hover_card_prefers_right_side_but_flips_left_when_needed() {
+        let window = Window {
+            resolution: (300, 200).into(),
+            ..Default::default()
+        };
+        let right = hover_card_rect(
+            &window,
+            crate::hud::HudRect {
+                x: 20.0,
+                y: 40.0,
+                w: 100.0,
+                h: 24.0,
+            },
+            120.0,
+            70.0,
+        );
+        assert!(right.x > 120.0);
+
+        let left = hover_card_rect(
+            &window,
+            crate::hud::HudRect {
+                x: 220.0,
+                y: 40.0,
+                w: 60.0,
+                h: 24.0,
+            },
+            120.0,
+            70.0,
+        );
+        assert!(left.x < 220.0);
+        assert!(left.x >= 12.0);
     }
 }

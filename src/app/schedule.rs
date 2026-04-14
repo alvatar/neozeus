@@ -22,8 +22,8 @@ use crate::{
     startup::{advance_startup_connecting, request_redraw_while_visuals_active, setup_scene},
     terminals::{
         configure_terminal_fonts, save_terminal_notes_if_dirty, sync_active_terminal_dimensions,
-        sync_terminal_hud_surface, sync_terminal_panel_frames, sync_terminal_presentations,
-        sync_terminal_projection_entities, sync_terminal_texture,
+        sync_live_session_metrics, sync_terminal_hud_surface, sync_terminal_panel_frames,
+        sync_terminal_presentations, sync_terminal_projection_entities, sync_terminal_texture,
     },
     text_selection::sync_terminal_text_selection_to_surface,
     usage::{refresh_usage_caches_if_needed, sync_usage_snapshot_from_cache},
@@ -193,6 +193,7 @@ pub(crate) fn configure_app_schedule(app: &mut App) {
     .add_systems(
         Update,
         (
+            sync_live_session_metrics,
             sync_agent_status,
             sync_visual_contract_state,
             crate::terminals::sync_owned_tmux_sessions,

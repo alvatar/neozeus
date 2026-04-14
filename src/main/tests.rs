@@ -175,6 +175,9 @@ pub(super) fn insert_default_hud_resources(world: &mut World) {
     if !world.contains_resource::<crate::agents::AgentStatusStore>() {
         world.insert_resource(crate::agents::AgentStatusStore::default());
     }
+    if !world.contains_resource::<crate::terminals::LiveSessionMetricsStore>() {
+        world.insert_resource(crate::terminals::LiveSessionMetricsStore::default());
+    }
     if !world.contains_resource::<crate::visual_contract::VisualContractState>() {
         world.insert_resource(crate::visual_contract::VisualContractState::default());
     }
@@ -297,6 +300,9 @@ pub(super) fn insert_terminal_manager_resources(
                         activity: crate::hud::AgentListActivity::Idle,
                         paused: false,
                         context_pct_milli: None,
+                        agent_kind: crate::agents::AgentKind::Terminal,
+                        session_metrics: crate::shared::daemon_wire::DaemonSessionMetrics::default(
+                        ),
                     },
                 })
                 .collect::<Vec<_>>();
@@ -458,6 +464,9 @@ pub(super) fn insert_test_hud_state(world: &mut World, hud_state: crate::hud::Hu
     if !world.contains_resource::<crate::terminals::OwnedTmuxSessionStore>() {
         world.insert_resource(crate::terminals::OwnedTmuxSessionStore::default());
     }
+    if !world.contains_resource::<crate::terminals::LiveSessionMetricsStore>() {
+        world.insert_resource(crate::terminals::LiveSessionMetricsStore::default());
+    }
     if !world.contains_resource::<crate::terminals::ActiveTerminalContentState>() {
         world.insert_resource(crate::terminals::ActiveTerminalContentState::default());
     }
@@ -469,6 +478,9 @@ pub(super) fn insert_test_hud_state(world: &mut World, hud_state: crate::hud::Hu
     }
     if !world.contains_resource::<crate::agents::AgentStatusStore>() {
         world.insert_resource(crate::agents::AgentStatusStore::default());
+    }
+    if !world.contains_resource::<crate::terminals::LiveSessionMetricsStore>() {
+        world.insert_resource(crate::terminals::LiveSessionMetricsStore::default());
     }
     if !world.contains_resource::<crate::visual_contract::VisualContractState>() {
         world.insert_resource(crate::visual_contract::VisualContractState::default());
@@ -620,6 +632,7 @@ impl TerminalDaemonClient for FakeDaemonClient {
                     .get(&session_id)
                     .cloned()
                     .unwrap_or_default(),
+                metrics: crate::shared::daemon_wire::DaemonSessionMetrics::default(),
             })
             .collect())
     }

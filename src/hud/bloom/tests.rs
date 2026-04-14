@@ -41,6 +41,9 @@ fn run_synced_hud_view_models(world: &mut World) {
     if !world.contains_resource::<crate::hud::HudInputCaptureState>() {
         world.insert_resource(crate::hud::HudInputCaptureState::default());
     }
+    if !world.contains_resource::<crate::terminals::LiveSessionMetricsStore>() {
+        world.insert_resource(crate::terminals::LiveSessionMetricsStore::default());
+    }
     if world.contains_resource::<crate::agents::AgentCatalog>()
         && world.contains_resource::<crate::agents::AgentRuntimeIndex>()
         && world.contains_resource::<crate::agents::AgentStatusStore>()
@@ -170,6 +173,9 @@ fn selected_agent_row_emits_selected_bloom_sources_only_for_that_row() {
                         activity: AgentListActivity::Idle,
                         paused: false,
                         context_pct_milli: None,
+                        agent_kind: crate::agents::AgentKind::Terminal,
+                        session_metrics: crate::shared::daemon_wire::DaemonSessionMetrics::default(
+                        ),
                     },
                 },
                 AgentListRowView {
@@ -184,6 +190,9 @@ fn selected_agent_row_emits_selected_bloom_sources_only_for_that_row() {
                         activity: AgentListActivity::Idle,
                         paused: false,
                         context_pct_milli: None,
+                        agent_kind: crate::agents::AgentKind::Terminal,
+                        session_metrics: crate::shared::daemon_wire::DaemonSessionMetrics::default(
+                        ),
                     },
                 },
             ],
@@ -223,6 +232,8 @@ fn selected_paused_agent_row_emits_gray_bloom_sources_only_for_that_row() {
                     activity: AgentListActivity::Working,
                     paused: true,
                     context_pct_milli: None,
+                    agent_kind: crate::agents::AgentKind::Terminal,
+                    session_metrics: crate::shared::daemon_wire::DaemonSessionMetrics::default(),
                 },
             }],
         },
@@ -263,6 +274,9 @@ fn selected_working_agent_row_emits_green_bloom_sources_only_for_that_row() {
                         activity: AgentListActivity::Working,
                         paused: false,
                         context_pct_milli: None,
+                        agent_kind: crate::agents::AgentKind::Terminal,
+                        session_metrics: crate::shared::daemon_wire::DaemonSessionMetrics::default(
+                        ),
                     },
                 },
                 AgentListRowView {
@@ -277,6 +291,9 @@ fn selected_working_agent_row_emits_green_bloom_sources_only_for_that_row() {
                         activity: AgentListActivity::Idle,
                         paused: false,
                         context_pct_milli: None,
+                        agent_kind: crate::agents::AgentKind::Terminal,
+                        session_metrics: crate::shared::daemon_wire::DaemonSessionMetrics::default(
+                        ),
                     },
                 },
             ],
@@ -320,6 +337,9 @@ fn selected_tmux_row_does_not_emit_parent_agent_bloom() {
                         activity: AgentListActivity::Idle,
                         paused: false,
                         context_pct_milli: None,
+                        agent_kind: crate::agents::AgentKind::Terminal,
+                        session_metrics: crate::shared::daemon_wire::DaemonSessionMetrics::default(
+                        ),
                     },
                 },
                 AgentListRowView {
@@ -375,6 +395,8 @@ fn aegis_enabled_rows_emit_pink_outer_bloom_when_unselected() {
                     activity: AgentListActivity::Idle,
                     paused: false,
                     context_pct_milli: None,
+                    agent_kind: crate::agents::AgentKind::Terminal,
+                    session_metrics: crate::shared::daemon_wire::DaemonSessionMetrics::default(),
                 },
             }],
         },
@@ -418,6 +440,8 @@ fn selected_aegis_agent_emits_both_outer_aegis_and_inner_selection_glow() {
                     activity: AgentListActivity::Idle,
                     paused: false,
                     context_pct_milli: None,
+                    agent_kind: crate::agents::AgentKind::Terminal,
+                    session_metrics: crate::shared::daemon_wire::DaemonSessionMetrics::default(),
                 },
             }],
         },
@@ -489,6 +513,8 @@ fn unselected_rows_do_not_emit_selected_bloom_sources() {
                     activity: AgentListActivity::Idle,
                     paused: false,
                     context_pct_milli: None,
+                    agent_kind: crate::agents::AgentKind::Terminal,
+                    session_metrics: crate::shared::daemon_wire::DaemonSessionMetrics::default(),
                 },
             }],
         },
@@ -890,6 +916,8 @@ fn sync_hud_widget_bloom_only_uses_active_agent_source() {
                     activity: AgentListActivity::Idle,
                     paused: false,
                     context_pct_milli: None,
+                    agent_kind: crate::agents::AgentKind::Terminal,
+                    session_metrics: crate::shared::daemon_wire::DaemonSessionMetrics::default(),
                 },
             },
             AgentListRowView {
@@ -904,6 +932,8 @@ fn sync_hud_widget_bloom_only_uses_active_agent_source() {
                     activity: AgentListActivity::Working,
                     paused: false,
                     context_pct_milli: None,
+                    agent_kind: crate::agents::AgentKind::Terminal,
+                    session_metrics: crate::shared::daemon_wire::DaemonSessionMetrics::default(),
                 },
             },
         ],
@@ -979,6 +1009,8 @@ fn sync_hud_widget_bloom_includes_selected_tmux_row_only() {
                     activity: AgentListActivity::Idle,
                     paused: false,
                     context_pct_milli: None,
+                    agent_kind: crate::agents::AgentKind::Terminal,
+                    session_metrics: crate::shared::daemon_wire::DaemonSessionMetrics::default(),
                 },
             },
             AgentListRowView {

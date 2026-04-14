@@ -18,6 +18,7 @@ mod raster;
 mod readiness;
 mod registry;
 mod runtime;
+mod session_metrics;
 mod session_persistence;
 mod types;
 
@@ -60,6 +61,7 @@ pub(crate) use registry::{
     poll_terminal_snapshots, TerminalFocusState, TerminalId, TerminalManager,
 };
 pub(crate) use runtime::{RuntimeNotifier, TerminalRuntimeSpawner};
+pub(crate) use session_metrics::{sync_live_session_metrics, LiveSessionMetricsStore};
 pub(crate) use session_persistence::{
     load_persisted_terminal_sessions_from, resolve_terminal_sessions_path,
     PersistedTerminalSessions,

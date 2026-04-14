@@ -116,6 +116,14 @@ pub struct DaemonSessionMetadata {
     pub agent_kind: Option<DaemonAgentKind>,
 }
 
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct DaemonSessionMetrics {
+    pub cpu_pct_milli: Option<u32>,
+    pub ram_bytes: Option<u64>,
+    pub net_rx_bytes_per_sec: Option<u64>,
+    pub net_tx_bytes_per_sec: Option<u64>,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DaemonSessionInfo {
     pub session_id: String,
@@ -123,6 +131,7 @@ pub struct DaemonSessionInfo {
     pub revision: u64,
     pub created_order: u64,
     pub metadata: DaemonSessionMetadata,
+    pub metrics: DaemonSessionMetrics,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -336,7 +345,7 @@ pub fn decode_core_daemon_response_with_tag(
             session: decode_owned_tmux_session_info(decoder)?,
         }),
         8 => Ok(DaemonResponse::SessionListDetailed {
-            sessions: decoder.read_vec(decode_wire_daemon_session_info)?,
+            sessions: decoder.read_vec(decode_wire_daemon_session_info_detailed)?,
         }),
         tag => Err(format!("unknown daemon response tag {tag}")),
     }
@@ -355,7 +364,7 @@ pub fn encode_core_daemon_response(buffer: &mut Vec<u8>, response: &DaemonRespon
         }
         DaemonResponse::SessionListDetailed { sessions } => {
             push_u8(buffer, 8);
-            push_vec(buffer, sessions, encode_wire_daemon_session_info);
+            push_vec(buffer, sessions, encode_wire_daemon_session_info_detailed);
         }
         DaemonResponse::OwnedTmuxSessionList { sessions } => {
             push_u8(buffer, 5);
@@ -406,6 +415,11 @@ pub fn encode_wire_daemon_session_info(buffer: &mut Vec<u8>, info: &DaemonSessio
     encode_daemon_session_metadata(buffer, &info.metadata);
 }
 
+pub fn encode_wire_daemon_session_info_detailed(buffer: &mut Vec<u8>, info: &DaemonSessionInfo) {
+    encode_wire_daemon_session_info(buffer, info);
+    encode_daemon_session_metrics(buffer, &info.metrics);
+}
+
 pub(crate) fn decode_wire_daemon_session_info_legacy(
     decoder: &mut Decoder<'_>,
 ) -> Result<DaemonSessionInfo, String> {
@@ -415,6 +429,7 @@ pub(crate) fn decode_wire_daemon_session_info_legacy(
         revision: decoder.read_u64()?,
         created_order: 0,
         metadata: DaemonSessionMetadata::default(),
+        metrics: DaemonSessionMetrics::default(),
     })
 }
 
@@ -423,6 +438,14 @@ pub(crate) fn decode_wire_daemon_session_info(
 ) -> Result<DaemonSessionInfo, String> {
     let mut info = decode_wire_daemon_session_info_legacy(decoder)?;
     info.metadata = decode_daemon_session_metadata(decoder)?;
+    Ok(info)
+}
+
+pub(crate) fn decode_wire_daemon_session_info_detailed(
+    decoder: &mut Decoder<'_>,
+) -> Result<DaemonSessionInfo, String> {
+    let mut info = decode_wire_daemon_session_info(decoder)?;
+    info.metrics = decode_daemon_session_metrics(decoder)?;
     Ok(info)
 }
 
@@ -467,6 +490,33 @@ pub fn decode_daemon_session_metadata(
         agent_uid,
         agent_label,
         agent_kind,
+    })
+}
+
+pub fn encode_daemon_session_metrics(buffer: &mut Vec<u8>, metrics: &DaemonSessionMetrics) {
+    push_option_u32(buffer, metrics.cpu_pct_milli);
+    push_bool(buffer, metrics.ram_bytes.is_some());
+    if let Some(value) = metrics.ram_bytes {
+        push_u64(buffer, value);
+    }
+    push_bool(buffer, metrics.net_rx_bytes_per_sec.is_some());
+    if let Some(value) = metrics.net_rx_bytes_per_sec {
+        push_u64(buffer, value);
+    }
+    push_bool(buffer, metrics.net_tx_bytes_per_sec.is_some());
+    if let Some(value) = metrics.net_tx_bytes_per_sec {
+        push_u64(buffer, value);
+    }
+}
+
+pub fn decode_daemon_session_metrics(
+    decoder: &mut Decoder<'_>,
+) -> Result<DaemonSessionMetrics, String> {
+    Ok(DaemonSessionMetrics {
+        cpu_pct_milli: decoder.read_option(|decoder| decoder.read_u32())?,
+        ram_bytes: decoder.read_option(|decoder| decoder.read_u64())?,
+        net_rx_bytes_per_sec: decoder.read_option(|decoder| decoder.read_u64())?,
+        net_tx_bytes_per_sec: decoder.read_option(|decoder| decoder.read_u64())?,
     })
 }
 
@@ -753,8 +803,8 @@ impl<'a> Decoder<'a> {
 mod tests {
     use super::{
         read_server_message, write_client_message, ClientMessage, DaemonRequest, DaemonResponse,
-        DaemonSessionInfo, DaemonSessionMetadata, ServerMessage, TerminalCommand,
-        TerminalLifecycle, TerminalRuntimeState,
+        DaemonSessionInfo, DaemonSessionMetadata, DaemonSessionMetrics, ServerMessage,
+        TerminalCommand, TerminalLifecycle, TerminalRuntimeState,
     };
     use std::io::Cursor;
 
@@ -792,6 +842,7 @@ mod tests {
                     revision: 9,
                     created_order: 3,
                     metadata: DaemonSessionMetadata::default(),
+                    metrics: DaemonSessionMetrics::default(),
                 }],
             }),
         };
@@ -808,6 +859,7 @@ mod tests {
                     revision: 9,
                     created_order: 0,
                     metadata: DaemonSessionMetadata::default(),
+                    metrics: DaemonSessionMetrics::default(),
                 }],
             }),
         };
@@ -816,6 +868,54 @@ mod tests {
         super::write_frame(&mut bytes, &payload).unwrap();
         assert_eq!(
             read_server_message(&mut Cursor::new(bytes)).unwrap(),
+            expected
+        );
+    }
+
+    #[test]
+    fn subset_server_message_roundtrips_detailed_session_metrics() {
+        let mut bytes = Vec::new();
+        let encoded = ServerMessage::Response {
+            request_id: 5,
+            response: Ok(DaemonResponse::SessionListDetailed {
+                sessions: vec![DaemonSessionInfo {
+                    session_id: "alpha".into(),
+                    runtime: TerminalRuntimeState::running("running"),
+                    revision: 3,
+                    created_order: 9,
+                    metadata: DaemonSessionMetadata::default(),
+                    metrics: DaemonSessionMetrics {
+                        cpu_pct_milli: Some(12_300),
+                        ram_bytes: Some(64 * 1024 * 1024),
+                        net_rx_bytes_per_sec: Some(2048),
+                        net_tx_bytes_per_sec: Some(1024),
+                    },
+                }],
+            }),
+        };
+        let expected = ServerMessage::Response {
+            request_id: 5,
+            response: Ok(DaemonResponse::SessionListDetailed {
+                sessions: vec![DaemonSessionInfo {
+                    session_id: "alpha".into(),
+                    runtime: TerminalRuntimeState::running("running"),
+                    revision: 3,
+                    created_order: 0,
+                    metadata: DaemonSessionMetadata::default(),
+                    metrics: DaemonSessionMetrics {
+                        cpu_pct_milli: Some(12_300),
+                        ram_bytes: Some(64 * 1024 * 1024),
+                        net_rx_bytes_per_sec: Some(2048),
+                        net_tx_bytes_per_sec: Some(1024),
+                    },
+                }],
+            }),
+        };
+        encode_server_message(&mut bytes, &encoded);
+        let mut framed = Vec::new();
+        super::write_frame(&mut framed, &bytes).unwrap();
+        assert_eq!(
+            read_server_message(&mut Cursor::new(framed)).unwrap(),
             expected
         );
     }
@@ -857,6 +957,7 @@ mod tests {
                         revision: 21,
                         created_order: 0,
                         metadata: DaemonSessionMetadata::default(),
+                        metrics: DaemonSessionMetrics::default(),
                     }],
                 }),
             }
@@ -885,7 +986,7 @@ mod tests {
                         super::push_u8(buffer, 8);
                         super::push_u32(buffer, u32::try_from(sessions.len()).unwrap());
                         for session in sessions {
-                            super::encode_wire_daemon_session_info(buffer, session);
+                            super::encode_wire_daemon_session_info_detailed(buffer, session);
                         }
                     }
                     Ok(DaemonResponse::Ack) => {

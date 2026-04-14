@@ -32,6 +32,7 @@ fn decodes_v1_session_list_payloads_without_created_order() {
             revision: 42,
             created_order: 7,
             metadata: crate::shared::daemon_wire::DaemonSessionMetadata::default(),
+            metrics: crate::shared::daemon_wire::DaemonSessionMetrics::default(),
         }],
     };
 
@@ -89,6 +90,7 @@ fn session_list_wire_format_omits_created_order_for_v1_compatibility() {
                 revision: 5,
                 created_order: 999,
                 metadata: crate::shared::daemon_wire::DaemonSessionMetadata::default(),
+                metrics: crate::shared::daemon_wire::DaemonSessionMetrics::default(),
             }],
         }),
     };

@@ -34,6 +34,8 @@ fn agent_row_view(
             activity: crate::hud::AgentListActivity::Idle,
             paused: false,
             context_pct_milli: None,
+            agent_kind: crate::agents::AgentKind::Terminal,
+            session_metrics: crate::shared::daemon_wire::DaemonSessionMetrics::default(),
         },
     }
 }

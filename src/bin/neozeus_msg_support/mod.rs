@@ -301,6 +301,7 @@ mod tests {
                 agent_label: label.map(str::to_owned),
                 agent_kind: None,
             },
+            metrics: neozeus::shared::daemon_wire::DaemonSessionMetrics::default(),
         }
     }
 

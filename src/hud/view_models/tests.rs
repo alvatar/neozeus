@@ -25,6 +25,9 @@ fn run_synced_hud_view_models(world: &mut World) {
     if !world.contains_resource::<crate::hud::HudInputCaptureState>() {
         world.insert_resource(crate::hud::HudInputCaptureState::default());
     }
+    if !world.contains_resource::<crate::terminals::LiveSessionMetricsStore>() {
+        world.insert_resource(crate::terminals::LiveSessionMetricsStore::default());
+    }
     if world.contains_resource::<AgentCatalog>()
         && world.contains_resource::<AgentRuntimeIndex>()
         && world.contains_resource::<AgentStatusStore>()
@@ -134,11 +137,18 @@ fn sync_hud_view_models_derives_agent_rows_and_threads() {
             has_tasks,
             activity,
             context_pct_milli,
+            agent_kind,
+            session_metrics,
             ..
         } => {
             assert!(*has_tasks);
             assert_eq!(*activity, AgentListActivity::Idle);
             assert_eq!(*context_pct_milli, None);
+            assert_eq!(*agent_kind, AgentKind::Terminal);
+            assert_eq!(
+                session_metrics,
+                &crate::shared::daemon_wire::DaemonSessionMetrics::default()
+            );
         }
         other => panic!("expected agent row, got {other:?}"),
     }
@@ -153,6 +163,67 @@ fn sync_hud_view_models_derives_agent_rows_and_threads() {
     assert!(composer.visible);
     assert_eq!(composer.title.as_deref(), Some("Message ALPHA"));
     assert_eq!(composer.text, "hello");
+}
+
+#[test]
+fn sync_hud_view_models_projects_session_metrics_into_agent_rows() {
+    let mut catalog = AgentCatalog::default();
+    let agent_id = catalog.create_agent(
+        Some("alpha".into()),
+        AgentKind::Pi,
+        AgentKind::Pi.capabilities(),
+    );
+    let mut runtime_index = AgentRuntimeIndex::default();
+    runtime_index.link_terminal(
+        agent_id,
+        crate::terminals::TerminalId(1),
+        "neozeus-session-1".into(),
+        None,
+    );
+
+    let mut live_session_metrics = crate::terminals::LiveSessionMetricsStore::default();
+    live_session_metrics.set_metrics_for_tests(
+        "neozeus-session-1",
+        crate::shared::daemon_wire::DaemonSessionMetrics {
+            cpu_pct_milli: Some(42_500),
+            ram_bytes: Some(128 * 1024 * 1024),
+            net_rx_bytes_per_sec: Some(4096),
+            net_tx_bytes_per_sec: Some(2048),
+        },
+    );
+
+    let mut world = World::default();
+    world.insert_resource(catalog);
+    world.insert_resource(runtime_index);
+    world.insert_resource(AppSessionState::default());
+    world.insert_resource(AgentTaskStore::default());
+    world.insert_resource(ConversationStore::default());
+    world.insert_resource(AgentListView::default());
+    world.insert_resource(ConversationListView::default());
+    world.insert_resource(ThreadView::default());
+    world.insert_resource(ComposerView::default());
+    world.insert_resource(AgentStatusStore::default());
+    world.insert_resource(AgentListSelection::Agent(agent_id));
+    world.insert_resource(crate::terminals::OwnedTmuxSessionStore::default());
+    world.insert_resource(live_session_metrics);
+    insert_terminal_manager_resources(&mut world, crate::terminals::TerminalManager::default());
+
+    run_synced_hud_view_models(&mut world);
+
+    match &world.resource::<AgentListView>().rows[0].kind {
+        AgentListRowKind::Agent {
+            agent_kind,
+            session_metrics,
+            ..
+        } => {
+            assert_eq!(*agent_kind, AgentKind::Pi);
+            assert_eq!(session_metrics.cpu_pct_milli, Some(42_500));
+            assert_eq!(session_metrics.ram_bytes, Some(128 * 1024 * 1024));
+            assert_eq!(session_metrics.net_rx_bytes_per_sec, Some(4096));
+            assert_eq!(session_metrics.net_tx_bytes_per_sec, Some(2048));
+        }
+        other => panic!("expected agent row, got {other:?}"),
+    }
 }
 
 #[test]

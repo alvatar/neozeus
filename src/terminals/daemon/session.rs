@@ -1,4 +1,7 @@
-use super::protocol::{DaemonEvent, DaemonSessionInfo, ServerMessage};
+use super::{
+    protocol::{DaemonEvent, DaemonSessionInfo, ServerMessage},
+    session_metrics::SessionMetricSampler,
+};
 use crate::app_config::{DEFAULT_COLS, DEFAULT_ROWS};
 use crate::shared::daemon_wire::{DaemonAgentKind, DaemonSessionMetadata};
 
@@ -70,6 +73,7 @@ pub(crate) struct DaemonSession {
     session_id: String,
     created_order: u64,
     metadata: Arc<Mutex<DaemonSessionMetadata>>,
+    metrics: Mutex<SessionMetricSampler>,
     state: Arc<Mutex<DaemonSessionState>>,
     command_tx: mpsc::Sender<DaemonSessionCommand>,
     shutdown_rx: Mutex<Option<mpsc::Receiver<Result<(), String>>>>,
@@ -104,6 +108,8 @@ impl DaemonSession {
             writer,
             child,
         } = spawn_pty(DEFAULT_COLS, DEFAULT_ROWS, cwd, env_overrides)?;
+        let root_pid = child.process_id();
+        let process_group_leader = master.process_group_leader();
         let metadata = Arc::new(Mutex::new(session_metadata_from_env(env_overrides)));
         let state = Arc::new(Mutex::new(DaemonSessionState {
             snapshot: TerminalSnapshot {
@@ -122,6 +128,7 @@ impl DaemonSession {
             session_id: session_id.clone(),
             created_order,
             metadata,
+            metrics: Mutex::new(SessionMetricSampler::new(root_pid, process_group_leader)),
             state: state.clone(),
             command_tx,
             shutdown_rx: Mutex::new(Some(shutdown_rx)),
@@ -151,6 +158,7 @@ impl DaemonSession {
             revision: state.revision,
             created_order: self.created_order,
             metadata: lock(&self.metadata).clone(),
+            metrics: lock(&self.metrics).sample(),
         }
     }
 
@@ -807,6 +815,7 @@ mod tests {
             session_id: "test-session".into(),
             created_order: 1,
             metadata: Arc::new(Mutex::new(DaemonSessionMetadata::default())),
+            metrics: Mutex::new(SessionMetricSampler::new(None, None)),
             state: Arc::new(Mutex::new(DaemonSessionState {
                 snapshot: TerminalSnapshot {
                     surface: None,

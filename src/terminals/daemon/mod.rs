@@ -3,6 +3,7 @@ mod owned_tmux;
 mod protocol;
 mod server;
 mod session;
+mod session_metrics;
 
 #[cfg(test)]
 mod tests;

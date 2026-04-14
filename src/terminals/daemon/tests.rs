@@ -450,6 +450,36 @@ fn daemon_create_session_exposes_env_overrides_to_shell() {
 }
 
 #[test]
+fn daemon_list_sessions_exposes_live_session_metrics() {
+    let (_server, socket_path) = start_test_daemon("neozeus-daemon-session-metrics");
+    let client =
+        SocketTerminalDaemonClient::connect(&socket_path).expect("daemon client should connect");
+    let session_id = client
+        .create_session_with_env(PERSISTENT_SESSION_PREFIX, None, &[])
+        .expect("daemon session should be created");
+
+    let first = client
+        .list_sessions()
+        .expect("sessions should list")
+        .into_iter()
+        .find(|session| session.session_id == session_id)
+        .expect("created session should list");
+    assert!(first.metrics.ram_bytes.is_some());
+
+    std::thread::sleep(Duration::from_millis(25));
+
+    let second = client
+        .list_sessions()
+        .expect("sessions should list")
+        .into_iter()
+        .find(|session| session.session_id == session_id)
+        .expect("created session should list");
+    assert!(second.metrics.cpu_pct_milli.is_some());
+    assert!(second.metrics.net_rx_bytes_per_sec.is_some());
+    assert!(second.metrics.net_tx_bytes_per_sec.is_some());
+}
+
+#[test]
 fn daemon_list_sessions_exposes_agent_metadata() {
     let (_server, socket_path) = start_test_daemon("neozeus-daemon-session-metadata");
     let client =

@@ -355,6 +355,7 @@ impl TerminalDaemonClient for FakeDaemonClient {
                 revision: 0,
                 created_order: 0,
                 metadata: crate::shared::daemon_wire::DaemonSessionMetadata::default(),
+                metrics: crate::shared::daemon_wire::DaemonSessionMetrics::default(),
             })
             .collect())
     }

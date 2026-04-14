@@ -232,6 +232,7 @@ pub(in crate::hud) fn projected_agent_rows(
                     activity,
                     paused,
                     context_pct_milli,
+                    ..
                 } => AgentRowKind::Agent {
                     agent_id: *agent_id,
                     terminal_id: *terminal_id,

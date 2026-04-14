@@ -894,6 +894,7 @@ mod tests {
                 agent_label: None,
                 agent_kind,
             },
+            metrics: crate::shared::daemon_wire::DaemonSessionMetrics::default(),
         }
     }
 

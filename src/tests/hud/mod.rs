@@ -2853,6 +2853,8 @@ fn navigating_to_owned_tmux_should_render_capture_in_terminal_panel() {
                     activity: crate::hud::AgentListActivity::Idle,
                     paused: false,
                     context_pct_milli: None,
+                    agent_kind: crate::agents::AgentKind::Terminal,
+                    session_metrics: crate::shared::daemon_wire::DaemonSessionMetrics::default(),
                 },
             },
             crate::hud::AgentListRowView {

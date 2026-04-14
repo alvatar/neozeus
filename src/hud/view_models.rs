@@ -1,8 +1,9 @@
 use crate::{
-    agents::{AgentCatalog, AgentId, AgentRuntimeIndex, AgentStatusStore},
+    agents::{AgentCatalog, AgentId, AgentKind, AgentRuntimeIndex, AgentStatusStore},
     app::AppSessionState,
     conversations::{AgentTaskStore, ConversationStore, MessageDeliveryState},
-    terminals::{OwnedTmuxSessionStore, TerminalManager},
+    shared::daemon_wire::DaemonSessionMetrics,
+    terminals::{LiveSessionMetricsStore, OwnedTmuxSessionStore, TerminalManager},
     usage::{time_left, UsageFreshness, UsageSnapshot},
     visual_contract::{VisualAgentActivity, VisualContractState},
 };
@@ -55,12 +56,14 @@ impl AgentListActivity {
 pub(crate) enum AgentListRowKind {
     Agent {
         agent_id: AgentId,
+        agent_kind: AgentKind,
         terminal_id: Option<crate::terminals::TerminalId>,
         has_tasks: bool,
         interactive: bool,
         activity: AgentListActivity,
         paused: bool,
         context_pct_milli: Option<i32>,
+        session_metrics: DaemonSessionMetrics,
     },
     OwnedTmux {
         session_uid: String,
@@ -191,6 +194,7 @@ pub(crate) fn sync_hud_view_models(
     visual_contract: Res<VisualContractState>,
     status_store: Res<AgentStatusStore>,
     owned_tmux_sessions: Res<OwnedTmuxSessionStore>,
+    live_session_metrics: Res<LiveSessionMetricsStore>,
     selection: Res<AgentListSelection>,
     mut agent_list: ResMut<AgentListView>,
     mut conversation_list: ResMut<ConversationListView>,
@@ -241,6 +245,7 @@ pub(crate) fn sync_hud_view_models(
             focused: selected_row_key == Some(AgentListRowKey::Agent(agent_id)),
             kind: AgentListRowKind::Agent {
                 agent_id,
+                agent_kind: agent_catalog.kind(agent_id).unwrap_or(AgentKind::Terminal),
                 terminal_id,
                 has_tasks: task_store
                     .text(agent_id)
@@ -251,6 +256,11 @@ pub(crate) fn sync_hud_view_models(
                 ),
                 paused: agent_catalog.is_paused(agent_id),
                 context_pct_milli,
+                session_metrics: runtime_index
+                    .session_name(agent_id)
+                    .and_then(|session_id| live_session_metrics.metrics(session_id))
+                    .cloned()
+                    .unwrap_or_default(),
             },
         });
         for session in tmux_by_owner.remove(&agent_id).unwrap_or_default() {

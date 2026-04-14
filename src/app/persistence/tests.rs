@@ -264,6 +264,7 @@ fn reconcile_persisted_agents_restores_prunes_and_imports() {
                 agent_label: None,
                 agent_kind: None,
             },
+            metrics: crate::shared::daemon_wire::DaemonSessionMetrics::default(),
         },
         crate::terminals::DaemonSessionInfo {
             session_id: "neozeus-session-c".into(),
@@ -271,6 +272,7 @@ fn reconcile_persisted_agents_restores_prunes_and_imports() {
             revision: 0,
             created_order: 1,
             metadata: crate::shared::daemon_wire::DaemonSessionMetadata::default(),
+            metrics: crate::shared::daemon_wire::DaemonSessionMetrics::default(),
         },
         crate::terminals::DaemonSessionInfo {
             session_id: "neozeus-verifier-x".into(),
@@ -278,6 +280,7 @@ fn reconcile_persisted_agents_restores_prunes_and_imports() {
             revision: 0,
             created_order: 2,
             metadata: crate::shared::daemon_wire::DaemonSessionMetadata::default(),
+            metrics: crate::shared::daemon_wire::DaemonSessionMetrics::default(),
         },
     ];
 
@@ -337,6 +340,7 @@ fn reconcile_persisted_agents_prefers_agent_uid_over_stale_runtime_session_name(
             agent_label: Some("ALPHA".into()),
             agent_kind: None,
         },
+        metrics: crate::shared::daemon_wire::DaemonSessionMetrics::default(),
     }];
 
     let (restore, prune, import) = reconcile_persisted_agents(&persisted, &live_sessions);

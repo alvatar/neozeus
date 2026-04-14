@@ -37,6 +37,9 @@ fn run_synced_hud_view_models(world: &mut World) {
     if !world.contains_resource::<crate::visual_contract::VisualContractState>() {
         world.insert_resource(crate::visual_contract::VisualContractState::default());
     }
+    if !world.contains_resource::<crate::terminals::LiveSessionMetricsStore>() {
+        world.insert_resource(crate::terminals::LiveSessionMetricsStore::default());
+    }
     world
         .run_system_once(crate::visual_contract::sync_visual_contract_state)
         .unwrap();

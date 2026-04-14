@@ -87,6 +87,8 @@ pub(super) fn render_hud_scene_impl(
         agent_list_text_selection: &agent_list_text_selection,
     };
 
+    let mut agent_list_content_rect = None;
+    let mut agent_list_alpha = 0.0_f32;
     for module_id in layout_state.iter_z_order() {
         let Some(module) = layout_state.get(module_id) else {
             continue;
@@ -101,6 +103,10 @@ pub(super) fn render_hud_scene_impl(
         draw_module_shell(&mut painter, module_id, shell_rect);
 
         let content_rect = module_content_rect(module_id, module.shell.current_rect);
+        if module_id == HudWidgetKey::AgentList {
+            agent_list_content_rect = Some(content_rect);
+            agent_list_alpha = alpha;
+        }
         built.push_clip_layer(
             Fill::NonZero,
             Affine::IDENTITY,
@@ -116,6 +122,17 @@ pub(super) fn render_hud_scene_impl(
             &conversation_list_state,
         );
         built.pop_layer();
+    }
+
+    if let Some(content_rect) = agent_list_content_rect {
+        let mut painter = HudPainter::new(&mut built, &fonts, &primary_window, agent_list_alpha);
+        modules::render_hover_overlay(
+            &primary_window,
+            &agent_list_state,
+            content_rect,
+            &mut painter,
+            &inputs,
+        );
     }
 
     log_hud_draw_colors_if_requested(&built);
