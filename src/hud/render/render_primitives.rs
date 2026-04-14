@@ -63,7 +63,59 @@ pub(crate) struct HudPainter<'scene, 'res> {
     fonts: &'res Assets<VelloFont>,
     window: &'res Window,
     alpha: f32,
-    route: crate::hud::render_group::HudRenderRoute,
+}
+
+pub(crate) struct HudPainterSet<'scene, 'res> {
+    base_scene: &'scene mut vello::Scene,
+    bloom_group_scenes: &'scene mut std::collections::BTreeMap<
+        crate::hud::render_group::HudBloomGroupId,
+        vello::Scene,
+    >,
+    fonts: &'res Assets<VelloFont>,
+    window: &'res Window,
+    alpha: f32,
+}
+
+impl<'scene, 'res> HudPainterSet<'scene, 'res> {
+    /// Creates one painter set bound to a base scene plus zero or more bloom-group scenes.
+    pub(crate) fn new(
+        base_scene: &'scene mut vello::Scene,
+        bloom_group_scenes: &'scene mut std::collections::BTreeMap<
+            crate::hud::render_group::HudBloomGroupId,
+            vello::Scene,
+        >,
+        fonts: &'res Assets<VelloFont>,
+        window: &'res Window,
+        alpha: f32,
+    ) -> Self {
+        Self {
+            base_scene,
+            bloom_group_scenes,
+            fonts,
+            window,
+            alpha,
+        }
+    }
+
+    /// Runs one closure with a painter targeting the base scene.
+    pub(crate) fn with_base_painter<R>(
+        &mut self,
+        run: impl FnOnce(&mut HudPainter<'_, 'res>) -> R,
+    ) -> R {
+        let mut painter = HudPainter::new(self.base_scene, self.fonts, self.window, self.alpha);
+        run(&mut painter)
+    }
+
+    /// Runs one closure with a painter targeting the requested bloom-group scene.
+    pub(crate) fn with_bloom_group_painter<R>(
+        &mut self,
+        group: crate::hud::render_group::HudBloomGroupId,
+        run: impl FnOnce(&mut HudPainter<'_, 'res>) -> R,
+    ) -> R {
+        let scene = self.bloom_group_scenes.entry(group).or_default();
+        let mut painter = HudPainter::new(scene, self.fonts, self.window, self.alpha);
+        run(&mut painter)
+    }
 }
 
 impl<'scene, 'res> HudPainter<'scene, 'res> {
@@ -77,40 +129,12 @@ impl<'scene, 'res> HudPainter<'scene, 'res> {
         window: &'res Window,
         alpha: f32,
     ) -> Self {
-        Self::new_for_route(
-            scene,
-            fonts,
-            window,
-            alpha,
-            crate::hud::render_group::HudRenderRoute::Base {
-                surface: crate::hud::render_surface::HudSurfaceId::MainHud,
-            },
-        )
-    }
-
-    /// Creates a painter bound to one explicit HUD render route.
-    ///
-    /// Routing metadata is inert for now: draw operations still land in the bound Vello scene, but
-    /// the contract is explicit so later phases can route base and bloom-group authoring cleanly.
-    pub(crate) fn new_for_route(
-        scene: &'scene mut vello::Scene,
-        fonts: &'res Assets<VelloFont>,
-        window: &'res Window,
-        alpha: f32,
-        route: crate::hud::render_group::HudRenderRoute,
-    ) -> Self {
         Self {
             scene,
             fonts,
             window,
             alpha,
-            route,
         }
-    }
-
-    /// Returns the explicit render route bound to this painter.
-    pub(crate) fn route(&self) -> crate::hud::render_group::HudRenderRoute {
-        self.route
     }
 
     /// Fills a HUD rectangle in the bound scene.

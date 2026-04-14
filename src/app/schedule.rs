@@ -5,10 +5,11 @@ use crate::{
     conversations::{save_conversations_if_dirty, sync_task_notes_projection},
     hud::{
         animate_hud_modules, finalize_window_capture, handle_hud_pointer_input,
-        render_hud_modal_scene, render_hud_scene, request_hud_composite_capture,
-        request_hud_texture_capture, request_window_capture, save_hud_layout_if_dirty, setup_hud,
-        setup_hud_widget_bloom, sync_hud_offscreen_compositor, sync_hud_view_models,
-        sync_hud_widget_bloom, sync_info_bar_view_model, sync_structural_hud_layout,
+        render_hud_modal_scene, render_hud_scene, request_hud_bloom_group_capture,
+        request_hud_composite_capture, request_hud_texture_capture, request_window_capture,
+        save_hud_layout_if_dirty, setup_hud, setup_hud_widget_bloom, sync_hud_offscreen_compositor,
+        sync_hud_view_models, sync_hud_widget_bloom, sync_info_bar_view_model,
+        sync_structural_hud_layout,
     },
     input::{
         drag_terminal_view, focus_terminal_on_panel_click, handle_keyboard_input,
@@ -255,6 +256,7 @@ pub(crate) fn configure_app_schedule(app: &mut App) {
             render_hud_modal_scene,
             sync_hud_offscreen_compositor,
             request_hud_texture_capture,
+            request_hud_bloom_group_capture,
             request_hud_composite_capture,
             request_window_capture,
             sync_hud_widget_bloom,

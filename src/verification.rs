@@ -52,35 +52,68 @@ pub(crate) enum VerificationScenario {
     InspectSwitchLatency,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct VerificationScenarioSpec {
+    scenario: VerificationScenario,
+    name: &'static str,
+    required_terminals: usize,
+}
+
+const VERIFICATION_SCENARIO_SPECS: &[VerificationScenarioSpec] = &[
+    VerificationScenarioSpec {
+        scenario: VerificationScenario::MessageBoxBloom,
+        name: "message-box-bloom",
+        required_terminals: 1,
+    },
+    VerificationScenarioSpec {
+        scenario: VerificationScenario::TaskDialogBloom,
+        name: "task-dialog-bloom",
+        required_terminals: 1,
+    },
+    VerificationScenarioSpec {
+        scenario: VerificationScenario::AgentListBloom,
+        name: "agent-list-bloom",
+        required_terminals: 1,
+    },
+    VerificationScenarioSpec {
+        scenario: VerificationScenario::AgentContextBloom,
+        name: "agent-context-bloom",
+        required_terminals: 1,
+    },
+    VerificationScenarioSpec {
+        scenario: VerificationScenario::WorkingStateIdle,
+        name: "working-state-idle",
+        required_terminals: 1,
+    },
+    VerificationScenarioSpec {
+        scenario: VerificationScenario::WorkingStateWorking,
+        name: "working-state-working",
+        required_terminals: 1,
+    },
+    VerificationScenarioSpec {
+        scenario: VerificationScenario::InspectSwitchLatency,
+        name: "inspect-switch-latency",
+        required_terminals: 2,
+    },
+];
+
+fn verification_scenario_spec(scenario: VerificationScenario) -> &'static VerificationScenarioSpec {
+    VERIFICATION_SCENARIO_SPECS
+        .iter()
+        .find(|spec| spec.scenario == scenario)
+        .expect("verification scenario spec should exist")
+}
+
 /// Parses the named built-in verification scenario from an optional raw string.
 ///
 /// The parser accepts the small fixed scenario vocabulary used by the offscreen verification scripts
 /// and returns `None` for missing or unknown names so callers can treat the feature as disabled.
 fn resolve_verification_scenario(raw: Option<&str>) -> Option<VerificationScenario> {
-    match raw.map(str::trim).filter(|value| !value.is_empty()) {
-        Some(value) if value.eq_ignore_ascii_case("message-box-bloom") => {
-            Some(VerificationScenario::MessageBoxBloom)
-        }
-        Some(value) if value.eq_ignore_ascii_case("task-dialog-bloom") => {
-            Some(VerificationScenario::TaskDialogBloom)
-        }
-        Some(value) if value.eq_ignore_ascii_case("agent-list-bloom") => {
-            Some(VerificationScenario::AgentListBloom)
-        }
-        Some(value) if value.eq_ignore_ascii_case("agent-context-bloom") => {
-            Some(VerificationScenario::AgentContextBloom)
-        }
-        Some(value) if value.eq_ignore_ascii_case("working-state-idle") => {
-            Some(VerificationScenario::WorkingStateIdle)
-        }
-        Some(value) if value.eq_ignore_ascii_case("working-state-working") => {
-            Some(VerificationScenario::WorkingStateWorking)
-        }
-        Some(value) if value.eq_ignore_ascii_case("inspect-switch-latency") => {
-            Some(VerificationScenario::InspectSwitchLatency)
-        }
-        _ => None,
-    }
+    let raw = raw.map(str::trim).filter(|value| !value.is_empty())?;
+    VERIFICATION_SCENARIO_SPECS
+        .iter()
+        .find(|spec| spec.name.eq_ignore_ascii_case(raw))
+        .map(|spec| spec.scenario)
 }
 
 #[derive(Resource, Clone, Debug)]
@@ -506,10 +539,7 @@ pub(crate) fn run_verification_scenario(world: &mut World) {
         finish!();
     }
 
-    let required_terminals = match config.scenario {
-        VerificationScenario::InspectSwitchLatency => 2,
-        _ => 1,
-    };
+    let required_terminals = verification_scenario_spec(config.scenario).required_terminals;
     while config.terminal_ids.len() < required_terminals {
         let (session_name, terminal_id, bridge) = match spawn_runtime_terminal_session(
             &mut crate::app::SpawnRuntimeTerminalSessionContext {

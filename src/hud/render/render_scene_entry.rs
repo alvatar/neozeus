@@ -1,4 +1,5 @@
 use super::*;
+use std::collections::BTreeMap;
 
 /// Returns the drawable content rectangle inside a module shell.
 ///
@@ -71,12 +72,15 @@ pub(super) fn render_hud_scene_impl(
     agent_list_text_selection: Res<crate::text_selection::AgentListTextSelectionState>,
     fonts: Res<Assets<VelloFont>>,
     startup_connect: Option<Res<DaemonConnectionState>>,
-    mut scene: Mut<VelloScene2d>,
+    base_scene: &mut vello::Scene,
+    bloom_group_scenes: &mut BTreeMap<crate::hud::HudBloomGroupId, vello::Scene>,
 ) {
     // Build the geometry or layout decisions first, then emit the matching draw operations against the prepared state.
-    let mut built = vello::Scene::new();
+    base_scene.reset();
+    for scene in bloom_group_scenes.values_mut() {
+        scene.reset();
+    }
     if startup_connect.is_some_and(|state| state.modal_visible()) {
-        *scene = VelloScene2d::from(built);
         return;
     }
     let inputs = HudRenderInputs {
@@ -97,29 +101,46 @@ pub(super) fn render_hud_scene_impl(
 
         let shell_rect = module.shell.current_rect;
         let alpha = module.shell.current_alpha.max(0.0);
-        let mut painter = HudPainter::new(&mut built, &fonts, &primary_window, alpha);
-        draw_module_shell(&mut painter, module_id, shell_rect);
+        {
+            let mut painter = HudPainter::new(base_scene, &fonts, &primary_window, alpha);
+            draw_module_shell(&mut painter, module_id, shell_rect);
+        }
 
         let content_rect = module_content_rect(module_id, module.shell.current_rect);
-        built.push_clip_layer(
+        base_scene.push_clip_layer(
             Fill::NonZero,
             Affine::IDENTITY,
             &hud_rect_to_scene(&primary_window, content_rect),
         );
-        let mut painter = HudPainter::new(&mut built, &fonts, &primary_window, alpha);
-        modules::render_module_content(
-            module_id,
-            content_rect,
-            &mut painter,
-            &inputs,
-            &agent_list_state,
-            &conversation_list_state,
-        );
-        built.pop_layer();
+        if module_id == HudWidgetKey::AgentList {
+            let mut painters = HudPainterSet::new(
+                base_scene,
+                bloom_group_scenes,
+                &fonts,
+                &primary_window,
+                alpha,
+            );
+            modules::render_agent_list_content_with_bloom(
+                &agent_list_state,
+                content_rect,
+                &mut painters,
+                &inputs,
+            );
+        } else {
+            let mut painter = HudPainter::new(base_scene, &fonts, &primary_window, alpha);
+            modules::render_module_content(
+                module_id,
+                content_rect,
+                &mut painter,
+                &inputs,
+                &agent_list_state,
+                &conversation_list_state,
+            );
+        }
+        base_scene.pop_layer();
     }
 
-    log_hud_draw_colors_if_requested(&built);
-    *scene = VelloScene2d::from(built);
+    log_hud_draw_colors_if_requested(base_scene);
 }
 
 #[allow(
@@ -145,7 +166,7 @@ pub(super) fn render_hud_modal_scene_impl(
 ) {
     // Build the geometry or layout decisions first, then emit the matching draw operations against the prepared state.
     let mut built = vello::Scene::new();
-    bloom_occlusion.rect = None;
+    bloom_occlusion.rects.clear();
     let mut painter = HudPainter::new(&mut built, &fonts, &primary_window, 1.0);
     if let Some(startup_connect) = startup_connect.as_deref() {
         draw_startup_connect_overlay(&mut painter, &primary_window, startup_connect);
@@ -175,7 +196,7 @@ pub(super) fn render_hud_modal_scene_impl(
         if agent_list_module.shell.enabled || agent_list_alpha > 0.01 {
             let mut painter =
                 HudPainter::new(&mut built, &fonts, &primary_window, agent_list_alpha);
-            bloom_occlusion.rect = modules::render_hover_overlay(
+            if let Some(rect) = modules::render_hover_overlay(
                 &primary_window,
                 &agent_list_state,
                 selection.as_deref(),
@@ -185,7 +206,9 @@ pub(super) fn render_hud_modal_scene_impl(
                 ),
                 &mut painter,
                 &agent_list_view,
-            );
+            ) {
+                bloom_occlusion.rects.push(rect);
+            }
         }
     }
     *scene = VelloScene2d::from(built);

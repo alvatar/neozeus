@@ -7,6 +7,9 @@ use super::{
         HudModalCameraMarker, HudModalVectorSceneMarker, HudVectorSceneMarker,
         HUD_MODAL_CAMERA_ORDER, HUD_MODAL_RENDER_LAYER,
     },
+    render_group::{
+        HudBloomGroupId, HudBloomGroupMarker, HudBloomGroupRegistry, HudBloomGroupRenderState,
+    },
     render_surface::{HudSurfaceId, HudSurfaceMarker, HudSurfaceRegistry},
     state::{
         default_hud_module_instance, docked_agent_list_rect_with_top_inset, docked_info_bar_rect,
@@ -110,6 +113,24 @@ pub(crate) fn setup_hud(
     surfaces.register_scene(HudSurfaceId::MainHud, main_scene);
     surfaces.register_scene(HudSurfaceId::ModalHud, modal_scene);
     commands.insert_resource(surfaces);
+
+    let mut bloom_groups = HudBloomGroupRegistry::default();
+    for group in HudBloomGroupId::ordered_for_surface(HudSurfaceId::MainHud) {
+        let scene = commands
+            .spawn((
+                VelloScene2d::default(),
+                Transform::from_xyz(0.0, 0.0, 50.0),
+                NoFrustumCulling,
+                HudSurfaceMarker {
+                    id: HudSurfaceId::MainHud,
+                },
+                HudBloomGroupMarker { group: *group },
+            ))
+            .id();
+        bloom_groups.register_scene(*group, scene);
+    }
+    commands.insert_resource(bloom_groups);
+    commands.insert_resource(HudBloomGroupRenderState::default());
     commands.spawn((
         Camera2d,
         Camera {

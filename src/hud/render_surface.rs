@@ -53,6 +53,9 @@ mod tests {
 
     #[test]
     fn hud_surface_order_lists_main_before_modal() {
-        assert_eq!(HudSurfaceId::ordered(), [HudSurfaceId::MainHud, HudSurfaceId::ModalHud]);
+        assert_eq!(
+            HudSurfaceId::ordered(),
+            [HudSurfaceId::MainHud, HudSurfaceId::ModalHud]
+        );
     }
 }

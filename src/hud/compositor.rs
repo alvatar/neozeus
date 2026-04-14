@@ -12,7 +12,10 @@ use bevy::{
 };
 use bevy_vello::render::VelloCanvasMaterial;
 
-use super::render_surface::{HudSurfaceId, HudSurfaceMarker};
+use super::{
+    render_group::HudBloomGroupMarker,
+    render_surface::{HudSurfaceId, HudSurfaceMarker},
+};
 
 pub(crate) const HUD_COMPOSITE_RENDER_LAYER: usize = 28;
 pub(crate) const HUD_COMPOSITE_BLOOM_RENDER_LAYER: usize = 32;
@@ -188,6 +191,7 @@ type VelloCanvasQueryItem<'a> = (
     &'a MeshMaterial2d<VelloCanvasMaterial>,
     Option<&'a mut Visibility>,
     Option<&'a HudSurfaceMarker>,
+    Option<&'a HudBloomGroupMarker>,
 );
 
 type HudCompositeQuadQueryItem<'a> = (
@@ -222,7 +226,12 @@ pub(crate) fn sync_hud_offscreen_compositor(
     );
     let mut vello_texture = None;
     let mut vello_texture_size = None;
-    for (entity, material_handle, maybe_visibility, surface_marker) in &mut vello_canvases {
+    for (entity, material_handle, maybe_visibility, surface_marker, bloom_group_marker) in
+        &mut vello_canvases
+    {
+        if bloom_group_marker.is_some() {
+            continue;
+        }
         if surface_marker.is_some_and(|marker| marker.id != HudSurfaceId::MainHud) {
             continue;
         }

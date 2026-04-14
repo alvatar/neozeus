@@ -10,9 +10,10 @@ use crate::{
     },
     hud::{
         AgentListBloomBlurMaterial, AgentListBloomCompositeMaterial, AgentListView, ComposerView,
-        ConversationListView, HudBloomOcclusionState, HudBloomSettings, HudCompositeCaptureConfig,
-        HudOffscreenCompositor, HudPersistenceState, HudTextureCaptureConfig, HudWidgetBloom,
-        TerminalVisibilityState, ThreadView, WindowCaptureConfig,
+        ConversationListView, HudBloomGroupCaptureConfig, HudBloomOcclusionState, HudBloomSettings,
+        HudCompositeCaptureConfig, HudOffscreenCompositor, HudPersistenceState,
+        HudTextureCaptureConfig, HudWidgetBloom, TerminalVisibilityState, ThreadView,
+        WindowCaptureConfig,
     },
     shared::linux_display::LinuxDisplayEnvironment,
     terminals::{
@@ -387,6 +388,7 @@ fn configure_app(app: &mut App) -> Result<(), String> {
         env::var("NEOZEUS_WINDOW_SCALE_FACTOR").ok().as_deref(),
     );
     let hud_capture = HudTextureCaptureConfig::from_env();
+    let hud_bloom_group_capture = HudBloomGroupCaptureConfig::from_env();
     let hud_composite_capture = HudCompositeCaptureConfig::from_env();
     let window_capture = WindowCaptureConfig::from_env();
     let final_frame_capture = FinalFrameCaptureConfig::from_env();
@@ -394,6 +396,7 @@ fn configure_app(app: &mut App) -> Result<(), String> {
     let verification_scenario = VerificationScenarioConfig::from_env();
     let winit_settings = if output.mode.is_offscreen()
         || hud_capture.is_some()
+        || hud_bloom_group_capture.is_some()
         || hud_composite_capture.is_some()
         || window_capture.is_some()
         || final_frame_capture.is_some()
@@ -470,6 +473,9 @@ fn configure_app(app: &mut App) -> Result<(), String> {
 
     if let Some(hud_capture) = hud_capture {
         app.insert_resource(hud_capture);
+    }
+    if let Some(hud_bloom_group_capture) = hud_bloom_group_capture {
+        app.insert_resource(hud_bloom_group_capture);
     }
     if let Some(hud_composite_capture) = hud_composite_capture {
         app.insert_resource(hud_composite_capture);

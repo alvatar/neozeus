@@ -62,6 +62,18 @@ fn parses_verification_scenarios() {
 /// Running the scenario should spawn one verifier terminal, focus it, open the message-box modal, and
 /// seed the modal text with the deterministic payload used by the visual test.
 #[test]
+fn verification_scenario_specs_preserve_required_terminal_counts() {
+    assert_eq!(
+        verification_scenario_spec(VerificationScenario::MessageBoxBloom).required_terminals,
+        1
+    );
+    assert_eq!(
+        verification_scenario_spec(VerificationScenario::InspectSwitchLatency).required_terminals,
+        2
+    );
+}
+
+#[test]
 fn message_box_scenario_opens_modal_and_spawns_terminal() {
     // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let client = Arc::new(crate::tests::FakeDaemonClient::default());

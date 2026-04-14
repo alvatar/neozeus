@@ -1,7 +1,7 @@
 use crate::hud::view_models::{AgentListActivity, AgentListRowKind};
 
 use super::super::super::render::{
-    apply_alpha, interpolate_color, HudColors, HudPainter, HudRenderInputs,
+    apply_alpha, interpolate_color, HudColors, HudPainter, HudPainterSet, HudRenderInputs,
 };
 use super::super::super::state::{AgentListUiState, HudRect, HUD_MODULE_PADDING};
 use bevy::{prelude::Vec2, window::Window};
@@ -456,6 +456,159 @@ fn render_tmux_child_row(
     draw_button_rect(painter, main_rect, stroke, tmux_child_fill_color());
 }
 
+fn drag_preview_for_state(state: &AgentListUiState) -> Option<AgentListDragPreview> {
+    match (
+        state.drag.dragging_agent,
+        state.drag.drag_cursor,
+        state.drag.last_reorder_index,
+    ) {
+        (Some(agent_id), Some(cursor), Some(target_index)) => Some(AgentListDragPreview {
+            agent_id,
+            cursor_y: cursor.y,
+            grab_offset_y: state.drag.drag_grab_offset_y,
+            target_index,
+        }),
+        _ => None,
+    }
+}
+
+fn renderable_rows(
+    state: &AgentListUiState,
+    content_rect: HudRect,
+    inputs: &HudRenderInputs,
+) -> Vec<AgentRow> {
+    let mut rows = projected_agent_rows(
+        content_rect,
+        state.scroll_offset,
+        state.hovered_row.as_ref(),
+        inputs.agent_list_view,
+        drag_preview_for_state(state),
+    );
+    rows.sort_by_key(|row| row.dragging);
+    rows
+}
+
+fn draw_bloom_border(
+    painter: &mut HudPainter,
+    rect: HudRect,
+    thickness: f32,
+    color: peniko::Color,
+) {
+    let horizontal = thickness.max(1.0).min(rect.h.max(1.0));
+    let vertical = thickness.max(1.0).min(rect.w.max(1.0));
+    for segment in [
+        HudRect {
+            x: rect.x,
+            y: rect.y,
+            w: rect.w.max(1.0),
+            h: horizontal,
+        },
+        HudRect {
+            x: rect.x + rect.w - vertical,
+            y: rect.y,
+            w: vertical,
+            h: rect.h.max(1.0),
+        },
+        HudRect {
+            x: rect.x,
+            y: rect.y + rect.h - horizontal,
+            w: rect.w.max(1.0),
+            h: horizontal,
+        },
+        HudRect {
+            x: rect.x,
+            y: rect.y,
+            w: vertical,
+            h: rect.h.max(1.0),
+        },
+    ] {
+        painter.fill_rect(segment, color, 0.0);
+    }
+}
+
+fn selection_bloom_color(row: &AgentRow) -> peniko::Color {
+    match &row.kind {
+        AgentRowKind::Agent {
+            activity, paused, ..
+        } => {
+            if *paused {
+                PAUSED_ROW_COLOR
+            } else if *activity == AgentListActivity::Working {
+                WORKING_ROW_COLOR
+            } else {
+                peniko::Color::from_rgba8(
+                    AGENT_LIST_BLOOM_RED_R,
+                    AGENT_LIST_BLOOM_RED_G,
+                    AGENT_LIST_BLOOM_RED_B,
+                    255,
+                )
+            }
+        }
+        AgentRowKind::OwnedTmux { .. } => EVA_SELECTED,
+    }
+}
+
+fn emit_agent_list_bloom_groups(
+    state: &AgentListUiState,
+    content_rect: HudRect,
+    painters: &mut HudPainterSet<'_, '_>,
+    inputs: &HudRenderInputs,
+) {
+    for row in renderable_rows(state, content_rect, inputs) {
+        if row.rect.y + row.rect.h < content_rect.y || row.rect.y > content_rect.y + content_rect.h
+        {
+            continue;
+        }
+
+        if row.aegis_enabled() && !row.is_tmux_child() {
+            let expanded_rect = HudRect {
+                x: row.rect.x - 4.0,
+                y: row.rect.y - 3.0,
+                w: row.rect.w + 8.0,
+                h: row.rect.h + 6.0,
+            };
+            painters.with_bloom_group_painter(
+                crate::hud::HudBloomGroupId::AgentListAegis,
+                |painter| {
+                    draw_bloom_border(
+                        painter,
+                        expanded_rect,
+                        5.0,
+                        peniko::Color::from_rgba8(255, 132, 32, 255),
+                    );
+                },
+            );
+        }
+
+        if !row.focused {
+            continue;
+        }
+
+        let color = selection_bloom_color(&row);
+        painters.with_bloom_group_painter(
+            crate::hud::HudBloomGroupId::AgentListSelection,
+            |painter| {
+                if row.is_tmux_child() {
+                    draw_bloom_border(painter, row_main_rect(&row), 3.0, color);
+                } else {
+                    draw_bloom_border(
+                        painter,
+                        agent_row_rect(row.rect, AgentListRowSection::Main),
+                        3.0,
+                        color,
+                    );
+                    draw_bloom_border(
+                        painter,
+                        agent_row_rect(row.rect, AgentListRowSection::Marker),
+                        2.5,
+                        color,
+                    );
+                }
+            },
+        );
+    }
+}
+
 /// Renders content.
 pub(crate) fn render_content(
     state: &AgentListUiState,
@@ -491,28 +644,7 @@ pub(crate) fn render_content(
         0.0,
     );
 
-    let drag_preview = match (
-        state.drag.dragging_agent,
-        state.drag.drag_cursor,
-        state.drag.last_reorder_index,
-    ) {
-        (Some(agent_id), Some(cursor), Some(target_index)) => Some(AgentListDragPreview {
-            agent_id,
-            cursor_y: cursor.y,
-            grab_offset_y: state.drag.drag_grab_offset_y,
-            target_index,
-        }),
-        _ => None,
-    };
-
-    let mut rows = projected_agent_rows(
-        content_rect,
-        state.scroll_offset,
-        state.hovered_row.as_ref(),
-        inputs.agent_list_view,
-        drag_preview,
-    );
-    rows.sort_by_key(|row| row.dragging);
+    let rows = renderable_rows(state, content_rect, inputs);
 
     let mut parent_main_rects = std::collections::HashMap::new();
     for row in rows {
@@ -731,6 +863,16 @@ fn context_overlay_key<'a>(
     })
 }
 
+pub(crate) fn render_content_with_bloom(
+    state: &AgentListUiState,
+    content_rect: HudRect,
+    painters: &mut HudPainterSet<'_, '_>,
+    inputs: &HudRenderInputs,
+) {
+    painters.with_base_painter(|painter| render_content(state, content_rect, painter, inputs));
+    emit_agent_list_bloom_groups(state, content_rect, painters, inputs);
+}
+
 pub(crate) fn render_hover_overlay(
     window: &Window,
     state: &AgentListUiState,
@@ -813,9 +955,81 @@ mod tests {
             AgentListActivity, AgentListRowKey, AgentListRowKind, AgentListRowView,
             AgentListSelection, AgentListView, OwnedTmuxOwnerBinding,
         },
+        hud::{ConversationListView, InfoBarView, ThreadView},
         shared::daemon_wire::DaemonSessionMetrics,
     };
-    use bevy::window::Window;
+    use bevy::{prelude::Assets, window::Window};
+    use bevy_vello::prelude::{vello, VelloFont};
+
+    #[test]
+    fn render_content_with_bloom_populates_selection_and_aegis_group_scenes() {
+        let state = crate::hud::AgentListUiState::default();
+        let agent_list_view = AgentListView {
+            rows: vec![AgentListRowView {
+                key: AgentListRowKey::Agent(AgentId(1)),
+                label: "alpha".into(),
+                focused: true,
+                kind: AgentListRowKind::Agent {
+                    agent_id: AgentId(1),
+                    agent_kind: AgentKind::Verifier,
+                    terminal_id: None,
+                    has_tasks: false,
+                    interactive: true,
+                    activity: AgentListActivity::Idle,
+                    paused: false,
+                    aegis_enabled: true,
+                    context_pct_milli: None,
+                    session_metrics: DaemonSessionMetrics::default(),
+                },
+            }],
+        };
+        let conversation_list_view = ConversationListView::default();
+        let thread_view = ThreadView::default();
+        let info_bar_view = InfoBarView::default();
+        let selection = crate::text_selection::AgentListTextSelectionState::default();
+        let inputs = crate::hud::render::HudRenderInputs {
+            agent_list_view: &agent_list_view,
+            conversation_list_view: &conversation_list_view,
+            thread_view: &thread_view,
+            info_bar_view: &info_bar_view,
+            agent_list_text_selection: &selection,
+        };
+        let fonts = Assets::<VelloFont>::default();
+        let window = Window::default();
+        let mut base = vello::Scene::new();
+        let mut groups = std::collections::BTreeMap::from([
+            (
+                crate::hud::HudBloomGroupId::AgentListSelection,
+                vello::Scene::new(),
+            ),
+            (
+                crate::hud::HudBloomGroupId::AgentListAegis,
+                vello::Scene::new(),
+            ),
+        ]);
+        let mut painters =
+            crate::hud::render::HudPainterSet::new(&mut base, &mut groups, &fonts, &window, 1.0);
+
+        super::render_content_with_bloom(
+            &state,
+            crate::hud::HudRect {
+                x: 0.0,
+                y: 0.0,
+                w: 400.0,
+                h: 200.0,
+            },
+            &mut painters,
+            &inputs,
+        );
+
+        assert!(!base.encoding().is_empty());
+        assert!(!groups[&crate::hud::HudBloomGroupId::AgentListSelection]
+            .encoding()
+            .is_empty());
+        assert!(!groups[&crate::hud::HudBloomGroupId::AgentListAegis]
+            .encoding()
+            .is_empty());
+    }
 
     #[test]
     fn working_agent_rows_use_green_palette() {
@@ -1071,6 +1285,7 @@ mod tests {
                 interactive: true,
                 activity: AgentListActivity::Idle,
                 paused: false,
+                aegis_enabled: false,
                 context_pct_milli: None,
                 session_metrics: DaemonSessionMetrics::default(),
             },

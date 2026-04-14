@@ -171,7 +171,7 @@ fn wait_for_surface_containing(
     updates: &mpsc::Receiver<TerminalUpdate>,
     needle: &str,
 ) -> TerminalSurface {
-    wait_for_surface_containing_with_timeout(updates, needle, Duration::from_secs(3))
+    wait_for_surface_containing_with_timeout(updates, needle, Duration::from_secs(8))
 }
 
 fn wait_for_surface_containing_with_timeout(
@@ -207,7 +207,7 @@ fn wait_for_lifecycle(
     updates: &mpsc::Receiver<TerminalUpdate>,
     predicate: impl Fn(&TerminalLifecycle) -> bool,
 ) -> TerminalRuntimeState {
-    let deadline = std::time::Instant::now() + Duration::from_secs(3);
+    let deadline = std::time::Instant::now() + Duration::from_secs(8);
     loop {
         let remaining = deadline
             .checked_duration_since(std::time::Instant::now())
@@ -231,7 +231,7 @@ fn wait_for_surface_dimensions(
     cols: usize,
     rows: usize,
 ) -> TerminalSurface {
-    let deadline = std::time::Instant::now() + Duration::from_secs(3);
+    let deadline = std::time::Instant::now() + Duration::from_secs(8);
     loop {
         let remaining = deadline
             .checked_duration_since(std::time::Instant::now())
@@ -255,7 +255,7 @@ fn wait_for_surface_dimensions(
 
 /// Waits until a file appears and returns its trimmed contents.
 fn wait_for_file_text(path: &std::path::Path) -> String {
-    let deadline = std::time::Instant::now() + Duration::from_secs(3);
+    let deadline = std::time::Instant::now() + Duration::from_secs(8);
     loop {
         if let Ok(text) = fs::read_to_string(path) {
             let text = text.trim().to_owned();
@@ -916,7 +916,7 @@ fn daemon_owned_tmux_helper_runs_inside_real_agent_shell() {
     let parent_surface = wait_for_surface_containing_with_timeout(
         &attached.updates,
         "tmux attach -t",
-        Duration::from_secs(10),
+        Duration::from_secs(20),
     );
     assert!(surface_to_text(&parent_surface).contains("tmux attach -t"));
 

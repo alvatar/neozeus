@@ -51,6 +51,7 @@ pub(in crate::hud) enum AgentRowKind {
         interactive: bool,
         activity: AgentListActivity,
         paused: bool,
+        aegis_enabled: bool,
         context_pct_milli: Option<i32>,
     },
     OwnedTmux {
@@ -78,6 +79,7 @@ impl AgentRow {
         }
     }
 
+    #[cfg(test)]
     pub(in crate::hud) fn terminal_id(&self) -> Option<TerminalId> {
         match self.kind {
             AgentRowKind::Agent { terminal_id, .. } => terminal_id,
@@ -85,6 +87,7 @@ impl AgentRow {
         }
     }
 
+    #[cfg(test)]
     pub(in crate::hud) fn activity(&self) -> Option<AgentListActivity> {
         match self.kind {
             AgentRowKind::Agent { activity, .. } => Some(activity),
@@ -92,9 +95,17 @@ impl AgentRow {
         }
     }
 
+    #[cfg(test)]
     pub(in crate::hud) fn paused(&self) -> bool {
         match self.kind {
             AgentRowKind::Agent { paused, .. } => paused,
+            AgentRowKind::OwnedTmux { .. } => false,
+        }
+    }
+
+    pub(in crate::hud) fn aegis_enabled(&self) -> bool {
+        match self.kind {
+            AgentRowKind::Agent { aegis_enabled, .. } => aegis_enabled,
             AgentRowKind::OwnedTmux { .. } => false,
         }
     }
@@ -231,6 +242,7 @@ pub(in crate::hud) fn projected_agent_rows(
                     interactive,
                     activity,
                     paused,
+                    aegis_enabled,
                     context_pct_milli,
                     ..
                 } => AgentRowKind::Agent {
@@ -240,6 +252,7 @@ pub(in crate::hud) fn projected_agent_rows(
                     interactive: *interactive,
                     activity: *activity,
                     paused: *paused,
+                    aegis_enabled: *aegis_enabled,
                     context_pct_milli: *context_pct_milli,
                 },
                 AgentListRowKind::OwnedTmux { owner, .. } => AgentRowKind::OwnedTmux {

@@ -1,6 +1,9 @@
 use super::request_hud_composite_capture;
 use crate::{
-    hud::{HudCompositeBloomCameraMarker, HudCompositeCameraMarker},
+    hud::{
+        HudBloomGroupCaptureConfig, HudBloomGroupId, HudBloomGroupMarker,
+        HudCompositeBloomCameraMarker, HudCompositeCameraMarker,
+    },
     shared::{
         capture::ArmedCaptureRequestState,
         readback::{align_copy_bytes_per_row, texture_bytes_to_ppm},
@@ -10,7 +13,7 @@ use bevy::{
     camera::RenderTarget,
     ecs::system::RunSystemOnce,
     prelude::*,
-    render::render_resource::TextureFormat,
+    render::{gpu_readback::Readback, render_resource::TextureFormat},
     window::{PrimaryWindow, RequestRedraw},
 };
 
@@ -51,6 +54,44 @@ fn texture_dump_swaps_bgra_channels() {
     let bytes = [10u8, 129, 225, 255];
     let ppm = texture_bytes_to_ppm(1, 1, TextureFormat::Bgra8Unorm, &bytes, "hud capture").unwrap();
     assert_eq!(&ppm[11..], &[225, 129, 10]);
+}
+
+#[test]
+fn bloom_group_capture_reads_requested_group_texture() {
+    let mut world = World::default();
+    world.insert_resource(HudBloomGroupCaptureConfig {
+        path: "/tmp/hud-bloom-group-test.ppm".into(),
+        request: crate::shared::capture::CaptureRequestState::new(0),
+        group: HudBloomGroupId::AgentListSelection,
+    });
+    world.insert_resource(Assets::<Image>::default());
+    world.insert_resource(Assets::<bevy_vello::render::VelloCanvasMaterial>::default());
+    world.init_resource::<Messages<RequestRedraw>>();
+    let image = world.resource_mut::<Assets<Image>>().add(Image::default());
+    {
+        let mut images = world.resource_mut::<Assets<Image>>();
+        let image_ref = images.get_mut(&image).unwrap();
+        image_ref.resize(bevy::render::render_resource::Extent3d {
+            width: 1400,
+            height: 900,
+            depth_or_array_layers: 1,
+        });
+    }
+    let material = world
+        .resource_mut::<Assets<bevy_vello::render::VelloCanvasMaterial>>()
+        .add(bevy_vello::render::VelloCanvasMaterial { texture: image });
+    world.spawn((
+        HudBloomGroupMarker {
+            group: HudBloomGroupId::AgentListSelection,
+        },
+        MeshMaterial2d::<bevy_vello::render::VelloCanvasMaterial>(material),
+    ));
+
+    world
+        .run_system_once(super::request_hud_bloom_group_capture)
+        .unwrap();
+
+    assert_eq!(world.query::<&Readback>().iter(&world).count(), 1);
 }
 
 #[test]

@@ -4,8 +4,8 @@ use super::{
 use crate::hud::{
     HudCompositeBloomCameraMarker, HudCompositeCameraMarker, HudCompositeLayerId,
     HudCompositeLayerMarker, HudModalVectorSceneMarker, HudSurfaceId, HudSurfaceMarker,
-    HUD_COMPOSITE_BLOOM_CAMERA_ORDER, HUD_COMPOSITE_BLOOM_RENDER_LAYER,
-    HUD_COMPOSITE_FOREGROUND_Z, HUD_COMPOSITE_RENDER_LAYER,
+    HUD_COMPOSITE_BLOOM_CAMERA_ORDER, HUD_COMPOSITE_BLOOM_RENDER_LAYER, HUD_COMPOSITE_FOREGROUND_Z,
+    HUD_COMPOSITE_RENDER_LAYER,
 };
 use bevy::{
     camera::visibility::{NoFrustumCulling, RenderLayers},
@@ -19,7 +19,10 @@ use bevy_vello::render::VelloCanvasMaterial;
 
 #[test]
 fn hud_surface_ordering_contract_is_explicit() {
-    assert_eq!(HudSurfaceId::ordered(), [HudSurfaceId::MainHud, HudSurfaceId::ModalHud]);
+    assert_eq!(
+        HudSurfaceId::ordered(),
+        [HudSurfaceId::MainHud, HudSurfaceId::ModalHud]
+    );
 }
 
 #[test]
@@ -207,6 +210,9 @@ fn sync_hud_offscreen_compositor_leaves_modal_vello_canvas_visible() {
             MeshMaterial2d::<VelloCanvasMaterial>(material),
             Visibility::Visible,
             HudModalVectorSceneMarker,
+            crate::hud::HudSurfaceMarker {
+                id: crate::hud::HudSurfaceId::ModalHud,
+            },
         ))
         .id();
     world
@@ -302,8 +308,14 @@ fn sync_hud_offscreen_compositor_respects_explicit_surface_ids_not_only_modal_ma
         .run_system_once(sync_hud_offscreen_compositor)
         .unwrap();
 
-    assert_eq!(world.get::<Visibility>(main_canvas), Some(&Visibility::Hidden));
-    assert_eq!(world.get::<Visibility>(modal_canvas), Some(&Visibility::Visible));
+    assert_eq!(
+        world.get::<Visibility>(main_canvas),
+        Some(&Visibility::Hidden)
+    );
+    assert_eq!(
+        world.get::<Visibility>(modal_canvas),
+        Some(&Visibility::Visible)
+    );
 }
 
 /// Verifies the compositor quad mesh/UV contract expected by the upstream Vello texture-present path.

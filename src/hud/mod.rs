@@ -19,9 +19,9 @@ pub(crate) use bloom::{
     AgentListBloomCompositeMaterial, HudBloomOcclusionState, HudBloomSettings, HudWidgetBloom,
 };
 pub(crate) use capture::{
-    finalize_window_capture, request_hud_composite_capture, request_hud_texture_capture,
-    request_window_capture, HudCompositeCaptureConfig, HudTextureCaptureConfig,
-    WindowCaptureConfig,
+    finalize_window_capture, request_hud_bloom_group_capture, request_hud_composite_capture,
+    request_hud_texture_capture, request_window_capture, HudBloomGroupCaptureConfig,
+    HudCompositeCaptureConfig, HudTextureCaptureConfig, WindowCaptureConfig,
 };
 pub(crate) use compositor::{
     sync_hud_offscreen_compositor, HudCompositeBloomCameraMarker, HudCompositeCameraMarker,
@@ -35,10 +35,12 @@ pub(crate) use input::{
     adjacent_agent_list_target, handle_hud_pointer_input, AgentListNavigationTarget,
 };
 pub(crate) use persistence::{save_hud_layout_if_dirty, HudPersistenceState};
-pub(crate) use render::{
-    render_hud_modal_scene, render_hud_scene, HudModalCameraMarker, HudModalVectorSceneMarker,
-};
-pub(crate) use render_group::{HudBloomGroupId, HudRenderRoute};
+#[cfg(test)]
+pub(crate) use render::HudModalVectorSceneMarker;
+pub(crate) use render::{render_hud_modal_scene, render_hud_scene, HudModalCameraMarker};
+pub(crate) use render_group::{HudBloomGroupId, HudBloomGroupRegistry, HudBloomGroupRenderState};
+#[cfg(test)]
+pub(crate) use render_group::{HudBloomGroupMarker, HudRenderRoute};
 pub(crate) use render_surface::HudSurfaceRegistry;
 #[cfg(test)]
 pub(crate) use render_surface::{HudSurfaceId, HudSurfaceMarker};
