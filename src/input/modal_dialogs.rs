@@ -4,6 +4,12 @@ use crate::{
         CreateAgentDialogField, RecoveryCommand, RenameAgentDialogField, ResetDialogFocus,
     },
     composer::{MessageDialogFocus, TaskDialogFocus},
+    input::keybindings::{
+        binding_action_for_event, KeybindingAction, AEGIS_DIALOG_KEYBINDINGS,
+        CLONE_AGENT_DIALOG_KEYBINDINGS, CREATE_AGENT_DIALOG_KEYBINDINGS,
+        MESSAGE_DIALOG_KEYBINDINGS, RENAME_AGENT_DIALOG_KEYBINDINGS, RESET_DIALOG_KEYBINDINGS,
+        TASK_DIALOG_KEYBINDINGS,
+    },
 };
 use bevy::{
     input::keyboard::{Key, KeyboardInput},
@@ -73,18 +79,32 @@ enum DialogShellAction {
     None,
 }
 
-fn dialog_shell_action(event: &KeyboardInput, modifiers: KeyModifiers) -> DialogShellAction {
-    if event.key_code == KeyCode::Escape {
-        return DialogShellAction::Escape;
-    }
+fn route_binding_action(
+    bindings: &[crate::input::keybindings::KeybindingSpec],
+    event: &KeyboardInput,
+    modifiers: KeyModifiers,
+) -> Option<KeybindingAction> {
+    binding_action_for_event(
+        bindings,
+        event,
+        modifiers.ctrl,
+        modifiers.alt,
+        modifiers.shift,
+        modifiers.super_key,
+    )
+}
 
-    if modifiers.plain() && event.key_code == KeyCode::Tab {
-        return DialogShellAction::Tab {
-            reverse: modifiers.shift,
-        };
+fn dialog_shell_action(
+    bindings: &[crate::input::keybindings::KeybindingSpec],
+    event: &KeyboardInput,
+    modifiers: KeyModifiers,
+) -> DialogShellAction {
+    match route_binding_action(bindings, event, modifiers) {
+        Some(KeybindingAction::DialogEscape) => DialogShellAction::Escape,
+        Some(KeybindingAction::DialogTabForward) => DialogShellAction::Tab { reverse: false },
+        Some(KeybindingAction::DialogTabBackward) => DialogShellAction::Tab { reverse: true },
+        _ => DialogShellAction::None,
     }
-
-    DialogShellAction::None
 }
 
 fn finish_dialog_change(
@@ -109,7 +129,7 @@ pub(super) fn handle_create_agent_dialog_key(
     modifiers: KeyModifiers,
     emitted_commands: &mut Vec<AppCommand>,
 ) -> ModalKeyResult {
-    match dialog_shell_action(event, modifiers) {
+    match dialog_shell_action(CREATE_AGENT_DIALOG_KEYBINDINGS, event, modifiers) {
         DialogShellAction::Escape => {
             app_session.create_agent_dialog.close();
             return ModalKeyResult::redraw_and_stop();
@@ -191,7 +211,7 @@ pub(super) fn handle_clone_agent_dialog_key(
     modifiers: KeyModifiers,
     emitted_commands: &mut Vec<AppCommand>,
 ) -> ModalKeyResult {
-    match dialog_shell_action(event, modifiers) {
+    match dialog_shell_action(CLONE_AGENT_DIALOG_KEYBINDINGS, event, modifiers) {
         DialogShellAction::Escape => {
             app_session.clone_agent_dialog.close();
             return ModalKeyResult::redraw_and_stop();
@@ -249,7 +269,7 @@ pub(super) fn handle_rename_agent_dialog_key(
     modifiers: KeyModifiers,
     emitted_commands: &mut Vec<AppCommand>,
 ) -> ModalKeyResult {
-    match dialog_shell_action(event, modifiers) {
+    match dialog_shell_action(RENAME_AGENT_DIALOG_KEYBINDINGS, event, modifiers) {
         DialogShellAction::Escape => {
             app_session.rename_agent_dialog.close();
             return ModalKeyResult::redraw_and_stop();
@@ -295,7 +315,7 @@ pub(super) fn handle_reset_dialog_key(
     modifiers: KeyModifiers,
     emitted_commands: &mut Vec<AppCommand>,
 ) -> ModalKeyResult {
-    match dialog_shell_action(event, modifiers) {
+    match dialog_shell_action(RESET_DIALOG_KEYBINDINGS, event, modifiers) {
         DialogShellAction::Escape => {
             app_session.reset_dialog.close();
             app_session.recovery_status.show_reset_canceled();
@@ -337,7 +357,7 @@ pub(super) fn handle_aegis_dialog_key(
     wrapped_visible_cols: usize,
     emitted_commands: &mut Vec<AppCommand>,
 ) -> ModalKeyResult {
-    match dialog_shell_action(event, modifiers) {
+    match dialog_shell_action(AEGIS_DIALOG_KEYBINDINGS, event, modifiers) {
         DialogShellAction::Escape => {
             app_session.aegis_dialog.close();
             return ModalKeyResult::redraw_and_stop();
@@ -546,14 +566,17 @@ pub(super) fn handle_message_dialog_key(
     wrapped_visible_cols: usize,
     emitted_commands: &mut Vec<AppCommand>,
 ) -> ModalKeyResult {
-    if modifiers.ctrl_only() && event.key_code == KeyCode::KeyS {
+    if matches!(
+        route_binding_action(MESSAGE_DIALOG_KEYBINDINGS, event, modifiers),
+        Some(KeybindingAction::MessageDialogSubmit)
+    ) {
         if !app_session.composer.message_editor.text.trim().is_empty() {
             emitted_commands.push(AppCommand::Composer(ComposerCommand::Submit));
         }
         return ModalKeyResult::stop();
     }
 
-    match dialog_shell_action(event, modifiers) {
+    match dialog_shell_action(MESSAGE_DIALOG_KEYBINDINGS, event, modifiers) {
         DialogShellAction::Escape => {
             emitted_commands.push(AppCommand::Composer(ComposerCommand::Cancel));
             return ModalKeyResult::stop();
@@ -611,7 +634,10 @@ pub(super) fn handle_task_dialog_key(
     wrapped_visible_cols: usize,
     emitted_commands: &mut Vec<AppCommand>,
 ) -> ModalKeyResult {
-    if modifiers.ctrl_only() && event.key_code == KeyCode::KeyT {
+    if matches!(
+        route_binding_action(TASK_DIALOG_KEYBINDINGS, event, modifiers),
+        Some(KeybindingAction::TaskDialogClearDone)
+    ) {
         if let Some(agent_id) = app_session.composer.current_agent() {
             emitted_commands.push(AppCommand::Task(crate::app::TaskCommand::ClearDone {
                 agent_id,
@@ -620,7 +646,7 @@ pub(super) fn handle_task_dialog_key(
         return ModalKeyResult::default();
     }
 
-    match dialog_shell_action(event, modifiers) {
+    match dialog_shell_action(TASK_DIALOG_KEYBINDINGS, event, modifiers) {
         DialogShellAction::Escape => {
             emitted_commands.push(AppCommand::Composer(ComposerCommand::Submit));
             return ModalKeyResult::stop();

@@ -1,25 +1,33 @@
 mod clipboard_support;
 mod direct_terminal_input;
+mod keybindings;
+mod keyboard_route;
+mod keyboard_router;
 mod modal_dialogs;
-mod shortcut_bindings;
 mod terminal_pointer;
 mod terminal_selection_logic;
 
 use clipboard_support::{stop_primary_selection_owner, write_linux_primary_selection_text};
 use direct_terminal_input::terminal_is_interactive;
-use shortcut_bindings::has_plain_modifiers;
 use terminal_pointer::{
     terminal_page_scroll_rows, terminal_panel_contains_cursor, terminal_panel_screen_rect,
     topmost_terminal_panel_at_cursor,
 };
 
+#[cfg(test)]
 use crate::{
     aegis::{AegisPolicyStore, DEFAULT_AEGIS_PROMPT},
-    agents::{AgentCatalog, AgentRuntimeIndex},
+    agents::AgentCatalog,
     app::{
-        AegisCommand, AgentCommand as AppAgentCommand, AppCommand, AppSessionState,
-        CloneAgentDialogField, ComposerCommand, ComposerRequest, CreateAgentDialogField,
-        CreateAgentKind, OwnedTmuxCommand, RenameAgentDialogField, TaskCommand as AppTaskCommand,
+        AegisCommand, ComposerCommand, ComposerRequest, CreateAgentKind, OwnedTmuxCommand,
+        TaskCommand as AppTaskCommand,
+    },
+};
+use crate::{
+    agents::AgentRuntimeIndex,
+    app::{
+        AgentCommand as AppAgentCommand, AppCommand, AppSessionState, CloneAgentDialogField,
+        CreateAgentDialogField, RenameAgentDialogField,
     },
     composer::{
         aegis_dialog_target_at, clone_agent_dialog_target_at, create_agent_dialog_target_at,
@@ -41,8 +49,9 @@ use crate::{
         TerminalTextSelectionDragSource, TerminalTextSelectionOwner, TerminalTextSelectionState,
     },
 };
+#[cfg(test)]
+use bevy::app::AppExit;
 use bevy::{
-    app::AppExit,
     input::{
         keyboard::{Key, KeyboardInput},
         mouse::{MouseMotion, MouseScrollUnit, MouseWheel},
@@ -57,12 +66,34 @@ use std::{
     process::{Command, Stdio},
 };
 
+pub(super) fn has_plain_modifiers(keys: &ButtonInput<KeyCode>) -> (bool, bool, bool) {
+    (
+        keys.pressed(KeyCode::ControlLeft) || keys.pressed(KeyCode::ControlRight),
+        keys.pressed(KeyCode::AltLeft) || keys.pressed(KeyCode::AltRight),
+        keys.pressed(KeyCode::SuperLeft) || keys.pressed(KeyCode::SuperRight),
+    )
+}
+
+#[cfg(test)]
+pub(crate) fn is_plain_shortcut_key(
+    event: &KeyboardInput,
+    keys: &ButtonInput<KeyCode>,
+    key_code: KeyCode,
+) -> bool {
+    if event.state != ButtonState::Pressed || event.key_code != key_code {
+        return false;
+    }
+    let (ctrl, alt, super_key) = has_plain_modifiers(keys);
+    let shift = keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight);
+    !(ctrl || alt || super_key || shift)
+}
+
 #[cfg(test)]
 pub(crate) fn should_spawn_terminal_globally(
     event: &KeyboardInput,
     keys: &ButtonInput<KeyCode>,
 ) -> bool {
-    shortcut_bindings::should_spawn_terminal_globally(event, keys)
+    is_plain_shortcut_key(event, keys, KeyCode::KeyZ)
 }
 
 #[cfg(test)]
@@ -70,64 +101,134 @@ pub(crate) fn should_kill_active_terminal(
     event: &KeyboardInput,
     keys: &ButtonInput<KeyCode>,
 ) -> bool {
-    shortcut_bindings::should_kill_active_terminal(event, keys)
+    if event.state != ButtonState::Pressed || event.key_code != KeyCode::KeyK {
+        return false;
+    }
+    let (ctrl, alt, super_key) = has_plain_modifiers(keys);
+    ctrl && !alt && !super_key
 }
 
 #[cfg(test)]
 pub(crate) fn should_exit_application(event: &KeyboardInput, keys: &ButtonInput<KeyCode>) -> bool {
-    shortcut_bindings::should_exit_application(event, keys)
+    if event.state != ButtonState::Pressed || event.key_code != KeyCode::F10 {
+        return false;
+    }
+    let (ctrl, alt, super_key) = has_plain_modifiers(keys);
+    !(ctrl || alt || super_key)
 }
 
 #[allow(
     clippy::too_many_arguments,
-    reason = "keep crate::input entrypoints stable while shortcut logic lives in a submodule"
+    reason = "legacy compatibility wrapper retained for focused shortcut unit tests"
 )]
+#[cfg(test)]
 pub(crate) fn handle_global_terminal_spawn_shortcut(
-    messages: MessageReader<KeyboardInput>,
+    mut messages: MessageReader<KeyboardInput>,
     keys: Res<ButtonInput<KeyCode>>,
     primary_window: Single<&Window, With<PrimaryWindow>>,
     agent_catalog: Res<AgentCatalog>,
     selection: Option<Res<crate::hud::AgentListSelection>>,
-    app_session: ResMut<AppSessionState>,
+    mut app_session: ResMut<AppSessionState>,
     input_capture: Res<HudInputCaptureState>,
-    redraws: MessageWriter<RequestRedraw>,
+    mut redraws: MessageWriter<RequestRedraw>,
 ) {
-    shortcut_bindings::handle_global_terminal_spawn_shortcut(
-        messages,
-        keys,
-        primary_window,
-        agent_catalog,
-        selection,
-        app_session,
-        input_capture,
-        redraws,
-    )
+    if app_session.keyboard_capture_active(&input_capture) || !primary_window.focused {
+        return;
+    }
+
+    let default_selection = crate::hud::AgentListSelection::None;
+    let selection = selection.as_deref().unwrap_or(&default_selection);
+
+    for event in messages.read() {
+        if is_plain_shortcut_key(event, &keys, KeyCode::KeyZ) {
+            app_session.create_agent_dialog.open(CreateAgentKind::Pi);
+            redraws.write(RequestRedraw);
+            break;
+        }
+        if is_plain_shortcut_key(event, &keys, KeyCode::KeyC) {
+            let crate::hud::AgentListSelection::Agent(agent_id) = *selection else {
+                continue;
+            };
+            let Some(kind) = agent_catalog.kind(agent_id) else {
+                continue;
+            };
+            let supports_clone = match kind {
+                crate::agents::AgentKind::Pi => {
+                    agent_catalog.clone_source_session_path(agent_id).is_some()
+                }
+                crate::agents::AgentKind::Claude | crate::agents::AgentKind::Codex => {
+                    agent_catalog.recovery_spec(agent_id).is_some()
+                }
+                crate::agents::AgentKind::Terminal | crate::agents::AgentKind::Verifier => false,
+            };
+            if !supports_clone {
+                continue;
+            }
+            let current_label = agent_catalog.label(agent_id).unwrap_or("AGENT");
+            app_session
+                .clone_agent_dialog
+                .open(agent_id, kind, current_label);
+            redraws.write(RequestRedraw);
+            break;
+        }
+    }
+}
+
+pub(crate) fn handle_keyboard_input(world: &mut World) {
+    keyboard_router::handle_keyboard_input(world)
 }
 
 #[allow(
     clippy::too_many_arguments,
-    reason = "keep crate::input entrypoints stable while shortcut logic lives in a submodule"
+    reason = "legacy compatibility wrapper retained for focused shortcut unit tests"
 )]
+#[cfg(test)]
 pub(crate) fn handle_terminal_lifecycle_shortcuts(
-    messages: MessageReader<KeyboardInput>,
+    mut messages: MessageReader<KeyboardInput>,
     keys: Res<ButtonInput<KeyCode>>,
-    app_session: ResMut<AppSessionState>,
+    mut app_session: ResMut<AppSessionState>,
     input_capture: Res<HudInputCaptureState>,
     selection: Option<Res<crate::hud::AgentListSelection>>,
-    app_commands: MessageWriter<AppCommand>,
-    app_exits: MessageWriter<AppExit>,
-    redraws: MessageWriter<RequestRedraw>,
+    mut app_commands: MessageWriter<AppCommand>,
+    mut app_exits: MessageWriter<AppExit>,
+    mut redraws: MessageWriter<RequestRedraw>,
 ) {
-    shortcut_bindings::handle_terminal_lifecycle_shortcuts(
-        messages,
-        keys,
-        app_session,
-        input_capture,
-        selection,
-        app_commands,
-        app_exits,
-        redraws,
-    )
+    if app_session.keyboard_capture_active(&input_capture) {
+        return;
+    }
+
+    let default_selection = crate::hud::AgentListSelection::None;
+    let selection = selection.as_deref().unwrap_or(&default_selection);
+
+    for event in messages.read() {
+        if should_exit_application(event, &keys) {
+            app_exits.write(AppExit::Success);
+            break;
+        }
+        let (ctrl, alt, super_key) = has_plain_modifiers(&keys);
+        if ctrl
+            && alt
+            && !super_key
+            && event.state == ButtonState::Pressed
+            && event.key_code == KeyCode::KeyR
+        {
+            app_session.reset_dialog.open();
+            app_session.recovery_status.show_reset_requested();
+            redraws.write(RequestRedraw);
+            break;
+        }
+        if should_kill_active_terminal(event, &keys) {
+            match *selection {
+                crate::hud::AgentListSelection::OwnedTmux(_) => {
+                    app_commands.write(AppCommand::OwnedTmux(OwnedTmuxCommand::KillSelected));
+                }
+                crate::hud::AgentListSelection::Agent(_) => {
+                    app_commands.write(AppCommand::Agent(AppAgentCommand::KillSelected));
+                }
+                crate::hud::AgentListSelection::None => {}
+            }
+        }
+    }
 }
 
 #[allow(
@@ -444,6 +545,7 @@ pub(crate) fn write_linux_primary_selection_text_with(
     clippy::too_many_arguments,
     reason = "keep crate::input entrypoints stable while direct terminal input logic lives in a submodule"
 )]
+#[cfg(test)]
 pub(crate) fn handle_terminal_direct_input_keyboard(
     messages: MessageReader<KeyboardInput>,
     keys: Res<ButtonInput<KeyCode>>,
@@ -847,6 +949,7 @@ fn handle_task_editor_events(
     clippy::too_many_arguments,
     reason = "plain terminal shortcuts still need runtime selection, dialogs, commands, and redraws together"
 )]
+#[cfg(test)]
 fn handle_plain_terminal_shortcuts(
     app_session: &mut AppSessionState,
     messages: &mut MessageReader<KeyboardInput>,
@@ -1002,6 +1105,7 @@ fn handle_plain_terminal_shortcuts(
 ///
 /// That explicit ordering prevents global shortcuts from firing while a modal editor owns the same
 /// keystrokes.
+#[cfg(test)]
 pub(crate) fn handle_terminal_message_box_keyboard(
     mut messages: MessageReader<KeyboardInput>,
     keys: Res<ButtonInput<KeyCode>>,

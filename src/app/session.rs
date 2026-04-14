@@ -36,6 +36,7 @@ pub(crate) enum InputOwner {
 }
 
 impl InputOwner {
+    #[cfg(test)]
     pub(crate) fn keyboard_capture_active(&self) -> bool {
         !matches!(self, Self::None)
     }
@@ -210,6 +211,7 @@ impl AppSessionState {
     }
 
     /// Returns whether any modal/editor state currently owns keyboard capture.
+    #[cfg(test)]
     pub(crate) fn keyboard_capture_active(&self, input_capture: &HudInputCaptureState) -> bool {
         self.input_owner(input_capture).keyboard_capture_active()
     }

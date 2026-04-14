@@ -1,17 +1,7 @@
-use super::*;
-
-/// Recognizes the exact `Ctrl+Enter` chord used to toggle direct-input mode.
-///
-/// The check is intentionally strict: the event must be a key press for `Enter`, Ctrl must be down,
-/// and Alt/Super must both be absent so the shortcut cannot collide with terminal input or desktop
-/// bindings.
-fn is_plain_ctrl_enter(event: &KeyboardInput, ctrl: bool, alt: bool, super_key: bool) -> bool {
-    event.state == ButtonState::Pressed
-        && event.key_code == KeyCode::Enter
-        && ctrl
-        && !alt
-        && !super_key
-}
+use super::{
+    keybindings::{binding_action_for_event, KeybindingAction, DIRECT_INPUT_KEYBINDINGS},
+    *,
+};
 
 /// Hides the exact runtime-state predicate used when deciding whether keyboard input may be routed
 /// into a terminal.
@@ -32,23 +22,24 @@ pub(super) fn terminal_is_interactive(terminal: &crate::terminals::TerminalRunti
 /// framing stays in sync.
 #[allow(
     clippy::too_many_arguments,
-    reason = "direct terminal input needs keyboard, focus, modal capture, terminal state, and redraws together"
+    reason = "direct-input routing needs keyboard event stream, window/focus state, capture state, terminal registry, session state, and redraw output together"
 )]
-pub(crate) fn handle_terminal_direct_input_keyboard(
-    mut messages: MessageReader<KeyboardInput>,
-    keys: Res<ButtonInput<KeyCode>>,
-    primary_window: Single<&Window, With<PrimaryWindow>>,
-    terminal_manager: Res<TerminalManager>,
-    focus_state: Res<TerminalFocusState>,
-    mut app_session: ResMut<AppSessionState>,
-    mut input_capture: ResMut<HudInputCaptureState>,
-    mut redraws: MessageWriter<RequestRedraw>,
+pub(super) fn handle_direct_input_route(
+    messages: &mut MessageReader<KeyboardInput>,
+    keys: &ButtonInput<KeyCode>,
+    primary_window: &Window,
+    terminal_manager: &TerminalManager,
+    focus_state: &TerminalFocusState,
+    app_session: &mut AppSessionState,
+    input_capture: &mut HudInputCaptureState,
+    redraws: &mut MessageWriter<RequestRedraw>,
 ) {
-    if !primary_window.focused || app_session.modal_input_owner(&input_capture) {
+    if !primary_window.focused || app_session.modal_input_owner(input_capture) {
         return;
     }
 
-    let (ctrl, alt, super_key) = has_plain_modifiers(&keys);
+    let (ctrl, alt, super_key) = has_plain_modifiers(keys);
+    let shift = keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight);
     let had_direct_input = input_capture.direct_input_terminal.is_some();
     input_capture.reconcile_direct_terminal_input(focus_state.active_id());
     if had_direct_input && input_capture.direct_input_terminal.is_none() {
@@ -70,48 +61,53 @@ pub(crate) fn handle_terminal_direct_input_keyboard(
         }
         let mut mode_changed = false;
         for event in messages.read() {
-            if is_plain_ctrl_enter(event, ctrl, alt, super_key) {
-                let _ = input_capture
-                    .toggle_direct_terminal_input(&mut app_session.composer, target_terminal);
-                mode_changed = true;
-                break;
-            }
-            if !ctrl && !alt && !super_key {
-                match event.key_code {
-                    KeyCode::End => {
-                        let bottom_delta = terminal
-                            .snapshot
-                            .surface
-                            .as_ref()
-                            .and_then(|surface| i32::try_from(surface.display_offset).ok())
-                            .map(|offset| -offset)
-                            .unwrap_or(0);
-                        if bottom_delta != 0 {
-                            terminal.bridge.note_key_event(event);
-                            terminal
-                                .bridge
-                                .send(TerminalCommand::ScrollDisplay(bottom_delta));
-                        }
-                        continue;
-                    }
-                    KeyCode::PageUp => {
-                        terminal.bridge.note_key_event(event);
-                        terminal.bridge.send(TerminalCommand::ScrollDisplay(
-                            terminal_page_scroll_rows(&terminal_manager, target_terminal),
-                        ));
-                        continue;
-                    }
-                    KeyCode::PageDown => {
-                        terminal.bridge.note_key_event(event);
-                        terminal.bridge.send(TerminalCommand::ScrollDisplay(
-                            -terminal_page_scroll_rows(&terminal_manager, target_terminal),
-                        ));
-                        continue;
-                    }
-                    _ => {}
+            match binding_action_for_event(
+                DIRECT_INPUT_KEYBINDINGS,
+                event,
+                ctrl,
+                alt,
+                shift,
+                super_key,
+            ) {
+                Some(KeybindingAction::ToggleDirectInput) => {
+                    let _ = input_capture
+                        .toggle_direct_terminal_input(&mut app_session.composer, target_terminal);
+                    mode_changed = true;
+                    break;
                 }
+                Some(KeybindingAction::DirectInputScrollToBottom) => {
+                    let bottom_delta = terminal
+                        .snapshot
+                        .surface
+                        .as_ref()
+                        .and_then(|surface| i32::try_from(surface.display_offset).ok())
+                        .map(|offset| -offset)
+                        .unwrap_or(0);
+                    if bottom_delta != 0 {
+                        terminal.bridge.note_key_event(event);
+                        terminal
+                            .bridge
+                            .send(TerminalCommand::ScrollDisplay(bottom_delta));
+                    }
+                    continue;
+                }
+                Some(KeybindingAction::ScrollPageUp) => {
+                    terminal.bridge.note_key_event(event);
+                    terminal.bridge.send(TerminalCommand::ScrollDisplay(
+                        terminal_page_scroll_rows(terminal_manager, target_terminal),
+                    ));
+                    continue;
+                }
+                Some(KeybindingAction::ScrollPageDown) => {
+                    terminal.bridge.note_key_event(event);
+                    terminal.bridge.send(TerminalCommand::ScrollDisplay(
+                        -terminal_page_scroll_rows(terminal_manager, target_terminal),
+                    ));
+                    continue;
+                }
+                _ => {}
             }
-            if let Some(command) = keyboard_input_to_terminal_command(event, &keys) {
+            if let Some(command) = keyboard_input_to_terminal_command(event, keys) {
                 terminal.bridge.note_key_event(event);
                 terminal.bridge.send(command);
             }
@@ -132,13 +128,43 @@ pub(crate) fn handle_terminal_direct_input_keyboard(
         return;
     }
     for event in messages.read() {
-        if !is_plain_ctrl_enter(event, ctrl, alt, super_key) {
+        if !matches!(
+            binding_action_for_event(DIRECT_INPUT_KEYBINDINGS, event, ctrl, alt, shift, super_key,),
+            Some(KeybindingAction::ToggleDirectInput)
+        ) {
             continue;
         }
         let _ = input_capture.toggle_direct_terminal_input(&mut app_session.composer, active_id);
         redraws.write(RequestRedraw);
         break;
     }
+}
+
+#[allow(
+    clippy::too_many_arguments,
+    reason = "direct terminal input needs keyboard, focus, modal capture, terminal state, and redraws together"
+)]
+#[cfg(test)]
+pub(crate) fn handle_terminal_direct_input_keyboard(
+    mut messages: MessageReader<KeyboardInput>,
+    keys: Res<ButtonInput<KeyCode>>,
+    primary_window: Single<&Window, With<PrimaryWindow>>,
+    terminal_manager: Res<TerminalManager>,
+    focus_state: Res<TerminalFocusState>,
+    mut app_session: ResMut<AppSessionState>,
+    mut input_capture: ResMut<HudInputCaptureState>,
+    mut redraws: MessageWriter<RequestRedraw>,
+) {
+    handle_direct_input_route(
+        &mut messages,
+        &keys,
+        &primary_window,
+        &terminal_manager,
+        &focus_state,
+        &mut app_session,
+        &mut input_capture,
+        &mut redraws,
+    );
 }
 
 /// Converts a raw Bevy keyboard event into the terminal command NeoZeus should send to the PTY.

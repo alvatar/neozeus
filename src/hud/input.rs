@@ -1,7 +1,7 @@
 use crate::{
     app::{
         AegisDialogField, AgentCommand, AppCommand, AppSessionState, CloneAgentDialogField,
-        CreateAgentDialogField, RenameAgentDialogField, WidgetCommand,
+        CreateAgentDialogField, RenameAgentDialogField,
     },
     composer::{
         aegis_dialog_target_at, clone_agent_dialog_target_at, create_agent_dialog_target_at,
@@ -24,13 +24,13 @@ use super::{
     },
     widgets::HudWidgetKey,
 };
+#[cfg(test)]
+use crate::app::WidgetCommand;
+#[cfg(test)]
+use bevy::input::{keyboard::KeyboardInput, ButtonState};
 use bevy::{
     ecs::system::SystemParam,
-    input::{
-        keyboard::KeyboardInput,
-        mouse::{MouseScrollUnit, MouseWheel},
-        ButtonState,
-    },
+    input::mouse::{MouseScrollUnit, MouseWheel},
     prelude::*,
     window::{PrimaryWindow, RequestRedraw},
 };
@@ -709,13 +709,13 @@ fn emit_app_commands(ctx: &mut HudPointerContext<'_, '_>, emitted_commands: Vec<
     }
 }
 
-enum AgentListNavigationTarget {
+pub(crate) enum AgentListNavigationTarget {
     Agent(crate::agents::AgentId),
     OwnedTmux(String),
 }
 
 /// Chooses the next or previous visible row target for keyboard navigation through the agent list.
-fn adjacent_agent_list_target(
+pub(crate) fn adjacent_agent_list_target(
     selection: &AgentListSelection,
     agent_list_view: &AgentListView,
     step: isize,
@@ -770,6 +770,7 @@ fn adjacent_agent_list_target(
 /// arrows walk the visible mixed agent/tmux rows. Agent rows emit focus/inspect commands; tmux rows
 /// emit tmux-selection commands. All of it is suppressed while any modal/editor state owns keyboard
 /// capture.
+#[cfg(test)]
 pub(crate) fn handle_hud_module_shortcuts(
     mut messages: MessageReader<KeyboardInput>,
     keys: Res<ButtonInput<KeyCode>>,

@@ -21,14 +21,14 @@ use crate::{
     hud::{handle_hud_module_shortcuts, TerminalVisibilityState},
     input::{
         ctrl_sequence, focus_terminal_on_panel_click, handle_global_terminal_spawn_shortcut,
-        handle_terminal_direct_input_keyboard, handle_terminal_lifecycle_shortcuts,
-        handle_terminal_message_box_keyboard, handle_terminal_text_selection,
-        hide_terminal_on_background_click, keyboard_input_to_terminal_command,
-        paste_into_aegis_dialog, paste_into_clone_agent_dialog, paste_into_create_agent_dialog,
-        paste_into_direct_input_terminal, paste_into_message_dialog,
-        paste_into_rename_agent_dialog, paste_into_task_dialog, scroll_terminal_with_mouse_wheel,
-        should_exit_application, should_kill_active_terminal, should_spawn_terminal_globally,
-        zoom_terminal_view,
+        handle_keyboard_input, handle_terminal_direct_input_keyboard,
+        handle_terminal_lifecycle_shortcuts, handle_terminal_message_box_keyboard,
+        handle_terminal_text_selection, hide_terminal_on_background_click,
+        keyboard_input_to_terminal_command, paste_into_aegis_dialog, paste_into_clone_agent_dialog,
+        paste_into_create_agent_dialog, paste_into_direct_input_terminal,
+        paste_into_message_dialog, paste_into_rename_agent_dialog, paste_into_task_dialog,
+        scroll_terminal_with_mouse_wheel, should_exit_application, should_kill_active_terminal,
+        should_spawn_terminal_globally, zoom_terminal_view,
     },
     terminals::{
         TerminalCommand, TerminalManager, TerminalNotesState, TerminalPanel, TerminalPresentation,
@@ -123,14 +123,53 @@ fn ensure_app_command_world_resources(world: &mut World) {
         world.insert_resource(crate::aegis::AegisPolicyStore::default());
         world.insert_resource(crate::aegis::AegisRuntimeStore::default());
     }
+    if !world.contains_resource::<crate::hud::HudLayoutState>() {
+        world.insert_resource(crate::hud::HudLayoutState::default());
+    }
+    if !world.contains_resource::<crate::hud::AgentListUiState>() {
+        world.insert_resource(crate::hud::AgentListUiState::default());
+    }
+    if !world.contains_resource::<crate::hud::ConversationListUiState>() {
+        world.insert_resource(crate::hud::ConversationListUiState::default());
+    }
+    if !world.contains_resource::<crate::hud::InfoBarUiState>() {
+        world.insert_resource(crate::hud::InfoBarUiState);
+    }
+    if !world.contains_resource::<crate::hud::ThreadPaneUiState>() {
+        world.insert_resource(crate::hud::ThreadPaneUiState);
+    }
     if !world.contains_resource::<crate::hud::HudInputCaptureState>() {
         world.insert_resource(crate::hud::HudInputCaptureState::default());
+    }
+    if !world.contains_resource::<crate::hud::AgentListSelection>() {
+        world.insert_resource(crate::hud::AgentListSelection::default());
+    }
+    if !world.contains_resource::<crate::hud::AgentListView>() {
+        world.insert_resource(crate::hud::AgentListView::default());
+    }
+    if !world.contains_resource::<crate::hud::ConversationListView>() {
+        world.insert_resource(crate::hud::ConversationListView::default());
+    }
+    if !world.contains_resource::<crate::hud::ThreadView>() {
+        world.insert_resource(crate::hud::ThreadView::default());
+    }
+    if !world.contains_resource::<crate::hud::ComposerView>() {
+        world.insert_resource(crate::hud::ComposerView::default());
+    }
+    if !world.contains_resource::<crate::hud::InfoBarView>() {
+        world.insert_resource(crate::hud::InfoBarView::default());
     }
     if !world.contains_resource::<crate::terminals::TerminalPointerState>() {
         world.insert_resource(crate::terminals::TerminalPointerState::default());
     }
     if !world.contains_resource::<Messages<AppCommand>>() {
         world.init_resource::<Messages<AppCommand>>();
+    }
+    if !world.contains_resource::<Messages<AppExit>>() {
+        world.init_resource::<Messages<AppExit>>();
+    }
+    if !world.contains_resource::<Messages<RequestRedraw>>() {
+        world.init_resource::<Messages<RequestRedraw>>();
     }
 }
 
@@ -170,19 +209,29 @@ fn dispatch_terminal_ui_key(world: &mut World, event: KeyboardInput) {
     }
 }
 
-/// Injects one keyboard event through the full real keyboard shortcut path: direct input, terminal
-/// shortcuts, HUD module shortcuts, then app-command dispatch.
-fn dispatch_full_ui_key(world: &mut World, event: KeyboardInput) {
+/// Injects one keyboard event through the real scheduled keyboard path: global shortcuts,
+/// lifecycle shortcuts, direct-input handling, modal/terminal shortcuts, HUD shortcuts, then app
+/// command dispatch.
+fn dispatch_key_through_real_keyboard_pipeline(world: &mut World, event: KeyboardInput) {
     ensure_app_command_world_resources(world);
     world.insert_resource(Messages::<KeyboardInput>::default());
+    let mut primary_window_query = world.query_filtered::<Entity, With<PrimaryWindow>>();
+    if primary_window_query.iter(world).next().is_none() {
+        world.spawn((
+            Window {
+                focused: true,
+                ..Default::default()
+            },
+            PrimaryWindow,
+        ));
+    }
+
+    let mut schedule = bevy::ecs::schedule::Schedule::default();
+    schedule.add_systems(handle_keyboard_input);
+    let _ = schedule.initialize(world);
     world.resource_mut::<Messages<KeyboardInput>>().write(event);
-    world
-        .run_system_once(handle_terminal_direct_input_keyboard)
-        .unwrap();
-    world
-        .run_system_once(handle_terminal_message_box_keyboard)
-        .unwrap();
-    world.run_system_once(handle_hud_module_shortcuts).unwrap();
+    schedule.run(world);
+
     if !world.resource::<Messages<AppCommand>>().is_empty() {
         run_app_command_cycle(world);
     }
@@ -340,6 +389,37 @@ fn plain_text_uses_text_payload() {
         Some(TerminalCommand::InputText(text)) => assert_eq!(text, "a"),
         _ => panic!("expected text input command"),
     }
+}
+
+#[test]
+fn widget_toggle_and_reset_work_in_full_keyboard_path() {
+    let mut world = World::default();
+    world.insert_resource(ButtonInput::<KeyCode>::default());
+    let mut hud_state = crate::hud::HudState::default();
+    hud_state.insert_default_module(crate::hud::HudWidgetKey::AgentList);
+    insert_test_hud_state(&mut world, hud_state);
+
+    dispatch_key_through_real_keyboard_pipeline(
+        &mut world,
+        pressed_text(KeyCode::Digit1, Some("1")),
+    );
+    assert!(!world
+        .resource::<crate::hud::HudLayoutState>()
+        .module_enabled(crate::hud::HudWidgetKey::AgentList));
+
+    world
+        .resource_mut::<ButtonInput<KeyCode>>()
+        .press(KeyCode::AltLeft);
+    world
+        .resource_mut::<ButtonInput<KeyCode>>()
+        .press(KeyCode::ShiftLeft);
+    dispatch_key_through_real_keyboard_pipeline(
+        &mut world,
+        pressed_key(KeyCode::Digit1, Key::Character("!".into())),
+    );
+    assert!(world
+        .resource::<crate::hud::HudLayoutState>()
+        .module_enabled(crate::hud::HudWidgetKey::AgentList));
 }
 
 /// Verifies that the global spawn shortcut is accepted only for an unmodified physical `z` key press.
@@ -880,6 +960,33 @@ fn ctrl_alt_shift_r_still_opens_reset_dialog_without_emitting_command() {
 }
 
 #[test]
+fn ctrl_alt_r_opens_reset_dialog_in_full_keyboard_path() {
+    let mut world = World::default();
+    world.insert_resource(ButtonInput::<KeyCode>::default());
+    world.insert_resource(AppSessionState::default());
+    world.insert_resource(crate::hud::HudInputCaptureState::default());
+
+    let mut keys = ButtonInput::<KeyCode>::default();
+    keys.press(KeyCode::ControlLeft);
+    keys.press(KeyCode::AltLeft);
+    world.insert_resource(keys);
+
+    dispatch_key_through_real_keyboard_pipeline(&mut world, pressed_text(KeyCode::KeyR, Some("r")));
+
+    assert!(world.resource::<AppSessionState>().reset_dialog.visible);
+    assert_eq!(
+        world
+            .resource::<AppSessionState>()
+            .recovery_status
+            .title
+            .as_deref(),
+        Some("Reset requested: confirmation required")
+    );
+    assert!(drain_hud_commands(&mut world).is_empty());
+    assert_eq!(world.resource::<Messages<AppExit>>().len(), 0);
+}
+
+#[test]
 fn ctrl_alt_r_is_suppressed_while_other_modal_has_keyboard_capture() {
     let mut world = World::default();
     world.insert_resource(ButtonInput::<KeyCode>::default());
@@ -970,6 +1077,43 @@ fn ctrl_k_removes_disconnected_active_terminal_in_one_press() {
         .run_system_once(handle_terminal_lifecycle_shortcuts)
         .unwrap();
     run_app_command_cycle(&mut world);
+
+    assert!(world
+        .resource::<TerminalManager>()
+        .terminal_ids()
+        .is_empty());
+    assert_eq!(
+        world
+            .resource::<crate::terminals::TerminalFocusState>()
+            .active_id(),
+        None
+    );
+}
+
+#[test]
+fn ctrl_k_removes_disconnected_active_terminal_in_full_keyboard_path() {
+    let client = std::sync::Arc::new(FakeDaemonClient::default());
+    *client.fail_kill.lock().unwrap() = true;
+    let (mut world, terminal_id) =
+        world_with_active_terminal(Vec2::new(10.0, 10.0), false, Vec2::ZERO);
+    world.insert_resource(fake_runtime_spawner(client));
+    let agent_id = world
+        .resource::<AgentRuntimeIndex>()
+        .agent_for_terminal(terminal_id)
+        .expect("agent should be linked");
+    world.insert_resource(crate::hud::AgentListSelection::Agent(agent_id));
+    world
+        .resource_mut::<TerminalManager>()
+        .get_mut(terminal_id)
+        .expect("terminal should exist")
+        .snapshot
+        .runtime = crate::terminals::TerminalRuntimeState::disconnected("dead session");
+
+    let mut keys = ButtonInput::<KeyCode>::default();
+    keys.press(KeyCode::ControlLeft);
+    world.insert_resource(keys);
+
+    dispatch_key_through_real_keyboard_pipeline(&mut world, pressed_text(KeyCode::KeyK, Some("k")));
 
     assert!(world
         .resource::<TerminalManager>()
@@ -2009,7 +2153,7 @@ fn plain_p_toggles_only_once_in_full_keyboard_path() {
         .focus_intent
         .focus_agent(agent_id, crate::app::VisibilityMode::ShowAll);
 
-    dispatch_full_ui_key(&mut world, pressed_text(KeyCode::KeyP, Some("p")));
+    dispatch_key_through_real_keyboard_pipeline(&mut world, pressed_text(KeyCode::KeyP, Some("p")));
 
     assert!(
         world.resource::<AgentCatalog>().is_paused(agent_id),
@@ -2070,6 +2214,88 @@ fn shift_p_does_not_toggle_paused_state_for_active_terminal_agent() {
         .run_system_once(handle_terminal_message_box_keyboard)
         .unwrap();
     run_app_command_cycle(&mut world);
+    assert!(!world.resource::<AgentCatalog>().is_paused(agent_id));
+}
+
+#[test]
+fn shift_p_does_not_toggle_in_full_keyboard_path() {
+    let (mut world, terminal_id) =
+        world_with_active_terminal(Vec2::new(10.0, 10.0), false, Vec2::ZERO);
+    let agent_id = world
+        .resource::<AgentRuntimeIndex>()
+        .agent_for_terminal(terminal_id)
+        .expect("agent should be linked");
+    world
+        .resource_mut::<ButtonInput<KeyCode>>()
+        .press(KeyCode::ShiftLeft);
+
+    dispatch_key_through_real_keyboard_pipeline(
+        &mut world,
+        pressed_key(KeyCode::KeyP, Key::Character("P".into())),
+    );
+
+    assert!(!world.resource::<AgentCatalog>().is_paused(agent_id));
+}
+
+#[test]
+fn direct_input_route_suppresses_primary_pause_shortcut_in_full_keyboard_path() {
+    let (mut world, terminal_id) =
+        world_with_active_terminal(Vec2::new(10.0, 10.0), false, Vec2::ZERO);
+    let agent_id = world
+        .resource::<AgentRuntimeIndex>()
+        .agent_for_terminal(terminal_id)
+        .expect("agent should be linked");
+    let mut hud_state = crate::hud::HudState::default();
+    hud_state.open_direct_terminal_input(terminal_id);
+    insert_test_hud_state(&mut world, hud_state);
+    assert_eq!(
+        world
+            .resource::<crate::hud::HudInputCaptureState>()
+            .direct_input_terminal,
+        Some(terminal_id)
+    );
+
+    assert!(!world.resource::<AgentCatalog>().is_paused(agent_id));
+    dispatch_key_through_real_keyboard_pipeline(&mut world, pressed_text(KeyCode::KeyP, Some("p")));
+
+    assert_eq!(world.resource::<Messages<AppCommand>>().len(), 0);
+    assert!(!world.resource::<AgentCatalog>().is_paused(agent_id));
+    assert!(!snapshot_test_hud_state(&world).message_box.visible);
+}
+
+#[test]
+fn message_dialog_route_suppresses_primary_pause_shortcut_in_full_keyboard_path() {
+    let (mut world, terminal_id) =
+        world_with_active_terminal(Vec2::new(10.0, 10.0), false, Vec2::ZERO);
+    let agent_id = world
+        .resource::<AgentRuntimeIndex>()
+        .agent_for_terminal(terminal_id)
+        .expect("agent should be linked");
+    let mut hud_state = crate::hud::HudState::default();
+    hud_state.open_message_box(terminal_id);
+    insert_test_hud_state(&mut world, hud_state);
+
+    dispatch_key_through_real_keyboard_pipeline(&mut world, pressed_text(KeyCode::KeyP, Some("p")));
+
+    assert_eq!(snapshot_test_hud_state(&world).message_box.text, "p");
+    assert!(!world.resource::<AgentCatalog>().is_paused(agent_id));
+}
+
+#[test]
+fn task_dialog_route_suppresses_primary_pause_shortcut_in_full_keyboard_path() {
+    let (mut world, terminal_id) =
+        world_with_active_terminal(Vec2::new(10.0, 10.0), false, Vec2::ZERO);
+    let agent_id = world
+        .resource::<AgentRuntimeIndex>()
+        .agent_for_terminal(terminal_id)
+        .expect("agent should be linked");
+    let mut hud_state = crate::hud::HudState::default();
+    hud_state.open_task_dialog(terminal_id, "");
+    insert_test_hud_state(&mut world, hud_state);
+
+    dispatch_key_through_real_keyboard_pipeline(&mut world, pressed_text(KeyCode::KeyP, Some("p")));
+
+    assert_eq!(snapshot_test_hud_state(&world).task_dialog.text, "p");
     assert!(!world.resource::<AgentCatalog>().is_paused(agent_id));
 }
 
@@ -3444,6 +3670,88 @@ fn hud_navigation_selects_owned_tmux_child_row() {
                 session_uid: "tmux-1".into(),
             }
         )]
+    );
+}
+
+#[test]
+fn hud_navigation_works_in_full_keyboard_path() {
+    let mut world = World::default();
+    insert_default_hud_resources(&mut world);
+    world.insert_resource(crate::hud::AgentListSelection::Agent(
+        crate::agents::AgentId(1),
+    ));
+    world.insert_resource(crate::hud::AgentListView {
+        rows: vec![
+            crate::hud::AgentListRowView {
+                key: crate::hud::AgentListRowKey::Agent(crate::agents::AgentId(1)),
+                label: "ALPHA".into(),
+                focused: true,
+                kind: crate::hud::AgentListRowKind::Agent {
+                    agent_id: crate::agents::AgentId(1),
+                    terminal_id: None,
+                    has_tasks: false,
+                    interactive: true,
+                    activity: crate::hud::AgentListActivity::Idle,
+                    paused: false,
+                    context_pct_milli: None,
+                    agent_kind: crate::agents::AgentKind::Terminal,
+                    session_metrics: crate::shared::daemon_wire::DaemonSessionMetrics::default(),
+                },
+            },
+            crate::hud::AgentListRowView {
+                key: crate::hud::AgentListRowKey::OwnedTmux("tmux-session-1".into()),
+                label: "BUILD".into(),
+                focused: false,
+                kind: crate::hud::AgentListRowKind::OwnedTmux {
+                    session_uid: "tmux-session-1".into(),
+                    owner: crate::hud::OwnedTmuxOwnerBinding::Bound(crate::agents::AgentId(1)),
+                    tmux_name: "neozeus-tmux-1".into(),
+                    cwd: "/tmp/work".into(),
+                    attached: false,
+                },
+            },
+            crate::hud::AgentListRowView {
+                key: crate::hud::AgentListRowKey::Agent(crate::agents::AgentId(2)),
+                label: "BETA".into(),
+                focused: false,
+                kind: crate::hud::AgentListRowKind::Agent {
+                    agent_id: crate::agents::AgentId(2),
+                    terminal_id: None,
+                    has_tasks: false,
+                    interactive: true,
+                    activity: crate::hud::AgentListActivity::Idle,
+                    paused: false,
+                    context_pct_milli: None,
+                    agent_kind: crate::agents::AgentKind::Terminal,
+                    session_metrics: crate::shared::daemon_wire::DaemonSessionMetrics::default(),
+                },
+            },
+        ],
+    });
+    world.insert_resource(crate::terminals::ActiveTerminalContentState::default());
+    world.insert_resource(crate::terminals::ActiveTerminalContentSyncState::default());
+    world.insert_resource(ButtonInput::<KeyCode>::default());
+    world
+        .resource_mut::<crate::terminals::OwnedTmuxSessionStore>()
+        .sessions
+        .push(crate::terminals::OwnedTmuxSessionInfo {
+            session_uid: "tmux-session-1".into(),
+            owner_agent_uid: "agent-uid-1".into(),
+            tmux_name: "neozeus-tmux-1".into(),
+            display_name: "BUILD".into(),
+            cwd: "/tmp/work".into(),
+            attached: false,
+            created_unix: 0,
+        });
+
+    dispatch_key_through_real_keyboard_pipeline(
+        &mut world,
+        pressed_key(KeyCode::KeyJ, Key::Character("j".into())),
+    );
+
+    assert_eq!(
+        *world.resource::<crate::hud::AgentListSelection>(),
+        crate::hud::AgentListSelection::OwnedTmux("tmux-session-1".into())
     );
 }
 

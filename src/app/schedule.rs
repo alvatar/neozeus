@@ -4,20 +4,17 @@ use crate::{
     app::save_app_state_if_dirty,
     conversations::{save_conversations_if_dirty, sync_task_notes_projection},
     hud::{
-        animate_hud_modules, finalize_window_capture, handle_hud_module_shortcuts,
-        handle_hud_pointer_input, render_hud_modal_scene, render_hud_scene,
-        request_hud_composite_capture, request_hud_texture_capture, request_window_capture,
-        save_hud_layout_if_dirty, setup_hud, setup_hud_widget_bloom, sync_hud_offscreen_compositor,
-        sync_hud_view_models, sync_hud_widget_bloom, sync_info_bar_view_model,
-        sync_structural_hud_layout,
+        animate_hud_modules, finalize_window_capture, handle_hud_pointer_input,
+        render_hud_modal_scene, render_hud_scene, request_hud_composite_capture,
+        request_hud_texture_capture, request_window_capture, save_hud_layout_if_dirty, setup_hud,
+        setup_hud_widget_bloom, sync_hud_offscreen_compositor, sync_hud_view_models,
+        sync_hud_widget_bloom, sync_info_bar_view_model, sync_structural_hud_layout,
     },
     input::{
-        drag_terminal_view, focus_terminal_on_panel_click, handle_global_terminal_spawn_shortcut,
-        handle_middle_click_paste, handle_terminal_direct_input_keyboard,
-        handle_terminal_lifecycle_shortcuts, handle_terminal_message_box_keyboard,
-        handle_terminal_text_selection, hide_terminal_on_background_click,
-        scroll_terminal_with_mouse_wheel, sync_primary_selection_from_ui_text_selection,
-        zoom_terminal_view,
+        drag_terminal_view, focus_terminal_on_panel_click, handle_keyboard_input,
+        handle_middle_click_paste, handle_terminal_text_selection,
+        hide_terminal_on_background_click, scroll_terminal_with_mouse_wheel,
+        sync_primary_selection_from_ui_text_selection, zoom_terminal_view,
     },
     startup::{advance_startup_connecting, request_redraw_while_visuals_active, setup_scene},
     terminals::{
@@ -168,10 +165,7 @@ pub(crate) fn configure_app_schedule(app: &mut App) {
     .add_systems(
         Update,
         (
-            handle_global_terminal_spawn_shortcut,
-            handle_terminal_lifecycle_shortcuts,
-            handle_terminal_direct_input_keyboard,
-            handle_terminal_message_box_keyboard,
+            handle_keyboard_input,
             handle_middle_click_paste,
             handle_terminal_text_selection,
             focus_terminal_on_panel_click,
@@ -184,7 +178,7 @@ pub(crate) fn configure_app_schedule(app: &mut App) {
     )
     .add_systems(
         Update,
-        (handle_hud_pointer_input, handle_hud_module_shortcuts).in_set(NeoZeusSet::HudInput),
+        handle_hud_pointer_input.in_set(NeoZeusSet::HudInput),
     )
     .add_systems(
         Update,

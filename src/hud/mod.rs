@@ -24,7 +24,11 @@ pub(crate) use capture::{
 pub(crate) use compositor::{
     sync_hud_offscreen_compositor, HudCompositeCameraMarker, HudOffscreenCompositor,
 };
-pub(crate) use input::{handle_hud_module_shortcuts, handle_hud_pointer_input};
+#[cfg(test)]
+pub(crate) use input::handle_hud_module_shortcuts;
+pub(crate) use input::{
+    adjacent_agent_list_target, handle_hud_pointer_input, AgentListNavigationTarget,
+};
 pub(crate) use persistence::{save_hud_layout_if_dirty, HudPersistenceState};
 pub(crate) use render::{
     render_hud_modal_scene, render_hud_scene, HudModalCameraMarker, HudModalVectorSceneMarker,
