@@ -12,6 +12,25 @@ pub(super) fn has_plain_modifiers(keys: &ButtonInput<KeyCode>) -> (bool, bool, b
     )
 }
 
+pub(crate) fn is_plain_lowercase_character(
+    event: &KeyboardInput,
+    keys: &ButtonInput<KeyCode>,
+    key_code: KeyCode,
+    expected: &str,
+) -> bool {
+    if event.state != ButtonState::Pressed || event.key_code != key_code {
+        return false;
+    }
+
+    let (ctrl, alt, super_key) = has_plain_modifiers(keys);
+    let shift = keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight);
+    if ctrl || alt || super_key || shift {
+        return false;
+    }
+
+    matches!(&event.logical_key, Key::Character(text) if text == expected)
+}
+
 /// Decides whether a keyboard event means "spawn a normal terminal".
 ///
 /// The binding is intentionally plain `z` on key press with no Ctrl/Alt/Super modifiers. The helper

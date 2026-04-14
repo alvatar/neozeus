@@ -1922,6 +1922,30 @@ fn plain_p_toggles_paused_state_for_active_terminal_agent() {
     assert!(!world.resource::<AgentCatalog>().is_paused(agent_id));
 }
 
+#[test]
+fn uppercase_p_does_not_toggle_paused_state_for_active_terminal_agent() {
+    let (mut world, terminal_id) =
+        world_with_active_terminal(Vec2::new(10.0, 10.0), false, Vec2::ZERO);
+    let agent_id = world
+        .resource::<AgentRuntimeIndex>()
+        .agent_for_terminal(terminal_id)
+        .expect("agent should be linked");
+    world.init_resource::<Messages<KeyboardInput>>();
+    world.init_resource::<Messages<RequestRedraw>>();
+    world
+        .resource_mut::<ButtonInput<KeyCode>>()
+        .press(KeyCode::ShiftLeft);
+    world
+        .resource_mut::<Messages<KeyboardInput>>()
+        .write(pressed_text(KeyCode::KeyP, Some("P")));
+
+    world
+        .run_system_once(handle_terminal_message_box_keyboard)
+        .unwrap();
+    run_app_command_cycle(&mut world);
+    assert!(!world.resource::<AgentCatalog>().is_paused(agent_id));
+}
+
 /// Verifies that repeated `Ctrl+Enter` presses toggle direct terminal input mode on and off for the
 /// active terminal.
 #[test]
