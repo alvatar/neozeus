@@ -2238,6 +2238,65 @@ fn shift_p_does_not_toggle_in_full_keyboard_path() {
 }
 
 #[test]
+fn plain_i_toggles_selected_agent_context_box_in_full_keyboard_path() {
+    let (mut world, terminal_id) =
+        world_with_active_terminal(Vec2::new(10.0, 10.0), false, Vec2::ZERO);
+    let agent_id = world
+        .resource::<AgentRuntimeIndex>()
+        .agent_for_terminal(terminal_id)
+        .expect("agent should be linked");
+    world.insert_resource(crate::hud::AgentListSelection::Agent(agent_id));
+
+    assert!(
+        !world
+            .resource::<crate::hud::AgentListUiState>()
+            .show_selected_context,
+        "precondition: selected-agent context box should start disabled"
+    );
+    dispatch_key_through_real_keyboard_pipeline(&mut world, pressed_text(KeyCode::KeyI, Some("i")));
+    assert!(
+        world
+            .resource::<crate::hud::AgentListUiState>()
+            .show_selected_context
+    );
+
+    dispatch_key_through_real_keyboard_pipeline(
+        &mut world,
+        pressed_key(KeyCode::KeyI, Key::Character("I".into())),
+    );
+    assert!(
+        !world
+            .resource::<crate::hud::AgentListUiState>()
+            .show_selected_context
+    );
+}
+
+#[test]
+fn shift_i_does_not_toggle_selected_agent_context_box() {
+    let (mut world, terminal_id) =
+        world_with_active_terminal(Vec2::new(10.0, 10.0), false, Vec2::ZERO);
+    let agent_id = world
+        .resource::<AgentRuntimeIndex>()
+        .agent_for_terminal(terminal_id)
+        .expect("agent should be linked");
+    world.insert_resource(crate::hud::AgentListSelection::Agent(agent_id));
+    world
+        .resource_mut::<ButtonInput<KeyCode>>()
+        .press(KeyCode::ShiftLeft);
+
+    dispatch_key_through_real_keyboard_pipeline(
+        &mut world,
+        pressed_key(KeyCode::KeyI, Key::Character("I".into())),
+    );
+
+    assert!(
+        !world
+            .resource::<crate::hud::AgentListUiState>()
+            .show_selected_context
+    );
+}
+
+#[test]
 fn direct_input_route_suppresses_primary_pause_shortcut_in_full_keyboard_path() {
     let (mut world, terminal_id) =
         world_with_active_terminal(Vec2::new(10.0, 10.0), false, Vec2::ZERO);

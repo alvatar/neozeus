@@ -87,8 +87,6 @@ pub(super) fn render_hud_scene_impl(
         agent_list_text_selection: &agent_list_text_selection,
     };
 
-    let mut agent_list_content_rect = None;
-    let mut agent_list_alpha = 0.0_f32;
     for module_id in layout_state.iter_z_order() {
         let Some(module) = layout_state.get(module_id) else {
             continue;
@@ -103,10 +101,6 @@ pub(super) fn render_hud_scene_impl(
         draw_module_shell(&mut painter, module_id, shell_rect);
 
         let content_rect = module_content_rect(module_id, module.shell.current_rect);
-        if module_id == HudWidgetKey::AgentList {
-            agent_list_content_rect = Some(content_rect);
-            agent_list_alpha = alpha;
-        }
         built.push_clip_layer(
             Fill::NonZero,
             Affine::IDENTITY,
@@ -124,27 +118,24 @@ pub(super) fn render_hud_scene_impl(
         built.pop_layer();
     }
 
-    if let Some(content_rect) = agent_list_content_rect {
-        let mut painter = HudPainter::new(&mut built, &fonts, &primary_window, agent_list_alpha);
-        modules::render_hover_overlay(
-            &primary_window,
-            &agent_list_state,
-            content_rect,
-            &mut painter,
-            &inputs,
-        );
-    }
-
     log_hud_draw_colors_if_requested(&built);
     **scene = VelloScene2d::from(built);
 }
 
+#[allow(
+    clippy::too_many_arguments,
+    reason = "modal HUD scene rebuild reads modal, layout, selection, and font resources together"
+)]
 /// Rebuilds the separate modal HUD scene that contains the message box and task dialog overlays.
 ///
 /// Modal rendering is isolated from the main HUD scene so compositor/layer logic can treat it as a
 /// separate surface.
 pub(super) fn render_hud_modal_scene_impl(
     primary_window: Single<&Window, With<PrimaryWindow>>,
+    layout_state: Res<HudLayoutState>,
+    agent_list_state: Res<AgentListUiState>,
+    agent_list_view: Res<AgentListView>,
+    selection: Option<Res<crate::hud::view_models::AgentListSelection>>,
     app_session: Res<AppSessionState>,
     composer_view: Res<ComposerView>,
     startup_connect: Option<Res<DaemonConnectionState>>,
@@ -177,5 +168,23 @@ pub(super) fn render_hud_modal_scene_impl(
         composer_view.title.as_deref().unwrap_or("Tasks"),
         app_session.composer.task_dialog_focus,
     );
+    if let Some(agent_list_module) = layout_state.get(HudWidgetKey::AgentList) {
+        let agent_list_alpha = agent_list_module.shell.current_alpha.max(0.0);
+        if agent_list_module.shell.enabled || agent_list_alpha > 0.01 {
+            let mut painter =
+                HudPainter::new(&mut built, &fonts, &primary_window, agent_list_alpha);
+            modules::render_hover_overlay(
+                &primary_window,
+                &agent_list_state,
+                selection.as_deref(),
+                module_content_rect(
+                    HudWidgetKey::AgentList,
+                    agent_list_module.shell.current_rect,
+                ),
+                &mut painter,
+                &agent_list_view,
+            );
+        }
+    }
     **scene = VelloScene2d::from(built);
 }

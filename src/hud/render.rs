@@ -107,8 +107,16 @@ pub(crate) fn render_hud_scene(
     )
 }
 
+#[allow(
+    clippy::too_many_arguments,
+    reason = "HUD modal scene entrypoint forwards layout, selection, modal, and font resources together"
+)]
 pub(crate) fn render_hud_modal_scene(
     primary_window: Single<&Window, With<PrimaryWindow>>,
+    layout_state: Res<HudLayoutState>,
+    agent_list_state: Res<AgentListUiState>,
+    agent_list_view: Res<AgentListView>,
+    selection: Option<Res<crate::hud::view_models::AgentListSelection>>,
     app_session: Res<AppSessionState>,
     composer_view: Res<ComposerView>,
     startup_connect: Option<Res<DaemonConnectionState>>,
@@ -117,6 +125,10 @@ pub(crate) fn render_hud_modal_scene(
 ) {
     render_hud_modal_scene_impl(
         primary_window,
+        layout_state,
+        agent_list_state,
+        agent_list_view,
+        selection,
         app_session,
         composer_view,
         startup_connect,

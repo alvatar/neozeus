@@ -706,18 +706,43 @@ fn hover_card_rect(window: &Window, hovered_rect: HudRect, width: f32, height: f
     }
 }
 
+fn context_overlay_key<'a>(
+    state: &'a AgentListUiState,
+    selection: Option<&crate::hud::view_models::AgentListSelection>,
+    agent_list_view: &'a crate::hud::view_models::AgentListView,
+) -> Option<&'a crate::hud::view_models::AgentListRowKey> {
+    let hovered_agent_key = state.hovered_row.as_ref().filter(|hovered_key| {
+        agent_list_view.rows.iter().any(|row| {
+            row.key == **hovered_key && matches!(row.kind, AgentListRowKind::Agent { .. })
+        })
+    });
+    if hovered_agent_key.is_some() {
+        return hovered_agent_key;
+    }
+    if !state.show_selected_context {
+        return None;
+    }
+    let crate::hud::view_models::AgentListSelection::Agent(agent_id) = selection? else {
+        return None;
+    };
+    agent_list_view.rows.iter().find_map(|row| {
+        matches!(row.kind, AgentListRowKind::Agent { agent_id: row_agent_id, .. } if row_agent_id == *agent_id)
+            .then_some(&row.key)
+    })
+}
+
 pub(crate) fn render_hover_overlay(
     window: &Window,
     state: &AgentListUiState,
+    selection: Option<&crate::hud::view_models::AgentListSelection>,
     content_rect: HudRect,
     painter: &mut HudPainter,
-    inputs: &HudRenderInputs,
+    agent_list_view: &crate::hud::view_models::AgentListView,
 ) {
-    let Some(hovered_key) = state.hovered_row.as_ref() else {
+    let Some(hovered_key) = context_overlay_key(state, selection, agent_list_view) else {
         return;
     };
-    let Some(row_view) = inputs
-        .agent_list_view
+    let Some(row_view) = agent_list_view
         .rows
         .iter()
         .find(|row| &row.key == hovered_key)
@@ -736,7 +761,7 @@ pub(crate) fn render_hover_overlay(
         content_rect,
         state.scroll_offset,
         state.hovered_row.as_ref(),
-        inputs.agent_list_view,
+        agent_list_view,
         None,
     )
     .into_iter()
@@ -781,15 +806,19 @@ pub(crate) fn render_hover_overlay(
 mod tests {
     use super::{
         agent_accent_color, agent_fill_color, agent_label_color, agent_row_stroke,
-        context_active_segment_range, context_bar_color, context_segment_count,
-        context_segment_rect, context_track_rect, format_agent_cpu, format_agent_network,
-        format_agent_ram, hover_card_lines, hover_card_rect, marker_fill,
+        context_active_segment_range, context_bar_color, context_overlay_key,
+        context_segment_count, context_segment_rect, context_track_rect, format_agent_cpu,
+        format_agent_network, format_agent_ram, hover_card_lines, hover_card_rect, marker_fill,
         rendered_context_pct_milli, tmux_child_chrome_color, tmux_child_connector,
         tmux_child_fill_color, tmux_child_label_color, AGENT_LIST_BORDER_STROKE_WIDTH, EVA_CYAN,
         EVA_SELECTED, PAUSED_ROW_COLOR, TMUX_CHILD_ORANGE, WORKING_ROW_COLOR,
     };
     use crate::{
-        agents::AgentKind, hud::view_models::AgentListActivity,
+        agents::{AgentId, AgentKind},
+        hud::view_models::{
+            AgentListActivity, AgentListRowKey, AgentListRowKind, AgentListRowView,
+            AgentListSelection, AgentListView, OwnedTmuxOwnerBinding,
+        },
         shared::daemon_wire::DaemonSessionMetrics,
     };
     use bevy::window::Window;
@@ -1033,5 +1062,92 @@ mod tests {
         );
         assert!(left.x < 220.0);
         assert!(left.x >= 12.0);
+    }
+
+    fn agent_row_view(agent_id: AgentId) -> AgentListRowView {
+        AgentListRowView {
+            key: AgentListRowKey::Agent(agent_id),
+            label: "ALPHA".into(),
+            focused: false,
+            kind: AgentListRowKind::Agent {
+                agent_id,
+                agent_kind: AgentKind::Pi,
+                terminal_id: None,
+                has_tasks: false,
+                interactive: true,
+                activity: AgentListActivity::Idle,
+                paused: false,
+                context_pct_milli: None,
+                session_metrics: DaemonSessionMetrics::default(),
+            },
+        }
+    }
+
+    fn tmux_row_view() -> AgentListRowView {
+        AgentListRowView {
+            key: AgentListRowKey::OwnedTmux("tmux-1".into()),
+            label: "BUILD".into(),
+            focused: false,
+            kind: AgentListRowKind::OwnedTmux {
+                session_uid: "tmux-1".into(),
+                owner: OwnedTmuxOwnerBinding::Bound(AgentId(1)),
+                tmux_name: "neozeus-tmux-1".into(),
+                cwd: "/tmp/work".into(),
+                attached: false,
+            },
+        }
+    }
+
+    #[test]
+    fn context_overlay_prefers_hovered_agent_row() {
+        let agent_id = AgentId(7);
+        let view = AgentListView {
+            rows: vec![agent_row_view(agent_id)],
+        };
+        let state = crate::hud::AgentListUiState {
+            hovered_row: Some(AgentListRowKey::Agent(agent_id)),
+            show_selected_context: true,
+            ..Default::default()
+        };
+
+        assert_eq!(
+            context_overlay_key(&state, Some(&AgentListSelection::Agent(agent_id)), &view),
+            Some(&AgentListRowKey::Agent(agent_id))
+        );
+    }
+
+    #[test]
+    fn context_overlay_falls_back_to_selected_agent_when_pinned() {
+        let agent_id = AgentId(7);
+        let view = AgentListView {
+            rows: vec![agent_row_view(agent_id)],
+        };
+        let state = crate::hud::AgentListUiState {
+            show_selected_context: true,
+            ..Default::default()
+        };
+
+        assert_eq!(
+            context_overlay_key(&state, Some(&AgentListSelection::Agent(agent_id)), &view),
+            Some(&AgentListRowKey::Agent(agent_id))
+        );
+    }
+
+    #[test]
+    fn context_overlay_ignores_tmux_hover_and_keeps_selected_agent_fallback() {
+        let agent_id = AgentId(7);
+        let view = AgentListView {
+            rows: vec![tmux_row_view(), agent_row_view(agent_id)],
+        };
+        let state = crate::hud::AgentListUiState {
+            hovered_row: Some(AgentListRowKey::OwnedTmux("tmux-1".into())),
+            show_selected_context: true,
+            ..Default::default()
+        };
+
+        assert_eq!(
+            context_overlay_key(&state, Some(&AgentListSelection::Agent(agent_id)), &view),
+            Some(&AgentListRowKey::Agent(agent_id))
+        );
     }
 }

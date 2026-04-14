@@ -12,8 +12,8 @@ use crate::{
         TaskCommand as AppTaskCommand, WidgetCommand,
     },
     hud::{
-        adjacent_agent_list_target, AgentListNavigationTarget, AgentListSelection, AgentListView,
-        HudInputCaptureState,
+        adjacent_agent_list_target, AgentListNavigationTarget, AgentListSelection,
+        AgentListUiState, AgentListView, HudInputCaptureState,
     },
     terminals::{TerminalCommand, TerminalFocusState, TerminalId, TerminalManager},
 };
@@ -38,6 +38,7 @@ struct KeyboardInputContext<'w, 's> {
     aegis_policy: Res<'w, AegisPolicyStore>,
     app_session: ResMut<'w, AppSessionState>,
     input_capture: ResMut<'w, HudInputCaptureState>,
+    agent_list_state: ResMut<'w, AgentListUiState>,
     agent_list_view: Res<'w, AgentListView>,
     selection: Option<Res<'w, AgentListSelection>>,
     clipboard: Option<ResMut<'w, EguiClipboard>>,
@@ -251,6 +252,11 @@ fn handle_primary_route(ctx: &mut KeyboardInputContext<'_, '_>) {
                     ctx.app_commands
                         .write(AppCommand::Agent(AppAgentCommand::TogglePaused(agent_id)));
                 }
+            }
+            KeybindingAction::ToggleAgentContext => {
+                ctx.agent_list_state.show_selected_context =
+                    !ctx.agent_list_state.show_selected_context;
+                ctx.redraws.write(RequestRedraw);
             }
             KeybindingAction::ClearDoneTasks => {
                 if let Some(agent_id) = active_terminal.and_then(|target| target.agent_id) {

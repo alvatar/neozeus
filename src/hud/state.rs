@@ -131,6 +131,8 @@ impl AgentListDragState {
 pub(crate) struct AgentListUiState {
     pub(crate) scroll_offset: f32,
     pub(crate) hovered_row: Option<AgentListRowKey>,
+    /// When enabled, render the selected agent context card even without pointer hover.
+    pub(crate) show_selected_context: bool,
     pub(crate) drag: AgentListDragState,
 }
 

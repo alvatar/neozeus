@@ -1141,6 +1141,7 @@ fn releasing_pointer_without_cursor_clears_agent_drag_state() {
     world.insert_resource(AgentListUiState {
         scroll_offset: 0.0,
         hovered_row: None,
+        show_selected_context: false,
         drag: AgentListDragState {
             pressed_row: None,
             pressed_agent: Some(crate::agents::AgentId(11)),
