@@ -46,6 +46,7 @@ pub(crate) enum VerificationScenario {
     MessageBoxBloom,
     TaskDialogBloom,
     AgentListBloom,
+    AgentContextBloom,
     WorkingStateIdle,
     WorkingStateWorking,
     InspectSwitchLatency,
@@ -65,6 +66,9 @@ fn resolve_verification_scenario(raw: Option<&str>) -> Option<VerificationScenar
         }
         Some(value) if value.eq_ignore_ascii_case("agent-list-bloom") => {
             Some(VerificationScenario::AgentListBloom)
+        }
+        Some(value) if value.eq_ignore_ascii_case("agent-context-bloom") => {
+            Some(VerificationScenario::AgentContextBloom)
         }
         Some(value) if value.eq_ignore_ascii_case("working-state-idle") => {
             Some(VerificationScenario::WorkingStateIdle)
@@ -263,6 +267,7 @@ fn verification_agent_kind(scenario: VerificationScenario) -> AgentKind {
         VerificationScenario::MessageBoxBloom
         | VerificationScenario::TaskDialogBloom
         | VerificationScenario::AgentListBloom
+        | VerificationScenario::AgentContextBloom
         | VerificationScenario::InspectSwitchLatency => AgentKind::Verifier,
     }
 }
@@ -340,6 +345,7 @@ struct VerificationScenarioContext<'w> {
     active_terminal_content: ResMut<'w, crate::terminals::ActiveTerminalContentState>,
     app_session: ResMut<'w, AppSessionState>,
     selection: ResMut<'w, AgentListSelection>,
+    agent_list_state: ResMut<'w, crate::hud::AgentListUiState>,
     task_store: ResMut<'w, AgentTaskStore>,
     visibility_state: ResMut<'w, TerminalVisibilityState>,
     view_state: ResMut<'w, TerminalViewState>,
@@ -373,6 +379,7 @@ fn verification_capture_ready(
     scenario: VerificationScenario,
     app_session: &AppSessionState,
     selection: &AgentListSelection,
+    agent_list_state: &crate::hud::AgentListUiState,
     agent_list: &AgentListView,
     focus_state: &TerminalFocusState,
     runtime_index: &AgentRuntimeIndex,
@@ -414,6 +421,11 @@ fn verification_capture_ready(
         VerificationScenario::AgentListBloom => {
             active_terminal_ready && selected_agent_row_is_focused(selection, agent_list)
         }
+        VerificationScenario::AgentContextBloom => {
+            active_terminal_ready
+                && selected_agent_row_is_focused(selection, agent_list)
+                && agent_list_state.show_selected_context
+        }
         VerificationScenario::WorkingStateIdle => {
             active_terminal_matches(VisualAgentActivity::Idle)
         }
@@ -432,6 +444,7 @@ pub(crate) fn sync_verification_capture_barrier(
     verification_scenario: Option<Res<VerificationScenarioConfig>>,
     app_session: Res<AppSessionState>,
     selection: Res<AgentListSelection>,
+    agent_list_state: Res<crate::hud::AgentListUiState>,
     agent_list: Res<AgentListView>,
     focus_state: Res<TerminalFocusState>,
     runtime_index: Res<AgentRuntimeIndex>,
@@ -448,6 +461,7 @@ pub(crate) fn sync_verification_capture_barrier(
                     scenario.scenario,
                     &app_session,
                     &selection,
+                    &agent_list_state,
                     &agent_list,
                     &focus_state,
                     &runtime_index,
@@ -586,6 +600,13 @@ pub(crate) fn run_verification_scenario(world: &mut World) {
             let terminal_id = config.terminal_ids[0];
             let _ = focus_verification_agent_for_terminal(&mut ctx, terminal_id);
             clear_verification_ui(&mut ctx);
+            ctx.agent_list_state.show_selected_context = false;
+        }
+        VerificationScenario::AgentContextBloom => {
+            let terminal_id = config.terminal_ids[0];
+            let _ = focus_verification_agent_for_terminal(&mut ctx, terminal_id);
+            clear_verification_ui(&mut ctx);
+            ctx.agent_list_state.show_selected_context = true;
         }
         VerificationScenario::WorkingStateIdle | VerificationScenario::WorkingStateWorking => {
             let terminal_id = config.terminal_ids[0];
