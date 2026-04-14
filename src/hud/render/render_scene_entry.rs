@@ -71,12 +71,12 @@ pub(super) fn render_hud_scene_impl(
     agent_list_text_selection: Res<crate::text_selection::AgentListTextSelectionState>,
     fonts: Res<Assets<VelloFont>>,
     startup_connect: Option<Res<DaemonConnectionState>>,
-    mut scene: Single<&mut VelloScene2d, With<HudVectorSceneMarker>>,
+    mut scene: Mut<VelloScene2d>,
 ) {
     // Build the geometry or layout decisions first, then emit the matching draw operations against the prepared state.
     let mut built = vello::Scene::new();
     if startup_connect.is_some_and(|state| state.modal_visible()) {
-        **scene = VelloScene2d::from(built);
+        *scene = VelloScene2d::from(built);
         return;
     }
     let inputs = HudRenderInputs {
@@ -119,7 +119,7 @@ pub(super) fn render_hud_scene_impl(
     }
 
     log_hud_draw_colors_if_requested(&built);
-    **scene = VelloScene2d::from(built);
+    *scene = VelloScene2d::from(built);
 }
 
 #[allow(
@@ -141,7 +141,7 @@ pub(super) fn render_hud_modal_scene_impl(
     composer_view: Res<ComposerView>,
     startup_connect: Option<Res<DaemonConnectionState>>,
     fonts: Res<Assets<VelloFont>>,
-    mut scene: Single<&mut VelloScene2d, With<HudModalVectorSceneMarker>>,
+    mut scene: Mut<VelloScene2d>,
 ) {
     // Build the geometry or layout decisions first, then emit the matching draw operations against the prepared state.
     let mut built = vello::Scene::new();
@@ -188,5 +188,5 @@ pub(super) fn render_hud_modal_scene_impl(
             );
         }
     }
-    **scene = VelloScene2d::from(built);
+    *scene = VelloScene2d::from(built);
 }

@@ -89,8 +89,15 @@ pub(crate) fn render_hud_scene(
     agent_list_text_selection: Res<crate::text_selection::AgentListTextSelectionState>,
     fonts: Res<Assets<VelloFont>>,
     startup_connect: Option<Res<DaemonConnectionState>>,
-    scene: Single<&mut VelloScene2d, With<HudVectorSceneMarker>>,
+    surfaces: Res<crate::hud::HudSurfaceRegistry>,
+    mut scenes: Query<&mut VelloScene2d>,
 ) {
+    let scene_entity = surfaces
+        .scene_entity(crate::hud::render_surface::HudSurfaceId::MainHud)
+        .expect("main HUD surface scene should be registered");
+    let scene = scenes
+        .get_mut(scene_entity)
+        .expect("main HUD surface scene entity should exist");
     render_hud_scene_impl(
         primary_window,
         layout_state,
@@ -122,8 +129,15 @@ pub(crate) fn render_hud_modal_scene(
     composer_view: Res<ComposerView>,
     startup_connect: Option<Res<DaemonConnectionState>>,
     fonts: Res<Assets<VelloFont>>,
-    scene: Single<&mut VelloScene2d, With<HudModalVectorSceneMarker>>,
+    surfaces: Res<crate::hud::HudSurfaceRegistry>,
+    mut scenes: Query<&mut VelloScene2d>,
 ) {
+    let scene_entity = surfaces
+        .scene_entity(crate::hud::render_surface::HudSurfaceId::ModalHud)
+        .expect("modal HUD surface scene should be registered");
+    let scene = scenes
+        .get_mut(scene_entity)
+        .expect("modal HUD surface scene entity should exist");
     render_hud_modal_scene_impl(
         primary_window,
         layout_state,
@@ -145,6 +159,38 @@ mod tests {
         active_line_bounds, cursor_visual_span, single_line_field_viewport, wrapped_editor_rows,
         wrapped_row_is_active, CursorVisualSpan,
     };
+    use crate::hud::{HudBloomGroupId, HudRenderRoute, HudSurfaceId};
+
+    #[test]
+    fn bloom_group_contract_is_surface_owned_and_isolated() {
+        assert_eq!(
+            HudBloomGroupId::AgentListSelection.surface(),
+            HudSurfaceId::MainHud
+        );
+        assert_eq!(HudBloomGroupId::AgentListAegis.surface(), HudSurfaceId::MainHud);
+        assert_ne!(
+            HudBloomGroupId::AgentListSelection,
+            HudBloomGroupId::AgentListAegis
+        );
+    }
+
+    #[test]
+    fn render_route_contract_preserves_surface_and_group_identity() {
+        assert_eq!(
+            HudRenderRoute::Base {
+                surface: HudSurfaceId::ModalHud,
+            }
+            .surface(),
+            HudSurfaceId::ModalHud
+        );
+        assert_eq!(
+            HudRenderRoute::Bloom {
+                group: HudBloomGroupId::AgentListSelection,
+            }
+            .surface(),
+            HudSurfaceId::MainHud
+        );
+    }
 
     #[test]
     fn single_line_field_viewport_keeps_cursor_visible_at_end_of_long_text() {

@@ -6,6 +6,8 @@ mod input;
 mod modules;
 mod persistence;
 mod render;
+mod render_group;
+mod render_surface;
 mod setup;
 mod state;
 mod view_models;
@@ -36,6 +38,10 @@ pub(crate) use persistence::{save_hud_layout_if_dirty, HudPersistenceState};
 pub(crate) use render::{
     render_hud_modal_scene, render_hud_scene, HudModalCameraMarker, HudModalVectorSceneMarker,
 };
+pub(crate) use render_group::{HudBloomGroupId, HudRenderRoute};
+pub(crate) use render_surface::HudSurfaceRegistry;
+#[cfg(test)]
+pub(crate) use render_surface::{HudSurfaceId, HudSurfaceMarker};
 pub(crate) use setup::{hud_needs_redraw, setup_hud, sync_structural_hud_layout};
 pub(crate) use state::{
     AgentListUiState, ConversationListUiState, HudInputCaptureState, HudLayoutState, HudRect,

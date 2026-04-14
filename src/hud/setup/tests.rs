@@ -1,8 +1,8 @@
 use super::{hud_needs_redraw, setup_hud, sync_structural_hud_layout};
 use crate::{
     hud::{
-        HudDragState, HudOffscreenCompositor, HudPersistenceState, HudState, HudWidgetKey,
-        HUD_MODAL_CAMERA_ORDER, HUD_MODAL_RENDER_LAYER,
+        HudDragState, HudOffscreenCompositor, HudPersistenceState, HudState,
+        HudSurfaceRegistry, HudWidgetKey, HUD_MODAL_CAMERA_ORDER, HUD_MODAL_RENDER_LAYER,
     },
     tests::{insert_default_hud_resources, insert_test_hud_state, snapshot_test_hud_state},
 };
@@ -30,6 +30,9 @@ fn setup_hud_requests_initial_redraw() {
 
     let redraws = world.resource::<Messages<RequestRedraw>>();
     assert_eq!(redraws.len(), 1);
+    let surfaces = world.resource::<HudSurfaceRegistry>();
+    assert!(surfaces.scene_entity(crate::hud::HudSurfaceId::MainHud).is_some());
+    assert!(surfaces.scene_entity(crate::hud::HudSurfaceId::ModalHud).is_some());
     assert_eq!(
         world
             .query::<&crate::hud::HudVectorSceneMarker>()

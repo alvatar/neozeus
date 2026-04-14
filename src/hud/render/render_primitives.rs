@@ -63,6 +63,7 @@ pub(crate) struct HudPainter<'scene, 'res> {
     fonts: &'res Assets<VelloFont>,
     window: &'res Window,
     alpha: f32,
+    route: crate::hud::render_group::HudRenderRoute,
 }
 
 impl<'scene, 'res> HudPainter<'scene, 'res> {
@@ -76,12 +77,40 @@ impl<'scene, 'res> HudPainter<'scene, 'res> {
         window: &'res Window,
         alpha: f32,
     ) -> Self {
+        Self::new_for_route(
+            scene,
+            fonts,
+            window,
+            alpha,
+            crate::hud::render_group::HudRenderRoute::Base {
+                surface: crate::hud::render_surface::HudSurfaceId::MainHud,
+            },
+        )
+    }
+
+    /// Creates a painter bound to one explicit HUD render route.
+    ///
+    /// Routing metadata is inert for now: draw operations still land in the bound Vello scene, but
+    /// the contract is explicit so later phases can route base and bloom-group authoring cleanly.
+    pub(crate) fn new_for_route(
+        scene: &'scene mut vello::Scene,
+        fonts: &'res Assets<VelloFont>,
+        window: &'res Window,
+        alpha: f32,
+        route: crate::hud::render_group::HudRenderRoute,
+    ) -> Self {
         Self {
             scene,
             fonts,
             window,
             alpha,
+            route,
         }
+    }
+
+    /// Returns the explicit render route bound to this painter.
+    pub(crate) fn route(&self) -> crate::hud::render_group::HudRenderRoute {
+        self.route
     }
 
     /// Fills a HUD rectangle in the bound scene.
