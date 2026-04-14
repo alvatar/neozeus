@@ -15,7 +15,9 @@ use bevy_vello::render::VelloCanvasMaterial;
 use super::HudModalVectorSceneMarker;
 
 pub(crate) const HUD_COMPOSITE_RENDER_LAYER: usize = 28;
+pub(crate) const HUD_COMPOSITE_BLOOM_RENDER_LAYER: usize = 32;
 const HUD_COMPOSITE_CAMERA_ORDER: isize = 50;
+pub(crate) const HUD_COMPOSITE_BLOOM_CAMERA_ORDER: isize = 51;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum HudCompositeLayerId {
@@ -35,6 +37,9 @@ pub(crate) struct HudCompositeLayerMarker {
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct HudCompositeCameraMarker;
 
+#[derive(Component, Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(crate) struct HudCompositeBloomCameraMarker;
+
 pub(crate) const HUD_COMPOSITE_FOREGROUND_Z: f32 = 0.0;
 
 #[derive(Clone, Debug)]
@@ -49,6 +54,7 @@ struct HudCompositeLayer {
 pub(crate) struct HudOffscreenCompositor {
     layers: Vec<HudCompositeLayer>,
     camera_entity: Option<Entity>,
+    bloom_camera_entity: Option<Entity>,
 }
 
 impl Default for HudOffscreenCompositor {
@@ -65,6 +71,7 @@ impl Default for HudOffscreenCompositor {
                 texture: None,
             }],
             camera_entity: None,
+            bloom_camera_entity: None,
         }
     }
 }
@@ -129,6 +136,25 @@ pub(crate) fn setup_hud_offscreen_compositor(
                     },
                     RenderLayers::layer(HUD_COMPOSITE_RENDER_LAYER),
                     HudCompositeCameraMarker,
+                ))
+                .id(),
+        );
+    }
+    if compositor.bloom_camera_entity.is_none() {
+        compositor.bloom_camera_entity = Some(
+            commands
+                .spawn((
+                    Camera2d,
+                    Camera {
+                        order: HUD_COMPOSITE_BLOOM_CAMERA_ORDER,
+                        output_mode: bevy::camera::CameraOutputMode::Write {
+                            blend_state: Some(crate::hud::bloom::hud_bloom_additive_blend_state()),
+                            clear_color: ClearColorConfig::None,
+                        },
+                        ..default()
+                    },
+                    RenderLayers::layer(HUD_COMPOSITE_BLOOM_RENDER_LAYER),
+                    HudCompositeBloomCameraMarker,
                 ))
                 .id(),
         );

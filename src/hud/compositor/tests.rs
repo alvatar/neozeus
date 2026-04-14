@@ -2,8 +2,9 @@ use super::{
     setup_hud_offscreen_compositor, sync_hud_offscreen_compositor, HudOffscreenCompositor,
 };
 use crate::hud::{
-    HudCompositeCameraMarker, HudCompositeLayerId, HudCompositeLayerMarker,
-    HudModalVectorSceneMarker, HUD_COMPOSITE_FOREGROUND_Z, HUD_COMPOSITE_RENDER_LAYER,
+    HudCompositeBloomCameraMarker, HudCompositeCameraMarker, HudCompositeLayerId,
+    HudCompositeLayerMarker, HudModalVectorSceneMarker, HUD_COMPOSITE_BLOOM_CAMERA_ORDER,
+    HUD_COMPOSITE_BLOOM_RENDER_LAYER, HUD_COMPOSITE_FOREGROUND_Z, HUD_COMPOSITE_RENDER_LAYER,
 };
 use bevy::{
     camera::visibility::{NoFrustumCulling, RenderLayers},
@@ -14,6 +15,53 @@ use bevy::{
     window::PrimaryWindow,
 };
 use bevy_vello::render::VelloCanvasMaterial;
+
+#[test]
+fn setup_hud_offscreen_compositor_spawns_bloom_camera_between_main_and_modal_layers() {
+    let mut world = World::default();
+    world.insert_resource(HudOffscreenCompositor::default());
+    world.insert_resource(Assets::<VelloCanvasMaterial>::default());
+    world.insert_resource(Assets::<Mesh>::default());
+    world.spawn((
+        Window {
+            resolution: (1400, 900).into(),
+            ..default()
+        },
+        PrimaryWindow,
+    ));
+
+    world
+        .run_system_once(
+            |mut commands: Commands,
+             mut compositor: ResMut<HudOffscreenCompositor>,
+             mut meshes: ResMut<Assets<Mesh>>,
+             mut composite_materials: ResMut<Assets<VelloCanvasMaterial>>| {
+                setup_hud_offscreen_compositor(
+                    &mut commands,
+                    &mut compositor,
+                    &mut meshes,
+                    &mut composite_materials,
+                );
+            },
+        )
+        .unwrap();
+
+    let mut main_camera_query =
+        world.query_filtered::<(&Camera, &RenderLayers), With<HudCompositeCameraMarker>>();
+    let (main_camera, main_layers) = main_camera_query
+        .single(&world)
+        .expect("main compositor camera should exist");
+    assert_eq!(main_camera.order, 50);
+    assert!(main_layers.intersects(&RenderLayers::layer(HUD_COMPOSITE_RENDER_LAYER)));
+
+    let mut bloom_camera_query =
+        world.query_filtered::<(&Camera, &RenderLayers), With<HudCompositeBloomCameraMarker>>();
+    let (bloom_camera, bloom_layers) = bloom_camera_query
+        .single(&world)
+        .expect("bloom compositor camera should exist");
+    assert_eq!(bloom_camera.order, HUD_COMPOSITE_BLOOM_CAMERA_ORDER);
+    assert!(bloom_layers.intersects(&RenderLayers::layer(HUD_COMPOSITE_BLOOM_RENDER_LAYER)));
+}
 
 /// Verifies that compositor sync hides the upstream Vello canvas and routes its texture through the
 /// compositor quad instead.

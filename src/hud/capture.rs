@@ -21,7 +21,9 @@ use crate::shared::{
     readback::write_texture_dump_to_path,
 };
 
-use super::compositor::{HudCompositeCameraMarker, HudCompositeLayerMarker};
+use super::compositor::{
+    HudCompositeBloomCameraMarker, HudCompositeCameraMarker, HudCompositeLayerMarker,
+};
 
 #[derive(Resource, Clone, Debug)]
 pub(crate) struct HudTextureCaptureConfig {
@@ -144,6 +146,10 @@ fn composite_capture_target_image(size: UVec2) -> Image {
     image
 }
 
+#[allow(
+    clippy::too_many_arguments,
+    reason = "composite capture routing now includes both main and bloom compositor cameras"
+)]
 /// Advances the HUD-composite capture state machine and spawns a readback request when ready.
 ///
 /// The first stage allocates and attaches a dedicated target image to the composite camera. After
@@ -155,6 +161,7 @@ pub(crate) fn request_hud_composite_capture(
     primary_window: Single<&Window, With<PrimaryWindow>>,
     mut images: ResMut<Assets<Image>>,
     composite_cameras: Query<Entity, With<HudCompositeCameraMarker>>,
+    composite_bloom_cameras: Query<Entity, With<HudCompositeBloomCameraMarker>>,
     composite_layers: Query<&Visibility, With<HudCompositeLayerMarker>>,
     mut redraws: MessageWriter<RequestRedraw>,
 ) {
@@ -178,6 +185,11 @@ pub(crate) fn request_hud_composite_capture(
         commands
             .entity(camera_entity)
             .insert(RenderTarget::Image(image_handle.clone().into()));
+        for bloom_camera in composite_bloom_cameras.iter() {
+            commands
+                .entity(bloom_camera)
+                .insert(RenderTarget::Image(image_handle.clone().into()));
+        }
         config.target_image = Some(image_handle);
         crate::terminals::append_debug_log(format!(
             "hud composite capture target initialized path={} size={}x{} camera={}",

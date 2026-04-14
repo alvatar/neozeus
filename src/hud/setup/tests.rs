@@ -59,13 +59,41 @@ fn setup_hud_requests_initial_redraw() {
     assert_eq!(camera.order, 50);
     assert!(layers.intersects(&RenderLayers::layer(crate::hud::HUD_COMPOSITE_RENDER_LAYER)));
 
-    let mut modal_camera_query =
-        world.query_filtered::<(&Camera, &RenderLayers), With<crate::hud::HudModalCameraMarker>>();
-    let (modal_camera, modal_layers) = modal_camera_query
-        .single(&world)
-        .expect("modal camera should exist");
-    assert_eq!(modal_camera.order, HUD_MODAL_CAMERA_ORDER);
-    assert!(modal_layers.intersects(&RenderLayers::layer(HUD_MODAL_RENDER_LAYER)));
+    let (bloom_camera_order, bloom_layers_ok) = {
+        let mut bloom_camera_query = world.query_filtered::<
+            (&Camera, &RenderLayers),
+            With<crate::hud::HudCompositeBloomCameraMarker>,
+        >();
+        let (bloom_camera, bloom_layers) = bloom_camera_query
+            .single(&world)
+            .expect("composite bloom camera should exist");
+        (
+            bloom_camera.order,
+            bloom_layers.intersects(&RenderLayers::layer(
+                crate::hud::HUD_COMPOSITE_BLOOM_RENDER_LAYER,
+            )),
+        )
+    };
+    assert_eq!(
+        bloom_camera_order,
+        crate::hud::HUD_COMPOSITE_BLOOM_CAMERA_ORDER
+    );
+    assert!(bloom_layers_ok);
+
+    let (modal_camera_order, modal_layers_ok) = {
+        let mut modal_camera_query = world
+            .query_filtered::<(&Camera, &RenderLayers), With<crate::hud::HudModalCameraMarker>>();
+        let (modal_camera, modal_layers) = modal_camera_query
+            .single(&world)
+            .expect("modal camera should exist");
+        (
+            modal_camera.order,
+            modal_layers.intersects(&RenderLayers::layer(HUD_MODAL_RENDER_LAYER)),
+        )
+    };
+    assert_eq!(modal_camera_order, HUD_MODAL_CAMERA_ORDER);
+    assert!(modal_layers_ok);
+    assert!(bloom_camera_order < modal_camera_order);
 }
 
 /// Verifies that structural HUD sync pins the info bar to the top edge and docks the agent list

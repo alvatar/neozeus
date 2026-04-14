@@ -13,8 +13,8 @@ mod widgets;
 
 pub(crate) use animation::animate_hud_modules;
 pub(crate) use bloom::{
-    setup_hud_widget_bloom, sync_hud_widget_bloom, AgentListBloomAdditiveCameraMarker,
-    AgentListBloomBlurMaterial, HudBloomSettings, HudWidgetBloom,
+    setup_hud_widget_bloom, sync_hud_widget_bloom, AgentListBloomBlurMaterial, HudBloomSettings,
+    HudWidgetBloom,
 };
 pub(crate) use capture::{
     finalize_window_capture, request_hud_composite_capture, request_hud_texture_capture,
@@ -22,8 +22,11 @@ pub(crate) use capture::{
     WindowCaptureConfig,
 };
 pub(crate) use compositor::{
-    sync_hud_offscreen_compositor, HudCompositeCameraMarker, HudOffscreenCompositor,
+    sync_hud_offscreen_compositor, HudCompositeBloomCameraMarker, HudCompositeCameraMarker,
+    HudOffscreenCompositor,
 };
+#[cfg(test)]
+pub(crate) use compositor::{HUD_COMPOSITE_BLOOM_CAMERA_ORDER, HUD_COMPOSITE_BLOOM_RENDER_LAYER};
 #[cfg(test)]
 pub(crate) use input::handle_hud_module_shortcuts;
 pub(crate) use input::{

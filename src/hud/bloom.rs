@@ -17,7 +17,7 @@ use super::{
 };
 use bevy::{
     asset::RenderAssetUsages,
-    camera::{visibility::RenderLayers, CameraOutputMode, ClearColorConfig, RenderTarget},
+    camera::{visibility::RenderLayers, ClearColorConfig, RenderTarget},
     color::{LinearRgba, Srgba},
     ecs::system::SystemParam,
     image::ImageSampler,
@@ -33,12 +33,12 @@ use bevy::{
 };
 use std::{collections::BTreeSet, env};
 
-use super::compositor::HUD_COMPOSITE_FOREGROUND_Z;
+use super::compositor::{HUD_COMPOSITE_BLOOM_RENDER_LAYER, HUD_COMPOSITE_FOREGROUND_Z};
 
 const BLOOM_SOURCE_LAYER: usize = 29;
 const BLOOM_BLUR_SMALL_LAYER: usize = 30;
 const BLOOM_BLUR_WIDE_LAYER: usize = 31;
-const BLOOM_COMPOSITE_LAYER: usize = 32;
+const BLOOM_COMPOSITE_LAYER: usize = HUD_COMPOSITE_BLOOM_RENDER_LAYER;
 const BLOOM_COMPOSITE_Z: f32 = HUD_COMPOSITE_FOREGROUND_Z + 0.1;
 const BLOOM_TARGET_FORMAT: TextureFormat = TextureFormat::Rgba16Float;
 const BLOOM_BLUR_SHADER_PATH: &str = "shaders/hud_agent_list_bloom_blur.wgsl";
@@ -114,9 +114,6 @@ struct AgentListBloomCompositeMarker;
 
 #[derive(Component)]
 struct AgentListBloomWideCompositeMarker;
-
-#[derive(Component)]
-pub(crate) struct AgentListBloomAdditiveCameraMarker;
 
 #[derive(Component)]
 struct AgentListBloomBlurSmallCameraMarker;
@@ -495,7 +492,7 @@ fn bloom_border_rects(
 ///
 /// Color channels add their energy together, while alpha is preserved from the destination so the
 /// bloom layer behaves like light rather than like an opaque sprite.
-fn additive_blend_state() -> BlendState {
+pub(crate) fn hud_bloom_additive_blend_state() -> BlendState {
     BlendState {
         color: BlendComponent {
             src_factor: BlendFactor::One,
@@ -784,22 +781,6 @@ fn spawn_composite_sprites(
     (composite_sprite, wide_composite_sprite)
 }
 
-fn spawn_additive_camera(commands: &mut Commands) {
-    commands.spawn((
-        Camera2d,
-        Camera {
-            order: 100,
-            output_mode: CameraOutputMode::Write {
-                blend_state: Some(additive_blend_state()),
-                clear_color: ClearColorConfig::None,
-            },
-            ..default()
-        },
-        RenderLayers::layer(BLOOM_COMPOSITE_LAYER),
-        AgentListBloomAdditiveCameraMarker,
-    ));
-}
-
 fn spawn_debug_preview_entities(
     commands: &mut Commands,
     primary_window: &Window,
@@ -957,7 +938,6 @@ pub(crate) fn setup_hud_widget_bloom(world: &mut World) {
         &blur_wide_image,
         &ctx.primary_window,
     );
-    spawn_additive_camera(&mut ctx.commands);
     spawn_debug_preview_entities(
         &mut ctx.commands,
         &ctx.primary_window,
