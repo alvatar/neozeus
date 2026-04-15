@@ -2,6 +2,7 @@ use super::super::bootstrap::primary_window_config_for;
 use super::*;
 use crate::hud::{
     AgentListBloomAdditiveCameraMarker, HudCompositeCameraMarker, HudCompositeLayerId,
+    HudLayerCameraMarker, HudLayerId,
 };
 use bevy::{
     ecs::system::RunSystemOnce,
@@ -156,14 +157,14 @@ fn sync_final_frame_output_target_assigns_targets_only_in_offscreen_mode() {
             id: HudCompositeLayerId::Main,
         },))
         .id();
-    let overlay_composite = world
-        .spawn((HudCompositeCameraMarker {
-            id: HudCompositeLayerId::Overlay,
+    let overlay = world
+        .spawn((HudLayerCameraMarker {
+            id: HudLayerId::Overlay,
         },))
         .id();
-    let modal_composite = world
-        .spawn((HudCompositeCameraMarker {
-            id: HudCompositeLayerId::Modal,
+    let modal = world
+        .spawn((HudLayerCameraMarker {
+            id: HudLayerId::Modal,
         },))
         .id();
     let bloom = world.spawn((AgentListBloomAdditiveCameraMarker,)).id();
@@ -177,8 +178,8 @@ fn sync_final_frame_output_target_assigns_targets_only_in_offscreen_mode() {
     assert!(world.get::<RenderTarget>(terminal).is_some());
     assert!(world.get::<RenderTarget>(composite).is_some());
     assert!(world.get::<RenderTarget>(bloom).is_some());
-    assert!(world.get::<RenderTarget>(overlay_composite).is_some());
-    assert!(world.get::<RenderTarget>(modal_composite).is_some());
+    assert!(world.get::<RenderTarget>(overlay).is_some());
+    assert!(world.get::<RenderTarget>(modal).is_some());
 
     world.resource_mut::<AppOutputConfig>().mode = OutputMode::Desktop;
     world
@@ -197,11 +198,11 @@ fn sync_final_frame_output_target_assigns_targets_only_in_offscreen_mode() {
         Some(RenderTarget::Window(_))
     ));
     assert!(matches!(
-        world.get::<RenderTarget>(overlay_composite),
+        world.get::<RenderTarget>(overlay),
         Some(RenderTarget::Window(_))
     ));
     assert!(matches!(
-        world.get::<RenderTarget>(modal_composite),
+        world.get::<RenderTarget>(modal),
         Some(RenderTarget::Window(_))
     ));
 }
@@ -222,11 +223,11 @@ fn sync_final_frame_output_target_only_retargets_existing_scene_cameras() {
     world.spawn((HudCompositeCameraMarker {
         id: HudCompositeLayerId::Main,
     },));
-    world.spawn((HudCompositeCameraMarker {
-        id: HudCompositeLayerId::Overlay,
+    world.spawn((HudLayerCameraMarker {
+        id: HudLayerId::Overlay,
     },));
-    world.spawn((HudCompositeCameraMarker {
-        id: HudCompositeLayerId::Modal,
+    world.spawn((HudLayerCameraMarker {
+        id: HudLayerId::Modal,
     },));
     world.spawn((AgentListBloomAdditiveCameraMarker,));
     let entity_count_before = world.entities().len();

@@ -29,8 +29,7 @@ pub(crate) use compositor::{
 #[cfg(test)]
 pub(crate) use compositor::{
     HudCompositeLayerId, HudCompositeLayerMarker, HUD_COMPOSITE_FOREGROUND_Z,
-    HUD_COMPOSITE_RENDER_LAYER, HUD_MODAL_COMPOSITE_RENDER_LAYER,
-    HUD_OVERLAY_COMPOSITE_RENDER_LAYER,
+    HUD_COMPOSITE_RENDER_LAYER,
 };
 #[cfg(test)]
 pub(crate) use input::handle_hud_module_shortcuts;
@@ -42,9 +41,11 @@ pub(crate) use render::{render_hud_modal_scene, render_hud_overlay_scene, render
 #[cfg(test)]
 pub(crate) use render::{
     HudModalVectorSceneMarker, HudOverlayVectorSceneMarker, HudVectorSceneMarker,
-    HUD_MODAL_CAMERA_ORDER, HUD_OVERLAY_CAMERA_ORDER,
+    HUD_MODAL_CAMERA_ORDER, HUD_MODAL_RENDER_LAYER, HUD_OVERLAY_CAMERA_ORDER,
+    HUD_OVERLAY_RENDER_LAYER,
 };
 pub(crate) use render_group::{HudBloomGroupAuthoring, HudBloomGroupId};
+pub(crate) use render_layer::HudLayerCameraMarker;
 #[cfg(test)]
 pub(crate) use render_layer::HudLayerSceneMarker;
 pub(crate) use render_layer::{HudLayerId, HudLayerRegistry};

@@ -12,51 +12,14 @@ use bevy::{
 };
 use bevy_vello::render::VelloCanvasMaterial;
 
-use super::render::{HUD_MODAL_CAMERA_ORDER, HUD_OVERLAY_CAMERA_ORDER};
 use super::{HudLayerId, HudLayerRegistry};
 
 pub(crate) const HUD_COMPOSITE_RENDER_LAYER: usize = 28;
-pub(crate) const HUD_OVERLAY_COMPOSITE_RENDER_LAYER: usize = 35;
-pub(crate) const HUD_MODAL_COMPOSITE_RENDER_LAYER: usize = 36;
 const HUD_COMPOSITE_CAMERA_ORDER: isize = 50;
-const HUD_OVERLAY_COMPOSITE_CAMERA_ORDER: isize = HUD_OVERLAY_CAMERA_ORDER;
-const HUD_MODAL_COMPOSITE_CAMERA_ORDER: isize = HUD_MODAL_CAMERA_ORDER;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum HudCompositeLayerId {
     Main,
-    Overlay,
-    Modal,
-}
-
-impl HudCompositeLayerId {
-    fn all() -> [Self; 3] {
-        [Self::Main, Self::Overlay, Self::Modal]
-    }
-
-    fn hud_layer_id(self) -> HudLayerId {
-        match self {
-            Self::Main => HudLayerId::Main,
-            Self::Overlay => HudLayerId::Overlay,
-            Self::Modal => HudLayerId::Modal,
-        }
-    }
-
-    fn render_layer(self) -> usize {
-        match self {
-            Self::Main => HUD_COMPOSITE_RENDER_LAYER,
-            Self::Overlay => HUD_OVERLAY_COMPOSITE_RENDER_LAYER,
-            Self::Modal => HUD_MODAL_COMPOSITE_RENDER_LAYER,
-        }
-    }
-
-    fn camera_order(self) -> isize {
-        match self {
-            Self::Main => HUD_COMPOSITE_CAMERA_ORDER,
-            Self::Overlay => HUD_OVERLAY_COMPOSITE_CAMERA_ORDER,
-            Self::Modal => HUD_MODAL_COMPOSITE_CAMERA_ORDER,
-        }
-    }
 }
 
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -74,7 +37,6 @@ pub(crate) const HUD_COMPOSITE_FOREGROUND_Z: f32 = 0.0;
 #[derive(Clone, Debug)]
 struct HudCompositeLayer {
     id: HudCompositeLayerId,
-    camera_entity: Option<Entity>,
     composite_entity: Option<Entity>,
     texture: Option<Handle<Image>>,
 }
@@ -82,20 +44,18 @@ struct HudCompositeLayer {
 #[derive(Resource, Clone, Debug)]
 pub(crate) struct HudOffscreenCompositor {
     layers: Vec<HudCompositeLayer>,
+    camera_entity: Option<Entity>,
 }
 
 impl Default for HudOffscreenCompositor {
     fn default() -> Self {
         Self {
-            layers: HudCompositeLayerId::all()
-                .into_iter()
-                .map(|id| HudCompositeLayer {
-                    id,
-                    camera_entity: None,
-                    composite_entity: None,
-                    texture: None,
-                })
-                .collect(),
+            layers: vec![HudCompositeLayer {
+                id: HudCompositeLayerId::Main,
+                composite_entity: None,
+                texture: None,
+            }],
+            camera_entity: None,
         }
     }
 }
@@ -130,29 +90,31 @@ fn fullscreen_clip_mesh() -> Mesh {
 
 pub(crate) fn setup_hud_offscreen_compositor(
     commands: &mut Commands,
-    layer_registry: &mut HudLayerRegistry,
     compositor: &mut HudOffscreenCompositor,
     meshes: &mut Assets<Mesh>,
     materials: &mut Assets<VelloCanvasMaterial>,
 ) {
-    let mesh_handle = meshes.add(fullscreen_clip_mesh());
-    for layer in &mut compositor.layers {
-        if layer.camera_entity.is_none() {
-            let camera = commands
+    if compositor.camera_entity.is_none() {
+        compositor.camera_entity = Some(
+            commands
                 .spawn((
                     Camera2d,
                     Camera {
-                        order: layer.id.camera_order(),
+                        order: HUD_COMPOSITE_CAMERA_ORDER,
                         clear_color: ClearColorConfig::None,
                         ..default()
                     },
-                    RenderLayers::layer(layer.id.render_layer()),
-                    HudCompositeCameraMarker { id: layer.id },
+                    RenderLayers::layer(HUD_COMPOSITE_RENDER_LAYER),
+                    HudCompositeCameraMarker {
+                        id: HudCompositeLayerId::Main,
+                    },
                 ))
-                .id();
-            layer.camera_entity = Some(camera);
-            layer_registry.set_camera_entity(layer.id.hud_layer_id(), camera);
-        }
+                .id(),
+        );
+    }
+
+    let mesh_handle = meshes.add(fullscreen_clip_mesh());
+    for layer in &mut compositor.layers {
         if layer.composite_entity.is_some() {
             continue;
         }
@@ -164,7 +126,7 @@ pub(crate) fn setup_hud_offscreen_compositor(
                 })),
                 Transform::IDENTITY,
                 NoFrustumCulling,
-                RenderLayers::layer(layer.id.render_layer()),
+                RenderLayers::layer(HUD_COMPOSITE_RENDER_LAYER),
                 Visibility::Hidden,
                 HudCompositeLayerMarker { id: layer.id },
             ))
@@ -204,11 +166,12 @@ pub(crate) fn sync_hud_offscreen_compositor(
         primary_window.physical_height().max(1),
     );
 
+    let explicit_main_scene = layers
+        .layer(HudLayerId::Main)
+        .and_then(|layer| layer.scene_entity);
+
     for layer in &mut compositor.layers {
-        let Some(scene_entity) = layers
-            .layer(layer.id.hud_layer_id())
-            .and_then(|runtime| runtime.scene_entity)
-        else {
+        let Some(scene_entity) = explicit_main_scene else {
             layer.texture = None;
             continue;
         };
