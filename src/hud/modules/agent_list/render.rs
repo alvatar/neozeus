@@ -459,8 +459,10 @@ fn render_tmux_child_row(
 /// Renders content.
 pub(crate) fn render_content(
     state: &AgentListUiState,
+    _layer_id: crate::hud::HudLayerId,
     content_rect: HudRect,
     painter: &mut HudPainter,
+    _bloom_groups: Option<&mut crate::hud::HudBloomGroupAuthoring>,
     inputs: &HudRenderInputs,
 ) {
     // Build the geometry or layout decisions first, then emit the matching draw operations against the prepared state.

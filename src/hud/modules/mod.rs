@@ -112,8 +112,10 @@ pub(crate) fn clear_hover(
 /// Renders module content.
 pub(crate) fn render_module_content(
     module_id: HudWidgetKey,
+    layer_id: crate::hud::HudLayerId,
     content_rect: HudRect,
     painter: &mut HudPainter,
+    bloom_groups: Option<&mut crate::hud::HudBloomGroupAuthoring>,
     inputs: &HudRenderInputs,
     agent_list_state: &AgentListUiState,
     conversation_list_state: &ConversationListUiState,
@@ -122,7 +124,14 @@ pub(crate) fn render_module_content(
     match module_id {
         HudWidgetKey::InfoBar => info_bar::render_content(content_rect, painter, inputs),
         HudWidgetKey::AgentList => {
-            agent_list::render_content(agent_list_state, content_rect, painter, inputs)
+            agent_list::render_content(
+                agent_list_state,
+                layer_id,
+                content_rect,
+                painter,
+                bloom_groups,
+                inputs,
+            )
         }
         HudWidgetKey::ConversationList => conversation_list::render_content(
             conversation_list_state,

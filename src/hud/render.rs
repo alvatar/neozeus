@@ -99,6 +99,7 @@ pub(crate) fn render_hud_scene(
     agent_list_text_selection: Res<crate::text_selection::AgentListTextSelectionState>,
     fonts: Res<Assets<VelloFont>>,
     startup_connect: Option<Res<DaemonConnectionState>>,
+    bloom_groups: ResMut<super::HudBloomGroupAuthoring>,
     scene: Single<&mut VelloScene2d, With<HudVectorSceneMarker>>,
 ) {
     render_hud_scene_impl(
@@ -113,6 +114,7 @@ pub(crate) fn render_hud_scene(
         agent_list_text_selection,
         fonts,
         startup_connect,
+        bloom_groups,
         scene,
     )
 }
@@ -128,6 +130,7 @@ pub(crate) fn render_hud_overlay_scene(
     agent_list_view: Res<AgentListView>,
     selection: Option<Res<crate::hud::view_models::AgentListSelection>>,
     fonts: Res<Assets<VelloFont>>,
+    bloom_groups: ResMut<super::HudBloomGroupAuthoring>,
     scene: Single<&mut VelloScene2d, With<HudOverlayVectorSceneMarker>>,
 ) {
     render_hud_overlay_scene_impl(
@@ -137,6 +140,7 @@ pub(crate) fn render_hud_overlay_scene(
         agent_list_view,
         selection,
         fonts,
+        bloom_groups,
         scene,
     )
 }
@@ -267,6 +271,7 @@ mod tests {
         hud_state.insert(HudWidgetKey::AgentList, agent_list);
         insert_test_hud_state(&mut world, hud_state);
         world.insert_resource(Assets::<VelloFont>::default());
+        world.insert_resource(crate::hud::HudBloomGroupAuthoring::default());
         world.insert_resource(AgentListUiState {
             show_selected_context: true,
             ..Default::default()

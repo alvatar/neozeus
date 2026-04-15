@@ -6,6 +6,7 @@ mod input;
 mod modules;
 mod persistence;
 mod render;
+mod render_group;
 mod render_layer;
 mod setup;
 mod state;
@@ -37,6 +38,7 @@ pub(crate) use render::{
     HudVectorSceneMarker, HUD_MODAL_CAMERA_ORDER, HUD_MODAL_RENDER_LAYER,
     HUD_OVERLAY_CAMERA_ORDER, HUD_OVERLAY_RENDER_LAYER,
 };
+pub(crate) use render_group::{HudBloomGroupAuthoring, HudBloomGroupId, HudBloomRectSpec};
 pub(crate) use render_layer::{HudLayerId, HudLayerRegistry, HudLayerSceneMarker};
 pub(crate) use setup::{hud_needs_redraw, setup_hud, sync_structural_hud_layout};
 pub(crate) use state::{

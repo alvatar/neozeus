@@ -71,10 +71,12 @@ pub(super) fn render_hud_scene_impl(
     agent_list_text_selection: Res<crate::text_selection::AgentListTextSelectionState>,
     fonts: Res<Assets<VelloFont>>,
     startup_connect: Option<Res<DaemonConnectionState>>,
+    mut bloom_groups: ResMut<super::super::HudBloomGroupAuthoring>,
     mut scene: Single<&mut VelloScene2d, With<HudVectorSceneMarker>>,
 ) {
     // Build the geometry or layout decisions first, then emit the matching draw operations against the prepared state.
     let mut built = vello::Scene::new();
+    bloom_groups.clear_layer(super::super::HudLayerId::Main);
     if startup_connect.is_some_and(|state| state.modal_visible()) {
         **scene = VelloScene2d::from(built);
         return;
@@ -109,8 +111,10 @@ pub(super) fn render_hud_scene_impl(
         let mut painter = HudPainter::new(&mut built, &fonts, &primary_window, alpha);
         modules::render_module_content(
             module_id,
+            super::super::HudLayerId::Main,
             content_rect,
             &mut painter,
+            Some(&mut bloom_groups),
             &inputs,
             &agent_list_state,
             &conversation_list_state,
@@ -137,9 +141,11 @@ pub(super) fn render_hud_overlay_scene_impl(
     agent_list_view: Res<AgentListView>,
     selection: Option<Res<crate::hud::view_models::AgentListSelection>>,
     fonts: Res<Assets<VelloFont>>,
+    mut bloom_groups: ResMut<super::super::HudBloomGroupAuthoring>,
     mut scene: Single<&mut VelloScene2d, With<HudOverlayVectorSceneMarker>>,
 ) {
     let mut built = vello::Scene::new();
+    bloom_groups.clear_layer(super::super::HudLayerId::Overlay);
     if let Some(agent_list_module) = layout_state.get(HudWidgetKey::AgentList) {
         let agent_list_alpha = agent_list_module.shell.current_alpha.max(0.0);
         if agent_list_module.shell.enabled || agent_list_alpha > 0.01 {

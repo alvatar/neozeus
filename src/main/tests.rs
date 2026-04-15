@@ -157,6 +157,9 @@ pub(super) fn insert_default_hud_resources(world: &mut World) {
     if !world.contains_resource::<crate::hud::HudLayerRegistry>() {
         world.insert_resource(crate::hud::HudLayerRegistry::default());
     }
+    if !world.contains_resource::<crate::hud::HudBloomGroupAuthoring>() {
+        world.insert_resource(crate::hud::HudBloomGroupAuthoring::default());
+    }
     if !world.contains_resource::<crate::hud::AgentListSelection>() {
         world.insert_resource(crate::hud::AgentListSelection::default());
     }
