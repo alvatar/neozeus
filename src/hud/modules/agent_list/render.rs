@@ -4,7 +4,11 @@ use super::super::super::render::{
     apply_alpha, interpolate_color, HudColors, HudPainter, HudRenderInputs,
 };
 use super::super::super::state::{AgentListUiState, HudRect, HUD_MODULE_PADDING};
-use bevy::{prelude::Vec2, window::Window};
+use bevy::{
+    color::{LinearRgba, Srgba},
+    prelude::{Color, Vec2},
+    window::Window,
+};
 use bevy_vello::{prelude::VelloTextAnchor, vello::peniko};
 
 use super::rows::{AgentRow, AgentRowKind};
@@ -68,6 +72,31 @@ const HOVER_CARD_LINE_HEIGHT: f32 = 18.0;
 const HOVER_CARD_PADDING_X: f32 = 12.0;
 const HOVER_CARD_PADDING_Y: f32 = 10.0;
 const HOVER_CARD_MARGIN: f32 = 12.0;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(crate) enum AgentListBloomSourceKind {
+    Main,
+    Marker,
+    Aegis,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(crate) enum AgentListBloomSourceSegment {
+    Top,
+    Right,
+    Bottom,
+    Left,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct AgentListBloomAuthoringSpec {
+    pub(crate) source_id: u64,
+    pub(crate) terminal_id: crate::terminals::TerminalId,
+    pub(crate) kind: AgentListBloomSourceKind,
+    pub(crate) segment: AgentListBloomSourceSegment,
+    pub(crate) rect: HudRect,
+    pub(crate) color: Color,
+}
 
 #[allow(
     clippy::too_many_arguments,
@@ -456,16 +485,272 @@ fn render_tmux_child_row(
     draw_button_rect(painter, main_rect, stroke, tmux_child_fill_color());
 }
 
+fn bloom_reference_color(red: u8, green: u8, blue: u8, scale: f32, alpha: f32) -> Color {
+    let linear: LinearRgba = Srgba::rgba_u8(red, green, blue, 255).into();
+    Color::linear_rgba(
+        linear.red * scale,
+        linear.green * scale,
+        linear.blue * scale,
+        alpha,
+    )
+}
+
+fn bloom_source_color(kind: AgentListBloomSourceKind, paused: bool, working: bool) -> Color {
+    if kind == AgentListBloomSourceKind::Aegis {
+        return bloom_reference_color(255, 105, 180, 7.0, 1.0);
+    }
+    if paused {
+        return match kind {
+            AgentListBloomSourceKind::Main => {
+                bloom_reference_color(AGENT_LIST_PAUSED_GRAY_R, AGENT_LIST_PAUSED_GRAY_G, AGENT_LIST_PAUSED_GRAY_B, 4.0, 1.0)
+            }
+            AgentListBloomSourceKind::Marker => {
+                bloom_reference_color(AGENT_LIST_PAUSED_GRAY_R, AGENT_LIST_PAUSED_GRAY_G, AGENT_LIST_PAUSED_GRAY_B, 5.0, 1.0)
+            }
+            AgentListBloomSourceKind::Aegis => bloom_reference_color(255, 105, 180, 7.0, 1.0),
+        };
+    }
+    if working {
+        return match kind {
+            AgentListBloomSourceKind::Main => bloom_reference_color(
+                AGENT_LIST_WORKING_GREEN_R,
+                AGENT_LIST_WORKING_GREEN_G,
+                AGENT_LIST_WORKING_GREEN_B,
+                5.0,
+                1.0,
+            ),
+            AgentListBloomSourceKind::Marker => bloom_reference_color(
+                AGENT_LIST_WORKING_GREEN_R,
+                AGENT_LIST_WORKING_GREEN_G,
+                AGENT_LIST_WORKING_GREEN_B,
+                6.0,
+                1.0,
+            ),
+            AgentListBloomSourceKind::Aegis => bloom_reference_color(255, 105, 180, 7.0, 1.0),
+        };
+    }
+
+    match kind {
+        AgentListBloomSourceKind::Main => bloom_reference_color(
+            AGENT_LIST_BLOOM_RED_R,
+            AGENT_LIST_BLOOM_RED_G,
+            AGENT_LIST_BLOOM_RED_B,
+            5.0,
+            1.0,
+        ),
+        AgentListBloomSourceKind::Marker => bloom_reference_color(
+            AGENT_LIST_BLOOM_RED_R,
+            AGENT_LIST_BLOOM_RED_G,
+            AGENT_LIST_BLOOM_RED_B,
+            6.0,
+            1.0,
+        ),
+        AgentListBloomSourceKind::Aegis => bloom_reference_color(255, 105, 180, 7.0, 1.0),
+    }
+}
+
+fn bloom_border_rects(
+    rect: HudRect,
+    thickness: f32,
+) -> [(AgentListBloomSourceSegment, HudRect); 4] {
+    let horizontal = thickness.min((rect.h * 0.5).max(1.0));
+    let vertical = thickness.min((rect.w * 0.5).max(1.0));
+    [
+        (
+            AgentListBloomSourceSegment::Top,
+            HudRect {
+                x: rect.x,
+                y: rect.y,
+                w: rect.w.max(1.0),
+                h: horizontal,
+            },
+        ),
+        (
+            AgentListBloomSourceSegment::Right,
+            HudRect {
+                x: rect.x + rect.w - vertical,
+                y: rect.y,
+                w: vertical,
+                h: rect.h.max(1.0),
+            },
+        ),
+        (
+            AgentListBloomSourceSegment::Bottom,
+            HudRect {
+                x: rect.x,
+                y: rect.y + rect.h - horizontal,
+                w: rect.w.max(1.0),
+                h: horizontal,
+            },
+        ),
+        (
+            AgentListBloomSourceSegment::Left,
+            HudRect {
+                x: rect.x,
+                y: rect.y,
+                w: vertical,
+                h: rect.h.max(1.0),
+            },
+        ),
+    ]
+}
+
+fn bloom_source_id(
+    terminal_id: crate::terminals::TerminalId,
+    kind: AgentListBloomSourceKind,
+    segment: AgentListBloomSourceSegment,
+) -> u64 {
+    let kind_bits = match kind {
+        AgentListBloomSourceKind::Main => 1u64,
+        AgentListBloomSourceKind::Marker => 2,
+        AgentListBloomSourceKind::Aegis => 3,
+    };
+    let segment_bits = match segment {
+        AgentListBloomSourceSegment::Top => 1u64,
+        AgentListBloomSourceSegment::Right => 2,
+        AgentListBloomSourceSegment::Bottom => 3,
+        AgentListBloomSourceSegment::Left => 4,
+    };
+    (terminal_id.0 << 8) | (kind_bits << 4) | segment_bits
+}
+
+pub(crate) fn agent_list_bloom_specs(
+    state: &AgentListUiState,
+    content_rect: HudRect,
+    inputs: &HudRenderInputs,
+) -> Vec<AgentListBloomAuthoringSpec> {
+    let rows = projected_agent_rows(
+        content_rect,
+        state.scroll_offset,
+        state.hovered_row.as_ref(),
+        inputs.agent_list_view,
+        None,
+    );
+    let owner_terminal_ids = rows
+        .iter()
+        .filter_map(|row| {
+            (!row.is_tmux_child())
+                .then(|| row.owner_agent_id().zip(row.terminal_id()))
+                .flatten()
+        })
+        .collect::<std::collections::HashMap<_, _>>();
+
+    let mut specs = Vec::new();
+    for row in rows {
+        let aegis_enabled = match row.kind {
+            AgentRowKind::Agent { agent_id, .. } => inputs
+                .agent_catalog
+                .and_then(|catalog| catalog.uid(agent_id))
+                .is_some_and(|uid| inputs.aegis_policy.is_enabled(uid)),
+            AgentRowKind::OwnedTmux { .. } => false,
+        };
+        if !row.focused && !aegis_enabled {
+            continue;
+        }
+        let working = row.activity() == Some(crate::hud::view_models::AgentListActivity::Working);
+        let paused = row.paused();
+        let terminal_id = if row.is_tmux_child() {
+            let Some(terminal_id) = row
+                .owner_agent_id()
+                .and_then(|owner_agent_id| owner_terminal_ids.get(&owner_agent_id).copied())
+            else {
+                continue;
+            };
+            terminal_id
+        } else if let Some(terminal_id) = row.terminal_id() {
+            terminal_id
+        } else {
+            continue;
+        };
+        if row.rect.y + row.rect.h < content_rect.y || row.rect.y > content_rect.y + content_rect.h
+        {
+            continue;
+        }
+
+        if aegis_enabled && !row.is_tmux_child() {
+            let expanded_rect = HudRect {
+                x: row.rect.x - 4.0,
+                y: row.rect.y - 3.0,
+                w: row.rect.w + 8.0,
+                h: row.rect.h + 6.0,
+            };
+            let color = bloom_source_color(AgentListBloomSourceKind::Aegis, false, false);
+            for (segment, border_rect) in bloom_border_rects(expanded_rect, 5.0) {
+                specs.push(AgentListBloomAuthoringSpec {
+                    source_id: bloom_source_id(terminal_id, AgentListBloomSourceKind::Aegis, segment),
+                    terminal_id,
+                    kind: AgentListBloomSourceKind::Aegis,
+                    segment,
+                    rect: border_rect,
+                    color,
+                });
+            }
+        }
+
+        if row.is_tmux_child() {
+            if !row.focused {
+                continue;
+            }
+            let main_rect = row_main_rect(&row);
+            let color = bloom_source_color(AgentListBloomSourceKind::Main, false, false);
+            for (segment, border_rect) in bloom_border_rects(main_rect, 3.0) {
+                specs.push(AgentListBloomAuthoringSpec {
+                    source_id: bloom_source_id(terminal_id, AgentListBloomSourceKind::Main, segment),
+                    terminal_id,
+                    kind: AgentListBloomSourceKind::Main,
+                    segment,
+                    rect: border_rect,
+                    color,
+                });
+            }
+        } else if row.focused {
+            for (kind, rect, thickness) in [
+                (
+                    AgentListBloomSourceKind::Main,
+                    agent_row_rect(row.rect, AgentListRowSection::Main),
+                    3.0,
+                ),
+                (
+                    AgentListBloomSourceKind::Marker,
+                    agent_row_rect(row.rect, AgentListRowSection::Marker),
+                    2.5,
+                ),
+            ] {
+                let color = bloom_source_color(kind, paused, working);
+                for (segment, border_rect) in bloom_border_rects(rect, thickness) {
+                    specs.push(AgentListBloomAuthoringSpec {
+                        source_id: bloom_source_id(terminal_id, kind, segment),
+                        terminal_id,
+                        kind,
+                        segment,
+                        rect: border_rect,
+                        color,
+                    });
+                }
+            }
+        }
+    }
+    specs
+}
+
 /// Renders content.
 pub(crate) fn render_content(
     state: &AgentListUiState,
-    _layer_id: crate::hud::HudLayerId,
+    layer_id: crate::hud::HudLayerId,
     content_rect: HudRect,
     painter: &mut HudPainter,
-    _bloom_groups: Option<&mut crate::hud::HudBloomGroupAuthoring>,
+    bloom_groups: Option<&mut crate::hud::HudBloomGroupAuthoring>,
     inputs: &HudRenderInputs,
 ) {
     // Build the geometry or layout decisions first, then emit the matching draw operations against the prepared state.
+    if let Some(mut writer) = bloom_groups.map(|groups| {
+        groups.writer(layer_id, crate::hud::HudBloomGroupId::AgentListSelection)
+    }) {
+        for spec in agent_list_bloom_specs(state, content_rect, inputs) {
+            writer.fill_rect_with_id(spec.source_id, spec.rect, spec.color);
+        }
+    }
+
     painter.fill_rect(content_rect, apply_alpha(EVA_BLACK, 0.98), 0.0);
     draw_left_rail(painter, content_rect);
 

@@ -1,9 +1,9 @@
-use std::collections::BTreeSet;
-
 use super::super::{
     modules::{
-        agent_row_rect, agent_rows, AgentListRowSection, AGENT_LIST_BORDER_ORANGE_B,
-        AGENT_LIST_BORDER_ORANGE_G, AGENT_LIST_BORDER_ORANGE_R,
+        agent_list_bloom_specs, agent_row_rect, agent_rows, AgentListBloomAuthoringSpec,
+        AgentListBloomSourceKind, AgentListBloomSourceSegment, AgentListRowSection,
+        AGENT_LIST_BLOOM_RED_B, AGENT_LIST_BLOOM_RED_G, AGENT_LIST_BLOOM_RED_R,
+        AGENT_LIST_BORDER_ORANGE_B, AGENT_LIST_BORDER_ORANGE_G, AGENT_LIST_BORDER_ORANGE_R,
     },
     setup::sync_structural_hud_layout,
     state::{default_hud_module_instance, AgentListUiState, HudState},
@@ -56,6 +56,51 @@ fn run_synced_hud_view_models(world: &mut World) {
     world.run_system_once(sync_hud_view_models).unwrap();
 }
 
+fn bloom_specs_for_rows(
+    rows: Vec<AgentListRowView>,
+    agent_catalog: Option<&crate::agents::AgentCatalog>,
+    aegis_policy: &crate::aegis::AegisPolicyStore,
+) -> Vec<AgentListBloomAuthoringSpec> {
+    let agent_list_view = AgentListView { rows };
+    let conversation_list = ConversationListView::default();
+    let thread_view = ThreadView::default();
+    let info_bar_view = crate::hud::InfoBarView::default();
+    let selection_state = crate::text_selection::AgentListTextSelectionState::default();
+    let inputs = super::super::render::HudRenderInputs {
+        agent_list_view: &agent_list_view,
+        conversation_list_view: &conversation_list,
+        thread_view: &thread_view,
+        info_bar_view: &info_bar_view,
+        agent_list_text_selection: &selection_state,
+        agent_catalog,
+        aegis_policy,
+    };
+    agent_list_bloom_specs(
+        &AgentListUiState::default(),
+        HudRect {
+            x: 0.0,
+            y: 0.0,
+            w: 400.0,
+            h: 240.0,
+        },
+        &inputs,
+    )
+}
+
+fn render_main_bloom_authoring(world: &mut World) {
+    if !world.contains_resource::<Assets<bevy_vello::prelude::VelloFont>>() {
+        world.insert_resource(Assets::<bevy_vello::prelude::VelloFont>::default());
+    }
+    if !world.contains_resource::<crate::hud::HudBloomGroupAuthoring>() {
+        world.insert_resource(crate::hud::HudBloomGroupAuthoring::default());
+    }
+    world.spawn((
+        bevy_vello::prelude::VelloScene2d::default(),
+        crate::hud::HudVectorSceneMarker,
+    ));
+    world.run_system_once(crate::hud::render_hud_scene).unwrap();
+}
+
 /// Locks down the exact reference RGB constants used by the agent-list border and bloom styling.
 ///
 /// These values matter because the visual verification scripts compare rendered output against known
@@ -82,8 +127,36 @@ fn agent_list_reference_colors_match_requested_values() {
 
 #[test]
 fn selected_idle_rows_use_red_bloom_contract() {
-    let main = bloom_source_color(AgentListBloomSourceKind::Main, false, false);
-    let marker = bloom_source_color(AgentListBloomSourceKind::Marker, false, false);
+    let specs = bloom_specs_for_rows(
+        vec![AgentListRowView {
+            key: AgentListRowKey::Agent(crate::agents::AgentId(1)),
+            label: "ALPHA".into(),
+            focused: true,
+            kind: AgentListRowKind::Agent {
+                agent_id: crate::agents::AgentId(1),
+                terminal_id: Some(crate::terminals::TerminalId(11)),
+                has_tasks: false,
+                interactive: true,
+                activity: AgentListActivity::Idle,
+                paused: false,
+                context_pct_milli: None,
+                agent_kind: crate::agents::AgentKind::Terminal,
+                session_metrics: crate::shared::daemon_wire::DaemonSessionMetrics::default(),
+            },
+        }],
+        None,
+        &crate::aegis::AegisPolicyStore::default(),
+    );
+    let main = specs
+        .iter()
+        .find(|spec| spec.kind == AgentListBloomSourceKind::Main)
+        .expect("main glow exists")
+        .color;
+    let marker = specs
+        .iter()
+        .find(|spec| spec.kind == AgentListBloomSourceKind::Marker)
+        .expect("marker glow exists")
+        .color;
 
     let main_linear = main.to_linear();
     let marker_linear = marker.to_linear();
@@ -94,8 +167,36 @@ fn selected_idle_rows_use_red_bloom_contract() {
 
 #[test]
 fn selected_working_rows_use_green_bloom_contract() {
-    let main = bloom_source_color(AgentListBloomSourceKind::Main, false, true);
-    let marker = bloom_source_color(AgentListBloomSourceKind::Marker, false, true);
+    let specs = bloom_specs_for_rows(
+        vec![AgentListRowView {
+            key: AgentListRowKey::Agent(crate::agents::AgentId(1)),
+            label: "ALPHA".into(),
+            focused: true,
+            kind: AgentListRowKind::Agent {
+                agent_id: crate::agents::AgentId(1),
+                terminal_id: Some(crate::terminals::TerminalId(11)),
+                has_tasks: false,
+                interactive: true,
+                activity: AgentListActivity::Working,
+                paused: false,
+                context_pct_milli: None,
+                agent_kind: crate::agents::AgentKind::Terminal,
+                session_metrics: crate::shared::daemon_wire::DaemonSessionMetrics::default(),
+            },
+        }],
+        None,
+        &crate::aegis::AegisPolicyStore::default(),
+    );
+    let main = specs
+        .iter()
+        .find(|spec| spec.kind == AgentListBloomSourceKind::Main)
+        .expect("main glow exists")
+        .color;
+    let marker = specs
+        .iter()
+        .find(|spec| spec.kind == AgentListBloomSourceKind::Marker)
+        .expect("marker glow exists")
+        .color;
 
     let main_linear = main.to_linear();
     let marker_linear = marker.to_linear();
@@ -106,8 +207,36 @@ fn selected_working_rows_use_green_bloom_contract() {
 
 #[test]
 fn selected_paused_rows_use_gray_bloom_contract() {
-    let main = bloom_source_color(AgentListBloomSourceKind::Main, true, true);
-    let marker = bloom_source_color(AgentListBloomSourceKind::Marker, true, false);
+    let specs = bloom_specs_for_rows(
+        vec![AgentListRowView {
+            key: AgentListRowKey::Agent(crate::agents::AgentId(1)),
+            label: "ALPHA".into(),
+            focused: true,
+            kind: AgentListRowKind::Agent {
+                agent_id: crate::agents::AgentId(1),
+                terminal_id: Some(crate::terminals::TerminalId(11)),
+                has_tasks: false,
+                interactive: true,
+                activity: AgentListActivity::Working,
+                paused: true,
+                context_pct_milli: None,
+                agent_kind: crate::agents::AgentKind::Terminal,
+                session_metrics: crate::shared::daemon_wire::DaemonSessionMetrics::default(),
+            },
+        }],
+        None,
+        &crate::aegis::AegisPolicyStore::default(),
+    );
+    let main = specs
+        .iter()
+        .find(|spec| spec.kind == AgentListBloomSourceKind::Main)
+        .expect("main glow exists")
+        .color;
+    let marker = specs
+        .iter()
+        .find(|spec| spec.kind == AgentListBloomSourceKind::Marker)
+        .expect("marker glow exists")
+        .color;
 
     let main_linear = main.to_linear();
     let marker_linear = marker.to_linear();
@@ -147,80 +276,9 @@ fn parses_agent_bloom_debug_previews_override() {
 
 #[test]
 fn selected_agent_row_emits_selected_bloom_sources_only_for_that_row() {
-    let active_row_key = AgentListRowKey::Agent(crate::agents::AgentId(1));
-    let specs = build_bloom_specs(
-        HudRect {
-            x: 0.0,
-            y: 0.0,
-            w: 400.0,
-            h: 240.0,
-        },
-        0.0,
-        None,
-        Some(&active_row_key),
-        &BTreeSet::new(),
-        &AgentListView {
-            rows: vec![
-                AgentListRowView {
-                    key: AgentListRowKey::Agent(crate::agents::AgentId(1)),
-                    label: "ALPHA".into(),
-                    focused: true,
-                    kind: AgentListRowKind::Agent {
-                        agent_id: crate::agents::AgentId(1),
-                        terminal_id: Some(crate::terminals::TerminalId(11)),
-                        has_tasks: false,
-                        interactive: true,
-                        activity: AgentListActivity::Idle,
-                        paused: false,
-                        context_pct_milli: None,
-                        agent_kind: crate::agents::AgentKind::Terminal,
-                        session_metrics: crate::shared::daemon_wire::DaemonSessionMetrics::default(
-                        ),
-                    },
-                },
-                AgentListRowView {
-                    key: AgentListRowKey::Agent(crate::agents::AgentId(2)),
-                    label: "BETA".into(),
-                    focused: false,
-                    kind: AgentListRowKind::Agent {
-                        agent_id: crate::agents::AgentId(2),
-                        terminal_id: Some(crate::terminals::TerminalId(22)),
-                        has_tasks: false,
-                        interactive: true,
-                        activity: AgentListActivity::Idle,
-                        paused: false,
-                        context_pct_milli: None,
-                        agent_kind: crate::agents::AgentKind::Terminal,
-                        session_metrics: crate::shared::daemon_wire::DaemonSessionMetrics::default(
-                        ),
-                    },
-                },
-            ],
-        },
-    );
-
-    assert_eq!(specs.len(), 8);
-    assert!(specs
-        .iter()
-        .all(|spec| spec.key.terminal_id == crate::terminals::TerminalId(11)));
-}
-
-#[test]
-fn selected_paused_agent_row_emits_gray_bloom_sources_only_for_that_row() {
-    let active_row_key = AgentListRowKey::Agent(crate::agents::AgentId(1));
-    let specs = build_bloom_specs(
-        HudRect {
-            x: 0.0,
-            y: 0.0,
-            w: 400.0,
-            h: 240.0,
-        },
-        0.0,
-        None,
-        Some(&active_row_key),
-        &BTreeSet::new(),
-        &AgentListView {
-            rows: vec![AgentListRowView {
+    let specs = bloom_specs_for_rows(
+        vec![
+            AgentListRowView {
                 key: AgentListRowKey::Agent(crate::agents::AgentId(1)),
                 label: "ALPHA".into(),
                 focused: true,
@@ -229,14 +287,61 @@ fn selected_paused_agent_row_emits_gray_bloom_sources_only_for_that_row() {
                     terminal_id: Some(crate::terminals::TerminalId(11)),
                     has_tasks: false,
                     interactive: true,
-                    activity: AgentListActivity::Working,
-                    paused: true,
+                    activity: AgentListActivity::Idle,
+                    paused: false,
                     context_pct_milli: None,
                     agent_kind: crate::agents::AgentKind::Terminal,
                     session_metrics: crate::shared::daemon_wire::DaemonSessionMetrics::default(),
                 },
-            }],
-        },
+            },
+            AgentListRowView {
+                key: AgentListRowKey::Agent(crate::agents::AgentId(2)),
+                label: "BETA".into(),
+                focused: false,
+                kind: AgentListRowKind::Agent {
+                    agent_id: crate::agents::AgentId(2),
+                    terminal_id: Some(crate::terminals::TerminalId(22)),
+                    has_tasks: false,
+                    interactive: true,
+                    activity: AgentListActivity::Idle,
+                    paused: false,
+                    context_pct_milli: None,
+                    agent_kind: crate::agents::AgentKind::Terminal,
+                    session_metrics: crate::shared::daemon_wire::DaemonSessionMetrics::default(),
+                },
+            },
+        ],
+        None,
+        &crate::aegis::AegisPolicyStore::default(),
+    );
+
+    assert_eq!(specs.len(), 8);
+    assert!(specs
+        .iter()
+        .all(|spec| spec.terminal_id == crate::terminals::TerminalId(11)));
+}
+
+#[test]
+fn selected_paused_agent_row_emits_gray_bloom_sources_only_for_that_row() {
+    let specs = bloom_specs_for_rows(
+        vec![AgentListRowView {
+            key: AgentListRowKey::Agent(crate::agents::AgentId(1)),
+            label: "ALPHA".into(),
+            focused: true,
+            kind: AgentListRowKind::Agent {
+                agent_id: crate::agents::AgentId(1),
+                terminal_id: Some(crate::terminals::TerminalId(11)),
+                has_tasks: false,
+                interactive: true,
+                activity: AgentListActivity::Working,
+                paused: true,
+                context_pct_milli: None,
+                agent_kind: crate::agents::AgentKind::Terminal,
+                session_metrics: crate::shared::daemon_wire::DaemonSessionMetrics::default(),
+            },
+        }],
+        None,
+        &crate::aegis::AegisPolicyStore::default(),
     );
 
     assert_eq!(specs.len(), 8);
@@ -248,62 +353,49 @@ fn selected_paused_agent_row_emits_gray_bloom_sources_only_for_that_row() {
 
 #[test]
 fn selected_working_agent_row_emits_green_bloom_sources_only_for_that_row() {
-    let active_row_key = AgentListRowKey::Agent(crate::agents::AgentId(1));
-    let specs = build_bloom_specs(
-        HudRect {
-            x: 0.0,
-            y: 0.0,
-            w: 400.0,
-            h: 240.0,
-        },
-        0.0,
+    let specs = bloom_specs_for_rows(
+        vec![
+            AgentListRowView {
+                key: AgentListRowKey::Agent(crate::agents::AgentId(1)),
+                label: "ALPHA".into(),
+                focused: true,
+                kind: AgentListRowKind::Agent {
+                    agent_id: crate::agents::AgentId(1),
+                    terminal_id: Some(crate::terminals::TerminalId(11)),
+                    has_tasks: false,
+                    interactive: true,
+                    activity: AgentListActivity::Working,
+                    paused: false,
+                    context_pct_milli: None,
+                    agent_kind: crate::agents::AgentKind::Terminal,
+                    session_metrics: crate::shared::daemon_wire::DaemonSessionMetrics::default(),
+                },
+            },
+            AgentListRowView {
+                key: AgentListRowKey::Agent(crate::agents::AgentId(2)),
+                label: "BETA".into(),
+                focused: false,
+                kind: AgentListRowKind::Agent {
+                    agent_id: crate::agents::AgentId(2),
+                    terminal_id: Some(crate::terminals::TerminalId(22)),
+                    has_tasks: false,
+                    interactive: true,
+                    activity: AgentListActivity::Idle,
+                    paused: false,
+                    context_pct_milli: None,
+                    agent_kind: crate::agents::AgentKind::Terminal,
+                    session_metrics: crate::shared::daemon_wire::DaemonSessionMetrics::default(),
+                },
+            },
+        ],
         None,
-        Some(&active_row_key),
-        &BTreeSet::new(),
-        &AgentListView {
-            rows: vec![
-                AgentListRowView {
-                    key: AgentListRowKey::Agent(crate::agents::AgentId(1)),
-                    label: "ALPHA".into(),
-                    focused: true,
-                    kind: AgentListRowKind::Agent {
-                        agent_id: crate::agents::AgentId(1),
-                        terminal_id: Some(crate::terminals::TerminalId(11)),
-                        has_tasks: false,
-                        interactive: true,
-                        activity: AgentListActivity::Working,
-                        paused: false,
-                        context_pct_milli: None,
-                        agent_kind: crate::agents::AgentKind::Terminal,
-                        session_metrics: crate::shared::daemon_wire::DaemonSessionMetrics::default(
-                        ),
-                    },
-                },
-                AgentListRowView {
-                    key: AgentListRowKey::Agent(crate::agents::AgentId(2)),
-                    label: "BETA".into(),
-                    focused: false,
-                    kind: AgentListRowKind::Agent {
-                        agent_id: crate::agents::AgentId(2),
-                        terminal_id: Some(crate::terminals::TerminalId(22)),
-                        has_tasks: false,
-                        interactive: true,
-                        activity: AgentListActivity::Idle,
-                        paused: false,
-                        context_pct_milli: None,
-                        agent_kind: crate::agents::AgentKind::Terminal,
-                        session_metrics: crate::shared::daemon_wire::DaemonSessionMetrics::default(
-                        ),
-                    },
-                },
-            ],
-        },
+        &crate::aegis::AegisPolicyStore::default(),
     );
 
     assert_eq!(specs.len(), 8);
     assert!(specs
         .iter()
-        .all(|spec| spec.key.terminal_id == crate::terminals::TerminalId(11)));
+        .all(|spec| spec.terminal_id == crate::terminals::TerminalId(11)));
     let linear = specs[0].color.to_linear();
     assert!(linear.green > linear.red);
     assert!(linear.green > linear.blue);
@@ -311,79 +403,9 @@ fn selected_working_agent_row_emits_green_bloom_sources_only_for_that_row() {
 
 #[test]
 fn selected_tmux_row_does_not_emit_parent_agent_bloom() {
-    let active_row_key = AgentListRowKey::OwnedTmux("tmux-1".into());
-    let specs = build_bloom_specs(
-        HudRect {
-            x: 0.0,
-            y: 0.0,
-            w: 400.0,
-            h: 240.0,
-        },
-        0.0,
-        None,
-        Some(&active_row_key),
-        &BTreeSet::new(),
-        &AgentListView {
-            rows: vec![
-                AgentListRowView {
-                    key: AgentListRowKey::Agent(crate::agents::AgentId(1)),
-                    label: "ALPHA".into(),
-                    focused: false,
-                    kind: AgentListRowKind::Agent {
-                        agent_id: crate::agents::AgentId(1),
-                        terminal_id: Some(crate::terminals::TerminalId(11)),
-                        has_tasks: false,
-                        interactive: true,
-                        activity: AgentListActivity::Idle,
-                        paused: false,
-                        context_pct_milli: None,
-                        agent_kind: crate::agents::AgentKind::Terminal,
-                        session_metrics: crate::shared::daemon_wire::DaemonSessionMetrics::default(
-                        ),
-                    },
-                },
-                AgentListRowView {
-                    key: AgentListRowKey::OwnedTmux("tmux-1".into()),
-                    label: "BUILD".into(),
-                    focused: true,
-                    kind: AgentListRowKind::OwnedTmux {
-                        session_uid: "tmux-1".into(),
-                        owner: OwnedTmuxOwnerBinding::Bound(crate::agents::AgentId(1)),
-                        tmux_name: "neozeus-tmux-1".into(),
-                        cwd: "/tmp/work".into(),
-                        attached: false,
-                    },
-                },
-            ],
-        },
-    );
-
-    assert_eq!(specs.len(), 4);
-    assert!(specs
-        .iter()
-        .all(|spec| spec.key.kind == AgentListBloomSourceKind::Main));
-    assert!(specs
-        .iter()
-        .all(|spec| spec.key.terminal_id == crate::terminals::TerminalId(11)));
-}
-
-#[test]
-fn aegis_enabled_rows_emit_pink_outer_bloom_when_unselected() {
-    let mut aegis_rows = BTreeSet::new();
-    aegis_rows.insert(AgentListRowKey::Agent(crate::agents::AgentId(1)));
-    let specs = build_bloom_specs(
-        HudRect {
-            x: 0.0,
-            y: 0.0,
-            w: 400.0,
-            h: 240.0,
-        },
-        0.0,
-        None,
-        None,
-        &aegis_rows,
-        &AgentListView {
-            rows: vec![AgentListRowView {
+    let specs = bloom_specs_for_rows(
+        vec![
+            AgentListRowView {
                 key: AgentListRowKey::Agent(crate::agents::AgentId(1)),
                 label: "ALPHA".into(),
                 focused: false,
@@ -398,14 +420,70 @@ fn aegis_enabled_rows_emit_pink_outer_bloom_when_unselected() {
                     agent_kind: crate::agents::AgentKind::Terminal,
                     session_metrics: crate::shared::daemon_wire::DaemonSessionMetrics::default(),
                 },
-            }],
-        },
+            },
+            AgentListRowView {
+                key: AgentListRowKey::OwnedTmux("tmux-1".into()),
+                label: "BUILD".into(),
+                focused: true,
+                kind: AgentListRowKind::OwnedTmux {
+                    session_uid: "tmux-1".into(),
+                    owner: OwnedTmuxOwnerBinding::Bound(crate::agents::AgentId(1)),
+                    tmux_name: "neozeus-tmux-1".into(),
+                    cwd: "/tmp/work".into(),
+                    attached: false,
+                },
+            },
+        ],
+        None,
+        &crate::aegis::AegisPolicyStore::default(),
     );
 
     assert_eq!(specs.len(), 4);
     assert!(specs
         .iter()
-        .all(|spec| spec.key.kind == AgentListBloomSourceKind::Aegis));
+        .all(|spec| spec.kind == AgentListBloomSourceKind::Main));
+    assert!(specs
+        .iter()
+        .all(|spec| spec.terminal_id == crate::terminals::TerminalId(11)));
+}
+
+#[test]
+fn aegis_enabled_rows_emit_pink_outer_bloom_when_unselected() {
+    let mut agent_catalog = crate::agents::AgentCatalog::default();
+    let agent_id = agent_catalog.create_agent(
+        Some("alpha".into()),
+        crate::agents::AgentKind::Terminal,
+        crate::agents::AgentKind::Terminal.capabilities(),
+    );
+    let agent_uid = agent_catalog.uid(agent_id).expect("agent uid exists").to_owned();
+    let mut aegis_policy = crate::aegis::AegisPolicyStore::default();
+    assert!(aegis_policy.enable(&agent_uid, "continue cleanly".into()));
+
+    let specs = bloom_specs_for_rows(
+        vec![AgentListRowView {
+            key: AgentListRowKey::Agent(agent_id),
+            label: "ALPHA".into(),
+            focused: false,
+            kind: AgentListRowKind::Agent {
+                agent_id,
+                terminal_id: Some(crate::terminals::TerminalId(11)),
+                has_tasks: false,
+                interactive: true,
+                activity: AgentListActivity::Idle,
+                paused: false,
+                context_pct_milli: None,
+                agent_kind: crate::agents::AgentKind::Terminal,
+                session_metrics: crate::shared::daemon_wire::DaemonSessionMetrics::default(),
+            },
+        }],
+        Some(&agent_catalog),
+        &aegis_policy,
+    );
+
+    assert_eq!(specs.len(), 4);
+    assert!(specs
+        .iter()
+        .all(|spec| spec.kind == AgentListBloomSourceKind::Aegis));
     let linear = specs[0].color.to_linear();
     assert!(linear.red > linear.green);
     assert!(linear.blue > linear.green);
@@ -413,73 +491,70 @@ fn aegis_enabled_rows_emit_pink_outer_bloom_when_unselected() {
 
 #[test]
 fn selected_aegis_agent_emits_both_outer_aegis_and_inner_selection_glow() {
-    let active_row_key = AgentListRowKey::Agent(crate::agents::AgentId(1));
-    let mut aegis_rows = BTreeSet::new();
-    aegis_rows.insert(active_row_key.clone());
-    let specs = build_bloom_specs(
-        HudRect {
-            x: 0.0,
-            y: 0.0,
-            w: 400.0,
-            h: 240.0,
-        },
-        0.0,
-        None,
-        Some(&active_row_key),
-        &aegis_rows,
-        &AgentListView {
-            rows: vec![AgentListRowView {
-                key: active_row_key.clone(),
-                label: "ALPHA".into(),
-                focused: true,
-                kind: AgentListRowKind::Agent {
-                    agent_id: crate::agents::AgentId(1),
-                    terminal_id: Some(crate::terminals::TerminalId(11)),
-                    has_tasks: false,
-                    interactive: true,
-                    activity: AgentListActivity::Idle,
-                    paused: false,
-                    context_pct_milli: None,
-                    agent_kind: crate::agents::AgentKind::Terminal,
-                    session_metrics: crate::shared::daemon_wire::DaemonSessionMetrics::default(),
-                },
-            }],
-        },
+    let mut agent_catalog = crate::agents::AgentCatalog::default();
+    let agent_id = agent_catalog.create_agent(
+        Some("alpha".into()),
+        crate::agents::AgentKind::Terminal,
+        crate::agents::AgentKind::Terminal.capabilities(),
+    );
+    let agent_uid = agent_catalog.uid(agent_id).expect("agent uid exists").to_owned();
+    let mut aegis_policy = crate::aegis::AegisPolicyStore::default();
+    assert!(aegis_policy.enable(&agent_uid, "continue cleanly".into()));
+
+    let specs = bloom_specs_for_rows(
+        vec![AgentListRowView {
+            key: AgentListRowKey::Agent(agent_id),
+            label: "ALPHA".into(),
+            focused: true,
+            kind: AgentListRowKind::Agent {
+                agent_id,
+                terminal_id: Some(crate::terminals::TerminalId(11)),
+                has_tasks: false,
+                interactive: true,
+                activity: AgentListActivity::Idle,
+                paused: false,
+                context_pct_milli: None,
+                agent_kind: crate::agents::AgentKind::Terminal,
+                session_metrics: crate::shared::daemon_wire::DaemonSessionMetrics::default(),
+            },
+        }],
+        Some(&agent_catalog),
+        &aegis_policy,
     );
 
     assert_eq!(
         specs
             .iter()
-            .filter(|spec| spec.key.kind == AgentListBloomSourceKind::Aegis)
+            .filter(|spec| spec.kind == AgentListBloomSourceKind::Aegis)
             .count(),
         4
     );
     assert_eq!(
         specs
             .iter()
-            .filter(|spec| spec.key.kind == AgentListBloomSourceKind::Main)
+            .filter(|spec| spec.kind == AgentListBloomSourceKind::Main)
             .count(),
         4
     );
     assert_eq!(
         specs
             .iter()
-            .filter(|spec| spec.key.kind == AgentListBloomSourceKind::Marker)
+            .filter(|spec| spec.kind == AgentListBloomSourceKind::Marker)
             .count(),
         4
     );
     let outer_top = specs
         .iter()
         .find(|spec| {
-            spec.key.kind == AgentListBloomSourceKind::Aegis
-                && spec.key.segment == AgentListBloomSourceSegment::Top
+            spec.kind == AgentListBloomSourceKind::Aegis
+                && spec.segment == AgentListBloomSourceSegment::Top
         })
         .expect("outer aegis top border should exist");
     let inner_top = specs
         .iter()
         .find(|spec| {
-            spec.key.kind == AgentListBloomSourceKind::Main
-                && spec.key.segment == AgentListBloomSourceSegment::Top
+            spec.kind == AgentListBloomSourceKind::Main
+                && spec.segment == AgentListBloomSourceSegment::Top
         })
         .expect("inner selection top border should exist");
     assert!(outer_top.rect.x < inner_top.rect.x);
@@ -488,36 +563,25 @@ fn selected_aegis_agent_emits_both_outer_aegis_and_inner_selection_glow() {
 
 #[test]
 fn unselected_rows_do_not_emit_selected_bloom_sources() {
-    let active_row_key = AgentListRowKey::Agent(crate::agents::AgentId(2));
-    let specs = build_bloom_specs(
-        HudRect {
-            x: 0.0,
-            y: 0.0,
-            w: 400.0,
-            h: 240.0,
-        },
-        0.0,
+    let specs = bloom_specs_for_rows(
+        vec![AgentListRowView {
+            key: AgentListRowKey::Agent(crate::agents::AgentId(1)),
+            label: "ALPHA".into(),
+            focused: false,
+            kind: AgentListRowKind::Agent {
+                agent_id: crate::agents::AgentId(1),
+                terminal_id: Some(crate::terminals::TerminalId(11)),
+                has_tasks: false,
+                interactive: true,
+                activity: AgentListActivity::Idle,
+                paused: false,
+                context_pct_milli: None,
+                agent_kind: crate::agents::AgentKind::Terminal,
+                session_metrics: crate::shared::daemon_wire::DaemonSessionMetrics::default(),
+            },
+        }],
         None,
-        Some(&active_row_key),
-        &BTreeSet::new(),
-        &AgentListView {
-            rows: vec![AgentListRowView {
-                key: AgentListRowKey::Agent(crate::agents::AgentId(1)),
-                label: "ALPHA".into(),
-                focused: false,
-                kind: AgentListRowKind::Agent {
-                    agent_id: crate::agents::AgentId(1),
-                    terminal_id: Some(crate::terminals::TerminalId(11)),
-                    has_tasks: false,
-                    interactive: true,
-                    activity: AgentListActivity::Idle,
-                    paused: false,
-                    context_pct_milli: None,
-                    agent_kind: crate::agents::AgentKind::Terminal,
-                    session_metrics: crate::shared::daemon_wire::DaemonSessionMetrics::default(),
-                },
-            }],
-        },
+        &crate::aegis::AegisPolicyStore::default(),
     );
 
     assert!(specs.is_empty());
@@ -877,6 +941,7 @@ fn sync_hud_widget_bloom_spawns_agent_list_source_sprites() {
 
     world.run_system_once(setup_hud_widget_bloom).unwrap();
     world.run_system_once(sync_structural_hud_layout).unwrap();
+    render_main_bloom_authoring(&mut world);
     world.run_system_once(sync_hud_widget_bloom).unwrap();
 
     let source_sprites = world
@@ -885,33 +950,6 @@ fn sync_hud_widget_bloom_spawns_agent_list_source_sprites() {
         .map(|(marker, sprite)| (*marker, sprite.clone()))
         .collect::<Vec<_>>();
     assert_eq!(source_sprites.len(), 8);
-    assert_eq!(
-        source_sprites
-            .iter()
-            .filter(|(sprite, _)| sprite.kind == AgentListBloomSourceKind::Main)
-            .count(),
-        4
-    );
-    assert_eq!(
-        source_sprites
-            .iter()
-            .filter(|(sprite, _)| sprite.kind == AgentListBloomSourceKind::Marker)
-            .count(),
-        4
-    );
-    for segment in [
-        AgentListBloomSourceSegment::Top,
-        AgentListBloomSourceSegment::Right,
-        AgentListBloomSourceSegment::Bottom,
-        AgentListBloomSourceSegment::Left,
-    ] {
-        assert!(source_sprites.iter().any(|(sprite, _)| {
-            sprite.kind == AgentListBloomSourceKind::Main && sprite.segment == segment
-        }));
-        assert!(source_sprites.iter().any(|(sprite, _)| {
-            sprite.kind == AgentListBloomSourceKind::Marker && sprite.segment == segment
-        }));
-    }
 
     let expected_sizes = {
         let hud_state = snapshot_test_hud_state(&world);
@@ -1014,6 +1052,7 @@ fn sync_hud_widget_bloom_hides_sources_and_composite_while_modal_is_visible() {
 
     world.run_system_once(setup_hud_widget_bloom).unwrap();
     world.run_system_once(sync_structural_hud_layout).unwrap();
+    render_main_bloom_authoring(&mut world);
     world.run_system_once(sync_hud_widget_bloom).unwrap();
 
     assert_eq!(
@@ -1034,26 +1073,14 @@ fn sync_hud_widget_bloom_hides_sources_and_composite_while_modal_is_visible() {
 /// the visual emphasis stays singular.
 #[test]
 fn sync_hud_widget_bloom_only_uses_active_agent_source() {
-    let mut world = World::default();
-    let (bridge_one, _) = test_bridge();
-    let (bridge_two, _) = test_bridge();
-    let mut manager = TerminalManager::default();
-    let id_one = manager.create_terminal(bridge_one);
-    let id_two = manager.create_terminal(bridge_two);
-    manager.focus_terminal(id_two);
-
-    let mut hud_state = HudState::default();
-    hud_state.insert(
-        HudWidgetKey::AgentList,
-        default_hud_module_instance(&HUD_WIDGET_DEFINITIONS[1]),
-    );
-    insert_terminal_manager_resources(&mut world, manager);
-    world.insert_resource(AgentListView {
-        rows: vec![
+    let id_one = crate::terminals::TerminalId(11);
+    let id_two = crate::terminals::TerminalId(22);
+    let specs = bloom_specs_for_rows(
+        vec![
             AgentListRowView {
                 key: AgentListRowKey::Agent(crate::agents::AgentId(1)),
                 label: "AGENT-1".into(),
-                focused: true,
+                focused: false,
                 kind: AgentListRowKind::Agent {
                     agent_id: crate::agents::AgentId(1),
                     terminal_id: Some(id_one),
@@ -1069,7 +1096,7 @@ fn sync_hud_widget_bloom_only_uses_active_agent_source() {
             AgentListRowView {
                 key: AgentListRowKey::Agent(crate::agents::AgentId(2)),
                 label: "AGENT-2".into(),
-                focused: false,
+                focused: true,
                 kind: AgentListRowKind::Agent {
                     agent_id: crate::agents::AgentId(2),
                     terminal_id: Some(id_two),
@@ -1083,66 +1110,23 @@ fn sync_hud_widget_bloom_only_uses_active_agent_source() {
                 },
             },
         ],
-    });
-    world.insert_resource(ConversationListView::default());
-    world.insert_resource(ThreadView::default());
-    world.insert_resource(ComposerView::default());
-    world.insert_resource(crate::agents::AgentStatusStore::default());
-    world.insert_resource(crate::terminals::OwnedTmuxSessionStore::default());
-    world.insert_resource(crate::terminals::ActiveTerminalContentState::default());
-    world.insert_resource(crate::terminals::ActiveTerminalContentSyncState::default());
-    insert_test_hud_state(&mut world, hud_state);
-    world.insert_resource(HudBloomSettings::default());
-    world.insert_resource(HudWidgetBloom::default());
-    world.insert_resource(Assets::<Image>::default());
-    world.insert_resource(Assets::<Mesh>::default());
-    world.insert_resource(Assets::<AgentListBloomBlurMaterial>::default());
-    world.spawn((
-        Window {
-            resolution: (1400, 900).into(),
-            ..default()
-        },
-        PrimaryWindow,
-    ));
-
-    world.run_system_once(setup_hud_widget_bloom).unwrap();
-    world.run_system_once(sync_structural_hud_layout).unwrap();
-    world.run_system_once(sync_hud_widget_bloom).unwrap();
-
-    let source_sprites = world
-        .query::<(&AgentListBloomSourceSprite, &Sprite)>()
-        .iter(&world)
-        .map(|(sprite, render)| (*sprite, render.color))
-        .collect::<Vec<_>>();
-    assert_eq!(source_sprites.len(), 8);
-    assert!(source_sprites
-        .iter()
-        .all(|(sprite, _)| sprite.terminal_id == id_two));
-    assert!(source_sprites
-        .iter()
-        .all(|(sprite, _)| sprite.terminal_id != id_one));
-    assert!(source_sprites.iter().all(|(_, color)| {
-        let linear = color.to_linear();
+        None,
+        &crate::aegis::AegisPolicyStore::default(),
+    );
+    assert_eq!(specs.len(), 8);
+    assert!(specs.iter().all(|spec| spec.terminal_id == id_two));
+    assert!(specs.iter().all(|spec| spec.terminal_id != id_one));
+    assert!(specs.iter().all(|spec| {
+        let linear = spec.color.to_linear();
         linear.green > linear.red && linear.green > linear.blue
     }));
 }
 
 #[test]
 fn sync_hud_widget_bloom_includes_selected_tmux_row_only() {
-    let mut world = World::default();
-    let (bridge, _) = test_bridge();
-    let mut manager = TerminalManager::default();
-    let terminal_id = manager.create_terminal(bridge);
-    manager.focus_terminal(terminal_id);
-
-    let mut hud_state = HudState::default();
-    hud_state.insert(
-        HudWidgetKey::AgentList,
-        default_hud_module_instance(&HUD_WIDGET_DEFINITIONS[1]),
-    );
-    insert_terminal_manager_resources(&mut world, manager);
-    world.insert_resource(AgentListView {
-        rows: vec![
+    let terminal_id = crate::terminals::TerminalId(11);
+    let specs = bloom_specs_for_rows(
+        vec![
             AgentListRowView {
                 key: AgentListRowKey::Agent(crate::agents::AgentId(1)),
                 label: "AGENT-1".into(),
@@ -1172,48 +1156,12 @@ fn sync_hud_widget_bloom_includes_selected_tmux_row_only() {
                 },
             },
         ],
-    });
-    world.insert_resource(ConversationListView::default());
-    world.insert_resource(ThreadView::default());
-    world.insert_resource(ComposerView::default());
-    world.insert_resource(crate::agents::AgentStatusStore::default());
-    world.insert_resource(crate::terminals::OwnedTmuxSessionStore::default());
-    let mut active_content = crate::terminals::ActiveTerminalContentState::default();
-    active_content.select_owned_tmux("tmux-1".into(), Some(terminal_id));
-    world.insert_resource(active_content);
-    world.insert_resource(crate::terminals::ActiveTerminalContentSyncState::default());
-    insert_test_hud_state(&mut world, hud_state);
-    world.insert_resource(HudBloomSettings::default());
-    world.insert_resource(HudWidgetBloom::default());
-    world.insert_resource(Assets::<Image>::default());
-    world.insert_resource(Assets::<Mesh>::default());
-    world.insert_resource(Assets::<AgentListBloomBlurMaterial>::default());
-    world.spawn((
-        Window {
-            resolution: (1400, 900).into(),
-            ..default()
-        },
-        PrimaryWindow,
-    ));
-
-    world.run_system_once(setup_hud_widget_bloom).unwrap();
-    world.run_system_once(sync_structural_hud_layout).unwrap();
-    world.run_system_once(sync_hud_widget_bloom).unwrap();
-
-    let source_sprites = world
-        .query::<&AgentListBloomSourceSprite>()
-        .iter(&world)
-        .copied()
-        .collect::<Vec<_>>();
-    assert_eq!(source_sprites.len(), 4);
-    assert_eq!(
-        source_sprites
-            .iter()
-            .filter(|sprite| sprite.kind == AgentListBloomSourceKind::Main)
-            .count(),
-        4
+        None,
+        &crate::aegis::AegisPolicyStore::default(),
     );
-    assert!(source_sprites
+    assert_eq!(specs.len(), 4);
+    assert!(specs
         .iter()
-        .all(|sprite| sprite.terminal_id == terminal_id));
+        .all(|spec| spec.kind == AgentListBloomSourceKind::Main));
+    assert!(specs.iter().all(|spec| spec.terminal_id == terminal_id));
 }

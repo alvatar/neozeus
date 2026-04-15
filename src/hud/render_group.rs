@@ -11,6 +11,7 @@ pub(crate) enum HudBloomGroupId {
 pub(crate) struct HudBloomRectSpec {
     pub(crate) layer_id: HudLayerId,
     pub(crate) group_id: HudBloomGroupId,
+    pub(crate) source_id: u64,
     pub(crate) rect: HudRect,
     pub(crate) color: Color,
 }
@@ -56,9 +57,15 @@ pub(crate) struct HudBloomGroupWriter<'a> {
 
 impl HudBloomGroupWriter<'_> {
     pub(crate) fn fill_rect(&mut self, rect: HudRect, color: Color) {
+        let source_id = self.authoring.rects.len() as u64;
+        self.fill_rect_with_id(source_id, rect, color);
+    }
+
+    pub(crate) fn fill_rect_with_id(&mut self, source_id: u64, rect: HudRect, color: Color) {
         self.authoring.rects.push(HudBloomRectSpec {
             layer_id: self.layer_id,
             group_id: self.group_id,
+            source_id,
             rect,
             color,
         });

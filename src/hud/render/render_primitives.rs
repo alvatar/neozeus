@@ -260,6 +260,8 @@ pub(crate) struct HudRenderInputs<'a> {
     pub(crate) thread_view: &'a ThreadView,
     pub(crate) info_bar_view: &'a InfoBarView,
     pub(crate) agent_list_text_selection: &'a crate::text_selection::AgentListTextSelectionState,
+    pub(crate) agent_catalog: Option<&'a crate::agents::AgentCatalog>,
+    pub(crate) aegis_policy: &'a crate::aegis::AegisPolicyStore,
 }
 
 /// Logs a low-level color-presence diagnostic for HUD draw data when explicitly requested.

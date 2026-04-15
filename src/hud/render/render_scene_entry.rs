@@ -69,6 +69,8 @@ pub(super) fn render_hud_scene_impl(
     thread_view: Res<ThreadView>,
     info_bar_view: Res<InfoBarView>,
     agent_list_text_selection: Res<crate::text_selection::AgentListTextSelectionState>,
+    agent_catalog: Option<Res<crate::agents::AgentCatalog>>,
+    aegis_policy: Res<crate::aegis::AegisPolicyStore>,
     fonts: Res<Assets<VelloFont>>,
     startup_connect: Option<Res<DaemonConnectionState>>,
     mut bloom_groups: ResMut<super::super::HudBloomGroupAuthoring>,
@@ -87,6 +89,8 @@ pub(super) fn render_hud_scene_impl(
         thread_view: &thread_view,
         info_bar_view: &info_bar_view,
         agent_list_text_selection: &agent_list_text_selection,
+        agent_catalog: agent_catalog.as_deref(),
+        aegis_policy: &aegis_policy,
     };
 
     for module_id in layout_state.iter_z_order() {

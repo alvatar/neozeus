@@ -97,6 +97,8 @@ pub(crate) fn render_hud_scene(
     thread_view: Res<ThreadView>,
     info_bar_view: Res<InfoBarView>,
     agent_list_text_selection: Res<crate::text_selection::AgentListTextSelectionState>,
+    agent_catalog: Option<Res<crate::agents::AgentCatalog>>,
+    aegis_policy: Res<crate::aegis::AegisPolicyStore>,
     fonts: Res<Assets<VelloFont>>,
     startup_connect: Option<Res<DaemonConnectionState>>,
     bloom_groups: ResMut<super::HudBloomGroupAuthoring>,
@@ -112,6 +114,8 @@ pub(crate) fn render_hud_scene(
         thread_view,
         info_bar_view,
         agent_list_text_selection,
+        agent_catalog,
+        aegis_policy,
         fonts,
         startup_connect,
         bloom_groups,
@@ -171,8 +175,9 @@ pub(crate) fn render_hud_modal_scene(
 mod tests {
     use super::{
         active_line_bounds, cursor_visual_span, render_hud_modal_scene, render_hud_overlay_scene,
-        single_line_field_viewport, wrapped_editor_rows, wrapped_row_is_active,
-        CursorVisualSpan, HudModalVectorSceneMarker, HudOverlayVectorSceneMarker,
+        render_hud_scene, single_line_field_viewport, wrapped_editor_rows,
+        wrapped_row_is_active, CursorVisualSpan, HudModalVectorSceneMarker,
+        HudOverlayVectorSceneMarker, HudVectorSceneMarker,
     };
     use crate::{
         agents::{AgentId, AgentKind},
@@ -252,6 +257,68 @@ mod tests {
             .map(|row| wrapped_row_is_active(row, active_line))
             .collect::<Vec<_>>();
         assert_eq!(active_rows, vec![true, true, false]);
+    }
+
+    #[test]
+    fn render_hud_scene_authors_main_layer_bloom_groups_for_focused_agent() {
+        let mut world = World::default();
+        let mut hud_state = HudState::default();
+        let mut agent_list = default_hud_module_instance(&HUD_MODULE_DEFINITIONS[1]);
+        agent_list.shell.set_canonical_rect(
+            HudRect {
+                x: 0.0,
+                y: 0.0,
+                w: 320.0,
+                h: 220.0,
+            },
+            true,
+        );
+        hud_state.insert(HudWidgetKey::AgentList, agent_list);
+        insert_test_hud_state(&mut world, hud_state);
+        world.insert_resource(Assets::<VelloFont>::default());
+        world.insert_resource(crate::hud::HudBloomGroupAuthoring::default());
+        world.insert_resource(AgentListView {
+            rows: vec![AgentListRowView {
+                key: crate::hud::AgentListRowKey::Agent(AgentId(1)),
+                label: "ALPHA".into(),
+                focused: true,
+                kind: AgentListRowKind::Agent {
+                    agent_id: AgentId(1),
+                    terminal_id: Some(crate::terminals::TerminalId(11)),
+                    has_tasks: false,
+                    interactive: true,
+                    activity: AgentListActivity::Idle,
+                    paused: false,
+                    context_pct_milli: None,
+                    agent_kind: AgentKind::Terminal,
+                    session_metrics: DaemonSessionMetrics::default(),
+                },
+            }],
+        });
+        world.insert_resource(crate::app::AppSessionState::default());
+        world.insert_resource(crate::aegis::AegisPolicyStore::default());
+        world.spawn((
+            Window {
+                resolution: (1400, 900).into(),
+                ..default()
+            },
+            PrimaryWindow,
+        ));
+        world.spawn((VelloScene2d::default(), HudVectorSceneMarker));
+
+        world.run_system_once(render_hud_scene).unwrap();
+
+        assert!(
+            world
+                .resource::<crate::hud::HudBloomGroupAuthoring>()
+                .rects_for(
+                    crate::hud::HudLayerId::Main,
+                    crate::hud::HudBloomGroupId::AgentListSelection,
+                )
+                .next()
+                .is_some(),
+            "main HUD render should author bloom-source rects for focused agent rows"
+        );
     }
 
     #[test]

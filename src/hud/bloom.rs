@@ -1,24 +1,12 @@
-use crate::{
-    app::AppSessionState,
-    startup::DaemonConnectionState,
-    terminals::{ActiveTerminalContentState, TerminalFocusState, TerminalId},
-};
+use crate::{app::AppSessionState, startup::DaemonConnectionState};
 
 use super::{
-    modules::{
-        agent_row_rect, agent_rows, row_main_rect, AgentListRowSection, AGENT_LIST_BLOOM_RED_B,
-        AGENT_LIST_BLOOM_RED_G, AGENT_LIST_BLOOM_RED_R, AGENT_LIST_PAUSED_GRAY_B,
-        AGENT_LIST_PAUSED_GRAY_G, AGENT_LIST_PAUSED_GRAY_R, AGENT_LIST_WORKING_GREEN_B,
-        AGENT_LIST_WORKING_GREEN_G, AGENT_LIST_WORKING_GREEN_R,
-    },
-    state::{AgentListUiState, HudLayoutState, HudRect},
-    view_models::{AgentListRowKey, AgentListView},
+    state::{HudLayoutState, HudRect},
     widgets::HudWidgetKey,
 };
 use bevy::{
     asset::RenderAssetUsages,
     camera::{visibility::RenderLayers, CameraOutputMode, ClearColorConfig, RenderTarget},
-    color::{LinearRgba, Srgba},
     ecs::system::SystemParam,
     image::ImageSampler,
     prelude::*,
@@ -179,27 +167,10 @@ impl Material2d for AgentListBloomBlurMaterial {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-enum AgentListBloomSourceKind {
-    Main,
-    Marker,
-    Aegis,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-enum AgentListBloomSourceSegment {
-    Top,
-    Right,
-    Bottom,
-    Left,
-}
-
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 struct AgentListBloomSourceSprite {
     layer_id: HudLayerId,
-    terminal_id: TerminalId,
-    kind: AgentListBloomSourceKind,
-    segment: AgentListBloomSourceSegment,
+    source_id: u64,
 }
 
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -421,135 +392,6 @@ fn blur_uniform(texel_size: Vec2, radius_pixels: f32, gain: f32) -> AgentListBlo
     }
 }
 
-/// Builds a linear-space bloom source color from one shared sRGB reference color.
-///
-/// The conversion goes through sRGB->linear once and then applies caller-controlled intensity and
-/// alpha scaling so all bloom source colors derive from the same configurable hue source.
-fn bloom_reference_color(red: u8, green: u8, blue: u8, scale: f32, alpha: f32) -> Color {
-    let linear: LinearRgba = Srgba::rgba_u8(red, green, blue, 255).into();
-    Color::linear_rgba(
-        linear.red * scale,
-        linear.green * scale,
-        linear.blue * scale,
-        alpha,
-    )
-}
-
-fn bloom_reference_red(scale: f32, alpha: f32) -> Color {
-    bloom_reference_color(
-        AGENT_LIST_BLOOM_RED_R,
-        AGENT_LIST_BLOOM_RED_G,
-        AGENT_LIST_BLOOM_RED_B,
-        scale,
-        alpha,
-    )
-}
-
-fn bloom_reference_working_green(scale: f32, alpha: f32) -> Color {
-    bloom_reference_color(
-        AGENT_LIST_WORKING_GREEN_R,
-        AGENT_LIST_WORKING_GREEN_G,
-        AGENT_LIST_WORKING_GREEN_B,
-        scale,
-        alpha,
-    )
-}
-
-fn bloom_reference_aegis_pink(scale: f32, alpha: f32) -> Color {
-    bloom_reference_color(255, 105, 180, scale, alpha)
-}
-
-fn bloom_reference_paused_gray(scale: f32, alpha: f32) -> Color {
-    bloom_reference_color(
-        AGENT_LIST_PAUSED_GRAY_R,
-        AGENT_LIST_PAUSED_GRAY_G,
-        AGENT_LIST_PAUSED_GRAY_B,
-        scale,
-        alpha,
-    )
-}
-
-/// Chooses the bloom source color for one border strip based on selected-row state.
-///
-/// Paused selected rows use a dim gray glow, working rows use the green palette, and other selected
-/// rows keep the existing selected red palette.
-fn bloom_source_color(kind: AgentListBloomSourceKind, paused: bool, working: bool) -> Color {
-    if kind == AgentListBloomSourceKind::Aegis {
-        return bloom_reference_aegis_pink(7.0, 1.0);
-    }
-    if paused {
-        return match kind {
-            AgentListBloomSourceKind::Main => bloom_reference_paused_gray(4.0, 1.0),
-            AgentListBloomSourceKind::Marker => bloom_reference_paused_gray(5.0, 1.0),
-            AgentListBloomSourceKind::Aegis => bloom_reference_aegis_pink(7.0, 1.0),
-        };
-    }
-    if working {
-        return match kind {
-            AgentListBloomSourceKind::Main => bloom_reference_working_green(5.0, 1.0),
-            AgentListBloomSourceKind::Marker => bloom_reference_working_green(6.0, 1.0),
-            AgentListBloomSourceKind::Aegis => bloom_reference_aegis_pink(7.0, 1.0),
-        };
-    }
-
-    match kind {
-        AgentListBloomSourceKind::Main => bloom_reference_red(5.0, 1.0),
-        AgentListBloomSourceKind::Marker => bloom_reference_red(6.0, 1.0),
-        AgentListBloomSourceKind::Aegis => bloom_reference_aegis_pink(7.0, 1.0),
-    }
-}
-
-/// Splits a row rectangle into the four thin border strips used as bloom sources.
-///
-/// Thickness is clamped against the rectangle dimensions so degenerate tiny rectangles still produce
-/// valid positive-sized strips.
-fn bloom_border_rects(
-    rect: HudRect,
-    thickness: f32,
-) -> [(AgentListBloomSourceSegment, HudRect); 4] {
-    // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
-    let horizontal = thickness.min((rect.h * 0.5).max(1.0));
-    let vertical = thickness.min((rect.w * 0.5).max(1.0));
-    [
-        (
-            AgentListBloomSourceSegment::Top,
-            HudRect {
-                x: rect.x,
-                y: rect.y,
-                w: rect.w.max(1.0),
-                h: horizontal,
-            },
-        ),
-        (
-            AgentListBloomSourceSegment::Right,
-            HudRect {
-                x: rect.x + rect.w - vertical,
-                y: rect.y,
-                w: vertical,
-                h: rect.h.max(1.0),
-            },
-        ),
-        (
-            AgentListBloomSourceSegment::Bottom,
-            HudRect {
-                x: rect.x,
-                y: rect.y + rect.h - horizontal,
-                w: rect.w.max(1.0),
-                h: horizontal,
-            },
-        ),
-        (
-            AgentListBloomSourceSegment::Left,
-            HudRect {
-                x: rect.x,
-                y: rect.y,
-                w: vertical,
-                h: rect.h.max(1.0),
-            },
-        ),
-    ]
-}
-
 /// Returns the additive blend state used when compositing the bloom result back into the HUD.
 ///
 /// Color channels add their energy together, while alpha is preserved from the destination so the
@@ -581,141 +423,6 @@ fn configured_bloom_layers(config: Option<&HudBloomLayerConfig>) -> BTreeSet<Hud
     config
         .map(|config| config.enabled_layers().clone())
         .unwrap_or_else(|| [HudLayerId::Main].into_iter().collect())
-}
-
-/// Builds the set of bloom source strips that should exist for the current active agent row.
-///
-/// Only the active row participates. For that row, the function derives the main and marker sub-rects,
-/// splits each into four border segments, and attaches the appropriate emissive color to each segment.
-fn active_bloom_row_key(
-    focus_state: &TerminalFocusState,
-    active_content: &ActiveTerminalContentState,
-    agent_list_view: &AgentListView,
-) -> Option<AgentListRowKey> {
-    if let Some(session_uid) = active_content.selected_owned_tmux_session_uid() {
-        return Some(AgentListRowKey::OwnedTmux(session_uid.to_owned()));
-    }
-    let active_terminal_id = focus_state.active_id()?;
-    agent_list_view.rows.iter().find_map(|row| match &row.kind {
-        crate::hud::view_models::AgentListRowKind::Agent {
-            terminal_id: Some(terminal_id),
-            ..
-        } if *terminal_id == active_terminal_id => Some(row.key.clone()),
-        _ => None,
-    })
-}
-
-fn build_bloom_specs(
-    content_rect: HudRect,
-    scroll_offset: f32,
-    hovered_row: Option<&crate::hud::view_models::AgentListRowKey>,
-    active_row_key: Option<&AgentListRowKey>,
-    aegis_row_keys: &BTreeSet<AgentListRowKey>,
-    agent_list_view: &AgentListView,
-) -> Vec<BloomSourceSpec> {
-    let rows = agent_rows(content_rect, scroll_offset, hovered_row, agent_list_view);
-    let owner_terminal_ids = rows
-        .iter()
-        .filter_map(|row| {
-            (!row.is_tmux_child())
-                .then(|| row.owner_agent_id().zip(row.terminal_id()))
-                .flatten()
-        })
-        .collect::<std::collections::HashMap<_, _>>();
-
-    let mut specs = Vec::new();
-    for row in rows.into_iter().filter(|row| {
-        active_row_key.is_some_and(|active_row_key| row.key == *active_row_key)
-            || aegis_row_keys.contains(&row.key)
-    }) {
-        let working = row.activity() == Some(crate::hud::view_models::AgentListActivity::Working);
-        let paused = row.paused();
-        let terminal_id = if row.is_tmux_child() {
-            let Some(terminal_id) = row
-                .owner_agent_id()
-                .and_then(|owner_agent_id| owner_terminal_ids.get(&owner_agent_id).copied())
-            else {
-                continue;
-            };
-            terminal_id
-        } else if let Some(terminal_id) = row.terminal_id() {
-            terminal_id
-        } else {
-            continue;
-        };
-        if row.rect.y + row.rect.h < content_rect.y || row.rect.y > content_rect.y + content_rect.h
-        {
-            continue;
-        }
-
-        let aegis_enabled = aegis_row_keys.contains(&row.key);
-        if aegis_enabled && !row.is_tmux_child() {
-            let expanded_rect = HudRect {
-                x: row.rect.x - 4.0,
-                y: row.rect.y - 3.0,
-                w: row.rect.w + 8.0,
-                h: row.rect.h + 6.0,
-            };
-            let color = bloom_source_color(AgentListBloomSourceKind::Aegis, false, false);
-            for (segment, border_rect) in bloom_border_rects(expanded_rect, 5.0) {
-                specs.push(BloomSourceSpec {
-                    key: AgentListBloomSourceSprite {
-                        layer_id: HudLayerId::Main,
-                        terminal_id,
-                        kind: AgentListBloomSourceKind::Aegis,
-                        segment,
-                    },
-                    rect: border_rect,
-                    color,
-                });
-            }
-        }
-
-        if row.is_tmux_child() {
-            let main_rect = row_main_rect(&row);
-            let color = bloom_source_color(AgentListBloomSourceKind::Main, false, false);
-            for (segment, border_rect) in bloom_border_rects(main_rect, 3.0) {
-                specs.push(BloomSourceSpec {
-                    key: AgentListBloomSourceSprite {
-                        layer_id: HudLayerId::Main,
-                        terminal_id,
-                        kind: AgentListBloomSourceKind::Main,
-                        segment,
-                    },
-                    rect: border_rect,
-                    color,
-                });
-            }
-        } else if active_row_key.is_some_and(|active_row_key| row.key == *active_row_key) {
-            for (kind, rect, thickness) in [
-                (
-                    AgentListBloomSourceKind::Main,
-                    agent_row_rect(row.rect, AgentListRowSection::Main),
-                    3.0,
-                ),
-                (
-                    AgentListBloomSourceKind::Marker,
-                    agent_row_rect(row.rect, AgentListRowSection::Marker),
-                    2.5,
-                ),
-            ] {
-                let color = bloom_source_color(kind, paused, working);
-                for (segment, border_rect) in bloom_border_rects(rect, thickness) {
-                    specs.push(BloomSourceSpec {
-                        key: AgentListBloomSourceSprite {
-                            layer_id: HudLayerId::Main,
-                            terminal_id,
-                            kind,
-                            segment,
-                        },
-                        rect: border_rect,
-                        color,
-                    });
-                }
-            }
-        }
-    }
-    specs
 }
 
 fn create_bloom_images(
@@ -1164,15 +871,10 @@ struct HudWidgetBloomContext<'w, 's> {
     primary_window: Single<'w, 's, &'static Window, With<PrimaryWindow>>,
     layout_state: Res<'w, HudLayoutState>,
     app_session: Res<'w, AppSessionState>,
-    agent_catalog: Option<Res<'w, crate::agents::AgentCatalog>>,
-    aegis_policy: Res<'w, crate::aegis::AegisPolicyStore>,
     startup_connect: Option<Res<'w, DaemonConnectionState>>,
-    focus_state: Res<'w, TerminalFocusState>,
-    active_content: Res<'w, ActiveTerminalContentState>,
-    agent_list_state: Res<'w, AgentListUiState>,
-    agent_list_view: Res<'w, AgentListView>,
     settings: Res<'w, HudBloomSettings>,
     config: Option<Res<'w, HudBloomLayerConfig>>,
+    bloom_groups: Res<'w, super::HudBloomGroupAuthoring>,
     commands: Commands<'w, 's>,
     bloom: ResMut<'w, HudWidgetBloom>,
     images: ResMut<'w, Assets<Image>>,
@@ -1317,7 +1019,10 @@ fn sync_blur_quads(
     }
 }
 
-fn bloom_specs_for_sync(ctx: &HudWidgetBloomContext<'_, '_>) -> Vec<BloomSourceSpec> {
+fn bloom_specs_for_sync(
+    ctx: &HudWidgetBloomContext<'_, '_>,
+    layer_id: HudLayerId,
+) -> Vec<BloomSourceSpec> {
     let modal_visible = ctx.app_session.modal_visible()
         || ctx
             .startup_connect
@@ -1332,35 +1037,17 @@ fn bloom_specs_for_sync(ctx: &HudWidgetBloomContext<'_, '_>) -> Vec<BloomSourceS
     if !enabled {
         return Vec::new();
     }
-    let module = ctx
-        .layout_state
-        .get(HudWidgetKey::AgentList)
-        .expect("agent list exists when enabled");
-    let active_row_key =
-        active_bloom_row_key(&ctx.focus_state, &ctx.active_content, &ctx.agent_list_view);
-    let aegis_row_keys = ctx
-        .agent_catalog
-        .as_ref()
-        .map(|agent_catalog| {
-            agent_catalog
-                .iter()
-                .filter_map(|(agent_id, _)| {
-                    agent_catalog
-                        .uid(agent_id)
-                        .filter(|agent_uid| ctx.aegis_policy.is_enabled(agent_uid))
-                        .map(|_| AgentListRowKey::Agent(agent_id))
-                })
-                .collect::<BTreeSet<_>>()
+    ctx.bloom_groups
+        .rects_for(layer_id, super::HudBloomGroupId::AgentListSelection)
+        .map(|spec| BloomSourceSpec {
+            key: AgentListBloomSourceSprite {
+                layer_id,
+                source_id: spec.source_id,
+            },
+            rect: spec.rect,
+            color: spec.color,
         })
-        .unwrap_or_default();
-    build_bloom_specs(
-        module.shell.current_rect,
-        ctx.agent_list_state.scroll_offset,
-        ctx.agent_list_state.hovered_row.as_ref(),
-        active_row_key.as_ref(),
-        &aegis_row_keys,
-        &ctx.agent_list_view,
-    )
+        .collect()
 }
 
 fn sync_bloom_source_sprites(
@@ -1555,11 +1242,7 @@ pub(crate) fn sync_hud_widget_bloom(world: &mut World) {
         debug_assert!(pass_snapshot.additive_camera.is_some());
         retarget_bloom_cameras(&mut ctx, &pass_snapshot);
         sync_blur_quads(&mut ctx, &pass_snapshot, target_size, target_texel_size);
-        let specs = if layer_id == HudLayerId::Main {
-            bloom_specs_for_sync(&ctx)
-        } else {
-            Vec::new()
-        };
+        let specs = bloom_specs_for_sync(&ctx, layer_id);
         sync_bloom_source_sprites(&mut ctx, layer_id, &specs, target_size);
         let bloom_ready = image_matches_size(&ctx.images, &pass_snapshot.source_image, target_size)
             && image_matches_size(&ctx.images, &pass_snapshot.blur_small_image, target_size)

@@ -15,12 +15,11 @@ use bevy::prelude::Vec2;
 
 pub(in crate::hud) use agent_list::agent_rows;
 pub(crate) use agent_list::{
-    agent_row_rect, render_hover_overlay, reorder_target_index, row_at_point, row_main_rect,
-    selected_text_for_rows, text_row_at_point, AgentListRowSection, AGENT_LIST_BLOOM_RED_B,
-    AGENT_LIST_BLOOM_RED_G, AGENT_LIST_BLOOM_RED_R, AGENT_LIST_BORDER_ORANGE_B,
-    AGENT_LIST_BORDER_ORANGE_G, AGENT_LIST_BORDER_ORANGE_R, AGENT_LIST_PAUSED_GRAY_B,
-    AGENT_LIST_PAUSED_GRAY_G, AGENT_LIST_PAUSED_GRAY_R, AGENT_LIST_WORKING_GREEN_B,
-    AGENT_LIST_WORKING_GREEN_G, AGENT_LIST_WORKING_GREEN_R,
+    agent_list_bloom_specs, agent_row_rect, render_hover_overlay, reorder_target_index,
+    row_at_point, selected_text_for_rows, text_row_at_point, AgentListBloomAuthoringSpec,
+    AgentListBloomSourceKind, AgentListBloomSourceSegment, AgentListRowSection,
+    AGENT_LIST_BLOOM_RED_B, AGENT_LIST_BLOOM_RED_G, AGENT_LIST_BLOOM_RED_R,
+    AGENT_LIST_BORDER_ORANGE_B, AGENT_LIST_BORDER_ORANGE_G, AGENT_LIST_BORDER_ORANGE_R,
 };
 pub(in crate::hud) use info_bar::{INFO_BAR_BACKGROUND, INFO_BAR_BORDER};
 
