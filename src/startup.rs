@@ -22,7 +22,6 @@ use crate::{
 use bevy::{
     camera::visibility::RenderLayers, ecs::system::SystemParam, prelude::*, window::RequestRedraw,
 };
-use bevy_vello::prelude::VelloView;
 use std::{
     sync::{mpsc, Arc, Mutex},
     thread,
@@ -402,7 +401,6 @@ pub(crate) fn setup_scene(world: &mut World) {
     // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
     ctx.commands.spawn((
         Camera2d,
-        VelloView,
         RenderLayers::layer(0),
         TerminalCameraMarker,
     ));

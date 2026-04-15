@@ -8,18 +8,33 @@ use bevy::{
     prelude::*,
     render::render_resource::PrimitiveTopology,
     sprite_render::MeshMaterial2d,
-    window::PrimaryWindow,
 };
 use bevy_vello::render::VelloCanvasMaterial;
 
 use super::{HudLayerId, HudLayerRegistry};
 
+#[cfg(test)]
 pub(crate) const HUD_COMPOSITE_RENDER_LAYER: usize = 28;
-const HUD_COMPOSITE_CAMERA_ORDER: isize = 50;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum HudCompositeLayerId {
     Main,
+    Overlay,
+    Modal,
+}
+
+impl HudCompositeLayerId {
+    fn all() -> [Self; 3] {
+        [Self::Main, Self::Overlay, Self::Modal]
+    }
+
+    fn hud_layer_id(self) -> HudLayerId {
+        match self {
+            Self::Main => HudLayerId::Main,
+            Self::Overlay => HudLayerId::Overlay,
+            Self::Modal => HudLayerId::Modal,
+        }
+    }
 }
 
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -37,25 +52,26 @@ pub(crate) const HUD_COMPOSITE_FOREGROUND_Z: f32 = 0.0;
 #[derive(Clone, Debug)]
 struct HudCompositeLayer {
     id: HudCompositeLayerId,
+    camera_entity: Option<Entity>,
     composite_entity: Option<Entity>,
-    texture: Option<Handle<Image>>,
 }
 
 #[derive(Resource, Clone, Debug)]
 pub(crate) struct HudOffscreenCompositor {
     layers: Vec<HudCompositeLayer>,
-    camera_entity: Option<Entity>,
 }
 
 impl Default for HudOffscreenCompositor {
     fn default() -> Self {
         Self {
-            layers: vec![HudCompositeLayer {
-                id: HudCompositeLayerId::Main,
-                composite_entity: None,
-                texture: None,
-            }],
-            camera_entity: None,
+            layers: HudCompositeLayerId::all()
+                .into_iter()
+                .map(|id| HudCompositeLayer {
+                    id,
+                    camera_entity: None,
+                    composite_entity: None,
+                })
+                .collect(),
         }
     }
 }
@@ -90,31 +106,30 @@ fn fullscreen_clip_mesh() -> Mesh {
 
 pub(crate) fn setup_hud_offscreen_compositor(
     commands: &mut Commands,
+    layer_registry: &mut HudLayerRegistry,
     compositor: &mut HudOffscreenCompositor,
     meshes: &mut Assets<Mesh>,
     materials: &mut Assets<VelloCanvasMaterial>,
 ) {
-    if compositor.camera_entity.is_none() {
-        compositor.camera_entity = Some(
-            commands
+    let mesh_handle = meshes.add(fullscreen_clip_mesh());
+    for layer in &mut compositor.layers {
+        let layer_id = layer.id.hud_layer_id();
+        if layer.camera_entity.is_none() {
+            let camera = commands
                 .spawn((
                     Camera2d,
                     Camera {
-                        order: HUD_COMPOSITE_CAMERA_ORDER,
+                        order: layer_id.order(),
                         clear_color: ClearColorConfig::None,
                         ..default()
                     },
-                    RenderLayers::layer(HUD_COMPOSITE_RENDER_LAYER),
-                    HudCompositeCameraMarker {
-                        id: HudCompositeLayerId::Main,
-                    },
+                    RenderLayers::layer(layer_id.composite_render_layer()),
+                    HudCompositeCameraMarker { id: layer.id },
                 ))
-                .id(),
-        );
-    }
-
-    let mesh_handle = meshes.add(fullscreen_clip_mesh());
-    for layer in &mut compositor.layers {
+                .id();
+            layer.camera_entity = Some(camera);
+            layer_registry.set_camera_entity(layer_id, camera);
+        }
         if layer.composite_entity.is_some() {
             continue;
         }
@@ -126,7 +141,7 @@ pub(crate) fn setup_hud_offscreen_compositor(
                 })),
                 Transform::IDENTITY,
                 NoFrustumCulling,
-                RenderLayers::layer(HUD_COMPOSITE_RENDER_LAYER),
+                RenderLayers::layer(layer_id.composite_render_layer()),
                 Visibility::Hidden,
                 HudCompositeLayerMarker { id: layer.id },
             ))
@@ -134,11 +149,6 @@ pub(crate) fn setup_hud_offscreen_compositor(
         layer.composite_entity = Some(entity);
     }
 }
-
-type VelloCanvasQueryItem<'a> = (
-    &'a MeshMaterial2d<VelloCanvasMaterial>,
-    Option<&'a mut Visibility>,
-);
 
 type HudCompositeQuadQueryItem<'a> = (
     Entity,
@@ -149,46 +159,15 @@ type HudCompositeQuadQueryItem<'a> = (
 
 #[allow(
     clippy::too_many_arguments,
-    reason = "compositor sync needs registry, image assets, materials, and visibility queries together"
+    reason = "compositor sync needs explicit layer targets, materials, and quad visibility together"
 )]
 pub(crate) fn sync_hud_offscreen_compositor(
-    mut compositor: ResMut<HudOffscreenCompositor>,
-    layers: Res<HudLayerRegistry>,
+    compositor: Res<HudOffscreenCompositor>,
+    registry: Res<HudLayerRegistry>,
     images: Res<Assets<Image>>,
     mut vello_materials: ResMut<Assets<VelloCanvasMaterial>>,
-    primary_window: Single<&Window, With<PrimaryWindow>>,
-    mut commands: Commands,
-    mut vello_canvases: Query<VelloCanvasQueryItem<'_>, Without<HudCompositeLayerMarker>>,
     mut quads: Query<HudCompositeQuadQueryItem<'_>>,
 ) {
-    let expected_size = UVec2::new(
-        primary_window.physical_width().max(1),
-        primary_window.physical_height().max(1),
-    );
-
-    let explicit_main_scene = layers
-        .layer(HudLayerId::Main)
-        .and_then(|layer| layer.scene_entity);
-
-    for layer in &mut compositor.layers {
-        let Some(scene_entity) = explicit_main_scene else {
-            layer.texture = None;
-            continue;
-        };
-        let Ok((material_handle, maybe_visibility)) = vello_canvases.get_mut(scene_entity) else {
-            layer.texture = None;
-            continue;
-        };
-        if let Some(mut visibility) = maybe_visibility {
-            *visibility = Visibility::Hidden;
-        } else {
-            commands.entity(scene_entity).insert(Visibility::Hidden);
-        }
-        layer.texture = vello_materials
-            .get(material_handle.id())
-            .map(|material| material.texture.clone());
-    }
-
     for (entity, marker, material_handle, mut visibility) in &mut quads {
         let Some(layer) = compositor.layer(marker.id) else {
             *visibility = Visibility::Hidden;
@@ -199,24 +178,22 @@ pub(crate) fn sync_hud_offscreen_compositor(
             continue;
         }
 
-        if let Some(texture) = layer.texture.clone() {
-            if let Some(material) = vello_materials.get_mut(material_handle.id()) {
-                material.texture = texture.clone();
-            }
-            let ready = images.get(texture.id()).is_some_and(|image| {
-                UVec2::new(
-                    image.texture_descriptor.size.width,
-                    image.texture_descriptor.size.height,
-                ) == expected_size
-            });
-            *visibility = if ready {
-                Visibility::Visible
-            } else {
-                Visibility::Hidden
-            };
-        } else {
+        let Some(surface_image) = registry
+            .layer(marker.id.hud_layer_id())
+            .and_then(|runtime| runtime.surface_image.clone())
+        else {
             *visibility = Visibility::Hidden;
+            continue;
+        };
+
+        if let Some(material) = vello_materials.get_mut(material_handle.id()) {
+            material.texture = surface_image.clone();
         }
+        *visibility = if images.get(surface_image.id()).is_some() {
+            Visibility::Visible
+        } else {
+            Visibility::Hidden
+        };
     }
 }
 

@@ -25,7 +25,6 @@ use std::{
 };
 
 use super::compositor::HUD_COMPOSITE_FOREGROUND_Z;
-use super::render::HUD_MODAL_CAMERA_ORDER;
 use super::HudLayerId;
 
 const BLOOM_SOURCE_LAYER: usize = 29;
@@ -42,8 +41,6 @@ const SMALL_BLUR_GAIN: f32 = 1.25;
 const WIDE_BLUR_GAIN: f32 = 0.85;
 const SMALL_BLUR_STEP_SCALE: f32 = 5.25;
 const WIDE_BLUR_STEP_SCALE: f32 = 12.5;
-const BLOOM_MAIN_CAMERA_ORDER: isize = 60;
-const BLOOM_OVERLAY_CAMERA_ORDER: isize = 80;
 const BLOOM_DEBUG_PREVIEW_Z: f32 = HUD_COMPOSITE_FOREGROUND_Z + 2.0;
 const BLOOM_DEBUG_PREVIEW_WIDTH: f32 = 160.0;
 const BLOOM_DEBUG_PREVIEW_HEIGHT: f32 = 120.0;
@@ -417,11 +414,7 @@ fn additive_blend_state() -> BlendState {
 }
 
 fn bloom_camera_order(layer_id: HudLayerId) -> isize {
-    match layer_id {
-        HudLayerId::Main => BLOOM_MAIN_CAMERA_ORDER,
-        HudLayerId::Overlay => BLOOM_OVERLAY_CAMERA_ORDER,
-        HudLayerId::Modal => HUD_MODAL_CAMERA_ORDER - 1,
-    }
+    layer_id.bloom_order()
 }
 
 fn configured_bloom_layers(config: Option<&HudBloomLayerConfig>) -> BTreeSet<HudLayerId> {

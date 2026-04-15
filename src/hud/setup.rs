@@ -3,12 +3,8 @@ use crate::app::AppSessionState;
 use super::{
     compositor::{setup_hud_offscreen_compositor, HudOffscreenCompositor},
     persistence::{load_persisted_hud_modules_from, resolve_hud_layout_path, HudPersistenceState},
-    render::{
-        HudModalCameraMarker, HudModalVectorSceneMarker, HudOverlayCameraMarker,
-        HudOverlayVectorSceneMarker, HudVectorSceneMarker, HUD_MODAL_CAMERA_ORDER,
-        HUD_MODAL_RENDER_LAYER, HUD_OVERLAY_CAMERA_ORDER, HUD_OVERLAY_RENDER_LAYER,
-    },
-    render_layer::{HudLayerCameraMarker, HudLayerId, HudLayerRegistry, HudLayerSceneMarker},
+    render::{HudModalVectorSceneMarker, HudOverlayVectorSceneMarker, HudVectorSceneMarker},
+    render_layer::{HudLayerId, HudLayerRegistry, HudLayerSceneMarker},
     state::{
         default_hud_module_instance, docked_agent_list_rect_with_top_inset, docked_info_bar_rect,
         AgentListUiState, ConversationListUiState, HudInputCaptureState, HudLayoutState,
@@ -17,11 +13,11 @@ use super::{
     widgets::{HudWidgetKey, HUD_WIDGET_DEFINITIONS},
 };
 use bevy::{
-    camera::{visibility::NoFrustumCulling, ClearColorConfig},
+    camera::visibility::NoFrustumCulling,
     prelude::*,
     window::{PrimaryWindow, RequestRedraw},
 };
-use bevy_vello::prelude::{VelloScene2d, VelloView};
+use bevy_vello::prelude::VelloScene2d;
 
 /// Prefixes a message as HUD-related and forwards it to the shared terminal debug log.
 ///
@@ -103,7 +99,6 @@ pub(crate) fn setup_hud(
             VelloScene2d::default(),
             Transform::from_xyz(0.0, 0.0, 55.0),
             NoFrustumCulling,
-            bevy::camera::visibility::RenderLayers::layer(HUD_OVERLAY_RENDER_LAYER),
             HudOverlayVectorSceneMarker,
             HudLayerSceneMarker {
                 id: HudLayerId::Overlay,
@@ -112,30 +107,11 @@ pub(crate) fn setup_hud(
         .id();
     layers.set_scene_entity(HudLayerId::Overlay, overlay_scene);
 
-    let overlay_camera = commands
-        .spawn((
-            Camera2d,
-            Camera {
-                order: HUD_OVERLAY_CAMERA_ORDER,
-                clear_color: ClearColorConfig::None,
-                ..default()
-            },
-            VelloView,
-            bevy::camera::visibility::RenderLayers::layer(HUD_OVERLAY_RENDER_LAYER),
-            HudOverlayCameraMarker,
-            HudLayerCameraMarker {
-                id: HudLayerId::Overlay,
-            },
-        ))
-        .id();
-    layers.set_camera_entity(HudLayerId::Overlay, overlay_camera);
-
     let modal_scene = commands
         .spawn((
             VelloScene2d::default(),
             Transform::from_xyz(0.0, 0.0, 60.0),
             NoFrustumCulling,
-            bevy::camera::visibility::RenderLayers::layer(HUD_MODAL_RENDER_LAYER),
             HudModalVectorSceneMarker,
             HudLayerSceneMarker {
                 id: HudLayerId::Modal,
@@ -144,26 +120,9 @@ pub(crate) fn setup_hud(
         .id();
     layers.set_scene_entity(HudLayerId::Modal, modal_scene);
 
-    let modal_camera = commands
-        .spawn((
-            Camera2d,
-            Camera {
-                order: HUD_MODAL_CAMERA_ORDER,
-                clear_color: ClearColorConfig::None,
-                ..default()
-            },
-            VelloView,
-            bevy::camera::visibility::RenderLayers::layer(HUD_MODAL_RENDER_LAYER),
-            HudModalCameraMarker,
-            HudLayerCameraMarker {
-                id: HudLayerId::Modal,
-            },
-        ))
-        .id();
-    layers.set_camera_entity(HudLayerId::Modal, modal_camera);
-
     setup_hud_offscreen_compositor(
         &mut commands,
+        &mut layers,
         &mut compositor,
         &mut meshes,
         &mut composite_materials,

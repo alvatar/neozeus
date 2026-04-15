@@ -11,10 +11,8 @@ use bevy::{
         render_resource::{Extent3d, TextureDimension, TextureFormat, TextureUsages},
         view::screenshot::{save_to_disk, Capturing, Screenshot},
     },
-    sprite_render::MeshMaterial2d,
     window::{PrimaryWindow, RequestRedraw},
 };
-use bevy_vello::render::VelloCanvasMaterial;
 
 use crate::shared::{
     capture::{ArmedCaptureProgress, ArmedCaptureRequestState, CaptureRequestState},
@@ -243,8 +241,6 @@ pub(crate) fn request_hud_texture_capture(
     config: Option<ResMut<HudTextureCaptureConfig>>,
     layers: Option<Res<HudLayerRegistry>>,
     images: Res<Assets<Image>>,
-    vello_materials: Res<Assets<VelloCanvasMaterial>>,
-    vello_canvases: Query<&MeshMaterial2d<VelloCanvasMaterial>, Without<HudCompositeLayerMarker>>,
     mut redraws: MessageWriter<RequestRedraw>,
 ) {
     let Some(mut config) = config else {
@@ -262,32 +258,27 @@ pub(crate) fn request_hud_texture_capture(
     }
 
     let mut requested = false;
-    let main_scene_entity = layers
+    let main_surface_image = layers
         .as_deref()
         .and_then(|layers| layers.layer(HudLayerId::Main))
-        .and_then(|layer| layer.scene_entity);
-    if let Some(scene_entity) = main_scene_entity {
-        if let Ok(material_handle) = vello_canvases.get(scene_entity) {
-            if let Some(material) = vello_materials.get(material_handle.id()) {
-                let texture = material.texture.clone();
-                if let Some(image) = images.get(texture.id()) {
-                    crate::terminals::append_debug_log(format!(
-                        "hud capture requested path={} size={}x{} format={:?}",
-                        config.path.display(),
-                        image.texture_descriptor.size.width,
-                        image.texture_descriptor.size.height,
-                        image.texture_descriptor.format
-                    ));
-                    commands
-                        .spawn((
-                            Readback::texture(texture),
-                            HudTextureReadbackMeta::from_image(config.path.clone(), image),
-                        ))
-                        .observe(handle_hud_texture_capture_complete);
-                    config.request.mark_requested();
-                    requested = true;
-                }
-            }
+        .and_then(|layer| layer.surface_image.clone());
+    if let Some(texture) = main_surface_image {
+        if let Some(image) = images.get(texture.id()) {
+            crate::terminals::append_debug_log(format!(
+                "hud capture requested path={} size={}x{} format={:?}",
+                config.path.display(),
+                image.texture_descriptor.size.width,
+                image.texture_descriptor.size.height,
+                image.texture_descriptor.format
+            ));
+            commands
+                .spawn((
+                    Readback::texture(texture),
+                    HudTextureReadbackMeta::from_image(config.path.clone(), image),
+                ))
+                .observe(handle_hud_texture_capture_complete);
+            config.request.mark_requested();
+            requested = true;
         }
     }
     if !requested {

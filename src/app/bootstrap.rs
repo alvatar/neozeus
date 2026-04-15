@@ -10,9 +10,9 @@ use crate::{
     },
     hud::{
         AgentListBloomBlurMaterial, AgentListView, ComposerView, ConversationListView,
-        HudBloomSettings, HudCompositeCaptureConfig, HudOffscreenCompositor, HudPersistenceState,
-        HudTextureCaptureConfig, HudWidgetBloom, TerminalVisibilityState, ThreadView,
-        WindowCaptureConfig,
+        HudBloomSettings, HudCompositeCaptureConfig, HudLayerSurfacePlugin,
+        HudOffscreenCompositor, HudPersistenceState, HudTextureCaptureConfig, HudWidgetBloom,
+        TerminalVisibilityState, ThreadView, WindowCaptureConfig,
     },
     shared::linux_display::LinuxDisplayEnvironment,
     terminals::{
@@ -447,8 +447,12 @@ fn configure_app(app: &mut App) -> Result<(), String> {
         app.add_plugins(default_plugins);
     }
     app.add_plugins((
-        VelloPlugin::default(),
+        VelloPlugin {
+            canvas_render_layers: bevy::camera::visibility::RenderLayers::layer(63),
+            ..default()
+        },
         Material2dPlugin::<AgentListBloomBlurMaterial>::default(),
+        HudLayerSurfacePlugin,
     ));
 
     if uses_headless_runner(&output) {

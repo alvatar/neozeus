@@ -3,6 +3,7 @@ mod bloom;
 mod capture;
 mod compositor;
 mod input;
+mod layer_surface;
 mod modules;
 mod persistence;
 mod render;
@@ -27,25 +28,25 @@ pub(crate) use compositor::{
     sync_hud_offscreen_compositor, HudCompositeCameraMarker, HudOffscreenCompositor,
 };
 #[cfg(test)]
+pub(crate) use compositor::HUD_COMPOSITE_RENDER_LAYER;
+#[cfg(test)]
 pub(crate) use compositor::{
     HudCompositeLayerId, HudCompositeLayerMarker, HUD_COMPOSITE_FOREGROUND_Z,
-    HUD_COMPOSITE_RENDER_LAYER,
 };
 #[cfg(test)]
 pub(crate) use input::handle_hud_module_shortcuts;
 pub(crate) use input::{
     adjacent_agent_list_target, handle_hud_pointer_input, AgentListNavigationTarget,
 };
+pub(crate) use layer_surface::HudLayerSurfacePlugin;
 pub(crate) use persistence::{save_hud_layout_if_dirty, HudPersistenceState};
 pub(crate) use render::{render_hud_modal_scene, render_hud_overlay_scene, render_hud_scene};
 #[cfg(test)]
 pub(crate) use render::{
     HudModalVectorSceneMarker, HudOverlayVectorSceneMarker, HudVectorSceneMarker,
-    HUD_MODAL_CAMERA_ORDER, HUD_MODAL_RENDER_LAYER, HUD_OVERLAY_CAMERA_ORDER,
-    HUD_OVERLAY_RENDER_LAYER,
+    HUD_OVERLAY_CAMERA_ORDER,
 };
 pub(crate) use render_group::{HudBloomGroupAuthoring, HudBloomGroupId};
-pub(crate) use render_layer::HudLayerCameraMarker;
 #[cfg(test)]
 pub(crate) use render_layer::HudLayerSceneMarker;
 pub(crate) use render_layer::{HudLayerId, HudLayerRegistry};
