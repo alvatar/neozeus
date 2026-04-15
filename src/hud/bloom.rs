@@ -49,6 +49,7 @@ const SMALL_BLUR_GAIN: f32 = 1.25;
 const WIDE_BLUR_GAIN: f32 = 0.85;
 const SMALL_BLUR_STEP_SCALE: f32 = 5.25;
 const WIDE_BLUR_STEP_SCALE: f32 = 12.5;
+const BLOOM_ADDITIVE_CAMERA_ORDER: isize = 99;
 const BLOOM_DEBUG_PREVIEW_Z: f32 = HUD_COMPOSITE_FOREGROUND_Z + 2.0;
 const BLOOM_DEBUG_PREVIEW_WIDTH: f32 = 160.0;
 const BLOOM_DEBUG_PREVIEW_HEIGHT: f32 = 120.0;
@@ -788,7 +789,7 @@ fn spawn_additive_camera(commands: &mut Commands) {
     commands.spawn((
         Camera2d,
         Camera {
-            order: 100,
+            order: BLOOM_ADDITIVE_CAMERA_ORDER,
             output_mode: CameraOutputMode::Write {
                 blend_state: Some(additive_blend_state()),
                 clear_color: ClearColorConfig::None,

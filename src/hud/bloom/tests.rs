@@ -609,10 +609,36 @@ fn setup_hud_widget_bloom_spawns_camera_and_composite_sprite() {
     assert_eq!(composite_image_format, TextureFormat::Rgba16Float);
 }
 
-/// Verifies that bloom targets are sized from logical window dimensions, not physical pixels.
+/// Verifies that the global bloom additive pass renders before the overlay layer.
 ///
-/// This matters when a scale-factor override is active: the bloom pipeline is intentionally tied to
-/// logical HUD layout, so its render targets should track the logical size.
+/// The overlay must remain available as a non-modal layer above lower-layer bloom while the global
+/// bloom path still exists during the transition.
+#[test]
+fn bloom_additive_camera_renders_before_overlay_layer() {
+    let mut world = World::default();
+    world.insert_resource(HudBloomSettings::default());
+    world.insert_resource(HudWidgetBloom::default());
+    world.insert_resource(Assets::<Image>::default());
+    world.insert_resource(Assets::<Mesh>::default());
+    world.insert_resource(Assets::<AgentListBloomBlurMaterial>::default());
+    world.spawn((
+        Window {
+            resolution: (1400, 900).into(),
+            ..default()
+        },
+        PrimaryWindow,
+    ));
+
+    world.run_system_once(setup_hud_widget_bloom).unwrap();
+
+    let order = world
+        .query_filtered::<&Camera, With<AgentListBloomAdditiveCameraMarker>>()
+        .single(&world)
+        .expect("bloom additive camera exists")
+        .order;
+    assert!(order < crate::hud::HUD_OVERLAY_CAMERA_ORDER);
+}
+
 #[test]
 fn setup_hud_widget_bloom_uses_logical_window_size_for_targets() {
     // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.

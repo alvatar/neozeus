@@ -96,6 +96,18 @@ fn input_owner_reports_direct_terminal_when_no_modal_is_visible() {
 }
 
 #[test]
+fn selected_agent_context_does_not_count_as_modal_visibility() {
+    let session = AppSessionState::default();
+    let agent_list_state = crate::hud::AgentListUiState {
+        show_selected_context: true,
+        ..Default::default()
+    };
+
+    assert!(agent_list_state.show_selected_context);
+    assert!(!session.modal_visible());
+}
+
+#[test]
 fn clone_agent_dialog_open_prefills_name_and_focus() {
     let mut dialog = CloneAgentDialogState {
         error: Some("stale".into()),

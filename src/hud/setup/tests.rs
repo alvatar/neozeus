@@ -136,6 +136,38 @@ fn setup_hud_marks_layer_entities_with_explicit_ids() {
     }
 }
 
+#[test]
+fn setup_hud_orders_overlay_between_compositor_and_modal_layers() {
+    let mut world = World::default();
+    insert_default_hud_resources(&mut world);
+    world.insert_resource(HudPersistenceState::default());
+    world.insert_resource(HudOffscreenCompositor::default());
+    world.insert_resource(Assets::<Mesh>::default());
+    world.insert_resource(Assets::<VelloCanvasMaterial>::default());
+    world.init_resource::<Messages<RequestRedraw>>();
+
+    world.run_system_once(setup_hud).unwrap();
+
+    let composite_order = world
+        .query_filtered::<&Camera, With<crate::hud::HudCompositeCameraMarker>>()
+        .single(&world)
+        .expect("composite camera exists")
+        .order;
+    let overlay_order = world
+        .query_filtered::<&Camera, With<crate::hud::HudOverlayCameraMarker>>()
+        .single(&world)
+        .expect("overlay camera exists")
+        .order;
+    let modal_order = world
+        .query_filtered::<&Camera, With<crate::hud::HudModalCameraMarker>>()
+        .single(&world)
+        .expect("modal camera exists")
+        .order;
+
+    assert!(composite_order < overlay_order);
+    assert!(overlay_order < modal_order);
+}
+
 /// Verifies that structural HUD sync pins the info bar to the top edge and docks the agent list
 /// directly below it.
 #[test]
