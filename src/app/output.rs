@@ -1,7 +1,10 @@
 #[cfg(test)]
 use crate::shared::readback::{align_copy_bytes_per_row, texture_bytes_to_ppm};
 use crate::{
-    hud::{AgentListBloomAdditiveCameraMarker, HudCompositeCameraMarker, HudModalCameraMarker},
+    hud::{
+        AgentListBloomAdditiveCameraMarker, HudCompositeCameraMarker, HudModalCameraMarker,
+        HudOverlayCameraMarker,
+    },
     shared::{capture::CaptureRequestState, readback::write_texture_dump_to_path},
     terminals::TerminalCameraMarker,
     verification::{VerificationCaptureBarrierState, VerificationScenarioConfig},
@@ -340,6 +343,7 @@ pub(crate) fn sync_final_frame_output_target(
     terminal_cameras: Query<Entity, With<TerminalCameraMarker>>,
     composite_cameras: Query<Entity, With<HudCompositeCameraMarker>>,
     bloom_additive_cameras: Query<Entity, With<AgentListBloomAdditiveCameraMarker>>,
+    overlay_cameras: Query<Entity, With<HudOverlayCameraMarker>>,
     modal_cameras: Query<Entity, With<HudModalCameraMarker>>,
 ) {
     let target =
@@ -351,6 +355,7 @@ pub(crate) fn sync_final_frame_output_target(
             .iter()
             .chain(composite_cameras.iter())
             .chain(bloom_additive_cameras.iter())
+            .chain(overlay_cameras.iter())
             .chain(modal_cameras.iter()),
     );
 }

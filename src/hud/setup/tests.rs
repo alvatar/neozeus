@@ -1,8 +1,9 @@
 use super::{hud_needs_redraw, setup_hud, sync_structural_hud_layout};
 use crate::{
     hud::{
-        HudDragState, HudOffscreenCompositor, HudPersistenceState, HudState, HudWidgetKey,
-        HUD_MODAL_CAMERA_ORDER, HUD_MODAL_RENDER_LAYER,
+        HudDragState, HudLayerId, HudLayerRegistry, HudOffscreenCompositor,
+        HudPersistenceState, HudState, HudWidgetKey, HUD_MODAL_CAMERA_ORDER,
+        HUD_MODAL_RENDER_LAYER, HUD_OVERLAY_CAMERA_ORDER, HUD_OVERLAY_RENDER_LAYER,
     },
     tests::{insert_default_hud_resources, insert_test_hud_state, snapshot_test_hud_state},
 };
@@ -46,6 +47,13 @@ fn setup_hud_requests_initial_redraw() {
     );
     assert_eq!(
         world
+            .query::<&crate::hud::HudOverlayVectorSceneMarker>()
+            .iter(&world)
+            .count(),
+        1
+    );
+    assert_eq!(
+        world
             .query::<&crate::hud::HudModalVectorSceneMarker>()
             .iter(&world)
             .count(),
@@ -59,6 +67,14 @@ fn setup_hud_requests_initial_redraw() {
     assert_eq!(camera.order, 50);
     assert!(layers.intersects(&RenderLayers::layer(crate::hud::HUD_COMPOSITE_RENDER_LAYER)));
 
+    let mut overlay_camera_query = world
+        .query_filtered::<(&Camera, &RenderLayers), With<crate::hud::HudOverlayCameraMarker>>();
+    let (overlay_camera, overlay_layers) = overlay_camera_query
+        .single(&world)
+        .expect("overlay camera should exist");
+    assert_eq!(overlay_camera.order, HUD_OVERLAY_CAMERA_ORDER);
+    assert!(overlay_layers.intersects(&RenderLayers::layer(HUD_OVERLAY_RENDER_LAYER)));
+
     let mut modal_camera_query =
         world.query_filtered::<(&Camera, &RenderLayers), With<crate::hud::HudModalCameraMarker>>();
     let (modal_camera, modal_layers) = modal_camera_query
@@ -66,6 +82,58 @@ fn setup_hud_requests_initial_redraw() {
         .expect("modal camera should exist");
     assert_eq!(modal_camera.order, HUD_MODAL_CAMERA_ORDER);
     assert!(modal_layers.intersects(&RenderLayers::layer(HUD_MODAL_RENDER_LAYER)));
+}
+
+#[test]
+fn setup_hud_initializes_explicit_layer_registry_with_overlay() {
+    let mut world = World::default();
+    insert_default_hud_resources(&mut world);
+    world.insert_resource(HudPersistenceState::default());
+    world.insert_resource(HudOffscreenCompositor::default());
+    world.insert_resource(Assets::<Mesh>::default());
+    world.insert_resource(Assets::<VelloCanvasMaterial>::default());
+    world.init_resource::<Messages<RequestRedraw>>();
+
+    world.run_system_once(setup_hud).unwrap();
+
+    let registry = world.resource::<HudLayerRegistry>();
+    assert_eq!(
+        registry.ordered_ids(),
+        &[HudLayerId::Main, HudLayerId::Overlay, HudLayerId::Modal]
+    );
+    assert!(registry
+        .layer(HudLayerId::Overlay)
+        .and_then(|layer| layer.scene_entity)
+        .is_some());
+    assert!(registry
+        .layer(HudLayerId::Overlay)
+        .and_then(|layer| layer.camera_entity)
+        .is_some());
+}
+
+#[test]
+fn setup_hud_marks_layer_entities_with_explicit_ids() {
+    let mut world = World::default();
+    insert_default_hud_resources(&mut world);
+    world.insert_resource(HudPersistenceState::default());
+    world.insert_resource(HudOffscreenCompositor::default());
+    world.insert_resource(Assets::<Mesh>::default());
+    world.insert_resource(Assets::<VelloCanvasMaterial>::default());
+    world.init_resource::<Messages<RequestRedraw>>();
+
+    world.run_system_once(setup_hud).unwrap();
+
+    let registry = world.resource::<HudLayerRegistry>();
+    for id in registry.ordered_ids() {
+        let scene_entity = registry
+            .layer(*id)
+            .and_then(|layer| layer.scene_entity)
+            .expect("layer scene should exist");
+        let marker = world
+            .get::<crate::hud::HudLayerSceneMarker>(scene_entity)
+            .expect("scene should have explicit layer marker");
+        assert_eq!(marker.id, *id);
+    }
 }
 
 /// Verifies that structural HUD sync pins the info bar to the top edge and docks the agent list

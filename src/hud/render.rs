@@ -38,7 +38,9 @@ mod render_primitives;
 mod render_scene_entry;
 mod render_text_editors;
 
-use render_scene_entry::{render_hud_modal_scene_impl, render_hud_scene_impl};
+use render_scene_entry::{
+    render_hud_modal_scene_impl, render_hud_overlay_scene_impl, render_hud_scene_impl,
+};
 
 use render_overlays::{
     draw_aegis_dialog, draw_clone_agent_dialog, draw_create_agent_dialog, draw_message_box,
@@ -65,11 +67,19 @@ use render_primitives::{hud_rect_to_scene, log_hud_draw_colors_if_requested};
 pub(crate) struct HudVectorSceneMarker;
 
 #[derive(Component)]
+pub(crate) struct HudOverlayVectorSceneMarker;
+
+#[derive(Component)]
 pub(crate) struct HudModalVectorSceneMarker;
+
+#[derive(Component)]
+pub(crate) struct HudOverlayCameraMarker;
 
 #[derive(Component)]
 pub(crate) struct HudModalCameraMarker;
 
+pub(crate) const HUD_OVERLAY_RENDER_LAYER: usize = 34;
+pub(crate) const HUD_OVERLAY_CAMERA_ORDER: isize = 100;
 pub(crate) const HUD_MODAL_RENDER_LAYER: usize = 33;
 pub(crate) const HUD_MODAL_CAMERA_ORDER: isize = 101;
 
@@ -109,14 +119,34 @@ pub(crate) fn render_hud_scene(
 
 #[allow(
     clippy::too_many_arguments,
-    reason = "HUD modal scene entrypoint forwards layout, selection, modal, and font resources together"
+    reason = "HUD overlay scene entrypoint forwards layout, selection, and font resources together"
 )]
-pub(crate) fn render_hud_modal_scene(
+pub(crate) fn render_hud_overlay_scene(
     primary_window: Single<&Window, With<PrimaryWindow>>,
     layout_state: Res<HudLayoutState>,
     agent_list_state: Res<AgentListUiState>,
     agent_list_view: Res<AgentListView>,
     selection: Option<Res<crate::hud::view_models::AgentListSelection>>,
+    fonts: Res<Assets<VelloFont>>,
+    scene: Single<&mut VelloScene2d, With<HudOverlayVectorSceneMarker>>,
+) {
+    render_hud_overlay_scene_impl(
+        primary_window,
+        layout_state,
+        agent_list_state,
+        agent_list_view,
+        selection,
+        fonts,
+        scene,
+    )
+}
+
+#[allow(
+    clippy::too_many_arguments,
+    reason = "HUD modal scene entrypoint forwards layout, selection, modal, and font resources together"
+)]
+pub(crate) fn render_hud_modal_scene(
+    primary_window: Single<&Window, With<PrimaryWindow>>,
     app_session: Res<AppSessionState>,
     composer_view: Res<ComposerView>,
     startup_connect: Option<Res<DaemonConnectionState>>,
@@ -125,10 +155,6 @@ pub(crate) fn render_hud_modal_scene(
 ) {
     render_hud_modal_scene_impl(
         primary_window,
-        layout_state,
-        agent_list_state,
-        agent_list_view,
-        selection,
         app_session,
         composer_view,
         startup_connect,

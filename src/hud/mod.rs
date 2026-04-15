@@ -6,6 +6,7 @@ mod input;
 mod modules;
 mod persistence;
 mod render;
+mod render_layer;
 mod setup;
 mod state;
 mod view_models;
@@ -31,8 +32,12 @@ pub(crate) use input::{
 };
 pub(crate) use persistence::{save_hud_layout_if_dirty, HudPersistenceState};
 pub(crate) use render::{
-    render_hud_modal_scene, render_hud_scene, HudModalCameraMarker, HudModalVectorSceneMarker,
+    render_hud_modal_scene, render_hud_overlay_scene, render_hud_scene, HudModalCameraMarker,
+    HudModalVectorSceneMarker, HudOverlayCameraMarker, HudOverlayVectorSceneMarker,
+    HudVectorSceneMarker, HUD_MODAL_CAMERA_ORDER, HUD_MODAL_RENDER_LAYER,
+    HUD_OVERLAY_CAMERA_ORDER, HUD_OVERLAY_RENDER_LAYER,
 };
+pub(crate) use render_layer::{HudLayerId, HudLayerRegistry, HudLayerSceneMarker};
 pub(crate) use setup::{hud_needs_redraw, setup_hud, sync_structural_hud_layout};
 pub(crate) use state::{
     AgentListUiState, ConversationListUiState, HudInputCaptureState, HudLayoutState, HudRect,

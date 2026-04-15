@@ -12,7 +12,7 @@ use bevy::{
 };
 use bevy_vello::render::VelloCanvasMaterial;
 
-use super::HudModalVectorSceneMarker;
+use super::{HudLayerId, HudLayerRegistry, HudLayerSceneMarker, HudModalVectorSceneMarker};
 
 pub(crate) const HUD_COMPOSITE_RENDER_LAYER: usize = 28;
 const HUD_COMPOSITE_CAMERA_ORDER: isize = 50;
@@ -161,6 +161,7 @@ type VelloCanvasQueryItem<'a> = (
     Entity,
     &'a MeshMaterial2d<VelloCanvasMaterial>,
     Option<&'a mut Visibility>,
+    Option<&'a HudLayerSceneMarker>,
     Option<&'a HudModalVectorSceneMarker>,
 );
 
@@ -182,6 +183,7 @@ type HudCompositeQuadQueryItem<'a> = (
 /// texture size matches the expected primary-window size.
 pub(crate) fn sync_hud_offscreen_compositor(
     mut compositor: ResMut<HudOffscreenCompositor>,
+    layers: Option<Res<HudLayerRegistry>>,
     images: Res<Assets<Image>>,
     mut vello_materials: ResMut<Assets<VelloCanvasMaterial>>,
     primary_window: Single<&Window, With<PrimaryWindow>>,
@@ -196,16 +198,20 @@ pub(crate) fn sync_hud_offscreen_compositor(
     );
     let mut vello_texture = None;
     let mut vello_texture_size = None;
-    for (entity, material_handle, maybe_visibility, modal_marker) in &mut vello_canvases {
-        if modal_marker.is_some() {
-            continue;
-        }
-        if let Some(mut visibility) = maybe_visibility {
-            *visibility = Visibility::Hidden;
-        } else {
-            commands.entity(entity).insert(Visibility::Hidden);
-        }
-        if vello_texture.is_none() {
+    let explicit_main_scene = layers
+        .as_deref()
+        .and_then(|layers| layers.layer(HudLayerId::Main))
+        .and_then(|layer| layer.scene_entity);
+
+    if let Some(main_scene_entity) = explicit_main_scene {
+        if let Ok((entity, material_handle, maybe_visibility, _, _)) =
+            vello_canvases.get_mut(main_scene_entity)
+        {
+            if let Some(mut visibility) = maybe_visibility {
+                *visibility = Visibility::Hidden;
+            } else {
+                commands.entity(entity).insert(Visibility::Hidden);
+            }
             if let Some(material) = vello_materials.get(material_handle.id()) {
                 let texture = material.texture.clone();
                 vello_texture_size = images.get(texture.id()).map(|image| {
@@ -215,6 +221,33 @@ pub(crate) fn sync_hud_offscreen_compositor(
                     )
                 });
                 vello_texture = Some(texture);
+            }
+        }
+    } else {
+        for (entity, material_handle, maybe_visibility, layer_marker, modal_marker) in
+            &mut vello_canvases
+        {
+            if modal_marker.is_some()
+                || layer_marker.is_some_and(|marker| marker.id != HudLayerId::Main)
+            {
+                continue;
+            }
+            if let Some(mut visibility) = maybe_visibility {
+                *visibility = Visibility::Hidden;
+            } else {
+                commands.entity(entity).insert(Visibility::Hidden);
+            }
+            if vello_texture.is_none() {
+                if let Some(material) = vello_materials.get(material_handle.id()) {
+                    let texture = material.texture.clone();
+                    vello_texture_size = images.get(texture.id()).map(|image| {
+                        UVec2::new(
+                            image.texture_descriptor.size.width,
+                            image.texture_descriptor.size.height,
+                        )
+                    });
+                    vello_texture = Some(texture);
+                }
             }
         }
     }

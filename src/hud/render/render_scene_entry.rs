@@ -124,18 +124,53 @@ pub(super) fn render_hud_scene_impl(
 
 #[allow(
     clippy::too_many_arguments,
-    reason = "modal HUD scene rebuild reads modal, layout, selection, and font resources together"
+    reason = "overlay HUD scene rebuild reads layout, selection, and font resources together"
 )]
-/// Rebuilds the separate modal HUD scene that contains the message box and task dialog overlays.
+/// Rebuilds the non-modal overlay HUD scene.
 ///
-/// Modal rendering is isolated from the main HUD scene so compositor/layer logic can treat it as a
-/// separate surface.
-pub(super) fn render_hud_modal_scene_impl(
+/// The overlay layer is intentionally separate from both the main HUD surface and the modal/dialog
+/// surface so composition can place it above lower layers without treating it as modal UI.
+pub(super) fn render_hud_overlay_scene_impl(
     primary_window: Single<&Window, With<PrimaryWindow>>,
     layout_state: Res<HudLayoutState>,
     agent_list_state: Res<AgentListUiState>,
     agent_list_view: Res<AgentListView>,
     selection: Option<Res<crate::hud::view_models::AgentListSelection>>,
+    fonts: Res<Assets<VelloFont>>,
+    mut scene: Single<&mut VelloScene2d, With<HudOverlayVectorSceneMarker>>,
+) {
+    let mut built = vello::Scene::new();
+    if let Some(agent_list_module) = layout_state.get(HudWidgetKey::AgentList) {
+        let agent_list_alpha = agent_list_module.shell.current_alpha.max(0.0);
+        if agent_list_module.shell.enabled || agent_list_alpha > 0.01 {
+            let mut painter =
+                HudPainter::new(&mut built, &fonts, &primary_window, agent_list_alpha);
+            modules::render_hover_overlay(
+                &primary_window,
+                &agent_list_state,
+                selection.as_deref(),
+                module_content_rect(
+                    HudWidgetKey::AgentList,
+                    agent_list_module.shell.current_rect,
+                ),
+                &mut painter,
+                &agent_list_view,
+            );
+        }
+    }
+    **scene = VelloScene2d::from(built);
+}
+
+#[allow(
+    clippy::too_many_arguments,
+    reason = "modal HUD scene rebuild reads modal state and font resources together"
+)]
+/// Rebuilds the separate modal HUD scene that contains the message box and task dialog overlays.
+///
+/// Modal rendering is isolated from lower HUD layers so compositor/layer logic can treat it as a
+/// separate surface.
+pub(super) fn render_hud_modal_scene_impl(
+    primary_window: Single<&Window, With<PrimaryWindow>>,
     app_session: Res<AppSessionState>,
     composer_view: Res<ComposerView>,
     startup_connect: Option<Res<DaemonConnectionState>>,
@@ -168,23 +203,5 @@ pub(super) fn render_hud_modal_scene_impl(
         composer_view.title.as_deref().unwrap_or("Tasks"),
         app_session.composer.task_dialog_focus,
     );
-    if let Some(agent_list_module) = layout_state.get(HudWidgetKey::AgentList) {
-        let agent_list_alpha = agent_list_module.shell.current_alpha.max(0.0);
-        if agent_list_module.shell.enabled || agent_list_alpha > 0.01 {
-            let mut painter =
-                HudPainter::new(&mut built, &fonts, &primary_window, agent_list_alpha);
-            modules::render_hover_overlay(
-                &primary_window,
-                &agent_list_state,
-                selection.as_deref(),
-                module_content_rect(
-                    HudWidgetKey::AgentList,
-                    agent_list_module.shell.current_rect,
-                ),
-                &mut painter,
-                &agent_list_view,
-            );
-        }
-    }
     **scene = VelloScene2d::from(built);
 }

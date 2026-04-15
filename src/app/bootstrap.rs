@@ -510,6 +510,7 @@ fn configure_app(app: &mut App) -> Result<(), String> {
         .insert_resource(crate::hud::ThreadPaneUiState)
         .insert_resource(crate::hud::HudInputCaptureState::default())
         .insert_resource(HudPersistenceState::default())
+        .insert_resource(crate::hud::HudLayerRegistry::default())
         .insert_resource(HudOffscreenCompositor::default())
         .insert_resource(HudBloomSettings::default())
         .insert_resource(HudWidgetBloom::default())
