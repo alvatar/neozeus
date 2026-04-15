@@ -455,7 +455,10 @@ fn aegis_enabled_rows_emit_pink_outer_bloom_when_unselected() {
         crate::agents::AgentKind::Terminal,
         crate::agents::AgentKind::Terminal.capabilities(),
     );
-    let agent_uid = agent_catalog.uid(agent_id).expect("agent uid exists").to_owned();
+    let agent_uid = agent_catalog
+        .uid(agent_id)
+        .expect("agent uid exists")
+        .to_owned();
     let mut aegis_policy = crate::aegis::AegisPolicyStore::default();
     assert!(aegis_policy.enable(&agent_uid, "continue cleanly".into()));
 
@@ -497,7 +500,10 @@ fn selected_aegis_agent_emits_both_outer_aegis_and_inner_selection_glow() {
         crate::agents::AgentKind::Terminal,
         crate::agents::AgentKind::Terminal.capabilities(),
     );
-    let agent_uid = agent_catalog.uid(agent_id).expect("agent uid exists").to_owned();
+    let agent_uid = agent_catalog
+        .uid(agent_id)
+        .expect("agent uid exists")
+        .to_owned();
     let mut aegis_policy = crate::aegis::AegisPolicyStore::default();
     assert!(aegis_policy.enable(&agent_uid, "continue cleanly".into()));
 
@@ -753,9 +759,12 @@ fn setup_hud_widget_bloom_allocates_independent_passes_per_enabled_layer() {
     let mut world = World::default();
     world.insert_resource(HudBloomSettings::default());
     world.insert_resource(HudBloomLayerConfig {
-        enabled_layers: [crate::hud::HudLayerId::Main, crate::hud::HudLayerId::Overlay]
-            .into_iter()
-            .collect(),
+        enabled_layers: [
+            crate::hud::HudLayerId::Main,
+            crate::hud::HudLayerId::Overlay,
+        ]
+        .into_iter()
+        .collect(),
     });
     world.insert_resource(HudWidgetBloom::default());
     world.insert_resource(Assets::<Image>::default());
@@ -788,11 +797,15 @@ fn sync_hud_widget_bloom_keeps_other_layer_resources_when_one_layer_is_disabled(
     let mut world = World::default();
     world.insert_resource(HudBloomSettings::default());
     world.insert_resource(HudBloomLayerConfig {
-        enabled_layers: [crate::hud::HudLayerId::Main, crate::hud::HudLayerId::Overlay]
-            .into_iter()
-            .collect(),
+        enabled_layers: [
+            crate::hud::HudLayerId::Main,
+            crate::hud::HudLayerId::Overlay,
+        ]
+        .into_iter()
+        .collect(),
     });
     world.insert_resource(HudWidgetBloom::default());
+    world.insert_resource(crate::hud::HudBloomGroupAuthoring::default());
     world.insert_resource(Assets::<Image>::default());
     world.insert_resource(Assets::<Mesh>::default());
     world.insert_resource(Assets::<AgentListBloomBlurMaterial>::default());
@@ -819,7 +832,10 @@ fn sync_hud_widget_bloom_keeps_other_layer_resources_when_one_layer_is_disabled(
         .source_image
         .clone();
 
-    world.resource_mut::<HudBloomLayerConfig>().enabled_layers.remove(&crate::hud::HudLayerId::Main);
+    world
+        .resource_mut::<HudBloomLayerConfig>()
+        .enabled_layers
+        .remove(&crate::hud::HudLayerId::Main);
     world.run_system_once(sync_hud_widget_bloom).unwrap();
 
     let overlay_after = world
@@ -836,9 +852,12 @@ fn setup_hud_widget_bloom_tags_resources_with_owning_layer_ids() {
     let mut world = World::default();
     world.insert_resource(HudBloomSettings::default());
     world.insert_resource(HudBloomLayerConfig {
-        enabled_layers: [crate::hud::HudLayerId::Main, crate::hud::HudLayerId::Overlay]
-            .into_iter()
-            .collect(),
+        enabled_layers: [
+            crate::hud::HudLayerId::Main,
+            crate::hud::HudLayerId::Overlay,
+        ]
+        .into_iter()
+        .collect(),
     });
     world.insert_resource(HudWidgetBloom::default());
     world.insert_resource(Assets::<Image>::default());
@@ -861,9 +880,12 @@ fn setup_hud_widget_bloom_tags_resources_with_owning_layer_ids() {
         .collect::<BTreeSet<_>>();
     assert_eq!(
         owners,
-        [crate::hud::HudLayerId::Main, crate::hud::HudLayerId::Overlay]
-            .into_iter()
-            .collect()
+        [
+            crate::hud::HudLayerId::Main,
+            crate::hud::HudLayerId::Overlay
+        ]
+        .into_iter()
+        .collect()
     );
 }
 

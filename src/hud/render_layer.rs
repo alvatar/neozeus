@@ -33,6 +33,7 @@ impl Default for HudLayerRegistry {
 }
 
 impl HudLayerRegistry {
+    #[cfg(test)]
     pub(crate) fn ordered_ids(&self) -> &'static [HudLayerId; 3] {
         &HUD_LAYER_ORDER
     }

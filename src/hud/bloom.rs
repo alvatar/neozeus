@@ -19,10 +19,14 @@ use bevy::{
     sprite_render::{AlphaMode2d, Material2d, MeshMaterial2d},
     window::PrimaryWindow,
 };
-use std::{collections::{BTreeMap, BTreeSet}, env};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    env,
+};
 
 use super::compositor::HUD_COMPOSITE_FOREGROUND_Z;
-use super::{HudLayerId, HUD_MODAL_CAMERA_ORDER};
+use super::render::HUD_MODAL_CAMERA_ORDER;
+use super::HudLayerId;
 
 const BLOOM_SOURCE_LAYER: usize = 29;
 const BLOOM_BLUR_SMALL_LAYER: usize = 30;
@@ -226,6 +230,7 @@ pub(crate) struct HudWidgetBloom {
 }
 
 impl HudWidgetBloom {
+    #[cfg(test)]
     fn pass(&self, layer_id: HudLayerId) -> Option<&HudLayerBloomPass> {
         self.layers.get(&layer_id)
     }
@@ -457,6 +462,10 @@ fn spawn_bloom_source_camera(
         .id()
 }
 
+#[allow(
+    clippy::too_many_arguments,
+    reason = "blur-pass setup needs commands, assets, source/target images, and sizing together"
+)]
 fn spawn_small_blur_pass(
     commands: &mut Commands,
     layer_id: HudLayerId,
@@ -499,6 +508,10 @@ fn spawn_small_blur_pass(
     (blur_small_quad, blur_small_camera)
 }
 
+#[allow(
+    clippy::too_many_arguments,
+    reason = "blur-pass setup needs commands, assets, source/target images, and sizing together"
+)]
 fn spawn_wide_blur_pass(
     commands: &mut Commands,
     layer_id: HudLayerId,

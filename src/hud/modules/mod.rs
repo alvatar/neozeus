@@ -14,11 +14,14 @@ use super::{
 use bevy::prelude::Vec2;
 
 pub(in crate::hud) use agent_list::agent_rows;
+#[cfg(test)]
 pub(crate) use agent_list::{
-    agent_list_bloom_specs, agent_row_rect, render_hover_overlay, reorder_target_index,
-    row_at_point, selected_text_for_rows, text_row_at_point, AgentListBloomAuthoringSpec,
-    AgentListBloomSourceKind, AgentListBloomSourceSegment, AgentListRowSection,
-    AGENT_LIST_BLOOM_RED_B, AGENT_LIST_BLOOM_RED_G, AGENT_LIST_BLOOM_RED_R,
+    agent_list_bloom_specs, agent_row_rect, AgentListBloomAuthoringSpec, AgentListBloomSourceKind,
+    AgentListBloomSourceSegment, AgentListRowSection,
+};
+pub(crate) use agent_list::{
+    render_hover_overlay, reorder_target_index, row_at_point, selected_text_for_rows,
+    text_row_at_point, AGENT_LIST_BLOOM_RED_B, AGENT_LIST_BLOOM_RED_G, AGENT_LIST_BLOOM_RED_R,
     AGENT_LIST_BORDER_ORANGE_B, AGENT_LIST_BORDER_ORANGE_G, AGENT_LIST_BORDER_ORANGE_R,
 };
 pub(in crate::hud) use info_bar::{INFO_BAR_BACKGROUND, INFO_BAR_BORDER};
@@ -108,6 +111,10 @@ pub(crate) fn clear_hover(
     }
 }
 
+#[allow(
+    clippy::too_many_arguments,
+    reason = "module rendering dispatch forwards explicit layer and bloom-authoring context"
+)]
 /// Renders module content.
 pub(crate) fn render_module_content(
     module_id: HudWidgetKey,
@@ -122,16 +129,14 @@ pub(crate) fn render_module_content(
     // Build the geometry or layout decisions first, then emit the matching draw operations against the prepared state.
     match module_id {
         HudWidgetKey::InfoBar => info_bar::render_content(content_rect, painter, inputs),
-        HudWidgetKey::AgentList => {
-            agent_list::render_content(
-                agent_list_state,
-                layer_id,
-                content_rect,
-                painter,
-                bloom_groups,
-                inputs,
-            )
-        }
+        HudWidgetKey::AgentList => agent_list::render_content(
+            agent_list_state,
+            layer_id,
+            content_rect,
+            painter,
+            bloom_groups,
+            inputs,
+        ),
         HudWidgetKey::ConversationList => conversation_list::render_content(
             conversation_list_state,
             content_rect,

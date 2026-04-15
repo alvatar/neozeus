@@ -167,16 +167,15 @@ pub(crate) fn render_hud_modal_scene(
 mod tests {
     use super::{
         active_line_bounds, cursor_visual_span, render_hud_modal_scene, render_hud_overlay_scene,
-        render_hud_scene, single_line_field_viewport, wrapped_editor_rows,
-        wrapped_row_is_active, CursorVisualSpan, HudModalVectorSceneMarker,
-        HudOverlayVectorSceneMarker, HudVectorSceneMarker,
+        render_hud_scene, single_line_field_viewport, wrapped_editor_rows, wrapped_row_is_active,
+        CursorVisualSpan, HudModalVectorSceneMarker, HudOverlayVectorSceneMarker,
+        HudVectorSceneMarker,
     };
     use crate::{
         agents::{AgentId, AgentKind},
         hud::{
             default_hud_module_instance, AgentListActivity, AgentListRowKind, AgentListRowView,
-            AgentListSelection, AgentListUiState, AgentListView, HudRect, HudState,
-            HudWidgetKey,
+            AgentListSelection, AgentListUiState, AgentListView, HudRect, HudState, HudWidgetKey,
             HUD_MODULE_DEFINITIONS,
         },
         shared::daemon_wire::DaemonSessionMetrics,

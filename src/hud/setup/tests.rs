@@ -1,10 +1,10 @@
 use super::{hud_needs_redraw, setup_hud, sync_structural_hud_layout};
 use crate::{
     hud::{
-        HudCompositeLayerId, HudDragState, HudLayerId, HudLayerRegistry,
-        HudOffscreenCompositor, HudPersistenceState, HudState, HudWidgetKey,
-        HUD_COMPOSITE_RENDER_LAYER, HUD_MODAL_CAMERA_ORDER, HUD_MODAL_COMPOSITE_RENDER_LAYER,
-        HUD_OVERLAY_CAMERA_ORDER, HUD_OVERLAY_COMPOSITE_RENDER_LAYER,
+        HudCompositeLayerId, HudDragState, HudLayerId, HudLayerRegistry, HudOffscreenCompositor,
+        HudPersistenceState, HudState, HudWidgetKey, HUD_COMPOSITE_RENDER_LAYER,
+        HUD_MODAL_CAMERA_ORDER, HUD_MODAL_COMPOSITE_RENDER_LAYER, HUD_OVERLAY_CAMERA_ORDER,
+        HUD_OVERLAY_COMPOSITE_RENDER_LAYER,
     },
     tests::{insert_default_hud_resources, insert_test_hud_state, snapshot_test_hud_state},
 };
@@ -61,7 +61,11 @@ fn setup_hud_requests_initial_redraw() {
         1
     );
     let composite_cameras = world
-        .query::<(&Camera, &RenderLayers, &crate::hud::HudCompositeCameraMarker)>()
+        .query::<(
+            &Camera,
+            &RenderLayers,
+            &crate::hud::HudCompositeCameraMarker,
+        )>()
         .iter(&world)
         .map(|(camera, layers, marker)| (marker.id, camera.order, layers.clone()))
         .collect::<Vec<_>>();

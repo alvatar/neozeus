@@ -9,6 +9,7 @@ declare -A LABELS=(
     [working-contract]="working-state contract"
     [message-box]="message-box bloom layering"
     [task-dialog]="task-dialog bloom layering"
+    [agent-context]="agent-context overlay above bloom"
     [inspect-switch]="inspect switch visibility"
 )
 
@@ -17,18 +18,19 @@ declare -A SCRIPTS=(
     [working-contract]="$ROOT_DIR/scripts/offscreen/verify-working-state-contract.sh"
     [message-box]="$ROOT_DIR/scripts/offscreen/verify-message-box-bloom.sh"
     [task-dialog]="$ROOT_DIR/scripts/offscreen/verify-task-dialog-bloom.sh"
+    [agent-context]="$ROOT_DIR/scripts/offscreen/verify-agent-context-bloom.sh"
     [inspect-switch]="$ROOT_DIR/scripts/offscreen/verify-inspect-switch-latency.sh"
 )
 
-TARGETS=(agent-list working-contract message-box task-dialog inspect-switch)
+TARGETS=(agent-list working-contract message-box task-dialog agent-context inspect-switch)
 if [[ $# -gt 0 ]]; then
     TARGETS=()
     for arg in "$@"; do
         case "$arg" in
             all)
-                TARGETS=(agent-list working-contract message-box task-dialog inspect-switch)
+                TARGETS=(agent-list working-contract message-box task-dialog agent-context inspect-switch)
                 ;;
-            agent-list|working-contract|message-box|task-dialog|inspect-switch)
+            agent-list|working-contract|message-box|task-dialog|agent-context|inspect-switch)
                 TARGETS+=("$arg")
                 ;;
             *)

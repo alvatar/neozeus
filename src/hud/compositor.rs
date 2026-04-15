@@ -12,14 +12,15 @@ use bevy::{
 };
 use bevy_vello::render::VelloCanvasMaterial;
 
+use super::render::{HUD_MODAL_CAMERA_ORDER, HUD_OVERLAY_CAMERA_ORDER};
 use super::{HudLayerId, HudLayerRegistry};
 
 pub(crate) const HUD_COMPOSITE_RENDER_LAYER: usize = 28;
 pub(crate) const HUD_OVERLAY_COMPOSITE_RENDER_LAYER: usize = 35;
 pub(crate) const HUD_MODAL_COMPOSITE_RENDER_LAYER: usize = 36;
 const HUD_COMPOSITE_CAMERA_ORDER: isize = 50;
-const HUD_OVERLAY_COMPOSITE_CAMERA_ORDER: isize = 70;
-const HUD_MODAL_COMPOSITE_CAMERA_ORDER: isize = 90;
+const HUD_OVERLAY_COMPOSITE_CAMERA_ORDER: isize = HUD_OVERLAY_CAMERA_ORDER;
+const HUD_MODAL_COMPOSITE_CAMERA_ORDER: isize = HUD_MODAL_CAMERA_ORDER;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum HudCompositeLayerId {
@@ -184,6 +185,10 @@ type HudCompositeQuadQueryItem<'a> = (
     &'a mut Visibility,
 );
 
+#[allow(
+    clippy::too_many_arguments,
+    reason = "compositor sync needs registry, image assets, materials, and visibility queries together"
+)]
 pub(crate) fn sync_hud_offscreen_compositor(
     mut compositor: ResMut<HudOffscreenCompositor>,
     layers: Res<HudLayerRegistry>,

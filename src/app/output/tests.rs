@@ -1,6 +1,8 @@
 use super::super::bootstrap::primary_window_config_for;
 use super::*;
-use crate::hud::{AgentListBloomAdditiveCameraMarker, HudCompositeCameraMarker, HudCompositeLayerId};
+use crate::hud::{
+    AgentListBloomAdditiveCameraMarker, HudCompositeCameraMarker, HudCompositeLayerId,
+};
 use bevy::{
     ecs::system::RunSystemOnce,
     render::{gpu_readback::Readback, render_resource::TextureFormat},
@@ -217,9 +219,15 @@ fn sync_final_frame_output_target_only_retargets_existing_scene_cameras() {
     world.insert_resource(Assets::<Image>::default());
     world.spawn((Window::default(), PrimaryWindow));
     world.spawn((TerminalCameraMarker,));
-    world.spawn((HudCompositeCameraMarker { id: HudCompositeLayerId::Main },));
-    world.spawn((HudCompositeCameraMarker { id: HudCompositeLayerId::Overlay },));
-    world.spawn((HudCompositeCameraMarker { id: HudCompositeLayerId::Modal },));
+    world.spawn((HudCompositeCameraMarker {
+        id: HudCompositeLayerId::Main,
+    },));
+    world.spawn((HudCompositeCameraMarker {
+        id: HudCompositeLayerId::Overlay,
+    },));
+    world.spawn((HudCompositeCameraMarker {
+        id: HudCompositeLayerId::Modal,
+    },));
     world.spawn((AgentListBloomAdditiveCameraMarker,));
     let entity_count_before = world.entities().len();
 

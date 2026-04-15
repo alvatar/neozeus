@@ -501,12 +501,20 @@ fn bloom_source_color(kind: AgentListBloomSourceKind, paused: bool, working: boo
     }
     if paused {
         return match kind {
-            AgentListBloomSourceKind::Main => {
-                bloom_reference_color(AGENT_LIST_PAUSED_GRAY_R, AGENT_LIST_PAUSED_GRAY_G, AGENT_LIST_PAUSED_GRAY_B, 4.0, 1.0)
-            }
-            AgentListBloomSourceKind::Marker => {
-                bloom_reference_color(AGENT_LIST_PAUSED_GRAY_R, AGENT_LIST_PAUSED_GRAY_G, AGENT_LIST_PAUSED_GRAY_B, 5.0, 1.0)
-            }
+            AgentListBloomSourceKind::Main => bloom_reference_color(
+                AGENT_LIST_PAUSED_GRAY_R,
+                AGENT_LIST_PAUSED_GRAY_G,
+                AGENT_LIST_PAUSED_GRAY_B,
+                4.0,
+                1.0,
+            ),
+            AgentListBloomSourceKind::Marker => bloom_reference_color(
+                AGENT_LIST_PAUSED_GRAY_R,
+                AGENT_LIST_PAUSED_GRAY_G,
+                AGENT_LIST_PAUSED_GRAY_B,
+                5.0,
+                1.0,
+            ),
             AgentListBloomSourceKind::Aegis => bloom_reference_color(255, 105, 180, 7.0, 1.0),
         };
     }
@@ -677,7 +685,11 @@ pub(crate) fn agent_list_bloom_specs(
             let color = bloom_source_color(AgentListBloomSourceKind::Aegis, false, false);
             for (segment, border_rect) in bloom_border_rects(expanded_rect, 5.0) {
                 specs.push(AgentListBloomAuthoringSpec {
-                    source_id: bloom_source_id(terminal_id, AgentListBloomSourceKind::Aegis, segment),
+                    source_id: bloom_source_id(
+                        terminal_id,
+                        AgentListBloomSourceKind::Aegis,
+                        segment,
+                    ),
                     terminal_id,
                     kind: AgentListBloomSourceKind::Aegis,
                     segment,
@@ -695,7 +707,11 @@ pub(crate) fn agent_list_bloom_specs(
             let color = bloom_source_color(AgentListBloomSourceKind::Main, false, false);
             for (segment, border_rect) in bloom_border_rects(main_rect, 3.0) {
                 specs.push(AgentListBloomAuthoringSpec {
-                    source_id: bloom_source_id(terminal_id, AgentListBloomSourceKind::Main, segment),
+                    source_id: bloom_source_id(
+                        terminal_id,
+                        AgentListBloomSourceKind::Main,
+                        segment,
+                    ),
                     terminal_id,
                     kind: AgentListBloomSourceKind::Main,
                     segment,
@@ -743,9 +759,9 @@ pub(crate) fn render_content(
     inputs: &HudRenderInputs,
 ) {
     // Build the geometry or layout decisions first, then emit the matching draw operations against the prepared state.
-    if let Some(mut writer) = bloom_groups.map(|groups| {
-        groups.writer(layer_id, crate::hud::HudBloomGroupId::AgentListSelection)
-    }) {
+    if let Some(mut writer) = bloom_groups
+        .map(|groups| groups.writer(layer_id, crate::hud::HudBloomGroupId::AgentListSelection))
+    {
         for spec in agent_list_bloom_specs(state, content_rect, inputs) {
             writer.fill_rect_with_id(spec.source_id, spec.rect, spec.color);
         }

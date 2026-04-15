@@ -40,6 +40,10 @@ fn parses_verification_scenarios() {
         Some(VerificationScenario::AgentListBloom)
     );
     assert_eq!(
+        resolve_verification_scenario(Some("agent-context-bloom")),
+        Some(VerificationScenario::AgentContextBloom)
+    );
+    assert_eq!(
         resolve_verification_scenario(Some("working-state-idle")),
         Some(VerificationScenario::WorkingStateIdle)
     );
@@ -238,6 +242,50 @@ fn agent_list_scenario_clears_existing_composer_and_direct_input() {
             .resource::<crate::hud::HudInputCaptureState>()
             .direct_input_terminal,
         None
+    );
+    let terminal_id = world.resource::<TerminalManager>().terminal_ids()[0];
+    let runtime_index = world.resource::<crate::agents::AgentRuntimeIndex>();
+    let agent_id = runtime_index
+        .agent_for_terminal(terminal_id)
+        .expect("scenario should bind agent");
+    assert_eq!(
+        *world.resource::<crate::hud::AgentListSelection>(),
+        crate::hud::AgentListSelection::Agent(agent_id)
+    );
+}
+
+#[test]
+fn agent_context_scenario_enables_selected_context_overlay() {
+    let client = Arc::new(crate::tests::FakeDaemonClient::default());
+    let mut world = World::default();
+    world.insert_resource(VerificationScenarioConfig {
+        scenario: VerificationScenario::AgentContextBloom,
+        frames_until_apply: 0,
+        primed: false,
+        applied: false,
+        terminal_ids: Vec::new(),
+    });
+    world.insert_resource(Assets::<Image>::default());
+    world.insert_resource(crate::terminals::TerminalManager::default());
+    world.insert_resource(crate::terminals::TerminalFocusState::default());
+    world.insert_resource(crate::terminals::TerminalPresentationStore::default());
+    world.insert_resource(fake_runtime_spawner(client));
+    world.insert_resource(crate::agents::AgentCatalog::default());
+    world.insert_resource(crate::agents::AgentRuntimeIndex::default());
+    world.insert_resource(crate::app::AppSessionState::default());
+    world.insert_resource(crate::conversations::AgentTaskStore::default());
+    world.insert_resource(crate::hud::TerminalVisibilityState::default());
+    world.insert_resource(crate::terminals::TerminalViewState::default());
+    world.insert_resource(crate::terminals::TerminalNotesState::default());
+    insert_default_hud_resources(&mut world);
+    init_verification_runtime_resources(&mut world);
+
+    world.run_system_once(run_verification_scenario).unwrap();
+
+    assert!(
+        world
+            .resource::<crate::hud::AgentListUiState>()
+            .show_selected_context
     );
     let terminal_id = world.resource::<TerminalManager>().terminal_ids()[0];
     let runtime_index = world.resource::<crate::agents::AgentRuntimeIndex>();

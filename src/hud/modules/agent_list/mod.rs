@@ -6,10 +6,12 @@ pub(crate) use interaction::{
     clear_hover, handle_hover, handle_pointer_click, handle_scroll, reorder_target_index,
     row_at_point, selected_text_for_rows, text_row_at_point,
 };
+#[cfg(test)]
 pub(crate) use render::{
-    agent_list_bloom_specs, render_content, render_hover_overlay, AgentListBloomAuthoringSpec,
-    AgentListBloomSourceKind, AgentListBloomSourceSegment,
+    agent_list_bloom_specs, AgentListBloomAuthoringSpec, AgentListBloomSourceKind,
+    AgentListBloomSourceSegment,
 };
+pub(crate) use render::{render_content, render_hover_overlay};
 pub(crate) use rows::{
     agent_list_content_height, AGENT_LIST_BORDER_ORANGE_B, AGENT_LIST_BORDER_ORANGE_G,
     AGENT_LIST_BORDER_ORANGE_R, AGENT_LIST_HEADER_HEIGHT, AGENT_LIST_LEFT_RAIL_WIDTH,

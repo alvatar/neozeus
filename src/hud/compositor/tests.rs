@@ -73,9 +73,14 @@ fn sync_hud_offscreen_compositor_hides_explicit_main_canvas_and_binds_texture() 
         )
         .unwrap();
 
-    world.run_system_once(sync_hud_offscreen_compositor).unwrap();
+    world
+        .run_system_once(sync_hud_offscreen_compositor)
+        .unwrap();
 
-    assert_eq!(world.get::<Visibility>(source_canvas), Some(&Visibility::Hidden));
+    assert_eq!(
+        world.get::<Visibility>(source_canvas),
+        Some(&Visibility::Hidden)
+    );
 
     let composite_cameras = world
         .query::<(&Camera, &RenderLayers, &HudCompositeCameraMarker)>()
@@ -100,7 +105,13 @@ fn sync_hud_offscreen_compositor_hides_explicit_main_canvas_and_binds_texture() 
         )>()
         .iter(&world)
         .map(|(marker, material, transform, visibility, layers, _)| {
-            (*marker, material.clone(), *transform, *visibility, layers.clone())
+            (
+                *marker,
+                material.clone(),
+                *transform,
+                *visibility,
+                layers.clone(),
+            )
         })
         .collect::<Vec<_>>();
     assert_eq!(quads.len(), 3);
@@ -151,16 +162,18 @@ fn sync_hud_offscreen_compositor_composes_explicit_known_layers_without_first_ma
         });
     }
 
-    let main_material = world
-        .resource_mut::<Assets<VelloCanvasMaterial>>()
-        .add(VelloCanvasMaterial {
-            texture: main_texture.clone(),
-        });
-    let overlay_material = world
-        .resource_mut::<Assets<VelloCanvasMaterial>>()
-        .add(VelloCanvasMaterial {
-            texture: overlay_texture.clone(),
-        });
+    let main_material =
+        world
+            .resource_mut::<Assets<VelloCanvasMaterial>>()
+            .add(VelloCanvasMaterial {
+                texture: main_texture.clone(),
+            });
+    let overlay_material =
+        world
+            .resource_mut::<Assets<VelloCanvasMaterial>>()
+            .add(VelloCanvasMaterial {
+                texture: overlay_texture.clone(),
+            });
 
     let overlay_scene = world
         .spawn((
@@ -198,12 +211,21 @@ fn sync_hud_offscreen_compositor_composes_explicit_known_layers_without_first_ma
         )
         .unwrap();
 
-    world.run_system_once(sync_hud_offscreen_compositor).unwrap();
+    world
+        .run_system_once(sync_hud_offscreen_compositor)
+        .unwrap();
 
     let quads = world
-        .query::<(&HudCompositeLayerMarker, &MeshMaterial2d<VelloCanvasMaterial>, &Visibility, &RenderLayers)>()
+        .query::<(
+            &HudCompositeLayerMarker,
+            &MeshMaterial2d<VelloCanvasMaterial>,
+            &Visibility,
+            &RenderLayers,
+        )>()
         .iter(&world)
-        .map(|(marker, material, visibility, layers)| (*marker, material.clone(), *visibility, layers.clone()))
+        .map(|(marker, material, visibility, layers)| {
+            (*marker, material.clone(), *visibility, layers.clone())
+        })
         .collect::<Vec<_>>();
     let materials = world.resource::<Assets<VelloCanvasMaterial>>();
     let main_quad = quads

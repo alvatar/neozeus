@@ -46,6 +46,7 @@ pub(crate) enum VerificationScenario {
     MessageBoxBloom,
     TaskDialogBloom,
     AgentListBloom,
+    AgentContextBloom,
     WorkingStateIdle,
     WorkingStateWorking,
     InspectSwitchLatency,
@@ -65,6 +66,9 @@ fn resolve_verification_scenario(raw: Option<&str>) -> Option<VerificationScenar
         }
         Some(value) if value.eq_ignore_ascii_case("agent-list-bloom") => {
             Some(VerificationScenario::AgentListBloom)
+        }
+        Some(value) if value.eq_ignore_ascii_case("agent-context-bloom") => {
+            Some(VerificationScenario::AgentContextBloom)
         }
         Some(value) if value.eq_ignore_ascii_case("working-state-idle") => {
             Some(VerificationScenario::WorkingStateIdle)
@@ -263,6 +267,7 @@ fn verification_agent_kind(scenario: VerificationScenario) -> AgentKind {
         VerificationScenario::MessageBoxBloom
         | VerificationScenario::TaskDialogBloom
         | VerificationScenario::AgentListBloom
+        | VerificationScenario::AgentContextBloom
         | VerificationScenario::InspectSwitchLatency => AgentKind::Verifier,
     }
 }
@@ -298,6 +303,7 @@ fn clear_verification_ui(ctx: &mut VerificationScenarioContext) {
         &mut ctx.input_capture,
         &mut ctx.redraws,
     );
+    ctx.agent_list_state.show_selected_context = false;
 }
 
 fn sync_verification_test_focus_state(_ctx: &mut VerificationScenarioContext) {
@@ -334,6 +340,7 @@ struct VerificationScenarioContext<'w> {
     verification_overrides: ResMut<'w, VerificationTerminalSurfaceOverrides>,
     runtime_spawner: Res<'w, TerminalRuntimeSpawner>,
     input_capture: ResMut<'w, HudInputCaptureState>,
+    agent_list_state: ResMut<'w, crate::hud::AgentListUiState>,
     agent_catalog: ResMut<'w, AgentCatalog>,
     runtime_index: ResMut<'w, AgentRuntimeIndex>,
     owned_tmux_sessions: Res<'w, crate::terminals::OwnedTmuxSessionStore>,
@@ -374,6 +381,7 @@ fn verification_capture_ready(
     app_session: &AppSessionState,
     selection: &AgentListSelection,
     agent_list: &AgentListView,
+    agent_list_state: &crate::hud::AgentListUiState,
     focus_state: &TerminalFocusState,
     runtime_index: &AgentRuntimeIndex,
     terminal_manager: &TerminalManager,
@@ -414,6 +422,11 @@ fn verification_capture_ready(
         VerificationScenario::AgentListBloom => {
             active_terminal_ready && selected_agent_row_is_focused(selection, agent_list)
         }
+        VerificationScenario::AgentContextBloom => {
+            active_terminal_ready
+                && selected_agent_row_is_focused(selection, agent_list)
+                && agent_list_state.show_selected_context
+        }
         VerificationScenario::WorkingStateIdle => {
             active_terminal_matches(VisualAgentActivity::Idle)
         }
@@ -433,6 +446,7 @@ pub(crate) fn sync_verification_capture_barrier(
     app_session: Res<AppSessionState>,
     selection: Res<AgentListSelection>,
     agent_list: Res<AgentListView>,
+    agent_list_state: Res<crate::hud::AgentListUiState>,
     focus_state: Res<TerminalFocusState>,
     runtime_index: Res<AgentRuntimeIndex>,
     terminal_manager: Res<TerminalManager>,
@@ -449,6 +463,7 @@ pub(crate) fn sync_verification_capture_barrier(
                     &app_session,
                     &selection,
                     &agent_list,
+                    &agent_list_state,
                     &focus_state,
                     &runtime_index,
                     &terminal_manager,
@@ -586,6 +601,12 @@ pub(crate) fn run_verification_scenario(world: &mut World) {
             let terminal_id = config.terminal_ids[0];
             let _ = focus_verification_agent_for_terminal(&mut ctx, terminal_id);
             clear_verification_ui(&mut ctx);
+        }
+        VerificationScenario::AgentContextBloom => {
+            let terminal_id = config.terminal_ids[0];
+            let _ = focus_verification_agent_for_terminal(&mut ctx, terminal_id);
+            clear_verification_ui(&mut ctx);
+            ctx.agent_list_state.show_selected_context = true;
         }
         VerificationScenario::WorkingStateIdle | VerificationScenario::WorkingStateWorking => {
             let terminal_id = config.terminal_ids[0];

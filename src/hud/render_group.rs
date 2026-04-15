@@ -56,6 +56,7 @@ pub(crate) struct HudBloomGroupWriter<'a> {
 }
 
 impl HudBloomGroupWriter<'_> {
+    #[cfg(test)]
     pub(crate) fn fill_rect(&mut self, rect: HudRect, color: Color) {
         let source_id = self.authoring.rects.len() as u64;
         self.fill_rect_with_id(source_id, rect, color);
