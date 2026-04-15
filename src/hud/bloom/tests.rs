@@ -685,6 +685,125 @@ fn setup_hud_widget_bloom_uses_logical_window_size_for_targets() {
 }
 
 #[test]
+fn setup_hud_widget_bloom_allocates_independent_passes_per_enabled_layer() {
+    let mut world = World::default();
+    world.insert_resource(HudBloomSettings::default());
+    world.insert_resource(HudBloomLayerConfig {
+        enabled_layers: [crate::hud::HudLayerId::Main, crate::hud::HudLayerId::Overlay]
+            .into_iter()
+            .collect(),
+    });
+    world.insert_resource(HudWidgetBloom::default());
+    world.insert_resource(Assets::<Image>::default());
+    world.insert_resource(Assets::<Mesh>::default());
+    world.insert_resource(Assets::<AgentListBloomBlurMaterial>::default());
+    world.spawn((
+        Window {
+            resolution: (1400, 900).into(),
+            ..default()
+        },
+        PrimaryWindow,
+    ));
+
+    world.run_system_once(setup_hud_widget_bloom).unwrap();
+
+    let bloom = world.resource::<HudWidgetBloom>();
+    let main = bloom
+        .pass(crate::hud::HudLayerId::Main)
+        .expect("main bloom pass exists");
+    let overlay = bloom
+        .pass(crate::hud::HudLayerId::Overlay)
+        .expect("overlay bloom pass exists");
+    assert_ne!(main.source_image, overlay.source_image);
+    assert_ne!(main.blur_small_image, overlay.blur_small_image);
+    assert_ne!(main.blur_wide_image, overlay.blur_wide_image);
+}
+
+#[test]
+fn sync_hud_widget_bloom_keeps_other_layer_resources_when_one_layer_is_disabled() {
+    let mut world = World::default();
+    world.insert_resource(HudBloomSettings::default());
+    world.insert_resource(HudBloomLayerConfig {
+        enabled_layers: [crate::hud::HudLayerId::Main, crate::hud::HudLayerId::Overlay]
+            .into_iter()
+            .collect(),
+    });
+    world.insert_resource(HudWidgetBloom::default());
+    world.insert_resource(Assets::<Image>::default());
+    world.insert_resource(Assets::<Mesh>::default());
+    world.insert_resource(Assets::<AgentListBloomBlurMaterial>::default());
+    world.insert_resource(crate::hud::HudLayoutState::default());
+    world.insert_resource(crate::app::AppSessionState::default());
+    world.insert_resource(crate::aegis::AegisPolicyStore::default());
+    world.insert_resource(crate::terminals::TerminalFocusState::default());
+    world.insert_resource(crate::terminals::ActiveTerminalContentState::default());
+    world.insert_resource(crate::hud::AgentListUiState::default());
+    world.insert_resource(crate::hud::AgentListView::default());
+    world.spawn((
+        Window {
+            resolution: (1400, 900).into(),
+            ..default()
+        },
+        PrimaryWindow,
+    ));
+
+    world.run_system_once(setup_hud_widget_bloom).unwrap();
+    let overlay_before = world
+        .resource::<HudWidgetBloom>()
+        .pass(crate::hud::HudLayerId::Overlay)
+        .expect("overlay pass exists")
+        .source_image
+        .clone();
+
+    world.resource_mut::<HudBloomLayerConfig>().enabled_layers.remove(&crate::hud::HudLayerId::Main);
+    world.run_system_once(sync_hud_widget_bloom).unwrap();
+
+    let overlay_after = world
+        .resource::<HudWidgetBloom>()
+        .pass(crate::hud::HudLayerId::Overlay)
+        .expect("overlay pass still exists")
+        .source_image
+        .clone();
+    assert_eq!(overlay_before, overlay_after);
+}
+
+#[test]
+fn setup_hud_widget_bloom_tags_resources_with_owning_layer_ids() {
+    let mut world = World::default();
+    world.insert_resource(HudBloomSettings::default());
+    world.insert_resource(HudBloomLayerConfig {
+        enabled_layers: [crate::hud::HudLayerId::Main, crate::hud::HudLayerId::Overlay]
+            .into_iter()
+            .collect(),
+    });
+    world.insert_resource(HudWidgetBloom::default());
+    world.insert_resource(Assets::<Image>::default());
+    world.insert_resource(Assets::<Mesh>::default());
+    world.insert_resource(Assets::<AgentListBloomBlurMaterial>::default());
+    world.spawn((
+        Window {
+            resolution: (1400, 900).into(),
+            ..default()
+        },
+        PrimaryWindow,
+    ));
+
+    world.run_system_once(setup_hud_widget_bloom).unwrap();
+
+    let owners = world
+        .query_filtered::<&HudLayerBloomOwnerMarker, With<AgentListBloomAdditiveCameraMarker>>()
+        .iter(&world)
+        .map(|owner| owner.layer_id)
+        .collect::<BTreeSet<_>>();
+    assert_eq!(
+        owners,
+        [crate::hud::HudLayerId::Main, crate::hud::HudLayerId::Overlay]
+            .into_iter()
+            .collect()
+    );
+}
+
+#[test]
 fn ensure_bloom_target_images_reuses_matching_handles_and_replaces_mismatched_ones() {
     let mut images = Assets::<Image>::default();
     let expected_size = UVec2::new(640, 360);
@@ -692,10 +811,11 @@ fn ensure_bloom_target_images_reuses_matching_handles_and_replaces_mismatched_on
     let source_image = images.add(bloom_target_image(expected_size));
     let blur_small_image = images.add(bloom_target_image(wrong_size));
 
-    let mut pass = AgentListBloomPass {
+    let mut pass = HudLayerBloomPass {
+        layer_id: crate::hud::HudLayerId::Main,
         source_image: source_image.clone(),
         blur_small_image: blur_small_image.clone(),
-        ..AgentListBloomPass::default()
+        ..HudLayerBloomPass::default()
     };
 
     ensure_bloom_target_images(&mut images, &mut pass, expected_size);

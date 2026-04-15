@@ -15,7 +15,7 @@ mod widgets;
 pub(crate) use animation::animate_hud_modules;
 pub(crate) use bloom::{
     setup_hud_widget_bloom, sync_hud_widget_bloom, AgentListBloomAdditiveCameraMarker,
-    AgentListBloomBlurMaterial, HudBloomSettings, HudWidgetBloom,
+    AgentListBloomBlurMaterial, HudBloomLayerConfig, HudBloomSettings, HudWidgetBloom,
 };
 pub(crate) use capture::{
     finalize_window_capture, request_hud_composite_capture, request_hud_texture_capture,

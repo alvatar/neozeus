@@ -79,9 +79,9 @@ pub(crate) struct HudOverlayCameraMarker;
 pub(crate) struct HudModalCameraMarker;
 
 pub(crate) const HUD_OVERLAY_RENDER_LAYER: usize = 34;
-pub(crate) const HUD_OVERLAY_CAMERA_ORDER: isize = 100;
+pub(crate) const HUD_OVERLAY_CAMERA_ORDER: isize = 70;
 pub(crate) const HUD_MODAL_RENDER_LAYER: usize = 33;
-pub(crate) const HUD_MODAL_CAMERA_ORDER: isize = 101;
+pub(crate) const HUD_MODAL_CAMERA_ORDER: isize = 90;
 
 #[allow(
     clippy::too_many_arguments,

@@ -513,6 +513,7 @@ fn configure_app(app: &mut App) -> Result<(), String> {
         .insert_resource(crate::hud::HudLayerRegistry::default())
         .insert_resource(HudOffscreenCompositor::default())
         .insert_resource(HudBloomSettings::default())
+        .insert_resource(crate::hud::HudBloomLayerConfig::default())
         .insert_resource(HudWidgetBloom::default())
         .insert_resource(AgentCatalog::default())
         .insert_resource(AgentRuntimeIndex::default())

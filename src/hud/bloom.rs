@@ -31,9 +31,10 @@ use bevy::{
     sprite_render::{AlphaMode2d, Material2d, MeshMaterial2d},
     window::PrimaryWindow,
 };
-use std::{collections::BTreeSet, env};
+use std::{collections::{BTreeMap, BTreeSet}, env};
 
 use super::compositor::HUD_COMPOSITE_FOREGROUND_Z;
+use super::{HudLayerId, HUD_MODAL_CAMERA_ORDER};
 
 const BLOOM_SOURCE_LAYER: usize = 29;
 const BLOOM_BLUR_SMALL_LAYER: usize = 30;
@@ -49,7 +50,8 @@ const SMALL_BLUR_GAIN: f32 = 1.25;
 const WIDE_BLUR_GAIN: f32 = 0.85;
 const SMALL_BLUR_STEP_SCALE: f32 = 5.25;
 const WIDE_BLUR_STEP_SCALE: f32 = 12.5;
-const BLOOM_ADDITIVE_CAMERA_ORDER: isize = 99;
+const BLOOM_MAIN_CAMERA_ORDER: isize = 60;
+const BLOOM_OVERLAY_CAMERA_ORDER: isize = 80;
 const BLOOM_DEBUG_PREVIEW_Z: f32 = HUD_COMPOSITE_FOREGROUND_Z + 2.0;
 const BLOOM_DEBUG_PREVIEW_WIDTH: f32 = 160.0;
 const BLOOM_DEBUG_PREVIEW_HEIGHT: f32 = 120.0;
@@ -194,9 +196,15 @@ enum AgentListBloomSourceSegment {
 
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 struct AgentListBloomSourceSprite {
+    layer_id: HudLayerId,
     terminal_id: TerminalId,
     kind: AgentListBloomSourceKind,
     segment: AgentListBloomSourceSegment,
+}
+
+#[derive(Component, Clone, Copy, Debug, PartialEq, Eq, Hash)]
+struct HudLayerBloomOwnerMarker {
+    layer_id: HudLayerId,
 }
 
 #[derive(Clone, Debug)]
@@ -206,8 +214,9 @@ struct BloomSourceSpec {
     color: Color,
 }
 
-#[derive(Clone, Debug, Default)]
-struct AgentListBloomPass {
+#[derive(Clone, Debug)]
+struct HudLayerBloomPass {
+    layer_id: HudLayerId,
     source_image: Handle<Image>,
     blur_small_image: Handle<Image>,
     blur_wide_image: Handle<Image>,
@@ -218,11 +227,60 @@ struct AgentListBloomPass {
     blur_wide_quad: Option<Entity>,
     composite_sprite: Option<Entity>,
     wide_composite_sprite: Option<Entity>,
+    additive_camera: Option<Entity>,
+}
+
+impl Default for HudLayerBloomPass {
+    fn default() -> Self {
+        Self {
+            layer_id: HudLayerId::Main,
+            source_image: Handle::default(),
+            blur_small_image: Handle::default(),
+            blur_wide_image: Handle::default(),
+            source_camera: None,
+            blur_small_camera: None,
+            blur_wide_camera: None,
+            blur_small_quad: None,
+            blur_wide_quad: None,
+            composite_sprite: None,
+            wide_composite_sprite: None,
+            additive_camera: None,
+        }
+    }
 }
 
 #[derive(Resource, Clone, Debug, Default)]
 pub(crate) struct HudWidgetBloom {
-    agent_list: AgentListBloomPass,
+    layers: BTreeMap<HudLayerId, HudLayerBloomPass>,
+}
+
+impl HudWidgetBloom {
+    fn pass(&self, layer_id: HudLayerId) -> Option<&HudLayerBloomPass> {
+        self.layers.get(&layer_id)
+    }
+
+    fn pass_mut(&mut self, layer_id: HudLayerId) -> Option<&mut HudLayerBloomPass> {
+        self.layers.get_mut(&layer_id)
+    }
+}
+
+#[derive(Resource, Clone, Debug, PartialEq, Eq)]
+pub(crate) struct HudBloomLayerConfig {
+    enabled_layers: BTreeSet<HudLayerId>,
+}
+
+impl Default for HudBloomLayerConfig {
+    fn default() -> Self {
+        Self {
+            enabled_layers: [HudLayerId::Main].into_iter().collect(),
+        }
+    }
+}
+
+impl HudBloomLayerConfig {
+    fn enabled_layers(&self) -> &BTreeSet<HudLayerId> {
+        &self.enabled_layers
+    }
 }
 
 /// Allocates one float render target used by the bloom pipeline.
@@ -511,6 +569,20 @@ fn additive_blend_state() -> BlendState {
     }
 }
 
+fn bloom_camera_order(layer_id: HudLayerId) -> isize {
+    match layer_id {
+        HudLayerId::Main => BLOOM_MAIN_CAMERA_ORDER,
+        HudLayerId::Overlay => BLOOM_OVERLAY_CAMERA_ORDER,
+        HudLayerId::Modal => HUD_MODAL_CAMERA_ORDER - 1,
+    }
+}
+
+fn configured_bloom_layers(config: Option<&HudBloomLayerConfig>) -> BTreeSet<HudLayerId> {
+    config
+        .map(|config| config.enabled_layers().clone())
+        .unwrap_or_else(|| [HudLayerId::Main].into_iter().collect())
+}
+
 /// Builds the set of bloom source strips that should exist for the current active agent row.
 ///
 /// Only the active row participates. For that row, the function derives the main and marker sub-rects,
@@ -588,6 +660,7 @@ fn build_bloom_specs(
             for (segment, border_rect) in bloom_border_rects(expanded_rect, 5.0) {
                 specs.push(BloomSourceSpec {
                     key: AgentListBloomSourceSprite {
+                        layer_id: HudLayerId::Main,
                         terminal_id,
                         kind: AgentListBloomSourceKind::Aegis,
                         segment,
@@ -604,6 +677,7 @@ fn build_bloom_specs(
             for (segment, border_rect) in bloom_border_rects(main_rect, 3.0) {
                 specs.push(BloomSourceSpec {
                     key: AgentListBloomSourceSprite {
+                        layer_id: HudLayerId::Main,
                         terminal_id,
                         kind: AgentListBloomSourceKind::Main,
                         segment,
@@ -629,6 +703,7 @@ fn build_bloom_specs(
                 for (segment, border_rect) in bloom_border_rects(rect, thickness) {
                     specs.push(BloomSourceSpec {
                         key: AgentListBloomSourceSprite {
+                            layer_id: HudLayerId::Main,
                             terminal_id,
                             kind,
                             segment,
@@ -654,7 +729,11 @@ fn create_bloom_images(
     )
 }
 
-fn spawn_bloom_source_camera(commands: &mut Commands, source_image: &Handle<Image>) -> Entity {
+fn spawn_bloom_source_camera(
+    commands: &mut Commands,
+    layer_id: HudLayerId,
+    source_image: &Handle<Image>,
+) -> Entity {
     commands
         .spawn((
             Camera2d,
@@ -666,12 +745,14 @@ fn spawn_bloom_source_camera(commands: &mut Commands, source_image: &Handle<Imag
             RenderTarget::Image(source_image.clone().into()),
             RenderLayers::layer(BLOOM_SOURCE_LAYER),
             AgentListBloomCameraMarker,
+            HudLayerBloomOwnerMarker { layer_id },
         ))
         .id()
 }
 
 fn spawn_small_blur_pass(
     commands: &mut Commands,
+    layer_id: HudLayerId,
     meshes: &mut Assets<Mesh>,
     blur_materials: &mut Assets<AgentListBloomBlurMaterial>,
     source_image: &Handle<Image>,
@@ -691,6 +772,7 @@ fn spawn_small_blur_pass(
             RenderLayers::layer(BLOOM_BLUR_SMALL_LAYER),
             Visibility::Hidden,
             AgentListBloomBlurSmallQuadMarker,
+            HudLayerBloomOwnerMarker { layer_id },
         ))
         .id();
     let blur_small_camera = commands
@@ -704,6 +786,7 @@ fn spawn_small_blur_pass(
             RenderTarget::Image(target_image.clone().into()),
             RenderLayers::layer(BLOOM_BLUR_SMALL_LAYER),
             AgentListBloomBlurSmallCameraMarker,
+            HudLayerBloomOwnerMarker { layer_id },
         ))
         .id();
     (blur_small_quad, blur_small_camera)
@@ -711,6 +794,7 @@ fn spawn_small_blur_pass(
 
 fn spawn_wide_blur_pass(
     commands: &mut Commands,
+    layer_id: HudLayerId,
     meshes: &mut Assets<Mesh>,
     blur_materials: &mut Assets<AgentListBloomBlurMaterial>,
     source_image: &Handle<Image>,
@@ -730,6 +814,7 @@ fn spawn_wide_blur_pass(
             RenderLayers::layer(BLOOM_BLUR_WIDE_LAYER),
             Visibility::Hidden,
             AgentListBloomBlurWideQuadMarker,
+            HudLayerBloomOwnerMarker { layer_id },
         ))
         .id();
     let blur_wide_camera = commands
@@ -743,6 +828,7 @@ fn spawn_wide_blur_pass(
             RenderTarget::Image(target_image.clone().into()),
             RenderLayers::layer(BLOOM_BLUR_WIDE_LAYER),
             AgentListBloomBlurWideCameraMarker,
+            HudLayerBloomOwnerMarker { layer_id },
         ))
         .id();
     (blur_wide_quad, blur_wide_camera)
@@ -750,6 +836,7 @@ fn spawn_wide_blur_pass(
 
 fn spawn_composite_sprites(
     commands: &mut Commands,
+    layer_id: HudLayerId,
     blur_small_image: &Handle<Image>,
     blur_wide_image: &Handle<Image>,
     primary_window: &Window,
@@ -766,6 +853,7 @@ fn spawn_composite_sprites(
             RenderLayers::layer(BLOOM_COMPOSITE_LAYER),
             Visibility::Hidden,
             AgentListBloomCompositeMarker,
+            HudLayerBloomOwnerMarker { layer_id },
         ))
         .id();
     let wide_composite_sprite = commands
@@ -780,25 +868,29 @@ fn spawn_composite_sprites(
             RenderLayers::layer(BLOOM_COMPOSITE_LAYER),
             Visibility::Hidden,
             AgentListBloomWideCompositeMarker,
+            HudLayerBloomOwnerMarker { layer_id },
         ))
         .id();
     (composite_sprite, wide_composite_sprite)
 }
 
-fn spawn_additive_camera(commands: &mut Commands) {
-    commands.spawn((
-        Camera2d,
-        Camera {
-            order: BLOOM_ADDITIVE_CAMERA_ORDER,
-            output_mode: CameraOutputMode::Write {
-                blend_state: Some(additive_blend_state()),
-                clear_color: ClearColorConfig::None,
+fn spawn_additive_camera(commands: &mut Commands, layer_id: HudLayerId) -> Entity {
+    commands
+        .spawn((
+            Camera2d,
+            Camera {
+                order: bloom_camera_order(layer_id),
+                output_mode: CameraOutputMode::Write {
+                    blend_state: Some(additive_blend_state()),
+                    clear_color: ClearColorConfig::None,
+                },
+                ..default()
             },
-            ..default()
-        },
-        RenderLayers::layer(BLOOM_COMPOSITE_LAYER),
-        AgentListBloomAdditiveCameraMarker,
-    ));
+            RenderLayers::layer(BLOOM_COMPOSITE_LAYER),
+            AgentListBloomAdditiveCameraMarker,
+            HudLayerBloomOwnerMarker { layer_id },
+        ))
+        .id()
 }
 
 fn spawn_debug_preview_entities(
@@ -911,6 +1003,7 @@ struct HudWidgetBloomSetupContext<'w, 's> {
     commands: Commands<'w, 's>,
     primary_window: Single<'w, 's, &'static Window, With<PrimaryWindow>>,
     settings: Res<'w, HudBloomSettings>,
+    config: Option<Res<'w, HudBloomLayerConfig>>,
     images: ResMut<'w, Assets<Image>>,
     meshes: ResMut<'w, Assets<Mesh>>,
     blur_materials: ResMut<'w, Assets<AgentListBloomBlurMaterial>>,
@@ -931,55 +1024,69 @@ pub(crate) fn setup_hud_widget_bloom(world: &mut World) {
         1.0 / target_size.x.max(1) as f32,
         1.0 / target_size.y.max(1) as f32,
     );
-    let (source_image, blur_small_image, blur_wide_image) =
-        create_bloom_images(&mut ctx.images, target_size);
-    let source_camera = spawn_bloom_source_camera(&mut ctx.commands, &source_image);
-    let (blur_small_quad, blur_small_camera) = spawn_small_blur_pass(
-        &mut ctx.commands,
-        &mut ctx.meshes,
-        &mut ctx.blur_materials,
-        &source_image,
-        &blur_small_image,
-        target_size,
-        target_texel_size,
-    );
-    let (blur_wide_quad, blur_wide_camera) = spawn_wide_blur_pass(
-        &mut ctx.commands,
-        &mut ctx.meshes,
-        &mut ctx.blur_materials,
-        &source_image,
-        &blur_wide_image,
-        target_size,
-        target_texel_size,
-    );
-    let (composite_sprite, wide_composite_sprite) = spawn_composite_sprites(
-        &mut ctx.commands,
-        &blur_small_image,
-        &blur_wide_image,
-        &ctx.primary_window,
-    );
-    spawn_additive_camera(&mut ctx.commands);
-    spawn_debug_preview_entities(
-        &mut ctx.commands,
-        &ctx.primary_window,
-        &source_image,
-        &blur_small_image,
-        &blur_wide_image,
-        ctx.settings.debug_previews,
-    );
+    let configured_layers = configured_bloom_layers(ctx.config.as_deref());
+    for layer_id in configured_layers {
+        let (source_image, blur_small_image, blur_wide_image) =
+            create_bloom_images(&mut ctx.images, target_size);
+        let source_camera = spawn_bloom_source_camera(&mut ctx.commands, layer_id, &source_image);
+        let (blur_small_quad, blur_small_camera) = spawn_small_blur_pass(
+            &mut ctx.commands,
+            layer_id,
+            &mut ctx.meshes,
+            &mut ctx.blur_materials,
+            &source_image,
+            &blur_small_image,
+            target_size,
+            target_texel_size,
+        );
+        let (blur_wide_quad, blur_wide_camera) = spawn_wide_blur_pass(
+            &mut ctx.commands,
+            layer_id,
+            &mut ctx.meshes,
+            &mut ctx.blur_materials,
+            &source_image,
+            &blur_wide_image,
+            target_size,
+            target_texel_size,
+        );
+        let (composite_sprite, wide_composite_sprite) = spawn_composite_sprites(
+            &mut ctx.commands,
+            layer_id,
+            &blur_small_image,
+            &blur_wide_image,
+            &ctx.primary_window,
+        );
+        let additive_camera = spawn_additive_camera(&mut ctx.commands, layer_id);
 
-    ctx.bloom.agent_list = AgentListBloomPass {
-        source_image,
-        blur_small_image,
-        blur_wide_image,
-        source_camera: Some(source_camera),
-        blur_small_camera: Some(blur_small_camera),
-        blur_wide_camera: Some(blur_wide_camera),
-        blur_small_quad: Some(blur_small_quad),
-        blur_wide_quad: Some(blur_wide_quad),
-        composite_sprite: Some(composite_sprite),
-        wide_composite_sprite: Some(wide_composite_sprite),
-    };
+        if layer_id == HudLayerId::Main {
+            spawn_debug_preview_entities(
+                &mut ctx.commands,
+                &ctx.primary_window,
+                &source_image,
+                &blur_small_image,
+                &blur_wide_image,
+                ctx.settings.debug_previews,
+            );
+        }
+
+        ctx.bloom.layers.insert(
+            layer_id,
+            HudLayerBloomPass {
+                layer_id,
+                source_image,
+                blur_small_image,
+                blur_wide_image,
+                source_camera: Some(source_camera),
+                blur_small_camera: Some(blur_small_camera),
+                blur_wide_camera: Some(blur_wide_camera),
+                blur_small_quad: Some(blur_small_quad),
+                blur_wide_quad: Some(blur_wide_quad),
+                composite_sprite: Some(composite_sprite),
+                wide_composite_sprite: Some(wide_composite_sprite),
+                additive_camera: Some(additive_camera),
+            },
+        );
+    }
     state.apply(world);
 }
 
@@ -1065,6 +1172,7 @@ struct HudWidgetBloomContext<'w, 's> {
     agent_list_state: Res<'w, AgentListUiState>,
     agent_list_view: Res<'w, AgentListView>,
     settings: Res<'w, HudBloomSettings>,
+    config: Option<Res<'w, HudBloomLayerConfig>>,
     commands: Commands<'w, 's>,
     bloom: ResMut<'w, HudWidgetBloom>,
     images: ResMut<'w, Assets<Image>>,
@@ -1141,7 +1249,7 @@ struct HudWidgetBloomContext<'w, 's> {
 
 fn ensure_bloom_target_images(
     images: &mut Assets<Image>,
-    pass: &mut AgentListBloomPass,
+    pass: &mut HudLayerBloomPass,
     target_size: UVec2,
 ) {
     if !image_matches_size(images, &pass.source_image, target_size) {
@@ -1155,7 +1263,7 @@ fn ensure_bloom_target_images(
     }
 }
 
-fn retarget_bloom_cameras(ctx: &mut HudWidgetBloomContext<'_, '_>, pass: &AgentListBloomPass) {
+fn retarget_bloom_cameras(ctx: &mut HudWidgetBloomContext<'_, '_>, pass: &HudLayerBloomPass) {
     if let Some(camera) = pass.source_camera {
         if let Ok(mut target) = ctx.source_cameras.get_mut(camera) {
             *target = RenderTarget::Image(pass.source_image.clone().into());
@@ -1175,7 +1283,7 @@ fn retarget_bloom_cameras(ctx: &mut HudWidgetBloomContext<'_, '_>, pass: &AgentL
 
 fn sync_blur_quads(
     ctx: &mut HudWidgetBloomContext<'_, '_>,
-    pass: &AgentListBloomPass,
+    pass: &HudLayerBloomPass,
     target_size: UVec2,
     target_texel_size: Vec2,
 ) {
@@ -1257,11 +1365,15 @@ fn bloom_specs_for_sync(ctx: &HudWidgetBloomContext<'_, '_>) -> Vec<BloomSourceS
 
 fn sync_bloom_source_sprites(
     ctx: &mut HudWidgetBloomContext<'_, '_>,
+    layer_id: HudLayerId,
     specs: &[BloomSourceSpec],
     target_size: UVec2,
 ) {
     let mut existing = std::collections::HashMap::new();
     for (entity, marker, sprite, transform, visibility) in &mut ctx.source_sprites {
+        if marker.layer_id != layer_id {
+            continue;
+        }
         existing.insert(*marker, (entity, sprite.clone(), *transform, *visibility));
     }
     let existing_keys = existing
@@ -1309,7 +1421,7 @@ fn sync_bloom_source_sprites(
 
 fn sync_bloom_composites(
     ctx: &mut HudWidgetBloomContext<'_, '_>,
-    pass: &AgentListBloomPass,
+    pass: &HudLayerBloomPass,
     active: bool,
     bloom_ready: bool,
 ) {
@@ -1383,7 +1495,7 @@ fn sync_bloom_composites(
     }
 }
 
-fn sync_bloom_debug_previews(ctx: &mut HudWidgetBloomContext<'_, '_>, pass: &AgentListBloomPass) {
+fn sync_bloom_debug_previews(ctx: &mut HudWidgetBloomContext<'_, '_>, pass: &HudLayerBloomPass) {
     let previews_visible = ctx.settings.debug_previews;
     for (mut transform, mut visibility) in &mut ctx.debug_backdrops {
         *transform = bloom_debug_backdrop_transform(&ctx.primary_window, BLOOM_DEBUG_PREVIEW_Z);
@@ -1430,17 +1542,33 @@ pub(crate) fn sync_hud_widget_bloom(world: &mut World) {
         1.0 / target_size.x.max(1) as f32,
         1.0 / target_size.y.max(1) as f32,
     );
-    ensure_bloom_target_images(&mut ctx.images, &mut ctx.bloom.agent_list, target_size);
-    let pass_snapshot = ctx.bloom.agent_list.clone();
-    retarget_bloom_cameras(&mut ctx, &pass_snapshot);
-    sync_blur_quads(&mut ctx, &pass_snapshot, target_size, target_texel_size);
-    let specs = bloom_specs_for_sync(&ctx);
-    sync_bloom_source_sprites(&mut ctx, &specs, target_size);
-    let bloom_ready = image_matches_size(&ctx.images, &pass_snapshot.source_image, target_size)
-        && image_matches_size(&ctx.images, &pass_snapshot.blur_small_image, target_size)
-        && image_matches_size(&ctx.images, &pass_snapshot.blur_wide_image, target_size);
-    sync_bloom_composites(&mut ctx, &pass_snapshot, !specs.is_empty(), bloom_ready);
-    sync_bloom_debug_previews(&mut ctx, &pass_snapshot);
+    let configured_layers = configured_bloom_layers(ctx.config.as_deref());
+    for layer_id in configured_layers {
+        let pass_snapshot = {
+            let Some(pass) = ctx.bloom.pass_mut(layer_id) else {
+                continue;
+            };
+            ensure_bloom_target_images(&mut ctx.images, pass, target_size);
+            pass.clone()
+        };
+        debug_assert_eq!(pass_snapshot.layer_id, layer_id);
+        debug_assert!(pass_snapshot.additive_camera.is_some());
+        retarget_bloom_cameras(&mut ctx, &pass_snapshot);
+        sync_blur_quads(&mut ctx, &pass_snapshot, target_size, target_texel_size);
+        let specs = if layer_id == HudLayerId::Main {
+            bloom_specs_for_sync(&ctx)
+        } else {
+            Vec::new()
+        };
+        sync_bloom_source_sprites(&mut ctx, layer_id, &specs, target_size);
+        let bloom_ready = image_matches_size(&ctx.images, &pass_snapshot.source_image, target_size)
+            && image_matches_size(&ctx.images, &pass_snapshot.blur_small_image, target_size)
+            && image_matches_size(&ctx.images, &pass_snapshot.blur_wide_image, target_size);
+        sync_bloom_composites(&mut ctx, &pass_snapshot, !specs.is_empty(), bloom_ready);
+        if layer_id == HudLayerId::Main {
+            sync_bloom_debug_previews(&mut ctx, &pass_snapshot);
+        }
+    }
     state.apply(world);
 }
 
