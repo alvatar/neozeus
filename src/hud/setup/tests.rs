@@ -1,9 +1,10 @@
 use super::{hud_needs_redraw, setup_hud, sync_structural_hud_layout};
 use crate::{
     hud::{
-        HudDragState, HudLayerId, HudLayerRegistry, HudOffscreenCompositor,
-        HudPersistenceState, HudState, HudWidgetKey, HUD_MODAL_CAMERA_ORDER,
-        HUD_MODAL_RENDER_LAYER, HUD_OVERLAY_CAMERA_ORDER, HUD_OVERLAY_RENDER_LAYER,
+        HudCompositeLayerId, HudDragState, HudLayerId, HudLayerRegistry,
+        HudOffscreenCompositor, HudPersistenceState, HudState, HudWidgetKey,
+        HUD_COMPOSITE_RENDER_LAYER, HUD_MODAL_CAMERA_ORDER, HUD_MODAL_COMPOSITE_RENDER_LAYER,
+        HUD_OVERLAY_CAMERA_ORDER, HUD_OVERLAY_COMPOSITE_RENDER_LAYER,
     },
     tests::{insert_default_hud_resources, insert_test_hud_state, snapshot_test_hud_state},
 };
@@ -43,7 +44,7 @@ fn setup_hud_requests_initial_redraw() {
             .query::<&crate::hud::HudCompositeLayerMarker>()
             .iter(&world)
             .count(),
-        1
+        3
     );
     assert_eq!(
         world
@@ -59,29 +60,27 @@ fn setup_hud_requests_initial_redraw() {
             .count(),
         1
     );
-    let mut camera_query = world
-        .query_filtered::<(&Camera, &RenderLayers), With<crate::hud::HudCompositeCameraMarker>>();
-    let (camera, layers) = camera_query
-        .single(&world)
-        .expect("composite camera should exist");
-    assert_eq!(camera.order, 50);
-    assert!(layers.intersects(&RenderLayers::layer(crate::hud::HUD_COMPOSITE_RENDER_LAYER)));
-
-    let mut overlay_camera_query = world
-        .query_filtered::<(&Camera, &RenderLayers), With<crate::hud::HudOverlayCameraMarker>>();
-    let (overlay_camera, overlay_layers) = overlay_camera_query
-        .single(&world)
-        .expect("overlay camera should exist");
-    assert_eq!(overlay_camera.order, HUD_OVERLAY_CAMERA_ORDER);
-    assert!(overlay_layers.intersects(&RenderLayers::layer(HUD_OVERLAY_RENDER_LAYER)));
-
-    let mut modal_camera_query =
-        world.query_filtered::<(&Camera, &RenderLayers), With<crate::hud::HudModalCameraMarker>>();
-    let (modal_camera, modal_layers) = modal_camera_query
-        .single(&world)
-        .expect("modal camera should exist");
-    assert_eq!(modal_camera.order, HUD_MODAL_CAMERA_ORDER);
-    assert!(modal_layers.intersects(&RenderLayers::layer(HUD_MODAL_RENDER_LAYER)));
+    let composite_cameras = world
+        .query::<(&Camera, &RenderLayers, &crate::hud::HudCompositeCameraMarker)>()
+        .iter(&world)
+        .map(|(camera, layers, marker)| (marker.id, camera.order, layers.clone()))
+        .collect::<Vec<_>>();
+    assert_eq!(composite_cameras.len(), 3);
+    assert!(composite_cameras.iter().any(|(id, order, layers)| {
+        *id == HudCompositeLayerId::Main
+            && *order == 50
+            && layers.intersects(&RenderLayers::layer(HUD_COMPOSITE_RENDER_LAYER))
+    }));
+    assert!(composite_cameras.iter().any(|(id, order, layers)| {
+        *id == HudCompositeLayerId::Overlay
+            && *order == HUD_OVERLAY_CAMERA_ORDER
+            && layers.intersects(&RenderLayers::layer(HUD_OVERLAY_COMPOSITE_RENDER_LAYER))
+    }));
+    assert!(composite_cameras.iter().any(|(id, order, layers)| {
+        *id == HudCompositeLayerId::Modal
+            && *order == HUD_MODAL_CAMERA_ORDER
+            && layers.intersects(&RenderLayers::layer(HUD_MODAL_COMPOSITE_RENDER_LAYER))
+    }));
 }
 
 #[test]
@@ -149,19 +148,25 @@ fn setup_hud_orders_overlay_between_compositor_and_modal_layers() {
     world.run_system_once(setup_hud).unwrap();
 
     let composite_order = world
-        .query_filtered::<&Camera, With<crate::hud::HudCompositeCameraMarker>>()
-        .single(&world)
-        .expect("composite camera exists")
+        .query::<(&Camera, &crate::hud::HudCompositeCameraMarker)>()
+        .iter(&world)
+        .find(|(_, marker)| marker.id == HudCompositeLayerId::Main)
+        .expect("main composite camera exists")
+        .0
         .order;
     let overlay_order = world
-        .query_filtered::<&Camera, With<crate::hud::HudOverlayCameraMarker>>()
-        .single(&world)
-        .expect("overlay camera exists")
+        .query::<(&Camera, &crate::hud::HudCompositeCameraMarker)>()
+        .iter(&world)
+        .find(|(_, marker)| marker.id == HudCompositeLayerId::Overlay)
+        .expect("overlay composite camera exists")
+        .0
         .order;
     let modal_order = world
-        .query_filtered::<&Camera, With<crate::hud::HudModalCameraMarker>>()
-        .single(&world)
-        .expect("modal camera exists")
+        .query::<(&Camera, &crate::hud::HudCompositeCameraMarker)>()
+        .iter(&world)
+        .find(|(_, marker)| marker.id == HudCompositeLayerId::Modal)
+        .expect("modal composite camera exists")
+        .0
         .order;
 
     assert!(composite_order < overlay_order);

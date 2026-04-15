@@ -2,8 +2,9 @@ use super::{
     setup_hud_offscreen_compositor, sync_hud_offscreen_compositor, HudOffscreenCompositor,
 };
 use crate::hud::{
-    HudCompositeCameraMarker, HudCompositeLayerId, HudCompositeLayerMarker,
-    HudModalVectorSceneMarker, HUD_COMPOSITE_FOREGROUND_Z, HUD_COMPOSITE_RENDER_LAYER,
+    HudCompositeCameraMarker, HudCompositeLayerId, HudCompositeLayerMarker, HudLayerId,
+    HudLayerRegistry, HUD_COMPOSITE_FOREGROUND_Z, HUD_COMPOSITE_RENDER_LAYER,
+    HUD_OVERLAY_COMPOSITE_RENDER_LAYER,
 };
 use bevy::{
     camera::visibility::{NoFrustumCulling, RenderLayers},
@@ -15,11 +16,10 @@ use bevy::{
 };
 use bevy_vello::render::VelloCanvasMaterial;
 
-/// Verifies that compositor sync hides the upstream Vello canvas and routes its texture through the
-/// compositor quad instead.
 #[test]
-fn sync_hud_offscreen_compositor_hides_vello_canvas_and_binds_texture() {
+fn sync_hud_offscreen_compositor_hides_explicit_main_canvas_and_binds_texture() {
     let mut world = World::default();
+    world.insert_resource(HudLayerRegistry::default());
     world.insert_resource(HudOffscreenCompositor::default());
     world.insert_resource(Assets::<Image>::default());
     world.insert_resource(Assets::<VelloCanvasMaterial>::default());
@@ -53,13 +53,18 @@ fn sync_hud_offscreen_compositor_hides_vello_canvas_and_binds_texture() {
         ))
         .id();
     world
+        .resource_mut::<HudLayerRegistry>()
+        .set_scene_entity(HudLayerId::Main, source_canvas);
+    world
         .run_system_once(
             |mut commands: Commands,
+             mut layers: ResMut<HudLayerRegistry>,
              mut compositor: ResMut<HudOffscreenCompositor>,
              mut meshes: ResMut<Assets<Mesh>>,
              mut composite_materials: ResMut<Assets<VelloCanvasMaterial>>| {
                 setup_hud_offscreen_compositor(
                     &mut commands,
+                    &mut layers,
                     &mut compositor,
                     &mut meshes,
                     &mut composite_materials,
@@ -68,32 +73,42 @@ fn sync_hud_offscreen_compositor_hides_vello_canvas_and_binds_texture() {
         )
         .unwrap();
 
-    world
-        .run_system_once(sync_hud_offscreen_compositor)
-        .unwrap();
+    world.run_system_once(sync_hud_offscreen_compositor).unwrap();
 
-    assert_eq!(
-        world.get::<Visibility>(source_canvas),
-        Some(&Visibility::Hidden)
-    );
+    assert_eq!(world.get::<Visibility>(source_canvas), Some(&Visibility::Hidden));
 
-    let mut camera_query =
-        world.query_filtered::<(&Camera, &RenderLayers), With<HudCompositeCameraMarker>>();
-    let (camera, layers) = camera_query.single(&world).expect("camera should exist");
-    assert_eq!(camera.order, 50);
-    assert!(layers.intersects(&RenderLayers::layer(HUD_COMPOSITE_RENDER_LAYER)));
+    let composite_cameras = world
+        .query::<(&Camera, &RenderLayers, &HudCompositeCameraMarker)>()
+        .iter(&world)
+        .map(|(camera, layers, marker)| (marker.id, camera.order, layers.clone()))
+        .collect::<Vec<_>>();
+    assert_eq!(composite_cameras.len(), 3);
+    assert!(composite_cameras.iter().any(|(id, order, layers)| {
+        *id == HudCompositeLayerId::Main
+            && *order == 50
+            && layers.intersects(&RenderLayers::layer(HUD_COMPOSITE_RENDER_LAYER))
+    }));
 
-    let mut quad_query = world.query::<(
-        &HudCompositeLayerMarker,
-        &MeshMaterial2d<VelloCanvasMaterial>,
-        &Transform,
-        &Visibility,
-        &RenderLayers,
-        &NoFrustumCulling,
-    )>();
-    let (marker, composite_material, transform, visibility, quad_layers, _) =
-        quad_query.single(&world).expect("quad should exist");
-    assert_eq!(marker.id, HudCompositeLayerId::MainHud);
+    let quads = world
+        .query::<(
+            &HudCompositeLayerMarker,
+            &MeshMaterial2d<VelloCanvasMaterial>,
+            &Transform,
+            &Visibility,
+            &RenderLayers,
+            &NoFrustumCulling,
+        )>()
+        .iter(&world)
+        .map(|(marker, material, transform, visibility, layers, _)| {
+            (*marker, material.clone(), *transform, *visibility, layers.clone())
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(quads.len(), 3);
+    let (marker, composite_material, transform, visibility, quad_layers) = quads
+        .iter()
+        .find(|(marker, ..)| marker.id == HudCompositeLayerId::Main)
+        .expect("main composite quad exists");
+    assert_eq!(marker.id, HudCompositeLayerId::Main);
     let composite_texture = {
         let materials = world.resource::<Assets<VelloCanvasMaterial>>();
         materials
@@ -103,36 +118,19 @@ fn sync_hud_offscreen_compositor_hides_vello_canvas_and_binds_texture() {
             .clone()
     };
     assert_eq!(composite_texture, texture);
-    assert_eq!(transform.scale, Vec3::ONE);
-    assert_eq!(transform.translation, Vec3::ZERO);
-    assert_eq!(visibility, &Visibility::Visible);
+    assert_eq!(*transform, Transform::IDENTITY);
+    assert_eq!(*visibility, Visibility::Visible);
     assert!(quad_layers.intersects(&RenderLayers::layer(HUD_COMPOSITE_RENDER_LAYER)));
 }
 
-/// Verifies that compositor sync leaves the modal Vello canvas alone instead of hiding it with the
-/// main HUD canvas.
 #[test]
-fn sync_hud_offscreen_compositor_leaves_modal_vello_canvas_visible() {
+fn sync_hud_offscreen_compositor_composes_explicit_known_layers_without_first_match_scan() {
     let mut world = World::default();
+    world.insert_resource(HudLayerRegistry::default());
     world.insert_resource(HudOffscreenCompositor::default());
     world.insert_resource(Assets::<Image>::default());
     world.insert_resource(Assets::<VelloCanvasMaterial>::default());
     world.insert_resource(Assets::<Mesh>::default());
-    let texture = world.resource_mut::<Assets<Image>>().add(Image::default());
-    {
-        let mut images = world.resource_mut::<Assets<Image>>();
-        let image = images.get_mut(&texture).expect("texture should exist");
-        image.resize(bevy::render::render_resource::Extent3d {
-            width: 1400,
-            height: 900,
-            depth_or_array_layers: 1,
-        });
-    }
-    let material = world
-        .resource_mut::<Assets<VelloCanvasMaterial>>()
-        .add(VelloCanvasMaterial {
-            texture: texture.clone(),
-        });
     world.spawn((
         Window {
             resolution: (1400, 900).into(),
@@ -140,21 +138,58 @@ fn sync_hud_offscreen_compositor_leaves_modal_vello_canvas_visible() {
         },
         PrimaryWindow,
     ));
-    let modal_canvas = world
+
+    let main_texture = world.resource_mut::<Assets<Image>>().add(Image::default());
+    let overlay_texture = world.resource_mut::<Assets<Image>>().add(Image::default());
+    for handle in [&main_texture, &overlay_texture] {
+        let mut images = world.resource_mut::<Assets<Image>>();
+        let image = images.get_mut(handle).expect("texture exists");
+        image.resize(bevy::render::render_resource::Extent3d {
+            width: 1400,
+            height: 900,
+            depth_or_array_layers: 1,
+        });
+    }
+
+    let main_material = world
+        .resource_mut::<Assets<VelloCanvasMaterial>>()
+        .add(VelloCanvasMaterial {
+            texture: main_texture.clone(),
+        });
+    let overlay_material = world
+        .resource_mut::<Assets<VelloCanvasMaterial>>()
+        .add(VelloCanvasMaterial {
+            texture: overlay_texture.clone(),
+        });
+
+    let overlay_scene = world
         .spawn((
-            MeshMaterial2d::<VelloCanvasMaterial>(material),
+            MeshMaterial2d::<VelloCanvasMaterial>(overlay_material),
             Visibility::Visible,
-            HudModalVectorSceneMarker,
         ))
         .id();
+    let main_scene = world
+        .spawn((
+            MeshMaterial2d::<VelloCanvasMaterial>(main_material),
+            Visibility::Visible,
+        ))
+        .id();
+    {
+        let mut layers = world.resource_mut::<HudLayerRegistry>();
+        layers.set_scene_entity(HudLayerId::Overlay, overlay_scene);
+        layers.set_scene_entity(HudLayerId::Main, main_scene);
+    }
+
     world
         .run_system_once(
             |mut commands: Commands,
+             mut layers: ResMut<HudLayerRegistry>,
              mut compositor: ResMut<HudOffscreenCompositor>,
              mut meshes: ResMut<Assets<Mesh>>,
              mut composite_materials: ResMut<Assets<VelloCanvasMaterial>>| {
                 setup_hud_offscreen_compositor(
                     &mut commands,
+                    &mut layers,
                     &mut compositor,
                     &mut meshes,
                     &mut composite_materials,
@@ -163,22 +198,49 @@ fn sync_hud_offscreen_compositor_leaves_modal_vello_canvas_visible() {
         )
         .unwrap();
 
-    world
-        .run_system_once(sync_hud_offscreen_compositor)
-        .unwrap();
+    world.run_system_once(sync_hud_offscreen_compositor).unwrap();
 
+    let quads = world
+        .query::<(&HudCompositeLayerMarker, &MeshMaterial2d<VelloCanvasMaterial>, &Visibility, &RenderLayers)>()
+        .iter(&world)
+        .map(|(marker, material, visibility, layers)| (*marker, material.clone(), *visibility, layers.clone()))
+        .collect::<Vec<_>>();
+    let materials = world.resource::<Assets<VelloCanvasMaterial>>();
+    let main_quad = quads
+        .iter()
+        .find(|(marker, ..)| marker.id == HudCompositeLayerId::Main)
+        .expect("main quad exists");
+    let overlay_quad = quads
+        .iter()
+        .find(|(marker, ..)| marker.id == HudCompositeLayerId::Overlay)
+        .expect("overlay quad exists");
     assert_eq!(
-        world.get::<Visibility>(modal_canvas),
-        Some(&Visibility::Visible)
+        materials
+            .get(main_quad.1.id())
+            .expect("main material exists")
+            .texture,
+        main_texture
     );
+    assert_eq!(
+        materials
+            .get(overlay_quad.1.id())
+            .expect("overlay material exists")
+            .texture,
+        overlay_texture
+    );
+    assert_eq!(main_quad.2, Visibility::Visible);
+    assert_eq!(overlay_quad.2, Visibility::Visible);
+    assert!(overlay_quad
+        .3
+        .intersects(&RenderLayers::layer(HUD_OVERLAY_COMPOSITE_RENDER_LAYER)));
 }
 
-/// Verifies the compositor quad mesh/UV contract expected by the upstream Vello texture-present path.
 #[test]
 fn hud_composite_quad_matches_upstream_vello_canvas_contract() {
     assert_eq!(HUD_COMPOSITE_FOREGROUND_Z, 0.0);
 
     let mut world = World::default();
+    world.insert_resource(HudLayerRegistry::default());
     world.insert_resource(HudOffscreenCompositor::default());
     world.insert_resource(Assets::<VelloCanvasMaterial>::default());
     world.insert_resource(Assets::<Mesh>::default());
@@ -193,11 +255,13 @@ fn hud_composite_quad_matches_upstream_vello_canvas_contract() {
     world
         .run_system_once(
             |mut commands: Commands,
+             mut layers: ResMut<HudLayerRegistry>,
              mut compositor: ResMut<HudOffscreenCompositor>,
              mut meshes: ResMut<Assets<Mesh>>,
              mut composite_materials: ResMut<Assets<VelloCanvasMaterial>>| {
                 setup_hud_offscreen_compositor(
                     &mut commands,
+                    &mut layers,
                     &mut compositor,
                     &mut meshes,
                     &mut composite_materials,
@@ -208,7 +272,8 @@ fn hud_composite_quad_matches_upstream_vello_canvas_contract() {
 
     let mesh_handle = world
         .query::<&Mesh2d>()
-        .single(&world)
+        .iter(&world)
+        .next()
         .expect("composite mesh exists")
         .0
         .clone();
@@ -235,10 +300,8 @@ fn hud_composite_quad_matches_upstream_vello_canvas_contract() {
     assert_eq!(uvs, &[[-1.0, -1.0], [1.0, -1.0], [1.0, 1.0], [1.0, 1.0]]);
 }
 
-/// Verifies the color-space roundtrip assumption behind the HUD orange byte-preservation check.
 #[test]
 fn upstream_vello_present_contract_preserves_target_orange_bytes() {
-    /// Converts one sRGB byte channel into linear space using the standard IEC transfer curve.
     fn srgb_to_linear_channel(value: u8) -> f32 {
         let srgb = value as f32 / 255.0;
         if srgb <= 0.04045 {
@@ -248,7 +311,6 @@ fn upstream_vello_present_contract_preserves_target_orange_bytes() {
         }
     }
 
-    /// Converts one linear-space channel back into an sRGB byte using the inverse transfer curve.
     fn linear_to_srgb_channel(value: f32) -> u8 {
         let srgb = if value <= 0.0031308 {
             value * 12.92

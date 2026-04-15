@@ -55,11 +55,6 @@ pub(crate) struct HudLayerSceneMarker {
     pub(crate) id: HudLayerId,
 }
 
-#[derive(Component, Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub(crate) struct HudLayerCameraMarker {
-    pub(crate) id: HudLayerId,
-}
-
 #[cfg(test)]
 mod tests {
     use super::{HudLayerId, HudLayerRegistry};

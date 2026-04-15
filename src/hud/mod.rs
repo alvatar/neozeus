@@ -24,7 +24,10 @@ pub(crate) use capture::{
     WindowCaptureConfig,
 };
 pub(crate) use compositor::{
-    sync_hud_offscreen_compositor, HudCompositeCameraMarker, HudOffscreenCompositor,
+    sync_hud_offscreen_compositor, HudCompositeCameraMarker, HudCompositeLayerId,
+    HudCompositeLayerMarker, HudOffscreenCompositor, HUD_COMPOSITE_FOREGROUND_Z,
+    HUD_COMPOSITE_RENDER_LAYER, HUD_MODAL_COMPOSITE_RENDER_LAYER,
+    HUD_OVERLAY_COMPOSITE_RENDER_LAYER,
 };
 #[cfg(test)]
 pub(crate) use input::handle_hud_module_shortcuts;
@@ -33,10 +36,9 @@ pub(crate) use input::{
 };
 pub(crate) use persistence::{save_hud_layout_if_dirty, HudPersistenceState};
 pub(crate) use render::{
-    render_hud_modal_scene, render_hud_overlay_scene, render_hud_scene, HudModalCameraMarker,
-    HudModalVectorSceneMarker, HudOverlayCameraMarker, HudOverlayVectorSceneMarker,
-    HudVectorSceneMarker, HUD_MODAL_CAMERA_ORDER, HUD_MODAL_RENDER_LAYER,
-    HUD_OVERLAY_CAMERA_ORDER, HUD_OVERLAY_RENDER_LAYER,
+    render_hud_modal_scene, render_hud_overlay_scene, render_hud_scene,
+    HudModalVectorSceneMarker, HudOverlayVectorSceneMarker, HudVectorSceneMarker,
+    HUD_MODAL_CAMERA_ORDER, HUD_OVERLAY_CAMERA_ORDER,
 };
 pub(crate) use render_group::{HudBloomGroupAuthoring, HudBloomGroupId};
 pub(crate) use render_layer::{HudLayerId, HudLayerRegistry, HudLayerSceneMarker};

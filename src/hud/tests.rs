@@ -1,7 +1,3 @@
-pub(crate) use super::compositor::{
-    HudCompositeLayerId, HudCompositeLayerMarker, HUD_COMPOSITE_FOREGROUND_Z,
-    HUD_COMPOSITE_RENDER_LAYER,
-};
 pub(crate) use super::modules::{handle_pointer_click, handle_scroll};
 pub(in crate::hud) use super::state::default_hud_module_instance;
 pub(crate) use super::state::{

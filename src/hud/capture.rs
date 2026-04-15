@@ -22,6 +22,7 @@ use crate::shared::{
 };
 
 use super::compositor::{HudCompositeCameraMarker, HudCompositeLayerMarker};
+use super::{HudLayerId, HudLayerRegistry};
 
 #[derive(Resource, Clone, Debug)]
 pub(crate) struct HudTextureCaptureConfig {
@@ -168,23 +169,25 @@ pub(crate) fn request_hud_composite_capture(
 
     let physical_size = primary_window.physical_size();
     if config.target_image.is_none() {
-        let Some(camera_entity) = composite_cameras.iter().next() else {
+        if composite_cameras.is_empty() {
             crate::terminals::append_debug_log(
                 "hud composite capture waiting for composite camera",
             );
             return;
-        };
+        }
         let image_handle = images.add(composite_capture_target_image(physical_size));
-        commands
-            .entity(camera_entity)
-            .insert(RenderTarget::Image(image_handle.clone().into()));
+        for camera_entity in &composite_cameras {
+            commands
+                .entity(camera_entity)
+                .insert(RenderTarget::Image(image_handle.clone().into()));
+        }
         config.target_image = Some(image_handle);
         crate::terminals::append_debug_log(format!(
-            "hud composite capture target initialized path={} size={}x{} camera={}",
+            "hud composite capture target initialized path={} size={}x{} cameras={}",
             config.path.display(),
             physical_size.x,
             physical_size.y,
-            camera_entity.index(),
+            composite_cameras.iter().count(),
         ));
         return;
     }
@@ -238,6 +241,7 @@ pub(crate) fn request_hud_composite_capture(
 pub(crate) fn request_hud_texture_capture(
     mut commands: Commands,
     config: Option<ResMut<HudTextureCaptureConfig>>,
+    layers: Option<Res<HudLayerRegistry>>,
     images: Res<Assets<Image>>,
     vello_materials: Res<Assets<VelloCanvasMaterial>>,
     vello_canvases: Query<&MeshMaterial2d<VelloCanvasMaterial>, Without<HudCompositeLayerMarker>>,
@@ -258,30 +262,33 @@ pub(crate) fn request_hud_texture_capture(
     }
 
     let mut requested = false;
-    for material_handle in &vello_canvases {
-        let Some(material) = vello_materials.get(material_handle.id()) else {
-            continue;
-        };
-        let texture = material.texture.clone();
-        let Some(image) = images.get(texture.id()) else {
-            continue;
-        };
-        crate::terminals::append_debug_log(format!(
-            "hud capture requested path={} size={}x{} format={:?}",
-            config.path.display(),
-            image.texture_descriptor.size.width,
-            image.texture_descriptor.size.height,
-            image.texture_descriptor.format
-        ));
-        commands
-            .spawn((
-                Readback::texture(texture),
-                HudTextureReadbackMeta::from_image(config.path.clone(), image),
-            ))
-            .observe(handle_hud_texture_capture_complete);
-        config.request.mark_requested();
-        requested = true;
-        break;
+    let main_scene_entity = layers
+        .as_deref()
+        .and_then(|layers| layers.layer(HudLayerId::Main))
+        .and_then(|layer| layer.scene_entity);
+    if let Some(scene_entity) = main_scene_entity {
+        if let Ok(material_handle) = vello_canvases.get(scene_entity) {
+            if let Some(material) = vello_materials.get(material_handle.id()) {
+                let texture = material.texture.clone();
+                if let Some(image) = images.get(texture.id()) {
+                    crate::terminals::append_debug_log(format!(
+                        "hud capture requested path={} size={}x{} format={:?}",
+                        config.path.display(),
+                        image.texture_descriptor.size.width,
+                        image.texture_descriptor.size.height,
+                        image.texture_descriptor.format
+                    ));
+                    commands
+                        .spawn((
+                            Readback::texture(texture),
+                            HudTextureReadbackMeta::from_image(config.path.clone(), image),
+                        ))
+                        .observe(handle_hud_texture_capture_complete);
+                    config.request.mark_requested();
+                    requested = true;
+                }
+            }
+        }
     }
     if !requested {
         crate::terminals::append_debug_log("hud capture waiting for source canvas");

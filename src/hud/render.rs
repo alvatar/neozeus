@@ -72,15 +72,7 @@ pub(crate) struct HudOverlayVectorSceneMarker;
 #[derive(Component)]
 pub(crate) struct HudModalVectorSceneMarker;
 
-#[derive(Component)]
-pub(crate) struct HudOverlayCameraMarker;
-
-#[derive(Component)]
-pub(crate) struct HudModalCameraMarker;
-
-pub(crate) const HUD_OVERLAY_RENDER_LAYER: usize = 34;
 pub(crate) const HUD_OVERLAY_CAMERA_ORDER: isize = 70;
-pub(crate) const HUD_MODAL_RENDER_LAYER: usize = 33;
 pub(crate) const HUD_MODAL_CAMERA_ORDER: isize = 90;
 
 #[allow(

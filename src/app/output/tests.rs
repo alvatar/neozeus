@@ -1,8 +1,6 @@
 use super::super::bootstrap::primary_window_config_for;
 use super::*;
-use crate::hud::{
-    AgentListBloomAdditiveCameraMarker, HudCompositeCameraMarker, HudOverlayCameraMarker,
-};
+use crate::hud::{AgentListBloomAdditiveCameraMarker, HudCompositeCameraMarker, HudCompositeLayerId};
 use bevy::{
     ecs::system::RunSystemOnce,
     render::{gpu_readback::Readback, render_resource::TextureFormat},
@@ -135,9 +133,8 @@ fn resolve_scene_output_target_only_switches_between_window_and_single_image() {
 /// Exercises render-target routing as the app flips between offscreen and desktop modes.
 ///
 /// The test first confirms that offscreen mode allocates a shared image target and attaches it to
-/// the terminal, composite, bloom, and overlay cameras. It then flips back to desktop mode and
-/// verifies that those cameras are returned to normal window rendering instead of keeping the stale
-/// image target.
+/// the terminal, composite, and bloom cameras. It then flips back to desktop mode and verifies that
+/// those cameras are returned to normal window rendering instead of keeping the stale image target.
 #[test]
 fn sync_final_frame_output_target_assigns_targets_only_in_offscreen_mode() {
     // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
@@ -152,9 +149,22 @@ fn sync_final_frame_output_target_assigns_targets_only_in_offscreen_mode() {
     world.insert_resource(Assets::<Image>::default());
     world.spawn((Window::default(), PrimaryWindow));
     let terminal = world.spawn((TerminalCameraMarker,)).id();
-    let composite = world.spawn((HudCompositeCameraMarker,)).id();
+    let composite = world
+        .spawn((HudCompositeCameraMarker {
+            id: HudCompositeLayerId::Main,
+        },))
+        .id();
+    let overlay_composite = world
+        .spawn((HudCompositeCameraMarker {
+            id: HudCompositeLayerId::Overlay,
+        },))
+        .id();
+    let modal_composite = world
+        .spawn((HudCompositeCameraMarker {
+            id: HudCompositeLayerId::Modal,
+        },))
+        .id();
     let bloom = world.spawn((AgentListBloomAdditiveCameraMarker,)).id();
-    let overlay = world.spawn((HudOverlayCameraMarker,)).id();
 
     world
         .run_system_once(sync_final_frame_output_target)
@@ -165,7 +175,8 @@ fn sync_final_frame_output_target_assigns_targets_only_in_offscreen_mode() {
     assert!(world.get::<RenderTarget>(terminal).is_some());
     assert!(world.get::<RenderTarget>(composite).is_some());
     assert!(world.get::<RenderTarget>(bloom).is_some());
-    assert!(world.get::<RenderTarget>(overlay).is_some());
+    assert!(world.get::<RenderTarget>(overlay_composite).is_some());
+    assert!(world.get::<RenderTarget>(modal_composite).is_some());
 
     world.resource_mut::<AppOutputConfig>().mode = OutputMode::Desktop;
     world
@@ -184,7 +195,11 @@ fn sync_final_frame_output_target_assigns_targets_only_in_offscreen_mode() {
         Some(RenderTarget::Window(_))
     ));
     assert!(matches!(
-        world.get::<RenderTarget>(overlay),
+        world.get::<RenderTarget>(overlay_composite),
+        Some(RenderTarget::Window(_))
+    ));
+    assert!(matches!(
+        world.get::<RenderTarget>(modal_composite),
         Some(RenderTarget::Window(_))
     ));
 }
@@ -202,9 +217,10 @@ fn sync_final_frame_output_target_only_retargets_existing_scene_cameras() {
     world.insert_resource(Assets::<Image>::default());
     world.spawn((Window::default(), PrimaryWindow));
     world.spawn((TerminalCameraMarker,));
-    world.spawn((HudCompositeCameraMarker,));
+    world.spawn((HudCompositeCameraMarker { id: HudCompositeLayerId::Main },));
+    world.spawn((HudCompositeCameraMarker { id: HudCompositeLayerId::Overlay },));
+    world.spawn((HudCompositeCameraMarker { id: HudCompositeLayerId::Modal },));
     world.spawn((AgentListBloomAdditiveCameraMarker,));
-    world.spawn((HudOverlayCameraMarker,));
     let entity_count_before = world.entities().len();
 
     world
