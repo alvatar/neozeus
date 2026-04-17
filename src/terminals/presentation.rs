@@ -29,7 +29,7 @@ use bevy::{
 
 const HUD_FRAME_PADDING: Vec2 = Vec2::ZERO;
 const TERMINAL_FRAME_Z_OFFSET: f32 = 0.02;
-const TERMINAL_FRAME_BORDER_PX: u32 = 1;
+const TERMINAL_FRAME_BORDER_PX: u32 = 2;
 const STARTUP_PLACEHOLDER_COLS: u32 = 120;
 const STARTUP_PLACEHOLDER_ROWS: u32 = 38;
 
@@ -827,21 +827,17 @@ fn terminal_frame_style(state: TerminalFrameVisualState) -> Option<Color> {
 fn create_terminal_frame_image() -> Image {
     let mut image = Image::new_fill(
         Extent3d {
-            width: 3,
-            height: 3,
+            width: 5,
+            height: 5,
             depth_or_array_layers: 1,
         },
         TextureDimension::D2,
         &[
-            255, 255, 255, 255,
-            255, 255, 255, 255,
-            255, 255, 255, 255,
-            255, 255, 255, 255,
-              0,   0,   0,   0,
-            255, 255, 255, 255,
-            255, 255, 255, 255,
-            255, 255, 255, 255,
-            255, 255, 255, 255,
+            255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+            255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+            255, 255, 255, 255, 255, 255, 255, 255,   0,   0,   0,   0, 255, 255, 255, 255, 255, 255, 255, 255,
+            255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+            255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
         ],
         TextureFormat::Rgba8UnormSrgb,
         RenderAssetUsages::default(),
