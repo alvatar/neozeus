@@ -953,22 +953,22 @@ fn format_agent_metric_bytes(value: u64) -> String {
 fn format_agent_cpu(cpu_pct_milli: Option<u32>) -> String {
     cpu_pct_milli
         .map(|value| format!("{:.1}%", value as f64 / 1000.0))
-        .unwrap_or_else(|| "—".into())
+        .unwrap_or_else(|| "-".into())
 }
 
 fn format_agent_ram(ram_bytes: Option<u64>) -> String {
     ram_bytes
         .map(format_agent_metric_bytes)
-        .unwrap_or_else(|| "—".into())
+        .unwrap_or_else(|| "-".into())
 }
 
 fn format_agent_network(rx_bytes_per_sec: Option<u64>, tx_bytes_per_sec: Option<u64>) -> String {
     let rx = rx_bytes_per_sec
         .map(format_agent_metric_bytes)
-        .unwrap_or_else(|| "—".into());
+        .unwrap_or_else(|| "-".into());
     let tx = tx_bytes_per_sec
         .map(format_agent_metric_bytes)
-        .unwrap_or_else(|| "—".into());
+        .unwrap_or_else(|| "-".into());
     format!("↓{rx}/s ↑{tx}/s")
 }
 
@@ -1328,9 +1328,9 @@ mod tests {
 
     #[test]
     fn hover_card_formatters_use_fallback_marker_when_metrics_are_missing() {
-        assert_eq!(format_agent_cpu(None), "—");
-        assert_eq!(format_agent_ram(None), "—");
-        assert_eq!(format_agent_network(None, None), "↓—/s ↑—/s");
+        assert_eq!(format_agent_cpu(None), "-");
+        assert_eq!(format_agent_ram(None), "-");
+        assert_eq!(format_agent_network(None, None), "↓-/s ↑-/s");
     }
 
     #[test]
