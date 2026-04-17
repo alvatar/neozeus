@@ -155,6 +155,7 @@ pub(crate) fn render_hud_modal_scene(
     presentation_mode: Option<Res<AppPresentationMode>>,
     fonts: Res<Assets<VelloFont>>,
     visibility_policy: Res<super::HudRenderVisibilityPolicy>,
+    config: Option<Res<crate::app_config::NeoZeusConfig>>,
     scene: Single<&mut VelloScene2d, With<HudModalVectorSceneMarker>>,
 ) {
     render_hud_modal_scene_impl(
@@ -165,6 +166,7 @@ pub(crate) fn render_hud_modal_scene(
         presentation_mode,
         fonts,
         visibility_policy,
+        config,
         scene,
     )
 }

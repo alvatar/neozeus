@@ -193,6 +193,7 @@ pub(super) fn render_hud_modal_scene_impl(
     presentation_mode: Option<Res<AppPresentationMode>>,
     fonts: Res<Assets<VelloFont>>,
     visibility_policy: Res<super::super::HudRenderVisibilityPolicy>,
+    config: Option<Res<crate::app_config::NeoZeusConfig>>,
     mut scene: Single<&mut VelloScene2d, With<HudModalVectorSceneMarker>>,
 ) {
     // Build the geometry or layout decisions first, then emit the matching draw operations against the prepared state.
@@ -221,12 +222,15 @@ pub(super) fn render_hud_modal_scene_impl(
     draw_rename_agent_dialog(&mut painter, &primary_window, &app_session);
     draw_reset_dialog(&mut painter, &primary_window, &app_session);
     draw_aegis_dialog(&mut painter, &primary_window, &app_session);
+    let default_config = crate::app_config::NeoZeusConfig::default();
+    let config = config.as_deref().unwrap_or(&default_config);
     draw_message_box(
         &mut painter,
         &primary_window,
         &app_session.composer.message_editor,
         composer_view.title.as_deref().unwrap_or("Message"),
         app_session.composer.message_dialog_focus,
+        config,
     );
     draw_task_dialog(
         &mut painter,

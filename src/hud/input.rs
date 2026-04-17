@@ -5,9 +5,10 @@ use crate::{
     },
     composer::{
         aegis_dialog_target_at, clone_agent_dialog_target_at, create_agent_dialog_target_at,
-        message_box_action_at, rename_agent_dialog_target_at, reset_dialog_target_at,
-        task_dialog_action_at, AegisDialogTarget, CloneAgentDialogTarget, CreateAgentDialogTarget,
-        RenameAgentDialogTarget, ResetDialogTarget,
+        message_box_action_at, message_box_shortcut_button_at, rename_agent_dialog_target_at,
+        reset_dialog_target_at, task_dialog_action_at, AegisDialogTarget,
+        CloneAgentDialogTarget, CreateAgentDialogTarget, RenameAgentDialogTarget,
+        ResetDialogTarget,
     },
     text_selection::AgentListTextSelectionState,
 };
@@ -68,6 +69,7 @@ struct HudPointerContext<'w, 's> {
     layout_state: ResMut<'w, HudLayoutState>,
     app_session: ResMut<'w, AppSessionState>,
     input_capture: Res<'w, HudInputCaptureState>,
+    config: Option<Res<'w, crate::app_config::NeoZeusConfig>>,
     agent_list_state: ResMut<'w, AgentListUiState>,
     agent_list_text_selection: ResMut<'w, AgentListTextSelectionState>,
     conversation_list_state: ResMut<'w, ConversationListUiState>,
@@ -294,7 +296,17 @@ fn handle_message_dialog_pointer(ctx: &mut HudPointerContext<'_, '_>) -> bool {
         return true;
     };
     if ctx.mouse_buttons.just_pressed(MouseButton::Left) {
-        if let Some(action) = message_box_action_at(&ctx.primary_window, cursor) {
+        let default_config = crate::app_config::NeoZeusConfig::default();
+        let config = ctx.config.as_deref().unwrap_or(&default_config);
+        if let Some(index) = message_box_shortcut_button_at(&ctx.primary_window, cursor) {
+            if let Some(shortcut) = config.message_box_shortcuts().get(index) {
+                let _ = ctx
+                    .app_session
+                    .composer
+                    .apply_message_box_shortcut_text(&shortcut.text);
+            }
+            ctx.redraws.write(RequestRedraw);
+        } else if let Some(action) = message_box_action_at(&ctx.primary_window, cursor) {
             if let Some(command) = ctx.app_session.composer.message_box_action_command(action) {
                 ctx.app_commands.write(command);
             }

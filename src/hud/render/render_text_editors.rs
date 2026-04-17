@@ -295,11 +295,15 @@ pub(super) fn draw_text_editor_body(
 ///
 /// This helper is shared by both the message box and the task dialog so they keep identical button
 /// chrome.
-pub(super) fn draw_dialog_button_row(
+pub(super) fn draw_dialog_button_row<I, L>(
     painter: &mut HudPainter,
-    buttons: impl IntoIterator<Item = (HudRect, &'static str, bool)>,
-) {
+    buttons: I,
+) where
+    I: IntoIterator<Item = (HudRect, L, bool)>,
+    L: Into<String>,
+{
     for (rect, label, focused) in buttons {
+        let label = label.into();
         painter.fill_rect(rect, HudColors::BUTTON, 0.0);
         painter.stroke_rect(
             rect,
@@ -312,7 +316,7 @@ pub(super) fn draw_dialog_button_row(
         );
         painter.label(
             Vec2::new(rect.x + 10.0, rect.y + 6.0),
-            label,
+            &label,
             14.0,
             if focused {
                 HudColors::TEXT

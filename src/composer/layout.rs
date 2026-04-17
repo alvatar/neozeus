@@ -4,6 +4,10 @@ use bevy::{prelude::Vec2, window::Window};
 const ACTION_BUTTON_W: f32 = 170.0;
 const ACTION_BUTTON_H: f32 = 28.0;
 const ACTION_BUTTON_GAP: f32 = 12.0;
+const MESSAGE_SHORTCUT_BUTTON_W: f32 = 156.0;
+const MESSAGE_SHORTCUT_BUTTON_H: f32 = 24.0;
+const MESSAGE_SHORTCUT_BUTTON_GAP: f32 = 4.0;
+const MESSAGE_SHORTCUT_COLUMN_GAP: f32 = 18.0;
 const TOP_GAP: f32 = 8.0;
 const MESSAGE_BOX_WIDTH_RATIO: f32 = 0.70;
 const MESSAGE_BOX_HEIGHT_RATIO: f32 = 0.38;
@@ -118,6 +122,26 @@ pub(crate) fn message_box_action_buttons(
             "Prepend Task",
         ),
     ]
+}
+
+pub(crate) fn message_box_shortcut_button_rects(window: &Window) -> [HudRect; 5] {
+    let rect = message_box_rect(window);
+    let start_x = rect.x + 24.0;
+    let start_y = rect.y + TEXT_EDITOR_BODY_TOP_Y;
+    std::array::from_fn(|index| HudRect {
+        x: start_x,
+        y: start_y + index as f32 * (MESSAGE_SHORTCUT_BUTTON_H + MESSAGE_SHORTCUT_BUTTON_GAP),
+        w: MESSAGE_SHORTCUT_BUTTON_W,
+        h: MESSAGE_SHORTCUT_BUTTON_H,
+    })
+}
+
+pub(crate) fn message_box_shortcut_button_at(window: &Window, point: Vec2) -> Option<usize> {
+    message_box_shortcut_button_rects(window)
+        .into_iter()
+        .enumerate()
+        .find(|(_, rect)| rect.contains(point))
+        .map(|(index, _)| index)
 }
 
 /// Hit-tests the message-box action buttons and returns the clicked action.
@@ -348,6 +372,21 @@ fn shared_text_editor_body_rect(rect: HudRect, button_row_y: f32) -> HudRect {
     }
 }
 
+pub(crate) fn message_box_body_rect(window: &Window) -> HudRect {
+    let rect = message_box_rect(window);
+    let button_row_y = message_box_action_buttons(window)[0].1.y;
+    let info_row_y = button_row_y - 26.0;
+    let shortcut_column = message_box_shortcut_button_rects(window);
+    let shortcut_right = shortcut_column[0].x + shortcut_column[0].w;
+    HudRect {
+        x: shortcut_right + MESSAGE_SHORTCUT_COLUMN_GAP,
+        y: rect.y + TEXT_EDITOR_BODY_TOP_Y,
+        w: (rect.x + rect.w - TEXT_EDITOR_BODY_INSET_X - shortcut_right - MESSAGE_SHORTCUT_COLUMN_GAP)
+            .max(96.0),
+        h: (info_row_y - TEXT_EDITOR_BODY_BOTTOM_GAP - (rect.y + TEXT_EDITOR_BODY_TOP_Y)).max(96.0),
+    }
+}
+
 fn text_editor_visible_cols(body_rect: HudRect) -> usize {
     ((body_rect.w - 36.0) / TEXT_EDITOR_CHAR_WIDTH)
         .floor()
@@ -355,10 +394,7 @@ fn text_editor_visible_cols(body_rect: HudRect) -> usize {
 }
 
 pub(crate) fn message_box_visible_cols(window: &Window) -> usize {
-    text_editor_visible_cols(shared_text_editor_body_rect(
-        message_box_rect(window),
-        message_box_action_buttons(window)[0].1.y,
-    ))
+    text_editor_visible_cols(message_box_body_rect(window))
 }
 
 pub(crate) fn task_dialog_visible_cols(window: &Window) -> usize {

@@ -1,3 +1,4 @@
+use bevy::{prelude::Resource, utils::default};
 use bevy_egui::egui;
 use std::{
     env, fs,
@@ -16,10 +17,11 @@ const DEBUG_TEXTURE_DUMP_FILENAME: &str = "neozeus-texture.ppm";
 const NEOZEUS_CONFIG_FILENAME: &str = "config.toml";
 const NEOZEUS_CWD_CONFIG_FILENAME: &str = "neozeus.toml";
 
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Resource)]
 pub(crate) struct NeoZeusConfig {
     terminal: NeoZeusTerminalConfig,
     window: NeoZeusWindowConfig,
+    message_box: NeoZeusMessageBoxConfig,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -33,6 +35,69 @@ struct NeoZeusTerminalConfig {
 struct NeoZeusWindowConfig {
     pub(crate) title: Option<String>,
     pub(crate) app_id: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct MessageBoxShortcutConfig {
+    pub(crate) title: String,
+    pub(crate) text: String,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct NeoZeusMessageBoxConfig {
+    pub(crate) shortcuts: [MessageBoxShortcutConfig; 5],
+}
+
+impl Default for NeoZeusMessageBoxConfig {
+    fn default() -> Self {
+        Self {
+            shortcuts: [
+                MessageBoxShortcutConfig {
+                    title: "Research".to_owned(),
+                    text: "Research preset not configured.".to_owned(),
+                },
+                MessageBoxShortcutConfig {
+                    title: "Plan".to_owned(),
+                    text: "Plan preset not configured.".to_owned(),
+                },
+                MessageBoxShortcutConfig {
+                    title: "Freeze".to_owned(),
+                    text: "Freeze preset not configured.".to_owned(),
+                },
+                MessageBoxShortcutConfig {
+                    title: "Build".to_owned(),
+                    text: "Build preset not configured.".to_owned(),
+                },
+                MessageBoxShortcutConfig {
+                    title: "Review".to_owned(),
+                    text: concat!(
+                        "Review the changes in this branch vs main. Compare the intended changes ",
+                        "with the actual implementation.\n",
+                        "Identify:\n\n",
+                        "- Are nasty hacks introduced?\n",
+                        "- Is the architecture sound and elegant? Did the changes introduce ",
+                        "changes in the architecture that are incorrect or unjustified?\n",
+                        "- Is separation of concerns properly maintained?\n",
+                        "- Does the code respect DRY?\n",
+                        "- Is the new code introducing new performance bottlenecks?\n",
+                        "- Is the code elegant?\n",
+                        "- Is this the best way to implement it?"
+                    )
+                    .to_owned(),
+                },
+            ],
+        }
+    }
+}
+
+impl Default for NeoZeusConfig {
+    fn default() -> Self {
+        Self {
+            terminal: default(),
+            window: default(),
+            message_box: default(),
+        }
+    }
 }
 
 impl NeoZeusConfig {
@@ -59,6 +124,10 @@ impl NeoZeusConfig {
     /// Returns the configured app id, if any.
     fn window_app_id(&self) -> Option<&str> {
         self.window.app_id.as_deref()
+    }
+
+    pub(crate) fn message_box_shortcuts(&self) -> &[MessageBoxShortcutConfig; 5] {
+        &self.message_box.shortcuts
     }
 }
 
@@ -250,6 +319,7 @@ fn parse_neozeus_config(text: &str) -> Result<NeoZeusConfig, String> {
         Root,
         Terminal,
         Window,
+        MessageBox,
         Other,
     }
 
@@ -273,6 +343,7 @@ fn parse_neozeus_config(text: &str) -> Result<NeoZeusConfig, String> {
             section = match &line[1..line.len() - 1] {
                 "terminal" => Section::Terminal,
                 "window" => Section::Window,
+                "message_box" => Section::MessageBox,
                 _ => Section::Other,
             };
             continue;
@@ -303,6 +374,28 @@ fn parse_neozeus_config(text: &str) -> Result<NeoZeusConfig, String> {
             }
             (Section::Window, "app_id") => {
                 config.window.app_id = Some(parse_toml_basic_string(raw_value)?);
+            }
+            (Section::MessageBox, key) => {
+                if let Some(index) = key
+                    .strip_prefix("shortcut_")
+                    .and_then(|suffix| suffix.strip_suffix("_title"))
+                    .and_then(|value| value.parse::<usize>().ok())
+                    .and_then(|value| value.checked_sub(1))
+                    .filter(|index| *index < config.message_box.shortcuts.len())
+                {
+                    let value = parse_toml_basic_string(raw_value)?;
+                    if !value.trim().is_empty() {
+                        config.message_box.shortcuts[index].title = value;
+                    }
+                } else if let Some(index) = key
+                    .strip_prefix("shortcut_")
+                    .and_then(|suffix| suffix.strip_suffix("_text"))
+                    .and_then(|value| value.parse::<usize>().ok())
+                    .and_then(|value| value.checked_sub(1))
+                    .filter(|index| *index < config.message_box.shortcuts.len())
+                {
+                    config.message_box.shortcuts[index].text = parse_toml_basic_string(raw_value)?;
+                }
             }
             _ => {}
         }

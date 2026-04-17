@@ -17,6 +17,12 @@ fn parses_neozeus_toml_config() {
         [window]
         title = "NeoZeus"
         app_id = "neozeus-dev"
+
+        [message_box]
+        shortcut_1_title = "Research"
+        shortcut_1_text = "Investigate the bug deeply"
+        shortcut_5_title = "Review"
+        shortcut_5_text = "Review this branch carefully"
         "#,
     )
     .expect("config should parse");
@@ -31,6 +37,24 @@ fn parses_neozeus_toml_config() {
     assert_eq!(config.terminal_baseline_offset_px(), Some(-0.5));
     assert_eq!(config.window_title(), Some("NeoZeus"));
     assert_eq!(config.window_app_id(), Some("neozeus-dev"));
+    assert_eq!(config.message_box_shortcuts()[0].title, "Research");
+    assert_eq!(config.message_box_shortcuts()[0].text, "Investigate the bug deeply");
+    assert_eq!(config.message_box_shortcuts()[4].title, "Review");
+    assert_eq!(config.message_box_shortcuts()[4].text, "Review this branch carefully");
+}
+
+#[test]
+fn message_box_shortcuts_default_to_zeus_compatible_presets() {
+    let config = NeoZeusConfig::default();
+    let shortcuts = config.message_box_shortcuts();
+    assert_eq!(shortcuts.len(), 5);
+    assert_eq!(shortcuts[0].title, "Research");
+    assert_eq!(shortcuts[1].title, "Plan");
+    assert_eq!(shortcuts[2].title, "Freeze");
+    assert_eq!(shortcuts[3].title, "Build");
+    assert_eq!(shortcuts[4].title, "Review");
+    assert_eq!(shortcuts[0].text, "Research preset not configured.");
+    assert!(shortcuts[4].text.contains("Review the changes in this branch vs main."));
 }
 
 /// Verifies the config-file discovery precedence: explicit path, XDG config home, HOME fallback,

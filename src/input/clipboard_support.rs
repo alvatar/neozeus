@@ -88,7 +88,9 @@ pub(crate) fn paste_into_message_dialog(
     cursor: Vec2,
     text: &str,
 ) -> bool {
-    if message_box_action_at(window, cursor).is_some() || !message_box_rect(window).contains(cursor)
+    if message_box_action_at(window, cursor).is_some()
+        || crate::composer::message_box_shortcut_button_at(window, cursor).is_some()
+        || !message_box_rect(window).contains(cursor)
     {
         return false;
     }

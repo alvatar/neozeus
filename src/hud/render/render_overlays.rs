@@ -286,17 +286,20 @@ pub(super) fn draw_rename_agent_dialog(
     clippy::too_many_arguments,
     reason = "shared editor dialog shell intentionally owns the common title/body/button/footer/error surface"
 )]
-fn draw_text_editor_dialog(
+fn draw_text_editor_dialog<I, L>(
     painter: &mut HudPainter,
     window: &Window,
     rect: HudRect,
     title: &str,
     editor: &TextEditorState,
     editor_focused: bool,
-    buttons: impl IntoIterator<Item = (HudRect, &'static str, bool)>,
+    buttons: I,
     footer_text: Option<&str>,
     error_text: Option<&str>,
-) {
+) where
+    I: IntoIterator<Item = (HudRect, L, bool)>,
+    L: Into<String>,
+{
     painter.fill_rect(rect, HudColors::MESSAGE_BOX, 12.0);
     painter.stroke_rect(rect, HudColors::BORDER, 12.0);
 
@@ -507,13 +510,16 @@ pub(super) fn draw_message_box(
     message_box: &TextEditorState,
     title: &str,
     focus: MessageDialogFocus,
+    config: &crate::app_config::NeoZeusConfig,
 ) {
     if !message_box.visible {
         return;
     }
 
     let rect = message_box_rect(window);
-    let buttons = message_box_action_buttons(window);
+    let body_rect = crate::composer::message_box_body_rect(window);
+    let shortcut_rects = crate::composer::message_box_shortcut_button_rects(window);
+    let action_buttons = message_box_action_buttons(window);
     let (line_number, column_number) = message_box.cursor_line_and_column();
     let footer = format!(
         "Ln {} · Col {} · {} · Enter newline · Ctrl-S send · Esc cancel · C-Space mark · C-w cut · M-w copy · C-y yank · M-y ring",
@@ -521,17 +527,45 @@ pub(super) fn draw_message_box(
         column_number + 1,
         editor_selection_status(message_box)
     );
-    draw_text_editor_dialog(
+
+    painter.fill_rect(rect, HudColors::MESSAGE_BOX, 12.0);
+    painter.stroke_rect(rect, HudColors::BORDER, 12.0);
+
+    let title_rect = HudRect {
+        x: rect.x,
+        y: rect.y,
+        w: rect.w,
+        h: 44.0,
+    };
+    painter.fill_rect(title_rect, HudColors::MESSAGE_BOX, 12.0);
+    painter.label(
+        Vec2::new(rect.x + 24.0, rect.y + 12.0),
+        title,
+        18.0,
+        HudColors::TEXT,
+        VelloTextAnchor::TopLeft,
+    );
+
+    draw_text_editor_body(
         painter,
         window,
-        rect,
-        title,
         message_box,
+        body_rect,
         focus == MessageDialogFocus::Editor,
-        buttons.into_iter().map(|(action, rect, label)| {
+    );
+    draw_dialog_button_row(
+        painter,
+        shortcut_rects
+            .into_iter()
+            .zip(config.message_box_shortcuts().iter())
+            .map(|(rect, shortcut)| (rect, shortcut.title.clone(), false)),
+    );
+    draw_dialog_button_row(
+        painter,
+        action_buttons.into_iter().map(|(action, rect, label)| {
             (
                 rect,
-                label,
+                label.to_owned(),
                 match action {
                     crate::composer::MessageBoxAction::AppendTask => {
                         focus == MessageDialogFocus::AppendButton
@@ -542,8 +576,16 @@ pub(super) fn draw_message_box(
                 },
             )
         }),
-        Some(&footer),
-        None,
+    );
+
+    let button_row_y = action_buttons[0].1.y;
+    let info_row_y = button_row_y - 26.0;
+    painter.label(
+        Vec2::new(body_rect.x, info_row_y),
+        &footer,
+        15.0,
+        HudColors::TEXT_MUTED,
+        VelloTextAnchor::TopLeft,
     );
 }
 
@@ -579,7 +621,7 @@ pub(super) fn draw_task_dialog(
         buttons.into_iter().map(|(action, rect, label)| {
             (
                 rect,
-                label,
+                label.to_owned(),
                 match action {
                     crate::composer::TaskDialogAction::ClearDone => {
                         focus == TaskDialogFocus::ClearDoneButton

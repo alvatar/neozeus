@@ -209,6 +209,15 @@ impl ComposerState {
         cycle_dialog_focus(&mut self.task_dialog_focus, reverse);
     }
 
+    pub(crate) fn apply_message_box_shortcut_text(&mut self, text: &str) -> bool {
+        let Some(ComposerMode::Message { .. }) = self.session.as_ref().map(|session| &session.mode) else {
+            return false;
+        };
+        self.message_editor.load_text(text);
+        self.message_dialog_focus = MessageDialogFocus::Editor;
+        true
+    }
+
     /// Converts a message-box action button selection into the corresponding task command.
     pub(crate) fn message_box_action_command(
         &mut self,

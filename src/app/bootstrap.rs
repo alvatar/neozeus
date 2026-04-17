@@ -480,6 +480,8 @@ fn configure_app(app: &mut App) -> Result<(), String> {
     if let Some(window_capture) = window_capture {
         app.insert_resource(window_capture);
     }
+    app.insert_resource(neozeus_config.clone());
+
     if let Some(final_frame_capture) = final_frame_capture {
         app.insert_resource(final_frame_capture);
     }
