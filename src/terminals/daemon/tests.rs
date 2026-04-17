@@ -271,7 +271,18 @@ fn wait_for_file_text(path: &std::path::Path) -> String {
 }
 
 fn process_exists(pid: u32) -> bool {
-    std::path::Path::new(&format!("/proc/{pid}")).exists()
+    let proc_dir = format!("/proc/{pid}");
+    if !std::path::Path::new(&proc_dir).exists() {
+        return false;
+    }
+    let stat_path = format!("{proc_dir}/stat");
+    match fs::read_to_string(stat_path) {
+        Ok(stat) => stat
+            .rsplit_once(") ")
+            .and_then(|(_, suffix)| suffix.chars().next())
+            .is_none_or(|state| state != 'Z'),
+        Err(_) => true,
+    }
 }
 
 /// Verifies daemon socket-path resolution precedence: explicit override, then XDG runtime, then the

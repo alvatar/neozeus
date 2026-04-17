@@ -1,6 +1,7 @@
 use crate::shared::{command_runner::run_command_with_timeout, shell::shell_quote};
 use std::{
     collections::HashMap,
+    fs,
     process::Command,
     sync::atomic::{AtomicU64, Ordering},
     thread,
@@ -353,12 +354,14 @@ fn wait_for_process_exit(pid: u32, timeout: Duration) -> Result<(), String> {
     }
 
     let _ = signal_process_group(pid, "TERM");
+    let _ = signal_process(pid, "TERM");
     let term_deadline = std::time::Instant::now() + Duration::from_millis(500);
     if wait_for_process_exit_until(pid, term_deadline.min(deadline)) {
         return Ok(());
     }
 
     let _ = signal_process_group(pid, "KILL");
+    let _ = signal_process(pid, "KILL");
     if wait_for_process_exit_until(pid, deadline) {
         return Ok(());
     }
@@ -368,14 +371,50 @@ fn wait_for_process_exit(pid: u32, timeout: Duration) -> Result<(), String> {
     ))
 }
 
+fn process_is_alive(pid: u32) -> bool {
+    let proc_dir = format!("/proc/{pid}");
+    if !std::path::Path::new(&proc_dir).exists() {
+        return false;
+    }
+    let stat_path = format!("{proc_dir}/stat");
+    match fs::read_to_string(stat_path) {
+        Ok(stat) => stat
+            .rsplit_once(") ")
+            .and_then(|(_, suffix)| suffix.chars().next())
+            .is_none_or(|state| state != 'Z'),
+        Err(_) => true,
+    }
+}
+
 fn wait_for_process_exit_until(pid: u32, deadline: std::time::Instant) -> bool {
     while std::time::Instant::now() < deadline {
-        if !std::path::Path::new(&format!("/proc/{pid}")).exists() {
+        if !process_is_alive(pid) {
             return true;
         }
         thread::sleep(Duration::from_millis(20));
     }
-    !std::path::Path::new(&format!("/proc/{pid}")).exists()
+    !process_is_alive(pid)
+}
+
+fn signal_process(pid: u32, signal: &str) -> Result<(), String> {
+    let output = Command::new("kill")
+        .arg(format!("-{signal}"))
+        .arg("--")
+        .arg(pid.to_string())
+        .output()
+        .map_err(|error| format!("kill -{signal} -- {pid} failed: {error}"))?;
+    if output.status.success() {
+        Ok(())
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_owned();
+        let stdout = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+        let detail = if !stderr.is_empty() { stderr } else { stdout };
+        Err(if detail.is_empty() {
+            format!("kill -{signal} -- {pid} exited with status {}", output.status)
+        } else {
+            format!("kill -{signal} -- {pid} failed: {detail}")
+        })
+    }
 }
 
 fn signal_process_group(pid: u32, signal: &str) -> Result<(), String> {

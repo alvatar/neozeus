@@ -813,6 +813,7 @@ fn sync_hud_widget_bloom_keeps_other_layer_resources_when_one_layer_is_disabled(
     world.insert_resource(Assets::<Mesh>::default());
     world.insert_resource(Assets::<AgentListBloomBlurMaterial>::default());
     world.insert_resource(crate::hud::HudLayoutState::default());
+    world.insert_resource(crate::hud::HudRenderVisibilityPolicy::default());
     world.insert_resource(crate::app::AppSessionState::default());
     world.insert_resource(crate::aegis::AegisPolicyStore::default());
     world.insert_resource(crate::terminals::TerminalFocusState::default());

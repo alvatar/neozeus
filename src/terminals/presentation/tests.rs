@@ -2118,6 +2118,116 @@ fn active_terminal_presentation_becomes_visible_once_active_layout_upload_is_rea
     assert_eq!(*vis[0].1, Visibility::Visible);
 }
 
+/// Verifies that a startup-pending active terminal reveals directly at final geometry once its
+/// uploaded texture contract becomes ready, without requiring any later interaction-driven fixup.
+#[test]
+fn startup_loading_reveals_active_terminal_directly_at_final_geometry_once_ready() {
+    let (bridge, _) = test_bridge();
+    let mut manager = TerminalManager::default();
+    let id = manager.create_terminal(bridge);
+
+    let window = Window {
+        resolution: (1400, 900).into(),
+        ..Default::default()
+    };
+    let hud_state = crate::hud::HudState::default();
+    let view_state = TerminalViewState::default();
+    let font_state = TerminalFontState::default();
+    let active_layout =
+        active_terminal_layout(&window, &hud_state.layout_state(), &view_state, &font_state);
+    let expected_size = terminal_texture_screen_size(
+        &TerminalTextureState {
+            texture_size: active_layout.1.texture_size,
+            cell_size: active_layout.1.cell_size,
+        },
+        &view_state,
+        &window,
+        &hud_state.layout_state(),
+        false,
+    );
+
+    manager.get_mut(id).unwrap().snapshot.surface = Some(TerminalSurface::new(
+        active_layout.0.cols,
+        active_layout.0.rows,
+    ));
+    manager.get_mut(id).unwrap().surface_revision = 1;
+
+    let mut presentation_store = TerminalPresentationStore::default();
+    presentation_store.register(
+        id,
+        PresentedTerminal {
+            image: Default::default(),
+            texture_state: Default::default(),
+            desired_texture_state: Default::default(),
+            display_mode: TerminalDisplayMode::Smooth,
+            uploaded_revision: 0,
+            uploaded_active_override_revision: None,
+            uploaded_text_selection_revision: None,
+            uploaded_surface: None,
+            panel_entity: Entity::PLACEHOLDER,
+            frame_entity: Entity::PLACEHOLDER,
+        },
+    );
+    presentation_store.mark_startup_bootstrap_pending(id);
+
+    let mut world = World::default();
+    let mut time = Time::<()>::default();
+    time.advance_by(Duration::from_millis(16));
+    world.insert_resource(time);
+    insert_terminal_manager_resources(&mut world, manager);
+    world.insert_resource(presentation_store);
+    world.insert_resource(crate::hud::TerminalVisibilityState::default());
+    world.insert_resource(view_state);
+    insert_test_hud_state(&mut world, hud_state);
+    world.spawn((window.clone(), PrimaryWindow));
+    world.spawn((
+        TerminalPanel { id },
+        TerminalPresentation {
+            home_position: Vec2::ZERO,
+            current_position: Vec2::ZERO,
+            target_position: Vec2::ZERO,
+            current_size: Vec2::ONE,
+            target_size: Vec2::ONE,
+            current_alpha: 1.0,
+            target_alpha: 1.0,
+            current_z: 0.0,
+            target_z: 0.0,
+        },
+        Transform::default(),
+        Sprite::default(),
+        Visibility::Hidden,
+    ));
+
+    world.run_system_once(sync_terminal_presentations).unwrap();
+    {
+        let mut query = world.query::<(&TerminalPresentation, &Visibility)>();
+        let (presentation, visibility) = query.single(&world).unwrap();
+        assert_eq!(*visibility, Visibility::Hidden);
+        assert_eq!(presentation.current_position, Vec2::ZERO);
+    }
+
+    {
+        let mut store = world.resource_mut::<TerminalPresentationStore>();
+        let presented = store.get_mut(id).unwrap();
+        presented.texture_state = TerminalTextureState {
+            texture_size: active_layout.1.texture_size,
+            cell_size: active_layout.1.cell_size,
+        };
+        presented.desired_texture_state = presented.texture_state.clone();
+        presented.uploaded_revision = 1;
+    }
+
+    world.run_system_once(sync_terminal_presentations).unwrap();
+
+    let mut query = world.query::<(&TerminalPresentation, &Visibility)>();
+    let (presentation, visibility) = query.single(&world).unwrap();
+    assert_eq!(*visibility, Visibility::Visible);
+    assert_eq!(presentation.current_size, expected_size);
+    assert_eq!(presentation.target_size, expected_size);
+    assert_eq!(presentation.current_position, Vec2::new(0.0, 0.0));
+    assert_eq!(presentation.target_position, Vec2::new(0.0, 0.0));
+}
+
 /// Verifies that opening the message box does not itself hide the underlying terminal presentation.
 #[test]
 fn message_box_keeps_terminal_presentations_visible() {
