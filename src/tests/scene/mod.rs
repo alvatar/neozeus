@@ -418,6 +418,10 @@ fn setup_scene_auto_verify_uses_shared_spawn_attach_flow_and_isolates_verifier_t
     let presentation_store = world.resource::<crate::terminals::TerminalPresentationStore>();
     assert!(presentation_store.any_startup_pending());
     assert!(presentation_store.is_startup_pending(terminal_id));
+    assert_eq!(
+        world.resource::<DaemonConnectionState>().phase(),
+        StartupConnectPhase::SettlingVisuals
+    );
     let created = client.created_sessions.lock().unwrap().clone();
     assert_eq!(created.len(), 1);
     assert!(created[0]

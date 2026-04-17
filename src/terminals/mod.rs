@@ -55,6 +55,8 @@ pub(crate) use presentation_state::{
     TerminalCameraMarker, TerminalDisplayMode, TerminalHudSurfaceMarker, TerminalPanel,
     TerminalPointerState, TerminalPresentation, TerminalPresentationStore, TerminalViewState,
 };
+#[cfg(test)]
+pub(crate) use presentation_state::PresentedTerminal;
 pub(crate) use raster::{sync_terminal_texture, TerminalGlyphCache};
 pub(crate) use readiness::{terminal_readiness_for_id, TerminalReadiness};
 pub(crate) use registry::{

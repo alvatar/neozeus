@@ -35,6 +35,7 @@ const Z_EPSILON: f32 = 0.01;
 pub(crate) enum StartupConnectPhase {
     Connecting,
     Restoring,
+    SettlingVisuals,
     Ready,
     Failed,
 }
@@ -73,7 +74,9 @@ impl DaemonConnectionState {
 
     pub(crate) fn title(&self) -> &'static str {
         match self.phase {
-            StartupConnectPhase::Connecting | StartupConnectPhase::Restoring => "Connecting",
+            StartupConnectPhase::Connecting
+            | StartupConnectPhase::Restoring
+            | StartupConnectPhase::SettlingVisuals => "Connecting",
             StartupConnectPhase::Ready => "",
             StartupConnectPhase::Failed => "Connection failed",
         }
@@ -278,6 +281,10 @@ fn startup_restore_status(mode: &StartupRestoreMode) -> &'static str {
     }
 }
 
+fn startup_settling_status() -> &'static str {
+    "Preparing visuals…"
+}
+
 fn run_startup_restore_mode(ctx: &mut SceneSetupContext, mode: StartupRestoreMode) {
     match mode {
         StartupRestoreMode::AutoVerify(config) => setup_verifier_terminal(ctx, config),
@@ -338,6 +345,18 @@ pub(crate) fn startup_visibility_policy_for_focus(
 /// The system inspects terminal uploads, panel animation, HUD animation, and semantic visual
 /// contract changes. If any one of them is still live, a `RequestRedraw` message is emitted so the
 /// renderer does not go idle too early.
+pub(crate) fn startup_visuals_ready_for_reveal(
+    focus_state: &TerminalFocusState,
+    terminal_manager: &TerminalManager,
+    presentation_store: &TerminalPresentationStore,
+) -> bool {
+    let Some(active_id) = focus_state.active_id() else {
+        return true;
+    };
+    terminal_readiness_for_id(active_id, terminal_manager, presentation_store, None)
+        == TerminalReadiness::ReadyForCapture
+}
+
 pub(crate) fn request_redraw_while_visuals_active(
     terminal_manager: Res<TerminalManager>,
     presentation_store: Res<TerminalPresentationStore>,
@@ -388,6 +407,22 @@ pub(crate) fn request_redraw_while_visuals_active(
     clippy::type_complexity,
     reason = "exclusive-system wrapper materializes the original startup params via SystemState"
 )]
+fn settle_startup_visuals(
+    ctx: &mut SceneSetupContext,
+    connection_state: &mut DaemonConnectionState,
+) {
+    if startup_visuals_ready_for_reveal(&ctx.focus_state, &ctx.terminal_manager, &ctx.presentation_store)
+    {
+        connection_state.set_ready();
+    } else {
+        connection_state.set_phase(
+            StartupConnectPhase::SettlingVisuals,
+            startup_settling_status(),
+        );
+    }
+    ctx.redraws.write(RequestRedraw);
+}
+
 pub(crate) fn setup_scene(world: &mut World) {
     let mut state: bevy::ecs::system::SystemState<(
         SceneSetupContext,
@@ -439,8 +474,7 @@ pub(crate) fn setup_scene(world: &mut World) {
         );
         run_startup_restore_mode(&mut ctx, mode);
         startup_connect.finish();
-        connection_state.set_ready();
-        ctx.redraws.write(RequestRedraw);
+        settle_startup_visuals(&mut ctx, &mut connection_state);
         state.apply(world);
         return;
     }
@@ -516,7 +550,16 @@ pub(crate) fn advance_startup_connecting(world: &mut World) {
                 verification_scenario.as_deref(),
             );
             run_startup_restore_mode(&mut ctx, mode);
-            connection_state.set_ready();
+            settle_startup_visuals(&mut ctx, &mut connection_state);
+        }
+        StartupConnectPhase::SettlingVisuals => {
+            if startup_visuals_ready_for_reveal(
+                &ctx.focus_state,
+                &ctx.terminal_manager,
+                &ctx.presentation_store,
+            ) {
+                connection_state.set_ready();
+            }
             ctx.redraws.write(RequestRedraw);
         }
         StartupConnectPhase::Ready | StartupConnectPhase::Failed => {}
@@ -542,6 +585,176 @@ fn register_startup_loading_terminal(
     terminal_id: crate::terminals::TerminalId,
 ) {
     ctx.presentation_store.mark_startup_pending(terminal_id);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{tests::test_bridge, terminals::PresentedTerminal};
+    use bevy::math::UVec2;
+
+    #[test]
+    fn startup_visuals_ready_for_reveal_returns_true_when_no_terminal_is_active() {
+        let (bridge, _) = test_bridge();
+        let mut terminal_manager = TerminalManager::default();
+        terminal_manager.create_terminal_without_focus(bridge);
+
+        assert!(startup_visuals_ready_for_reveal(
+            &TerminalFocusState::default(),
+            &terminal_manager,
+            &TerminalPresentationStore::default(),
+        ));
+    }
+
+    #[test]
+    fn startup_visuals_ready_for_reveal_returns_false_while_active_terminal_is_not_ready() {
+        let (bridge, _) = test_bridge();
+        let mut terminal_manager = TerminalManager::default();
+        let terminal_id = terminal_manager.create_terminal(bridge);
+        terminal_manager.get_mut(terminal_id).unwrap().snapshot.surface =
+            Some(crate::tests::surface_with_text(10, 3, 0, "ready"));
+        terminal_manager.get_mut(terminal_id).unwrap().surface_revision = 4;
+
+        let mut presentation_store = TerminalPresentationStore::default();
+        presentation_store.mark_startup_pending(terminal_id);
+        presentation_store.register(
+            terminal_id,
+            PresentedTerminal {
+                image: Default::default(),
+                texture_state: crate::terminals::TerminalTextureState {
+                    texture_size: UVec2::ONE,
+                    cell_size: UVec2::new(8, 16),
+                },
+                desired_texture_state: crate::terminals::TerminalTextureState {
+                    texture_size: UVec2::ONE,
+                    cell_size: UVec2::new(8, 16),
+                },
+                display_mode: crate::terminals::TerminalDisplayMode::Smooth,
+                uploaded_revision: 0,
+                uploaded_active_override_revision: None,
+                uploaded_text_selection_revision: None,
+                uploaded_surface: None,
+                panel_entity: Entity::PLACEHOLDER,
+                frame_entity: Entity::PLACEHOLDER,
+            },
+        );
+
+        let focus_state = terminal_manager.clone_focus_state();
+        assert!(!startup_visuals_ready_for_reveal(
+            &focus_state,
+            &terminal_manager,
+            &presentation_store,
+        ));
+    }
+
+    #[test]
+    fn startup_visuals_ready_for_reveal_returns_true_when_active_terminal_is_ready_for_capture() {
+        let (bridge, _) = test_bridge();
+        let mut terminal_manager = TerminalManager::default();
+        let terminal_id = terminal_manager.create_terminal(bridge);
+        terminal_manager.get_mut(terminal_id).unwrap().snapshot.surface =
+            Some(crate::tests::surface_with_text(10, 3, 0, "ready"));
+        terminal_manager.get_mut(terminal_id).unwrap().surface_revision = 4;
+
+        let mut presentation_store = TerminalPresentationStore::default();
+        presentation_store.register(
+            terminal_id,
+            PresentedTerminal {
+                image: Default::default(),
+                texture_state: crate::terminals::TerminalTextureState {
+                    texture_size: UVec2::new(640, 480),
+                    cell_size: UVec2::new(8, 16),
+                },
+                desired_texture_state: crate::terminals::TerminalTextureState {
+                    texture_size: UVec2::new(640, 480),
+                    cell_size: UVec2::new(8, 16),
+                },
+                display_mode: crate::terminals::TerminalDisplayMode::Smooth,
+                uploaded_revision: 4,
+                uploaded_active_override_revision: None,
+                uploaded_text_selection_revision: None,
+                uploaded_surface: None,
+                panel_entity: Entity::PLACEHOLDER,
+                frame_entity: Entity::PLACEHOLDER,
+            },
+        );
+
+        let focus_state = terminal_manager.clone_focus_state();
+        assert!(startup_visuals_ready_for_reveal(
+            &focus_state,
+            &terminal_manager,
+            &presentation_store,
+        ));
+    }
+
+    #[test]
+    fn advance_startup_connecting_promotes_settling_visuals_to_ready_once_active_terminal_is_ready()
+    {
+        let (bridge, _) = test_bridge();
+        let mut terminal_manager = TerminalManager::default();
+        let terminal_id = terminal_manager.create_terminal(bridge);
+        terminal_manager.get_mut(terminal_id).unwrap().snapshot.surface =
+            Some(crate::tests::surface_with_text(10, 3, 0, "ready"));
+        terminal_manager.get_mut(terminal_id).unwrap().surface_revision = 4;
+
+        let mut presentation_store = TerminalPresentationStore::default();
+        presentation_store.register(
+            terminal_id,
+            PresentedTerminal {
+                image: Default::default(),
+                texture_state: crate::terminals::TerminalTextureState {
+                    texture_size: UVec2::new(640, 480),
+                    cell_size: UVec2::new(8, 16),
+                },
+                desired_texture_state: crate::terminals::TerminalTextureState {
+                    texture_size: UVec2::new(640, 480),
+                    cell_size: UVec2::new(8, 16),
+                },
+                display_mode: crate::terminals::TerminalDisplayMode::Smooth,
+                uploaded_revision: 4,
+                uploaded_active_override_revision: None,
+                uploaded_text_selection_revision: None,
+                uploaded_surface: None,
+                panel_entity: Entity::PLACEHOLDER,
+                frame_entity: Entity::PLACEHOLDER,
+            },
+        );
+
+        let mut world = World::default();
+        world.insert_resource(terminal_manager);
+        world.insert_resource(TerminalFocusState::default());
+        world.insert_resource(presentation_store);
+        world.insert_resource(AgentCatalog::default());
+        world.insert_resource(AgentRuntimeIndex::default());
+        world.insert_resource(AppSessionState::default());
+        world.insert_resource(crate::aegis::AegisPolicyStore::default());
+        world.insert_resource(crate::conversations::ConversationStore::default());
+        world.insert_resource(crate::conversations::ConversationPersistenceState::default());
+        world.insert_resource(TerminalRuntimeSpawner::pending_headless());
+        world.insert_resource(crate::app::AppStatePersistenceState::default());
+        world.insert_resource(crate::terminals::TerminalNotesState::default());
+        world.insert_resource(crate::hud::HudInputCaptureState::default());
+        world.insert_resource(crate::hud::TerminalVisibilityState::default());
+        world.insert_resource(crate::terminals::TerminalViewState::default());
+        world.insert_resource(crate::aegis::AegisRuntimeStore::default());
+        world.insert_resource(DaemonConnectionState::with_phase_for_test(
+            StartupConnectPhase::SettlingVisuals,
+            startup_settling_status(),
+        ));
+        world.insert_resource(StartupConnectState::default());
+        world.insert_resource(Time::<()>::default());
+        world.init_resource::<Messages<RequestRedraw>>();
+
+        let focus_state = world.resource::<TerminalManager>().clone_focus_state();
+        world.resource_mut::<TerminalFocusState>().clone_from(&focus_state);
+
+        advance_startup_connecting(&mut world);
+
+        assert_eq!(
+            world.resource::<DaemonConnectionState>().phase(),
+            StartupConnectPhase::Ready
+        );
+    }
 }
 
 /// Spawns the dedicated verifier terminal used by the auto-verify mode.
