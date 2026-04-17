@@ -14,7 +14,7 @@ use super::{
     readiness::{terminal_readiness_for_id, TerminalReadiness},
     registry::{ManagedTerminal, TerminalFocusState, TerminalId, TerminalManager},
     runtime::TerminalRuntimeSpawner,
-    types::{TerminalDimensions, TerminalSurface},
+    types::TerminalDimensions,
 };
 use bevy::{prelude::*, window::PrimaryWindow};
 
@@ -24,8 +24,6 @@ const DIRECT_INPUT_FRAME_OUTSET: f32 = 6.0;
 const INACTIVE_RUNTIME_FRAME_OUTSET: f32 = 4.0;
 const STARTUP_PLACEHOLDER_COLS: u32 = 120;
 const STARTUP_PLACEHOLDER_ROWS: u32 = 38;
-const STARTUP_PLACEHOLDER_COLOR: Color = Color::srgb(0.10, 0.13, 0.18);
-const STARTUP_PLACEHOLDER_ACTIVE_COLOR: Color = Color::srgb(0.16, 0.18, 0.22);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct ActiveTerminalLayout {
@@ -260,41 +258,6 @@ fn active_layout_texture_state(layout: ActiveTerminalLayout) -> TerminalTextureS
     }
 }
 
-/// Chooses a temporary texture-state contract while a startup-loading terminal has not yet produced a
-/// presentable uploaded frame.
-///
-/// Existing desired/current texture state wins when available; otherwise the helper falls back to
-/// either the known surface size or the fixed startup placeholder dimensions.
-fn startup_placeholder_texture_state(
-    surface: Option<&TerminalSurface>,
-    presented_terminal: &PresentedTerminal,
-) -> TerminalTextureState {
-    // Keep the steps explicit so state transitions remain easy to audit and edge cases stay localized.
-    if presented_terminal.desired_texture_state.texture_size != UVec2::ZERO
-        && presented_terminal.desired_texture_state.texture_size != UVec2::ONE
-        && presented_terminal.desired_texture_state.cell_size != UVec2::ZERO
-    {
-        return presented_terminal.desired_texture_state.clone();
-    }
-    if presented_terminal.texture_state.texture_size != UVec2::ZERO
-        && presented_terminal.texture_state.texture_size != UVec2::ONE
-        && presented_terminal.texture_state.cell_size != UVec2::ZERO
-    {
-        return presented_terminal.texture_state.clone();
-    }
-    let fallback = TerminalCellMetrics::default();
-    let (cols, rows) = surface
-        .map(|surface| (surface.cols as u32, surface.rows as u32))
-        .unwrap_or((STARTUP_PLACEHOLDER_COLS, STARTUP_PLACEHOLDER_ROWS));
-    TerminalTextureState {
-        texture_size: UVec2::new(
-            cols.max(1) * fallback.cell_width,
-            rows.max(1) * fallback.cell_height,
-        ),
-        cell_size: UVec2::new(fallback.cell_width, fallback.cell_height),
-    }
-}
-
 /// Returns whether the active terminal already has the exact surface and uploaded texture state the
 /// focused layout currently expects.
 fn active_terminal_ready_for_presentation(
@@ -460,7 +423,6 @@ fn effective_visibility_policy(
 #[derive(Clone, Debug)]
 struct PresentationTransitionContext {
     active_id: Option<TerminalId>,
-    startup_show_all: bool,
     visibility_policy: TerminalVisibilityPolicy,
     active_layout: ActiveTerminalLayout,
     active_texture_state: TerminalTextureState,
@@ -502,12 +464,7 @@ fn build_presentation_transition_context(
     last_active_ready: bool,
 ) -> PresentationTransitionContext {
     let active_id = focus_state.active_id();
-    let startup_show_all = presentation_store.any_startup_pending();
-    let visibility_policy = if startup_show_all {
-        TerminalVisibilityPolicy::ShowAll
-    } else {
-        effective_visibility_policy(terminal_manager, visibility_state)
-    };
+    let visibility_policy = effective_visibility_policy(terminal_manager, visibility_state);
     let default_font_state = TerminalFontState::default();
     let font_state = font_state.unwrap_or(&default_font_state);
     let placeholder_dimensions = TerminalDimensions {
@@ -558,7 +515,6 @@ fn build_presentation_transition_context(
     );
     PresentationTransitionContext {
         active_id,
-        startup_show_all,
         visibility_policy,
         active_layout,
         active_texture_state,
@@ -566,19 +522,6 @@ fn build_presentation_transition_context(
         active_size,
         snap_switch,
         blend: 1.0 - (-time.delta_secs() * 10.0).exp(),
-    }
-}
-
-fn terminal_texture_state_for_presentation(
-    terminal: &ManagedTerminal,
-    presented_terminal: &PresentedTerminal,
-    startup_placeholder: bool,
-    terminal_presentable: bool,
-) -> TerminalTextureState {
-    if startup_placeholder && !terminal_presentable {
-        startup_placeholder_texture_state(terminal.snapshot.surface.as_ref(), presented_terminal)
-    } else {
-        presented_terminal.texture_state.clone()
     }
 }
 
@@ -599,8 +542,7 @@ fn build_presentation_plan(
     home_position: Vec2,
 ) -> PresentationPlan {
     let readiness = terminal_readiness_for_id(panel_id, terminal_manager, presentation_store, None);
-    let startup_placeholder = readiness.is_startup_pending();
-    if matches!(readiness, TerminalReadiness::Missing) {
+    if matches!(readiness, TerminalReadiness::Missing | TerminalReadiness::StartupPending) {
         return PresentationPlan {
             visible: false,
             resolve_startup_pending: false,
@@ -613,9 +555,7 @@ fn build_presentation_plan(
         };
     }
     if matches!(transition.visibility_policy, TerminalVisibilityPolicy::Isolate(id) if id != panel_id)
-        || (transition.active_id.is_some()
-            && !transition.startup_show_all
-            && Some(panel_id) != transition.active_id)
+        || (transition.active_id.is_some() && Some(panel_id) != transition.active_id)
     {
         return PresentationPlan {
             visible: false,
@@ -637,7 +577,7 @@ fn build_presentation_plan(
             transition.active_layout,
         )
         || terminal_presentable;
-    if !active_ready && !startup_placeholder {
+    if !active_ready {
         return PresentationPlan {
             visible: false,
             resolve_startup_pending: false,
@@ -650,12 +590,7 @@ fn build_presentation_plan(
         };
     }
 
-    let terminal_texture_state = terminal_texture_state_for_presentation(
-        terminal,
-        presented_terminal,
-        startup_placeholder,
-        terminal_presentable,
-    );
+    let terminal_texture_state = presented_terminal.texture_state.clone();
     let smooth_size = smooth_terminal_screen_size(
         &terminal_texture_state,
         view_state,
@@ -663,8 +598,7 @@ fn build_presentation_plan(
         layout_state,
     );
     let (_, viewport_center) = active_terminal_viewport(primary_window, layout_state);
-    let pixel_perfect = !startup_placeholder
-        && Some(panel_id) == transition.active_id
+    let pixel_perfect = Some(panel_id) == transition.active_id
         && presented_terminal.display_mode == TerminalDisplayMode::PixelPerfect;
 
     let (target_position, target_size, target_z) = match transition.active_id {
@@ -684,16 +618,6 @@ fn build_presentation_plan(
         ),
     };
 
-    let sprite_color = if startup_placeholder && !terminal_presentable {
-        if Some(panel_id) == transition.active_id {
-            STARTUP_PLACEHOLDER_ACTIVE_COLOR
-        } else {
-            STARTUP_PLACEHOLDER_COLOR
-        }
-    } else {
-        Color::WHITE
-    };
-
     PresentationPlan {
         visible: true,
         resolve_startup_pending: terminal_presentable,
@@ -702,7 +626,7 @@ fn build_presentation_plan(
         target_alpha: 1.0,
         target_z,
         pixel_perfect,
-        sprite_color,
+        sprite_color: Color::WHITE,
     }
 }
 

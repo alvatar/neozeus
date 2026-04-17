@@ -175,7 +175,7 @@ fn insert_test_hud_state_into_app(app: &mut App, hud_state: HudState) {
 }
 
 #[test]
-fn build_presentation_plan_hides_non_active_panels_outside_startup_show_all() {
+fn build_presentation_plan_hides_non_active_panels_when_another_panel_is_active() {
     let window = Window {
         resolution: (1400, 900).into(),
         ..Default::default()
@@ -228,7 +228,6 @@ fn build_presentation_plan_hides_non_active_panels_outside_startup_show_all() {
         presentation_store.get(other_id).unwrap(),
         &PresentationTransitionContext {
             active_id: Some(active_id),
-            startup_show_all: false,
             visibility_policy: crate::hud::TerminalVisibilityPolicy::ShowAll,
             active_layout,
             active_texture_state: active_texture_state.clone(),
@@ -256,7 +255,7 @@ fn build_presentation_plan_hides_non_active_panels_outside_startup_show_all() {
 }
 
 #[test]
-fn build_presentation_plan_keeps_active_startup_placeholder_visible_until_ready() {
+fn build_presentation_plan_hides_active_startup_pending_terminal_until_ready() {
     let window = Window {
         resolution: (1400, 900).into(),
         ..Default::default()
@@ -305,7 +304,6 @@ fn build_presentation_plan_keeps_active_startup_placeholder_visible_until_ready(
         presentation_store.get(active_id).unwrap(),
         &PresentationTransitionContext {
             active_id: Some(active_id),
-            startup_show_all: true,
             visibility_policy: crate::hud::TerminalVisibilityPolicy::ShowAll,
             active_layout,
             active_texture_state: active_texture_state.clone(),
@@ -328,9 +326,9 @@ fn build_presentation_plan_keeps_active_startup_placeholder_visible_until_ready(
         Vec2::ZERO,
     );
 
-    assert!(plan.visible);
+    assert!(!plan.visible);
     assert!(!plan.resolve_startup_pending);
-    assert_eq!(plan.sprite_color, STARTUP_PLACEHOLDER_ACTIVE_COLOR);
+    assert_eq!(plan.sprite_color, Color::WHITE);
     assert!(!plan.pixel_perfect);
 }
 
@@ -1664,10 +1662,9 @@ fn disconnected_terminal_shows_red_status_frame() {
     assert_eq!(frames[0].2.color, Color::srgba(0.86, 0.20, 0.20, 0.92));
 }
 
-/// Verifies that startup-loading terminals remain visible as non-white placeholders before their
-/// first real surface upload arrives.
+/// Verifies that startup-loading terminals stay hidden until they have a correct presentable frame.
 #[test]
-fn startup_loading_shows_active_placeholder_before_first_surface_arrives() {
+fn startup_loading_hides_active_terminal_until_first_real_frame_arrives() {
     // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let (bridge, _) = test_bridge();
     let mut manager = TerminalManager::default();
@@ -1730,17 +1727,13 @@ fn startup_loading_shows_active_placeholder_before_first_surface_arrives() {
 
     let mut query = world.query::<(&TerminalPanel, &Sprite, &Visibility)>();
     let (_, sprite, visibility) = query.single(&world).unwrap();
-    assert_eq!(*visibility, Visibility::Visible);
-    assert_ne!(sprite.color, Color::WHITE);
-    assert!(sprite
-        .custom_size
-        .is_some_and(|size| size.x > 10.0 && size.y > 10.0));
+    assert_eq!(*visibility, Visibility::Hidden);
+    assert_eq!(sprite.color, Color::WHITE);
 }
 
-/// Verifies that startup-loading state temporarily overrides isolate visibility so all pending
-/// terminals stay visible until they are ready.
+/// Verifies that startup-loading does not broaden terminal visibility before any terminal is ready.
 #[test]
-fn startup_loading_temporarily_overrides_isolate_to_show_all_pending_terminals() {
+fn startup_loading_does_not_override_isolate_to_show_pending_terminals() {
     // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let (bridge_one, _) = test_bridge();
     let (bridge_two, _) = test_bridge();
@@ -1817,7 +1810,7 @@ fn startup_loading_temporarily_overrides_isolate_to_show_all_pending_terminals()
         .iter(&world)
         .filter(|(_, visibility)| **visibility == Visibility::Visible)
         .count();
-    assert_eq!(visible_count, 2);
+    assert_eq!(visible_count, 0);
 }
 
 /// Verifies that the active terminal does not disappear while its desired active-layout upload is

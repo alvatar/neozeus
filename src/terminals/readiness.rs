@@ -16,9 +16,6 @@ impl TerminalReadiness {
         matches!(self, Self::ReadyForCapture)
     }
 
-    pub(crate) fn is_startup_pending(self) -> bool {
-        matches!(self, Self::StartupPending)
-    }
 }
 
 fn non_placeholder_texture_state(presented_terminal: &PresentedTerminal) -> bool {
