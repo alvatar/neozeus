@@ -128,8 +128,8 @@ neozeus_offscreen_crop_message_box() {
 import subprocess, sys
 src, dst = sys.argv[1], sys.argv[2]
 width, height = int(sys.argv[3]), int(sys.argv[4])
-box_w = min(max(width * 0.84, 520.0), 1680.0)
-box_h = min(max(height * 0.52, 240.0), 760.0)
+box_w = min(max(width * 0.70, 520.0), 1560.0)
+box_h = min(max(height * 0.38, 240.0), 700.0)
 x = int(round(width * 0.5 - box_w * 0.5))
 y = 8
 w = int(round(box_w))
@@ -139,7 +139,22 @@ PY
 }
 
 neozeus_offscreen_crop_task_dialog() {
-    neozeus_offscreen_crop_message_box "$@"
+    local src=$1
+    local dst=$2
+    local width=$3
+    local height=$4
+    python - "$src" "$dst" "$width" "$height" <<'PY'
+import subprocess, sys
+src, dst = sys.argv[1], sys.argv[2]
+width, height = int(sys.argv[3]), int(sys.argv[4])
+box_w = min(max(width * 0.84, 520.0), 1680.0)
+box_h = min(max(height * 0.52, 240.0), 760.0)
+x = int(round(width * 0.5 - box_w * 0.5))
+y = 8
+w = int(round(box_w))
+h = int(round(box_h))
+subprocess.check_call(["magick", src, "-crop", f"{w}x{h}+{x}+{y}", "+repage", dst])
+PY
 }
 
 neozeus_offscreen_crop_agent_list() {

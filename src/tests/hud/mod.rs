@@ -764,9 +764,9 @@ fn message_box_rect_is_top_aligned_and_shorter() {
     };
 
     let rect = message_box_rect(&window);
-    assert!((rect.w - 1120.0).abs() < 0.01);
-    assert!((rect.h - 432.0).abs() < 0.01);
-    assert!((rect.x - 140.0).abs() < 0.01);
+    assert!((rect.w - 980.0).abs() < 0.01);
+    assert!((rect.h - 342.0).abs() < 0.01);
+    assert!((rect.x - 210.0).abs() < 0.01);
     assert!((rect.y - 8.0).abs() < 0.01);
 }
 
