@@ -1242,10 +1242,10 @@ fn active_terminal_resize_requests_follow_viewport_grid_policy() {
     assert_eq!(requests, vec![("neozeus-session-1".into(), 122, 56)]);
 }
 
-/// Verifies that in `ShowAll` mode with no active terminal, background terminal presentations remain
-/// visible instead of all being hidden.
+/// Verifies that with no active terminal the panel hides in place instead of being re-laid out into
+/// a background/home slot.
 #[test]
-fn show_all_presentations_remain_visible_when_no_terminal_is_active() {
+fn no_active_terminal_hides_panel_without_repositioning_it() {
     // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let (bridge, _) = test_bridge();
     let mut manager = TerminalManager::default();
@@ -1296,29 +1296,31 @@ fn show_all_presentations_remain_visible_when_no_terminal_is_active() {
     world.spawn((
         TerminalPanel { id },
         TerminalPresentation {
-            home_position: Vec2::ZERO,
-            current_position: Vec2::ZERO,
-            target_position: Vec2::ZERO,
-            current_size: Vec2::ONE,
-            target_size: Vec2::ONE,
+            home_position: Vec2::new(-360.0, 120.0),
+            current_position: Vec2::new(111.0, -77.0),
+            target_position: Vec2::new(111.0, -77.0),
+            current_size: Vec2::new(222.0, 140.0),
+            target_size: Vec2::new(222.0, 140.0),
             current_alpha: 1.0,
             target_alpha: 1.0,
-            current_z: 0.0,
-            target_z: 0.0,
+            current_z: 0.3,
+            target_z: 0.3,
         },
-        Transform::default(),
+        Transform::from_xyz(111.0, -77.0, 0.3),
         Sprite::default(),
         Visibility::Visible,
     ));
 
     world.run_system_once(sync_terminal_presentations).unwrap();
 
-    let mut query = world.query::<(&TerminalPanel, &Visibility)>();
-    let vis = query
-        .iter(&world)
-        .map(|(panel, visibility)| (panel.id, *visibility))
-        .collect::<Vec<_>>();
-    assert_eq!(vis, vec![(id, Visibility::Visible)]);
+    let mut query = world.query::<(&TerminalPanel, &TerminalPresentation, &Transform, &Visibility)>();
+    let panels = query.iter(&world).collect::<Vec<_>>();
+    assert_eq!(panels.len(), 1);
+    assert_eq!(panels[0].0.id, id);
+    assert_eq!(*panels[0].3, Visibility::Hidden);
+    assert_eq!(panels[0].1.current_position, Vec2::new(111.0, -77.0));
+    assert_eq!(panels[0].1.target_position, Vec2::new(111.0, -77.0));
+    assert_eq!(panels[0].2.translation, Vec3::new(111.0, -77.0, 0.3));
 }
 
 /// Verifies that panel frame sprites default to hidden when no direct-input or runtime-status frame
@@ -2489,10 +2491,10 @@ fn message_box_keeps_terminal_presentations_visible() {
     assert_eq!(*vis[0].1, Visibility::Visible);
 }
 
-/// Verifies that a stale isolate target degrades to `ShowAll` behavior instead of hiding every
-/// terminal panel.
+/// Verifies that a stale isolate target no longer falls back to background presentation; with no
+/// active terminal the panel hides in place.
 #[test]
-fn isolate_visibility_policy_with_missing_terminal_degrades_to_show_all() {
+fn isolate_visibility_policy_with_missing_terminal_hides_in_place_without_active_terminal() {
     // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let (bridge, _) = test_bridge();
     let mut manager = TerminalManager::default();
@@ -2545,27 +2547,30 @@ fn isolate_visibility_policy_with_missing_terminal_degrades_to_show_all() {
     world.spawn((
         TerminalPanel { id },
         TerminalPresentation {
-            home_position: Vec2::ZERO,
-            current_position: Vec2::ZERO,
-            target_position: Vec2::ZERO,
-            current_size: Vec2::ONE,
-            target_size: Vec2::ONE,
+            home_position: Vec2::new(-360.0, 120.0),
+            current_position: Vec2::new(25.0, -35.0),
+            target_position: Vec2::new(25.0, -35.0),
+            current_size: Vec2::new(210.0, 130.0),
+            target_size: Vec2::new(210.0, 130.0),
             current_alpha: 1.0,
             target_alpha: 1.0,
-            current_z: 0.0,
-            target_z: 0.0,
+            current_z: 0.3,
+            target_z: 0.3,
         },
-        Transform::default(),
+        Transform::from_xyz(25.0, -35.0, 0.3),
         Sprite::default(),
         Visibility::Visible,
     ));
 
     world.run_system_once(sync_terminal_presentations).unwrap();
 
-    let mut query = world.query::<(&TerminalPanel, &Visibility)>();
-    let vis = query.iter(&world).collect::<Vec<_>>();
-    assert_eq!(vis.len(), 1);
-    assert_eq!(*vis[0].1, Visibility::Visible);
+    let mut query = world.query::<(&TerminalPanel, &TerminalPresentation, &Transform, &Visibility)>();
+    let panels = query.iter(&world).collect::<Vec<_>>();
+    assert_eq!(panels.len(), 1);
+    assert_eq!(*panels[0].3, Visibility::Hidden);
+    assert_eq!(panels[0].1.current_position, Vec2::new(25.0, -35.0));
+    assert_eq!(panels[0].1.target_position, Vec2::new(25.0, -35.0));
+    assert_eq!(panels[0].2.translation, Vec3::new(25.0, -35.0, 0.3));
 }
 
 /// Verifies that projection sync creates missing panel/frame entities for terminals that exist only

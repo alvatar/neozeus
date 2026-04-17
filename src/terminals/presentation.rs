@@ -214,10 +214,6 @@ fn active_terminal_fit_area(window: &Window, layout_state: &HudLayoutState) -> (
 }
 
 /// Converts the shared view distance into a scalar zoom factor.
-fn terminal_zoom_scale(view_state: &TerminalViewState) -> f32 {
-    10.0 / view_state.distance.max(0.1)
-}
-
 /// Returns the fixed terminal cell size.
 fn fixed_terminal_cell_size(font_state: &TerminalFontState) -> UVec2 {
     UVec2::new(
@@ -350,22 +346,6 @@ fn terminal_logical_size(texture_state: &TerminalTextureState, window: &Window) 
         ),
         window,
     )
-}
-
-/// Computes the smooth-mode on-screen size for a terminal texture, combining fit-to-viewport scaling
-/// with the shared zoom factor.
-fn smooth_terminal_screen_size(
-    texture_state: &TerminalTextureState,
-    view_state: &TerminalViewState,
-    window: &Window,
-    layout_state: &HudLayoutState,
-) -> Vec2 {
-    let texture_width = texture_state.texture_size.x.max(1) as f32;
-    let texture_height = texture_state.texture_size.y.max(1) as f32;
-    let (fit_size, _) = active_terminal_fit_area(window, layout_state);
-    let fit_scale = (fit_size.x / texture_width).min(fit_size.y / texture_height);
-    let zoom_scale = terminal_zoom_scale(view_state);
-    Vec2::new(texture_width, texture_height) * fit_scale * zoom_scale
 }
 
 /// Snaps axis for texture center.
@@ -547,7 +527,7 @@ fn build_presentation_plan(
     terminal_manager: &TerminalManager,
     presentation_store: &TerminalPresentationStore,
     active_terminal_content: &ActiveTerminalContentState,
-    view_state: &TerminalViewState,
+    _view_state: &TerminalViewState,
     layout_state: &HudLayoutState,
     primary_window: &Window,
     home_position: Vec2,
@@ -568,8 +548,8 @@ fn build_presentation_plan(
             sprite_color: Color::WHITE,
         };
     }
-    if matches!(transition.visibility_policy, TerminalVisibilityPolicy::Isolate(id) if id != panel_id)
-        || (transition.active_id.is_some() && Some(panel_id) != transition.active_id)
+    if transition.active_id != Some(panel_id)
+        || matches!(transition.visibility_policy, TerminalVisibilityPolicy::Isolate(id) if id != panel_id)
     {
         return PresentationPlan {
             visible: false,
@@ -609,33 +589,17 @@ fn build_presentation_plan(
         };
     }
 
-    let terminal_texture_state = presented_terminal.texture_state.clone();
-    let smooth_size = smooth_terminal_screen_size(
-        &terminal_texture_state,
-        view_state,
-        primary_window,
-        layout_state,
-    );
-    let (_, viewport_center) = active_terminal_viewport(primary_window, layout_state);
-    let pixel_perfect = Some(panel_id) == transition.active_id
-        && presented_terminal.display_mode == TerminalDisplayMode::PixelPerfect;
+    let pixel_perfect = presented_terminal.display_mode == TerminalDisplayMode::PixelPerfect;
 
-    let (target_position, target_size, target_z) = match transition.active_id {
-        Some(id) if id == panel_id => (
-            hud_terminal_target_position(
-                primary_window,
-                layout_state,
-                &transition.active_texture_state,
-            ),
-            transition.active_size,
-            if pixel_perfect { 3.0 } else { 0.3 },
+    let (target_position, target_size, target_z) = (
+        hud_terminal_target_position(
+            primary_window,
+            layout_state,
+            &transition.active_texture_state,
         ),
-        _ => (
-            viewport_center + view_state.offset + home_position,
-            smooth_size,
-            0.0,
-        ),
-    };
+        transition.active_size,
+        if pixel_perfect { 3.0 } else { 0.3 },
+    );
 
     PresentationPlan {
         visible: true,
