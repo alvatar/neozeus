@@ -460,6 +460,78 @@ mod tests {
     }
 
     #[test]
+    fn startup_blocking_hides_selected_agent_context_overlay() {
+        let mut world = World::default();
+        let mut hud_state = HudState::default();
+        let mut agent_list = default_hud_module_instance(&HUD_MODULE_DEFINITIONS[1]);
+        agent_list.shell.set_canonical_rect(
+            HudRect {
+                x: 0.0,
+                y: 0.0,
+                w: 320.0,
+                h: 220.0,
+            },
+            true,
+        );
+        hud_state.insert(HudWidgetKey::AgentList, agent_list);
+        insert_test_hud_state(&mut world, hud_state);
+        world.insert_resource(Assets::<VelloFont>::default());
+        world.insert_resource(crate::hud::HudBloomGroupAuthoring::default());
+        world.insert_resource(crate::hud::HudRenderVisibilityPolicy::default());
+        world.insert_resource(AgentListUiState {
+            show_selected_context: true,
+            ..Default::default()
+        });
+        world.insert_resource(AgentListSelection::Agent(AgentId(1)));
+        world.insert_resource(AgentListView {
+            rows: vec![AgentListRowView {
+                key: crate::hud::AgentListRowKey::Agent(AgentId(1)),
+                label: "ALPHA".into(),
+                focused: true,
+                kind: AgentListRowKind::Agent {
+                    agent_id: AgentId(1),
+                    terminal_id: Some(crate::terminals::TerminalId(11)),
+                    has_tasks: false,
+                    interactive: true,
+                    activity: AgentListActivity::Idle,
+                    paused: false,
+                    context_pct_milli: None,
+                    agent_kind: AgentKind::Terminal,
+                    session_metrics: DaemonSessionMetrics::default(),
+                },
+            }],
+        });
+        world.insert_resource(crate::startup::DaemonConnectionState::with_phase_for_test(
+            crate::startup::StartupConnectPhase::Connecting,
+            "Connecting",
+        ));
+        world.spawn((
+            Window {
+                resolution: (1400, 900).into(),
+                ..default()
+            },
+            PrimaryWindow,
+        ));
+        let overlay_scene = world
+            .spawn((VelloScene2d::default(), HudOverlayVectorSceneMarker))
+            .id();
+
+        world
+            .run_system_once(crate::hud::sync_hud_render_visibility_policy)
+            .unwrap();
+        world.run_system_once(render_hud_overlay_scene).unwrap();
+
+        assert!(
+            world
+                .get::<VelloScene2d>(overlay_scene)
+                .expect("overlay scene exists")
+                .encoding()
+                .is_empty(),
+            "selected context overlay must stay hidden while startup blocking UI is active"
+        );
+    }
+
+    #[test]
     fn selected_agent_context_renders_in_overlay_scene_not_modal_scene() {
         let mut world = World::default();
         let mut hud_state = HudState::default();
