@@ -969,7 +969,7 @@ fn format_agent_network(rx_bytes_per_sec: Option<u64>, tx_bytes_per_sec: Option<
     let tx = tx_bytes_per_sec
         .map(format_agent_metric_bytes)
         .unwrap_or_else(|| "-".into());
-    format!("↓{rx}/s ↑{tx}/s")
+    format!("rx {rx}/s tx {tx}/s")
 }
 
 fn hover_card_lines(
@@ -1323,14 +1323,14 @@ mod tests {
         assert_eq!(lines[0], "type  codex");
         assert_eq!(lines[1], "cpu   12.3%");
         assert_eq!(lines[2], "ram   64.0M");
-        assert_eq!(lines[3], "net   ↓2K/s ↑1K/s");
+        assert_eq!(lines[3], "net   rx 2K/s tx 1K/s");
     }
 
     #[test]
     fn hover_card_formatters_use_fallback_marker_when_metrics_are_missing() {
         assert_eq!(format_agent_cpu(None), "-");
         assert_eq!(format_agent_ram(None), "-");
-        assert_eq!(format_agent_network(None, None), "↓-/s ↑-/s");
+        assert_eq!(format_agent_network(None, None), "rx -/s tx -/s");
     }
 
     #[test]
