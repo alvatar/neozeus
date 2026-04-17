@@ -1,4 +1,5 @@
 use crate::{
+    app::AppPresentationMode,
     hud::{HudLayoutState, TerminalVisibilityPolicy, TerminalVisibilityState},
     visual_contract::{TerminalFrameVisualState, VisualContractState},
 };
@@ -544,7 +545,10 @@ fn build_presentation_plan(
     home_position: Vec2,
 ) -> PresentationPlan {
     let readiness = terminal_readiness_for_id(panel_id, terminal_manager, presentation_store, None);
-    if matches!(readiness, TerminalReadiness::Missing | TerminalReadiness::StartupPending) {
+    if matches!(
+        readiness,
+        TerminalReadiness::Missing | TerminalReadiness::StartupPending
+    ) {
         return PresentationPlan {
             visible: false,
             resolve_pending_presentation: false,
@@ -583,8 +587,7 @@ fn build_presentation_plan(
                 terminal,
                 presented_terminal,
                 transition.active_layout,
-            )
-                || terminal_presentable));
+            ) || terminal_presentable));
     if !active_ready {
         return PresentationPlan {
             visible: false,
@@ -714,6 +717,7 @@ pub(crate) fn sync_terminal_presentations(
     active_terminal_content: Res<ActiveTerminalContentState>,
     view_state: Res<TerminalViewState>,
     layout_state: Res<HudLayoutState>,
+    presentation_mode: Option<Res<AppPresentationMode>>,
     primary_window: Single<&Window, With<PrimaryWindow>>,
     mut last_active_id: Local<Option<TerminalId>>,
     mut last_visibility_policy: Local<Option<TerminalVisibilityPolicy>>,
@@ -727,6 +731,21 @@ pub(crate) fn sync_terminal_presentations(
         &mut Visibility,
     )>,
 ) {
+    let presentation_mode = presentation_mode
+        .as_deref()
+        .copied()
+        .unwrap_or(AppPresentationMode::Normal);
+    if presentation_mode.blocks_normal_presentation() {
+        for (_, _, _, _, mut visibility) in &mut panels {
+            *visibility = Visibility::Hidden;
+        }
+        *last_active_id = None;
+        *last_visibility_policy = None;
+        *last_active_texture_state = None;
+        *last_active_ready = false;
+        return;
+    }
+
     let transition = build_presentation_transition_context(
         &time,
         &terminal_manager,
@@ -821,6 +840,7 @@ pub(crate) fn sync_terminal_panel_frames(
     visual_contract: Res<VisualContractState>,
     terminal_manager: Res<TerminalManager>,
     presentation_store: Res<TerminalPresentationStore>,
+    presentation_mode: Option<Res<AppPresentationMode>>,
     panels: Query<
         (&TerminalPanel, &TerminalPresentation, &Visibility),
         (With<TerminalPanel>, Without<TerminalPanelFrame>),
@@ -833,6 +853,14 @@ pub(crate) fn sync_terminal_panel_frames(
     // Rebuild the derived or projected state from the authoritative resources in one pass so partial updates cannot drift.
     for (_, _, mut frame_visibility) in &mut frames {
         *frame_visibility = Visibility::Hidden;
+    }
+    if presentation_mode
+        .as_deref()
+        .copied()
+        .unwrap_or(AppPresentationMode::Normal)
+        .blocks_normal_presentation()
+    {
+        return;
     }
 
     for (panel, presentation, panel_visibility) in &panels {
@@ -878,6 +906,7 @@ pub(crate) fn sync_terminal_hud_surface(
     focus_state: Res<TerminalFocusState>,
     presentation_store: Res<TerminalPresentationStore>,
     visibility_state: Res<TerminalVisibilityState>,
+    presentation_mode: Option<Res<AppPresentationMode>>,
     panels: Query<&TerminalPresentation, With<TerminalPanel>>,
     mut hud_surface: Single<
         (&mut Transform, &mut Sprite, &mut Visibility),
@@ -886,6 +915,15 @@ pub(crate) fn sync_terminal_hud_surface(
 ) {
     // Rebuild the derived or projected state from the authoritative resources in one pass so partial updates cannot drift.
     let (transform, sprite, visibility) = &mut *hud_surface;
+    if presentation_mode
+        .as_deref()
+        .copied()
+        .unwrap_or(AppPresentationMode::Normal)
+        .blocks_normal_presentation()
+    {
+        **visibility = Visibility::Hidden;
+        return;
+    }
     let visibility_policy = effective_visibility_policy(&terminal_manager, &visibility_state);
     let Some(active_id) = focus_state.active_id() else {
         **visibility = Visibility::Hidden;

@@ -1738,6 +1738,83 @@ fn startup_loading_hides_active_terminal_until_first_real_frame_arrives() {
     assert_eq!(sprite.color, Color::WHITE);
 }
 
+#[test]
+fn startup_presentation_mode_hides_ready_active_terminal_until_startup_overlay_owns_output() {
+    let (bridge, _) = test_bridge();
+    let mut manager = TerminalManager::default();
+    let id = manager.create_terminal(bridge);
+    manager
+        .get_mut(id)
+        .expect("terminal exists")
+        .snapshot
+        .surface = Some(crate::tests::surface_with_text(8, 120, 0, "ready"));
+
+    let mut presentation_store = TerminalPresentationStore::default();
+    presentation_store.register(
+        id,
+        PresentedTerminal {
+            image: Default::default(),
+            texture_state: TerminalTextureState {
+                texture_size: UVec2::new(1200, 160),
+                cell_size: UVec2::new(DEFAULT_CELL_WIDTH_PX, DEFAULT_CELL_HEIGHT_PX),
+            },
+            desired_texture_state: TerminalTextureState {
+                texture_size: UVec2::new(1200, 160),
+                cell_size: UVec2::new(DEFAULT_CELL_WIDTH_PX, DEFAULT_CELL_HEIGHT_PX),
+            },
+            display_mode: TerminalDisplayMode::Smooth,
+            uploaded_revision: 1,
+            uploaded_active_override_revision: None,
+            uploaded_text_selection_revision: None,
+            uploaded_surface: None,
+            panel_entity: Entity::PLACEHOLDER,
+            frame_entity: Entity::PLACEHOLDER,
+        },
+    );
+
+    let mut world = World::default();
+    let mut time = Time::<()>::default();
+    time.advance_by(Duration::from_millis(16));
+    world.insert_resource(time);
+    insert_terminal_manager_resources(&mut world, manager);
+    world.insert_resource(presentation_store);
+    world.insert_resource(crate::hud::TerminalVisibilityState::default());
+    world.insert_resource(crate::terminals::ActiveTerminalContentState::default());
+    world.insert_resource(TerminalViewState::default());
+    world.insert_resource(crate::app::AppPresentationMode::StartupOverlay);
+    insert_test_hud_state(&mut world, HudState::default());
+    world.spawn((
+        Window {
+            resolution: (1400, 900).into(),
+            ..Default::default()
+        },
+        PrimaryWindow,
+    ));
+    world.spawn((
+        TerminalPanel { id },
+        TerminalPresentation {
+            home_position: Vec2::ZERO,
+            current_position: Vec2::ZERO,
+            target_position: Vec2::ZERO,
+            current_size: Vec2::ONE,
+            target_size: Vec2::ONE,
+            current_alpha: 1.0,
+            target_alpha: 1.0,
+            current_z: 0.0,
+            target_z: 0.0,
+        },
+        Transform::default(),
+        Sprite::default(),
+        Visibility::Visible,
+    ));
+
+    world.run_system_once(sync_terminal_presentations).unwrap();
+
+    let mut query = world.query::<(&TerminalPanel, &Visibility)>();
+    let (_, visibility) = query.single(&world).unwrap();
+    assert_eq!(*visibility, Visibility::Hidden);
+}
+
 /// Verifies that startup-loading does not broaden terminal visibility before any terminal is ready.
 #[test]
 fn startup_loading_does_not_override_isolate_to_show_pending_terminals() {

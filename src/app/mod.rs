@@ -4,6 +4,7 @@ mod dispatch;
 mod output;
 mod path_completion;
 mod persistence;
+mod presentation_mode;
 mod schedule;
 mod session;
 mod use_cases;
@@ -17,6 +18,7 @@ pub(crate) use persistence::{
     reconcile_persisted_agents, resolve_app_state_path, save_app_state_if_dirty,
     AppStatePersistenceState,
 };
+pub(crate) use presentation_mode::{sync_app_presentation_mode, AppPresentationMode};
 #[cfg(test)]
 pub(crate) use session::FocusIntentTarget;
 pub(crate) use session::{
@@ -25,11 +27,11 @@ pub(crate) use session::{
     VisibilityMode,
 };
 pub(crate) use use_cases::{
-    clear_composer_and_direct_input, focus_agent_without_persist,
-    focus_terminal_without_persist, open_composer, render_recovery_status_summary,
-    restore_app, select_owned_tmux, send_outbound_message, spawn_runtime_terminal_session,
-    FocusMutationContext, FocusProjectionContext, OutboundMessageSource, OwnedTmuxContext,
-    RestoreAppContext, SpawnRuntimeTerminalSessionContext, SpawnRuntimeTerminalSessionRequest,
+    clear_composer_and_direct_input, focus_agent_without_persist, focus_terminal_without_persist,
+    open_composer, render_recovery_status_summary, restore_app, select_owned_tmux,
+    send_outbound_message, spawn_runtime_terminal_session, FocusMutationContext,
+    FocusProjectionContext, OutboundMessageSource, OwnedTmuxContext, RestoreAppContext,
+    SpawnRuntimeTerminalSessionContext, SpawnRuntimeTerminalSessionRequest,
 };
 
 pub(crate) use bootstrap::build_app;

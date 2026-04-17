@@ -33,6 +33,7 @@ use super::{
     dispatch::{apply_app_commands, sync_agents_from_terminals},
     output::{finalize_final_frame_capture, request_final_frame_capture},
     session::AppSessionState,
+    sync_app_presentation_mode,
 };
 use bevy::prelude::*;
 
@@ -143,6 +144,12 @@ pub(crate) fn configure_app_schedule(app: &mut App) {
             .before(NeoZeusSet::UiInput)
             .before(NeoZeusSet::HudInput)
             .before(NeoZeusSet::PresentTerminal),
+    )
+    .add_systems(
+        Update,
+        sync_app_presentation_mode
+            .before(NeoZeusSet::PresentTerminal)
+            .before(NeoZeusSet::HudRender),
     )
     .add_systems(
         Update,

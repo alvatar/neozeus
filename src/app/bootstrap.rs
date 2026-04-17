@@ -10,9 +10,9 @@ use crate::{
     },
     hud::{
         AgentListBloomBlurMaterial, AgentListView, ComposerView, ConversationListView,
-        HudBloomSettings, HudCompositeCaptureConfig, HudLayerSurfacePlugin,
-        HudOffscreenCompositor, HudPersistenceState, HudTextureCaptureConfig, HudWidgetBloom,
-        TerminalVisibilityState, ThreadView, WindowCaptureConfig,
+        HudBloomSettings, HudCompositeCaptureConfig, HudLayerSurfacePlugin, HudOffscreenCompositor,
+        HudPersistenceState, HudTextureCaptureConfig, HudWidgetBloom, TerminalVisibilityState,
+        ThreadView, WindowCaptureConfig,
     },
     shared::linux_display::LinuxDisplayEnvironment,
     terminals::{
@@ -528,6 +528,7 @@ fn configure_app(app: &mut App) -> Result<(), String> {
         .insert_resource(crate::aegis::AegisRuntimeStore::default())
         .insert_resource(crate::aegis::AegisStatusTracker::default())
         .insert_resource(crate::visual_contract::VisualContractState::default())
+        .insert_resource(crate::app::AppPresentationMode::default())
         .insert_resource(VerificationTerminalSurfaceOverrides::default())
         .insert_resource(VerificationCaptureBarrierState::default())
         .insert_resource(AppSessionState::default())

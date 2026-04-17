@@ -1,7 +1,7 @@
 use crate::{
     app::{
-        AegisDialogField, AppSessionState, CloneAgentDialogField, CreateAgentDialogField,
-        RenameAgentDialogField, ResetDialogFocus, TextFieldState,
+        AegisDialogField, AppPresentationMode, AppSessionState, CloneAgentDialogField,
+        CreateAgentDialogField, RenameAgentDialogField, ResetDialogFocus, TextFieldState,
     },
     composer::{
         aegis_dialog_rect, aegis_enable_button_rect, clone_agent_dialog_rect,
@@ -152,6 +152,7 @@ pub(crate) fn render_hud_modal_scene(
     app_session: Res<AppSessionState>,
     composer_view: Res<ComposerView>,
     startup_connect: Option<Res<DaemonConnectionState>>,
+    presentation_mode: Option<Res<AppPresentationMode>>,
     fonts: Res<Assets<VelloFont>>,
     visibility_policy: Res<super::HudRenderVisibilityPolicy>,
     scene: Single<&mut VelloScene2d, With<HudModalVectorSceneMarker>>,
@@ -161,6 +162,7 @@ pub(crate) fn render_hud_modal_scene(
         app_session,
         composer_view,
         startup_connect,
+        presentation_mode,
         fonts,
         visibility_policy,
         scene,
@@ -366,7 +368,9 @@ mod tests {
             },
             PrimaryWindow,
         ));
-        let scene = world.spawn((VelloScene2d::default(), HudVectorSceneMarker)).id();
+        let scene = world
+            .spawn((VelloScene2d::default(), HudVectorSceneMarker))
+            .id();
 
         world.run_system_once(render_hud_scene).unwrap();
 
@@ -679,6 +683,57 @@ mod tests {
                 .encoding()
                 .is_empty(),
             "selected context should not be authored into Modal"
+        );
+    }
+
+    #[test]
+    fn startup_presentation_mode_suppresses_recovery_panel_in_modal_scene() {
+        fn modal_encoding_fingerprint(with_recovery_status: bool) -> (usize, usize, usize, usize) {
+            let mut world = World::default();
+            world.insert_resource(Assets::<VelloFont>::default());
+            world.insert_resource(crate::hud::HudRenderVisibilityPolicy::default());
+            world.insert_resource(crate::app::AppPresentationMode::StartupOverlay);
+            world.insert_resource(crate::hud::ComposerView::default());
+            let mut app_session = crate::app::AppSessionState::default();
+            if with_recovery_status {
+                app_session.recovery_status.show(
+                    crate::app::RecoveryStatusTone::Success,
+                    "done",
+                    vec!["detail".into()],
+                );
+            }
+            world.insert_resource(app_session);
+            world.insert_resource(crate::startup::DaemonConnectionState::with_phase_for_test(
+                crate::startup::StartupConnectPhase::Connecting,
+                "Connecting",
+            ));
+            world.spawn((
+                Window {
+                    resolution: (1400, 900).into(),
+                    ..default()
+                },
+                PrimaryWindow,
+            ));
+            let modal_scene = world
+                .spawn((VelloScene2d::default(), HudModalVectorSceneMarker))
+                .id();
+
+            world.run_system_once(render_hud_modal_scene).unwrap();
+            let encoding = world
+                .get::<VelloScene2d>(modal_scene)
+                .expect("modal scene exists")
+                .encoding();
+            (
+                encoding.path_tags.len(),
+                encoding.path_data.len(),
+                encoding.draw_tags.len(),
+                encoding.draw_data.len(),
+            )
+        }
+
+        assert_eq!(
+            modal_encoding_fingerprint(false),
+            modal_encoding_fingerprint(true)
         );
     }
 }

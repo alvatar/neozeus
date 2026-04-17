@@ -1,4 +1,5 @@
 use super::*;
+use crate::app::AppPresentationMode;
 
 /// Returns the drawable content rectangle inside a module shell.
 ///
@@ -189,6 +190,7 @@ pub(super) fn render_hud_modal_scene_impl(
     app_session: Res<AppSessionState>,
     composer_view: Res<ComposerView>,
     startup_connect: Option<Res<DaemonConnectionState>>,
+    presentation_mode: Option<Res<AppPresentationMode>>,
     fonts: Res<Assets<VelloFont>>,
     visibility_policy: Res<super::super::HudRenderVisibilityPolicy>,
     mut scene: Single<&mut VelloScene2d, With<HudModalVectorSceneMarker>>,
@@ -200,8 +202,18 @@ pub(super) fn render_hud_modal_scene_impl(
         return;
     }
     let mut painter = HudPainter::new(&mut built, &fonts, &primary_window, 1.0);
-    if let Some(startup_connect) = startup_connect.as_deref() {
-        draw_startup_connect_overlay(&mut painter, &primary_window, startup_connect);
+    let presentation_mode = presentation_mode
+        .as_deref()
+        .copied()
+        .unwrap_or(AppPresentationMode::Normal);
+    if presentation_mode.blocks_normal_presentation() {
+        if presentation_mode.shows_startup_overlay() {
+            if let Some(startup_connect) = startup_connect.as_deref() {
+                draw_startup_connect_overlay(&mut painter, &primary_window, startup_connect);
+            }
+        }
+        **scene = VelloScene2d::from(built);
+        return;
     }
     draw_recovery_status_panel(&mut painter, &primary_window, &app_session);
     draw_create_agent_dialog(&mut painter, &primary_window, &app_session);
