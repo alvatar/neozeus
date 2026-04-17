@@ -55,29 +55,8 @@ pub(crate) use {
     output::{resolve_output_dimension, resolve_output_mode},
 };
 
-/// Test harness that runs the `apply_app_commands` system exactly once against the given world.
 #[cfg(test)]
-pub(crate) fn run_apply_app_commands(world: &mut bevy::prelude::World) {
-    use bevy::ecs::system::RunSystemOnce;
+mod test_support;
 
-    if !world.contains_resource::<crate::hud::AgentListSelection>() {
-        world.insert_resource(crate::hud::AgentListSelection::default());
-    }
-    if !world.contains_resource::<crate::terminals::OwnedTmuxSessionStore>() {
-        world.insert_resource(crate::terminals::OwnedTmuxSessionStore::default());
-    }
-    if !world.contains_resource::<crate::terminals::ActiveTerminalContentState>() {
-        world.insert_resource(crate::terminals::ActiveTerminalContentState::default());
-    }
-    if !world.contains_resource::<crate::terminals::ActiveTerminalContentSyncState>() {
-        world.insert_resource(crate::terminals::ActiveTerminalContentSyncState::default());
-    }
-    if !world.contains_resource::<crate::aegis::AegisPolicyStore>() {
-        world.insert_resource(crate::aegis::AegisPolicyStore::default());
-    }
-    if !world.contains_resource::<crate::aegis::AegisRuntimeStore>() {
-        world.insert_resource(crate::aegis::AegisRuntimeStore::default());
-    }
-
-    world.run_system_once(dispatch::apply_app_commands).unwrap();
-}
+#[cfg(test)]
+pub(crate) use test_support::run_apply_app_commands;

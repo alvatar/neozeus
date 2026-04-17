@@ -1,3 +1,11 @@
+//! Daemon-client wire protocol: codec, request/response types, and lifecycle enum.
+//!
+//! The types and their binary encoding are versioned together as a single backward-compatible
+//! wire contract. Keeping the framing codec, the request/response structs, and the serialization
+//! helpers in one file means any wire-format change lands as a single diff the daemon, the main
+//! binary, and the `src/bin/neozeus-*` support binaries all consume. Splitting the file would
+//! fragment the version/compatibility story across three places that must stay lock-stepped.
+
 use std::io::{Read, Write};
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]

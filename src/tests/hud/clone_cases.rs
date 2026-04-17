@@ -1,4 +1,58 @@
-use super::*;
+//! Legacy test sibling rewired post-split: pulls imports + helpers via support.
+
+#![allow(unused_imports)]
+
+use super::super::{
+    ensure_shared_app_command_test_resources, fake_runtime_spawner, init_git_repo,
+    insert_default_hud_resources, insert_terminal_manager_resources, insert_test_hud_state,
+    pressed_text, snapshot_test_hud_state, temp_dir, test_bridge, write_pi_session_file,
+    FakeDaemonClient,
+};
+use crate::agents::{AgentCatalog, AgentRuntimeIndex};
+use crate::terminals::{
+    kill_active_terminal_session_and_remove as kill_active_terminal, TerminalFontState,
+    TerminalGlyphCache, TerminalManager, TerminalNotesState, TerminalPanel, TerminalPanelFrame,
+    TerminalPresentationStore, TerminalTextRenderer, TerminalViewState,
+};
+use crate::{
+    app::{
+        AgentCommand as AppAgentCommand, AppCommand, AppSessionState, AppStatePersistenceState,
+        ComposerCommand as AppComposerCommand, CreateAgentDialogField,
+        CreateAgentKind as AppCreateAgentKind, TaskCommand as AppTaskCommand, WidgetCommand,
+    },
+    app_config::DEFAULT_BG,
+    composer::{
+        clone_agent_name_field_rect, clone_agent_submit_button_rect, clone_agent_workdir_rect,
+        create_agent_name_field_rect, message_box_action_buttons, message_box_rect,
+        message_box_shortcut_button_rects, task_dialog_action_buttons,
+    },
+    hud::{
+        handle_hud_module_shortcuts, handle_hud_pointer_input, AgentListDragState,
+        AgentListUiState, AgentListView, HudDragState, HudRect, HudState, HudWidgetKey,
+        TerminalVisibilityPolicy, TerminalVisibilityState,
+    },
+};
+use bevy::{
+    ecs::system::RunSystemOnce,
+    image::Image,
+    input::{
+        keyboard::{Key, KeyboardInput},
+        mouse::MouseWheel,
+        ButtonState,
+    },
+    prelude::*,
+    window::{PrimaryWindow, RequestRedraw},
+};
+use std::{
+    fs,
+    path::PathBuf,
+    process::Command,
+    sync::{Arc, Mutex, OnceLock},
+    time::Duration,
+};
+
+
+use super::support::*;
 
 #[test]
 fn clone_agent_dialog_pointer_click_updates_focus_toggles_workdir_and_emits_command() {

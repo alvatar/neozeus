@@ -1,3 +1,12 @@
+//! Keyboard dispatch for every modal dialog (create/clone/rename agent, reset, aegis, message,
+//! task).
+//!
+//! The handlers share a single infrastructure layer — `KeyModifiers`, `ModalKeyResult`,
+//! `DialogShellAction`, `route_binding_action`, `dialog_shell_action`, `finish_dialog_change`, plus
+//! the text-field/text-editor helpers at the bottom — and each dialog handler is only 60–90 lines
+//! on top of that. Splitting one handler per file would force every new file to import the same
+//! shared helpers, without exposing any additional semantic boundary.
+
 use crate::{
     app::{
         AegisDialogField, AppCommand, AppSessionState, CloneAgentDialogField, ComposerCommand,

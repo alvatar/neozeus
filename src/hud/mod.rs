@@ -71,7 +71,15 @@ pub(crate) use view_models::{
 pub(crate) use widgets::HudWidgetKey;
 
 #[cfg(test)]
-pub(crate) use tests::*;
-
+pub(crate) use modules::{handle_pointer_click, handle_scroll};
 #[cfg(test)]
-mod tests;
+pub(in crate::hud) use state::default_hud_module_instance;
+#[cfg(test)]
+pub(crate) use state::{
+    docked_agent_list_rect, docked_agent_list_rect_with_top_inset, docked_info_bar_rect,
+    AgentListDragState, HudDragState, HudModalState, HudState,
+};
+#[cfg(test)]
+pub(crate) use view_models::{AgentListRowView, ConversationListRowView};
+#[cfg(test)]
+pub(crate) use widgets::HUD_WIDGET_DEFINITIONS as HUD_MODULE_DEFINITIONS;

@@ -1,3 +1,12 @@
+//! Agent-list row rendering.
+//!
+//! Emits all draw operations for a single row — text, bloom-source authoring segments,
+//! activity/status overlays, selection/hover borders — through one `HudPainter`. The
+//! per-row code reads the view-model row, computes the local geometry, and issues draws
+//! in layer order. Splitting the row renderer further would fragment the bloom-source
+//! authoring pass (which must stay aligned with the exact glyph rectangles emitted here)
+//! across files for no clarity gain.
+
 use crate::hud::view_models::{AgentListActivity, AgentListRowKind};
 
 use super::super::super::render::{

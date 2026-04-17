@@ -409,5 +409,176 @@ pub(crate) fn xterm_indexed_rgb(index: u8) -> Rgb {
     }
 }
 
+
 #[cfg(test)]
-mod tests;
+mod tests {
+    use super::*;
+    use crate::terminals::types::{TerminalDimensions, TerminalUnderlineStyle};
+    use alacritty_terminal::{
+        event::VoidListener,
+        index::{Column, Line, Point, Side},
+        selection::{Selection, SelectionType},
+        term::Config,
+    };
+
+    /// Builds a surface by feeding ANSI bytes through the normal Alacritty parser path.
+    fn surface_from_ansi(bytes: &[u8], cols: usize, rows: usize) -> TerminalSurface {
+        let dimensions = TerminalDimensions { cols, rows };
+        let config = Config {
+            scrolling_history: 128,
+            ..Config::default()
+        };
+        let mut terminal =
+            alacritty_terminal::term::Term::<VoidListener>::new(config, &dimensions, VoidListener);
+        let mut parser = alacritty_terminal::vte::ansi::Processor::<
+            alacritty_terminal::vte::ansi::StdSyncHandler,
+        >::new();
+        parser.advance(&mut terminal, bytes);
+        build_surface(&terminal)
+    }
+
+    fn surface_rows(surface: &TerminalSurface) -> Vec<String> {
+        (0..surface.rows)
+            .map(|y| {
+                (0..surface.cols)
+                    .map(|x| surface.cell(x, y).content.to_owned_string())
+                    .collect::<String>()
+            })
+            .collect()
+    }
+
+    /// Verifies the ANSI surface bridge preserves the text styling flags NeoZeus needs to render.
+    #[test]
+    fn build_surface_preserves_cell_style_flags() {
+        let surface = surface_from_ansi(
+            b"\x1b[1mA\x1b[0m\x1b[3mB\x1b[0m\x1b[2mC\x1b[0m\x1b[9mD\x1b[0m\x1b[4mE\x1b[0m\x1b[4:2mF\x1b[0m\x1b[4:3mG\x1b[0m\x1b[4:4mH\x1b[0m\x1b[4:5mI\x1b[0m",
+            16,
+            2,
+        );
+
+        assert!(surface.cell(0, 0).style.bold);
+        assert!(surface.cell(1, 0).style.italic);
+        assert!(surface.cell(2, 0).style.dim);
+        assert!(surface.cell(3, 0).style.strikeout);
+        assert_eq!(
+            surface.cell(4, 0).style.underline,
+            TerminalUnderlineStyle::Single
+        );
+        assert_eq!(
+            surface.cell(5, 0).style.underline,
+            TerminalUnderlineStyle::Double
+        );
+        assert_eq!(
+            surface.cell(6, 0).style.underline,
+            TerminalUnderlineStyle::Curly
+        );
+        assert_eq!(
+            surface.cell(7, 0).style.underline,
+            TerminalUnderlineStyle::Dotted
+        );
+        assert_eq!(
+            surface.cell(8, 0).style.underline,
+            TerminalUnderlineStyle::Dashed
+        );
+    }
+
+    /// Verifies the ANSI bridge preserves underline color and truecolor background data.
+    #[test]
+    fn build_surface_preserves_underline_color_and_background() {
+        let surface = surface_from_ansi(
+            b"\x1b[58:2::1:2:3m\x1b[4mX\x1b[0m\x1b[48;2;10;20;30mY\x1b[0m",
+            8,
+            2,
+        );
+
+        assert_eq!(
+            surface.cell(0, 0).style.underline_color,
+            Some(egui::Color32::from_rgb(1, 2, 3))
+        );
+        assert_eq!(
+            surface.cell(0, 0).style.underline,
+            TerminalUnderlineStyle::Single
+        );
+        assert_eq!(surface.cell(1, 0).bg, egui::Color32::from_rgb(10, 20, 30));
+    }
+
+    #[test]
+    fn surface_from_ansi_text_auto_size_preserves_multiline_rows() {
+        let surface = surface_from_ansi_text_auto_size("line one\nline two\n");
+
+        assert_eq!(surface.rows, 3);
+        assert_eq!(surface.cols, 8);
+        assert_eq!(surface.cell(0, 0).content.to_owned_string(), "l");
+        assert_eq!(surface.cell(5, 1).content.to_owned_string(), "t");
+    }
+
+    #[test]
+    fn build_surface_maps_scrollback_rows_into_viewport_coordinates() {
+        let dimensions = TerminalDimensions { cols: 4, rows: 3 };
+        let config = Config {
+            scrolling_history: 128,
+            ..Config::default()
+        };
+        let mut terminal =
+            alacritty_terminal::term::Term::<VoidListener>::new(config, &dimensions, VoidListener);
+        let mut parser = alacritty_terminal::vte::ansi::Processor::<
+            alacritty_terminal::vte::ansi::StdSyncHandler,
+        >::new();
+        parser.advance(&mut terminal, b"1\r\n2\r\n3\r\n4\r\n5\r\n6");
+
+        let before = build_surface(&terminal);
+        assert_eq!(before.display_offset, 0);
+        assert_eq!(surface_rows(&before), vec!["4   ", "5   ", "6   "]);
+
+        terminal.scroll_display(alacritty_terminal::grid::Scroll::Delta(1));
+        let after = build_surface(&terminal);
+        assert_eq!(after.display_offset, 1);
+        assert_eq!(surface_rows(&after), vec!["3   ", "4   ", "5   "]);
+    }
+
+    #[test]
+    fn build_surface_keeps_backend_selection_aligned_when_terminal_scrolls() {
+        let dimensions = TerminalDimensions { cols: 4, rows: 2 };
+        let config = Config {
+            scrolling_history: 128,
+            ..Config::default()
+        };
+        let mut terminal =
+            alacritty_terminal::term::Term::<VoidListener>::new(config, &dimensions, VoidListener);
+        terminal.grid_mut()[Line(0)][Column(0)].c = 'A';
+        terminal.grid_mut()[Line(0)][Column(1)].c = 'B';
+        terminal.grid_mut()[Line(0)][Column(2)].c = 'C';
+        terminal.grid_mut()[Line(1)][Column(0)].c = 'D';
+        terminal.grid_mut()[Line(1)][Column(1)].c = 'E';
+        terminal.grid_mut()[Line(1)][Column(2)].c = 'F';
+
+        let mut selection = Selection::new(
+            SelectionType::Simple,
+            Point::new(Line(1), Column(0)),
+            Side::Left,
+        );
+        selection.update(Point::new(Line(1), Column(2)), Side::Right);
+        terminal.selection = Some(selection);
+
+        let before = build_surface(&terminal);
+        assert!(before.cell(0, 1).selected);
+        assert!(before.cell(1, 1).selected);
+        assert!(before.cell(2, 1).selected);
+        assert_eq!(before.selected_text.as_deref(), Some("DEF"));
+
+        terminal.selection = terminal
+            .selection
+            .take()
+            .and_then(|selection| selection.rotate(&dimensions, &(Line(0)..Line(2)), 1));
+        terminal.grid_mut().scroll_up(&(Line(0)..Line(2)), 1);
+        terminal.grid_mut()[Line(1)][Column(0)].c = 'G';
+        terminal.grid_mut()[Line(1)][Column(1)].c = 'H';
+        terminal.grid_mut()[Line(1)][Column(2)].c = 'I';
+
+        let after = build_surface(&terminal);
+        assert_eq!(after.selected_text.as_deref(), Some("DEF"));
+        assert!(!after.cell(0, 1).selected);
+        assert!(after.cell(1, 0).selected);
+        assert!(after.cell(2, 0).selected);
+    }
+}

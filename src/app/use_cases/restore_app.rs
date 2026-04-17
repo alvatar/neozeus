@@ -1,3 +1,12 @@
+//! The full app-restore use case.
+//!
+//! Replays persisted agents, conversations, tasks, daemon-owned terminal sessions, focus state,
+//! and HUD layout in a single pass so the app starts up in the exact state it was shut down in.
+//! Each step needs the output of earlier steps (agents must exist before conversations attach to
+//! them; daemon sessions must be reconciled against the runtime index before focus is restored),
+//! so the end-to-end contract for "fully restored" stays in one file rather than being split
+//! across per-step files that would force the ordering rules to live in helper comments.
+
 use crate::{
     aegis::AegisPolicyStore,
     agents::{AgentCatalog, AgentKind, AgentRuntimeIndex},

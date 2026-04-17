@@ -82,7 +82,18 @@ pub(crate) use types::{
 };
 
 #[cfg(test)]
-pub(crate) use tests::*;
-
+pub(crate) use ansi_surface::build_surface;
 #[cfg(test)]
-mod tests;
+pub(crate) use daemon::AttachedDaemonSession;
+#[cfg(test)]
+pub(crate) use debug::TerminalDebugStats;
+#[cfg(test)]
+pub(crate) use mailbox::TerminalUpdateMailbox;
+#[cfg(test)]
+pub(crate) use presentation::{
+    active_terminal_cell_size, active_terminal_dimensions, active_terminal_layout,
+};
+#[cfg(test)]
+pub(crate) use presentation_state::{TerminalPanelFrame, TerminalTextureState};
+#[cfg(test)]
+pub(crate) use types::{TerminalDamage, TerminalFrameUpdate, TerminalUpdate};

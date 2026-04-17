@@ -20,11 +20,6 @@ pub struct PiSessionHeader {
     pub parent_session: Option<String>,
 }
 
-/// Resolves the root directory where Pi stores session JSONL files.
-pub fn agent_sessions_dir() -> Result<PathBuf, String> {
-    agent_sessions_dir_with(std::env::var_os("HOME").as_deref())
-}
-
 fn agent_sessions_dir_with(home: Option<&std::ffi::OsStr>) -> Result<PathBuf, String> {
     let home = home
         .map(PathBuf::from)

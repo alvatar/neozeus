@@ -1,3 +1,12 @@
+//! Top-level keyboard/mouse input dispatch.
+//!
+//! This file owns the Bevy system entry points that the plugin schedule references
+//! (`handle_keyboard_input`, `handle_terminal_lifecycle_shortcuts`, the `paste_into_*` family,
+//! mouse-wheel/selection systems) plus the small glue that routes between the `input/*`
+//! submodules. The surface is wide by necessity — every captured-input path is registered from
+//! here — but each function here is a thin dispatcher that forwards to one of the submodules
+//! below.
+
 mod clipboard_support;
 mod direct_terminal_input;
 mod keybindings;
