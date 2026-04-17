@@ -212,11 +212,6 @@ impl TerminalPresentationStore {
         self.pending_state(id).awaiting_first_frame
     }
 
-    /// Returns whether any terminal is still pending due to startup bootstrap.
-    pub(crate) fn any_startup_bootstrap_pending(&self) -> bool {
-        self.pending.values().any(|state| state.startup_bootstrap)
-    }
-
     /// Returns the uploaded texture state of the currently active terminal, if any.
     pub(crate) fn active_texture_state(
         &self,

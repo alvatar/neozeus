@@ -416,7 +416,6 @@ fn setup_scene_auto_verify_uses_shared_spawn_attach_flow_and_isolates_verifier_t
         TerminalVisibilityPolicy::Isolate(terminal_id)
     );
     let presentation_store = world.resource::<crate::terminals::TerminalPresentationStore>();
-    assert!(presentation_store.any_startup_bootstrap_pending());
     assert!(presentation_store.is_startup_bootstrap_pending(terminal_id));
     assert_eq!(
         world.resource::<DaemonConnectionState>().phase(),

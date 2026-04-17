@@ -38,6 +38,15 @@ impl HudRenderVisibilityPolicy {
             modal_visible: true,
         }
     }
+
+    /// Returns whether one HUD layer may be presented in the final compositor output.
+    pub(crate) fn layer_visible(self, layer: crate::hud::HudLayerId) -> bool {
+        match layer {
+            crate::hud::HudLayerId::Main => self.main_visible,
+            crate::hud::HudLayerId::Overlay => self.overlay_visible,
+            crate::hud::HudLayerId::Modal => self.modal_visible,
+        }
+    }
 }
 
 /// Refreshes the derived HUD visibility policy from authoritative state.

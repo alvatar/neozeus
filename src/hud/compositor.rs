@@ -11,7 +11,7 @@ use bevy::{
 };
 use bevy_vello::render::VelloCanvasMaterial;
 
-use super::{HudLayerId, HudLayerRegistry};
+use super::{HudLayerId, HudLayerRegistry, HudRenderVisibilityPolicy};
 
 #[cfg(test)]
 pub(crate) const HUD_COMPOSITE_RENDER_LAYER: usize = 28;
@@ -164,6 +164,7 @@ type HudCompositeQuadQueryItem<'a> = (
 pub(crate) fn sync_hud_offscreen_compositor(
     compositor: Res<HudOffscreenCompositor>,
     registry: Res<HudLayerRegistry>,
+    visibility_policy: Res<HudRenderVisibilityPolicy>,
     images: Res<Assets<Image>>,
     mut vello_materials: ResMut<Assets<VelloCanvasMaterial>>,
     mut quads: Query<HudCompositeQuadQueryItem<'_>>,
@@ -178,8 +179,9 @@ pub(crate) fn sync_hud_offscreen_compositor(
             continue;
         }
 
+        let layer_id = marker.id.hud_layer_id();
         let Some(surface_image) = registry
-            .layer(marker.id.hud_layer_id())
+            .layer(layer_id)
             .and_then(|runtime| runtime.surface_image.clone())
         else {
             *visibility = Visibility::Hidden;
@@ -189,7 +191,9 @@ pub(crate) fn sync_hud_offscreen_compositor(
         if let Some(material) = vello_materials.get_mut(material_handle.id()) {
             material.texture = surface_image.clone();
         }
-        *visibility = if images.get(surface_image.id()).is_some() {
+        *visibility = if visibility_policy.layer_visible(layer_id)
+            && images.get(surface_image.id()).is_some()
+        {
             Visibility::Visible
         } else {
             Visibility::Hidden
