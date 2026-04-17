@@ -217,6 +217,7 @@ pub(crate) const PRIMARY_KEYBINDINGS: &[KeybindingSpec] = &[
     plain_letter(KeybindingAction::ToggleAegis, KeyCode::KeyA),
     plain_letter(KeybindingAction::ConsumeNextTask, KeyCode::KeyN),
     plain_letter(KeybindingAction::TogglePaused, KeyCode::KeyP),
+    ctrl(KeybindingAction::ToggleDirectInput, KeyCode::Enter),
     plain_letter(KeybindingAction::ToggleAgentContext, KeyCode::KeyI),
     ctrl(KeybindingAction::ClearDoneTasks, KeyCode::KeyT),
     ctrl(KeybindingAction::ScrollPageDown, KeyCode::KeyV),
@@ -476,6 +477,7 @@ mod tests {
             .map(|binding| binding.chord)
             .collect::<Vec<_>>();
         assert!(chords.contains(&chord(KeyCode::KeyP, false, false, Some(false), false)));
+        assert!(chords.contains(&chord(KeyCode::Enter, true, false, None, false)));
         assert!(chords.contains(&chord(KeyCode::KeyK, true, false, None, false)));
         assert!(chords.contains(&chord(KeyCode::KeyR, true, true, None, false)));
     }

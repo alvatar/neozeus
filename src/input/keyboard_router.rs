@@ -308,8 +308,16 @@ fn handle_primary_route(ctx: &mut KeyboardInputContext<'_, '_>) {
                 ctx.app_commands
                     .write(AppCommand::Widget(WidgetCommand::Reset(widget_id)));
             }
-            KeybindingAction::ToggleDirectInput
-            | KeybindingAction::DirectInputScrollToBottom
+            KeybindingAction::ToggleDirectInput => {
+                if let Some(target) = active_terminal {
+                    let _ = ctx.input_capture.toggle_direct_terminal_input(
+                        &mut ctx.app_session.composer,
+                        target.terminal_id,
+                    );
+                    ctx.redraws.write(RequestRedraw);
+                }
+            }
+            KeybindingAction::DirectInputScrollToBottom
             | KeybindingAction::DialogEscape
             | KeybindingAction::DialogTabForward
             | KeybindingAction::DialogTabBackward

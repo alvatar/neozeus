@@ -2385,6 +2385,32 @@ fn ctrl_enter_toggles_direct_input_mode_for_active_terminal() {
     assert_eq!(world.resource::<Messages<RequestRedraw>>().len(), 2);
 }
 
+/// Verifies that the real scheduled keyboard pipeline also opens and closes direct input with
+/// `Ctrl+Enter` instead of dropping the shortcut in the primary route.
+#[test]
+fn ctrl_enter_toggles_direct_input_mode_in_full_keyboard_pipeline() {
+    let (mut world, terminal_id) =
+        world_with_active_terminal(Vec2::new(10.0, 10.0), false, Vec2::ZERO);
+    world.init_resource::<Messages<RequestRedraw>>();
+    let mut keys = ButtonInput::<KeyCode>::default();
+    keys.press(KeyCode::ControlLeft);
+    world.insert_resource(keys);
+
+    dispatch_key_through_real_keyboard_pipeline(&mut world, pressed_key(KeyCode::Enter, Key::Enter));
+
+    let hud_state = snapshot_test_hud_state(&world);
+    assert_eq!(hud_state.direct_input_terminal, Some(terminal_id));
+    assert!(!hud_state.message_box.visible);
+    assert_eq!(world.resource::<Messages<RequestRedraw>>().len(), 1);
+
+    dispatch_key_through_real_keyboard_pipeline(&mut world, pressed_key(KeyCode::Enter, Key::Enter));
+
+    let hud_state = snapshot_test_hud_state(&world);
+    assert_eq!(hud_state.direct_input_terminal, None);
+    assert!(!hud_state.message_box.visible);
+    assert_eq!(world.resource::<Messages<RequestRedraw>>().len(), 2);
+}
+
 /// Verifies that direct-input mode forwards key events to the terminal bridge instead of opening the
 /// message box.
 #[test]
