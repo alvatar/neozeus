@@ -1410,8 +1410,8 @@ fn direct_input_mode_shows_orange_terminal_frame() {
     let frames = query.iter(&world).collect::<Vec<_>>();
     assert_eq!(frames.len(), 1);
     assert_eq!(*frames[0].3, Visibility::Visible);
-    assert_eq!(frames[0].1.translation, Vec3::new(30.0, -20.0, 0.48));
-    assert_eq!(frames[0].2.custom_size, Some(Vec2::new(332.0, 192.0)));
+    assert_eq!(frames[0].1.translation, Vec3::new(30.0, -20.0, 0.52));
+    assert_eq!(frames[0].2.custom_size, Some(Vec2::new(320.0, 180.0)));
     assert_eq!(frames[0].2.color, Color::srgba(1.0, 0.48, 0.08, 0.96));
 }
 
@@ -1594,8 +1594,8 @@ fn direct_input_mode_keeps_orange_frame_when_terminal_is_working() {
     let frames = query.iter(&world).collect::<Vec<_>>();
     assert_eq!(frames.len(), 1);
     assert_eq!(*frames[0].3, Visibility::Visible);
-    assert_eq!(frames[0].1.translation, Vec3::new(30.0, -20.0, 0.48));
-    assert_eq!(frames[0].2.custom_size, Some(Vec2::new(332.0, 192.0)));
+    assert_eq!(frames[0].1.translation, Vec3::new(30.0, -20.0, 0.52));
+    assert_eq!(frames[0].2.custom_size, Some(Vec2::new(320.0, 180.0)));
     assert_eq!(frames[0].2.color, Color::srgba(1.0, 0.48, 0.08, 0.96));
 }
 
@@ -1664,8 +1664,8 @@ fn disconnected_terminal_shows_red_status_frame() {
     let frames = query.iter(&world).collect::<Vec<_>>();
     assert_eq!(frames.len(), 1);
     assert_eq!(*frames[0].3, Visibility::Visible);
-    assert_eq!(frames[0].1.translation, Vec3::new(10.0, 15.0, 0.48));
-    assert_eq!(frames[0].2.custom_size, Some(Vec2::new(308.0, 168.0)));
+    assert_eq!(frames[0].1.translation, Vec3::new(10.0, 15.0, 0.52));
+    assert_eq!(frames[0].2.custom_size, Some(Vec2::new(300.0, 160.0)));
     assert_eq!(frames[0].2.color, Color::srgba(0.86, 0.20, 0.20, 0.92));
 }
 

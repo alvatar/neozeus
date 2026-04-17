@@ -18,11 +18,18 @@ use super::{
     runtime::TerminalRuntimeSpawner,
     types::TerminalDimensions,
 };
-use bevy::{prelude::*, window::PrimaryWindow};
+use bevy::{
+    asset::RenderAssetUsages,
+    image::ImageSampler,
+    prelude::*,
+    render::render_resource::{Extent3d, TextureDimension, TextureFormat},
+    sprite::{BorderRect, SliceScaleMode, SpriteImageMode, TextureSlicer},
+    window::PrimaryWindow,
+};
 
 const HUD_FRAME_PADDING: Vec2 = Vec2::ZERO;
-const DIRECT_INPUT_FRAME_OUTSET: f32 = 6.0;
-const INACTIVE_RUNTIME_FRAME_OUTSET: f32 = 4.0;
+const TERMINAL_FRAME_Z_OFFSET: f32 = 0.02;
+const TERMINAL_FRAME_BORDER_PX: u32 = 1;
 const STARTUP_PLACEHOLDER_COLS: u32 = 120;
 const STARTUP_PLACEHOLDER_ROWS: u32 = 38;
 
@@ -75,14 +82,21 @@ fn spawn_terminal_presentation(
     let frame_entity = commands
         .spawn((
             Sprite {
-                color: Color::srgba(0.08, 0.08, 0.09, 0.94),
+                image: images.add(create_terminal_frame_image()),
+                image_mode: SpriteImageMode::Sliced(TextureSlicer {
+                    border: BorderRect::all(TERMINAL_FRAME_BORDER_PX as f32),
+                    center_scale_mode: SliceScaleMode::Stretch,
+                    sides_scale_mode: SliceScaleMode::Stretch,
+                    ..default()
+                }),
+                color: Color::WHITE,
                 custom_size: Some(Vec2::ONE),
                 ..default()
             },
             Transform::from_xyz(
                 home_position.x,
                 home_position.y,
-                presentation.current_z - 0.01,
+                presentation.current_z + TERMINAL_FRAME_Z_OFFSET,
             ),
             TerminalPanelFrame { id },
         ))
@@ -800,26 +814,40 @@ pub(crate) fn sync_terminal_presentations(
     *last_active_ready = transition.active_ready;
 }
 
-fn terminal_frame_style(state: TerminalFrameVisualState) -> Option<(f32, Color)> {
+fn terminal_frame_style(state: TerminalFrameVisualState) -> Option<Color> {
     match state {
         TerminalFrameVisualState::Hidden => None,
-        TerminalFrameVisualState::DirectInput => Some((
-            DIRECT_INPUT_FRAME_OUTSET,
-            Color::srgba(1.0, 0.48, 0.08, 0.96),
-        )),
-        TerminalFrameVisualState::Exited => Some((
-            INACTIVE_RUNTIME_FRAME_OUTSET,
-            Color::srgba(0.90, 0.72, 0.18, 0.92),
-        )),
-        TerminalFrameVisualState::Disconnected => Some((
-            INACTIVE_RUNTIME_FRAME_OUTSET,
-            Color::srgba(0.86, 0.20, 0.20, 0.92),
-        )),
-        TerminalFrameVisualState::Failed => Some((
-            INACTIVE_RUNTIME_FRAME_OUTSET,
-            Color::srgba(0.96, 0.10, 0.10, 0.94),
-        )),
+        TerminalFrameVisualState::DirectInput => Some(Color::srgba(1.0, 0.48, 0.08, 0.96)),
+        TerminalFrameVisualState::Exited => Some(Color::srgba(0.90, 0.72, 0.18, 0.92)),
+        TerminalFrameVisualState::Disconnected => Some(Color::srgba(0.86, 0.20, 0.20, 0.92)),
+        TerminalFrameVisualState::Failed => Some(Color::srgba(0.96, 0.10, 0.10, 0.94)),
     }
+}
+
+fn create_terminal_frame_image() -> Image {
+    let mut image = Image::new_fill(
+        Extent3d {
+            width: 3,
+            height: 3,
+            depth_or_array_layers: 1,
+        },
+        TextureDimension::D2,
+        &[
+            255, 255, 255, 255,
+            255, 255, 255, 255,
+            255, 255, 255, 255,
+            255, 255, 255, 255,
+              0,   0,   0,   0,
+            255, 255, 255, 255,
+            255, 255, 255, 255,
+            255, 255, 255, 255,
+            255, 255, 255, 255,
+        ],
+        TextureFormat::Rgba8UnormSrgb,
+        RenderAssetUsages::default(),
+    );
+    image.sampler = ImageSampler::nearest();
+    image
 }
 
 #[allow(
@@ -873,19 +901,16 @@ pub(crate) fn sync_terminal_panel_frames(
             continue;
         };
 
-        let Some((outset, color)) =
-            terminal_frame_style(visual_contract.frame_for_terminal(panel.id))
-        else {
+        let Some(color) = terminal_frame_style(visual_contract.frame_for_terminal(panel.id)) else {
             continue;
         };
 
         *visibility = Visibility::Visible;
-        sprite.custom_size =
-            Some((presentation.current_size + Vec2::splat(outset * 2.0)).max(Vec2::ONE));
+        sprite.custom_size = Some(presentation.current_size.max(Vec2::splat(2.0)));
         sprite.color = color;
         transform.translation = presentation
             .current_position
-            .extend(presentation.current_z - 0.02);
+            .extend(presentation.current_z + TERMINAL_FRAME_Z_OFFSET);
         transform.rotation = Quat::IDENTITY;
         transform.scale = Vec3::ONE;
     }
