@@ -47,6 +47,8 @@ pub(crate) enum VerificationScenario {
     TaskDialogBloom,
     AgentListBloom,
     AgentContextBloom,
+    OwnedTmuxOrphanSelection,
+    OwnedTmuxLiveSelection,
     WorkingStateIdle,
     WorkingStateWorking,
     InspectSwitchLatency,
@@ -69,6 +71,12 @@ fn resolve_verification_scenario(raw: Option<&str>) -> Option<VerificationScenar
         }
         Some(value) if value.eq_ignore_ascii_case("agent-context-bloom") => {
             Some(VerificationScenario::AgentContextBloom)
+        }
+        Some(value) if value.eq_ignore_ascii_case("owned-tmux-orphan-selection") => {
+            Some(VerificationScenario::OwnedTmuxOrphanSelection)
+        }
+        Some(value) if value.eq_ignore_ascii_case("owned-tmux-live-selection") => {
+            Some(VerificationScenario::OwnedTmuxLiveSelection)
         }
         Some(value) if value.eq_ignore_ascii_case("working-state-idle") => {
             Some(VerificationScenario::WorkingStateIdle)
@@ -268,6 +276,8 @@ fn verification_agent_kind(scenario: VerificationScenario) -> AgentKind {
         | VerificationScenario::TaskDialogBloom
         | VerificationScenario::AgentListBloom
         | VerificationScenario::AgentContextBloom
+        | VerificationScenario::OwnedTmuxOrphanSelection
+        | VerificationScenario::OwnedTmuxLiveSelection
         | VerificationScenario::InspectSwitchLatency => AgentKind::Verifier,
     }
 }
@@ -295,6 +305,28 @@ fn focus_verification_agent_for_terminal(
     };
     focus_agent_without_persist(agent_id, VisibilityMode::FocusedOnly, &mut focus_ctx);
     Some(agent_id)
+}
+
+fn focus_verification_owned_tmux(
+    ctx: &mut VerificationScenarioContext,
+    session_uid: &str,
+) {
+    let mut owned_tmux_ctx = crate::app::OwnedTmuxContext {
+        app_session: &mut ctx.app_session,
+        selection: &mut ctx.selection,
+        agent_catalog: &ctx.agent_catalog,
+        runtime_index: &ctx.runtime_index,
+        terminal_manager: &mut ctx.terminal_manager,
+        focus_state: &mut ctx.focus_state,
+        input_capture: &mut ctx.input_capture,
+        view_state: &mut ctx.view_state,
+        visibility_state: &mut ctx.visibility_state,
+        runtime_spawner: &ctx.runtime_spawner,
+        owned_tmux_sessions: &mut ctx.owned_tmux_sessions,
+        active_terminal_content: &mut ctx.active_terminal_content,
+        redraws: &mut ctx.redraws,
+    };
+    crate::app::select_owned_tmux(session_uid, &mut owned_tmux_ctx);
 }
 
 fn clear_verification_ui(ctx: &mut VerificationScenarioContext) {
@@ -343,7 +375,7 @@ struct VerificationScenarioContext<'w> {
     agent_list_state: ResMut<'w, crate::hud::AgentListUiState>,
     agent_catalog: ResMut<'w, AgentCatalog>,
     runtime_index: ResMut<'w, AgentRuntimeIndex>,
-    owned_tmux_sessions: Res<'w, crate::terminals::OwnedTmuxSessionStore>,
+    owned_tmux_sessions: ResMut<'w, crate::terminals::OwnedTmuxSessionStore>,
     active_terminal_content: ResMut<'w, crate::terminals::ActiveTerminalContentState>,
     app_session: ResMut<'w, AppSessionState>,
     selection: ResMut<'w, AgentListSelection>,
@@ -382,6 +414,7 @@ fn verification_capture_ready(
     selection: &AgentListSelection,
     agent_list: &AgentListView,
     agent_list_state: &crate::hud::AgentListUiState,
+    active_terminal_content: &crate::terminals::ActiveTerminalContentState,
     focus_state: &TerminalFocusState,
     runtime_index: &AgentRuntimeIndex,
     terminal_manager: &TerminalManager,
@@ -427,6 +460,28 @@ fn verification_capture_ready(
                 && selected_agent_row_is_focused(selection, agent_list)
                 && agent_list_state.show_selected_context
         }
+        VerificationScenario::OwnedTmuxOrphanSelection => {
+            !matches!(selection, AgentListSelection::OwnedTmux(_))
+                && active_terminal_content.selected_owned_tmux_session_uid().is_none()
+                && agent_list
+                    .rows
+                    .iter()
+                    .all(|row| !matches!(row.key, crate::hud::AgentListRowKey::OwnedTmux(_)))
+        }
+        VerificationScenario::OwnedTmuxLiveSelection => {
+            focus_state.active_id().is_some_and(|terminal_id| {
+                terminal_readiness_for_id(
+                    terminal_id,
+                    terminal_manager,
+                    presentation_store,
+                    active_terminal_content.presentation_override_revision_for(terminal_id),
+                )
+                .is_ready_for_capture()
+            }) && matches!(selection, AgentListSelection::OwnedTmux(_))
+                && agent_list.rows.iter().any(|row| row.focused
+                    && matches!(row.key, crate::hud::AgentListRowKey::OwnedTmux(_)))
+                && active_terminal_content.last_error().is_none()
+        }
         VerificationScenario::WorkingStateIdle => {
             active_terminal_matches(VisualAgentActivity::Idle)
         }
@@ -447,6 +502,7 @@ pub(crate) fn sync_verification_capture_barrier(
     selection: Res<AgentListSelection>,
     agent_list: Res<AgentListView>,
     agent_list_state: Res<crate::hud::AgentListUiState>,
+    active_terminal_content: Res<crate::terminals::ActiveTerminalContentState>,
     focus_state: Res<TerminalFocusState>,
     runtime_index: Res<AgentRuntimeIndex>,
     terminal_manager: Res<TerminalManager>,
@@ -464,6 +520,7 @@ pub(crate) fn sync_verification_capture_barrier(
                     &selection,
                     &agent_list,
                     &agent_list_state,
+                    &active_terminal_content,
                     &focus_state,
                     &runtime_index,
                     &terminal_manager,
@@ -607,6 +664,52 @@ pub(crate) fn run_verification_scenario(world: &mut World) {
             let _ = focus_verification_agent_for_terminal(&mut ctx, terminal_id);
             clear_verification_ui(&mut ctx);
             ctx.agent_list_state.show_selected_context = true;
+        }
+        VerificationScenario::OwnedTmuxOrphanSelection => {
+            let terminal_id = config.terminal_ids[0];
+            let _ = focus_verification_agent_for_terminal(&mut ctx, terminal_id);
+            clear_verification_ui(&mut ctx);
+            seed_terminal_surface(
+                &mut ctx.verification_overrides,
+                terminal_id,
+                "OWNER",
+                egui::Color32::from_rgb(132, 56, 44),
+            );
+            let _ = ctx
+                .owned_tmux_sessions
+                .replace_sessions(vec![crate::terminals::OwnedTmuxSessionInfo {
+                    session_uid: "verify-owned-orphan".into(),
+                    owner_agent_uid: "missing-agent".into(),
+                    tmux_name: "verify-owned-orphan".into(),
+                    display_name: "B-1".into(),
+                    cwd: "/tmp/b1".into(),
+                    attached: false,
+                    created_unix: 0,
+                }]);
+            focus_verification_owned_tmux(&mut ctx, "verify-owned-orphan");
+        }
+        VerificationScenario::OwnedTmuxLiveSelection => {
+            let terminal_id = config.terminal_ids[0];
+            if let Some(agent_id) = focus_verification_agent_for_terminal(&mut ctx, terminal_id) {
+                clear_verification_ui(&mut ctx);
+                let Some(owner_agent_uid) = ctx.agent_catalog.uid(agent_id).map(str::to_owned) else {
+                    finish!();
+                };
+                let session = match ctx.runtime_spawner.create_owned_tmux_session(
+                    &owner_agent_uid,
+                    "B-1",
+                    None,
+                    "printf \"TMUX VERIFY\\nTMUX VERIFY\\n\"",
+                ) {
+                    Ok(session) => session,
+                    Err(error) => {
+                        append_debug_log(format!("verification live tmux create failed: {error}"));
+                        finish!();
+                    }
+                };
+                let _ = ctx.owned_tmux_sessions.replace_sessions(vec![session.clone()]);
+                focus_verification_owned_tmux(&mut ctx, &session.session_uid);
+            }
         }
         VerificationScenario::WorkingStateIdle | VerificationScenario::WorkingStateWorking => {
             let terminal_id = config.terminal_ids[0];

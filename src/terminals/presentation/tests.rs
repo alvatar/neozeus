@@ -119,6 +119,9 @@ fn test_bridge() -> (TerminalBridge, Arc<TerminalUpdateMailbox>) {
 fn insert_terminal_manager_resources(world: &mut World, terminal_manager: TerminalManager) {
     world.insert_resource(terminal_manager.clone_focus_state());
     world.insert_resource(terminal_manager);
+    if !world.contains_resource::<crate::terminals::ActiveTerminalContentState>() {
+        world.insert_resource(crate::terminals::ActiveTerminalContentState::default());
+    }
 }
 
 /// App-level wrapper around [`insert_terminal_manager_resources`].
@@ -222,6 +225,7 @@ fn build_presentation_plan_hides_non_active_panels_when_another_panel_is_active(
         );
     }
 
+    let active_terminal_content = crate::terminals::ActiveTerminalContentState::default();
     let plan = build_presentation_plan(
         other_id,
         terminal_manager.get(other_id).unwrap(),
@@ -244,6 +248,7 @@ fn build_presentation_plan_hides_non_active_panels_when_another_panel_is_active(
         },
         &terminal_manager,
         &presentation_store,
+        &active_terminal_content,
         &view_state,
         &layout_state,
         &window,
@@ -298,6 +303,7 @@ fn build_presentation_plan_hides_active_startup_pending_terminal_until_ready() {
     );
     presentation_store.mark_startup_bootstrap_pending(active_id);
 
+    let active_terminal_content = crate::terminals::ActiveTerminalContentState::default();
     let plan = build_presentation_plan(
         active_id,
         terminal_manager.get(active_id).unwrap(),
@@ -320,6 +326,7 @@ fn build_presentation_plan_hides_active_startup_pending_terminal_until_ready() {
         },
         &terminal_manager,
         &presentation_store,
+        &active_terminal_content,
         &view_state,
         &layout_state,
         &window,
@@ -2032,6 +2039,98 @@ fn active_terminal_reappears_snapped_after_becoming_ready_for_new_layout() {
     assert_eq!(*visibility, Visibility::Visible);
     assert_eq!(presentation.current_size, expected_size);
     assert_eq!(presentation.target_size, expected_size);
+}
+
+/// Verifies that selecting an owned tmux child does not expose the owner's stale terminal frame
+/// before the tmux override itself has been uploaded.
+#[test]
+fn selected_tmux_child_hides_owner_panel_until_override_surface_is_ready() {
+    let (bridge, _) = test_bridge();
+    let mut manager = TerminalManager::default();
+    let id = manager.create_terminal(bridge);
+
+    let window = Window {
+        resolution: (1400, 900).into(),
+        ..Default::default()
+    };
+    let hud_state = crate::hud::HudState::default();
+    let view_state = TerminalViewState::default();
+    let font_state = TerminalFontState::default();
+    let active_layout =
+        active_terminal_layout(&window, &hud_state.layout_state(), &view_state, &font_state);
+
+    manager.get_mut(id).unwrap().snapshot.surface = Some(TerminalSurface::new(
+        active_layout.0.cols,
+        active_layout.0.rows,
+    ));
+    manager.get_mut(id).unwrap().surface_revision = 1;
+
+    let mut presentation_store = TerminalPresentationStore::default();
+    presentation_store.register(
+        id,
+        PresentedTerminal {
+            image: Default::default(),
+            texture_state: TerminalTextureState {
+                texture_size: active_layout.1.texture_size,
+                cell_size: active_layout.1.cell_size,
+            },
+            desired_texture_state: TerminalTextureState {
+                texture_size: active_layout.1.texture_size,
+                cell_size: active_layout.1.cell_size,
+            },
+            display_mode: TerminalDisplayMode::Smooth,
+            uploaded_revision: 1,
+            uploaded_active_override_revision: None,
+            uploaded_text_selection_revision: None,
+            uploaded_surface: None,
+            panel_entity: Entity::PLACEHOLDER,
+            frame_entity: Entity::PLACEHOLDER,
+        },
+    );
+
+    let mut active_terminal_content = crate::terminals::ActiveTerminalContentState::default();
+    active_terminal_content.select_owned_tmux("tmux-session-1".into(), Some(id));
+
+    let mut world = World::default();
+    let mut time = Time::<()>::default();
+    time.advance_by(Duration::from_millis(16));
+    world.insert_resource(time);
+    insert_terminal_manager_resources(&mut world, manager);
+    world.insert_resource(presentation_store);
+    world.insert_resource(crate::hud::TerminalVisibilityState::default());
+    world.insert_resource(active_terminal_content);
+    world.insert_resource(view_state);
+    insert_test_hud_state(&mut world, hud_state);
+    world.spawn((window, PrimaryWindow));
+    world.spawn((
+        TerminalPanel { id },
+        TerminalPresentation {
+            home_position: Vec2::ZERO,
+            current_position: Vec2::ZERO,
+            target_position: Vec2::ZERO,
+            current_size: Vec2::ONE,
+            target_size: Vec2::ONE,
+            current_alpha: 1.0,
+            target_alpha: 1.0,
+            current_z: 0.0,
+            target_z: 0.0,
+        },
+        Transform::default(),
+        Sprite::default(),
+        Visibility::Visible,
+    ));
+
+    world.run_system_once(sync_terminal_presentations).unwrap();
+
+    let mut query = world.query::<(&TerminalPanel, &Visibility)>();
+    let vis = query.iter(&world).collect::<Vec<_>>();
+    assert_eq!(vis.len(), 1);
+    assert_eq!(vis[0].0.id, id);
+    assert_eq!(
+        *vis[0].1,
+        Visibility::Hidden,
+        "owner terminal frame must stay hidden until the selected tmux content is actually ready"
+    );
 }
 
 /// Verifies that an active terminal presentation becomes visible as soon as its uploaded texture

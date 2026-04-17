@@ -32,20 +32,24 @@ pub(crate) fn select_owned_tmux(session_uid: &str, ctx: &mut OwnedTmuxContext<'_
     if ctx.owned_tmux_sessions.session(session_uid).is_none() {
         let _ = refresh_owned_tmux_sessions_now(ctx.runtime_spawner, ctx.owned_tmux_sessions);
     }
+    let preview_ctx = super::FocusProjectionContext {
+        agent_catalog: ctx.agent_catalog,
+        runtime_index: ctx.runtime_index,
+        owned_tmux_sessions: ctx.owned_tmux_sessions,
+        selection: ctx.selection,
+        active_terminal_content: ctx.active_terminal_content,
+        terminal_manager: ctx.terminal_manager,
+        focus_state: ctx.focus_state,
+        input_capture: ctx.input_capture,
+        view_state: ctx.view_state,
+        visibility_state: ctx.visibility_state,
+    };
+    if super::focus_agent::resolve_owned_tmux_owner_terminal_id(&preview_ctx, session_uid).is_none() {
+        return;
+    }
     let mut focus_ctx = super::FocusMutationContext {
         session: ctx.app_session,
-        projection: super::FocusProjectionContext {
-            agent_catalog: ctx.agent_catalog,
-            runtime_index: ctx.runtime_index,
-            owned_tmux_sessions: ctx.owned_tmux_sessions,
-            selection: ctx.selection,
-            active_terminal_content: ctx.active_terminal_content,
-            terminal_manager: ctx.terminal_manager,
-            focus_state: ctx.focus_state,
-            input_capture: ctx.input_capture,
-            view_state: ctx.view_state,
-            visibility_state: ctx.visibility_state,
-        },
+        projection: preview_ctx,
         redraws: ctx.redraws,
     };
     focus_owned_tmux_without_persist(session_uid, &mut focus_ctx);

@@ -10,6 +10,7 @@ const OWNED_TMUX_CAPTURE_LINES: usize = 200;
 #[derive(Resource, Default, Clone, Debug, PartialEq)]
 pub(crate) struct ActiveTerminalContentSyncState {
     last_sync_secs: Option<f32>,
+    last_session_uid: Option<String>,
 }
 
 /// Holds the currently selected terminal-content override for the active terminal panel.
@@ -154,16 +155,20 @@ pub(crate) fn sync_active_terminal_content(
     mut redraws: MessageWriter<bevy::window::RequestRedraw>,
 ) {
     let Some(session_uid) = active_content.selected_owned_tmux_session_uid.clone() else {
+        sync_state.last_session_uid = None;
         return;
     };
     let now_secs = time.elapsed_secs();
-    if sync_state
-        .last_sync_secs
-        .is_some_and(|last_sync_secs| now_secs - last_sync_secs < ACTIVE_TMUX_SYNC_INTERVAL_SECS)
+    let selection_changed = sync_state.last_session_uid.as_deref() != Some(session_uid.as_str());
+    if !selection_changed
+        && sync_state
+            .last_sync_secs
+            .is_some_and(|last_sync_secs| now_secs - last_sync_secs < ACTIVE_TMUX_SYNC_INTERVAL_SECS)
     {
         return;
     }
     sync_state.last_sync_secs = Some(now_secs);
+    sync_state.last_session_uid = Some(session_uid.clone());
 
     if !session_store
         .sessions

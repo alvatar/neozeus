@@ -47,11 +47,16 @@ neozeus_offscreen_prepare_env() {
     export ENV="/dev/null"
     export NEOZEUS_DAEMON_SOCKET_PATH="$NEOZEUS_OFFSCREEN_ROOT/daemon.sock"
     export NEOZEUS_DEBUG_LOG_PATH="$NEOZEUS_OFFSCREEN_ROOT/debug.log"
-    mkdir -p "$HOME" "$XDG_CONFIG_HOME" "$XDG_STATE_HOME" "$XDG_CACHE_HOME" "$ZDOTDIR" "$KITTY_CONFIG_DIRECTORY"
+    export TMUX_TMPDIR="$NEOZEUS_OFFSCREEN_ROOT/tmux"
+    unset TMUX
+    mkdir -p "$HOME" "$XDG_CONFIG_HOME" "$XDG_STATE_HOME" "$XDG_CACHE_HOME" "$ZDOTDIR" "$KITTY_CONFIG_DIRECTORY" "$TMUX_TMPDIR"
     : >"$ZSHENV"
 }
 
 neozeus_offscreen_cleanup_env() {
+    if [[ -n "${TMUX_TMPDIR:-}" ]] && command -v tmux >/dev/null 2>&1; then
+        TMUX_TMPDIR="$TMUX_TMPDIR" tmux kill-server >/dev/null 2>&1 || true
+    fi
     if [[ -n "${NEOZEUS_OFFSCREEN_ROOT:-}" && -d "${NEOZEUS_OFFSCREEN_ROOT:-}" ]]; then
         rm -rf "$NEOZEUS_OFFSCREEN_ROOT"
     fi
@@ -99,6 +104,7 @@ neozeus_offscreen_run_capture() {
         BASH_ENV="$BASH_ENV" \
         ENV="$ENV" \
         BEVY_ASSET_ROOT="$root_dir" \
+        TMUX_TMPDIR="$TMUX_TMPDIR" \
         NEOZEUS_DAEMON_SOCKET_PATH="$NEOZEUS_DAEMON_SOCKET_PATH" \
         NEOZEUS_OUTPUT_MODE=offscreen \
         NEOZEUS_OFFSCREEN_WIDTH="$width" \

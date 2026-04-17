@@ -42,6 +42,16 @@ fn terminal_visibility_policy(
     }
 }
 
+pub(super) fn resolve_owned_tmux_owner_terminal_id(
+    ctx: &FocusProjectionContext<'_>,
+    session_uid: &str,
+) -> Option<crate::terminals::TerminalId> {
+    ctx.owned_tmux_sessions
+        .session(session_uid)
+        .and_then(|owned_tmux| ctx.agent_catalog.find_by_uid(&owned_tmux.owner_agent_uid))
+        .and_then(|agent_id| ctx.runtime_index.primary_terminal(agent_id))
+}
+
 fn reconcile_focus_intent(session: &mut AppSessionState, ctx: &FocusProjectionContext<'_>) {
     match &session.focus_intent.target {
         FocusIntentTarget::None => {}
@@ -56,7 +66,7 @@ fn reconcile_focus_intent(session: &mut AppSessionState, ctx: &FocusProjectionCo
             }
         }
         FocusIntentTarget::OwnedTmux(session_uid) => {
-            if ctx.owned_tmux_sessions.session(session_uid).is_none() {
+            if resolve_owned_tmux_owner_terminal_id(ctx, session_uid).is_none() {
                 session.focus_intent.clear(VisibilityMode::ShowAll);
             }
         }
@@ -106,11 +116,7 @@ pub(crate) fn project_focus_intent(
         }
         FocusIntentTarget::OwnedTmux(session_uid) => {
             *ctx.selection = crate::hud::AgentListSelection::OwnedTmux(session_uid.clone());
-            let owner_terminal_id = ctx
-                .owned_tmux_sessions
-                .session(session_uid)
-                .and_then(|owned_tmux| ctx.agent_catalog.find_by_uid(&owned_tmux.owner_agent_uid))
-                .and_then(|agent_id| ctx.runtime_index.primary_terminal(agent_id));
+            let owner_terminal_id = resolve_owned_tmux_owner_terminal_id(ctx, session_uid);
             ctx.active_terminal_content
                 .select_owned_tmux(session_uid.clone(), owner_terminal_id);
             owner_terminal_id
@@ -393,6 +399,26 @@ mod tests {
         assert_eq!(
             fixture.visibility_state.policy,
             TerminalVisibilityPolicy::ShowAll
+        );
+    }
+
+    #[test]
+    fn owned_tmux_selection_with_missing_owner_reconciles_back_to_clear_state() {
+        let mut fixture = focus_fixture();
+        fixture.owned_tmux_sessions.sessions[0].owner_agent_uid = "missing-agent".into();
+        let mut session = AppSessionState::default();
+        session.focus_intent.focus_owned_tmux("tmux-1".into());
+
+        project_focus_intent(&mut session, &mut fixture.projection_context());
+
+        assert_eq!(session.focus_intent.target, FocusIntentTarget::None);
+        assert_eq!(fixture.selection, crate::hud::AgentListSelection::None);
+        assert_eq!(fixture.focus_state.active_id(), None);
+        assert_eq!(
+            fixture
+                .active_terminal_content
+                .selected_owned_tmux_session_uid(),
+            None
         );
     }
 

@@ -229,6 +229,22 @@ impl TerminalRuntimeSpawner {
         self.daemon_client()?.client().kill_session(session_id)
     }
 
+    /// Creates one persistent agent-owned tmux child session.
+    pub(crate) fn create_owned_tmux_session(
+        &self,
+        owner_agent_uid: &str,
+        display_name: &str,
+        cwd: Option<&str>,
+        command: &str,
+    ) -> Result<OwnedTmuxSessionInfo, String> {
+        self.daemon_client()?.client().create_owned_tmux_session(
+            owner_agent_uid,
+            display_name,
+            cwd,
+            command,
+        )
+    }
+
     /// Lists all persistent agent-owned tmux child sessions currently known to the daemon.
     pub(crate) fn list_owned_tmux_sessions(&self) -> Result<Vec<OwnedTmuxSessionInfo>, String> {
         self.daemon_client()?.client().list_owned_tmux_sessions()

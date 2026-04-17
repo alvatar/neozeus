@@ -202,13 +202,17 @@ fn raster_source_surface<'a>(
     active_terminal_content: &'a ActiveTerminalContentState,
     verification_overrides: Option<&'a VerificationTerminalSurfaceOverrides>,
 ) -> Option<&'a TerminalSurface> {
-    let override_surface = (Some(terminal_id) == active_target.active_id)
-        .then_some(active_terminal_content.owned_tmux_surface_for(terminal_id))
-        .flatten()
-        .or_else(|| {
-            verification_overrides.and_then(|overrides| overrides.surface_for(terminal_id))
-        });
-    override_surface.or(terminal.snapshot.surface.as_ref())
+    if Some(terminal_id) == active_target.active_id
+        && active_terminal_content
+            .presentation_override_revision_for(terminal_id)
+            .is_some()
+    {
+        return active_terminal_content.owned_tmux_surface_for(terminal_id);
+    }
+
+    verification_overrides
+        .and_then(|overrides| overrides.surface_for(terminal_id))
+        .or(terminal.snapshot.surface.as_ref())
 }
 
 fn upload_state_for_terminal(

@@ -1347,13 +1347,12 @@ fn startup_restore_rebinds_multiple_owned_tmux_children_under_correct_agents_and
     run_synced_hud_view_models(&mut world);
 
     let rows = &world.resource::<crate::hud::AgentListView>().rows;
-    assert_eq!(rows.len(), 6);
+    assert_eq!(rows.len(), 5);
     assert_eq!(rows[0].label, "ALPHA");
     assert_eq!(rows[1].label, "BUILD");
     assert_eq!(rows[2].label, "TEST");
     assert_eq!(rows[3].label, "BETA");
     assert_eq!(rows[4].label, "BETA BUILD");
-    assert_eq!(rows[5].label, "LOST");
     assert!(matches!(
         rows[1].key,
         crate::hud::AgentListRowKey::OwnedTmux(_)
@@ -1365,13 +1364,6 @@ fn startup_restore_rebinds_multiple_owned_tmux_children_under_correct_agents_and
     assert!(matches!(
         rows[4].key,
         crate::hud::AgentListRowKey::OwnedTmux(_)
-    ));
-    assert!(matches!(
-        rows[5].kind,
-        crate::hud::AgentListRowKind::OwnedTmux {
-            owner: crate::hud::OwnedTmuxOwnerBinding::Orphan,
-            ..
-        }
     ));
 }
 

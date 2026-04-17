@@ -34,6 +34,7 @@ pub(crate) enum AgentListRowKey {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum OwnedTmuxOwnerBinding {
     Bound(AgentId),
+    #[allow(dead_code, reason = "retained for existing render/tests while orphan rows are filtered from production view-models")]
     Orphan,
 }
 
@@ -203,15 +204,12 @@ pub(crate) fn sync_hud_view_models(
 ) {
     // Rebuild the derived or projected state from the authoritative resources in one pass so partial updates cannot drift.
     let mut tmux_by_owner = BTreeMap::<AgentId, Vec<crate::terminals::OwnedTmuxSessionInfo>>::new();
-    let mut orphan_tmux = Vec::new();
     for session in &owned_tmux_sessions.sessions {
         if let Some(agent_id) = agent_catalog.find_by_uid(&session.owner_agent_uid) {
             tmux_by_owner
                 .entry(agent_id)
                 .or_default()
                 .push(session.clone());
-        } else {
-            orphan_tmux.push(session.clone());
         }
     }
     for sessions in tmux_by_owner.values_mut() {
@@ -221,12 +219,6 @@ pub(crate) fn sync_hud_view_models(
                 .then_with(|| left.tmux_name.cmp(&right.tmux_name))
         });
     }
-    orphan_tmux.sort_by(|left, right| {
-        left.created_unix
-            .cmp(&right.created_unix)
-            .then_with(|| left.tmux_name.cmp(&right.tmux_name))
-    });
-
     let selected_row_key = selected_agent_list_row_key(&selection);
     let mut rows = Vec::new();
     for (agent_id, label) in agent_catalog.iter() {
@@ -278,21 +270,6 @@ pub(crate) fn sync_hud_view_models(
                 },
             });
         }
-    }
-    for session in orphan_tmux {
-        let session_uid = session.session_uid.clone();
-        rows.push(AgentListRowView {
-            key: AgentListRowKey::OwnedTmux(session_uid.clone()),
-            label: session.display_name,
-            focused: selected_row_key == Some(AgentListRowKey::OwnedTmux(session_uid)),
-            kind: AgentListRowKind::OwnedTmux {
-                session_uid: session.session_uid,
-                owner: OwnedTmuxOwnerBinding::Orphan,
-                tmux_name: session.tmux_name,
-                cwd: session.cwd,
-                attached: session.attached,
-            },
-        });
     }
     agent_list.rows = rows;
 

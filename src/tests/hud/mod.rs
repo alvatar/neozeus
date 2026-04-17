@@ -2514,6 +2514,78 @@ fn killing_selected_owned_tmux_session_clears_selection_on_success() {
     assert!(client.owned_tmux_sessions.lock().unwrap().is_empty());
 }
 
+/// Verifies that selecting an orphaned owned tmux entry does not disturb the currently focused
+/// valid agent/terminal state.
+#[test]
+fn selecting_orphaned_owned_tmux_leaves_existing_focus_unchanged() {
+    let client = Arc::new(FakeDaemonClient::default());
+
+    let (bridge, _) = test_bridge();
+    let mut manager = TerminalManager::default();
+    let terminal_id = manager.create_terminal(bridge);
+    manager.focus_terminal(terminal_id);
+
+    let mut catalog = AgentCatalog::default();
+    let agent_id = catalog.create_agent(
+        Some("alpha".into()),
+        crate::agents::AgentKind::Terminal,
+        crate::agents::AgentKind::Terminal.capabilities(),
+    );
+    let mut runtime_index = AgentRuntimeIndex::default();
+    runtime_index.link_terminal(agent_id, terminal_id, "alpha-session".into(), None);
+
+    let mut world = World::default();
+    insert_default_hud_resources(&mut world);
+    insert_terminal_manager_resources(&mut world, manager);
+    world.insert_resource(fake_runtime_spawner(client));
+    world.insert_resource(AppStatePersistenceState::default());
+    world.insert_resource(TerminalPresentationStore::default());
+    world.insert_resource(TerminalVisibilityState::default());
+    world.insert_resource(TerminalViewState::default());
+    world.insert_resource(catalog);
+    world.insert_resource(runtime_index);
+    world.insert_resource(AppSessionState::default());
+    world.insert_resource(crate::aegis::AegisPolicyStore::default());
+    world.insert_resource(crate::aegis::AegisRuntimeStore::default());
+    world.insert_resource(crate::hud::AgentListSelection::Agent(agent_id));
+    world
+        .resource_mut::<crate::terminals::OwnedTmuxSessionStore>()
+        .sessions
+        .push(crate::terminals::OwnedTmuxSessionInfo {
+            session_uid: "tmux-orphan".into(),
+            owner_agent_uid: "missing-agent".into(),
+            tmux_name: "neozeus-tmux-orphan".into(),
+            display_name: "B-1".into(),
+            cwd: "/tmp/work".into(),
+            attached: false,
+            created_unix: 0,
+        });
+    world.init_resource::<Messages<AppCommand>>();
+    world.init_resource::<Messages<RequestRedraw>>();
+
+    world
+        .resource_mut::<Messages<AppCommand>>()
+        .write(AppCommand::OwnedTmux(
+            crate::app::OwnedTmuxCommand::Select {
+                session_uid: "tmux-orphan".into(),
+            },
+        ));
+    run_app_commands(&mut world);
+
+    assert_eq!(
+        *world.resource::<crate::hud::AgentListSelection>(),
+        crate::hud::AgentListSelection::Agent(agent_id)
+    );
+    assert_eq!(
+        world.resource::<crate::terminals::TerminalFocusState>().active_id(),
+        Some(terminal_id)
+    );
+    assert!(world
+        .resource::<crate::terminals::ActiveTerminalContentState>()
+        .selected_owned_tmux_session_uid()
+        .is_none());
+}
+
 /// Verifies that a successful owned tmux kill removes the child row from the derived agent list immediately.
 #[test]
 fn killing_selected_owned_tmux_session_removes_agent_list_row_immediately() {
@@ -2996,6 +3068,71 @@ fn active_terminal_content_reports_missing_selected_tmux_session() {
         Some("Owned tmux session is no longer available")
     );
     assert_eq!(world.resource::<Messages<RequestRedraw>>().len(), 1);
+}
+
+/// Verifies that switching to a newly selected tmux child bypasses the periodic capture throttle.
+#[test]
+fn selecting_new_tmux_child_captures_immediately_without_waiting_for_poll_interval() {
+    let client = Arc::new(FakeDaemonClient::default());
+    client
+        .tmux_captures
+        .lock()
+        .unwrap()
+        .insert("tmux-session-0".into(), "old\ncontent\n".into());
+    client
+        .tmux_captures
+        .lock()
+        .unwrap()
+        .insert("tmux-session-1".into(), "new\ncontent\n".into());
+
+    let mut owned_tmux_sessions = crate::terminals::OwnedTmuxSessionStore::default();
+    for session_uid in ["tmux-session-0", "tmux-session-1"] {
+        owned_tmux_sessions.sessions.push(crate::terminals::OwnedTmuxSessionInfo {
+            session_uid: session_uid.into(),
+            owner_agent_uid: "agent-uid-1".into(),
+            tmux_name: format!("neozeus-{session_uid}"),
+            display_name: "BUILD".into(),
+            cwd: "/tmp/work".into(),
+            attached: false,
+            created_unix: 0,
+        });
+    }
+
+    let mut world = World::default();
+    world.insert_resource(fake_runtime_spawner(client));
+    world.insert_resource(owned_tmux_sessions);
+    world.insert_resource(crate::terminals::ActiveTerminalContentState::default());
+    world.insert_resource(crate::terminals::ActiveTerminalContentSyncState::default());
+    world.init_resource::<Messages<RequestRedraw>>();
+    let mut time = Time::<()>::default();
+    time.advance_by(Duration::from_secs_f32(1.0));
+    world.insert_resource(time);
+
+    world
+        .resource_mut::<crate::terminals::ActiveTerminalContentState>()
+        .select_owned_tmux("tmux-session-0".into(), Some(crate::terminals::TerminalId(7)));
+    world
+        .run_system_once(crate::terminals::sync_active_terminal_content)
+        .unwrap();
+
+    world.clear_trackers();
+    world
+        .resource_mut::<Time<()>>()
+        .advance_by(Duration::from_secs_f32(0.1));
+    world
+        .resource_mut::<crate::terminals::ActiveTerminalContentState>()
+        .select_owned_tmux("tmux-session-1".into(), Some(crate::terminals::TerminalId(7)));
+    world
+        .run_system_once(crate::terminals::sync_active_terminal_content)
+        .unwrap();
+
+    let active_terminal_content = world.resource::<crate::terminals::ActiveTerminalContentState>();
+    assert!(
+        active_terminal_content
+            .owned_tmux_surface_for(crate::terminals::TerminalId(7))
+            .is_some(),
+        "new tmux selection should capture immediately instead of waiting for the polling interval"
+    );
 }
 
 /// Verifies that identical tmux recaptures do not mark the active terminal content dirty again.

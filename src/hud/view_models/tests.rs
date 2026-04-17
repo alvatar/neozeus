@@ -1,7 +1,7 @@
 use super::{
     selected_agent_id, selected_agent_list_row_key, sync_hud_view_models, sync_info_bar_view_model,
     AgentListActivity, AgentListRowKey, AgentListRowKind, AgentListSelection, AgentListView,
-    ComposerView, ConversationListView, InfoBarView, OwnedTmuxOwnerBinding, ThreadView,
+    ComposerView, ConversationListView, InfoBarView, ThreadView,
 };
 use crate::{
     agents::{
@@ -438,23 +438,15 @@ fn sync_hud_view_models_orders_multiple_owned_tmux_rows_and_marks_selected_child
 
     run_synced_hud_view_models(&mut world);
     let rows = &world.resource::<AgentListView>().rows;
-    assert_eq!(rows.len(), 6);
+    assert_eq!(rows.len(), 5);
     assert_eq!(rows[0].label, "ALPHA");
     assert_eq!(rows[1].label, "ALPHA BUILD");
     assert_eq!(rows[2].label, "ALPHA TEST");
     assert_eq!(rows[3].label, "BETA");
     assert_eq!(rows[4].label, "BETA BUILD");
-    assert_eq!(rows[5].label, "BUILD");
     assert!(!rows[0].focused);
     assert!(!rows[1].focused);
     assert!(rows[2].focused);
-    assert!(matches!(
-        rows[5].kind,
-        AgentListRowKind::OwnedTmux {
-            owner: OwnedTmuxOwnerBinding::Orphan,
-            ..
-        }
-    ));
     assert_eq!(rows.iter().filter(|row| row.focused).count(), 1);
 }
 
@@ -602,7 +594,7 @@ fn sync_hud_view_models_tmux_rows_have_no_activity_state() {
 }
 
 #[test]
-fn sync_hud_view_models_routes_unknown_owned_tmux_to_orphan_row() {
+fn sync_hud_view_models_filters_unknown_owned_tmux_rows() {
     let mut world = World::default();
     world.insert_resource(AgentCatalog::default());
     world.insert_resource(AgentRuntimeIndex::default());
@@ -632,8 +624,7 @@ fn sync_hud_view_models_routes_unknown_owned_tmux_to_orphan_row() {
 
     run_synced_hud_view_models(&mut world);
     let rows = &world.resource::<AgentListView>().rows;
-    assert_eq!(rows.len(), 1);
-    assert_eq!(rows[0].label, "BUILD");
+    assert!(rows.is_empty(), "unknown/orphan tmux rows must not be rendered at all");
 }
 
 #[test]

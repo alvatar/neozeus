@@ -3736,18 +3736,39 @@ fn hud_navigation_selects_owned_tmux_child_row() {
 fn hud_navigation_works_in_full_keyboard_path() {
     let mut world = World::default();
     insert_default_hud_resources(&mut world);
-    world.insert_resource(crate::hud::AgentListSelection::Agent(
-        crate::agents::AgentId(1),
-    ));
+    let (bridge, _) = test_bridge();
+    let mut terminal_manager = TerminalManager::default();
+    let terminal_id = terminal_manager.create_terminal(bridge);
+    world.insert_resource(terminal_manager);
+    world.insert_resource(crate::terminals::TerminalFocusState::default());
+
+    let mut agent_catalog = crate::agents::AgentCatalog::default();
+    let agent_a = agent_catalog.create_agent(
+        Some("ALPHA".into()),
+        crate::agents::AgentKind::Terminal,
+        crate::agents::AgentKind::Terminal.capabilities(),
+    );
+    let agent_b = agent_catalog.create_agent(
+        Some("BETA".into()),
+        crate::agents::AgentKind::Terminal,
+        crate::agents::AgentKind::Terminal.capabilities(),
+    );
+    let owner_agent_uid = agent_catalog.uid(agent_a).unwrap().to_owned();
+    let mut runtime_index = crate::agents::AgentRuntimeIndex::default();
+    runtime_index.link_terminal(agent_a, terminal_id, "agent-a-session".into(), None);
+    world.insert_resource(agent_catalog);
+    world.insert_resource(runtime_index);
+
+    world.insert_resource(crate::hud::AgentListSelection::Agent(agent_a));
     world.insert_resource(crate::hud::AgentListView {
         rows: vec![
             crate::hud::AgentListRowView {
-                key: crate::hud::AgentListRowKey::Agent(crate::agents::AgentId(1)),
+                key: crate::hud::AgentListRowKey::Agent(agent_a),
                 label: "ALPHA".into(),
                 focused: true,
                 kind: crate::hud::AgentListRowKind::Agent {
-                    agent_id: crate::agents::AgentId(1),
-                    terminal_id: None,
+                    agent_id: agent_a,
+                    terminal_id: Some(terminal_id),
                     has_tasks: false,
                     interactive: true,
                     activity: crate::hud::AgentListActivity::Idle,
@@ -3763,18 +3784,18 @@ fn hud_navigation_works_in_full_keyboard_path() {
                 focused: false,
                 kind: crate::hud::AgentListRowKind::OwnedTmux {
                     session_uid: "tmux-session-1".into(),
-                    owner: crate::hud::OwnedTmuxOwnerBinding::Bound(crate::agents::AgentId(1)),
+                    owner: crate::hud::OwnedTmuxOwnerBinding::Bound(agent_a),
                     tmux_name: "neozeus-tmux-1".into(),
                     cwd: "/tmp/work".into(),
                     attached: false,
                 },
             },
             crate::hud::AgentListRowView {
-                key: crate::hud::AgentListRowKey::Agent(crate::agents::AgentId(2)),
+                key: crate::hud::AgentListRowKey::Agent(agent_b),
                 label: "BETA".into(),
                 focused: false,
                 kind: crate::hud::AgentListRowKind::Agent {
-                    agent_id: crate::agents::AgentId(2),
+                    agent_id: agent_b,
                     terminal_id: None,
                     has_tasks: false,
                     interactive: true,
@@ -3795,7 +3816,7 @@ fn hud_navigation_works_in_full_keyboard_path() {
         .sessions
         .push(crate::terminals::OwnedTmuxSessionInfo {
             session_uid: "tmux-session-1".into(),
-            owner_agent_uid: "agent-uid-1".into(),
+            owner_agent_uid,
             tmux_name: "neozeus-tmux-1".into(),
             display_name: "BUILD".into(),
             cwd: "/tmp/work".into(),

@@ -44,6 +44,14 @@ fn parses_verification_scenarios() {
         Some(VerificationScenario::AgentContextBloom)
     );
     assert_eq!(
+        resolve_verification_scenario(Some("owned-tmux-orphan-selection")),
+        Some(VerificationScenario::OwnedTmuxOrphanSelection)
+    );
+    assert_eq!(
+        resolve_verification_scenario(Some("owned-tmux-live-selection")),
+        Some(VerificationScenario::OwnedTmuxLiveSelection)
+    );
+    assert_eq!(
         resolve_verification_scenario(Some("working-state-idle")),
         Some(VerificationScenario::WorkingStateIdle)
     );

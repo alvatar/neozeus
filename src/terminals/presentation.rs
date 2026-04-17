@@ -4,6 +4,7 @@ use crate::{
 };
 
 use super::{
+    active_content::ActiveTerminalContentState,
     fonts::{TerminalCellMetrics, TerminalFontState},
     presentation_state::{
         PresentedTerminal, TerminalDisplayMode, TerminalHudSurfaceMarker, TerminalPanel,
@@ -536,6 +537,7 @@ fn build_presentation_plan(
     transition: &PresentationTransitionContext,
     terminal_manager: &TerminalManager,
     presentation_store: &TerminalPresentationStore,
+    active_terminal_content: &ActiveTerminalContentState,
     view_state: &TerminalViewState,
     layout_state: &HudLayoutState,
     primary_window: &Window,
@@ -570,13 +572,19 @@ fn build_presentation_plan(
     }
 
     let terminal_presentable = readiness.is_ready_for_capture();
+    let active_override_ready = active_terminal_content
+        .presentation_override_revision_for(panel_id)
+        .is_none_or(|revision| {
+            presented_terminal.uploaded_active_override_revision == Some(revision)
+        });
     let active_ready = Some(panel_id) != transition.active_id
-        || active_terminal_ready_for_presentation(
-            terminal,
-            presented_terminal,
-            transition.active_layout,
-        )
-        || terminal_presentable;
+        || (active_override_ready
+            && (active_terminal_ready_for_presentation(
+                terminal,
+                presented_terminal,
+                transition.active_layout,
+            )
+                || terminal_presentable));
     if !active_ready {
         return PresentationPlan {
             visible: false,
@@ -703,6 +711,7 @@ pub(crate) fn sync_terminal_presentations(
     font_state: Option<Res<TerminalFontState>>,
     mut presentation_store: ResMut<TerminalPresentationStore>,
     visibility_state: Res<TerminalVisibilityState>,
+    active_terminal_content: Res<ActiveTerminalContentState>,
     view_state: Res<TerminalViewState>,
     layout_state: Res<HudLayoutState>,
     primary_window: Single<&Window, With<PrimaryWindow>>,
@@ -750,6 +759,7 @@ pub(crate) fn sync_terminal_presentations(
             &transition,
             &terminal_manager,
             &presentation_store,
+            &active_terminal_content,
             &view_state,
             &layout_state,
             &primary_window,
