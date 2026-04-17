@@ -5,7 +5,10 @@ const ACTION_BUTTON_W: f32 = 170.0;
 const ACTION_BUTTON_H: f32 = 28.0;
 const ACTION_BUTTON_GAP: f32 = 12.0;
 const TOP_GAP: f32 = 8.0;
-const MESSAGE_BOX_HEIGHT_RATIO: f32 = 0.52;
+const MESSAGE_BOX_WIDTH_RATIO: f32 = 0.80;
+const MESSAGE_BOX_HEIGHT_RATIO: f32 = 0.48;
+const MESSAGE_BOX_MAX_WIDTH: f32 = 1560.0;
+const MESSAGE_BOX_MAX_HEIGHT: f32 = 700.0;
 const CREATE_AGENT_DIALOG_WIDTH_RATIO: f32 = 0.48;
 const CREATE_AGENT_DIALOG_HEIGHT_RATIO: f32 = 0.36;
 const RENAME_AGENT_DIALOG_HEIGHT_RATIO: f32 = 0.22;
@@ -74,8 +77,8 @@ pub(crate) enum ResetDialogTarget {
 /// usable on both small and large displays.
 pub(crate) fn message_box_rect(window: &Window) -> HudRect {
     let size = Vec2::new(
-        (window.width() * 0.84).clamp(520.0, 1680.0),
-        (window.height() * MESSAGE_BOX_HEIGHT_RATIO).clamp(240.0, 760.0),
+        (window.width() * MESSAGE_BOX_WIDTH_RATIO).clamp(520.0, MESSAGE_BOX_MAX_WIDTH),
+        (window.height() * MESSAGE_BOX_HEIGHT_RATIO).clamp(240.0, MESSAGE_BOX_MAX_HEIGHT),
     );
     HudRect {
         x: window.width() * 0.5 - size.x * 0.5,
@@ -127,10 +130,19 @@ pub(crate) fn message_box_action_at(window: &Window, point: Vec2) -> Option<Mess
 
 /// Returns the outer rectangle for the task dialog.
 ///
-/// Task dialogs intentionally share the same modal footprint as the message box so both editors align
-/// visually and can reuse the same rendering layout.
+/// Task dialogs intentionally keep the previous shared modal footprint so the larger checklist editor
+/// remains roomy even after the message box was tightened.
 pub(crate) fn task_dialog_rect(window: &Window) -> HudRect {
-    message_box_rect(window)
+    let size = Vec2::new(
+        (window.width() * 0.84).clamp(520.0, 1680.0),
+        (window.height() * 0.52).clamp(240.0, 760.0),
+    );
+    HudRect {
+        x: window.width() * 0.5 - size.x * 0.5,
+        y: TOP_GAP,
+        w: size.x,
+        h: size.y,
+    }
 }
 
 /// Lays out the task dialog's action buttons.
