@@ -94,6 +94,9 @@ fn render_main_bloom_authoring(world: &mut World) {
     if !world.contains_resource::<crate::hud::HudBloomGroupAuthoring>() {
         world.insert_resource(crate::hud::HudBloomGroupAuthoring::default());
     }
+    if !world.contains_resource::<crate::hud::HudRenderVisibilityPolicy>() {
+        world.insert_resource(crate::hud::HudRenderVisibilityPolicy::default());
+    }
     world.spawn((
         bevy_vello::prelude::VelloScene2d::default(),
         crate::hud::HudVectorSceneMarker,
@@ -1036,6 +1039,62 @@ fn sync_hud_widget_bloom_spawns_agent_list_source_sprites() {
 /// The bloom effect should not leak behind message/task dialogs, so the sync system must remove any
 /// source sprites and hide the composite sprite when a modal is active.
 #[test]
+fn sync_hud_widget_bloom_respects_visibility_policy() {
+    let mut world = World::default();
+    let (bridge, _) = test_bridge();
+    let mut manager = TerminalManager::default();
+    manager.create_terminal(bridge);
+    let mut hud_state = HudState::default();
+    hud_state.insert(
+        HudWidgetKey::AgentList,
+        default_hud_module_instance(&HUD_WIDGET_DEFINITIONS[1]),
+    );
+    insert_terminal_manager_resources(&mut world, manager);
+    world.insert_resource(AgentListView::default());
+    world.insert_resource(ConversationListView::default());
+    world.insert_resource(ThreadView::default());
+    world.insert_resource(ComposerView::default());
+    world.insert_resource(crate::agents::AgentStatusStore::default());
+    world.insert_resource(crate::terminals::OwnedTmuxSessionStore::default());
+    world.insert_resource(crate::terminals::ActiveTerminalContentState::default());
+    world.insert_resource(crate::terminals::ActiveTerminalContentSyncState::default());
+    run_synced_hud_view_models(&mut world);
+    insert_test_hud_state(&mut world, hud_state);
+    world.insert_resource(crate::hud::HudRenderVisibilityPolicy {
+        bloom_visible: false,
+        ..Default::default()
+    });
+    world.insert_resource(HudBloomSettings::default());
+    world.insert_resource(HudWidgetBloom::default());
+    world.insert_resource(Assets::<Image>::default());
+    world.insert_resource(Assets::<Mesh>::default());
+    world.insert_resource(Assets::<AgentListBloomBlurMaterial>::default());
+    world.spawn((
+        Window {
+            resolution: (1400, 900).into(),
+            ..default()
+        },
+        PrimaryWindow,
+    ));
+
+    world.run_system_once(setup_hud_widget_bloom).unwrap();
+    world.run_system_once(sync_structural_hud_layout).unwrap();
+    render_main_bloom_authoring(&mut world);
+    world.run_system_once(sync_hud_widget_bloom).unwrap();
+
+    assert_eq!(
+        world
+            .query::<&AgentListBloomSourceSprite>()
+            .iter(&world)
+            .count(),
+        0
+    );
+    let mut composite_query = world.query::<(&Visibility, &AgentListBloomCompositeMarker)>();
+    let (visibility, _) = composite_query.single(&world).unwrap();
+    assert_eq!(visibility, &Visibility::Hidden);
+}
+
+#[test]
 fn sync_hud_widget_bloom_hides_sources_and_composite_while_modal_is_visible() {
     // Arrange a representative scenario, run the behavior under test, and then assert the externally visible result.
     let mut world = World::default();
@@ -1075,6 +1134,9 @@ fn sync_hud_widget_bloom_hides_sources_and_composite_while_modal_is_visible() {
     world.run_system_once(setup_hud_widget_bloom).unwrap();
     world.run_system_once(sync_structural_hud_layout).unwrap();
     render_main_bloom_authoring(&mut world);
+    world
+        .run_system_once(crate::hud::sync_hud_render_visibility_policy)
+        .unwrap();
     world.run_system_once(sync_hud_widget_bloom).unwrap();
 
     assert_eq!(

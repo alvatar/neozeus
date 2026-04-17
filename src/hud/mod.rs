@@ -9,6 +9,7 @@ mod persistence;
 mod render;
 mod render_group;
 mod render_layer;
+mod render_visibility;
 mod setup;
 mod state;
 mod view_models;
@@ -50,6 +51,9 @@ pub(crate) use render_group::{HudBloomGroupAuthoring, HudBloomGroupId};
 #[cfg(test)]
 pub(crate) use render_layer::HudLayerSceneMarker;
 pub(crate) use render_layer::{HudLayerId, HudLayerRegistry};
+pub(crate) use render_visibility::{
+    sync_hud_render_visibility_policy, HudRenderVisibilityPolicy,
+};
 pub(crate) use setup::{hud_needs_redraw, setup_hud, sync_structural_hud_layout};
 pub(crate) use state::{
     AgentListUiState, ConversationListUiState, HudInputCaptureState, HudLayoutState, HudRect,

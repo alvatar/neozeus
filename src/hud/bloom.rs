@@ -1,8 +1,7 @@
-use crate::{app::AppSessionState, startup::DaemonConnectionState};
-
 use super::{
     state::{HudLayoutState, HudRect},
     widgets::HudWidgetKey,
+    HudRenderVisibilityPolicy,
 };
 use bevy::{
     asset::RenderAssetUsages,
@@ -876,8 +875,7 @@ type BloomDebugPreviewFilter = (
 struct HudWidgetBloomContext<'w, 's> {
     primary_window: Single<'w, 's, &'static Window, With<PrimaryWindow>>,
     layout_state: Res<'w, HudLayoutState>,
-    app_session: Res<'w, AppSessionState>,
-    startup_connect: Option<Res<'w, DaemonConnectionState>>,
+    visibility_policy: Res<'w, HudRenderVisibilityPolicy>,
     settings: Res<'w, HudBloomSettings>,
     config: Option<Res<'w, HudBloomLayerConfig>>,
     bloom_groups: Res<'w, super::HudBloomGroupAuthoring>,
@@ -1029,17 +1027,12 @@ fn bloom_specs_for_sync(
     ctx: &HudWidgetBloomContext<'_, '_>,
     layer_id: HudLayerId,
 ) -> Vec<BloomSourceSpec> {
-    let modal_visible = ctx.app_session.modal_visible()
-        || ctx
-            .startup_connect
-            .as_ref()
-            .is_some_and(|state| state.modal_visible());
     let enabled = ctx
         .layout_state
         .get(HudWidgetKey::AgentList)
         .map(|module| module.shell.enabled && module.shell.current_alpha > 0.01)
         .unwrap_or(false)
-        && !modal_visible;
+        && ctx.visibility_policy.bloom_visible;
     if !enabled {
         return Vec::new();
     }

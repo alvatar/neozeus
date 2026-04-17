@@ -516,6 +516,7 @@ fn configure_app(app: &mut App) -> Result<(), String> {
         .insert_resource(HudPersistenceState::default())
         .insert_resource(crate::hud::HudLayerRegistry::default())
         .insert_resource(crate::hud::HudBloomGroupAuthoring::default())
+        .insert_resource(crate::hud::HudRenderVisibilityPolicy::default())
         .insert_resource(HudOffscreenCompositor::default())
         .insert_resource(HudBloomSettings::default())
         .insert_resource(crate::hud::HudBloomLayerConfig::default())
