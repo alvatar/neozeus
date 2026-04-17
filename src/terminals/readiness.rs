@@ -27,7 +27,8 @@ pub(crate) fn terminal_readiness(
     terminal: Option<&ManagedTerminal>,
     presented_terminal: Option<&PresentedTerminal>,
     override_revision: Option<u64>,
-    startup_pending: bool,
+    startup_bootstrap_pending: bool,
+    awaiting_first_frame: bool,
 ) -> TerminalReadiness {
     let base = {
         let Some(terminal) = terminal else {
@@ -35,14 +36,16 @@ pub(crate) fn terminal_readiness(
         };
         let has_surface_source = override_revision.is_some() || terminal.snapshot.surface.is_some();
         if !has_surface_source {
-            if startup_pending {
+            if startup_bootstrap_pending {
                 TerminalReadiness::StartupPending
+            } else if awaiting_first_frame {
+                TerminalReadiness::Loading
             } else {
                 TerminalReadiness::Missing
             }
         } else {
             let Some(presented_terminal) = presented_terminal else {
-                return if startup_pending {
+                return if startup_bootstrap_pending {
                     TerminalReadiness::StartupPending
                 } else {
                     TerminalReadiness::Loading
@@ -55,7 +58,7 @@ pub(crate) fn terminal_readiness(
                 None => presented_terminal.uploaded_revision == terminal.surface_revision,
             };
             if !uploaded_matches {
-                if startup_pending {
+                if startup_bootstrap_pending {
                     TerminalReadiness::StartupPending
                 } else {
                     TerminalReadiness::Loading
@@ -68,7 +71,7 @@ pub(crate) fn terminal_readiness(
         }
     };
 
-    if startup_pending && !base.is_ready_for_capture() {
+    if startup_bootstrap_pending && !base.is_ready_for_capture() {
         TerminalReadiness::StartupPending
     } else {
         base
@@ -85,7 +88,8 @@ pub(crate) fn terminal_readiness_for_id(
         terminal_manager.get(terminal_id),
         presentation_store.get(terminal_id),
         override_revision,
-        presentation_store.is_startup_pending(terminal_id),
+        presentation_store.is_startup_bootstrap_pending(terminal_id),
+        presentation_store.is_awaiting_first_frame(terminal_id),
     )
 }
 
@@ -155,7 +159,7 @@ mod tests {
     #[test]
     fn terminal_readiness_reports_startup_pending_until_ready_for_capture() {
         let (terminal_manager, terminal_id, mut presentation_store) = setup_terminal();
-        presentation_store.mark_startup_pending(terminal_id);
+        presentation_store.mark_startup_bootstrap_pending(terminal_id);
         assert_eq!(
             terminal_readiness_for_id(terminal_id, &terminal_manager, &presentation_store, None),
             TerminalReadiness::StartupPending
@@ -173,6 +177,16 @@ mod tests {
         assert_eq!(
             terminal_readiness_for_id(terminal_id, &terminal_manager, &presentation_store, None),
             TerminalReadiness::ReadyForCapture
+        );
+    }
+
+    #[test]
+    fn terminal_readiness_reports_loading_for_awaiting_first_frame_without_startup_bootstrap() {
+        let (terminal_manager, terminal_id, mut presentation_store) = setup_terminal();
+        presentation_store.mark_awaiting_first_frame(terminal_id);
+        assert_eq!(
+            terminal_readiness_for_id(terminal_id, &terminal_manager, &presentation_store, None),
+            TerminalReadiness::Loading
         );
     }
 

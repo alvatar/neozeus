@@ -435,7 +435,7 @@ struct PresentationTransitionContext {
 #[derive(Clone, Debug)]
 struct PresentationPlan {
     visible: bool,
-    resolve_startup_pending: bool,
+    resolve_pending_presentation: bool,
     target_position: Vec2,
     target_size: Vec2,
     target_alpha: f32,
@@ -545,7 +545,7 @@ fn build_presentation_plan(
     if matches!(readiness, TerminalReadiness::Missing | TerminalReadiness::StartupPending) {
         return PresentationPlan {
             visible: false,
-            resolve_startup_pending: false,
+            resolve_pending_presentation: false,
             target_position: home_position,
             target_size: Vec2::ONE,
             target_alpha: 0.0,
@@ -559,7 +559,7 @@ fn build_presentation_plan(
     {
         return PresentationPlan {
             visible: false,
-            resolve_startup_pending: false,
+            resolve_pending_presentation: false,
             target_position: home_position,
             target_size: Vec2::ONE,
             target_alpha: 0.0,
@@ -580,7 +580,7 @@ fn build_presentation_plan(
     if !active_ready {
         return PresentationPlan {
             visible: false,
-            resolve_startup_pending: false,
+            resolve_pending_presentation: false,
             target_position: home_position,
             target_size: Vec2::ONE,
             target_alpha: 0.0,
@@ -620,7 +620,7 @@ fn build_presentation_plan(
 
     PresentationPlan {
         visible: true,
-        resolve_startup_pending: terminal_presentable,
+        resolve_pending_presentation: terminal_presentable,
         target_position,
         target_size,
         target_alpha: 1.0,
@@ -764,8 +764,8 @@ pub(crate) fn sync_terminal_presentations(
             transition.snap_switch,
             transition.blend,
         );
-        if plan.resolve_startup_pending {
-            presentation_store.resolve_startup_pending(panel.id);
+        if plan.resolve_pending_presentation {
+            presentation_store.resolve_pending_presentation(panel.id);
         }
     }
 

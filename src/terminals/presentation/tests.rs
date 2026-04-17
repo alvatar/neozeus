@@ -251,7 +251,7 @@ fn build_presentation_plan_hides_non_active_panels_when_another_panel_is_active(
     );
 
     assert!(!plan.visible);
-    assert!(!plan.resolve_startup_pending);
+    assert!(!plan.resolve_pending_presentation);
 }
 
 #[test]
@@ -296,7 +296,7 @@ fn build_presentation_plan_hides_active_startup_pending_terminal_until_ready() {
             frame_entity: Entity::PLACEHOLDER,
         },
     );
-    presentation_store.mark_startup_pending(active_id);
+    presentation_store.mark_startup_bootstrap_pending(active_id);
 
     let plan = build_presentation_plan(
         active_id,
@@ -327,7 +327,7 @@ fn build_presentation_plan_hides_active_startup_pending_terminal_until_ready() {
     );
 
     assert!(!plan.visible);
-    assert!(!plan.resolve_startup_pending);
+    assert!(!plan.resolve_pending_presentation);
     assert_eq!(plan.sprite_color, Color::WHITE);
     assert!(!plan.pixel_perfect);
 }
@@ -1687,7 +1687,7 @@ fn startup_loading_hides_active_terminal_until_first_real_frame_arrives() {
         },
     );
 
-    presentation_store.mark_startup_pending(id);
+    presentation_store.mark_startup_bootstrap_pending(id);
 
     let mut world = World::default();
     let mut time = Time::<()>::default();
@@ -1760,8 +1760,8 @@ fn startup_loading_does_not_override_isolate_to_show_pending_terminals() {
         );
     }
 
-    presentation_store.mark_startup_pending(id_one);
-    presentation_store.mark_startup_pending(id_two);
+    presentation_store.mark_startup_bootstrap_pending(id_one);
+    presentation_store.mark_startup_bootstrap_pending(id_two);
 
     let visibility_state = crate::hud::TerminalVisibilityState {
         policy: crate::hud::TerminalVisibilityPolicy::Isolate(id_two),

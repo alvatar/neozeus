@@ -119,7 +119,7 @@ fn spawn_agent_terminal_internal(
         mark_app_state_dirty(app_state_persistence, Some(time));
     }
     if let Some(presentation_store) = presentation_store {
-        presentation_store.mark_startup_pending(terminal_id);
+        presentation_store.mark_awaiting_first_frame(terminal_id);
     }
     append_debug_log(format!(
         "spawned agent {} terminal {} session={}",

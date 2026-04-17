@@ -584,7 +584,7 @@ fn register_startup_loading_terminal(
     ctx: &mut SceneSetupContext,
     terminal_id: crate::terminals::TerminalId,
 ) {
-    ctx.presentation_store.mark_startup_pending(terminal_id);
+    ctx.presentation_store.mark_startup_bootstrap_pending(terminal_id);
 }
 
 #[cfg(test)]
@@ -616,7 +616,7 @@ mod tests {
         terminal_manager.get_mut(terminal_id).unwrap().surface_revision = 4;
 
         let mut presentation_store = TerminalPresentationStore::default();
-        presentation_store.mark_startup_pending(terminal_id);
+        presentation_store.mark_startup_bootstrap_pending(terminal_id);
         presentation_store.register(
             terminal_id,
             PresentedTerminal {

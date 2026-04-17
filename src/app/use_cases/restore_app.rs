@@ -213,7 +213,7 @@ struct RestorePlan {
 struct AttachIntent {
     record: crate::shared::app_state_file::PersistedAgentState,
     runtime_session_name: String,
-    should_mark_startup_pending: bool,
+    should_mark_startup_bootstrap_pending: bool,
     recovery: Option<crate::agents::AgentRecoverySpec>,
     clone_source_session_path: Option<String>,
 }
@@ -407,7 +407,7 @@ fn attach_intent_from_record(
     inventory: &LiveSessionInventory,
 ) -> Option<AttachIntent> {
     let runtime_session_name = record.runtime_session_name.clone()?;
-    let should_mark_startup_pending = inventory
+    let should_mark_startup_bootstrap_pending = inventory
         .lookup
         .get(&runtime_session_name)
         .is_some_and(startup_focus_candidate_is_interactive);
@@ -422,7 +422,7 @@ fn attach_intent_from_record(
     Some(AttachIntent {
         record,
         runtime_session_name,
-        should_mark_startup_pending,
+        should_mark_startup_bootstrap_pending,
         recovery,
         clone_source_session_path,
     })
@@ -475,9 +475,9 @@ fn attach_live_agents(
                     agent_id,
                     &intent.record,
                 );
-                if intent.should_mark_startup_pending {
+                if intent.should_mark_startup_bootstrap_pending {
                     if let Some(presentation_store) = exec.presentation_store.as_deref_mut() {
-                        presentation_store.mark_startup_pending(terminal_id);
+                        presentation_store.mark_startup_bootstrap_pending(terminal_id);
                     }
                 }
             }
@@ -1149,6 +1149,6 @@ mod tests {
             intents[0].clone_source_session_path.as_deref(),
             Some("/tmp/pi-session.jsonl")
         );
-        assert!(intents[0].should_mark_startup_pending);
+        assert!(intents[0].should_mark_startup_bootstrap_pending);
     }
 }

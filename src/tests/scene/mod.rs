@@ -416,8 +416,8 @@ fn setup_scene_auto_verify_uses_shared_spawn_attach_flow_and_isolates_verifier_t
         TerminalVisibilityPolicy::Isolate(terminal_id)
     );
     let presentation_store = world.resource::<crate::terminals::TerminalPresentationStore>();
-    assert!(presentation_store.any_startup_pending());
-    assert!(presentation_store.is_startup_pending(terminal_id));
+    assert!(presentation_store.any_startup_bootstrap_pending());
+    assert!(presentation_store.is_startup_bootstrap_pending(terminal_id));
     assert_eq!(
         world.resource::<DaemonConnectionState>().phase(),
         StartupConnectPhase::SettlingVisuals
@@ -951,9 +951,9 @@ fn startup_restore_does_not_mark_disconnected_sessions_as_startup_pending() {
         .and_then(|agent_id| runtime_index.primary_terminal(agent_id))
         .expect("dead terminal should be attached");
     let presentation_store = world.resource::<crate::terminals::TerminalPresentationStore>();
-    assert!(presentation_store.is_startup_pending(live_terminal));
+    assert!(presentation_store.is_startup_bootstrap_pending(live_terminal));
     assert!(
-        !presentation_store.is_startup_pending(dead_terminal),
+        !presentation_store.is_startup_bootstrap_pending(dead_terminal),
         "disconnected restored terminals must not stay startup-pending forever"
     );
 }

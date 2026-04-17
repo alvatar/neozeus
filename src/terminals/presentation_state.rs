@@ -1,6 +1,6 @@
 use super::registry::TerminalId;
 use bevy::prelude::*;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 /// Derived per-terminal camera/view projection keyed off the projected active terminal.
 #[derive(Resource)]
@@ -116,10 +116,16 @@ pub(crate) struct PresentedTerminal {
     pub(crate) frame_entity: Entity,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct TerminalPresentationPendingState {
+    pub(crate) startup_bootstrap: bool,
+    pub(crate) awaiting_first_frame: bool,
+}
+
 #[derive(Resource, Default)]
 pub(crate) struct TerminalPresentationStore {
     terminals: HashMap<TerminalId, PresentedTerminal>,
-    startup_pending: HashSet<TerminalId>,
+    pending: HashMap<TerminalId, TerminalPresentationPendingState>,
 }
 
 impl TerminalPresentationStore {
@@ -140,7 +146,7 @@ impl TerminalPresentationStore {
 
     /// Removes and returns the presentation-store record for one terminal id.
     pub(crate) fn remove(&mut self, id: TerminalId) -> Option<PresentedTerminal> {
-        self.startup_pending.remove(&id);
+        self.pending.remove(&id);
         self.terminals.remove(&id)
     }
 
@@ -149,24 +155,66 @@ impl TerminalPresentationStore {
         self.terminals.keys().copied().collect()
     }
 
-    /// Marks a terminal as startup-pending until its first ready-for-capture frame lands.
-    pub(crate) fn mark_startup_pending(&mut self, id: TerminalId) {
-        self.startup_pending.insert(id);
+    fn pending_state_mut(&mut self, id: TerminalId) -> &mut TerminalPresentationPendingState {
+        self.pending.entry(id).or_default()
     }
 
-    /// Clears the startup-pending marker for one terminal.
-    pub(crate) fn resolve_startup_pending(&mut self, id: TerminalId) {
-        self.startup_pending.remove(&id);
+    fn cleanup_pending_state(&mut self, id: TerminalId) {
+        if self.pending.get(&id).is_some_and(|state| *state == TerminalPresentationPendingState::default()) {
+            self.pending.remove(&id);
+        }
     }
 
-    /// Returns whether one terminal is still startup-pending.
-    pub(crate) fn is_startup_pending(&self, id: TerminalId) -> bool {
-        self.startup_pending.contains(&id)
+    /// Marks a terminal as pending startup-bootstrap reveal until its first ready-for-capture frame lands.
+    pub(crate) fn mark_startup_bootstrap_pending(&mut self, id: TerminalId) {
+        self.pending_state_mut(id).startup_bootstrap = true;
     }
 
-    /// Returns whether any terminal is still startup-pending.
-    pub(crate) fn any_startup_pending(&self) -> bool {
-        !self.startup_pending.is_empty()
+    /// Marks a terminal as waiting for its first usable frame outside startup bootstrap.
+    pub(crate) fn mark_awaiting_first_frame(&mut self, id: TerminalId) {
+        self.pending_state_mut(id).awaiting_first_frame = true;
+    }
+
+    /// Clears the startup-bootstrap pending reason for one terminal.
+    pub(crate) fn resolve_startup_bootstrap_pending(&mut self, id: TerminalId) {
+        if let Some(state) = self.pending.get_mut(&id) {
+            state.startup_bootstrap = false;
+        }
+        self.cleanup_pending_state(id);
+    }
+
+    /// Clears the ordinary awaiting-first-frame pending reason for one terminal.
+    pub(crate) fn resolve_awaiting_first_frame(&mut self, id: TerminalId) {
+        if let Some(state) = self.pending.get_mut(&id) {
+            state.awaiting_first_frame = false;
+        }
+        self.cleanup_pending_state(id);
+    }
+
+    /// Clears all pending presentation reasons for one terminal once it is ready-for-capture.
+    pub(crate) fn resolve_pending_presentation(&mut self, id: TerminalId) {
+        self.resolve_startup_bootstrap_pending(id);
+        self.resolve_awaiting_first_frame(id);
+    }
+
+    /// Returns the explicit pending state for one terminal.
+    pub(crate) fn pending_state(&self, id: TerminalId) -> TerminalPresentationPendingState {
+        self.pending.get(&id).copied().unwrap_or_default()
+    }
+
+    /// Returns whether one terminal is still pending due to startup bootstrap.
+    pub(crate) fn is_startup_bootstrap_pending(&self, id: TerminalId) -> bool {
+        self.pending_state(id).startup_bootstrap
+    }
+
+    /// Returns whether one terminal is still pending because it awaits its first usable frame.
+    pub(crate) fn is_awaiting_first_frame(&self, id: TerminalId) -> bool {
+        self.pending_state(id).awaiting_first_frame
+    }
+
+    /// Returns whether any terminal is still pending due to startup bootstrap.
+    pub(crate) fn any_startup_bootstrap_pending(&self) -> bool {
+        self.pending.values().any(|state| state.startup_bootstrap)
     }
 
     /// Returns the uploaded texture state of the currently active terminal, if any.
