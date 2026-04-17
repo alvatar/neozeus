@@ -21,7 +21,6 @@ use super::{
 use bevy::{prelude::*, window::PrimaryWindow};
 
 const HUD_FRAME_PADDING: Vec2 = Vec2::ZERO;
-const ACTIVE_TERMINAL_MARGIN: Vec2 = Vec2::splat(16.0);
 const DIRECT_INPUT_FRAME_OUTSET: f32 = 6.0;
 const INACTIVE_RUNTIME_FRAME_OUTSET: f32 = 4.0;
 const STARTUP_PLACEHOLDER_COLS: u32 = 120;
@@ -195,14 +194,9 @@ fn active_terminal_viewport(window: &Window, layout_state: &HudLayoutState) -> (
     (usable_size, center)
 }
 
-/// Shrinks the active-terminal viewport by the fixed outer margin used for focused presentation.
+/// Returns the full active-terminal viewport as the focused presentation fit area.
 fn active_terminal_fit_area(window: &Window, layout_state: &HudLayoutState) -> (Vec2, Vec2) {
-    let (viewport_size, viewport_center) = active_terminal_viewport(window, layout_state);
-    let fit_size = Vec2::new(
-        (viewport_size.x - ACTIVE_TERMINAL_MARGIN.x * 2.0).max(64.0),
-        (viewport_size.y - ACTIVE_TERMINAL_MARGIN.y * 2.0).max(64.0),
-    );
-    (fit_size, viewport_center)
+    active_terminal_viewport(window, layout_state)
 }
 
 /// Converts the shared view distance into a scalar zoom factor.

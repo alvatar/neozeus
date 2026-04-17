@@ -1239,7 +1239,7 @@ fn active_terminal_resize_requests_follow_viewport_grid_policy() {
         .unwrap();
 
     let requests = client.resize_requests.lock().unwrap().clone();
-    assert_eq!(requests, vec![("neozeus-session-1".into(), 118, 54)]);
+    assert_eq!(requests, vec![("neozeus-session-1".into(), 122, 56)]);
 }
 
 /// Verifies that in `ShowAll` mode with no active terminal, background terminal presentations remain
@@ -2400,8 +2400,8 @@ fn startup_loading_reveals_active_terminal_directly_at_final_geometry_once_ready
     assert_eq!(*visibility, Visibility::Visible);
     assert_eq!(presentation.current_size, expected_size);
     assert_eq!(presentation.target_size, expected_size);
-    assert_eq!(presentation.current_position, Vec2::new(0.0, 0.0));
-    assert_eq!(presentation.target_position, Vec2::new(0.0, 0.0));
+    assert_eq!(presentation.current_position, Vec2::new(-0.5, 0.0));
+    assert_eq!(presentation.target_position, Vec2::new(-0.5, 0.0));
 }
 
 /// Verifies that opening the message box does not itself hide the underlying terminal presentation.
